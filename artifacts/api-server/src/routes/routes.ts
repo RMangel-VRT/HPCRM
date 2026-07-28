@@ -35,6 +35,7 @@ import { assertNotParentCustomer } from "../utils/parentGuard";
 import { registerExtraBillablePhotoRoutes } from "./extraBillablePhotos";
 import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes";
 import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks';
+import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
 /**
@@ -6794,66 +6795,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
-        // Auto-create Invoice ticket when moving FORWARD to "Ready for Billing"
-        const currentTicketTypeForInvoice = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-        const isInvoiceTicketType = currentTicketTypeForInvoice?.name === "Invoice";
-        
-        console.log(`Invoice auto-creation check for ticket ${existingTicket.id}: newStatus="${newStatus?.name}", billingBehavior="${existingTicket.billingBehavior}", ticketType="${currentTicketTypeForInvoice?.name}", isInvoiceType=${isInvoiceTicketType}`);
-        
-        const isProjectTypeForInvoice = currentTicketTypeForInvoice?.name === "Project";
-        const isEstimateRequestTypeForInvoice = currentTicketTypeForInvoice?.name === "Estimate Request";
-        if (newStatus?.name === "Ready for Billing" && (existingTicket.billingBehavior === "invoice_required" || req.body.billingBehavior === "invoice_required" || isProjectTypeForInvoice || isEstimateRequestTypeForInvoice) && !isInvoiceTicketType) {
-          const existingLinks = await storage.getTicketLinks(existingTicket.id);
-          const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
-          console.log(`Invoice auto-creation: hasExistingInvoice=${hasExistingInvoice}, links=${JSON.stringify(existingLinks.map(l => ({ id: l.id, type: l.linkType, src: l.sourceTicketId, tgt: l.targetTicketId })))}`);
-          
-          if (!hasExistingInvoice) {
-            try {
-              const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
-              
-              if (invoiceTypeInfo) {
-                const companyUsersForBilling = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
-                const billingUser = companyUsersForBilling.find(cu => cu.tags?.includes("billing") && cu.status === "active");
-                
-                const invoiceTicket = await storage.createTicket({
-                  companyId: user.activeCompanyId,
-                  customerId: existingTicket.customerId,
-                  contractId: existingTicket.contractId,
-                  ticketTypeId: invoiceTypeInfo.typeId,
-                  currentStatusId: invoiceTypeInfo.pendingStatusId,
-                  workType: "admin",
-                  billingBehavior: "internal",
-                  title: `Invoice: ${existingTicket.title}`,
-                  description: `Invoice required for completed work: ${existingTicket.title}\n\nOriginal description: ${existingTicket.description || "N/A"}`,
-                  priority: "normal",
-                  assignedToId: billingUser?.userId || null,
-                  createdById: user.id,
-                });
-                
-                await storage.createTicketLink({
-                  sourceTicketId: existingTicket.id,
-                  targetTicketId: invoiceTicket.id,
-                  linkType: "invoice_for",
-                });
-                
-                const sourceComments = await storage.getTicketComments(existingTicket.id);
-                for (const comment of sourceComments) {
-                  await storage.createTicketComment({
-                    ticketId: invoiceTicket.id,
-                    authorId: comment.authorId,
-                    body: comment.body,
-                  });
-                }
-                
-                console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for ticket ${existingTicket.id} at Ready for Billing (assigned to: ${billingUser?.userId || 'unassigned'}) with ${sourceComments.length} notes copied`);
-              }
-            } catch (err) {
-              console.error("Failed to auto-create invoice ticket:", err);
-            }
-          }
-        }
-        
         // Fallback: auto-create Invoice ticket when stepping to "Invoicing" and no invoice exists yet
+        const currentTicketTypeForFallback = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+        const isInvoiceTicketType = currentTicketTypeForFallback?.name === "Invoice";
+        const isProjectTypeForInvoice = currentTicketTypeForFallback?.name === "Project";
+        const isEstimateRequestTypeForInvoice = currentTicketTypeForFallback?.name === "Estimate Request";
         if (newStatus?.name === "Invoicing" && (isProjectTypeForInvoice || isEstimateRequestTypeForInvoice) && !isInvoiceTicketType) {
           const existingLinksForFallback = await storage.getTicketLinks(existingTicket.id);
           const hasExistingInvoiceFallback = existingLinksForFallback.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
@@ -6905,6 +6851,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
+
+      // === DIRECTION-INDEPENDENT: Auto-create Invoice ticket when landing at "Ready for Billing" ===
+      // Fires on both forward moves AND step-backs (e.g. Done → Ready for Billing for EB tickets).
+      // Normalize billingBehavior for Extra Billable tickets arriving at RFB before persisting.
+      if (newStatus?.name === "Ready for Billing") {
+        const rfbTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+        const isExtraBillableType = rfbTicketType?.name === "Extra Billable";
+        if (isExtraBillableType && existingTicket.billingBehavior !== "invoice_required") {
+          req.body.billingBehavior = "invoice_required";
+          console.log(`Normalizing billingBehavior to invoice_required for Extra Billable ticket ${existingTicket.id} at Ready for Billing`);
+        }
+      }
+
+      await maybeAutoCreateInvoiceOnRfb({
+        ticket: {
+          id: existingTicket.id,
+          companyId: user.activeCompanyId,
+          title: existingTicket.title,
+          description: existingTicket.description,
+          ticketTypeId: existingTicket.ticketTypeId,
+          billingBehavior: existingTicket.billingBehavior,
+          customerId: existingTicket.customerId,
+          contractId: existingTicket.contractId,
+        },
+        newStatusName: newStatus?.name ?? "",
+        pendingBillingBehavior: req.body.billingBehavior,
+        actingUserId: user.id,
+        storage,
+        ensureInvoiceTicketType,
+      });
     }
 
     // Validate completion field business rules
