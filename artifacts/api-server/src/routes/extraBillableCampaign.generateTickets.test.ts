@@ -242,6 +242,7 @@ describe("POST /api/campaigns/:campaignId/items/:itemId/generate-ticket", () => 
     expect(world.ticketLinks[0].sourceTicketId).toBe(ebTicket.id);
     expect(world.ticketLinks[0].targetTicketId).toBe(invoiceTicket.id);
     expect(world.ticketLinks[0].linkType).toBe("invoice_for");
+    expect(res.body.invoiceTicketId).toBe(invoiceTicket.id);
   });
 
   it("still creates the Extra Billable ticket if invoice creation fails", async () => {
@@ -251,6 +252,10 @@ describe("POST /api/campaigns/:campaignId/items/:itemId/generate-ticket", () => 
     expect(res.status).toBe(200);
     expect(world.tickets.length).toBe(1);
     expect(world.ticketLinks.length).toBe(0);
+    expect(res.body.success).toBe(true);
+    expect(res.body.ticketId).toBe("tk-1");
+    expect(res.body.invoiceTicketId).toBeUndefined();
+    expect(world.tickets.length).toBe(1);
   });
 });
 

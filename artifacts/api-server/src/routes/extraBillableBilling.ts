@@ -66,7 +66,7 @@ async function generateExtraBillableTicketForItem(
   campaign: any,
   user: { id: string; activeCompanyId: string },
   ticketTypeInfo: { typeId: string; readyForBillingStatusId: string },
-): Promise<{ ticketId: string; photoCopyFailures: number }> {
+): Promise<{ ticketId: string; photoCopyFailures: number; invoiceTicketId?: string }> {
   if (!campaign) throw new Error("Campaign missing");
   if (!item.assignedCampaignCrewId) throw new Error("Item not assigned to a crew");
 
@@ -307,7 +307,7 @@ export function registerExtraBillableBillingRoutes(app: Express, deps: BillingDe
     let generated = 0;
     let skipped = 0;
     let failed = 0;
-    const results: Array<{ itemId: string; customerName: string; success: boolean; ticketId?: string; error?: string; photoCopyFailures?: number }> = [];
+    const results: Array<{ itemId: string; customerName: string; success: boolean; ticketId?: string; error?: string; photoCopyFailures?: number; invoiceTicketId?: string }> = [];
 
     for (const item of candidateItems) {
       const cls = classifyExtraBillableEligibility(item, leaderById);
@@ -325,6 +325,7 @@ export function registerExtraBillableBillingRoutes(app: Express, deps: BillingDe
           success: true,
           ticketId: out.ticketId,
           photoCopyFailures: out.photoCopyFailures,
+          invoiceTicketId: out.invoiceTicketId,
         });
       } catch (err) {
         failed += 1;
@@ -363,7 +364,7 @@ export function registerExtraBillableBillingRoutes(app: Express, deps: BillingDe
     }
     try {
       const out = await generateExtraBillableTicketForItem(deps, item, campaign, user, ticketTypeInfo);
-      return res.json({ success: true, ticketId: out.ticketId, photoCopyFailures: out.photoCopyFailures });
+      return res.json({ success: true, ticketId: out.ticketId, photoCopyFailures: out.photoCopyFailures, invoiceTicketId: out.invoiceTicketId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       (deps.logger ?? defaultLogger()).error(`Extra Billable single generation failed for item ${item.id}:`, err);
