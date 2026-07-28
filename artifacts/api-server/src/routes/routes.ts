@@ -14757,6 +14757,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerExtraBillableBillingRoutes(app, {
     storage: storage as unknown as Parameters<typeof registerExtraBillableBillingRoutes>[1]["storage"],
     ensureExtraBillableTicketType,
+    ensureInvoiceTicketType,
     copyPhoto: makeBucketCopyPhotoFn(objectStorageClient, process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID),
   });
 

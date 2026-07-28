@@ -31,9 +31,12 @@ interface World {
   user: { name: string };
   tickets: any[];
   ticketTypeStatuses: { id: string; name: string }[];
+  ticketLinks: any[];
+  companyUsers: any[];
   copyPhotoCalls: Array<{ srcKey: string; ticketId: string }>;
   copyPhotoBehavior: "ok" | "fail-all" | "fail-first";
   ensureReturns: { typeId: string; statuses: Map<string, string> } | null;
+  ensureInvoiceReturns: { typeId: string; pendingStatusId: string } | null;
 }
 
 function makeWorld(over: Partial<World> = {}): World {
@@ -49,9 +52,12 @@ function makeWorld(over: Partial<World> = {}): World {
       { id: "st-ready", name: "Ready for Billing" },
       { id: "st-done", name: "Done" },
     ],
+    ticketLinks: [],
+    companyUsers: [{ userId: "billing-user-1", tags: ["billing"], status: "active" }],
     copyPhotoCalls: [],
     copyPhotoBehavior: "ok",
     ensureReturns: { typeId: "tt-1", statuses: new Map([["Ready for Billing", "st-ready"], ["Done", "st-done"]]) },
+    ensureInvoiceReturns: { typeId: "tt-invoice", pendingStatusId: "st-pending-invoice" },
     ...over,
   };
 }
@@ -91,8 +97,15 @@ function buildApp(world: World, role: "admin" | "office" | "field" = "admin", au
       }),
       getTicketsByIds: vi.fn(async (ids: string[]) => world.tickets.filter(t => ids.includes(t.id))),
       getTicketTypeStatuses: vi.fn(async () => world.ticketTypeStatuses),
+      getCompanyUsersByCompanyId: vi.fn(async () => world.companyUsers),
+      createTicketLink: vi.fn(async (link: any) => {
+        const l = { id: `lnk-${world.ticketLinks.length + 1}`, ...link };
+        world.ticketLinks.push(l);
+        return l;
+      }),
     },
     ensureExtraBillableTicketType: vi.fn(async () => world.ensureReturns),
+    ensureInvoiceTicketType: vi.fn(async () => world.ensureInvoiceReturns),
     copyPhoto: vi.fn(async (srcKey: string, _co: string, ticketId: string) => {
       world.copyPhotoCalls.push({ srcKey, ticketId });
       if (world.copyPhotoBehavior === "fail-all") return { destKey: null, error: new Error("storage down") };
@@ -209,6 +222,35 @@ describe("POST /api/campaigns/:campaignId/items/:itemId/generate-ticket", () => 
     expect(res.status).toBe(200);
     expect(res.body.photoCopyFailures).toBe(2);
     expect((deps.storage.updateTicket as any).mock.calls.length).toBe(0);
+  });
+
+  it("auto-creates an Invoice ticket linked to the Extra Billable ticket", async () => {
+    const world = makeWorld({ items: [makeItem()] });
+    const { app } = buildApp(world, "admin");
+    const res = await request(app).post("/api/campaigns/camp-1/items/i1/generate-ticket").send({});
+    expect(res.status).toBe(200);
+    expect(world.tickets.length).toBe(2);
+    const ebTicket = world.tickets[0];
+    const invoiceTicket = world.tickets[1];
+    expect(invoiceTicket.ticketTypeId).toBe("tt-invoice");
+    expect(invoiceTicket.currentStatusId).toBe("st-pending-invoice");
+    expect(invoiceTicket.workType).toBe("admin");
+    expect(invoiceTicket.billingBehavior).toBe("internal");
+    expect(invoiceTicket.title).toMatch(/^Invoice:/);
+    expect(invoiceTicket.assignedToId).toBe("billing-user-1");
+    expect(world.ticketLinks.length).toBe(1);
+    expect(world.ticketLinks[0].sourceTicketId).toBe(ebTicket.id);
+    expect(world.ticketLinks[0].targetTicketId).toBe(invoiceTicket.id);
+    expect(world.ticketLinks[0].linkType).toBe("invoice_for");
+  });
+
+  it("still creates the Extra Billable ticket if invoice creation fails", async () => {
+    const world = makeWorld({ items: [makeItem()], ensureInvoiceReturns: null });
+    const { app } = buildApp(world, "admin");
+    const res = await request(app).post("/api/campaigns/camp-1/items/i1/generate-ticket").send({});
+    expect(res.status).toBe(200);
+    expect(world.tickets.length).toBe(1);
+    expect(world.ticketLinks.length).toBe(0);
   });
 });
 

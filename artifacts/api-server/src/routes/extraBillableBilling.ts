@@ -20,8 +20,11 @@ export interface BillingDeps {
     updateCampaignItem: (id: string, companyId: string, updates: any) => Promise<any>;
     getTicketsByIds: (ids: string[], companyId: string) => Promise<any[]>;
     getTicketTypeStatuses: (ticketTypeId: string) => Promise<{ id: string; name: string }[]>;
+    getCompanyUsersByCompanyId: (companyId: string) => Promise<any[]>;
+    createTicketLink: (link: { sourceTicketId: string; targetTicketId: string; linkType: string }) => Promise<any>;
   };
   ensureExtraBillableTicketType: (companyId: string) => Promise<{ typeId: string; statuses: Map<string, string> } | null>;
+  ensureInvoiceTicketType: (companyId: string) => Promise<{ typeId: string; pendingStatusId: string } | null>;
   copyPhoto: (
     srcKey: string,
     companyId: string,
@@ -126,10 +129,47 @@ async function generateExtraBillableTicketForItem(
     ticketId: ticket.id,
     updatedAt: new Date(),
   });
+
+  let invoiceTicketId: string | undefined;
+  try {
+    const invoiceTypeInfo = await deps.ensureInvoiceTicketType(user.activeCompanyId);
+    if (invoiceTypeInfo) {
+      const companyUsers = await deps.storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+      const billingUser = companyUsers.find((cu: any) => cu.tags?.includes("billing") && cu.status === "active");
+      const invoiceTicket = await deps.storage.createTicket({
+        companyId: user.activeCompanyId,
+        customerId: item.customerId,
+        ticketTypeId: invoiceTypeInfo.typeId,
+        currentStatusId: invoiceTypeInfo.pendingStatusId,
+        workType: "admin",
+        billingBehavior: "internal",
+        title: `Invoice: ${title}`,
+        description: `Invoice required for completed work: ${title}\n\nOriginal description: ${description}`,
+        priority: "normal",
+        assignedToId: billingUser?.userId || null,
+        createdById: user.id,
+      });
+      await deps.storage.createTicketLink({
+        sourceTicketId: ticket.id,
+        targetTicketId: invoiceTicket.id,
+        linkType: "invoice_for",
+      });
+      invoiceTicketId = invoiceTicket.id;
+      (deps.logger ?? defaultLogger()).info(
+        `Auto-created Invoice ticket ${invoiceTicket.id} for Extra Billable ticket ${ticket.id} (campaign item ${item.id})`,
+      );
+    }
+  } catch (err) {
+    (deps.logger ?? defaultLogger()).error(
+      `Failed to auto-create invoice ticket for Extra Billable ticket ${ticket.id}:`,
+      err,
+    );
+  }
+
   (deps.logger ?? defaultLogger()).info(
     `Generated Extra Billable ticket ${ticket.id} for campaign item ${item.id} (campaign ${campaign.id}) by user ${user.id}`,
   );
-  return { ticketId: ticket.id, photoCopyFailures: failures };
+  return { ticketId: ticket.id, invoiceTicketId, photoCopyFailures: failures };
 }
 
 async function resolveTicketTypeInfo(deps: BillingDeps, companyId: string) {
