@@ -1,0 +1,155 @@
+# Extra Billable → Invoice Ticket — "Flawless" Fix (Replit Slice)
+
+Paste this into the Replit AI agent. It finishes Task #589 so the Extra Billable
+auto-invoice feature is type-safe and reports the created invoice end to end.
+
+## Context
+Commit `00119f2` (Task #589) made `generateExtraBillableTicketForItem` create and
+link an Invoice ticket when an Extra Billable (EB) ticket is generated at "Ready
+for Billing". The runtime logic is correct and the two new tests pass. Two loose
+ends remain:
+
+1. **Type error (breaks `pnpm run typecheck`).** The function now returns
+   `invoiceTicketId`, but its return-type annotation was never extended.
+   `tsc --noEmit` fails with **TS2353** ("Object literal may only specify known
+   properties, and 'invoiceTicketId' does not exist..."). The build (esbuild) and
+   vitest transpile without type-checking, which is why it slipped through.
+2. **`invoiceTicketId` is not surfaced.** The value is returned by the inner
+   function but neither endpoint (bulk generate, single generate) nor the bulk
+   `results[]` passes it back to the client, so the UI can't confirm/deep-link the
+   invoice that was created.
+
+All edits are in `artifacts/api-server/src/routes/extraBillableBilling.ts` except
+the test additions.
+
+---
+
+## Change 1 — Extend the return type (fixes TS2353)
+
+**File:** `artifacts/api-server/src/routes/extraBillableBilling.ts` (~line 69)
+
+Find:
+```ts
+): Promise<{ ticketId: string; photoCopyFailures: number }> {
+```
+Replace with:
+```ts
+): Promise<{ ticketId: string; invoiceTicketId?: string; photoCopyFailures: number }> {
+```
+No change is needed at the `return` statement (~line 172) — it already returns
+`invoiceTicketId`.
+
+---
+
+## Change 2 — Surface `invoiceTicketId` in the bulk `results[]` type
+
+**File:** same, ~line 310
+
+Find:
+```ts
+    const results: Array<{ itemId: string; customerName: string; success: boolean; ticketId?: string; error?: string; photoCopyFailures?: number }> = [];
+```
+Replace with:
+```ts
+    const results: Array<{ itemId: string; customerName: string; success: boolean; ticketId?: string; invoiceTicketId?: string; error?: string; photoCopyFailures?: number }> = [];
+```
+
+---
+
+## Change 3 — Populate `invoiceTicketId` in the bulk push
+
+**File:** same, ~lines 322-328
+
+Find:
+```ts
+        results.push({
+          itemId: item.id,
+          customerName: item.customerName,
+          success: true,
+          ticketId: out.ticketId,
+          photoCopyFailures: out.photoCopyFailures,
+        });
+```
+Replace with:
+```ts
+        results.push({
+          itemId: item.id,
+          customerName: item.customerName,
+          success: true,
+          ticketId: out.ticketId,
+          invoiceTicketId: out.invoiceTicketId,
+          photoCopyFailures: out.photoCopyFailures,
+        });
+```
+
+---
+
+## Change 4 — Surface `invoiceTicketId` from the single-item endpoint
+
+**File:** same, ~line 366
+
+Find:
+```ts
+      return res.json({ success: true, ticketId: out.ticketId, photoCopyFailures: out.photoCopyFailures });
+```
+Replace with:
+```ts
+      return res.json({ success: true, ticketId: out.ticketId, invoiceTicketId: out.invoiceTicketId, photoCopyFailures: out.photoCopyFailures });
+```
+
+---
+
+## Change 5 — Lock it in with tests
+
+**File:** `artifacts/api-server/src/routes/extraBillableCampaign.generateTickets.test.ts`
+
+Extend the existing "auto-creates an Invoice ticket linked to the Extra Billable
+ticket" test to assert the id is returned to the client. Add these lines inside
+that test (after the existing invoice-ticket assertions):
+
+```ts
+    // Invoice id is surfaced to the client (single-item endpoint)
+    expect(res.body.invoiceTicketId).toBe(invoiceTicket.id);
+```
+
+Add one new test that proves the id is NOT returned when invoice creation fails,
+but the EB ticket still succeeds (graceful degradation, already the behavior):
+
+```ts
+  it("omits invoiceTicketId but still returns the EB ticket when invoice creation fails", async () => {
+    const { app, world, deps } = buildApp();
+    world.ensureInvoiceReturns = null; // ensureInvoiceTicketType returns null → no invoice
+    const res = await generateSingle(app); // use the same helper the other single-item tests use
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.ticketId).toBe("tk-1");
+    expect(res.body.invoiceTicketId).toBeUndefined();
+    expect(world.ticketLinks.length).toBe(0);
+  });
+```
+If the suite drives the single-item route through a differently-named helper,
+match the existing pattern in the file (e.g. the helper used by the
+"auto-creates an Invoice ticket..." test) rather than the placeholder
+`generateSingle` above.
+
+---
+
+## Verify (must all pass)
+
+Run from `artifacts/api-server`:
+```bash
+pnpm run typecheck     # must be clean — this is the check that was failing (TS2353)
+pnpm run test          # vitest — all EB generation tests green, incl. the two new assertions
+```
+
+## Notes / deliberately out of scope
+- The PATCH "advance to Ready for Billing" path (routes.ts ~L6805) also copies
+  `contractId` and source comments onto the invoice. The generation path omits
+  both **on purpose**: a freshly generated EB ticket has no comments yet, and
+  campaign-generated EB tickets are not contract-linked. Leave as-is unless you
+  later attach EB tickets to contracts.
+- No duplicate-invoice risk: EB tickets are created with
+  `billingBehavior: "invoice_required"` and are born at Ready for Billing, so if
+  one is ever stepped back and re-advanced, the PATCH path's `hasExistingInvoice`
+  guard prevents a second invoice.
