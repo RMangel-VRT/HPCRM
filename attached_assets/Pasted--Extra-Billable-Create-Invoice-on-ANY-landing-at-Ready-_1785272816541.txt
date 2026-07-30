@@ -1,0 +1,168 @@
+# Extra Billable — Create Invoice on ANY landing at "Ready for Billing" (Replit Slice)
+
+## Problem
+Existing Extra Billable (EB) tickets can't get an Invoice ticket by stepping back
+and forward to "Ready for Billing." Two gates in the PATCH `/api/tickets/:id`
+status-transition handler (`artifacts/api-server/src/routes/routes.ts`) block it:
+
+1. **Forward-only gate.** Invoice creation lives inside `if (!isSteppingBack)`
+   (~L6648). An EB ticket's only status after "Ready for Billing" is "Done," so the
+   intuitive move — Done → Ready for Billing — lands on RFB but is a *step-back*,
+   so creation is skipped.
+2. **Type/billingBehavior gate.** The forward guard (~L6805) only fires when
+   `billingBehavior === "invoice_required"` OR the type is Project / Estimate
+   Request. "Extra Billable" is not listed. EB tickets migrated from the old
+   extra_work To-Do type never got `invoice_required` (migration ~L1391 sets only
+   `ticketTypeId` + `currentStatusId`), so they fail the guard even moving forward.
+
+#589 only creates invoices for newly *generated* EB tickets at birth — it does
+nothing for existing tickets.
+
+## Fix summary
+- Make invoice creation run whenever a ticket **lands on "Ready for Billing,"
+  regardless of direction** (forward or step-back), keeping the existing
+  `hasExistingInvoice` idempotency guard so no duplicates.
+- Add **"Extra Billable"** to the invoice-eligible ticket types.
+
+All changes are in `artifacts/api-server/src/routes/routes.ts`.
+
+Note: EB tickets already parked at "Ready for Billing"/"Done" without an invoice
+will be handled manually by re-stepping them; no backfill migration is included.
+
+---
+
+## Slice 1 — Direction-independent invoice creation + Extra Billable eligibility
+
+### 1a. Remove the old forward-only RFB block
+Delete the block that begins with the comment
+`// Auto-create Invoice ticket when moving FORWARD to "Ready for Billing"`
+(~L6797) through the end of its closing brace (~L6854, just before the
+`// Fallback: auto-create Invoice ticket when stepping to "Invoicing"` comment).
+
+### 1b. Give the Invoicing fallback its own type flags
+The fallback block (~L6856, `if (newStatus?.name === "Invoicing" ...`) currently
+relies on `isProjectTypeForInvoice` / `isEstimateRequestTypeForInvoice` /
+`isInvoiceTicketType`, which were declared in the block you just removed. Add
+local declarations immediately above the fallback `if`:
+
+```ts
+        // Fallback: auto-create Invoice ticket when stepping to "Invoicing" and no invoice exists yet
+        const invFbType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+        const isInvoiceTicketType = invFbType?.name === "Invoice";
+        const isProjectTypeForInvoice = invFbType?.name === "Project";
+        const isEstimateRequestTypeForInvoice = invFbType?.name === "Estimate Request";
+        if (newStatus?.name === "Invoicing" && (isProjectTypeForInvoice || isEstimateRequestTypeForInvoice) && !isInvoiceTicketType) {
+```
+(Leave the rest of the fallback body unchanged.)
+
+### 1c. Add the direction-independent block
+Insert this **after** the `if (!isSteppingBack) { ... }` block closes (~L6907)
+but still **inside** the `if (req.body.currentStatusId && ...)` status-change
+block (before its closing brace ~L6908):
+
+```ts
+      // Auto-create Invoice ticket whenever a ticket LANDS on "Ready for Billing"
+      // — forward OR step-back. Extra Billable tickets can only reach Ready for
+      // Billing by stepping back from "Done", so this must not be gated on direction.
+      {
+        const rfbType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+        const isInvoiceType = rfbType?.name === "Invoice";
+        const isProjectType = rfbType?.name === "Project";
+        const isEstimateRequestType = rfbType?.name === "Estimate Request";
+        const isExtraBillableType = rfbType?.name === "Extra Billable";
+        const invoiceEligible =
+          existingTicket.billingBehavior === "invoice_required" ||
+          req.body.billingBehavior === "invoice_required" ||
+          isProjectType || isEstimateRequestType || isExtraBillableType;
+
+        if (newStatus?.name === "Ready for Billing" && invoiceEligible && !isInvoiceType) {
+          const existingLinks = await storage.getTicketLinks(existingTicket.id);
+          const hasExistingInvoice = existingLinks.some(
+            l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id,
+          );
+          if (!hasExistingInvoice) {
+            try {
+              const invoiceTypeInfo = await ensureInvoiceTicketType(user.activeCompanyId);
+              if (invoiceTypeInfo) {
+                const companyUsersForBilling = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
+                const billingUser = companyUsersForBilling.find(cu => cu.tags?.includes("billing") && cu.status === "active");
+                const invoiceTicket = await storage.createTicket({
+                  companyId: user.activeCompanyId,
+                  customerId: existingTicket.customerId,
+                  contractId: existingTicket.contractId,
+                  ticketTypeId: invoiceTypeInfo.typeId,
+                  currentStatusId: invoiceTypeInfo.pendingStatusId,
+                  workType: "admin",
+                  billingBehavior: "internal",
+                  title: `Invoice: ${existingTicket.title}`,
+                  description: `Invoice required for completed work: ${existingTicket.title}\n\nOriginal description: ${existingTicket.description || "N/A"}`,
+                  priority: "normal",
+                  assignedToId: billingUser?.userId || null,
+                  createdById: user.id,
+                });
+                await storage.createTicketLink({
+                  sourceTicketId: existingTicket.id,
+                  targetTicketId: invoiceTicket.id,
+                  linkType: "invoice_for",
+                });
+                const sourceComments = await storage.getTicketComments(existingTicket.id);
+                for (const comment of sourceComments) {
+                  await storage.createTicketComment({
+                    ticketId: invoiceTicket.id,
+                    authorId: comment.authorId,
+                    body: comment.body,
+                  });
+                }
+                console.log(`Auto-created Invoice ticket ${invoiceTicket.id} for ticket ${existingTicket.id} landing on Ready for Billing (dir=${isSteppingBack ? "back" : "forward"}, assigned to: ${billingUser?.userId || "unassigned"})`);
+              }
+            } catch (err) {
+              console.error("Failed to auto-create invoice ticket (Ready for Billing landing):", err);
+            }
+          }
+        }
+      }
+```
+
+### 1d. (Recommended) Normalize billingBehavior for EB at RFB
+So downstream billing/QBO treats these correctly, set the parent EB ticket's
+`billingBehavior` to `invoice_required` when it lands on Ready for Billing.
+Inside the block above, right after confirming `isExtraBillableType` eligibility,
+you can add to `req.body`:
+
+```ts
+        if (isExtraBillableType && newStatus?.name === "Ready for Billing" && existingTicket.billingBehavior !== "invoice_required") {
+          req.body.billingBehavior = "invoice_required";
+        }
+```
+Place this **before** the ticket update is persisted later in the handler so it's
+saved with the status change.
+
+---
+
+## Tests to add
+`artifacts/api-server/src/routes/...` (the ticket PATCH transition test suite):
+
+- **Step-back Done → Ready for Billing creates an invoice** for an EB ticket with
+  no existing invoice link (this is the case that silently did nothing before).
+- **Extra Billable type is eligible without `invoice_required`**: an EB ticket
+  whose `billingBehavior` is not `invoice_required` still gets an invoice on
+  landing at RFB (proves Blocker 2 is closed).
+- **Idempotent**: landing on RFB when an `invoice_for` link already exists creates
+  no second invoice.
+- **Step-back past billing still deletes** the invoice (regression guard on the
+  existing `isSteppingBackPastBilling` cleanup at ~L6599).
+
+## Verify
+From `artifacts/api-server`:
+```bash
+pnpm run typecheck   # clean
+pnpm run test        # all ticket-transition + EB tests green
+```
+Then, manually: take an existing EB ticket at "Done," step it back to "Ready for
+Billing," and confirm a linked Invoice ticket appears on the detail page.
+
+## Notes
+- The `hasExistingInvoice` guard prevents duplicates, so Project tickets that step
+  back Invoicing → Ready for Billing won't get a second invoice.
+- Step-back *past* Ready for Billing (to Work Completed or earlier) still deletes
+  the invoice via the existing cleanup at ~L6599 — unchanged.
