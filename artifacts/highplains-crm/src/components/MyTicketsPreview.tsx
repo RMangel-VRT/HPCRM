@@ -79,27 +79,42 @@ export default function MyTicketsPreview() {
           </div>
         ) : (
           <div className="space-y-2">
-            {activeTickets.slice(0, 2).map((ticket) => (
-              <Link key={ticket.id} href={`/dashboard/tickets/${ticket.id}`}>
-                <div
-                  className="flex items-center justify-between p-2 border rounded-md hover-elevate cursor-pointer"
-                  data-testid={`card-my-ticket-${ticket.id}`}
-                >
-                  <div className="flex-1 min-w-0 mr-2">
-                    <p className="font-medium text-sm truncate">{ticket.title}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {ticket.customer?.name}
-                    </p>
-                  </div>
-                  <Badge 
-                    variant={priorityConfig[ticket.priority]?.variant || "secondary"}
-                    className="text-xs shrink-0"
+            {activeTickets.slice(0, 2).map((ticket) => {
+              const createdDate = ticket.createdAt ? new Date(ticket.createdAt) : null;
+              const createdLabel = createdDate
+                ? createdDate.toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    ...(createdDate.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}),
+                  })
+                : null;
+              return (
+                <Link key={ticket.id} href={`/dashboard/tickets/${ticket.id}`}>
+                  <div
+                    className="flex items-center justify-between p-2 border rounded-md hover-elevate cursor-pointer"
+                    data-testid={`card-my-ticket-${ticket.id}`}
                   >
-                    {priorityConfig[ticket.priority]?.label || ticket.priority}
-                  </Badge>
-                </div>
-              </Link>
-            ))}
+                    <div className="flex-1 min-w-0 mr-2">
+                      <p className="font-medium text-sm truncate">{ticket.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {ticket.customer?.name}
+                      </p>
+                      {createdLabel && (
+                        <p className="text-xs text-muted-foreground" data-testid={`text-created-at-${ticket.id}`}>
+                          Created {createdLabel}
+                        </p>
+                      )}
+                    </div>
+                    <Badge 
+                      variant={priorityConfig[ticket.priority]?.variant || "secondary"}
+                      className="text-xs shrink-0"
+                    >
+                      {priorityConfig[ticket.priority]?.label || ticket.priority}
+                    </Badge>
+                  </div>
+                </Link>
+              );
+            })}
             {activeTickets.length > 2 && (
               <Link href="/dashboard/tickets/my">
                 <Button variant="ghost" className="w-full" size="sm">

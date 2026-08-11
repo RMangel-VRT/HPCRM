@@ -1314,7 +1314,16 @@ interface TicketCardProps {
 
 function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selectionMode, isSelected, onToggleSelect, onNavigate, workflowStatuses = [] }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
-  
+
+  const createdDate = ticket.createdAt ? new Date(ticket.createdAt) : null;
+  const createdLabel = createdDate
+    ? createdDate.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        ...(createdDate.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}),
+      })
+    : null;
+
   // Bar color: green for completed, ticket type color for open tickets
   const barColor = ticket.completedAt 
     ? "#22c55e" // green-500
@@ -1535,6 +1544,11 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                   <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
                     <CalendarDays className="w-3 h-3" />
                     {dueInfo.text}
+                  </span>
+                )}
+                {createdLabel && (
+                  <span className="text-xs text-muted-foreground" data-testid={`text-created-at-${ticket.id}`}>
+                    Created {createdLabel}
                   </span>
                 )}
               </div>

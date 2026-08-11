@@ -1117,6 +1117,15 @@ function EquipmentTicketCard({ ticket, equipmentMap, formatDueDate, onNavigate }
   const dueInfo = formatDueDate(ticket.dueDate);
   const equipmentItem = equipmentMap.get(ticket.equipmentId);
 
+  const createdDate = ticket.createdAt ? new Date(ticket.createdAt) : null;
+  const createdLabel = createdDate
+    ? createdDate.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        ...(createdDate.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}),
+      })
+    : null;
+
   const barColor = ticket.status === "completed" || ticket.status === "closed"
     ? "#22c55e"
     : "#f59e0b";
@@ -1175,6 +1184,14 @@ function EquipmentTicketCard({ ticket, equipmentMap, formatDueDate, onNavigate }
                 <div className={`flex items-center gap-1 mt-1.5 text-xs ${dueInfo.className}`}>
                   <CalendarDays className="w-3 h-3" />
                   <span>{dueInfo.text}</span>
+                </div>
+              )}
+
+              {createdLabel && (
+                <div className="mt-1.5">
+                  <span className="text-xs text-muted-foreground" data-testid={`text-created-at-${ticket.id}`}>
+                    Created {createdLabel}
+                  </span>
                 </div>
               )}
 
