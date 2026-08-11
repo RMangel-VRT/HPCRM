@@ -11434,14 +11434,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { createCanvas, loadImage } = await import("canvas");
       const img = await loadImage(buffer);
-      const MAX_DIM = 1500;
+      const MAX_DIM = 1200;
       const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
       const w = Math.round(img.width * scale);
       const h = Math.round(img.height * scale);
       const canvas = createCanvas(w, h);
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img as any, 0, 0, w, h);
-      return canvas.toBuffer("image/jpeg", { quality: 0.80 });
+      return canvas.toBuffer("image/jpeg", { quality: 0.65 });
     } catch (err) {
       console.warn("compressImageForPdf: compression failed, using original buffer:", err);
       return buffer;

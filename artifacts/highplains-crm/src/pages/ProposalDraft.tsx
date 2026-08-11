@@ -531,6 +531,34 @@ export default function ProposalDraft() {
     }
   };
 
+  const compressImageBeforeUpload = async (file: File): Promise<File> => {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const MAX_DIM = 1200;
+      const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
+      const w = Math.round(bitmap.width * scale);
+      const h = Math.round(bitmap.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      bitmap.close();
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("Canvas toBlob failed"))),
+          "image/jpeg",
+          0.72,
+        );
+      });
+      const baseName = file.name.replace(/\.[^.]+$/, "");
+      return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
+    } catch {
+      // If compression fails for any reason, fall back to the original file
+      return file;
+    }
+  };
+
   const convertIfHeic = async (file: File): Promise<File> => {
     const isHeic =
       file.type === "image/heic" ||
@@ -564,7 +592,8 @@ export default function ProposalDraft() {
       toast({ title: t("proposals.convertingHeic") });
     }
     try {
-      const files = await Promise.all(rawFiles.map(convertIfHeic));
+      const heicConverted = await Promise.all(rawFiles.map(convertIfHeic));
+      const files = await Promise.all(heicConverted.map(compressImageBeforeUpload));
       for (const file of files) {
         await uploadFile(file, "image");
       }
@@ -635,7 +664,7 @@ export default function ProposalDraft() {
 
   const estimateBytes = estimatePdfs.reduce((s, f) => s + (f.fileSize ?? 0), 0);
   const imagesBytes = images.reduce((s, f) => s + (f.fileSize ?? 0), 0);
-  const estimatedPdfMB = (estimateBytes + imagesBytes / 10) / 1024 / 1024;
+  const estimatedPdfMB = (estimateBytes + imagesBytes / 25) / 1024 / 1024;
   const showSizeWarning = estimatePdfs.length > 0 && estimatedPdfMB > 20;
 
   const getStatusBadge = (status: string | null | undefined) => {
