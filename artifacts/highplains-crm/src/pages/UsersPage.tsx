@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -52,6 +52,15 @@ const editUserSchema = z.object({
   role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]),
   status: z.enum(["active", "invited", "suspended"]),
   password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
+  confirmPassword: z.string().optional().or(z.literal("")),
+}).superRefine((data, ctx) => {
+  if (data.password && data.password.length > 0 && data.confirmPassword !== data.password) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["confirmPassword"],
+      message: "Passwords do not match",
+    });
+  }
 });
 
 type EditUserForm = z.infer<typeof editUserSchema>;
@@ -65,6 +74,8 @@ export default function UsersPage() {
   const [selectedUser, setSelectedUser] = useState<CompanyUserWithDetails | null>(null);
   const [applicatorLicenseNumber, setApplicatorLicenseNumber] = useState("");
   const [applicatorLicenseState, setApplicatorLicenseState] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const US_STATES = [
     "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
@@ -180,9 +191,13 @@ export default function UsersPage() {
     editUserForm.reset({
       role: user.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor",
       status: user.companyUser.status as "active" | "invited" | "suspended",
+      password: "",
+      confirmPassword: "",
     });
     setApplicatorLicenseNumber(user.user?.applicatorLicenseNumber || "");
     setApplicatorLicenseState(user.user?.applicatorLicenseState || "");
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
     setEditDialogOpen(true);
   };
 
@@ -407,136 +422,264 @@ export default function UsersPage() {
               </DialogDescription>
             </DialogHeader>
             <Form {...editUserForm}>
-              <form onSubmit={editUserForm.handleSubmit((data) => updateUserMutation.mutate({ id: selectedUser.companyUser.id, updates: data }))} className="flex flex-col flex-1 min-h-0">
-                <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-                {selectedUser.isSuperAdmin ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{t("users.role")}</span>
-                      <RoleBadge role="admin" isSuperAdmin={true} />
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {t("users.superAdminNote")}
+              <form
+                onSubmit={editUserForm.handleSubmit((data) => {
+                  const { confirmPassword, ...rest } = data;
+                  const updates: Partial<EditUserForm> = { ...rest };
+                  if (selectedUser.isSuperAdmin) {
+                    // Role is fixed for super admins; the API rejects role changes for them.
+                    delete updates.role;
+                  }
+                  if (!updates.password) {
+                    delete updates.password;
+                  }
+                  updateUserMutation.mutate({ id: selectedUser.companyUser.id, updates: updates as EditUserForm });
+                })}
+                className="flex flex-col flex-1 min-h-0"
+              >
+                <div className="overflow-y-auto flex-1 space-y-5 pr-1">
+                {/* Identity header */}
+                <div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                    {(selectedUser.user?.name || "?")
+                      .split(" ")
+                      .map((p) => p[0])
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .join("")
+                      .toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{selectedUser.user?.name || t("users.unknownUser")}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {selectedUser.user?.email || selectedUser.user?.phone}
                     </p>
                   </div>
-                ) : (
-                  <FormField
-                    control={editUserForm.control}
-                    name="role"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("users.role")}</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-edit-role">
-                              <SelectValue placeholder={t("users.selectRole")} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="admin">{t("roles.admin")}</SelectItem>
-                            <SelectItem value="office">{t("roles.office")}</SelectItem>
-                            <SelectItem value="field_manager">{t("roles.field_manager")}</SelectItem>
-                            <SelectItem value="chemical_manager">{t("roles.chemical_manager")}</SelectItem>
-                            <SelectItem value="field">{t("roles.field")}</SelectItem>
-                            <SelectItem value="irrigation_manager">{t("roles.irrigation_manager")}</SelectItem>
-                            <SelectItem value="shop_manager">{t("roles.shop_manager")}</SelectItem>
-                            <SelectItem value="mapping">{t("roles.mapping")}</SelectItem>
-                            <SelectItem value="landscape_supervisor">Landscape Supervisor</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                  <RoleBadge
+                    role={selectedUser.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor"}
+                    isSuperAdmin={selectedUser.isSuperAdmin}
                   />
-                )}
-                <FormField
-                  control={editUserForm.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("common.status")}</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-edit-status">
-                            <SelectValue placeholder={t("users.selectStatus")} />
-                          </SelectTrigger>
-                        </FormControl>
+                </div>
+
+                {/* Account Settings */}
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold">{t("users.accountSettings", "Account Settings")}</p>
+                  {selectedUser.isSuperAdmin ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{t("users.role")}</span>
+                        <RoleBadge role="admin" isSuperAdmin={true} />
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {t("users.superAdminNote")}
+                      </p>
+                      <FormField
+                        control={editUserForm.control}
+                        name="status"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t("common.status")}</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger data-testid="select-edit-status">
+                                  <SelectValue placeholder={t("users.selectStatus")} />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="active">{t("statuses.active")}</SelectItem>
+                                <SelectItem value="invited">{t("statuses.invited")}</SelectItem>
+                                <SelectItem value="suspended">{t("statuses.suspended")}</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <FormField
+                        control={editUserForm.control}
+                        name="role"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t("users.role")}</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger data-testid="select-edit-role">
+                                  <SelectValue placeholder={t("users.selectRole")} />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="admin">{t("roles.admin")}</SelectItem>
+                                <SelectItem value="office">{t("roles.office")}</SelectItem>
+                                <SelectItem value="field_manager">{t("roles.field_manager")}</SelectItem>
+                                <SelectItem value="chemical_manager">{t("roles.chemical_manager")}</SelectItem>
+                                <SelectItem value="field">{t("roles.field")}</SelectItem>
+                                <SelectItem value="irrigation_manager">{t("roles.irrigation_manager")}</SelectItem>
+                                <SelectItem value="shop_manager">{t("roles.shop_manager")}</SelectItem>
+                                <SelectItem value="mapping">{t("roles.mapping")}</SelectItem>
+                                <SelectItem value="landscape_supervisor">Landscape Supervisor</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={editUserForm.control}
+                        name="status"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t("common.status")}</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger data-testid="select-edit-status">
+                                  <SelectValue placeholder={t("users.selectStatus")} />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="active">{t("statuses.active")}</SelectItem>
+                                <SelectItem value="invited">{t("statuses.invited")}</SelectItem>
+                                <SelectItem value="suspended">{t("statuses.suspended")}</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Change Password */}
+                <div className="space-y-3 border-t pt-4">
+                  <div>
+                    <p className="text-sm font-semibold">{t("users.changePassword", "Change Password")}</p>
+                    <p className="text-xs text-muted-foreground">{t("users.resetPasswordHint")}</p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <FormField
+                      control={editUserForm.control}
+                      name="password"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t("users.newPassword", "New Password")}</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                data-testid="input-edit-password"
+                                type={showNewPassword ? "text" : "password"}
+                                className="pr-10"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute right-0 top-0 h-full w-10 text-muted-foreground hover:bg-transparent"
+                                onClick={() => setShowNewPassword((v) => !v)}
+                                data-testid="button-toggle-new-password"
+                                aria-label={showNewPassword ? "Hide password" : "Show password"}
+                              >
+                                {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={editUserForm.control}
+                      name="confirmPassword"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t("users.confirmPassword", "Confirm Password")}</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                data-testid="input-edit-confirm-password"
+                                type={showConfirmPassword ? "text" : "password"}
+                                className="pr-10"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute right-0 top-0 h-full w-10 text-muted-foreground hover:bg-transparent"
+                                onClick={() => setShowConfirmPassword((v) => !v)}
+                                data-testid="button-toggle-confirm-password"
+                                aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                              >
+                                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+
+                {/* Applicator License */}
+                <div className="space-y-3 border-t pt-4">
+                  <p className="text-sm font-semibold">{t("userProfile.applicatorLicenseNumber")}</p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-muted-foreground">{t("userProfile.applicatorLicenseNumber")}</label>
+                      <Input
+                        value={applicatorLicenseNumber}
+                        onChange={(e) => setApplicatorLicenseNumber(e.target.value)}
+                        placeholder="e.g. LIC-123456"
+                        data-testid="input-applicator-license-number"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-muted-foreground">{t("userProfile.applicatorLicenseState")}</label>
+                      <Select
+                        value={applicatorLicenseState || ""}
+                        onValueChange={(v) => setApplicatorLicenseState(v === "__none" ? "" : v)}
+                      >
+                        <SelectTrigger data-testid="select-applicator-license-state">
+                          <SelectValue placeholder="Select state" />
+                        </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="active">{t("statuses.active")}</SelectItem>
-                          <SelectItem value="invited">{t("statuses.invited")}</SelectItem>
-                          <SelectItem value="suspended">{t("statuses.suspended")}</SelectItem>
+                          <SelectItem value="__none">— None —</SelectItem>
+                          {US_STATES.map((s) => (
+                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={editUserForm.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("users.resetPassword")}</FormLabel>
-                      <FormControl>
-                        <Input {...field} data-testid="input-edit-password" type="password" placeholder={t("users.resetPasswordHint")} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={saveApplicatorLicenseMutation.isPending}
+                      onClick={() => selectedUser?.user?.id && saveApplicatorLicenseMutation.mutate({
+                        userId: selectedUser.user.id,
+                        licenseNumber: applicatorLicenseNumber,
+                        licenseState: applicatorLicenseState,
+                      })}
+                      data-testid="button-save-applicator-license"
+                    >
+                      {saveApplicatorLicenseMutation.isPending ? t("common.saving") : t("common.save")}
+                    </Button>
+                  </div>
                 </div>
-                <DialogFooter>
+                </div>
+                <DialogFooter className="pt-4">
                   <Button type="submit" disabled={updateUserMutation.isPending} data-testid="button-submit-edit-user">
                     {updateUserMutation.isPending ? t("common.updating") : t("users.updateUser")}
                   </Button>
                 </DialogFooter>
               </form>
             </Form>
-
-            <div className="mt-4 pt-4 border-t space-y-3">
-              <p className="text-sm font-medium">{t("userProfile.applicatorLicenseNumber")}</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground">{t("userProfile.applicatorLicenseNumber")}</label>
-                  <Input
-                    value={applicatorLicenseNumber}
-                    onChange={(e) => setApplicatorLicenseNumber(e.target.value)}
-                    placeholder="e.g. LIC-123456"
-                    data-testid="input-applicator-license-number"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground">{t("userProfile.applicatorLicenseState")}</label>
-                  <Select
-                    value={applicatorLicenseState || ""}
-                    onValueChange={(v) => setApplicatorLicenseState(v === "__none" ? "" : v)}
-                  >
-                    <SelectTrigger data-testid="select-applicator-license-state">
-                      <SelectValue placeholder="Select state" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none">— None —</SelectItem>
-                      {US_STATES.map((s) => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={saveApplicatorLicenseMutation.isPending}
-                onClick={() => selectedUser?.user?.id && saveApplicatorLicenseMutation.mutate({
-                  userId: selectedUser.user.id,
-                  licenseNumber: applicatorLicenseNumber,
-                  licenseState: applicatorLicenseState,
-                })}
-                data-testid="button-save-applicator-license"
-              >
-                {saveApplicatorLicenseMutation.isPending ? t("common.saving") : t("common.save")}
-              </Button>
-            </div>
           </DialogContent>
         </Dialog>
       )}

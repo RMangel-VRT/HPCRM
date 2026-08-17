@@ -5,7 +5,7 @@ import path from "path";
 import { promises as fs } from "fs";
 import { randomUUID } from "crypto";
 import { z } from "zod/v4";
-import { setupAuth, type UserWithContext } from "../auth";
+import { setupAuth, hashPassword, type UserWithContext } from "../auth";
 import { storage } from "../storage";
 import * as extraBillableAccess from "../lib/extraBillableAccess";
 import { registerExtraBillableBillingRoutes, makeBucketCopyPhotoFn } from "./extraBillableBilling";
@@ -3998,7 +3998,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const { hashPassword } = await import("./auth");
       const passwordHash = await hashPassword(password);
 
       const newUser = await storage.createUser({
@@ -4124,8 +4123,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const { password, ...companyUserUpdates } = req.body;
 
-    // Validate company user updates
-    const result = insertCompanyUserSchema.partial().omit({ companyId: true, userId: true }).safeParse(companyUserUpdates);
+    // Validate company user updates with an explicit partial schema.
+    // NOTE: do NOT use insertCompanyUserSchema.partial() here — its .default()
+    // values (status: "active", tags: []) are still applied when the key is
+    // absent, which silently reset status/tags on every PATCH.
+    const companyUserUpdateSchema = z.object({
+      role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]).optional(),
+      status: z.enum(["active", "invited", "suspended"]).optional(),
+      tags: z.array(z.string()).optional(),
+    });
+    const result = companyUserUpdateSchema.safeParse(companyUserUpdates);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
@@ -4148,10 +4155,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Cannot change role for super admin users" });
       }
 
-      // Update company user record (role, status)
-      const companyUser = await storage.updateCompanyUser(req.params.id, result.data);
-      if (!companyUser) {
-        return res.status(404).send("Company user not found");
+      // Update company user record (role, status) — only with keys actually provided,
+      // and skip the update entirely for a password-only change (drizzle throws on .set({}))
+      const updates = Object.fromEntries(
+        Object.entries(result.data).filter(([, v]) => v !== undefined)
+      ) as Partial<typeof result.data>;
+      let companyUser = existingCompanyUser;
+      if (Object.keys(updates).length > 0) {
+        const updated = await storage.updateCompanyUser(req.params.id, updates);
+        if (!updated) {
+          return res.status(404).send("Company user not found");
+        }
+        companyUser = updated;
       }
 
       // If password is provided and not empty, update the user's password
@@ -4159,8 +4174,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (password.length < 8) {
           return res.status(400).json({ message: "Password must be at least 8 characters" });
         }
-
-        const { hashPassword } = await import("./auth");
         const passwordHash = await hashPassword(password);
         await storage.updateUserPassword(companyUser.userId, passwordHash);
       }

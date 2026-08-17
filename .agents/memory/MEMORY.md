@@ -1,2 +1,3 @@
 - [Frontend stub strips form fields](frontend-drizzle-stub-strips-fields.md) — empty `createInsertSchema()` makes the form resolver drop columns not in `.extend()` → 400; stub must `.passthrough()`.
+- [PATCH pitfalls: zod partial defaults & bundled dynamic imports](zod-partial-defaults-and-bundled-dynamic-imports.md) — `.partial()` still injects `.default()`s; relative `import("./x")` 500s only in prod bundle.
 - [Optional enum Select submits ""](optional-enum-select-empty-string.md) — untouched optional Select sends ""; server `z.enum().optional()` 400s. Preprocess ""/null→undefined in shared insert schema.
