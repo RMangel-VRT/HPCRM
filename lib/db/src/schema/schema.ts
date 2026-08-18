@@ -575,6 +575,9 @@ export type ContractBuilderVariable = typeof contractBuilderVariables.$inferSele
 // Ticket Type Categories - classifies the nature of ticket types
 export type TicketTypeCategory = "quick_task" | "project" | "service";
 
+// What happens when a ticket of this type reaches its terminal status
+export type TerminalBehavior = "close" | "invoice" | "handoff";
+
 // Ticket Types - configurable workflow definitions (e.g., "Quick Task", "Project", "Estimate Request")
 export const ticketTypes = pgTable("ticket_types", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -585,6 +588,12 @@ export const ticketTypes = pgTable("ticket_types", {
   icon: text("icon").default("clipboard-list"),
   color: text("color").default("#2563eb"),
   isActive: text("is_active").notNull().default("true").$type<"true" | "false">(),
+  // Capability flags (Slice A: written but not yet read anywhere)
+  requiresCustomer: text("requires_customer").notNull().default("true").$type<"true" | "false">(),
+  requiresScheduling: text("requires_scheduling").notNull().default("false").$type<"true" | "false">(),
+  requiresCompletion: text("requires_completion").notNull().default("false").$type<"true" | "false">(),
+  requiresInvoicing: text("requires_invoicing").notNull().default("false").$type<"true" | "false">(),
+  terminalBehavior: text("terminal_behavior").notNull().default("close").$type<TerminalBehavior>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -596,6 +605,11 @@ export const insertTicketTypeSchema = createInsertSchema(ticketTypes).omit({
 }).extend({
   category: z.enum(["quick_task", "project", "service"]).default("quick_task"),
   isActive: z.enum(["true", "false"]).default("true"),
+  requiresCustomer: z.enum(["true", "false"]).default("true"),
+  requiresScheduling: z.enum(["true", "false"]).default("false"),
+  requiresCompletion: z.enum(["true", "false"]).default("false"),
+  requiresInvoicing: z.enum(["true", "false"]).default("false"),
+  terminalBehavior: z.enum(["close", "invoice", "handoff"]).default("close"),
 });
 
 export type InsertTicketType = z.infer<typeof insertTicketTypeSchema>;
@@ -606,6 +620,8 @@ export const ticketTypeStatuses = pgTable("ticket_type_statuses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  // Stable machine key for seeded statuses (null for user-created custom statuses)
+  statusKey: text("status_key"),
   description: text("description"),
   displayOrder: integer("display_order").notNull(),
   color: text("color").default("#6b7280"),
@@ -615,12 +631,16 @@ export const ticketTypeStatuses = pgTable("ticket_type_statuses", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   ticketTypeStatusesTypeIdIdx: index("ticket_type_statuses_ticket_type_id_idx").on(table.ticketTypeId),
+  ticketTypeStatusesKeyIdx: index("ticket_type_statuses_key_idx")
+    .on(table.ticketTypeId, table.statusKey)
+    .where(sql`status_key IS NOT NULL`),
 }));
 
 export const insertTicketTypeStatusSchema = createInsertSchema(ticketTypeStatuses).omit({
   id: true,
   createdAt: true,
 }).extend({
+  statusKey: z.string().nullable().optional(),
   displayOrder: z.number().int().min(0),
   isFinal: z.enum(["true", "false"]).default("false"),
   actionType: z.enum(["needs_action", "waiting"]).default("needs_action"),

@@ -28,6 +28,7 @@ import heicConvert from 'heic-convert';
 import multer from 'multer';
 import { renderVisualScope, renderVisualScopeExport, type ExportType, type ExportPreset } from "../visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
+import { TICKET_TYPE_CAPABILITIES, STATUS_KEY_BACKFILL } from "../shared/ticketCapabilities";
 import { findClosestHourIndex, buildDateWindow } from "../lib/weatherHourMatch";
 import { buildContractAuditRows } from "../auditEngine";
 import { seedChemicalNotificationTemplates } from "../templates/seed";
@@ -250,6 +251,7 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
       icon: "file-text",
       color: "#f59e0b",
       isActive: "true",
+      ...TICKET_TYPE_CAPABILITIES["Invoice"],
     });
     console.log(`Created Invoice ticket type for company ${companyId}`);
   }
@@ -263,6 +265,7 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
     pendingStatus = await storage.createTicketTypeStatus({
       ticketTypeId: invoiceType.id,
       name: "Pending Invoice",
+      statusKey: STATUS_KEY_BACKFILL["Invoice"]["Pending Invoice"],
       description: "Work completed, awaiting invoice creation in QuickBooks",
       displayOrder: 0,
       color: "#f59e0b",
@@ -276,6 +279,7 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
     invoicedStatus = await storage.createTicketTypeStatus({
       ticketTypeId: invoiceType.id,
       name: "Invoiced",
+      statusKey: STATUS_KEY_BACKFILL["Invoice"]["Invoiced"],
       description: "Invoice created in QuickBooks",
       displayOrder: 1,
       color: "#22c55e",
@@ -329,6 +333,7 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
       icon: "file-plus",
       color: "#8b5cf6",
       isActive: "true",
+      ...TICKET_TYPE_CAPABILITIES["RFP Request"],
     });
     console.log(`Created RFP Request ticket type for company ${companyId}`);
   }
@@ -366,6 +371,7 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
       status = await storage.createTicketTypeStatus({
         ticketTypeId: rfpType.id,
         name: statusDef.name,
+        statusKey: STATUS_KEY_BACKFILL["RFP Request"]?.[statusDef.name] ?? null,
         description: statusDef.description,
         displayOrder: statusDef.order,
         color: statusDef.color,
@@ -548,6 +554,7 @@ async function ensureEstimateRequestTicketType(companyId: string): Promise<{
       icon: "folder-kanban",
       color: "#8b5cf6",
       isActive: "true",
+      ...TICKET_TYPE_CAPABILITIES["Estimate Request"],
     });
     console.log(`Created Estimate Request ticket type for company ${companyId}`);
   }
@@ -577,6 +584,7 @@ async function ensureEstimateRequestTicketType(companyId: string): Promise<{
       status = await storage.createTicketTypeStatus({
         ticketTypeId: projectType.id,
         name: statusDef.name,
+        statusKey: STATUS_KEY_BACKFILL["Estimate Request"]?.[statusDef.name] ?? null,
         description: statusDef.description,
         displayOrder: statusDef.order,
         color: statusDef.color,
@@ -758,6 +766,7 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
       icon: "receipt",
       color: "#f59e0b",
       isActive: "true",
+      ...TICKET_TYPE_CAPABILITIES["Extra Billable"],
     });
     console.log(`Created Extra Billable ticket type for company ${companyId}`);
   }
@@ -780,6 +789,7 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
       status = await storage.createTicketTypeStatus({
         ticketTypeId: ebType.id,
         name: statusDef.name,
+        statusKey: STATUS_KEY_BACKFILL["Extra Billable"]?.[statusDef.name] ?? null,
         description: statusDef.description,
         displayOrder: statusDef.order,
         color: statusDef.color,
@@ -843,6 +853,7 @@ async function ensureProjectTicketType(companyId: string): Promise<{
       icon: "folder-check",
       color: "#0ea5e9",
       isActive: "true",
+      ...TICKET_TYPE_CAPABILITIES["Project"],
     });
     console.log(`Created Project ticket type for company ${companyId}`);
   }
@@ -866,6 +877,7 @@ async function ensureProjectTicketType(companyId: string): Promise<{
       status = await storage.createTicketTypeStatus({
         ticketTypeId: pneType.id,
         name: statusDef.name,
+        statusKey: STATUS_KEY_BACKFILL["Project"]?.[statusDef.name] ?? null,
         description: statusDef.description,
         displayOrder: statusDef.order,
         color: statusDef.color,
@@ -947,6 +959,7 @@ async function ensureToDoTicketType(companyId: string): Promise<{
       icon: "check-square",
       color: "#6366f1",
       isActive: "true",
+      ...TICKET_TYPE_CAPABILITIES["To-Do"],
     });
     console.log(`Created To-Do ticket type for company ${companyId}`);
   }
@@ -967,6 +980,7 @@ async function ensureToDoTicketType(companyId: string): Promise<{
       status = await storage.createTicketTypeStatus({
         ticketTypeId: todoType.id,
         name: statusDef.name,
+        statusKey: STATUS_KEY_BACKFILL["To-Do"]?.[statusDef.name] ?? null,
         description: statusDef.description,
         displayOrder: statusDef.order,
         color: statusDef.color,
@@ -1426,6 +1440,89 @@ export async function migrateProjectNoEstimateTicketType(): Promise<void> {
   } catch (error) {
     console.error("Error during Project ticket type migration:", error);
   }
+}
+
+// Slice A (DDL only): add capability flag columns to ticket_types and the stable
+// status_key column + index to ticket_type_statuses. Split from the backfill so
+// runStartupMigrations can add the columns BEFORE any earlier migration invokes a
+// seeding helper that now inserts these fields. Idempotent (IF NOT EXISTS). Never throws.
+export async function migrateTicketTypeCapabilityColumns(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS requires_customer text NOT NULL DEFAULT 'true'`);
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS requires_scheduling text NOT NULL DEFAULT 'false'`);
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS requires_completion text NOT NULL DEFAULT 'false'`);
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS requires_invoicing text NOT NULL DEFAULT 'false'`);
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS terminal_behavior text NOT NULL DEFAULT 'close'`);
+    await db.execute(sql`ALTER TABLE ticket_type_statuses ADD COLUMN IF NOT EXISTS status_key text`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ticket_type_statuses_key_idx ON ticket_type_statuses (ticket_type_id, status_key) WHERE status_key IS NOT NULL`);
+  } catch (error) {
+    console.error("Error adding ticket type capability columns:", error);
+  }
+}
+
+// Slice A (DML only): backfill capability flags on ticket_types and stable status
+// keys on ticket_type_statuses for every seeded row. No DDL — the columns are added
+// by SQL migration 0040 (post-merge `pnpm migrate`) or by the startup-migration
+// runner; if they don't exist yet this logs and skips. Idempotent: the status
+// backfill only writes WHERE status_key IS NULL (preserving hand-edited values).
+// Must run AFTER migrateTicketTypeRename() — it matches on post-rename type names.
+export async function backfillTicketTypeCapabilities(): Promise<void> {
+  console.log("Running startup migration: Ticket type capability flags and status keys...");
+  try {
+    // Guard: skip cleanly if the capability columns haven't been added yet
+    // (no startup-time DDL on this path — see replit.md "Production schema & extensions").
+    const colCheck = await db.execute(sql`
+      SELECT COUNT(*)::int AS count FROM information_schema.columns
+      WHERE table_name = 'ticket_types' AND column_name = 'requires_customer'
+    `);
+    if (((colCheck.rows[0] as { count: number })?.count ?? 0) === 0) {
+      console.log("Ticket capability backfill skipped: capability columns not present yet (run SQL migration 0040 via pnpm migrate)");
+      return;
+    }
+
+    // Backfill capability flags on every matching ticket_types row (by post-rename name)
+    for (const [typeName, caps] of Object.entries(TICKET_TYPE_CAPABILITIES)) {
+      await db.execute(sql`
+        UPDATE ticket_types SET
+          requires_customer = ${caps.requiresCustomer},
+          requires_scheduling = ${caps.requiresScheduling},
+          requires_completion = ${caps.requiresCompletion},
+          requires_invoicing = ${caps.requiresInvoicing},
+          terminal_behavior = ${caps.terminalBehavior}
+        WHERE name = ${typeName}
+      `);
+    }
+
+    // Backfill status keys, preserving any already-set (hand-edited) values
+    let keysWritten = 0;
+    for (const [typeName, statusKeys] of Object.entries(STATUS_KEY_BACKFILL)) {
+      for (const [statusName, statusKey] of Object.entries(statusKeys)) {
+        const result = await db.execute(sql`
+          UPDATE ticket_type_statuses s
+          SET status_key = ${statusKey}
+          FROM ticket_types t
+          WHERE s.ticket_type_id = t.id
+            AND t.name = ${typeName}
+            AND s.name = ${statusName}
+            AND s.status_key IS NULL
+        `);
+        keysWritten += (result as { rowCount?: number | null }).rowCount ?? 0;
+      }
+    }
+
+    const nullResult = await db.execute(sql`SELECT COUNT(*)::int AS count FROM ticket_type_statuses WHERE status_key IS NULL`);
+    const stillUnkeyed = (nullResult.rows[0] as { count: number })?.count ?? 0;
+    console.log(`Ticket capability migration complete: ${keysWritten} status keys written, ${stillUnkeyed} statuses still unkeyed (expected for user-created custom statuses)`);
+  } catch (error) {
+    console.error("Error during ticket type capability migration:", error);
+  }
+}
+
+// Slice A: full capability migration (DDL + backfill) for the startup-migration
+// runner / one-off deployment scripts. Boot uses the DML-only backfill above.
+export async function migrateTicketTypeCapabilities(): Promise<void> {
+  await migrateTicketTypeCapabilityColumns();
+  await backfillTicketTypeCapabilities();
 }
 
 export async function migrateUserLanguageColumn(): Promise<void> {
@@ -2478,6 +2575,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Must run first — renames "Project" → "Estimate Request" and
   // "Project (No Estimate)" → "Project" before any ensure*/seed* calls look them up by name.
   await migrateTicketTypeRename();
+
+  // Slice A: DML-only backfill of capability flags and status keys. Runs after the
+  // rename above (it matches post-rename names). No DDL — columns come from SQL
+  // migration 0040 via post-merge `pnpm migrate`; skips cleanly if columns are absent.
+  await backfillTicketTypeCapabilities();
 
   setupAuth(app);
   registerCrewsAndMobileRoutes(app);
@@ -19612,6 +19714,7 @@ export async function runStartupMigrations(): Promise<void> {
   // Note: migrateTicketTypeRename() is called directly at the top of registerRoutes()
   // before route registration. Do NOT add it here to avoid running it twice per boot.
   // Run column-adding migrations first so later migrations that query those columns don't fail
+  await migrateTicketTypeCapabilityColumns(); // DDL only — must precede migrations that call the ensure* seeding helpers (they now insert capability fields)
   await migrateTicketCompletionFields();
   await migrateProjectSchedulingStatus();
   await migrateFirstBankHierarchy();
@@ -19622,6 +19725,7 @@ export async function runStartupMigrations(): Promise<void> {
   await fixEstimateRequestBillingBehavior();
   await migrateEstimateSentToProposalWorkflow();
   await migrateProjectNoEstimateTicketType();
+  await migrateTicketTypeCapabilities();
   await migrateUserLanguageColumn();
   await migrateUserPhoneColumn();
   await backfillCustomerType();
