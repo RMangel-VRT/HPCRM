@@ -1,0 +1,75 @@
+# Corrections to #606 before you run it
+
+Three fixes. Two are mine — the slice I wrote had a bad import path and a bad typecheck instruction. One is a trap the agent is likely to walk into.
+
+---
+
+## 1. Step 3 — wrong import path (will fail)
+
+The spec says *"Import `TerminalBehavior` from the schema package."* My original slice showed:
+
+```ts
+import type { TerminalBehavior } from "./schema";   // ❌ WRONG
+```
+
+That copies the import line at the top of `artifacts/api-server/src/shared/workTypeCatalog.ts` — **and that line is broken today.** `artifacts/api-server/src/shared/schema.ts` does not exist and is not tracked in git. The file was copy-pasted from the client's `artifacts/highplains-crm/src/shared/workTypeCatalog.ts`, where `./schema` *does* resolve (the client keeps its own 3,535-line schema duplicate built on a `drizzle-stub`).
+
+Everything real on the server side imports from the workspace package. Use:
+
+```ts
+import type { TerminalBehavior } from "@workspace/db";   // ✅ CORRECT
+```
+
+That is how `storage.ts` and `routes.ts` already import schema types.
+
+---
+
+## 2. Do NOT create `artifacts/api-server/src/shared/schema.ts`
+
+The agent will probably notice the dangling `./schema` import in `workTypeCatalog.ts` and try to be helpful by creating that file. **Forbid this explicitly.** The repo already carries two hand-synced schema definitions:
+
+| File | Lines | Purpose |
+|---|---|---|
+| `lib/db/src/schema/schema.ts` | 3,853 | canonical, used by the server via `@workspace/db` |
+| `artifacts/highplains-crm/src/shared/schema.ts` | 3,535 | client duplicate on a drizzle stub |
+
+A third copy would be strictly worse. Fixing `workTypeCatalog.ts`'s import is a legitimate one-line change (`"./schema"` → `"@workspace/db"`), but it is **out of scope for this slice** — leave it alone, or land it as its own trivial PR first.
+
+---
+
+## 3. Step 6 — the typecheck instructions are wrong
+
+Two problems:
+
+**a. `lib/db` has no `typecheck` script.** Its `package.json` only defines `push` and `push-force`, so `pnpm run typecheck` there errors with a missing script. The libs are covered from the repo root:
+
+```bash
+pnpm run typecheck:libs     # tsc --build, covers lib/db and lib/api-zod
+pnpm run typecheck          # typecheck:libs + every artifact workspace
+```
+
+**b. "must be clean" is not a safe gate.** Because of the dangling import in item 1, `artifacts/api-server`'s typecheck is very likely already failing before this slice touches anything. If the agent is told the run must be clean, it will go fix unrelated pre-existing errors and quietly blow the scope.
+
+Replace Step 6 with:
+
+> **6. Typecheck.** *Before making any changes*, run `pnpm run typecheck` from the repo root and save the full output as a baseline. After the change, run it again. The requirement is **no new errors relative to the baseline** — do not fix pre-existing errors in files this slice does not own. If a pre-existing error blocks progress, stop and report it rather than fixing it.
+
+---
+
+## 4. One line to add back to Step 5
+
+All six `ensure*TicketType` helpers are **module-private** (`async function …`, not exported) and are only called from inside `routes.ts`. No other file imports them, and none of them should be exported as part of this slice.
+
+---
+
+## What the spec got right
+
+Registration point is correct and better than my original wording: `runStartupMigrations()` is a real exported function at `routes.ts:19611`, and placing the call immediately after `await migrateProjectNoEstimateTicketType()` is right — it has to run after the rename/consolidation migrations because it matches on post-rename type names.
+
+Confirmed correct as written: the `"true" | "false"` text column pattern, `storage.createTicketType`/`createTicketTypeStatus` needing no changes (they pass insert objects straight to Drizzle with no whitelist), the six helper names, and no Drizzle migration file (`drizzle-kit push` only, no migrations folder).
+
+---
+
+## Note for Slice B, not now
+
+Slice B touches the client, and the client's `artifacts/highplains-crm/src/shared/schema.ts` duplicate will need the same five capability columns and `statusKey` added by hand or it will drift. Slice A is server-only, so this does not apply yet — but budget for it.

@@ -1,0 +1,385 @@
+# Replit Slice A — Ticket type capability flags + stable status keys
+
+**Ships dark. Zero behavior change. No reader is allowed to change in this slice.**
+
+## Why
+
+Right now the app decides what a ticket can do by string-matching the ticket type's *display name* — `ticketType.name === "Extra Billable"` — in 76 places, plus 14 more matching on status display names. That is why renaming a ticket type required a dedicated repair migration (`migrateTicketTypeRename`). This slice adds the data those checks should be reading, and backfills it. It changes nothing about how the app behaves today.
+
+A later slice migrates the readers. **Do not migrate any readers in this slice.**
+
+---
+
+## 1. Schema — `lib/db/src/schema/schema.ts`
+
+### 1a. Add capability columns to `ticketTypes`
+
+Find `export const ticketTypes = pgTable("ticket_types", {` (around line 579). Add these columns after the existing `isActive` column, before `createdAt`:
+
+```ts
+  // ── Capability flags (Slice A) ────────────────────────────────────────────
+  // These describe what a ticket of this type can do. They exist so code stops
+  // branching on `ticketTypes.name`. Nothing reads them yet — Slice B does.
+  requiresCustomer:   text("requires_customer").notNull().default("true").$type<"true" | "false">(),
+  requiresScheduling: text("requires_scheduling").notNull().default("false").$type<"true" | "false">(),
+  requiresCompletion: text("requires_completion").notNull().default("false").$type<"true" | "false">(),
+  requiresInvoicing:  text("requires_invoicing").notNull().default("false").$type<"true" | "false">(),
+  terminalBehavior:   text("terminal_behavior").notNull().default("close").$type<TerminalBehavior>(),
+```
+
+Note the `"true" | "false"` text pattern — that is deliberate, it matches how `isActive` is already modelled on this table. Do not switch these to booleans.
+
+Add this type export immediately above `export const ticketTypes`:
+
+```ts
+// What reaching a final status on this ticket type means.
+//   close    — the ticket is simply finished (To-Do, Invoice)
+//   invoice  — finishing the work means billing follows (Estimate Request, Project, Extra Billable)
+//   handoff  — finishing hands off to another part of the business (RFP Request → Operations)
+export type TerminalBehavior = "close" | "invoice" | "handoff";
+```
+
+Extend `insertTicketTypeSchema`'s `.extend({ ... })` block with:
+
+```ts
+  requiresCustomer:   z.enum(["true", "false"]).default("true"),
+  requiresScheduling: z.enum(["true", "false"]).default("false"),
+  requiresCompletion: z.enum(["true", "false"]).default("false"),
+  requiresInvoicing:  z.enum(["true", "false"]).default("false"),
+  terminalBehavior:   z.enum(["close", "invoice", "handoff"]).default("close"),
+```
+
+### 1b. Add `statusKey` to `ticketTypeStatuses`
+
+Find `export const ticketTypeStatuses = pgTable("ticket_type_statuses", {` (around line 605). Add after `name`:
+
+```ts
+  // Stable machine key. `name` is the free-text display label and may be renamed
+  // by a user at any time; `statusKey` is what code should match on. Nullable for
+  // now because user-created custom statuses have no key — Slice B readers must
+  // tolerate null.
+  statusKey: text("status_key"),
+```
+
+Add to `insertTicketTypeStatusSchema`'s `.extend({ ... })` block:
+
+```ts
+  statusKey: z.string().nullable().optional(),
+```
+
+Add a partial index so lookups by key are cheap. In the table's index callback (the `(table) => ({ ... })` block that already defines `ticketTypeStatusesTypeIdIdx`), add:
+
+```ts
+  ticketTypeStatusesKeyIdx: index("ticket_type_statuses_key_idx").on(table.ticketTypeId, table.statusKey),
+```
+
+### 1c. Push the schema
+
+This repo uses `drizzle-kit push` (there is no migrations folder). The startup migration in step 2 also adds the columns with `IF NOT EXISTS`, so the app is safe whether or not push has run.
+
+---
+
+## 2. Startup migration — `artifacts/api-server/src/routes/routes.ts`
+
+Add one exported function. Follow the existing house pattern exactly (see `migrateUserPhoneColumn` / `migrateEquipmentProfilePhotoColumn` in the same file): raw SQL, `IF NOT EXISTS`, wrapped in try/catch, logs on both paths, never throws.
+
+```ts
+/**
+ * Slice A: add ticket-type capability flags and stable status keys, then backfill
+ * them for every existing company from the known seeded workflows.
+ *
+ * Idempotent — safe to run on every boot. Backfill only ever writes a row whose
+ * value is still NULL/default, so a hand-edited value is never clobbered.
+ *
+ * NOTHING READS THESE COLUMNS YET. This migration is deliberately inert.
+ */
+export async function migrateTicketTypeCapabilities(): Promise<void> {
+  console.log("Running startup migration: ticket type capability flags + status keys...");
+  try {
+    // ── columns ──────────────────────────────────────────────────────────────
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS requires_customer   text NOT NULL DEFAULT 'true'`);
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS requires_scheduling text NOT NULL DEFAULT 'false'`);
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS requires_completion text NOT NULL DEFAULT 'false'`);
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS requires_invoicing  text NOT NULL DEFAULT 'false'`);
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS terminal_behavior   text NOT NULL DEFAULT 'close'`);
+    await db.execute(sql`ALTER TABLE ticket_type_statuses ADD COLUMN IF NOT EXISTS status_key text`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ticket_type_statuses_key_idx ON ticket_type_statuses (ticket_type_id, status_key)`);
+
+    // ── backfill capability flags by seeded type name ────────────────────────
+    // Matching on name here is correct and intentional: this is the ONE place
+    // that translates the old name-based world into the new flag-based one.
+    for (const [name, f] of Object.entries(TICKET_TYPE_CAPABILITIES)) {
+      await db.execute(sql`
+        UPDATE ticket_types
+        SET requires_customer   = ${f.requiresCustomer},
+            requires_scheduling = ${f.requiresScheduling},
+            requires_completion = ${f.requiresCompletion},
+            requires_invoicing  = ${f.requiresInvoicing},
+            terminal_behavior   = ${f.terminalBehavior}
+        WHERE name = ${name}
+      `);
+    }
+
+    // ── backfill status keys by (type name, status name) ─────────────────────
+    let keyed = 0;
+    for (const [typeName, map] of Object.entries(STATUS_KEY_BACKFILL)) {
+      for (const [statusName, key] of Object.entries(map)) {
+        const r = await db.execute(sql`
+          UPDATE ticket_type_statuses s
+          SET status_key = ${key}
+          FROM ticket_types t
+          WHERE s.ticket_type_id = t.id
+            AND t.name = ${typeName}
+            AND s.name = ${statusName}
+            AND s.status_key IS NULL
+        `);
+        keyed += (r as { rowCount?: number }).rowCount ?? 0;
+      }
+    }
+
+    const unkeyed = await db.execute(sql`
+      SELECT count(*)::int AS n FROM ticket_type_statuses WHERE status_key IS NULL
+    `);
+    console.log(
+      `Ticket capability migration complete: ${keyed} status keys written, ` +
+      `${(unkeyed as any).rows?.[0]?.n ?? "?"} statuses still unkeyed (expected for user-created custom statuses)`
+    );
+  } catch (error) {
+    console.error("Error during ticket type capability migration:", error);
+  }
+}
+```
+
+### Register it
+
+In the startup migration block near the bottom of `registerRoutes()` (the one that begins with `await migrateTicketCompletionFields();`, around line 19615), add this line **after** `await migrateProjectNoEstimateTicketType();`. It must run after the rename/consolidation migrations, because it matches on the post-rename type names:
+
+```ts
+  await migrateTicketTypeCapabilities();
+```
+
+---
+
+## 3. The two backfill tables
+
+Put both in a new file `artifacts/api-server/src/shared/ticketCapabilities.ts`, and import them into `routes.ts`. Keep them next to `workTypeCatalog.ts`, which is the existing home for this kind of registry.
+
+```ts
+import type { TerminalBehavior } from "./schema";
+
+export interface TicketTypeCapabilities {
+  requiresCustomer:   "true" | "false";
+  requiresScheduling: "true" | "false";
+  requiresCompletion: "true" | "false";
+  requiresInvoicing:  "true" | "false";
+  terminalBehavior:   TerminalBehavior;
+}
+
+/**
+ * Capability flags for the six seeded ticket types, derived from how each
+ * workflow actually behaves today. This is the migration's source of truth and
+ * the default for newly seeded companies.
+ */
+export const TICKET_TYPE_CAPABILITIES: Record<string, TicketTypeCapabilities> = {
+  "To-Do": {
+    requiresCustomer: "false",   // falls back to the "Internal Tasks" customer
+    requiresScheduling: "false",
+    requiresCompletion: "false",
+    requiresInvoicing: "false",
+    terminalBehavior: "close",
+  },
+  "Estimate Request": {
+    requiresCustomer: "true",
+    requiresScheduling: "true",
+    requiresCompletion: "true",
+    requiresInvoicing: "true",
+    terminalBehavior: "invoice",
+  },
+  "Project": {
+    requiresCustomer: "true",
+    requiresScheduling: "true",
+    requiresCompletion: "true",
+    requiresInvoicing: "true",
+    terminalBehavior: "invoice",
+  },
+  "Extra Billable": {
+    requiresCustomer: "true",
+    requiresScheduling: "true",
+    requiresCompletion: "true",
+    requiresInvoicing: "true",
+    terminalBehavior: "invoice",
+  },
+  "Invoice": {
+    requiresCustomer: "true",
+    requiresScheduling: "false",
+    requiresCompletion: "false",
+    requiresInvoicing: "false",  // an Invoice ticket IS the billing artifact
+    terminalBehavior: "close",
+  },
+  "RFP Request": {
+    requiresCustomer: "false",   // a prospect, not yet a customer
+    // NOTE: "Pre-Proposal Walk" and "Post-Award Kickoff" are real scheduled site
+    // visits with no scheduling mechanism today. Left false to preserve current
+    // behavior exactly; revisit in the scheduling slice.
+    requiresScheduling: "false",
+    requiresCompletion: "false",
+    requiresInvoicing: "false",
+    terminalBehavior: "handoff",
+  },
+};
+
+/**
+ * Stable machine keys for every seeded status, keyed by [type name][status name].
+ * Display names stay free-text and renameable; these keys are what code matches on.
+ */
+export const STATUS_KEY_BACKFILL: Record<string, Record<string, string>> = {
+  "To-Do": {
+    "Open": "new",
+    "Done": "closed_won",
+  },
+  "Estimate Request": {
+    "New":               "new",
+    "Estimating":        "estimating",
+    "Create Proposal":   "proposal_draft",
+    "Proposal Sent":     "proposal_sent",
+    "Decision Received": "decision_received",
+    "Ready to Schedule": "ready_to_schedule",
+    "Work Completed":    "work_completed",
+    "Ready for Billing": "ready_for_billing",
+    "Invoicing":         "invoicing",
+    "Closed - Lost":     "closed_lost",
+  },
+  "Project": {
+    "New":               "new",
+    "Ready to Schedule": "ready_to_schedule",
+    "Scheduled":         "scheduled",
+    "Work Completed":    "work_completed",
+    "Ready for Billing": "ready_for_billing",
+    "Invoicing":         "invoicing",
+    "Closed - Lost":     "closed_lost",
+  },
+  "Extra Billable": {
+    "New":               "new",
+    "Ready to Schedule": "ready_to_schedule",
+    "In Progress":       "in_progress",
+    "Work Completed":    "work_completed",
+    "Ready for Billing": "ready_for_billing",
+    "Done":              "closed_won",
+  },
+  "Invoice": {
+    "Pending Invoice": "pending_invoice",
+    "Invoiced":        "invoiced",
+  },
+  "RFP Request": {
+    "Request Received":      "new",
+    "Review Requirements":   "reviewing",
+    "Request Missing Info":  "waiting_info",
+    "Pre-Proposal Walk":     "site_visit",
+    "Proposal Drafted":      "proposal_draft",
+    "Proposal Submitted":    "proposal_sent",
+    "Awaiting Response":     "awaiting_response",
+    "Decision Received":     "decision_received",
+    "Closed - Lost":         "closed_lost",
+    "Awarded":               "awarded",
+    "Contract Executed":     "contract_executed",
+    "CRM Setup Complete":    "crm_setup",
+    "Maps Requested":        "maps_requested",
+    "Maps Uploaded":         "maps_uploaded",
+    "Contacts Collected":    "contacts_collected",
+    "Post-Award Kickoff":    "kickoff",
+    "Handoff to Operations": "handoff_ops",
+    "Closed - Won":          "closed_won",
+  },
+};
+```
+
+---
+
+## 4. Make new companies get the values too
+
+**This is the step that is easiest to miss.** The migration only fixes companies that already exist. Every seeding helper in `routes.ts` that creates a ticket type or status must also set the new fields, or newly onboarded companies get defaults that are wrong.
+
+Update each of these `ensure*` / seed helpers so their `storage.createTicketType({...})` call spreads the capabilities, and each `storage.createTicketTypeStatus({...})` call passes its `statusKey`:
+
+| Helper | Approx. line | Type it seeds |
+|---|---|---|
+| `ensureInvoiceTicketType` | 236 | Invoice |
+| `ensureRFPRequestTicketType` | 316 | RFP Request |
+| `ensureEstimateRequestTicketType` | 535 | Estimate Request |
+| `ensureExtraBillableTicketType` | 745 | Extra Billable |
+| `ensureProjectTicketType` | 830 | Project |
+| `ensureToDoTicketType` | 933 | To-Do |
+
+Pattern for the type:
+
+```ts
+invoiceType = await storage.createTicketType({
+  companyId,
+  name: "Invoice",
+  // …existing fields unchanged…
+  ...TICKET_TYPE_CAPABILITIES["Invoice"],
+});
+```
+
+Pattern for the statuses — each of these helpers builds its statuses from a local array literal of `{ name, description, color, order, isFinal, actionType }`. Add `statusKey` to each entry in those arrays, taking the value from `STATUS_KEY_BACKFILL`, and pass it through to `createTicketTypeStatus`.
+
+`storage.createTicketType` (storage.ts L1828) and `storage.createTicketTypeStatus` (L1868) both pass the insert object straight through to Drizzle with no field whitelist, so **they need no change** — the new fields flow through automatically once the schema and the Zod insert schemas know about them.
+
+All six helpers are module-private (`async function ensure…`, not exported), so the only callers are inside `routes.ts` — no other file needs touching.
+
+---
+
+## 5. Do NOT do any of these in this slice
+
+- Do not change `rfbInvoiceAutoCreate.ts`. It keeps matching on `"Ready for Billing"` and on type names for now.
+- Do not change any `ticketType?.name === "…"` or `currentStatus?.name === "…"` comparison anywhere.
+- Do not change `TicketDetail.tsx`, `TicketsList.tsx`, `NewTicket.tsx`, or any mobile screen.
+- Do not touch the `workType` / `billingBehavior` columns or `workTypeCatalog.ts`.
+- Do not add a UI for editing the flags. Settings can expose them in a later slice.
+- Do not delete or rename any existing status.
+
+If you find yourself editing a file not named in sections 1–4, stop — it is out of scope.
+
+---
+
+## 6. Acceptance criteria
+
+1. App boots cleanly; the migration logs `Ticket capability migration complete: N status keys written, M statuses still unkeyed`.
+2. Running the app a second time logs `0 status keys written` (idempotent — the backfill only writes `WHERE status_key IS NULL`).
+3. Every existing ticket still opens, and its status, badges, and workflow tab render exactly as before. **Nothing visual should change.**
+4. These queries return the expected rows:
+
+```sql
+-- every seeded type has non-default flags where it should
+SELECT name, requires_customer, requires_scheduling, requires_completion,
+       requires_invoicing, terminal_behavior
+FROM ticket_types ORDER BY name;
+
+-- the three schedulable types, found by flag rather than by name
+SELECT name FROM ticket_types WHERE requires_scheduling = 'true';
+-- expect: Estimate Request, Extra Billable, Project
+
+-- the three invoicing types
+SELECT name FROM ticket_types WHERE requires_invoicing = 'true';
+-- expect: Estimate Request, Extra Billable, Project
+
+-- every seeded status is keyed; only user-created customs remain null
+SELECT t.name AS type, s.name AS status, s.status_key
+FROM ticket_type_statuses s JOIN ticket_types t ON t.id = s.ticket_type_id
+WHERE s.status_key IS NULL ORDER BY t.name, s.display_order;
+
+-- ready_for_billing is now findable across all three workflows at once
+SELECT t.name, s.name FROM ticket_type_statuses s
+JOIN ticket_types t ON t.id = s.ticket_type_id
+WHERE s.status_key = 'ready_for_billing';
+-- expect: Estimate Request, Extra Billable, Project
+```
+
+5. Create a brand-new test company and confirm its freshly seeded ticket types and statuses come out with the same flags and keys as an existing company's — this is what step 4 protects.
+
+---
+
+## 7. What comes next (context only — not this slice)
+
+- **Slice B** migrates the 76 name comparisons and 14 status-name comparisons to read these flags and keys. That is the slice that actually removes the fragility.
+- The visual work derives the five universal status states (not started / in progress / waiting / complete / lost) from `statusKey` plus the existing `actionType` and `isFinal` columns, in one shared helper. No further schema is needed for it.
