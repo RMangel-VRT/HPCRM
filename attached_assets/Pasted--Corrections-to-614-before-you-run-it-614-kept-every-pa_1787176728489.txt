@@ -1,0 +1,79 @@
+# Corrections to #614 before you run it
+
+#614 kept every palette value correct (I checked all twenty against the mockup), the inert-delivery requirement, the stop-and-report rule on missing API data, and the do-not-touch list. Three additions — the first is a mistake in my spec that #614 already half-caught.
+
+---
+
+## 1. My spec was wrong about `currentStatus` — #614's version is right
+
+My V0 §3 told you to narrow a `currentStatus` entry on the ticket detail response. **There is no such field.** `TicketDetails` (TicketDetail.tsx ~L98–111) contains `ticket`, `ticketType`, `statuses`, `fieldValues`, `statusHistory`, `comments`, `customer`, `contract`, `contractServices`, `assignedUser`, `delegatedByUser`, `linkedTickets` — and the component derives the current one at L661:
+
+```ts
+const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
+```
+
+#614's phrasing — "the current ticket status, found in the `statuses` payload" — is the correct reading. Follow it, not my snippet. The field to narrow is the **array element type**:
+
+```ts
+statuses: (TicketTypeStatus & {
+  fields: TicketTypeField[];
+  statusKey?: string | null;
+  actionType?: "needs_action" | "waiting" | null;
+  isFinal?: "true" | "false" | null;
+})[];
+```
+
+---
+
+## 2. Also narrow `LinkedTicketInfo` — my spec missed it entirely
+
+Directly above `TicketDetails`, at ~L90–96:
+
+```ts
+interface LinkedTicketInfo {
+  link: TicketLink;
+  ticket: Ticket | null;
+  ticketType: TicketType | null;
+  currentStatus: TicketTypeStatus | null;
+  relationship: "source" | "target";
+}
+```
+
+`TicketType` and `TicketTypeStatus` here are both `any` (the drizzle-stub problem), and **these two fields are exactly what the V1 work-thread lineage bar reads** — the parent's hue comes from `linkedTickets[].ticketType.typeKey`, and each node's state badge from `linkedTickets[].currentStatus.statusKey`. Narrow them now while the file is open:
+
+```ts
+interface LinkedTicketInfo {
+  link: TicketLink;
+  ticket: Ticket | null;
+  ticketType: { id: string; name: string; color: string | null; typeKey?: string | null } | null;
+  currentStatus: { id: string; name: string; color: string | null; statusKey?: string | null;
+                   actionType?: "needs_action" | "waiting" | null; isFinal?: "true" | "false" | null } | null;
+  relationship: "source" | "target";
+}
+```
+
+Add to the API verification step: confirm `linkedTickets[].ticketType.typeKey` is also populated on a ticket that has a linked invoice (an Extra Billable or Estimate Request at Ready for Billing or later). If it is missing, V1 needs the endpoint widened and it is far better to know now.
+
+---
+
+## 3. Four files listed under "Relevant files" must not be edited
+
+* `artifacts/api-server/src/routes/routes.ts`
+* `artifacts/api-server/src/storage.ts`
+* `artifacts/api-server/src/shared/ticketCapabilities.ts`
+* `artifacts/highplains-crm/src/shared/workTypeCatalog.ts`
+
+The three server files are **reference only** — the out-of-scope list already forbids server changes, and step 1 says to stop and report rather than widen an endpoint, but listing `routes.ts` next to a verification step that might find missing data is an invitation. `workTypeCatalog.ts` is a **style reference only**: it shows the convention for a client module that mirrors a server one. Nothing in it changes.
+
+**Name the new file explicitly** so it does not land somewhere else:
+
+> New file: `artifacts/highplains-crm/src/shared/ticketVisuals.ts`
+
+---
+
+## Verified correct as written
+
+* All twenty palette values match the mockup exactly, in both modes, including the 15%/13% and 24%/17% tint strengths.
+* `index.css` genuinely uses `:root` (ends ~L128) and `.dark` (~L131–244) — the mockup's `data-theme` selector does **not** apply here and #614 correctly says "existing light and dark theme blocks."
+* Keeping the new tokens as raw hex rather than Tailwind `hsl(var(--x))` triples is right; they are consumed directly by `color-mix()`, not through Tailwind's color pipeline.
+* `StatusBadge.tsx` being out of scope is correct — it is a different vocabulary (customer/contract states), not the ticket status badge, and touching it here would be a rendering change.

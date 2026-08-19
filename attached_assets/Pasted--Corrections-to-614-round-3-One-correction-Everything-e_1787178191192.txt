@@ -1,0 +1,62 @@
+# Corrections to #614 — round 3
+
+One correction. Everything else in this revision is right, including the round-2 intersection fix.
+
+---
+
+## `TicketListView.tsx` does need a change — the claim understates it
+
+#614 says:
+
+> `TicketListView.tsx` imports `TicketWithDetails` from `TicketCard` and needs no separate change.
+
+**The import claim is true** — line 69 is `import type { TicketWithDetails } from "@/components/TicketCard";`, so narrowing that interface in `TicketCard.tsx` does propagate here. Good catch by whoever wrote it.
+
+**But the conclusion doesn't follow.** `TicketListView.tsx` separately imports the raw `any` schema types at line 27 and uses them at the points where data actually enters the component:
+
+| Line | Code | Problem |
+|---|---|---|
+| 122 | `useQuery<TicketType[]>({ … })` | the ticket-types list arrives as `any[]` |
+| 184 | `currentStatus: allStatuses.find((s: TicketTypeStatus) => s.id === ticket.currentStatusId)` | **each row's `currentStatus` is built here, from `any`** |
+| 217, 486, 604, 641 | `allStatuses.filter((s: TicketTypeStatus) => …)`, sorts by `displayOrder` | all unchecked |
+
+Line 184 is the one that matters. `any` is assignable to anything, so a narrowed `TicketWithDetails.currentStatus` accepts it silently — the interface *looks* typed while the value flowing into it was never checked. `statusKey` would be `undefined` at runtime with no compile-time signal, which is exactly the failure mode this slice exists to prevent.
+
+**Fix:** give the two query generics the same explicit shapes used elsewhere in this slice, and drop the `TicketType` / `TicketTypeStatus` annotations on the `.find` / `.filter` callbacks so the element type is inferred from the narrowed query instead:
+
+```ts
+// L122 — was useQuery<TicketType[]>
+useQuery<{ id: string; name: string; color: string | null; typeKey?: string | null }[]>({ … })
+
+// the allStatuses query — same treatment
+useQuery<{
+  id: string;
+  ticketTypeId: string;
+  name: string;
+  displayOrder: number;
+  color: string | null;
+  isFinal: "true" | "false";
+  actionType: "needs_action" | "waiting";
+  statusKey?: string | null;
+}[]>({ … })
+```
+
+Then `allStatuses.find(s => s.id === …)` infers correctly with no annotation.
+
+**Scope guard:** this is a 650-line file and replacing `any` at a query boundary can surface real errors downstream. The same rule from round 2 applies — add genuinely-read fields to the shape, never revert to `any` or cast. **If this specific change surfaces more than a handful of errors, leave `TicketListView.tsx` alone, note it, and hand it to the list-view slice (V4) instead.** V0's job is the foundation; `TicketDetail` and `TicketCard` are the ones V1 and V2 depend on, and neither needs `TicketListView` narrowed to proceed.
+
+Update the Done bullet to match — something like:
+
+> …`TicketWithDetails` in `TicketCard.tsx` replaces the `ticketType?` and `currentStatus?` members with explicit structural shapes. `TicketListView.tsx` re-uses that import, and additionally narrows its own `useQuery` generics for ticket types and statuses so the values assigned into those fields are themselves checked — or, if that surfaces more than a handful of downstream errors, is deferred to the list-view slice with a note.
+
+---
+
+## Verified correct in this revision — do not change
+
+* The round-2 intersection fix is correctly captured, including the parenthetical that `any & T` collapses to `any`.
+* The `TicketDetails.statuses` explicit shape, and `LinkedTicketInfo.ticketType` / `.currentStatus` as explicit object shapes.
+* Reading the current status out of the `statuses` array — there is no `currentStatus` field on the detail response.
+* All twenty palette values, both modes, plus the 15%/13% and 24%/17% tints.
+* The typecheck rule: fix by adding real fields, never silence with casts or revert to `any`, stop and report if the count is too large.
+* Verifying `linkedTickets[].ticketType.typeKey` on a ticket with a linked invoice, and stopping rather than widening a server endpoint.
+* `ticketVisuals.ts` left with no importers; no screen changes.

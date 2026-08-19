@@ -1,0 +1,236 @@
+# Replit Slice V0 — Visual system foundation
+
+**Ships dark. Nothing renders differently. This slice only adds tokens and helpers that later visual slices consume.**
+
+The design is already settled and validated — see `ticket-visual-system-mockup.html` in the project folder. **The Replit agent cannot open that file**, so every value it needs is inlined below. Do not invent colors; do not "improve" them. They were chosen by running a colorblindness/contrast validator over all pairs in both light and dark mode, and substituting a nicer-looking hex silently breaks that.
+
+---
+
+## The model in one paragraph
+
+Two independent color systems that must never borrow from each other:
+
+1. **Ticket type owns a hue.** It appears in exactly two places — the left rail on a list row and the type badge — which are always the same color. Plus a faint tint behind the detail header. **Invoice tickets have no hue of their own; they inherit their parent's**, so a billing ticket visibly belongs to the work that created it.
+2. **Status uses one universal five-state scale**, identical on every ticket type, standard traffic-light meaning, each hue nudged toward the High Plains olive-lime brand. Status never uses a type hue.
+
+---
+
+## 1. CSS tokens — `artifacts/highplains-crm/src/index.css`
+
+The file already uses `:root { … }` (light, ends ~L128) and `.dark { … }` (dark, ~L131–244). Add these to **both** blocks. Note the existing tokens in this file are bare HSL triples for Tailwind; these new ones are **full hex** and are consumed directly, not through Tailwind's `hsl(var(--x))` wrapper. Keep them visually grouped and commented.
+
+Add to `:root`:
+
+```css
+  /* ── Ticket type hues (validated all-pairs light: CVD ΔE 11.0, normal-vision 20.6, all ≥3:1) ── */
+  --tt-estimate: #4338ca;   /* indigo  */
+  --tt-project:  #0d9488;   /* teal    */
+  --tt-rfp:      #a21a6b;   /* magenta */
+  --tt-extra:    #bd6112;   /* copper  */
+  --tt-todo:     #6b6b62;   /* stone — deliberately neutral */
+  --tt-fallback: #6b6b62;   /* unkeyed / user-created types, and standalone Invoice */
+
+  /* ── Universal status scale (all ≥3.78:1 on this surface) ── */
+  --ts-open:    #787468;   /* not started        */
+  --ts-active:  #2f6cad;   /* in progress        */
+  --ts-waiting: #a8790d;   /* waiting on someone */
+  --ts-done:    #4f8524;   /* complete           */
+  --ts-lost:    #a83a2b;   /* lost / cancelled   */
+
+  /* tint strengths used by color-mix() for chips, rails and header washes */
+  --tt-tint:  15%;
+  --tt-tint2: 13%;
+```
+
+Add to `.dark`:
+
+```css
+  /* Dark steps are the same hues re-stepped for the dark surface, not an automatic
+     flip. Validated all-pairs dark: CVD ΔE 9.7, normal-vision 15.4, all ≥3:1. */
+  --tt-estimate: #7a6ff0;
+  --tt-project:  #3ca694;
+  --tt-rfp:      #be47b8;
+  --tt-extra:    #cf7132;
+  --tt-todo:     #9a9a90;
+  --tt-fallback: #9a9a90;
+
+  --ts-open:    #a3a08f;
+  --ts-active:  #5b9bd9;
+  --ts-waiting: #dcb03c;
+  --ts-done:    #8cc63f;
+  --ts-lost:    #e0705f;
+
+  --tt-tint:  24%;
+  --tt-tint2: 17%;
+```
+
+**The dark values are not derived from the light ones.** Do not compute them, do not use Tailwind opacity modifiers to approximate them — paste them as given.
+
+---
+
+## 2. New shared module — `artifacts/highplains-crm/src/shared/ticketVisuals.ts`
+
+Sits alongside `workTypeCatalog.ts`, which is already a client mirror of a server module. Same convention.
+
+```ts
+/**
+ * Client-side visual system for tickets. Mirrors the identity vocabulary of the
+ * server's `artifacts/api-server/src/shared/ticketCapabilities.ts` and adds the
+ * presentation layer on top.
+ *
+ * Nothing here renders anything on its own — visual slices V1+ consume it.
+ */
+
+export type TicketTypeKey =
+  | "todo" | "estimate_request" | "project" | "extra_billable" | "invoice" | "rfp_request";
+
+/** Mirrors the server's TICKET_TYPE_NAMES_BY_KEY — keep the two in sync. */
+export const TICKET_TYPE_NAMES_BY_KEY: Record<TicketTypeKey, string> = {
+  todo: "To-Do",
+  estimate_request: "Estimate Request",
+  project: "Project",
+  extra_billable: "Extra Billable",
+  invoice: "Invoice",
+  rfp_request: "RFP Request",
+};
+
+export interface TicketTypeIdentity {
+  name: string;
+  typeKey?: string | null;
+}
+
+/**
+ * Key-first identity check. A non-null key is authoritative; only unkeyed rows
+ * fall back to the display name. Same rule as the server resolver.
+ */
+export function isSeededTicketType(
+  type: TicketTypeIdentity | null | undefined,
+  key: TicketTypeKey,
+): boolean {
+  if (!type) return false;
+  if (type.typeKey != null) return type.typeKey === key;
+  return type.name === TICKET_TYPE_NAMES_BY_KEY[key];
+}
+
+/**
+ * The CSS custom property carrying this type's hue.
+ *
+ * `invoice` is deliberately absent: an Invoice ticket inherits its parent's hue.
+ * Callers resolve the parent first and only fall back to `--tt-fallback` for a
+ * standalone Invoice with no linked parent.
+ */
+const TYPE_HUE_VAR: Record<Exclude<TicketTypeKey, "invoice">, string> = {
+  estimate_request: "--tt-estimate",
+  project:          "--tt-project",
+  rfp_request:      "--tt-rfp",
+  extra_billable:   "--tt-extra",
+  todo:             "--tt-todo",
+};
+
+/** `var(--tt-…)` for a ticket type, or the neutral fallback when unkeyed/invoice. */
+export function typeHueVar(type: TicketTypeIdentity | null | undefined): string {
+  for (const key of Object.keys(TYPE_HUE_VAR) as Array<keyof typeof TYPE_HUE_VAR>) {
+    if (isSeededTicketType(type, key)) return `var(${TYPE_HUE_VAR[key]})`;
+  }
+  return "var(--tt-fallback)";
+}
+
+// ── Universal status scale ────────────────────────────────────────────────────
+
+export type TicketStatusState = "open" | "active" | "waiting" | "done" | "lost";
+
+export const STATUS_STATE_LABEL: Record<TicketStatusState, string> = {
+  open: "Not started",
+  active: "In progress",
+  waiting: "Waiting",
+  done: "Complete",
+  lost: "Lost",
+};
+
+export const STATUS_STATE_VAR: Record<TicketStatusState, string> = {
+  open:    "var(--ts-open)",
+  active:  "var(--ts-active)",
+  waiting: "var(--ts-waiting)",
+  done:    "var(--ts-done)",
+  lost:    "var(--ts-lost)",
+};
+
+export interface TicketStatusIdentity {
+  statusKey?: string | null;
+  actionType?: "needs_action" | "waiting" | null;
+  isFinal?: "true" | "false" | null;
+}
+
+const OPEN_KEYS = new Set(["new", "pending_invoice"]);
+const DONE_KEYS = new Set(["closed_won", "invoiced", "invoicing"]);
+
+/**
+ * Collapse any workflow status onto the five universal states.
+ *
+ * Order matters: `closed_lost` is also `isFinal`, so it must be tested first.
+ * A status with no `statusKey` (user-created custom status) still resolves
+ * sensibly from `actionType` / `isFinal` alone — that is the graceful path,
+ * not an error case.
+ */
+export function deriveStatusState(status: TicketStatusIdentity | null | undefined): TicketStatusState {
+  if (!status) return "open";
+  const key = status.statusKey ?? undefined;
+
+  if (key === "closed_lost") return "lost";
+  if (key && DONE_KEYS.has(key)) return "done";
+  if (status.actionType === "waiting") return "waiting";
+  if (key && OPEN_KEYS.has(key)) return "open";
+  if (!key && status.isFinal === "true") return "done";
+  return "active";
+}
+```
+
+---
+
+## 3. Extend the local response interfaces so the new fields are visible
+
+**Important context the agent needs:** `artifacts/highplains-crm/src/shared/schema.ts` is a hand-maintained duplicate built on `./drizzle-stub`, and that stub's `pgTable` returns `any`. So `TicketType`, `TicketTypeStatus` and friends imported from `@shared/schema` are **`any`** — they provide no field checking whatsoever. Adding columns there would not help.
+
+Instead, add the fields explicitly where each component declares its own API response shape. In `TicketDetail.tsx` (~L93–105) the `details` interface already spells out `ticketType`, `statuses`, `currentStatus` etc. Narrow those entries so the new fields are real:
+
+```ts
+ticketType: { id: string; name: string; color: string | null; typeKey?: string | null } | null;
+currentStatus: { id: string; name: string; color: string | null; statusKey?: string | null;
+                 actionType?: "needs_action" | "waiting" | null; isFinal?: "true" | "false" | null } | null;
+```
+
+Do the same in `TicketCard.tsx` and `TicketListView.tsx` for the props they already declare. Do **not** attempt to fix the schema duplicate or the stub — that is a separate decision.
+
+---
+
+## 4. Confirm the server already sends these fields
+
+`storage.getTicketTypes` / the ticket detail endpoint select whole rows, so `typeKey` and `statusKey` should already be present in the JSON. **Verify before finishing** — open a ticket in the browser, look at the `/api/tickets/:id` response in the network tab, and confirm `ticketType.typeKey` and `currentStatus.statusKey` are populated. If either is missing, report it and stop; a later slice will need the endpoint widened and it is better to know now.
+
+---
+
+## Out of scope
+
+* **Do not change any rendering.** No component's output may differ after this slice. If a pixel moves, something is wrong.
+* Do not modify `components/StatusBadge.tsx`. It is a third, unrelated status vocabulary (customer/contract states) and will be dealt with separately — it is *not* the ticket status badge.
+* Do not touch `artifacts/highplains-crm/src/shared/schema.ts` or `drizzle-stub.ts`.
+* Do not migrate any of the ~20 client `ticketType.name === "…"` checks. They come later, and they will use `isSeededTicketType` from this module.
+* Do not touch the server, mobile, or any test.
+* Do not fix pre-existing TypeScript errors in files this slice does not own.
+
+## Done looks like
+
+1. `pnpm run typecheck` from the repo root introduces no new errors vs the baseline captured *before* any edit.
+2. The app builds and every ticket screen looks **byte-identical** to before.
+3. In devtools, `getComputedStyle(document.documentElement).getPropertyValue('--tt-estimate')` returns `#4338ca` in light mode and `#7a6ff0` after toggling dark.
+4. `ticketVisuals.ts` exists and is imported by nothing yet — that is expected.
+5. Confirmed from a real API response that `ticketType.typeKey` and `currentStatus.statusKey` arrive populated.
+
+---
+
+## What this unblocks (context only — not this slice)
+
+* **V1** — detail header tint + the work-thread lineage bar (parent ↔ invoice, bidirectional).
+* **V2** — the status stepper replacing the stack of per-status Cards on the workflow tab.
+* **V3** — the universal status badge everywhere it renders today.
+* **V4** — list view: rails, chips, child indentation, filter chips.

@@ -1,0 +1,100 @@
+# Corrections to #614 — round 2
+
+**This supersedes one snippet in `slice-V0-corrections.md`.** If both documents are attached, this one wins where they disagree.
+
+#614 itself is correct as written. The problem is in my earlier correction doc, and it is the kind of mistake that produces code which looks right and silently does nothing.
+
+---
+
+## Do NOT narrow by intersecting with the schema types — replace them
+
+My earlier correction gave this for the `statuses` array in `TicketDetail.tsx`:
+
+```ts
+// ❌ WRONG — this compiles, looks like narrowing, and checks nothing
+statuses: (TicketTypeStatus & {
+  fields: TicketTypeField[];
+  statusKey?: string | null;
+  actionType?: "needs_action" | "waiting" | null;
+  isFinal?: "true" | "false" | null;
+})[];
+```
+
+`TicketTypeStatus` comes from `@shared/schema`, whose `drizzle-stub` types every table as `any`. In TypeScript, **`any & T` collapses to `any`** — the intersection is erased. So that annotation gives exactly the same (non-existent) checking as before, while reading like an improvement. Every later visual slice would then be built on a false sense of safety, and a typo like `status.statuskey` would compile fine.
+
+Use an explicit structural shape with no `&`:
+
+```ts
+// ✅ CORRECT — real fields, real checking
+statuses: {
+  id: string;
+  name: string;
+  description: string | null;
+  displayOrder: number;
+  color: string | null;
+  isFinal: "true" | "false";
+  actionType: "needs_action" | "waiting";
+  waitingCategory: "customer" | "vendor" | "internal" | "other" | null;
+  statusKey?: string | null;
+  fields: {
+    id: string;
+    fieldKey: string;
+    fieldLabel: string;
+    fieldType: "text" | "number" | "date" | "currency" | "select" | "textarea";
+    isRequired: "true" | "false";
+    options: string[] | null;
+    displayOrder: number;
+    statusId: string | null;
+  }[];
+}[];
+```
+
+**Important:** because this replaces an `any` with something real, previously-unchecked property accesses elsewhere in the file may now surface as errors. That is the point — but if a field this component genuinely reads is missing from the shape above, **add it to the shape**; do not revert to `any` and do not silence it with a cast. If the volume of newly-surfaced errors is large enough to blow the slice's scope, stop and report the count rather than pushing through.
+
+The `LinkedTicketInfo` snippet in the earlier doc is already in the correct style — explicit object literal, no `&`. Copy that pattern, not the `statuses` one.
+
+---
+
+## Same trap in `TicketCard.tsx`
+
+```ts
+export interface TicketWithDetails extends Ticket {
+  ticketType?: TicketType;
+  currentStatus?: TicketTypeStatus;
+}
+```
+
+`Ticket` is `any`, so `extends Ticket` contributes nothing — leave the base alone rather than trying to fix it here. The two optional members are what this slice needs, and they take explicit shapes:
+
+```ts
+export interface TicketWithDetails extends Ticket {
+  ticketType?: { id: string; name: string; color: string | null; typeKey?: string | null };
+  currentStatus?: {
+    id: string; name: string; color: string | null;
+    statusKey?: string | null;
+    actionType?: "needs_action" | "waiting" | null;
+    isFinal?: "true" | "false" | null;
+  };
+}
+```
+
+Apply the same treatment to whatever equivalent props `TicketListView.tsx` declares.
+
+---
+
+## Rule of thumb for this slice
+
+> Anything imported from `@shared/schema` is `any`. Never intersect with it, never extend it expecting members — write the shape out.
+
+Worth adding as a comment above the narrowed interfaces so the next person does not re-introduce the intersection.
+
+---
+
+## Already correct in #614 — do not change
+
+* All twenty palette values, both modes, including the 15%/13% and 24%/17% tint strengths.
+* Reading the current status out of the `statuses` payload rather than a `currentStatus` field — there is no such field on the detail response; the component derives it with `statuses.find(s => s.id === ticket.currentStatusId)`.
+* Verifying `linkedTickets[].ticketType.typeKey` on a ticket that has a linked invoice, and stopping to report rather than widening a server endpoint.
+* `workTypeCatalog.ts` as a convention reference only, and `artifacts/highplains-crm/src/shared/ticketVisuals.ts` as the new file path.
+* Leaving `StatusBadge.tsx`, `schema.ts` and `drizzle-stub.ts` untouched.
+* The requirement that nothing imports `ticketVisuals` yet and no screen changes.

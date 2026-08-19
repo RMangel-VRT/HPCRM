@@ -1,0 +1,335 @@
+# Slice V0 (FINAL) — Ticket visual system foundation
+
+**This supersedes `slice-V0-visual-foundation.md` and corrections docs 1, 2 and 3.** Where any of those disagree with this, this wins. Discard the others.
+
+**Ships dark. No screen may render differently.**
+
+---
+
+## The one rule that governs the type work
+
+`artifacts/highplains-crm/src/shared/schema.ts` is a hand-maintained duplicate built on `./drizzle-stub`, whose `pgTable()` is declared `: any`. Therefore **every type imported from `@shared/schema` — `Ticket`, `TicketType`, `TicketTypeStatus`, `Customer` — is `any`.**
+
+Three consequences, all of which have already caused mistakes:
+
+1. **Never intersect.** `TicketTypeStatus & { statusKey?: string }` collapses to `any`. It compiles, reads like narrowing, and checks nothing.
+2. **Never rely on `extends`.** `interface X extends Ticket` inherits nothing checkable.
+3. **Replace with an explicit object shape**, written out in full.
+
+Put this comment above each interface you touch:
+
+```ts
+// Types from @shared/schema are `any` (drizzle-stub). Fields are written out
+// explicitly so they are actually checked. Do not replace with a schema import
+// or intersect with one — `any & T` is `any`.
+```
+
+**Do not modify `schema.ts` or `drizzle-stub.ts`.**
+
+---
+
+## 1. CSS tokens — `artifacts/highplains-crm/src/index.css`
+
+Two existing blocks: `:root { … }` (light, ends ~L128) and `.dark { … }` (~L131–244). This file uses a `.dark` class, **not** `data-theme`. Append to both, as plain hex — these are consumed directly by `color-mix()`, not through Tailwind's `hsl(var(--x))` pipeline.
+
+Into `:root`:
+
+```css
+  /* ── Ticket type hues — validated all-pairs light: CVD ΔE 11.0, normal-vision 20.6, all ≥3:1 ── */
+  --tt-estimate: #4338ca;   /* indigo  */
+  --tt-project:  #0d9488;   /* teal    */
+  --tt-rfp:      #a21a6b;   /* magenta */
+  --tt-extra:    #bd6112;   /* copper  */
+  --tt-todo:     #6b6b62;   /* stone — deliberately neutral */
+  --tt-fallback: #6b6b62;   /* unkeyed types, and a standalone Invoice with no parent */
+
+  /* ── Universal status scale — all ≥3.78:1 on this surface ── */
+  --ts-open:    #787468;
+  --ts-active:  #2f6cad;
+  --ts-waiting: #a8790d;
+  --ts-done:    #4f8524;
+  --ts-lost:    #a83a2b;
+
+  --tt-tint:  15%;
+  --tt-tint2: 13%;
+```
+
+Into `.dark`:
+
+```css
+  /* Same hues re-stepped for the dark surface — NOT derived from the light values.
+     Validated all-pairs dark: CVD ΔE 9.7, normal-vision 15.4, all ≥3:1. */
+  --tt-estimate: #7a6ff0;
+  --tt-project:  #3ca694;
+  --tt-rfp:      #be47b8;
+  --tt-extra:    #cf7132;
+  --tt-todo:     #9a9a90;
+  --tt-fallback: #9a9a90;
+
+  --ts-open:    #a3a08f;
+  --ts-active:  #5b9bd9;
+  --ts-waiting: #dcb03c;
+  --ts-done:    #8cc63f;
+  --ts-lost:    #e0705f;
+
+  --tt-tint:  24%;
+  --tt-tint2: 17%;
+```
+
+Paste these values exactly. They were selected by running a colorblindness and contrast validator over every pair in both modes; a better-looking substitution silently breaks that guarantee.
+
+---
+
+## 2. New file — `artifacts/highplains-crm/src/shared/ticketVisuals.ts`
+
+Mirrors the server's `artifacts/api-server/src/shared/ticketCapabilities.ts`. `workTypeCatalog.ts` is the convention reference for a client mirror — **read it, do not edit it.**
+
+```ts
+/**
+ * Client visual system for tickets. Mirrors the server's identity vocabulary and
+ * adds the presentation layer. Nothing imports this yet — visual slices V1+ do.
+ */
+
+export type TicketTypeKey =
+  | "todo" | "estimate_request" | "project" | "extra_billable" | "invoice" | "rfp_request";
+
+/** Mirrors the server's TICKET_TYPE_NAMES_BY_KEY — keep in sync. */
+export const TICKET_TYPE_NAMES_BY_KEY: Record<TicketTypeKey, string> = {
+  todo: "To-Do",
+  estimate_request: "Estimate Request",
+  project: "Project",
+  extra_billable: "Extra Billable",
+  invoice: "Invoice",
+  rfp_request: "RFP Request",
+};
+
+export interface TicketTypeIdentity {
+  name: string;
+  typeKey?: string | null;
+}
+
+/** Key-first. A non-null key is authoritative; only unkeyed rows fall back to name. */
+export function isSeededTicketType(
+  type: TicketTypeIdentity | null | undefined,
+  key: TicketTypeKey,
+): boolean {
+  if (!type) return false;
+  if (type.typeKey != null) return type.typeKey === key;
+  return type.name === TICKET_TYPE_NAMES_BY_KEY[key];
+}
+
+/**
+ * `invoice` is deliberately absent — an Invoice ticket inherits its parent's hue.
+ * Callers resolve the parent first and use the fallback only for a standalone one.
+ */
+const TYPE_HUE_VAR: Record<Exclude<TicketTypeKey, "invoice">, string> = {
+  estimate_request: "--tt-estimate",
+  project:          "--tt-project",
+  rfp_request:      "--tt-rfp",
+  extra_billable:   "--tt-extra",
+  todo:             "--tt-todo",
+};
+
+export function typeHueVar(type: TicketTypeIdentity | null | undefined): string {
+  for (const key of Object.keys(TYPE_HUE_VAR) as Array<keyof typeof TYPE_HUE_VAR>) {
+    if (isSeededTicketType(type, key)) return `var(${TYPE_HUE_VAR[key]})`;
+  }
+  return "var(--tt-fallback)";
+}
+
+export type TicketStatusState = "open" | "active" | "waiting" | "done" | "lost";
+
+export const STATUS_STATE_LABEL: Record<TicketStatusState, string> = {
+  open: "Not started", active: "In progress", waiting: "Waiting",
+  done: "Complete", lost: "Lost",
+};
+
+export const STATUS_STATE_VAR: Record<TicketStatusState, string> = {
+  open: "var(--ts-open)", active: "var(--ts-active)", waiting: "var(--ts-waiting)",
+  done: "var(--ts-done)", lost: "var(--ts-lost)",
+};
+
+export interface TicketStatusIdentity {
+  statusKey?: string | null;
+  actionType?: "needs_action" | "waiting" | null;
+  isFinal?: "true" | "false" | null;
+}
+
+const OPEN_KEYS = new Set(["new", "pending_invoice"]);
+const DONE_KEYS = new Set(["closed_won", "invoiced", "invoicing"]);
+
+/**
+ * Collapse any workflow status onto the five universal states.
+ * Order matters: `closed_lost` is also isFinal, so it is tested first.
+ * A status with no key still resolves from actionType/isFinal — the graceful path.
+ */
+export function deriveStatusState(s: TicketStatusIdentity | null | undefined): TicketStatusState {
+  if (!s) return "open";
+  const key = s.statusKey ?? undefined;
+  if (key === "closed_lost") return "lost";
+  if (key && DONE_KEYS.has(key)) return "done";
+  if (s.actionType === "waiting") return "waiting";
+  if (key && OPEN_KEYS.has(key)) return "open";
+  if (!key && s.isFinal === "true") return "done";
+  return "active";
+}
+```
+
+---
+
+## 3. Explicit response shapes — exactly these, nothing more
+
+The field lists below were derived by enumerating every property each component actually reads. If the compiler reports a field I missed, **add it to the shape** — never revert to `any`, never add a cast.
+
+### 3a. `TicketDetail.tsx` — `TicketDetails.statuses` (~L100)
+
+There is **no `currentStatus` field** on this response. The component derives it at ~L661 with `statuses.find(s => s.id === ticket.currentStatusId)`. Narrow the array element:
+
+```ts
+  statuses: {
+    id: string;
+    name: string;
+    description: string | null;
+    displayOrder: number;
+    color: string | null;
+    isFinal: "true" | "false";
+    actionType: "needs_action" | "waiting";
+    waitingCategory: "customer" | "vendor" | "internal" | "other" | null;
+    statusKey?: string | null;
+    fields: {
+      id: string;
+      statusId: string | null;
+      fieldKey: string;
+      fieldLabel: string;
+      fieldType: "text" | "number" | "date" | "currency" | "select" | "textarea";
+      isRequired: "true" | "false";
+      options: string[] | null;
+      displayOrder: number;
+    }[];
+  }[];
+```
+
+### 3b. `TicketDetail.tsx` — `LinkedTicketInfo` (~L90)
+
+Reads today: `linked.link`, `linked.ticket`, `linked.relationship`, `linked.ticketType?.color`, `linked.currentStatus?.color`, `linked.currentStatus?.name`. V1's lineage bar additionally needs `typeKey` and `statusKey`.
+
+```ts
+interface LinkedTicketInfo {
+  link: TicketLink;
+  ticket: Ticket | null;                    // left as-is — see §4
+  ticketType: { id: string; name: string; color: string | null; typeKey?: string | null } | null;
+  currentStatus: {
+    id: string; name: string; color: string | null;
+    statusKey?: string | null;
+    actionType?: "needs_action" | "waiting" | null;
+    isFinal?: "true" | "false" | null;
+  } | null;
+  relationship: "source" | "target";
+}
+```
+
+### 3c. `TicketDetail.tsx` — `TicketDetails.ticketType`
+
+Reads `ticketType.name` and `ticketType.color`:
+
+```ts
+  ticketType: { id: string; name: string; color: string | null; typeKey?: string | null };
+```
+
+### 3d. `TicketCard.tsx` — three members (~L23 and ~L29)
+
+`TicketWithDetails` has **three** `any` members, not two — `workflowStatuses` on the props interface is the third and is easy to miss. Reads across the file: `status.id`, `status.name`, `status.color`.
+
+```ts
+export interface TicketWithDetails extends Ticket {   // base left as-is — see §4
+  ticketType?: { id: string; name: string; color: string | null; typeKey?: string | null };
+  currentStatus?: {
+    id: string; name: string; color: string | null;
+    statusKey?: string | null;
+    actionType?: "needs_action" | "waiting" | null;
+    isFinal?: "true" | "false" | null;
+  };
+  customer?: Customer;                                // left as-is — see §4
+}
+
+export interface TicketCardProps {
+  ticket: TicketWithDetails;
+  // …all other props unchanged…
+  workflowStatuses?: {
+    id: string; name: string; color: string | null; displayOrder: number;
+    statusKey?: string | null;
+    actionType?: "needs_action" | "waiting" | null;
+    isFinal?: "true" | "false" | null;
+  }[];
+}
+```
+
+### 3e. `TicketListView.tsx` — two query call sites
+
+`TicketWithDetails` is imported from `TicketCard` at L69, so 3d propagates. But the values *assigned into* those fields enter here, from `any`, and `any` is assignable to anything — so without this the narrowing is decorative.
+
+**L122** has a generic to replace:
+
+```ts
+const { data: ticketTypes = [] } = useQuery<
+  { id: string; name: string; color: string | null; typeKey?: string | null }[]
+>({ … });
+```
+
+**L166 has no generic at all** — `useQuery({ … })`. Add one:
+
+```ts
+const { data: allStatuses = [] } = useQuery<
+  { id: string; ticketTypeId: string; name: string; color: string | null; displayOrder: number;
+    statusKey?: string | null;
+    actionType?: "needs_action" | "waiting" | null;
+    isFinal?: "true" | "false" | null }[]
+>({ … });
+```
+
+Then delete the now-redundant `(s: TicketTypeStatus)` annotations on the `.find` / `.filter` / `.sort` callbacks at L184, 217, 604 and 641 so element types infer from the query.
+
+---
+
+## 4. Deliberately NOT narrowed — leave these alone
+
+Stated explicitly so they are not treated as oversights:
+
+* **`extends Ticket`** in `TicketWithDetails`, and `ticket: Ticket` elsewhere. The ticket row has ~50 columns and is consumed across many files; narrowing it is its own project.
+* **`customer?: Customer`** — not identity or status; out of scope.
+* **`TicketsList.tsx`** — it has its *own* `allStatuses` query at L281, parallel to TicketListView's. Not in scope here; it belongs to the list-view slice (V4). Do not open it.
+* **`useQuery<Ticket[]>` at TicketListView L118** — same reason as the `Ticket` base.
+* **`StatusBadge.tsx`** — a different vocabulary entirely (customer/contract states), not the ticket status badge.
+
+**Scope guard:** replacing an `any` at a query boundary can surface genuine downstream errors. Fix them by adding the real field to the shape. **If §3e surfaces more than a handful, revert just §3e, note it, and hand `TicketListView.tsx` to V4** — V1 and V2 depend only on `TicketDetail` and `TicketCard`, so nothing downstream is blocked by deferring it.
+
+---
+
+## 5. Verify the API actually sends these fields
+
+Before finishing, open a ticket and inspect the real response:
+
+1. `ticketType.typeKey` is populated.
+2. The status in `statuses` matching `ticket.currentStatusId` has a populated `statusKey`.
+3. On a ticket with a linked invoice — an Extra Billable or Estimate Request at Ready for Billing or later — `linkedTickets[].ticketType.typeKey` is populated.
+
+If any is absent, **stop and report it.** Do not widen a server endpoint in this slice; V1 depends on all three and it is far better to know now.
+
+---
+
+## Out of scope
+
+* Any rendering, layout, badge, rail, tint, stepper, filter or behavior change. If a pixel moves, something is wrong.
+* Server, mobile, API contract, database schema, migration, and test changes.
+* `schema.ts`, `drizzle-stub.ts`, `StatusBadge.tsx`, `workTypeCatalog.ts` (reference only), `TicketsList.tsx`.
+* Migrating the ~20 client `ticketType.name === "…"` comparisons — later slice, and they will use `isSeededTicketType`.
+* Pre-existing TypeScript errors in files this slice does not own.
+
+## Done looks like
+
+1. Typecheck baseline captured **before** any edit; final run shows no new errors. Every error surfaced by §3 was fixed by adding a real field — none silenced by a cast or a revert to `any`.
+2. `ticketVisuals.ts` exists and has zero importers.
+3. Every ticket screen is pixel-identical in both light and dark.
+4. Devtools: `--tt-estimate` computes to `#4338ca` in light, `#7a6ff0` in dark.
+5. All three API fields in §5 confirmed present on a real response.
+6. No `&` intersection with a `@shared/schema` type anywhere in the diff.
