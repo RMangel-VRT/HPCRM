@@ -1,0 +1,186 @@
+# Replit Slice B2 — Server identity lookups off display names
+
+**Server-side only. One intentional behavior change, called out in §5. Everything else must be identical.**
+
+Slice A2 (`d605285`) added `type_key` and backfilled it; the duplicate-key check returned zero rows, so a key identifies exactly one type per company. This slice makes the server read it.
+
+## Scope
+
+**In:** 16 identity lookups in `routes.ts`, the two display-name checks Slice B1 deliberately left behind, and one shared resolver.
+
+**Out — and this one matters:** the three lookups inside `migrateTicketTypeRename()` at `routes.ts:19690`, `:19691`, `:19697`. That function's entire job is finding types *by name* in order to rename them; keying it would be circular. Leave them exactly as they are and add a one-line comment saying so.
+
+Also out: all status-name comparisons (~50, a later slice), the whole client, and mobile.
+
+---
+
+## 1. Add the resolver — `artifacts/api-server/src/shared/ticketCapabilities.ts`
+
+One helper, used by every call site below, so the fallback rule lives in exactly one place.
+
+```ts
+/** Reverse of TICKET_TYPE_KEYS — used only by the legacy name fallback. */
+export const TYPE_KEY_TO_NAME: Record<TicketTypeKey, string> = {
+  todo: "To-Do",
+  estimate_request: "Estimate Request",
+  project: "Project",
+  extra_billable: "Extra Billable",
+  invoice: "Invoice",
+  rfp_request: "RFP Request",
+};
+
+/**
+ * Find a seeded ticket type by its stable identity.
+ *
+ * Key first. The display-name fallback covers rows that predate migration 0041
+ * (or a database where it has not been applied yet) and can be deleted once
+ * every deployment is confirmed backfilled.
+ */
+export function findTicketTypeByKey<T extends { name: string; typeKey?: string | null }>(
+  types: T[],
+  key: TicketTypeKey,
+): T | undefined {
+  return types.find(t => t.typeKey === key) ?? types.find(t => t.name === TYPE_KEY_TO_NAME[key]);
+}
+
+/** Same rule, for a single already-fetched type. */
+export function isTicketTypeKey(
+  type: { name: string; typeKey?: string | null } | null | undefined,
+  key: TicketTypeKey,
+): boolean {
+  if (!type) return false;
+  if (type.typeKey) return type.typeKey === key;
+  return type.name === TYPE_KEY_TO_NAME[key];
+}
+```
+
+Note `if (type.typeKey)` — when a key is present it is authoritative and the name is **not** consulted. That is the whole point: a renamed type still resolves, and a type deliberately keyed to something else is not second-guessed.
+
+---
+
+## 2. Migrate the 13 straightforward lookups in `routes.ts`
+
+Each becomes a one-line swap to `findTicketTypeByKey(ticketTypes, "<key>")`:
+
+| Line | Current | Key |
+|---|---|---|
+| 242 | `ticketTypes.find(tt => tt.name === "Invoice")` | `"invoice"` |
+| 326 | `… === "RFP Request"` | `"rfp_request"` |
+| 548 | `… === "Estimate Request"` | `"estimate_request"` |
+| 691 | `… === "Estimate Request"` | `"estimate_request"` |
+| 761 | `… === "Extra Billable"` | `"extra_billable"` |
+| 849 | `… === "Project"` | `"project"` |
+| 956 | `… === "To-Do"` | `"todo"` |
+| 1145 | `… === "Extra Billable"` | `"extra_billable"` |
+| 1184 | `… === "Estimate Request"` | `"estimate_request"` |
+| 1219 | `… === "Estimate Request"` | `"estimate_request"` |
+| 1256 | `… === "Estimate Request"` | `"estimate_request"` |
+| 1290 | `… === "Estimate Request"` | `"estimate_request"` |
+| 1394 | `… === "To-Do"` | `"todo"` |
+
+Lines 242, 326, 548, 761, 849 and 956 are the "does this type already exist?" checks inside the six `ensure*TicketType` helpers — see §5, they are the intentional behavior change.
+
+---
+
+## 3. The two lookups with a different shape
+
+**`routes.ts:5666`** returns *multiple* types, so the single-result resolver does not fit:
+
+```ts
+// before
+const projectTypes = ticketTypes.filter(t => t.name === "Estimate Request" || t.name === "Project");
+// after
+const projectTypes = ticketTypes.filter(t =>
+  t.typeKey ? (t.typeKey === "estimate_request" || t.typeKey === "project")
+            : (t.name === "Estimate Request" || t.name === "Project"));
+```
+
+Same key-first rule, applied per row.
+
+**`routes.ts:10050`** currently carries a case-sensitivity workaround that the key removes entirely:
+
+```ts
+// before
+const invoiceType = allTicketTypes.find(t => t.name === "Invoice" || t.name === "invoice");
+// after
+const invoiceType = findTicketTypeByKey(allTicketTypes, "invoice");
+```
+
+Dropping the lowercase `"invoice"` arm is safe *only* because any row that matched it has been backfilled — 0041 keys on `name = 'Invoice'` exactly, so a row literally named `"invoice"` would **not** have been keyed. **Before merging, run:**
+
+```sql
+SELECT id, company_id, name, type_key FROM ticket_types WHERE name = 'invoice';
+```
+
+If that returns rows, keep the lowercase arm as an additional fallback and flag it — those rows need keying by hand.
+
+---
+
+## 4. Retire the two deliberate name checks from Slice B1
+
+Both are identity questions, which is exactly what `type_key` now answers.
+
+**`rfbInvoiceAutoCreate.ts`** — add `typeKey` to the injected shape alongside the `requiresInvoicing` field B1 added:
+
+```ts
+export interface RfbTicketType {
+  id: string;
+  name: string;
+  requiresInvoicing?: "true" | "false";
+  typeKey?: string | null;
+}
+```
+
+Then replace the check and delete its "deliberate dependency" comment:
+
+```ts
+// was: const isInvoiceType = ticketType?.name === "Invoice";
+const isInvoiceType = isTicketTypeKey(ticketType, "invoice");
+```
+
+**`routes.ts` ~L6975** — same, and delete the five-line comment explaining why it had to stay:
+
+```ts
+// was: const isExtraBillableType = rfbTicketType?.name === "Extra Billable";
+const isExtraBillableType = isTicketTypeKey(rfbTicketType, "extra_billable");
+```
+
+**The 19 tests in `ticketPatchRfbInvoice.test.ts` must pass with their assertions unchanged.** The fixtures (`INVOICE_TYPE = { id: "tt-inv", name: "Invoice" }` etc.) carry no `typeKey`, so they take the name fallback and behave exactly as before. If an assertion needs editing to go green, stop and report — that means behavior moved.
+
+Add two tests:
+
+1. `isTicketTypeKey({ id, name: "Renamed By User", typeKey: "invoice" }, "invoice")` → `true`.
+2. `maybeAutoCreateInvoiceOnRfb` returns `null` when the ticket's own type has `typeKey: "invoice"` but a renamed display name — proves a renamed Invoice type still cannot invoice itself.
+
+---
+
+## 5. The one intentional behavior change
+
+The six `ensure*TicketType` helpers currently ask "is there a type **named** `Invoice`?" and create one if not. So a company that renamed `Invoice` to `Billing` gets a **duplicate** type minted on the next boot. After this slice they ask "is there a type **keyed** `invoice`?", find the renamed one, and leave it alone.
+
+That is the bug this whole re-platform exists to fix, and it is desirable — but it is a real change, so it should be a decision rather than a surprise. Call it out in the PR description.
+
+Everything else in this slice must be behavior-identical.
+
+---
+
+## Out of scope
+
+* `migrateTicketTypeRename()` lines 19690 / 19691 / 19697 — must stay name-based. Add a comment saying why.
+* Status-name comparisons (`currentStatus?.name === "…"`) — a later slice.
+* `TicketDetail.tsx`, `TicketsList.tsx`, `NewTicket.tsx`, mobile, and `artifacts/highplains-crm/src/shared/schema.ts`.
+* Do not remove the name fallback from the resolver.
+* Do not add a UNIQUE constraint on `type_key`.
+* Do not fix pre-existing TypeScript errors in files this slice does not own.
+
+## Done looks like
+
+1. All 19 existing tests in `ticketPatchRfbInvoice.test.ts` pass, assertions unchanged; 2 new tests pass. `pnpm --filter @workspace/api-server test ticketPatchRfbInvoice`.
+2. No `ticketTypes.find/filter(… .name === …)` remains in `routes.ts` except the three inside `migrateTicketTypeRename()`.
+3. `grep -n 'name === "Invoice"' artifacts/api-server/src` returns only the rename migration.
+4. No new TypeScript errors vs the baseline — capture `pnpm run typecheck` from the repo root *before* changing anything.
+5. Manual smoke checks:
+   * Move an Extra Billable ticket to Ready for Billing → Invoice ticket auto-created and linked, as before.
+   * Open the scheduling-queue endpoint that uses L5666 and confirm it still returns the same status IDs.
+   * Boot twice; no new ticket types are created on the second boot.
+6. Rename a ticket type in Settings (e.g. `Invoice` → `Billing`), reboot, and confirm **no duplicate type is created** and billing still works. This is the payoff — it is worth verifying by hand once.

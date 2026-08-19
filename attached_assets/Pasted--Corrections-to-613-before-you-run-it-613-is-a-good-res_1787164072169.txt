@@ -1,0 +1,66 @@
+# Corrections to #613 before you run it
+
+#613 is a good restatement — it kept the resolver, the fallback rule, the rename-migration exception, the lowercase-`invoice` pre-check, the unchanged-assertions requirement, and correctly holds the client out of scope. Two things to add.
+
+---
+
+## 1. The rename migration must WRITE `type_key`, even though it still READS by name
+
+This is a real landmine and it is cheap to close.
+
+`migrateTicketTypeRename()` step 1 does:
+
+```ts
+if (hasOldProject && !hasEstimateRequest) {
+  const oldType = types.find(t => t.name === "Project")!;
+  await db.execute(sql`
+    UPDATE ticket_types
+    SET name        = 'Estimate Request',
+        description = '…'
+    WHERE id = ${oldType.id}
+  `);
+}
+```
+
+It renames the row and **leaves `type_key` untouched.** Migration 0041 keys on exact names, so that row already carries `type_key = 'project'`. If step 1 ever fires after A2, you end up with a row **named `Estimate Request` but keyed `project`.**
+
+Under B2's own rule — a present key is authoritative and the display name must not override it — that row becomes invisible to `findTicketTypeByKey(types, "estimate_request")`. The Estimate Request workflow silently stops resolving, and the `ensure*` helper then mints a *second* Estimate Request type: exactly the duplicate this slice exists to prevent.
+
+Probability is low (the rename has presumably already run everywhere, so `hasOldProject` is false), but a restored or freshly bootstrapped database reopens the window, and the failure is silent.
+
+**Fix — one line in the existing UPDATE:**
+
+```sql
+UPDATE ticket_types
+SET name        = 'Estimate Request',
+    description = '…',
+    type_key    = 'estimate_request'
+WHERE id = ${oldType.id}
+```
+
+**Clarify the out-of-scope wording** so the agent does not refuse this as forbidden. Replace:
+
+> * The three lookups inside the ticket-type rename migration; they must remain name-based…
+
+with:
+
+> * The three **lookups** inside the ticket-type rename migration must remain name-based — that migration's purpose is finding rows by their old display names, so keying the lookups would be circular. It must, however, **write** the correct `type_key` alongside the name it sets, so a renamed row does not end up keyed to its old identity. Reading by name and writing the key are different things.
+
+Step 2 of that migration (`Project (No Estimate)` → `Project`) needs no change: 0041 keys only the six exact seeded names, so a `Project (No Estimate)` row has `type_key = NULL` and resolves through the name fallback after renaming.
+
+---
+
+## 2. Two files listed under "Relevant files" should not be edited
+
+`lib/db/src/schema/schema.ts` and `.migration-backup/migrations/0041_ticket_type_key.sql` are both finished as of A2 and B2 needs no change to either. The `typeKey` field B2 adds goes on `RfbTicketType` inside `rfbInvoiceAutoCreate.ts`, not on the Drizzle schema, and the resolver is generic over `{ name, typeKey? }`.
+
+Mark them **reference only — do not modify**, or drop them from the list. Left as-is they invite a schema edit that would put the Drizzle declarations out of sync with the database and trip `check-schema-drift`.
+
+---
+
+## Verified correct as written
+
+* Client files are correctly out of scope. Worth knowing *why*, in case it comes up: `artifacts/highplains-crm/src/shared/schema.ts` is a hand-maintained duplicate that has **none** of the Slice A / A2 columns — no `typeKey`, no `statusKey`, no capability flags. The client's ~20 name checks cannot migrate until that duplicate is updated, and `check-schema-drift` compares the DB against the Drizzle declarations only, so it will never flag the gap. That is its own slice.
+* The 13 straightforward lookups + scheduling-status filter + Snow invoice lookup + 2 B1 checks = the 16 in-scope sites; the 3 rename-migration lookups are the remainder. The arithmetic is right.
+* `storage.getTicketTypes()` selects whole rows, so `typeKey` arrives with no query change.
+* The existing test fixtures (`INVOICE_TYPE = { id: "tt-inv", name: "Invoice" }` and friends) carry no `typeKey`, so they exercise the name fallback and all 19 assertions hold unchanged. That is by design, not luck.
