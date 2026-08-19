@@ -14,7 +14,7 @@ import { registerFlagsRoutes } from "./flags";
 import { db } from "../db";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema, insertChemicalNotificationTemplateSchema } from "@workspace/db";
-import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct, InsertVisualScopeSheet } from "@workspace/db";
+import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, InsertTicketType, InsertTicketTypeStatus, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct, InsertVisualScopeSheet } from "@workspace/db";
 import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@workspace/db";
 import { runAutomationRule, runAllAutomationRules } from "../services/automationService";
 import { sendPushToUser } from "../services/pushNotifications";
@@ -28,7 +28,7 @@ import heicConvert from 'heic-convert';
 import multer from 'multer';
 import { renderVisualScope, renderVisualScopeExport, type ExportType, type ExportPreset } from "../visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
-import { TICKET_TYPE_CAPABILITIES, STATUS_KEY_BACKFILL } from "../shared/ticketCapabilities";
+import { TICKET_TYPE_CAPABILITIES, TICKET_TYPE_KEYS, STATUS_KEY_BACKFILL } from "../shared/ticketCapabilities";
 import { findClosestHourIndex, buildDateWindow } from "../lib/weatherHourMatch";
 import { buildContractAuditRows } from "../auditEngine";
 import { seedChemicalNotificationTemplates } from "../templates/seed";
@@ -252,6 +252,7 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
       color: "#f59e0b",
       isActive: "true",
       ...TICKET_TYPE_CAPABILITIES["Invoice"],
+      typeKey: TICKET_TYPE_KEYS["Invoice"],
     });
     console.log(`Created Invoice ticket type for company ${companyId}`);
   }
@@ -334,6 +335,7 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
       color: "#8b5cf6",
       isActive: "true",
       ...TICKET_TYPE_CAPABILITIES["RFP Request"],
+      typeKey: TICKET_TYPE_KEYS["RFP Request"],
     });
     console.log(`Created RFP Request ticket type for company ${companyId}`);
   }
@@ -555,6 +557,7 @@ async function ensureEstimateRequestTicketType(companyId: string): Promise<{
       color: "#8b5cf6",
       isActive: "true",
       ...TICKET_TYPE_CAPABILITIES["Estimate Request"],
+      typeKey: TICKET_TYPE_KEYS["Estimate Request"],
     });
     console.log(`Created Estimate Request ticket type for company ${companyId}`);
   }
@@ -767,6 +770,7 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
       color: "#f59e0b",
       isActive: "true",
       ...TICKET_TYPE_CAPABILITIES["Extra Billable"],
+      typeKey: TICKET_TYPE_KEYS["Extra Billable"],
     });
     console.log(`Created Extra Billable ticket type for company ${companyId}`);
   }
@@ -854,6 +858,7 @@ async function ensureProjectTicketType(companyId: string): Promise<{
       color: "#0ea5e9",
       isActive: "true",
       ...TICKET_TYPE_CAPABILITIES["Project"],
+      typeKey: TICKET_TYPE_KEYS["Project"],
     });
     console.log(`Created Project ticket type for company ${companyId}`);
   }
@@ -960,6 +965,7 @@ async function ensureToDoTicketType(companyId: string): Promise<{
       color: "#6366f1",
       isActive: "true",
       ...TICKET_TYPE_CAPABILITIES["To-Do"],
+      typeKey: TICKET_TYPE_KEYS["To-Do"],
     });
     console.log(`Created To-Do ticket type for company ${companyId}`);
   }
@@ -1453,6 +1459,8 @@ export async function migrateTicketTypeCapabilityColumns(): Promise<void> {
     await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS requires_completion text NOT NULL DEFAULT 'false'`);
     await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS requires_invoicing text NOT NULL DEFAULT 'false'`);
     await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS terminal_behavior text NOT NULL DEFAULT 'close'`);
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS type_key text`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ticket_types_key_idx ON ticket_types (company_id, type_key) WHERE type_key IS NOT NULL`);
     await db.execute(sql`ALTER TABLE ticket_type_statuses ADD COLUMN IF NOT EXISTS status_key text`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ticket_type_statuses_key_idx ON ticket_type_statuses (ticket_type_id, status_key) WHERE status_key IS NOT NULL`);
   } catch (error) {
@@ -1491,6 +1499,26 @@ export async function backfillTicketTypeCapabilities(): Promise<void> {
           terminal_behavior = ${caps.terminalBehavior}
         WHERE name = ${typeName}
       `);
+    }
+
+    // Stable type keys are independent of the capability-column migration:
+    // 0040 may be applied before 0041. Identities are written only once.
+    const typeKeyCol = await db.execute(sql`
+      SELECT COUNT(*)::int AS count FROM information_schema.columns
+      WHERE table_name = 'ticket_types' AND column_name = 'type_key'
+    `);
+    if (((typeKeyCol.rows[0] as { count: number })?.count ?? 0) > 0) {
+      let typeKeysWritten = 0;
+      for (const [typeName, typeKey] of Object.entries(TICKET_TYPE_KEYS)) {
+        const result = await db.execute(sql`
+          UPDATE ticket_types SET type_key = ${typeKey}
+          WHERE name = ${typeName} AND type_key IS NULL
+        `);
+        typeKeysWritten += (result as { rowCount?: number | null }).rowCount ?? 0;
+      }
+      console.log(`Ticket type key backfill: ${typeKeysWritten} type keys written`);
+    } else {
+      console.log("Ticket type key backfill skipped: type_key column not present yet (run SQL migration 0041 via pnpm migrate)");
     }
 
     // Backfill status keys, preserving any already-set (hand-edited) values
@@ -5812,7 +5840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
-    const result = insertTicketTypeSchema.safeParse({
+    const result = insertTicketTypeSchema.omit({ typeKey: true }).safeParse({
       ...req.body,
       companyId: user.activeCompanyId,
     });
@@ -5840,12 +5868,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
-    const result = insertTicketTypeSchema.partial().omit({ companyId: true }).safeParse(req.body);
+    const result = insertTicketTypeSchema.partial().omit({ companyId: true, typeKey: true }).safeParse(req.body);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
 
-    const ticketType = await storage.updateTicketType(req.params.id, user.activeCompanyId, result.data);
+    const updateData = Object.fromEntries(
+      Object.entries(result.data).filter(([key]) =>
+        Object.prototype.hasOwnProperty.call(req.body, key),
+      ),
+    ) as Partial<InsertTicketType>;
+    if (Object.keys(updateData).length === 0) {
+      const ticketType = await storage.getTicketTypeById(req.params.id, user.activeCompanyId);
+      if (!ticketType) {
+        return res.status(404).send("Ticket type not found");
+      }
+      res.json(ticketType);
+      return;
+    }
+    const ticketType = await storage.updateTicketType(req.params.id, user.activeCompanyId, updateData);
     if (!ticketType) {
       return res.status(404).send("Ticket type not found");
     }
@@ -5896,7 +5937,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
-    const status = await storage.createTicketTypeStatus(result.data);
+    const { statusKey: _ignoredStatusKey, ...statusData } = result.data;
+    const status = await storage.createTicketTypeStatus(statusData);
     res.json(status);
   });
 
@@ -5921,7 +5963,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
-    const result = insertTicketTypeStatusSchema.innerType().partial().omit({ ticketTypeId: true }).safeParse(req.body);
+    const statusSchemaWithInner = insertTicketTypeStatusSchema as unknown as {
+      innerType?: () => typeof insertTicketTypeStatusSchema;
+    };
+    const statusSchemaBase =
+      typeof statusSchemaWithInner.innerType === "function"
+        ? statusSchemaWithInner.innerType()
+        : insertTicketTypeStatusSchema;
+    const result = statusSchemaBase.partial().omit({ ticketTypeId: true }).safeParse(req.body);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
@@ -5933,7 +5982,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const currentStatus = currentRows[0];
 
-    const updateData = { ...result.data };
+    const { statusKey: _ignoredStatusKey, ...parsedUpdateData } = result.data;
+    const updateData = Object.fromEntries(
+      Object.entries(parsedUpdateData).filter(([key]) =>
+        Object.prototype.hasOwnProperty.call(req.body, key),
+      ),
+    ) as Partial<InsertTicketTypeStatus>;
     const effectiveActionType = updateData.actionType ?? currentStatus.actionType;
     const effectiveWaitingCategory = "waitingCategory" in updateData ? updateData.waitingCategory : currentStatus.waitingCategory;
 
@@ -5946,6 +6000,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send("waitingCategory is required when actionType is 'waiting'");
     }
 
+    if (Object.keys(updateData).length === 0) {
+      res.json(currentStatus);
+      return;
+    }
     const status = await storage.updateTicketTypeStatus(req.params.id, updateData);
     if (!status) {
       return res.status(404).send("Status not found");

@@ -1,4 +1,4 @@
-import type { TerminalBehavior } from "@workspace/db";
+import type { TerminalBehavior, TicketTypeKey } from "@workspace/db";
 
 /**
  * Slice A: capability flags + stable status keys for the six seeded ticket types.
@@ -61,6 +61,19 @@ export const TICKET_TYPE_CAPABILITIES: Record<string, TicketTypeCapabilities> = 
     requiresInvoicing: "false",
     terminalBehavior: "handoff",
   },
+};
+
+/**
+ * Slice A2: display name → stable machine identity, for the six seeded types.
+ * Written to the database but NOT read anywhere yet — readers migrate in Slice B2.
+ */
+export const TICKET_TYPE_KEYS: Record<string, TicketTypeKey> = {
+  "To-Do": "todo",
+  "Estimate Request": "estimate_request",
+  "Project": "project",
+  "Extra Billable": "extra_billable",
+  "Invoice": "invoice",
+  "RFP Request": "rfp_request",
 };
 
 // Stable machine keys for every seeded status: [type name][status name] -> statusKey.

@@ -578,6 +578,17 @@ export type TicketTypeCategory = "quick_task" | "project" | "service";
 // What happens when a ticket of this type reaches its terminal status
 export type TerminalBehavior = "close" | "invoice" | "handoff";
 
+// Stable machine identity for the seeded ticket types. `name` is the free-text
+// display label and may be renamed by a user at any time; `typeKey` is what code
+// should match on. Null for ticket types a user created by hand.
+export type TicketTypeKey =
+  | "todo"
+  | "estimate_request"
+  | "project"
+  | "extra_billable"
+  | "invoice"
+  | "rfp_request";
+
 // Ticket Types - configurable workflow definitions (e.g., "Quick Task", "Project", "Estimate Request")
 export const ticketTypes = pgTable("ticket_types", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -594,9 +605,14 @@ export const ticketTypes = pgTable("ticket_types", {
   requiresCompletion: text("requires_completion").notNull().default("false").$type<"true" | "false">(),
   requiresInvoicing: text("requires_invoicing").notNull().default("false").$type<"true" | "false">(),
   terminalBehavior: text("terminal_behavior").notNull().default("close").$type<TerminalBehavior>(),
+  typeKey: text("type_key").$type<TicketTypeKey>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  ticketTypesKeyIdx: index("ticket_types_key_idx")
+    .on(table.companyId, table.typeKey)
+    .where(sql`type_key IS NOT NULL`),
+}));
 
 export const insertTicketTypeSchema = createInsertSchema(ticketTypes).omit({
   id: true,
@@ -610,6 +626,7 @@ export const insertTicketTypeSchema = createInsertSchema(ticketTypes).omit({
   requiresCompletion: z.enum(["true", "false"]).default("false"),
   requiresInvoicing: z.enum(["true", "false"]).default("false"),
   terminalBehavior: z.enum(["close", "invoice", "handoff"]).default("close"),
+  typeKey: z.enum(["todo", "estimate_request", "project", "extra_billable", "invoice", "rfp_request"]).nullable().optional(),
 });
 
 export type InsertTicketType = z.infer<typeof insertTicketTypeSchema>;
