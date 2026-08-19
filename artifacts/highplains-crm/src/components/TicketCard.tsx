@@ -9,7 +9,7 @@ import {
 import { ChevronRight, CalendarDays, Check, User as UserIcon, MapPin, AlertCircle, Clock } from "lucide-react";
 import { Link } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import type { Ticket, TicketType, TicketTypeStatus, Customer, User as UserType } from "@shared/schema";
+import type { Ticket, Customer, User as UserType } from "@shared/schema";
 import type { WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 
@@ -20,12 +20,24 @@ const WAITING_CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+// Types from @shared/schema are `any` (drizzle-stub). Fields are written out
+// explicitly so they are actually checked. Do not replace with a schema import
+// or intersect with one — `any & T` is `any`.
 export interface TicketWithDetails extends Ticket {
-  ticketType?: TicketType;
-  currentStatus?: TicketTypeStatus;
+  ticketType?: { id: string; name: string; color: string | null; typeKey?: string | null };
+  currentStatus?: {
+    id: string; name: string; color: string | null;
+    statusKey?: string | null;
+    actionType?: "needs_action" | "waiting" | null;
+    isFinal?: "true" | "false" | null;
+    waitingCategory?: "customer" | "vendor" | "internal" | "other" | null;
+  };
   customer?: Customer;
 }
 
+// Types from @shared/schema are `any` (drizzle-stub). Fields are written out
+// explicitly so they are actually checked. Do not replace with a schema import
+// or intersect with one — `any & T` is `any`.
 export interface TicketCardProps {
   ticket: TicketWithDetails;
   formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
@@ -35,7 +47,12 @@ export interface TicketCardProps {
   isSelected?: boolean;
   onToggleSelect?: () => void;
   showCustomer?: boolean;
-  workflowStatuses?: TicketTypeStatus[];
+  workflowStatuses?: {
+    id: string; name: string; color: string | null; displayOrder: number;
+    statusKey?: string | null;
+    actionType?: "needs_action" | "waiting" | null;
+    isFinal?: "true" | "false" | null;
+  }[];
   onNavigate?: () => void;
 }
 

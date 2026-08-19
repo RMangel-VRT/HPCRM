@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Filter, Loader2, Trash2, X, Layers, Wrench } from "lucide-react";
 import { Link } from "wouter";
-import type { Ticket, TicketType, TicketTypeStatus, Customer, User as UserType, CompanyUser, EquipmentTicket } from "@shared/schema";
+import type { Ticket, TicketTypeStatus, Customer, User as UserType, CompanyUser, EquipmentTicket } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -119,7 +119,9 @@ export default function TicketListView({
     queryKey: customerId ? ["/api/customers", customerId, "tickets"] : ["/api/tickets"],
   });
 
-  const { data: ticketTypes = [], isLoading: ticketTypesLoading } = useQuery<TicketType[]>({
+  const { data: ticketTypes = [], isLoading: ticketTypesLoading } = useQuery<{
+    id: string; name: string; color: string | null; typeKey?: string | null;
+  }[]>({
     queryKey: ["/api/ticket-types"],
   });
 
@@ -163,7 +165,12 @@ export default function TicketListView({
     return map;
   }, [companyUsersData]);
 
-  const { data: allStatuses = [] } = useQuery({
+  const { data: allStatuses = [] } = useQuery<{
+    id: string; ticketTypeId: string; name: string; color: string | null; displayOrder: number;
+    statusKey?: string | null;
+    actionType?: "needs_action" | "waiting" | null;
+    isFinal?: "true" | "false" | null;
+  }[]>({
     queryKey: ["/api/ticket-type-statuses-all"],
     queryFn: async () => {
       const allStatusArrays = await Promise.all(
@@ -181,7 +188,7 @@ export default function TicketListView({
   const enrichedTickets: TicketWithDetails[] = tickets.map(ticket => ({
     ...ticket,
     ticketType: ticketTypes.find(tt => tt.id === ticket.ticketTypeId),
-    currentStatus: allStatuses.find((s: TicketTypeStatus) => s.id === ticket.currentStatusId),
+    currentStatus: allStatuses.find(s => s.id === ticket.currentStatusId),
     customer: showCustomerColumn ? customers.find(c => c.id === ticket.customerId) : undefined,
   }));
 
@@ -214,7 +221,7 @@ export default function TicketListView({
   });
   
   const selectedTypeStatuses = typeFilter !== "all" 
-    ? allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === typeFilter)
+    ? allStatuses.filter(s => s.ticketTypeId === typeFilter)
     : [];
 
   const openTickets = filteredTickets.filter(t => !t.completedAt);
@@ -601,7 +608,7 @@ export default function TicketListView({
                       isSelected={selectedTicketIds.has(ticket.id)}
                       onToggleSelect={() => toggleTicketSelection(ticket.id)}
                       showCustomer={showCustomerColumn}
-                      workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
+                      workflowStatuses={allStatuses.filter(s => s.ticketTypeId === ticket.ticketTypeId).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))}
                     />
                   ))}
                 </div>
@@ -638,7 +645,7 @@ export default function TicketListView({
                           isSelected={selectedTicketIds.has(ticket.id)}
                           onToggleSelect={() => toggleTicketSelection(ticket.id)}
                           showCustomer={showCustomerColumn}
-                          workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
+                          workflowStatuses={allStatuses.filter(s => s.ticketTypeId === ticket.ticketTypeId).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))}
                         />
                       ))}
                     </div>

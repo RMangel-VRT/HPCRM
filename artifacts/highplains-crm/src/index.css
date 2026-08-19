@@ -125,6 +125,24 @@
   /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* ── Ticket type hues — validated all-pairs light: CVD ΔE 11.0, normal-vision 20.6, all ≥3:1 ── */
+  --tt-estimate: #4338ca;
+  --tt-project:  #0d9488;
+  --tt-rfp:      #a21a6b;
+  --tt-extra:    #bd6112;
+  --tt-todo:     #6b6b62;
+  --tt-fallback: #6b6b62;
+
+  /* ── Universal status scale — all ≥3.78:1 on this surface ── */
+  --ts-open:    #787468;
+  --ts-active:  #2f6cad;
+  --ts-waiting: #a8790d;
+  --ts-done:    #4f8524;
+  --ts-lost:    #a83a2b;
+
+  --tt-tint:  15%;
+  --tt-tint2: 13%;
 }
 
 /* DARK MODE - High Plains Property Maintenance Theme (Lime Green & Charcoal) */
@@ -241,6 +259,24 @@
   /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Same hues re-stepped for the dark surface — NOT derived from the light values.
+     Validated all-pairs dark: CVD ΔE 9.7, normal-vision 15.4, all ≥3:1. */
+  --tt-estimate: #7a6ff0;
+  --tt-project:  #3ca694;
+  --tt-rfp:      #be47b8;
+  --tt-extra:    #cf7132;
+  --tt-todo:     #9a9a90;
+  --tt-fallback: #9a9a90;
+
+  --ts-open:    #a3a08f;
+  --ts-active:  #5b9bd9;
+  --ts-waiting: #dcb03c;
+  --ts-done:    #8cc63f;
+  --ts-lost:    #e0705f;
+
+  --tt-tint:  24%;
+  --tt-tint2: 17%;
 }
 
 @layer base {

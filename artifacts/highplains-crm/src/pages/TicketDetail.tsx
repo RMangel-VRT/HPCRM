@@ -72,7 +72,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { DatePickerField } from "@/components/DatePickerField";
 import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import { TicketWorkItemsCard } from "@/components/TicketWorkItemsCard";
-import type { Ticket, TicketType, TicketTypeStatus, TicketTypeField, TicketFieldValue, TicketComment, TicketCommentWithAuthor, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
+import type { Ticket, TicketFieldValue, TicketComment, TicketCommentWithAuthor, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -87,18 +87,49 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
 
+// Types from @shared/schema are `any` (drizzle-stub). Fields are written out
+// explicitly so they are actually checked. Do not replace with a schema import
+// or intersect with one — `any & T` is `any`.
 interface LinkedTicketInfo {
   link: TicketLink;
   ticket: Ticket | null;
-  ticketType: TicketType | null;
-  currentStatus: TicketTypeStatus | null;
+  ticketType: { id: string; name: string; color: string | null; typeKey?: string | null } | null;
+  currentStatus: {
+    id: string; name: string; color: string | null;
+    statusKey?: string | null;
+    actionType?: "needs_action" | "waiting" | null;
+    isFinal?: "true" | "false" | null;
+  } | null;
   relationship: "source" | "target";
 }
 
+// Types from @shared/schema are `any` (drizzle-stub). Fields are written out
+// explicitly so they are actually checked. Do not replace with a schema import
+// or intersect with one — `any & T` is `any`.
 interface TicketDetails {
   ticket: Ticket;
-  ticketType: TicketType;
-  statuses: (TicketTypeStatus & { fields: TicketTypeField[] })[];
+  ticketType: { id: string; name: string; color: string | null; typeKey?: string | null };
+  statuses: {
+    id: string;
+    name: string;
+    description: string | null;
+    displayOrder: number;
+    color: string | null;
+    isFinal: "true" | "false";
+    actionType: "needs_action" | "waiting";
+    waitingCategory: "customer" | "vendor" | "internal" | "other" | null;
+    statusKey?: string | null;
+    fields: {
+      id: string;
+      statusId: string | null;
+      fieldKey: string;
+      fieldLabel: string;
+      fieldType: "text" | "number" | "date" | "currency" | "select" | "textarea";
+      isRequired: "true" | "false";
+      options: string[] | null;
+      displayOrder: number;
+    }[];
+  }[];
   fieldValues: TicketFieldValue[];
   statusHistory: TicketStatusHistory[];
   comments: TicketCommentWithAuthor[];
