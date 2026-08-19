@@ -22,6 +22,7 @@ export interface RfbTicket {
 export interface RfbTicketType {
   id: string;
   name: string;
+  requiresInvoicing?: "true" | "false";
 }
 
 export interface RfbTicketLink {
@@ -63,22 +64,43 @@ export interface RfbStorageDeps {
 }
 
 /**
- * Checks whether a ticket type name makes a ticket eligible for auto-invoice
+ * Checks whether a ticket type makes a ticket eligible for auto-invoice
  * when it lands on "Ready for Billing".
+ *
+ * Accepts either a string (legacy name-based check) or an RfbTicketType object.
+ * When an object is passed: if `requiresInvoicing === "true"` return true;
+ * if `"false"` return false; otherwise fall back to name check.
+ *
+ * @note The name-check fallback exists for rows that predate migration 0040
+ *       which backfilled `requires_invoicing`. Once all rows are confirmed
+ *       backfilled the fallback can be removed.
  */
-export function isInvoiceEligibleType(typeName: string | undefined): boolean {
+export function isInvoiceEligibleType(type: RfbTicketType | string | null | undefined): boolean {
+  if (type === undefined || type === null) return false;
+  if (typeof type === "string") {
+    return (
+      type === "Project" ||
+      type === "Estimate Request" ||
+      type === "Extra Billable"
+    );
+  }
+  // Object overload: prefer the stable flag, fall back to name
+  if (type.requiresInvoicing === "true") return true;
+  if (type.requiresInvoicing === "false") return false;
   return (
-    typeName === "Project" ||
-    typeName === "Estimate Request" ||
-    typeName === "Extra Billable"
+    type.name === "Project" ||
+    type.name === "Estimate Request" ||
+    type.name === "Extra Billable"
   );
 }
 
 export interface MaybeAutoCreateInvoiceParams {
   /** The ticket landing at Ready for Billing */
   ticket: RfbTicket;
-  /** The new status name — caller already confirmed this is "Ready for Billing" */
+  /** The new status name — used as fallback when newStatusKey is absent */
   newStatusName: string;
+  /** Stable status key from ticket_type_statuses.status_key — preferred over newStatusName */
+  newStatusKey?: string | null;
   /** The pending req.body.billingBehavior that will be persisted */
   pendingBillingBehavior?: string | null;
   /** ID of the user performing the action (used as createdById) */
@@ -99,18 +121,25 @@ export interface MaybeAutoCreateInvoiceParams {
 export async function maybeAutoCreateInvoiceOnRfb(
   params: MaybeAutoCreateInvoiceParams
 ): Promise<RfbCreatedTicket | null> {
-  const { ticket, newStatusName, pendingBillingBehavior, actingUserId, storage, ensureInvoiceTicketType } = params;
+  const { ticket, newStatusName, newStatusKey, pendingBillingBehavior, actingUserId, storage, ensureInvoiceTicketType } = params;
 
-  if (newStatusName !== "Ready for Billing") return null;
+  // Prefer the stable status key; fall back to the display name for unkeyed custom statuses.
+  const isRfbStatus = newStatusKey != null
+    ? newStatusKey === "ready_for_billing"
+    : newStatusName === "Ready for Billing";
+  if (!isRfbStatus) return null;
 
   const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, ticket.companyId);
+  // Intentional display-name dependency: "is this ticket the Invoice artifact itself?"
+  // No Slice A flag captures this distinction. Revisit when the two-ticket invoice model
+  // is settled and a dedicated capability flag can be added.
   const isInvoiceType = ticketType?.name === "Invoice";
   const isExtraBillableType = ticketType?.name === "Extra Billable";
 
   const invoiceEligible =
     ticket.billingBehavior === "invoice_required" ||
     pendingBillingBehavior === "invoice_required" ||
-    isInvoiceEligibleType(ticketType?.name);
+    isInvoiceEligibleType(ticketType);
 
   if (!invoiceEligible || isInvoiceType) return null;
 

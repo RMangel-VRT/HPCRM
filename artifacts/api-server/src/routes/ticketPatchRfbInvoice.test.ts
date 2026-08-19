@@ -324,4 +324,37 @@ describe("maybeAutoCreateInvoiceOnRfb", () => {
       expect.objectContaining({ assignedToId: null })
     );
   });
+
+  // ── newStatusKey: stable key routing ───────────────────────────────────────
+
+  it("creates invoice when newStatusKey is 'ready_for_billing' even if newStatusName was renamed", async () => {
+    // This is the core bug this slice fixes: a renamed status no longer matches
+    // the hard-coded display name, but the stable key still routes correctly.
+    const params = makeParams({
+      newStatusKey: "ready_for_billing",
+      newStatusName: "Renamed By User",
+    });
+
+    const result = await maybeAutoCreateInvoiceOnRfb(params);
+
+    expect(result).not.toBeNull();
+    expect(params.storage.createTicket).toHaveBeenCalledOnce();
+  });
+});
+
+// ── Unit tests: isInvoiceEligibleType (object overload) ───────────────────────
+
+describe("isInvoiceEligibleType (object overload)", () => {
+  it("returns true when requiresInvoicing='true', regardless of name", () => {
+    expect(isInvoiceEligibleType({ id: "tt-x", name: "Anything Renamed", requiresInvoicing: "true" })).toBe(true);
+  });
+
+  it("returns false when requiresInvoicing='false', even if name matches eligible type", () => {
+    expect(isInvoiceEligibleType({ id: "tt-eb", name: "Extra Billable", requiresInvoicing: "false" })).toBe(false);
+  });
+
+  it("falls back to name check when requiresInvoicing is absent on the object", () => {
+    expect(isInvoiceEligibleType({ id: "tt-proj", name: "Project" })).toBe(true);
+    expect(isInvoiceEligibleType({ id: "tt-todo", name: "To-Do" })).toBe(false);
+  });
 });

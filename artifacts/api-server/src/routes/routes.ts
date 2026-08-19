@@ -6970,8 +6970,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // === DIRECTION-INDEPENDENT: Auto-create Invoice ticket when landing at "Ready for Billing" ===
       // Fires on both forward moves AND step-backs (e.g. Done → Ready for Billing for EB tickets).
       // Normalize billingBehavior for Extra Billable tickets arriving at RFB before persisting.
-      if (newStatus?.name === "Ready for Billing") {
+      // prefer the stable key; fall back to the display name for unkeyed custom statuses
+      const isRfbStatus = newStatus?.statusKey
+        ? newStatus.statusKey === "ready_for_billing"
+        : newStatus?.name === "Ready for Billing";
+
+      if (isRfbStatus) {
         const rfbTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+        // Second deliberate display-name dependency (see also `isInvoiceType` in
+        // rfbInvoiceAutoCreate.ts). This means "Extra Billable specifically", which no
+        // Slice A flag expresses — requires_invoicing='true' is equally true of Project
+        // and Estimate Request, so reading it off the flag would broaden this
+        // normalization to those types. Resolve when the billing model is revisited.
         const isExtraBillableType = rfbTicketType?.name === "Extra Billable";
         if (isExtraBillableType && existingTicket.billingBehavior !== "invoice_required") {
           req.body.billingBehavior = "invoice_required";
@@ -6991,6 +7001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           contractId: existingTicket.contractId,
         },
         newStatusName: newStatus?.name ?? "",
+        newStatusKey: newStatus?.statusKey ?? null,
         pendingBillingBehavior: req.body.billingBehavior,
         actingUserId: user.id,
         storage,
