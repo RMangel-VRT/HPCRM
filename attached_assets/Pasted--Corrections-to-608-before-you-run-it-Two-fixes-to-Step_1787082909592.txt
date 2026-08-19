@@ -1,0 +1,88 @@
+# Corrections to #608 before you run it
+
+Two fixes to Step 5. Both are mine — I described the call site from memory instead of re-reading it, and got its structure wrong.
+
+---
+
+## 1. The outer guard does NOT wrap the helper call
+
+Both my spec and #608 say "the outer guard and the `maybeAutoCreateInvoiceOnRfb` call are both in scope," which reads as though the guard contains the call. It doesn't. The actual shape at `routes.ts:6973-6998` is:
+
+```ts
+if (newStatus?.name === "Ready for Billing") {              // L6973
+  const rfbTicketType = await storage.getTicketTypeById(…);
+  const isExtraBillableType = rfbTicketType?.name === "Extra Billable";
+  if (isExtraBillableType && existingTicket.billingBehavior !== "invoice_required") {
+    req.body.billingBehavior = "invoice_required";          // normalization only
+  }
+}                                                           // ← guard CLOSES here
+
+await maybeAutoCreateInvoiceOnRfb({ … });                   // L6982 — OUTSIDE the guard
+```
+
+The guard wraps **only** the Extra Billable `billingBehavior` normalization. The helper is called unconditionally and does its own Ready-for-Billing check internally.
+
+My spec's snippet showed the call nested inside `if (rfbByKey) { … }`. **Do not do that** — it would make an unconditional call conditional, which is a structural behavior change in a slice that forbids behavior change, and it creates a second place where the guard and the helper could disagree about what counts as Ready for Billing.
+
+**Correct instruction for Step 5:** change the guard's *condition* in place, leave the `maybeAutoCreateInvoiceOnRfb` call exactly where it is at the same nesting level, and add `newStatusKey` to its arguments.
+
+```ts
+// prefer the stable key; fall back to the display name for unkeyed custom statuses
+const isRfbStatus = newStatus?.statusKey
+  ? newStatus.statusKey === "ready_for_billing"
+  : newStatus?.name === "Ready for Billing";
+
+if (isRfbStatus) {
+  const rfbTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+  const isExtraBillableType = rfbTicketType?.name === "Extra Billable";   // see §2 — stays a name check
+  if (isExtraBillableType && existingTicket.billingBehavior !== "invoice_required") {
+    req.body.billingBehavior = "invoice_required";
+    console.log(`Normalizing billingBehavior to invoice_required for Extra Billable ticket ${existingTicket.id} at Ready for Billing`);
+  }
+}
+
+await maybeAutoCreateInvoiceOnRfb({
+  ticket: { … },                       // unchanged
+  newStatusName: newStatus?.name ?? "",
+  newStatusKey: newStatus?.statusKey ?? null,     // ← only addition
+  pendingBillingBehavior: req.body.billingBehavior,
+  actingUserId: user.id,
+  storage,
+  ensureInvoiceTicketType,
+});
+```
+
+---
+
+## 2. There is a THIRD name check in that range — and it must stay a name check
+
+`const isExtraBillableType = rfbTicketType?.name === "Extra Billable"` sits at `routes.ts:6975`, three lines inside the guard being migrated. Neither my spec nor #608 mentions it, so an agent working the range will either miss it or "helpfully" swap it for the flag.
+
+**Swapping it for `requiresInvoicing` would be a real behavior change.** That flag is `'true'` for Extra Billable, Project *and* Estimate Request. Today this normalization fires only for Extra Billable. Reading it off the flag would start rewriting `billingBehavior` on Project and Estimate Request tickets too.
+
+Leave it as a name check and document it, the same way Step 6 handles `isInvoiceType`:
+
+```ts
+// Second deliberate display-name dependency (see also `isInvoiceType` in
+// rfbInvoiceAutoCreate.ts). This means "Extra Billable specifically", which no
+// Slice A flag expresses — requires_invoicing='true' is equally true of Project
+// and Estimate Request, so reading it off the flag would broaden this
+// normalization to those types. Resolve when the billing model is revisited.
+const isExtraBillableType = rfbTicketType?.name === "Extra Billable";
+```
+
+Add this to #608's **Out of scope** list so it is explicit:
+
+> * Do not change `isExtraBillableType` (`routes.ts:6975`) to read `requires_invoicing` — that flag is also true for Project and Estimate Request and would broaden the normalization. It stays a name check with the comment above.
+
+---
+
+## Verified correct as written
+
+* `@workspace/api-server` is the right package name; `test` is `vitest run`, so `pnpm --filter @workspace/api-server test ticketPatchRfbInvoice` is valid.
+* Line range `6970-6999` is accurate (better than the `~6968` in my original spec).
+* `maybeAutoCreateInvoiceOnRfb` has exactly one call site — import at L39, call at L6982. Nothing else to migrate.
+* The existing test fixtures (`{ id: "tt-eb", name: "Extra Billable" }`) carry no `requiresInvoicing`, so they take the name fallback and all 15 tests pass unchanged. That is the intended design, not an accident.
+* Keeping `newStatusKey` optional is required — every existing test call omits it.
+
+One nit: the "Done looks like" bullet lists the four new tests as *"flag beats name; renamed type still bills; key-based RFB trigger; flag-false beats eligible name"*, which double-counts the flag-beats-name case and drops the name-fallback test. Step 7 has the correct four. Step 7 wins.

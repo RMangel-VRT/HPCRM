@@ -1,0 +1,207 @@
+# Replit Slice B1 — Migrate the billing trigger off display-name matching
+
+**Scope: two files plus their test. Behavior must not change — the existing tests are the proof.**
+
+## Why this one first
+
+Slice A added `requires_invoicing` on `ticket_types` and `status_key` on `ticket_type_statuses`, backfilled and verified in dev. Nothing reads them yet.
+
+Of the ~90 display-name comparisons in the app, the ones in the invoice auto-create path are the most dangerous: billing fires on the literal string `"Ready for Billing"`. Rename that status in Settings and invoicing silently stops — no error, no log, tickets just never generate invoices. This slice removes that.
+
+It is also the **only** ticket logic in the repo with real test coverage: `artifacts/api-server/src/routes/ticketPatchRfbInvoice.test.ts` has 15 tests covering `isInvoiceEligibleType` across all five type names, the RFB trigger, step-backs, and idempotency. Those tests are the safety net — **they must pass unchanged**, because the Slice A backfill was built to make the flags produce identical answers to the name checks.
+
+Files in scope:
+
+* `artifacts/api-server/src/lib/rfbInvoiceAutoCreate.ts`
+* `artifacts/api-server/src/routes/routes.ts` — the single call site at ~L6968–6998
+* `artifacts/api-server/src/routes/ticketPatchRfbInvoice.test.ts` — fixtures only
+
+Nothing else. If you find yourself editing a fourth file, stop.
+
+---
+
+## 1. Widen the injected type shape
+
+In `rfbInvoiceAutoCreate.ts`, `RfbTicketType` is currently `{ id, name }`. Add the capability flag:
+
+```ts
+export interface RfbTicketType {
+  id: string;
+  name: string;
+  requiresInvoicing?: "true" | "false";   // Slice A flag; optional so tests/callers can omit
+}
+```
+
+`storage.getTicketTypeById` already returns the whole row, so the flag arrives with no query change.
+
+---
+
+## 2. Replace `isInvoiceEligibleType` with a flag read
+
+Current:
+
+```ts
+export function isInvoiceEligibleType(typeName: string | undefined): boolean {
+  return typeName === "Project" || typeName === "Estimate Request" || typeName === "Extra Billable";
+}
+```
+
+Replace with a capability-based version that keeps the old signature working for the tests:
+
+```ts
+/**
+ * Slice B1: eligibility now comes from the ticket type's `requiresInvoicing`
+ * capability flag rather than its display name.
+ *
+ * The name fallback exists for rows that predate the Slice A backfill (or a
+ * ticket type a user created by hand, which has no flag set). Once every
+ * deployment has run migration 0040 the fallback is dead weight and can go.
+ */
+export function isInvoiceEligibleType(type: RfbTicketType | string | undefined): boolean {
+  if (!type) return false;
+  if (typeof type === "string") {
+    return type === "Project" || type === "Estimate Request" || type === "Extra Billable";
+  }
+  if (type.requiresInvoicing === "true")  return true;
+  if (type.requiresInvoicing === "false") return false;
+  // flag absent → fall back to the legacy name check
+  return type.name === "Project" || type.name === "Estimate Request" || type.name === "Extra Billable";
+}
+```
+
+Keeping the string overload means the 6 existing `isInvoiceEligibleType("…")` unit tests pass untouched, which is the point.
+
+Update the caller inside `maybeAutoCreateInvoiceOnRfb` to pass the object:
+
+```ts
+const invoiceEligible =
+  ticket.billingBehavior === "invoice_required" ||
+  pendingBillingBehavior === "invoice_required" ||
+  isInvoiceEligibleType(ticketType);      // was: isInvoiceEligibleType(ticketType?.name)
+```
+
+---
+
+## 3. Trigger on `statusKey`, not the display string
+
+`maybeAutoCreateInvoiceOnRfb` currently takes `newStatusName: string` and opens with:
+
+```ts
+if (newStatusName !== "Ready for Billing") return null;
+```
+
+Add an optional `newStatusKey` to `MaybeAutoCreateInvoiceParams` and prefer it:
+
+```ts
+export interface MaybeAutoCreateInvoiceParams {
+  ticket: RfbTicket;
+  /** Display name of the new status — legacy fallback when statusKey is absent */
+  newStatusName: string;
+  /** Slice A stable key. Preferred. Null for user-created custom statuses. */
+  newStatusKey?: string | null;
+  // …rest unchanged
+}
+```
+
+```ts
+// Prefer the stable key; fall back to the display name only when the status has
+// no key (user-created custom status, or a DB that predates migration 0040).
+const isReadyForBilling = newStatusKey
+  ? newStatusKey === "ready_for_billing"
+  : newStatusName === "Ready for Billing";
+if (!isReadyForBilling) return null;
+```
+
+**Do not** make `newStatusKey` required — that would break every existing test call.
+
+---
+
+## 4. Update the call site in `routes.ts` (~L6968–6998)
+
+There are **two** name checks here, not one. The outer guard duplicates the inner one:
+
+```ts
+if (newStatus?.name === "Ready for Billing") {          // ← outer guard, ~L6968
+  …
+  await maybeAutoCreateInvoiceOnRfb({
+    …
+    newStatusName: newStatus?.name ?? "",
+    …
+  });
+}
+```
+
+`newStatus` is already a full `TicketTypeStatus` row in scope, so `statusKey` is available with no extra query. Change the outer guard to the same preference order and pass the key through:
+
+```ts
+const rfbByKey = newStatus?.statusKey
+  ? newStatus.statusKey === "ready_for_billing"
+  : newStatus?.name === "Ready for Billing";
+
+if (rfbByKey) {
+  …
+  await maybeAutoCreateInvoiceOnRfb({
+    …
+    newStatusName: newStatus?.name ?? "",
+    newStatusKey: newStatus?.statusKey ?? null,
+    …
+  });
+}
+```
+
+---
+
+## 5. Leave ONE name check in place — deliberately
+
+Inside `maybeAutoCreateInvoiceOnRfb`:
+
+```ts
+const isInvoiceType = ticketType?.name === "Invoice";
+…
+if (!invoiceEligible || isInvoiceType) return null;
+```
+
+**Keep this as-is and add a comment.** It answers a different question — "is this ticket itself the invoice artifact?" — which no Slice A flag expresses. `requires_invoicing = 'false'` is true of both Invoice and To-Do, so it cannot stand in.
+
+The structural alternative (checking for an incoming `invoice_for` link) would change behavior: the test *"idempotency: a different-direction link (targetTicketId is ticket) does NOT block creation"* asserts today that an incoming link does **not** block. Do not touch that.
+
+```ts
+// Remaining display-name dependency in this file, kept on purpose. This asks
+// "is this ticket itself the invoice artifact?", which no Slice A capability
+// flag expresses (requires_invoicing='false' is also true of To-Do). Resolve it
+// when the two-ticket invoice model is settled — until then a rename of the
+// "Invoice" ticket type would defeat this guard.
+const isInvoiceType = ticketType?.name === "Invoice";
+```
+
+---
+
+## 6. Tests
+
+Run `pnpm --filter @workspace/api-server test` (or the repo's usual runner) for `ticketPatchRfbInvoice.test.ts`.
+
+**All 15 existing tests must pass with their assertions unchanged.** If any assertion needs editing to go green, stop and report it — that means behavior moved, which this slice forbids.
+
+Then add these four, mirroring the existing style:
+
+1. `isInvoiceEligibleType` returns `true` for `{ id, name: "Anything Renamed", requiresInvoicing: "true" }` — proves a renamed type still bills.
+2. `isInvoiceEligibleType` returns `false` for `{ id, name: "Extra Billable", requiresInvoicing: "false" }` — proves the flag beats the name.
+3. `isInvoiceEligibleType` falls back to the name when `requiresInvoicing` is absent.
+4. `maybeAutoCreateInvoiceOnRfb` creates the invoice when `newStatusKey: "ready_for_billing"` and `newStatusName: "Renamed By User"` — the actual bug this slice fixes.
+
+---
+
+## Out of scope
+
+* Every other `ticketType?.name === "…"` and `status?.name === "…"` comparison in the app. There are ~85 left; they come in later slices grouped by surface.
+* `TicketDetail.tsx`, `TicketsList.tsx`, `NewTicket.tsx`, mobile — untouched.
+* The client's duplicate `artifacts/highplains-crm/src/shared/schema.ts` — not needed here, this slice is server-only.
+* Do not add UI for the capability flags.
+* Do not change `terminal_behavior` handling; nothing reads it yet.
+
+## Done looks like
+
+* All 15 pre-existing tests pass, assertions unchanged.
+* The 4 new tests pass.
+* No new TypeScript errors vs the pre-change baseline (`pnpm run typecheck` from the repo root — capture the baseline first; there are known pre-existing errors, do not fix them).
+* Manual check: move an Extra Billable ticket to Ready for Billing and confirm an Invoice ticket is still auto-created and linked, exactly as before.
