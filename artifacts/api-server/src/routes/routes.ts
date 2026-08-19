@@ -28,7 +28,13 @@ import heicConvert from 'heic-convert';
 import multer from 'multer';
 import { renderVisualScope, renderVisualScopeExport, type ExportType, type ExportPreset } from "../visualScopeRenderer";
 import { ROLLUP_SERVICE_LABELS, campaignToRollupServiceType } from "../shared/serviceCatalog";
-import { TICKET_TYPE_CAPABILITIES, TICKET_TYPE_KEYS, STATUS_KEY_BACKFILL } from "../shared/ticketCapabilities";
+import {
+  TICKET_TYPE_CAPABILITIES,
+  TICKET_TYPE_KEYS,
+  STATUS_KEY_BACKFILL,
+  findSeededTicketType,
+  isSeededTicketType,
+} from "../shared/ticketCapabilities";
 import { findClosestHourIndex, buildDateWindow } from "../lib/weatherHourMatch";
 import { buildContractAuditRows } from "../auditEngine";
 import { seedChemicalNotificationTemplates } from "../templates/seed";
@@ -239,7 +245,7 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
   pendingStatusId: string;
 } | null> {
   const ticketTypes = await storage.getTicketTypes(companyId);
-  let invoiceType = ticketTypes.find(tt => tt.name === "Invoice");
+  let invoiceType = findSeededTicketType(ticketTypes, "invoice");
   
   if (!invoiceType) {
     // Create the Invoice ticket type
@@ -323,7 +329,7 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
   statuses: Map<string, string>;
 } | null> {
   const ticketTypes = await storage.getTicketTypes(companyId);
-  let rfpType = ticketTypes.find(tt => tt.name === "RFP Request");
+  let rfpType = findSeededTicketType(ticketTypes, "rfp_request");
   
   if (!rfpType) {
     rfpType = await storage.createTicketType({
@@ -545,7 +551,7 @@ async function ensureEstimateRequestTicketType(companyId: string): Promise<{
   statuses: Map<string, string>;
 } | null> {
   const ticketTypes = await storage.getTicketTypes(companyId);
-  let projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
+  let projectType = findSeededTicketType(ticketTypes, "estimate_request");
   
   if (!projectType) {
     projectType = await storage.createTicketType({
@@ -688,7 +694,7 @@ async function migrateApprovedEstimateRequestTickets(companyId: string, triggeri
   
   // Get Estimate Request ticket type
   const ticketTypes = await storage.getTicketTypes(companyId);
-  const projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
+  const projectType = findSeededTicketType(ticketTypes, "estimate_request");
   if (!projectType) return 0;
   
   // Get all statuses for this ticket type
@@ -758,7 +764,7 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
   statuses: Map<string, string>;
 } | null> {
   const ticketTypes = await storage.getTicketTypes(companyId);
-  let ebType = ticketTypes.find(tt => tt.name === "Extra Billable");
+  let ebType = findSeededTicketType(ticketTypes, "extra_billable");
   
   if (!ebType) {
     ebType = await storage.createTicketType({
@@ -846,7 +852,7 @@ async function ensureProjectTicketType(companyId: string): Promise<{
   statuses: Map<string, string>;
 } | null> {
   const ticketTypes = await storage.getTicketTypes(companyId);
-  let pneType = ticketTypes.find(tt => tt.name === "Project");
+  let pneType = findSeededTicketType(ticketTypes, "project");
 
   if (!pneType) {
     pneType = await storage.createTicketType({
@@ -953,7 +959,7 @@ async function ensureToDoTicketType(companyId: string): Promise<{
   internalCustomerId: string;
 } | null> {
   const ticketTypes = await storage.getTicketTypes(companyId);
-  let todoType = ticketTypes.find(tt => tt.name === "To-Do");
+  let todoType = findSeededTicketType(ticketTypes, "todo");
   
   if (!todoType) {
     todoType = await storage.createTicketType({
@@ -1142,7 +1148,7 @@ export async function fixExtraBillableDoneOrder(): Promise<void> {
     const companies = await storage.getCompanies();
     for (const company of companies) {
       const ticketTypes = await storage.getTicketTypes(company.id);
-      const ebType = ticketTypes.find(tt => tt.name === "Extra Billable");
+      const ebType = findSeededTicketType(ticketTypes, "extra_billable");
       if (!ebType) continue;
       
       const statuses = await storage.getTicketTypeStatuses(ebType.id);
@@ -1181,7 +1187,7 @@ export async function fixProjectDisplayOrders(): Promise<void> {
 
     for (const company of companies) {
       const ticketTypes = await storage.getTicketTypes(company.id);
-      const projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
+      const projectType = findSeededTicketType(ticketTypes, "estimate_request");
       if (!projectType) continue;
 
       const statuses = await storage.getTicketTypeStatuses(projectType.id);
@@ -1216,7 +1222,7 @@ export async function removeProjectInvoicingFields(): Promise<void> {
     
     for (const company of companies) {
       const ticketTypes = await storage.getTicketTypes(company.id);
-      const projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
+      const projectType = findSeededTicketType(ticketTypes, "estimate_request");
       if (!projectType) continue;
       
       const statuses = await storage.getTicketTypeStatuses(projectType.id);
@@ -1253,7 +1259,7 @@ export async function fixEstimateRequestBillingBehavior(): Promise<void> {
     
     for (const company of companies) {
       const ticketTypes = await storage.getTicketTypes(company.id);
-      const projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
+      const projectType = findSeededTicketType(ticketTypes, "estimate_request");
       if (!projectType) continue;
       
       const allTickets = await storage.getTickets(company.id);
@@ -1287,7 +1293,7 @@ export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
     const companies = await storage.getCompanies();
     for (const company of companies) {
       const ticketTypes = await storage.getTicketTypes(company.id);
-      const projectType = ticketTypes.find(tt => tt.name === "Estimate Request");
+      const projectType = findSeededTicketType(ticketTypes, "estimate_request");
       if (!projectType) continue;
 
       const statuses = await storage.getTicketTypeStatuses(projectType.id);
@@ -1391,7 +1397,7 @@ export async function migrateExtraBillableTicketType(): Promise<void> {
       
       // Migrate existing extra_work tickets that are on the To-Do type to Extra Billable
       const ticketTypes = await storage.getTicketTypes(company.id);
-      const todoType = ticketTypes.find(tt => tt.name === "To-Do");
+      const todoType = findSeededTicketType(ticketTypes, "todo");
       if (!todoType) continue;
       
       const todoStatuses = await storage.getTicketTypeStatuses(todoType.id);
@@ -5663,7 +5669,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // ticket-type rename migration); "Project" is the no-estimate variant. Both feed the
     // scheduling queue.
     const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
-    const projectTypes = ticketTypes.filter(t => t.name === "Estimate Request" || t.name === "Project");
+    const projectTypes = ticketTypes.filter(
+      ticketType => isSeededTicketType(ticketType, "estimate_request")
+        || isSeededTicketType(ticketType, "project")
+    );
     
     if (projectTypes.length === 0) {
       return res.json({ schedulingStatusId: null, schedulingStatusIds: [], message: "No project ticket types found" });
@@ -6823,7 +6832,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Auto-set billing_behavior to invoice_required when estimate request moves to approved path
         if (existingTicket.workType === "estimate_request" && newStatus) {
           const ticketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-          if (ticketType?.name === "Estimate Request") {
+          if (isSeededTicketType(ticketType, "estimate_request")) {
             const approvedPathStatuses = ["Ready to Schedule", "Work Completed", "Ready for Billing", "Invoicing"];
             const isInApprovedPath = approvedPathStatuses.includes(newStatus.name);
             if (isInApprovedPath) {
@@ -6836,7 +6845,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Ensure billingBehavior is corrected for directly-created Project tickets stepping forward
         if (newStatus && existingTicket.workType !== "estimate_request") {
           const ticketTypeForBilling = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-          if (ticketTypeForBilling?.name === "Project" && existingTicket.billingBehavior !== "invoice_required") {
+          if (isSeededTicketType(ticketTypeForBilling, "project") && existingTicket.billingBehavior !== "invoice_required") {
             const approvedPathStatuses = ["Ready to Schedule", "Work Completed", "Ready for Billing", "Invoicing"];
             if (approvedPathStatuses.includes(newStatus.name)) {
               req.body.billingBehavior = "invoice_required";
@@ -6904,7 +6913,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Auto-propagate Invoice completion back to parent ticket
           const currentTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-          const isInvoiceTicket = currentTicketType?.name === "Invoice";
+          const isInvoiceTicket = isSeededTicketType(currentTicketType, "invoice");
           
           if (isInvoiceTicket) {
             try {
@@ -6970,9 +6979,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Fallback: auto-create Invoice ticket when stepping to "Invoicing" and no invoice exists yet
         const currentTicketTypeForFallback = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-        const isInvoiceTicketType = currentTicketTypeForFallback?.name === "Invoice";
-        const isProjectTypeForInvoice = currentTicketTypeForFallback?.name === "Project";
-        const isEstimateRequestTypeForInvoice = currentTicketTypeForFallback?.name === "Estimate Request";
+        const isInvoiceTicketType = isSeededTicketType(currentTicketTypeForFallback, "invoice");
+        const isProjectTypeForInvoice = isSeededTicketType(currentTicketTypeForFallback, "project");
+        const isEstimateRequestTypeForInvoice = isSeededTicketType(currentTicketTypeForFallback, "estimate_request");
         if (newStatus?.name === "Invoicing" && (isProjectTypeForInvoice || isEstimateRequestTypeForInvoice) && !isInvoiceTicketType) {
           const existingLinksForFallback = await storage.getTicketLinks(existingTicket.id);
           const hasExistingInvoiceFallback = existingLinksForFallback.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
@@ -7035,12 +7044,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (isRfbStatus) {
         const rfbTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-        // Second deliberate display-name dependency (see also `isInvoiceType` in
-        // rfbInvoiceAutoCreate.ts). This means "Extra Billable specifically", which no
-        // Slice A flag expresses — requires_invoicing='true' is equally true of Project
-        // and Estimate Request, so reading it off the flag would broaden this
-        // normalization to those types. Resolve when the billing model is revisited.
-        const isExtraBillableType = rfbTicketType?.name === "Extra Billable";
+        const isExtraBillableType = isSeededTicketType(rfbTicketType, "extra_billable");
         if (isExtraBillableType && existingTicket.billingBehavior !== "invoice_required") {
           req.body.billingBehavior = "invoice_required";
           console.log(`Normalizing billingBehavior to invoice_required for Extra Billable ticket ${existingTicket.id} at Ready for Billing`);
@@ -7238,7 +7242,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
-    if (ticketType?.name !== "Estimate Request" && ticketType?.name !== "Project") {
+    if (
+      !isSeededTicketType(ticketType, "estimate_request")
+      && !isSeededTicketType(ticketType, "project")
+    ) {
       return res.status(400).send("Invoice tickets can only be created from Estimate Request or Project tickets");
     }
 
@@ -7516,7 +7523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
         const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
 
-        if (ticketType?.name === "Estimate Request" && currentStatus?.name === "Decision Received") {
+        if (isSeededTicketType(ticketType, "estimate_request") && currentStatus?.name === "Decision Received") {
           if (req.body.value === "Approved") {
             const readyToScheduleStatus = statuses.find(s => s.name === "Ready to Schedule");
             if (readyToScheduleStatus) {
@@ -7554,7 +7561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
 
-        if (ticketType?.name === "RFP Request" && currentStatus?.name === "Decision Received") {
+        if (isSeededTicketType(ticketType, "rfp_request") && currentStatus?.name === "Decision Received") {
           if (req.body.value === "Lost") {
             const closedLostStatus = statuses.find(s => s.name === "Closed - Lost");
             if (closedLostStatus) {
@@ -7811,7 +7818,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     const ticketsNeedingInvoice: typeof allTickets = [];
     
-    const invoiceType = ticketTypes.find(tt => tt.name === "Invoice");
+    const invoiceType = findSeededTicketType(ticketTypes, "invoice");
     if (invoiceType) {
       const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
       const pendingStatus = invoiceStatuses.find(s => s.name === "Pending Invoice");
@@ -7993,7 +8000,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const ticketsToMigrate: Array<{ ticket: typeof allTickets[0]; ticketTypeName: string; currentStatusName: string; reason: string }> = [];
     
     for (const tt of ticketTypesAll) {
-      if (tt.name === "Invoice") continue;
+      if (isSeededTicketType(tt, "invoice")) continue;
       const statuses = await storage.getTicketTypeStatuses(tt.id);
       
       // Find tickets at "Ready for Billing" status
@@ -8010,7 +8017,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Also find tickets with invoice_required at final status without linked invoices (legacy)
-      if (tt.name !== "Invoice") {
+      if (!isSeededTicketType(tt, "invoice")) {
         const finalStatuses = statuses.filter(s => s.isFinal === "true");
         for (const fs of finalStatuses) {
           const ticketsAtFinal = allTickets.filter(t => t.ticketTypeId === tt.id && t.currentStatusId === fs.id && t.billingBehavior === "invoice_required");
@@ -8916,17 +8923,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     try {
       // Get the Estimate Request ticket type (formerly named "Project")
-      const projectTicketType = await db
-        .select()
-        .from(ticketTypes)
-        .where(eq(ticketTypes.name, "Estimate Request"))
-        .limit(1);
+      const projectTicketType = findSeededTicketType(
+        await storage.getTicketTypes(user.activeCompanyId),
+        "estimate_request"
+      );
 
-      if (!projectTicketType.length) {
+      if (!projectTicketType) {
         return res.status(404).send("Estimate Request ticket type not found");
       }
 
-      const projectTypeId = projectTicketType[0].id;
+      const projectTypeId = projectTicketType.id;
 
       // Get the approved-path statuses for Project workflow
       const approvedStatusNames = [
@@ -10047,7 +10053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     const allTicketTypes = await storage.getTicketTypes(user.activeCompanyId);
-    const invoiceType = allTicketTypes.find(t => t.name === "Invoice" || t.name === "invoice");
+    const invoiceType = findSeededTicketType(allTicketTypes, "invoice");
     if (!invoiceType) {
       return res.status(400).send("No 'Invoice' ticket type found. Please create one first.");
     }
@@ -19676,7 +19682,8 @@ async function reconcileIsParentFlags(): Promise<void> {
  *     exists in that company (so a second run finds nothing to rename and skips).
  *   - work_type update is a safe no-op when no 'project' rows remain.
  *
- * MUST be called before any ensure/seed helper that looks up ticket types by name.
+ * The reads below intentionally remain name-based: this migration must discover
+ * pre-key rows by their old display names. Its writes repair stable identity.
  */
 export async function migrateTicketTypeRename(): Promise<void> {
   console.log("Running startup migration: Renaming ticket types (Project → Estimate Request, Project (No Estimate) → Project)...");
@@ -19698,6 +19705,7 @@ export async function migrateTicketTypeRename(): Promise<void> {
         await db.execute(sql`
           UPDATE ticket_types
           SET name        = 'Estimate Request',
+              type_key    = 'estimate_request',
               description = 'Customer estimate request — 10-step workflow through approval, scheduling, and invoicing'
           WHERE id = ${oldType.id}
         `);

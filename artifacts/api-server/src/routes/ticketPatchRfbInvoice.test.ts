@@ -239,6 +239,22 @@ describe("maybeAutoCreateInvoiceOnRfb", () => {
     expect(params.storage.createTicket).not.toHaveBeenCalled();
   });
 
+  it("never creates a second Invoice for a renamed Invoice type carrying the stable key", async () => {
+    const params = makeParams({
+      ticket: makeTicket({ ticketTypeId: "tt-inv" }),
+    });
+    (params.storage.getTicketTypeById as any).mockResolvedValue({
+      id: "tt-inv",
+      name: "Customer Billing",
+      typeKey: "invoice",
+    });
+
+    const result = await maybeAutoCreateInvoiceOnRfb(params);
+
+    expect(result).toBeNull();
+    expect(params.storage.createTicket).not.toHaveBeenCalled();
+  });
+
   // ── Eligible ticket types ───────────────────────────────────────────────────
 
   it("creates invoice for Project type (regression: existing behavior preserved)", async () => {
@@ -356,5 +372,13 @@ describe("isInvoiceEligibleType (object overload)", () => {
   it("falls back to name check when requiresInvoicing is absent on the object", () => {
     expect(isInvoiceEligibleType({ id: "tt-proj", name: "Project" })).toBe(true);
     expect(isInvoiceEligibleType({ id: "tt-todo", name: "To-Do" })).toBe(false);
+  });
+
+  it("recognizes a renamed invoice-eligible type by its stable key", () => {
+    expect(isInvoiceEligibleType({
+      id: "tt-eb",
+      name: "Change Order",
+      typeKey: "extra_billable",
+    })).toBe(true);
   });
 });

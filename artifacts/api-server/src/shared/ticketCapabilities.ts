@@ -64,17 +64,62 @@ export const TICKET_TYPE_CAPABILITIES: Record<string, TicketTypeCapabilities> = 
 };
 
 /**
- * Slice A2: display name → stable machine identity, for the six seeded types.
- * Written to the database but NOT read anywhere yet — readers migrate in Slice B2.
+ * Stable machine identity → legacy display name for the six seeded types.
+ * Display names remain the fallback only for rows that have not been backfilled.
  */
-export const TICKET_TYPE_KEYS: Record<string, TicketTypeKey> = {
-  "To-Do": "todo",
-  "Estimate Request": "estimate_request",
-  "Project": "project",
-  "Extra Billable": "extra_billable",
-  "Invoice": "invoice",
-  "RFP Request": "rfp_request",
+export const TICKET_TYPE_NAMES_BY_KEY: Record<TicketTypeKey, string> = {
+  todo: "To-Do",
+  estimate_request: "Estimate Request",
+  project: "Project",
+  extra_billable: "Extra Billable",
+  invoice: "Invoice",
+  rfp_request: "RFP Request",
 };
+
+/**
+ * Display name → stable machine identity, retained for seed/backfill writes.
+ */
+export const TICKET_TYPE_KEYS: Record<string, TicketTypeKey> = Object.fromEntries(
+  Object.entries(TICKET_TYPE_NAMES_BY_KEY).map(([typeKey, name]) => [name, typeKey])
+) as Record<string, TicketTypeKey>;
+
+export interface TicketTypeIdentity {
+  name: string;
+  typeKey?: TicketTypeKey | null;
+}
+
+// A historical Snow path accepted this lowercase spelling. Keep it available
+// only as an unkeyed legacy fallback while missed rows are manually keyable.
+const LEGACY_TICKET_TYPE_NAME_ALIASES: Partial<Record<TicketTypeKey, readonly string[]>> = {
+  invoice: ["invoice"],
+};
+
+/**
+ * Checks one ticket type using its stable key when present. A non-null key is
+ * authoritative; only unkeyed rows may fall back to a legacy display name.
+ */
+export function isSeededTicketType(
+  ticketType: TicketTypeIdentity | null | undefined,
+  typeKey: TicketTypeKey
+): boolean {
+  if (!ticketType) return false;
+  if (ticketType.typeKey != null) return ticketType.typeKey === typeKey;
+
+  return ticketType.name === TICKET_TYPE_NAMES_BY_KEY[typeKey]
+    || LEGACY_TICKET_TYPE_NAME_ALIASES[typeKey]?.includes(ticketType.name) === true;
+}
+
+/**
+ * Resolves a seeded type from a collection. Keyed rows are searched before the
+ * legacy name fallback so an unkeyed duplicate cannot shadow the stable row.
+ */
+export function findSeededTicketType<T extends TicketTypeIdentity>(
+  ticketTypes: readonly T[],
+  typeKey: TicketTypeKey
+): T | undefined {
+  return ticketTypes.find(ticketType => ticketType.typeKey === typeKey)
+    ?? ticketTypes.find(ticketType => isSeededTicketType(ticketType, typeKey));
+}
 
 // Stable machine keys for every seeded status: [type name][status name] -> statusKey.
 // User-created custom statuses are intentionally absent and stay NULL.

@@ -8,6 +8,9 @@
  * (idempotency guard: invoice already exists, ticket type not eligible, etc.).
  */
 
+import type { TicketTypeKey } from "@workspace/db";
+import { isSeededTicketType } from "../shared/ticketCapabilities";
+
 export interface RfbTicket {
   id: string;
   title: string;
@@ -22,6 +25,7 @@ export interface RfbTicket {
 export interface RfbTicketType {
   id: string;
   name: string;
+  typeKey?: TicketTypeKey | null;
   requiresInvoicing?: "true" | "false";
 }
 
@@ -87,11 +91,9 @@ export function isInvoiceEligibleType(type: RfbTicketType | string | null | unde
   // Object overload: prefer the stable flag, fall back to name
   if (type.requiresInvoicing === "true") return true;
   if (type.requiresInvoicing === "false") return false;
-  return (
-    type.name === "Project" ||
-    type.name === "Estimate Request" ||
-    type.name === "Extra Billable"
-  );
+  return isSeededTicketType(type, "project")
+    || isSeededTicketType(type, "estimate_request")
+    || isSeededTicketType(type, "extra_billable");
 }
 
 export interface MaybeAutoCreateInvoiceParams {
@@ -130,11 +132,8 @@ export async function maybeAutoCreateInvoiceOnRfb(
   if (!isRfbStatus) return null;
 
   const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, ticket.companyId);
-  // Intentional display-name dependency: "is this ticket the Invoice artifact itself?"
-  // No Slice A flag captures this distinction. Revisit when the two-ticket invoice model
-  // is settled and a dedicated capability flag can be added.
-  const isInvoiceType = ticketType?.name === "Invoice";
-  const isExtraBillableType = ticketType?.name === "Extra Billable";
+  const isInvoiceType = isSeededTicketType(ticketType, "invoice");
+  const isExtraBillableType = isSeededTicketType(ticketType, "extra_billable");
 
   const invoiceEligible =
     ticket.billingBehavior === "invoice_required" ||
