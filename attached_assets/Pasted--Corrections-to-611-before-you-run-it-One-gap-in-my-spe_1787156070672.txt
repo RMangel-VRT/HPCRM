@@ -1,0 +1,88 @@
+# Corrections to #611 before you run it
+
+One gap in my spec, and it turns out to be two holes — the second one is already live in merged code.
+
+---
+
+## 1. `typeKey` must be stripped from the ticket-type write endpoints
+
+My spec listed the six `ensure*` helpers as the places that create ticket types. **There is a seventh writer**, and two endpoints that let a user set fields directly:
+
+* `POST /api/ticket-types` — `routes.ts:5814` parses `insertTicketTypeSchema.safeParse({ ...req.body, companyId })` and passes `result.data` straight into `storage.createTicketType` at L5828.
+* `PATCH /api/ticket-types/:id` — `routes.ts:5842` parses `insertTicketTypeSchema.partial().omit({ companyId: true })` and passes `result.data` straight into `storage.updateTicketType`.
+
+The moment `typeKey` is added to `insertTicketTypeSchema` as `.nullable().optional()`, both endpoints accept it. An admin could `POST { name: "My Custom Type", typeKey: "invoice" }` and mint a second type claiming the Invoice identity — or `PATCH { typeKey: "invoice" }` onto an existing type and re-point it.
+
+That is exactly the duplicate-identity scenario that would break Slice B2's `find(t => t.typeKey === 'invoice')` lookups, and because §1 of the spec deliberately makes the index **non-unique**, there is no database-level protection either.
+
+**Identity is assigned by the system, never by the client.** Add to Step 5 (or a new Step 6):
+
+```ts
+// POST /api/ticket-types — routes.ts ~L5814
+const result = insertTicketTypeSchema.omit({ typeKey: true }).safeParse({
+  ...req.body,
+  companyId: user.activeCompanyId,
+});
+```
+
+```ts
+// PATCH /api/ticket-types/:id — routes.ts ~L5842
+const result = insertTicketTypeSchema.partial().omit({ companyId: true, typeKey: true }).safeParse(req.body);
+```
+
+User-created ticket types get `typeKey: null`. That is correct and intended — nulls are what distinguish a hand-made type from a seeded one.
+
+Add to **Out of scope**:
+
+> * `type_key` is never client-settable. Do not expose it on any create/update endpoint or in Settings UI.
+
+---
+
+## 2. The same hole already exists for `statusKey` — close it here
+
+Slice A added `statusKey` to `insertTicketTypeStatusSchema` without stripping it at the write endpoints, and I missed it at review time. Both are open right now:
+
+* `POST /api/ticket-types/:ticketTypeId/statuses` — `routes.ts:5891`, `insertTicketTypeStatusSchema.safeParse({ ...req.body, ticketTypeId })`
+* `PATCH` on a status — `routes.ts:5924`, `insertTicketTypeStatusSchema.innerType().partial().omit({ ticketTypeId: true })`
+
+**This one is no longer theoretical.** Slice B1 shipped, so `status_key === 'ready_for_billing'` now drives invoice auto-creation. An admin can currently `PATCH { statusKey: "ready_for_billing" }` onto any status on any workflow and start generating invoice tickets — or clear the key on the real one and quietly stop billing. That is a bigger hole than the display-name fragility B1 was written to fix.
+
+Fix both the same way:
+
+```ts
+// POST status — routes.ts ~L5891
+const result = insertTicketTypeStatusSchema.innerType().omit({ statusKey: true }).safeParse({
+  ...req.body,
+  ticketTypeId: req.params.ticketTypeId,
+});
+```
+
+```ts
+// PATCH status — routes.ts ~L5924
+const result = insertTicketTypeStatusSchema.innerType().partial().omit({ ticketTypeId: true, statusKey: true }).safeParse(req.body);
+```
+
+**Note the `.innerType()` on the POST.** `insertTicketTypeStatusSchema` ends in a `.superRefine(…)`, which makes it a `ZodEffects` — `.omit()` is not available directly on it. The existing PATCH already calls `.innerType()` for exactly this reason; the POST currently does not, so adding `.omit()` there requires adding `.innerType()` too. **Verify the `waitingCategory` / `actionType` cross-field validation still runs after that change** — `.innerType()` drops the `superRefine`, so if the POST relies on it you need `.innerType().omit({ statusKey: true }).superRefine(…)` re-applied, or a different approach. Check before assuming.
+
+If that turns out to be awkward, an acceptable fallback for both status endpoints is to delete the field from the parsed result rather than from the schema:
+
+```ts
+const { statusKey: _ignored, ...safeData } = result.data;
+```
+
+---
+
+## 3. Everything else in #611 is correct as written
+
+Verified against `cd50d8c`:
+
+* Six `ensure*` helper line numbers (237 / 320 / 541 / 753 / 840 / 945) — accurate.
+* `migrateTicketTypeCapabilityColumns()` L1449 and `backfillTicketTypeCapabilities()` L1469 — accurate; extending them rather than adding new functions is right.
+* The separate `type_key` column guard is necessary — 0040 can be applied without 0041.
+* `ticketTypes` genuinely has no index callback today; it must be added.
+* Non-unique partial index is the right call given `migrateTicketTypeRename`'s known conflict branch.
+* `TicketTypeKey` will import cleanly from `@workspace/db` — `TerminalBehavior` already does, same path.
+* Drizzle's `index().where()` works here — Slice A's `ticket_type_statuses_key_idx` already uses it.
+* Only seven `createTicketType` call sites exist repo-wide: the six helpers plus L5828. `scripts/src/seed-randy.ts` does not create ticket types.
+
+One small addition to Step 6 of Done: capture the `pnpm run typecheck` baseline **before** making any change, and require no *new* errors — there are known pre-existing failures in this repo and the agent should not chase them.

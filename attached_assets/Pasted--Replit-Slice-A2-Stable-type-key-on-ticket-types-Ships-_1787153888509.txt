@@ -1,0 +1,222 @@
+# Replit Slice A2 — Stable `type_key` on `ticket_types`
+
+**Ships dark. Zero behavior change. No reader changes in this slice.**
+
+Same shape as Slice A (`0040`), which is now a proven pattern in this repo: numbered SQL migration for DDL + backfill, a DML-only boot backfill, and the `ensure*` seeding helpers updated so new companies get the value.
+
+## Why
+
+Slice A gave ticket types *capability* flags — what a type can **do**. It did not give them an *identity* — which type this **is**. Those are different questions, and roughly 21 remaining comparisons ask the second one:
+
+```ts
+ticketTypes.find(tt => tt.name === "Invoice")
+types.filter(t => t.name === "Estimate Request" || t.name === "Project")   // routes.ts ~L5536, runtime
+```
+
+No capability flag can answer them. `requires_invoicing = 'true'` is equally true of Estimate Request, Project and Extra Billable, so it cannot distinguish one from another.
+
+This also unblocks the two display-name checks Slice B1 deliberately left in place — both are identity questions, and both become clean flag reads once `type_key` exists:
+
+* `ticketType?.name === "Invoice"` in `rfbInvoiceAutoCreate.ts`
+* `rfbTicketType?.name === "Extra Billable"` at `routes.ts:6975`
+
+Migrating those is **Slice B2, not this slice.** A2 only adds and backfills the column.
+
+---
+
+## 1. Schema — `lib/db/src/schema/schema.ts`
+
+Add the key union immediately below the existing `TerminalBehavior` type:
+
+```ts
+// Stable machine identity for the seeded ticket types. `name` is the free-text
+// display label and may be renamed by a user at any time; `typeKey` is what code
+// should match on. Null for ticket types a user created by hand.
+export type TicketTypeKey =
+  | "todo"
+  | "estimate_request"
+  | "project"
+  | "extra_billable"
+  | "invoice"
+  | "rfp_request";
+```
+
+Add the column to `ticketTypes`, after `terminalBehavior` and before `createdAt`:
+
+```ts
+  typeKey: text("type_key").$type<TicketTypeKey>(),
+```
+
+Nullable, no default — same treatment as `statusKey`. Readers in later slices must tolerate null.
+
+Extend `insertTicketTypeSchema`'s `.extend({ … })` block:
+
+```ts
+  typeKey: z.enum(["todo", "estimate_request", "project", "extra_billable", "invoice", "rfp_request"]).nullable().optional(),
+```
+
+**Index — note the table currently has no index callback.** `ticketTypes` ends with a plain `});` and no `(table) => ({ … })` argument, unlike `ticketTypeStatuses`. You need to add one:
+
+```ts
+}, (table) => ({
+  ticketTypesKeyIdx: index("ticket_types_key_idx")
+    .on(table.companyId, table.typeKey)
+    .where(sql`type_key IS NOT NULL`),
+}));
+```
+
+**Deliberately NOT unique.** A unique constraint is the right end state — one `invoice` type per company — but `migrateTicketTypeRename` has a documented branch for the case where a company ends up with both `Project` and `Estimate Request`, so duplicates may exist in real data and a unique index would make the migration fail. Step 5 includes a query to find out; uniqueness can be added later once the data is confirmed clean.
+
+---
+
+## 2. Migration — `.migration-backup/migrations/0041_ticket_type_key.sql`
+
+New numbered file. Mirror `0040_ticket_type_capabilities.sql` exactly in style.
+
+```sql
+-- Slice A2: stable machine identity for the six seeded ticket types.
+-- Idempotent: IF NOT EXISTS on DDL; backfill only writes WHERE type_key IS NULL
+-- (preserves any hand-edited value).
+
+ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS type_key text;
+CREATE INDEX IF NOT EXISTS ticket_types_key_idx ON ticket_types (company_id, type_key) WHERE type_key IS NOT NULL;
+
+-- Post-rename display names → stable keys.
+UPDATE ticket_types SET type_key = 'todo'            WHERE name = 'To-Do'            AND type_key IS NULL;
+UPDATE ticket_types SET type_key = 'estimate_request' WHERE name = 'Estimate Request' AND type_key IS NULL;
+UPDATE ticket_types SET type_key = 'project'          WHERE name = 'Project'          AND type_key IS NULL;
+UPDATE ticket_types SET type_key = 'extra_billable'   WHERE name = 'Extra Billable'   AND type_key IS NULL;
+UPDATE ticket_types SET type_key = 'invoice'          WHERE name = 'Invoice'          AND type_key IS NULL;
+UPDATE ticket_types SET type_key = 'rfp_request'      WHERE name = 'RFP Request'      AND type_key IS NULL;
+```
+
+---
+
+## 3. Registry — `artifacts/api-server/src/shared/ticketCapabilities.ts`
+
+Extend the existing file; do not create a new one.
+
+```ts
+import type { TerminalBehavior, TicketTypeKey } from "@workspace/db";
+
+/**
+ * Slice A2: display name → stable machine identity, for the six seeded types.
+ * Written to the database but NOT read anywhere yet — readers migrate in Slice B2.
+ */
+export const TICKET_TYPE_KEYS: Record<string, TicketTypeKey> = {
+  "To-Do":            "todo",
+  "Estimate Request": "estimate_request",
+  "Project":          "project",
+  "Extra Billable":   "extra_billable",
+  "Invoice":          "invoice",
+  "RFP Request":      "rfp_request",
+};
+```
+
+---
+
+## 4. Extend the two existing migration functions in `routes.ts`
+
+**Do not add new functions.** Slice A already established both; extend them in place.
+
+`migrateTicketTypeCapabilityColumns()` (L1449) — add one line alongside the existing `ALTER TABLE` statements:
+
+```ts
+    await db.execute(sql`ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS type_key text`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ticket_types_key_idx ON ticket_types (company_id, type_key) WHERE type_key IS NOT NULL`);
+```
+
+`backfillTicketTypeCapabilities()` (L1469) — add a `type_key` backfill after the existing capability-flag loop. **It needs its own column-existence guard**: the function's current guard checks for `requires_customer`, which will be present from 0040 even on a database that has not yet run 0041.
+
+```ts
+    // Slice A2: stable type keys. Separate guard — 0040 may have run without 0041.
+    const typeKeyCol = await db.execute(sql`
+      SELECT COUNT(*)::int AS count FROM information_schema.columns
+      WHERE table_name = 'ticket_types' AND column_name = 'type_key'
+    `);
+    if (((typeKeyCol.rows[0] as { count: number })?.count ?? 0) > 0) {
+      let typeKeysWritten = 0;
+      for (const [typeName, typeKey] of Object.entries(TICKET_TYPE_KEYS)) {
+        const r = await db.execute(sql`
+          UPDATE ticket_types SET type_key = ${typeKey}
+          WHERE name = ${typeName} AND type_key IS NULL
+        `);
+        typeKeysWritten += (r as { rowCount?: number | null }).rowCount ?? 0;
+      }
+      console.log(`Ticket type key backfill: ${typeKeysWritten} type keys written`);
+    } else {
+      console.log("Ticket type key backfill skipped: type_key column not present yet (run SQL migration 0041 via pnpm migrate)");
+    }
+```
+
+Note the `AND type_key IS NULL` guard — unlike the capability flags, which are re-asserted on every boot, an identity is written once and never overwritten.
+
+Import `TICKET_TYPE_KEYS` alongside the existing `TICKET_TYPE_CAPABILITIES, STATUS_KEY_BACKFILL` import at the top of `routes.ts`.
+
+---
+
+## 5. Update the six `ensure*` seeding helpers
+
+So new companies get the key from day one. Same pattern as Slice A — add `typeKey` to each `storage.createTicketType({ … })` call, next to the existing `...TICKET_TYPE_CAPABILITIES[…]` spread:
+
+| Helper | Line | `typeKey` |
+|---|---|---|
+| `ensureInvoiceTicketType` | 237 | `"invoice"` |
+| `ensureRFPRequestTicketType` | 320 | `"rfp_request"` |
+| `ensureEstimateRequestTicketType` | 541 | `"estimate_request"` |
+| `ensureExtraBillableTicketType` | 753 | `"extra_billable"` |
+| `ensureProjectTicketType` | 840 | `"project"` |
+| `ensureToDoTicketType` | 945 | `"todo"` |
+
+Use the registry rather than a literal, so there is one source of truth:
+
+```ts
+      ...TICKET_TYPE_CAPABILITIES["Invoice"],
+      typeKey: TICKET_TYPE_KEYS["Invoice"],
+```
+
+All six are module-private (`async function …`, not exported) — do not export them. `storage.createTicketType` passes the insert object straight to Drizzle with no field whitelist, so `storage.ts` needs no change.
+
+---
+
+## Out of scope
+
+* **Do not migrate any reader.** No `ticketTypes.find(t => t.name === …)` lookup changes in this slice — that is B2.
+* Do not touch `rfbInvoiceAutoCreate.ts`. The `isInvoiceType` name check stays exactly as it is until B2.
+* Do not touch `routes.ts:6975` `isExtraBillableType`. Same reason.
+* Do not touch `TicketDetail.tsx`, `TicketsList.tsx`, `NewTicket.tsx`, or mobile.
+* Do not add a UNIQUE constraint on `type_key` (see §1).
+* Do not add UI for editing `type_key`.
+* Do not create `artifacts/api-server/src/shared/schema.ts` — server code imports schema types from `@workspace/db`. The dangling `"./schema"` import in `workTypeCatalog.ts` is a known pre-existing issue; leave it.
+* Do not fix pre-existing TypeScript errors in files this slice does not own.
+
+## Done looks like
+
+1. `pnpm --filter @workspace/scripts run migrate` applies `0041_ticket_type_key.sql`; it appears in `_applied_sql_migrations`.
+2. App boots; log shows `Ticket type key backfill: N type keys written`. Second boot shows `0 type keys written` (idempotent).
+3. No UI change anywhere. Every ticket opens and renders exactly as before.
+4. Spot-checks against the **development** database:
+
+```sql
+-- every seeded type has a key
+SELECT name, type_key FROM ticket_types ORDER BY name;
+
+-- nothing seeded left unkeyed (only hand-created types should appear)
+SELECT id, company_id, name FROM ticket_types WHERE type_key IS NULL;
+
+-- the identity lookup that ~21 call sites want, now answerable by key
+SELECT company_id, name FROM ticket_types WHERE type_key = 'invoice';
+
+-- does any company have duplicate keys? decides whether a UNIQUE index is safe later
+SELECT company_id, type_key, COUNT(*) FROM ticket_types
+WHERE type_key IS NOT NULL
+GROUP BY company_id, type_key HAVING COUNT(*) > 1;
+-- expect: 0 rows
+```
+
+5. A brand-new test company's seeded types come out with the same keys as an existing company's.
+6. No new TypeScript errors vs the pre-change baseline — capture `pnpm run typecheck` from the repo root *before* changing anything; there are known pre-existing errors, do not fix them.
+
+## Note for the reviewer
+
+The last query in step 4 is the one worth reading carefully. If it returns rows, some company has two ticket types claiming the same identity — which would mean `migrateTicketTypeRename` left a conflict behind. That is worth knowing before Slice B2 starts doing `find(t => t.typeKey === …)` lookups that assume a single match.
