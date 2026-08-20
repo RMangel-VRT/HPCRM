@@ -1,0 +1,66 @@
+# Corrections to #617 before you run it
+
+#617 covers the spec accurately. Three additions, all in Step 8. The first will crash the page if it goes in as written.
+
+---
+
+## 1. The stepper's `useState` must be declared with the other hooks — not in the workflow block
+
+Step 8 lists *"Add `useState` (default: `ticket.currentStatusId`) to track the selected step"* inside the bullets for the `activeTab === "workflow"` block. Doing that literally breaks two rules at once:
+
+* it would sit inside JSX conditional rendering — a conditionally-called hook, and
+* **`TicketDetail.tsx` has an early return at ~L682** (`if (isLoading || !details) { return (…) }`), and the workflow block is far below it. A hook after an early return is called on some renders and not others.
+
+React throws *"Rendered fewer hooks than expected"* the moment a ticket finishes loading.
+
+**Declare it with the other hooks.** The last existing `useState` before the early return is at ~L225; put it there or just after:
+
+```ts
+// Which workflow step's detail panel is showing. null = follow the current status.
+const [selectedStatusId, setSelectedStatusId] = useState<string | null>(null);
+```
+
+**Default to `null`, not `ticket.currentStatusId`** — `ticket` does not exist yet at that point in the component. `details` is only destructured at ~L690, *after* the early return. Resolve at render time instead (see §2).
+
+---
+
+## 2. Resolve the selected step defensively
+
+Inside the workflow block, after `filteredStatuses` is computed:
+
+```ts
+const selectedStatus =
+  filteredStatuses.find(s => s.id === selectedStatusId) ?? currentStatus;
+```
+
+The `?? currentStatus` fallback is doing real work in three cases:
+
+* first render, before anything is clicked (`selectedStatusId` is `null`)
+* the user advanced the ticket while a step was selected
+* **the RFP branch filter removed the selected status from `filteredStatuses`** — e.g. a step on the awarded path was selected and the ticket then moved onto the lost path
+
+Without it, the detail panel renders empty with no indication why.
+
+---
+
+## 3. `PROGRESS · N OF M` counts the current step, not the selected one
+
+Step 8 says `PROGRESS · {index+1} OF {n}` without saying which index. It must be the **current status's** position in `filteredStatuses`:
+
+```ts
+const progressIndex = filteredStatuses.findIndex(s => s.id === ticket.currentStatusId);
+```
+
+If it tracked the selection, the number would jump around as you click through steps to inspect them — it is a progress indicator, not a cursor.
+
+---
+
+## Verified correct as written — do not change
+
+* `artifacts/highplains-crm` does have a `typecheck` script (`tsc -p tsconfig.json --noEmit`), so Step 1 works as stated. Root `pnpm run typecheck` also covers it.
+* Line anchors check out against the current commit: `details` destructured at L690, `currentStatus` at L692, `sortedStatuses` at L693 — so the hue derivation in Step 3 lands correctly at ~L691–693, where `linkedTickets` is in scope.
+* `Calculator`, `Receipt` and `FilePlus` all exist in `lucide-react` and are genuinely absent from the current import block.
+* Keeping the RFP branch filter and the `visitedIds` / `isCurrent` / `isCompleted` derivation verbatim is right — that logic is subtle and this slice has no business rewriting it.
+* Deleting the `card-invoice-action` IIFE outright rather than extending it is right: it is gated on `isAtBillingOrFinal` and its filter requires `relationship === "source"`, which is exactly why the invoice ticket currently shows no way back.
+* The `sticky top-0` escape hatch on the tab row is right — losing sticky tabs to gain a shared border would be a bad trade.
+* Both nodes of the work-thread bar wearing the parent's hue is the point of the feature, not a simplification.

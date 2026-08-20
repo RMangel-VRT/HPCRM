@@ -1,0 +1,57 @@
+# Corrections to #617 — round 2
+
+All three round-1 corrections landed correctly, and the two refinements added on top are right — preserving the `(isCompleted || isCurrent)` gate on captured values, and keeping the selection intact when the rail expands. Two things left.
+
+---
+
+## 1. The `+N more` expansion needs state too — same hooks constraint
+
+Step 8 now correctly declares `selectedStatusId` with the top-level hooks. But the collapsed rail's expansion is a second piece of state, and it is described one bullet later inside the same workflow block:
+
+> between skipped ranges insert a `+N more` pill … that expands inline to the full rail on click
+
+If that becomes a `useState` declared inside the `activeTab === "workflow"` block, it reproduces the exact crash round 1 fixed — a conditional hook after the `if (isLoading || !details)` early return at ~L682.
+
+**Declare it alongside the other one:**
+
+```ts
+// Workflow stepper: which step's detail panel is showing (null = follow current status),
+// and whether the collapsed long-workflow rail has been expanded.
+const [selectedStatusId, setSelectedStatusId] = useState<string | null>(null);
+const [stepperExpanded, setStepperExpanded] = useState(false);
+```
+
+Both must sit above the early return, near the existing `useState` cluster ending ~L225.
+
+---
+
+## 2. Drop `--tc` from the header container — it is unused and only creates risk
+
+Step 5 says the header wrapper should set `--tc`. That came from my spec, where I described it as "so descendants can use it" — but **nothing in the slice reads it.** Every colour in the header, the work-thread bar and the stepper interpolates `${hue}` directly into `color-mix(...)`.
+
+Setting it costs something, though: React's `CSSProperties` does not accept arbitrary custom properties, so it needs a cast (`style={{ "--tc": hue } as React.CSSProperties}`) that can fail typecheck under this repo's settings — and Step 1's baseline comparison would then flag an error caused entirely by a dead variable.
+
+**Remove `--tc` from Step 5.** The wrapper keeps only its two real styles:
+
+```tsx
+<div
+  className="rounded-xl border px-3 py-3 -mx-1"
+  style={{
+    background: `linear-gradient(180deg, color-mix(in srgb, ${hue} var(--tt-tint2), transparent) 0%, transparent 100%)`,
+    borderColor: `color-mix(in srgb, ${hue} 22%, var(--border))`,
+  }}
+>
+```
+
+If a later slice genuinely needs a cascading custom property, it can add one then, with a reader to justify it.
+
+---
+
+## Verified correct as written — do not change
+
+* `hue` is derived at ~L691, inside the component body after the `details` destructure at L690, so it is in scope everywhere it is used — including the workflow block at ~L2177.
+* `STATUS_STATE_VAR[state]` resolves to the string `"var(--ts-active)"` etc., so `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 13%, var(--background))` produces valid CSS. No unwrapping needed.
+* The `?? currentStatus` fallback and the `progressIndex` from `ticket.currentStatusId` are both correct as written.
+* Preserving the `(isCompleted || isCurrent)` gate on captured field values matches current behaviour exactly — a step the ticket has never reached should show no values.
+* Keeping the RFP branch filter and the `visitedIds` / `isCompleted` derivation verbatim is right.
+* Deleting `card-invoice-action` outright rather than extending it is right.
