@@ -36,6 +36,7 @@ import {
 import { 
   ArrowLeft, 
   Send, 
+  Calculator,
   Check, 
   ChevronRight, 
   MapPin, 
@@ -48,6 +49,8 @@ import {
   Navigation,
   Image as ImageIcon,
   FileText,
+  Receipt,
+  FilePlus,
   Briefcase,
   ClipboardList,
   Layers,
@@ -79,6 +82,7 @@ import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import LayerMapViewer from "@/components/LayerMapViewer";
+import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType } from "@shared/ticketVisuals";
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -153,6 +157,15 @@ interface CompanyUserWithDetails {
   user: UserType;
   isSuperAdmin: boolean;
 }
+
+const TYPE_ICON = {
+  estimate_request: Calculator,
+  project: Layers,
+  extra_billable: Receipt,
+  rfp_request: FilePlus,
+  invoice: FileText,
+  todo: Check,
+} as const;
 
 export default function TicketDetail() {
   const { t } = useTranslation();
@@ -241,6 +254,11 @@ export default function TicketDetail() {
     crewId: null,
     routeOrder: "",
   });
+
+  // Workflow stepper: which step's detail panel is showing (null = follow the current
+  // status), and whether the collapsed long-workflow rail has been expanded.
+  const [selectedStatusId, setSelectedStatusId] = useState<string | null>(null);
+  const [stepperExpanded, setStepperExpanded] = useState(false);
 
   const { data: crewsList = [] } = useQuery<CrewSelectOption[]>({
     queryKey: ["/api/crews"],
@@ -692,6 +710,18 @@ export default function TicketDetail() {
   const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
   const sortedStatuses = [...statuses].sort((a, b) => a.displayOrder - b.displayOrder);
   const sortedCurrentIndex = sortedStatuses.findIndex(s => s.id === ticket.currentStatusId);
+
+  // An Invoice ticket has no hue of its own — it inherits from the work that created it.
+  // When this ticket is the invoice target, its linked `source` is the originating work.
+  const parentLink = linkedTickets.find(
+    lt => lt.link.linkType === "invoice_for" && lt.relationship === "source" && lt.ticketType
+  );
+  const hue = isSeededTicketType(ticketType, "invoice") && parentLink?.ticketType
+    ? typeHueVar(parentLink.ticketType)
+    : typeHueVar(ticketType);
+  const typeIconKey = (Object.keys(TYPE_ICON) as Array<keyof typeof TYPE_ICON>)
+    .find(key => isSeededTicketType(ticketType, key));
+  const TypeIcon = typeIconKey ? TYPE_ICON[typeIconKey] : ClipboardList;
   
   // Handle RFP Request branching at "Decision Received" status
   const getNextStatus = () => {
@@ -741,7 +771,7 @@ export default function TicketDetail() {
   const isAwaitingInvoiceCompletion = (() => {
     if (!linkedTickets?.length) return false;
     const linkedInvoice = linkedTickets.find(
-      lt => lt.link.linkType === "invoice_for" && lt.relationship === "source" && lt.ticket
+      lt => lt.link.linkType === "invoice_for" && lt.relationship === "target" && lt.ticket
     );
     if (!linkedInvoice) return false;
     const invoiceComplete = linkedInvoice.currentStatus?.isFinal === "true";
@@ -985,57 +1015,154 @@ export default function TicketDetail() {
 
   return (
     <div className="space-y-4 pb-24">
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" data-testid="button-back" onClick={() => window.history.back()}>
-          <ArrowLeft className="w-5 h-5" />
-        </Button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <Badge 
-              variant="secondary" 
-              className="text-xs"
-              style={{ 
-                backgroundColor: ticketType.color ? `${ticketType.color}20` : undefined,
-                borderColor: ticketType.color || undefined,
-                color: ticketType.color || undefined,
-              }}
-              data-testid="badge-ticket-type"
+      <div
+        className="rounded-xl border px-3 py-3 -mx-1"
+        style={{
+          background: `linear-gradient(180deg, color-mix(in srgb, ${hue} var(--tt-tint2), transparent) 0%, transparent 100%)`,
+          borderColor: `color-mix(in srgb, ${hue} 22%, var(--border))`,
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" data-testid="button-back" onClick={() => window.history.back()}>
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold whitespace-nowrap"
+                style={{
+                  background: `color-mix(in srgb, ${hue} var(--tt-tint), var(--background))`,
+                  color: `color-mix(in srgb, ${hue} 88%, var(--foreground))`,
+                  borderColor: `color-mix(in srgb, ${hue} 32%, transparent)`,
+                }}
+                data-testid="badge-ticket-type"
+              >
+                <TypeIcon className="w-3.5 h-3.5" />
+                {ticketType.name}
+              </span>
+              {(() => {
+                const state = deriveStatusState(currentStatus);
+                return (
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap ${state === "waiting" ? "border-dashed" : ""}`}
+                    style={{
+                      background: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 13%, var(--background))`,
+                      color: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 80%, var(--foreground))`,
+                      borderColor: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 28%, transparent)`,
+                    }}
+                    title={STATUS_STATE_LABEL[state]}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_STATE_VAR[state] }} />
+                    {currentStatus?.name ?? "—"}
+                  </span>
+                );
+              })()}
+              {isComplete && (
+                <Badge variant="default" className="text-xs bg-green-600">
+                  <Check className="w-3 h-3 mr-1" />
+                  {t('statuses.completed')}
+                </Badge>
+              )}
+            </div>
+            <h1 className="text-xl md:text-2xl font-semibold tracking-tight line-clamp-2" data-testid="text-ticket-title">
+              {ticket.title}
+            </h1>
+          </div>
+          {canEdit && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleOpenEdit}
+              data-testid="button-edit-ticket"
             >
-              {ticketType.name}
-            </Badge>
-            {isComplete && (
-              <Badge variant="default" className="text-xs bg-green-600">
-                <Check className="w-3 h-3 mr-1" />
-                {t('statuses.completed')}
-              </Badge>
+              <Pencil className="w-5 h-5" />
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={() => setShowDeleteDialog(true)}
+              data-testid="button-delete-ticket"
+            >
+              <Trash2 className="w-5 h-5" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {(() => {
+        const child = linkedTickets.find(
+          lt => lt.link.linkType === "invoice_for" && lt.relationship === "target" && lt.ticket
+        );
+        const parent = linkedTickets.find(
+          lt => lt.link.linkType === "invoice_for" && lt.relationship === "source" && lt.ticket
+        );
+        if (!child && !parent) return null;
+
+        // Always render in real order: originating work → invoice.
+        const nodes = parent
+          ? [{ ...parent, isCurrent: false, stage: "Originating work" },
+             { ticket, ticketType, currentStatus, isCurrent: true, stage: "Billing stage" }]
+          : [{ ticket, ticketType, currentStatus, isCurrent: true, stage: "Originating work" },
+             { ...child!, isCurrent: false, stage: "Billing stage" }];
+
+        return (
+          <div
+            className="flex flex-col rounded-t-xl border border-b-0"
+            style={{ borderColor: `color-mix(in srgb, ${hue} 30%, var(--border))` }}
+            data-testid="bar-work-thread"
+          >
+            <div className="flex items-stretch overflow-x-auto p-1.5">
+              <div className="flex items-center px-2 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground whitespace-nowrap">
+                WORK THREAD
+              </div>
+              {nodes.map((node, index) => {
+                const nodeTypeIconKey = (Object.keys(TYPE_ICON) as Array<keyof typeof TYPE_ICON>)
+                  .find(key => isSeededTicketType(node.ticketType, key));
+                const NodeTypeIcon = nodeTypeIconKey ? TYPE_ICON[nodeTypeIconKey] : ClipboardList;
+                const nodeContent = (
+                  <div
+                    className={`flex min-w-[10.5rem] items-center gap-2 rounded-lg border px-2.5 py-2 text-left ${node.isCurrent ? "" : "border-transparent hover:bg-muted/60"}`}
+                    style={node.isCurrent ? {
+                      background: `color-mix(in srgb, ${hue} var(--tt-tint), var(--background))`,
+                      borderColor: `color-mix(in srgb, ${hue} 55%, transparent)`,
+                    } : undefined}
+                  >
+                    <NodeTypeIcon className="h-4 w-4 shrink-0" style={{ color: hue }} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-bold">{node.ticketType?.name ?? "Ticket"}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {node.stage} · {node.currentStatus?.name ?? "—"}
+                      </span>
+                    </span>
+                  </div>
+                );
+
+                return (
+                  <div key={node.ticket?.id ?? `${node.stage}-${index}`} className="flex items-center">
+                    {index > 0 && (
+                      <ChevronRight
+                        className="mx-0.5 h-4 w-4 shrink-0"
+                        style={{ color: `color-mix(in srgb, ${hue} 50%, var(--muted-foreground))` }}
+                      />
+                    )}
+                    {node.isCurrent || !node.ticket ? nodeContent : (
+                      <Link href={`/dashboard/tickets/${node.ticket.id}`}>{nodeContent}</Link>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {isAwaitingInvoiceCompletion && (
+              <p className="px-3 pb-2 text-[11.5px] text-muted-foreground" data-testid="text-awaiting-invoice">
+                Complete the linked invoice to advance this ticket to its final status.
+              </p>
             )}
           </div>
-          <h1 className="text-xl md:text-2xl font-semibold tracking-tight line-clamp-2" data-testid="text-ticket-title">
-            {ticket.title}
-          </h1>
-        </div>
-        {canEdit && (
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={handleOpenEdit}
-            data-testid="button-edit-ticket"
-          >
-            <Pencil className="w-5 h-5" />
-          </Button>
-        )}
-        {canDelete && (
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-            onClick={() => setShowDeleteDialog(true)}
-            data-testid="button-delete-ticket"
-          >
-            <Trash2 className="w-5 h-5" />
-          </Button>
-        )}
-      </div>
+        );
+      })()}
 
       <div className="flex border-b sticky top-0 bg-background z-10">
         <button
@@ -1608,49 +1735,6 @@ export default function TicketDetail() {
             );
           })()}
 
-          {(() => {
-            const isAtBillingOrFinal = (
-              currentStatus?.name === "Ready for Billing" || 
-              currentStatus?.isFinal === "true"
-            );
-            const linkedInvoice = linkedTickets?.find(
-              lt => lt.link.linkType === "invoice_for" && lt.relationship === "source" && lt.ticket
-            );
-            
-            if (isAtBillingOrFinal && linkedInvoice?.ticket && ticketType?.name !== "Invoice") {
-              const invoiceCompleted = linkedInvoice.currentStatus?.isFinal === "true";
-              return (
-                <Card className={invoiceCompleted ? "border-green-500/50" : "border-primary/50"} data-testid="card-invoice-action">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className={`p-2 rounded-md ${invoiceCompleted ? "bg-green-100 dark:bg-green-900/30" : "bg-primary/10"}`}>
-                        <FileText className={`w-5 h-5 ${invoiceCompleted ? "text-green-600 dark:text-green-400" : "text-primary"}`} />
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm">
-                          {invoiceCompleted ? "Invoice Completed" : "Invoice Pending"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {invoiceCompleted 
-                            ? "The linked invoice has been completed. This ticket will auto-advance."
-                            : "Complete the linked invoice ticket to advance this ticket to its final status."
-                          }
-                        </p>
-                      </div>
-                    </div>
-                    <Link href={`/dashboard/tickets/${linkedInvoice.ticket.id}`}>
-                      <Button variant={invoiceCompleted ? "outline" : "default"} className="w-full" data-testid="button-go-to-invoice">
-                        <ExternalLink className="w-4 h-4 mr-2" />
-                        {invoiceCompleted ? "View Invoice Ticket" : "Go to Invoice Ticket"}
-                      </Button>
-                    </Link>
-                  </CardContent>
-                </Card>
-              );
-            }
-            return null;
-          })()}
-
           {ticketType?.name === "Invoice" && rateSheet && ticket?.invoiceCategory && (
             <Card data-testid="card-rate-sheet">
               <CardHeader className="pb-2">
@@ -2209,72 +2293,182 @@ export default function TicketDetail() {
                 }
               }
             }
-            
-            return filteredStatuses;
-          })().map((status, index) => {
+
+            const selectedStatus = filteredStatuses.find(s => s.id === selectedStatusId) ?? currentStatus;
+            const progressIndex = filteredStatuses.findIndex(s => s.id === ticket.currentStatusId);
+
             // Use history to determine completion instead of just displayOrder
             const visitedIds = new Set(statusHistory.map(h => h.toStatusId));
-            const isCurrent = status.id === ticket.currentStatusId;
-            const currentStatusOrder = sortedStatuses.find(s => s.id === ticket.currentStatusId)?.displayOrder ?? 0;
-            const isCompleted = visitedIds.has(status.id) && !isCurrent && (parseInt(String(status.displayOrder)) <= parseInt(String(currentStatusOrder)));
-            const isPending = !isCompleted && !isCurrent;
-            const statusFields = status.fields || [];
-            
+
+            const getStepState = (status: typeof filteredStatuses[number]) => {
+              const isCurrent = status.id === ticket.currentStatusId;
+              const currentStatusOrder = sortedStatuses.find(s => s.id === ticket.currentStatusId)?.displayOrder ?? 0;
+              const isCompleted = visitedIds.has(status.id) && !isCurrent
+                && (parseInt(String(status.displayOrder)) <= parseInt(String(currentStatusOrder)));
+              return { isCurrent, isCompleted, isPending: !isCompleted && !isCurrent };
+            };
+
+            const getStepColor = (status: typeof filteredStatuses[number]) => {
+              const { isCurrent, isCompleted } = getStepState(status);
+              if (isCompleted) return `color-mix(in srgb, ${hue} 78%, var(--border))`;
+              if (isCurrent) return STATUS_STATE_VAR[deriveStatusState(status)];
+              return "var(--border)";
+            };
+
+            const collapsedItems: Array<
+              { kind: "step"; index: number } | { kind: "more"; count: number; afterIndex: number }
+            > = [];
+            if (filteredStatuses.length > 8 && !stepperExpanded) {
+              const shownIndexes = Array.from(new Set([
+                0,
+                progressIndex - 1,
+                progressIndex,
+                progressIndex + 1,
+                filteredStatuses.length - 1,
+              ])).filter(index => index >= 0 && index < filteredStatuses.length).sort((a, b) => a - b);
+              let previousIndex = -1;
+              shownIndexes.forEach(index => {
+                if (index > previousIndex + 1) {
+                  collapsedItems.push({ kind: "more", count: index - previousIndex - 1, afterIndex: previousIndex });
+                }
+                collapsedItems.push({ kind: "step", index });
+                previousIndex = index;
+              });
+            }
+
+            const renderStepLabel = (status: typeof filteredStatuses[number], index: number, compact = false) => {
+              const { isCurrent, isCompleted } = getStepState(status);
+              const stepColor = getStepColor(status);
+              const waitingOverlay = status.actionType === "waiting"
+                ? "repeating-linear-gradient(135deg, transparent 0 3px, rgba(255,255,255,.55) 3px 6px)"
+                : undefined;
+
+              return (
+                <button
+                  type="button"
+                  key={status.id}
+                  className={`group min-w-0 text-left ${compact ? "flex flex-col items-center gap-1" : "flex-1"}`}
+                  onClick={() => setSelectedStatusId(status.id)}
+                  data-testid={`card-status-${status.id}`}
+                  aria-current={isCurrent ? "step" : undefined}
+                >
+                  {compact ? (
+                    <>
+                      <span
+                        className={`${isCurrent ? "h-[11px] w-[11px]" : "h-[9px] w-[9px]"} rounded-full transition-transform group-hover:scale-125`}
+                        style={{
+                          background: stepColor,
+                          boxShadow: isCurrent ? `0 0 0 3px color-mix(in srgb, ${stepColor} 26%, transparent)` : undefined,
+                        }}
+                      />
+                      <span className={`max-w-[5.75rem] text-center text-[10px] leading-3 line-clamp-2 ${isCurrent ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+                        {index + 1}. {status.name}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span
+                        className="block h-[5px] rounded-full transition-shadow"
+                        style={{
+                          background: waitingOverlay ? `${waitingOverlay}, ${stepColor}` : stepColor,
+                          boxShadow: isCurrent ? `0 0 0 3px color-mix(in srgb, ${stepColor} 26%, transparent)` : undefined,
+                        }}
+                      />
+                      <span className={`mt-2 block line-clamp-2 text-center text-xs leading-4 ${isCurrent ? "font-semibold text-foreground" : isCompleted ? "text-foreground/80" : "text-muted-foreground"}`}>
+                        {index + 1}. {status.name}
+                      </span>
+                    </>
+                  )}
+                </button>
+              );
+            };
+
+            const selectedState = selectedStatus ? getStepState(selectedStatus) : null;
+            const selectedStatusFields = selectedStatus?.fields || [];
+
             return (
-              <Card 
-                key={status.id}
-                className={`transition-all ${
-                  isCurrent ? "ring-2 ring-primary" : isCompleted ? "opacity-75" : "opacity-50"
-                }`}
-                data-testid={`card-status-${status.id}`}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                      isCompleted 
-                        ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400" 
-                        : isCurrent 
-                          ? "bg-primary/10 text-primary" 
-                          : "bg-muted text-muted-foreground"
-                    }`}>
-                      {isCompleted ? (
-                        <Check className="w-4 h-4" />
-                      ) : (
-                        <span className="text-sm font-medium">{index + 1}</span>
-                      )}
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <h3 className="font-medium">{status.name}</h3>
-                        {isCurrent && (
-                          <Badge variant="secondary" className="text-xs">{t('statuses.active')}</Badge>
+              <>
+                <p className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground">
+                  PROGRESS · {progressIndex + 1} OF {filteredStatuses.length}
+                </p>
+
+                {filteredStatuses.length <= 8 || stepperExpanded ? (
+                  <div className="flex gap-2 px-1 pt-1">
+                    {filteredStatuses.map((status, index) => renderStepLabel(status, index))}
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2 overflow-x-auto px-1 py-2">
+                    {collapsedItems.map((item, itemIndex) => (
+                      <div key={item.kind === "step" ? filteredStatuses[item.index].id : `more-${item.afterIndex}`} className="flex items-center gap-2">
+                        {itemIndex > 0 && (
+                          <span
+                            className="h-[1.5px] w-5 shrink-0"
+                            style={{
+                              background: item.kind === "step" && item.index <= progressIndex
+                                ? `color-mix(in srgb, ${hue} 70%, var(--border))`
+                                : "var(--border)",
+                            }}
+                          />
+                        )}
+                        {item.kind === "step" ? renderStepLabel(filteredStatuses[item.index], item.index, true) : (
+                          <button
+                            type="button"
+                            className="rounded-full border border-dashed px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
+                            onClick={() => setStepperExpanded(true)}
+                          >
+                            +{item.count} more
+                          </button>
                         )}
                       </div>
-                      
-                      {status.description && (
-                        <p className="text-sm text-muted-foreground mt-1">{status.description}</p>
-                      )}
+                    ))}
+                  </div>
+                )}
 
-                      {(isCompleted || isCurrent) && statusFields.length > 0 && (
-                        <div className="mt-3 space-y-2">
-                          {statusFields.map(field => {
-                            const value = getFieldValue(field.id);
-                            return (
-                              <div key={field.id} className="text-sm">
-                                <span className="text-muted-foreground">{field.fieldLabel}: </span>
-                                <span className="font-medium">{value || "—"}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
+                {selectedStatus && (
+                  <div
+                    className="rounded-xl border bg-card p-4"
+                    style={{ borderColor: `color-mix(in srgb, ${hue} 28%, var(--border))` }}
+                    data-testid={`panel-status-${selectedStatus.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{selectedStatus.name}</p>
+                        {selectedStatus.description && (
+                          <p className="mt-1 text-sm text-muted-foreground">{selectedStatus.description}</p>
+                        )}
+                      </div>
+                      {selectedState?.isCurrent && (
+                        <span
+                          className="rounded-full border px-2 py-0.5 text-[11px] font-medium"
+                          style={{
+                            background: `color-mix(in srgb, ${STATUS_STATE_VAR[deriveStatusState(selectedStatus)]} 13%, var(--background))`,
+                            color: `color-mix(in srgb, ${STATUS_STATE_VAR[deriveStatusState(selectedStatus)]} 80%, var(--foreground))`,
+                            borderColor: `color-mix(in srgb, ${STATUS_STATE_VAR[deriveStatusState(selectedStatus)]} 28%, transparent)`,
+                          }}
+                        >
+                          {t('statuses.active')}
+                        </span>
                       )}
                     </div>
+
+                    {(selectedState?.isCompleted || selectedState?.isCurrent) && selectedStatusFields.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {selectedStatusFields.map(field => {
+                          const value = getFieldValue(field.id);
+                          return (
+                            <div key={field.id} className="text-sm">
+                              <span className="text-muted-foreground">{field.fieldLabel}: </span>
+                              <span className="font-medium">{value || "—"}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </CardContent>
-              </Card>
+                )}
+              </>
             );
-          })}
+          })()}
         </div>
       )}
 
