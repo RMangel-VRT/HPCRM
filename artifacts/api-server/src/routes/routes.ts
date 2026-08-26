@@ -36,6 +36,7 @@ import {
   isSeededTicketType,
 } from "../shared/ticketCapabilities";
 import { findClosestHourIndex, buildDateWindow } from "../lib/weatherHourMatch";
+import { resolveCustomerWeatherLocation, WeatherLocationError } from "../lib/weatherLocation";
 import { buildContractAuditRows } from "../auditEngine";
 import { seedChemicalNotificationTemplates } from "../templates/seed";
 import { assertNotParentCustomer } from "../utils/parentGuard";
@@ -16021,11 +16022,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/weather", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const { lat, lng, datetime } = req.query as { lat?: string; lng?: string; datetime?: string };
-    if (!lat || !lng) return res.status(400).json({ error: "lat and lng are required" });
-    const latitude = parseFloat(lat);
-    const longitude = parseFloat(lng);
-    if (isNaN(latitude) || isNaN(longitude)) return res.status(400).json({ error: "Invalid coordinates" });
+    const { lat, lng, customerId, datetime } = req.query as {
+      lat?: string;
+      lng?: string;
+      customerId?: string;
+      datetime?: string;
+    };
+
+    const user = req.user as UserWithContext;
+    const customer = customerId
+      ? await storage.getCustomerById(customerId, user.activeCompanyId)
+      : undefined;
+    if (customerId && !customer) return res.status(404).json({ error: "Property customer not found" });
+
+    const requestedLat = lat != null ? Number(lat) : NaN;
+    const requestedLng = lng != null ? Number(lng) : NaN;
+    let coordinates = Number.isFinite(requestedLat) && Number.isFinite(requestedLng)
+      ? { lat: requestedLat, lng: requestedLng }
+      : null;
+
+    if (customer) {
+      try {
+        coordinates = await resolveCustomerWeatherLocation({
+          customer,
+          requestedCoordinates: coordinates,
+          mapboxToken: process.env.MAPBOX_PUBLIC_KEY,
+          persistCoordinates: async ({ lat: resolvedLat, lng: resolvedLng }) => {
+            await storage.updateCustomer(customer.id, user.activeCompanyId, {
+              locationLat: resolvedLat,
+              locationLng: resolvedLng,
+            });
+          },
+        });
+      } catch (error) {
+        if (error instanceof WeatherLocationError) {
+          return res.status(error.status).json({ error: error.message });
+        }
+        req.log.error({ error, customerId }, "Mapbox property geocoding error");
+        return res.status(502).json({ error: "Property location lookup is temporarily unavailable. Please try again." });
+      }
+    }
+
+    if (!coordinates) {
+      return res.status(400).json({ error: "A property customer or valid coordinates are required to fetch weather." });
+    }
+    const { lat: latitude, lng: longitude } = coordinates;
 
     try {
       const now = new Date();

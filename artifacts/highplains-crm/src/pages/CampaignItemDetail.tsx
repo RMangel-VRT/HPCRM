@@ -1053,9 +1053,9 @@ export default function CampaignItemDetail() {
         <WeatherCapturePanel
           item={item as WeatherCapturableItem}
           campaignId={campaignId!}
+          customerId={item.customerId}
           customerLat={item.customerLat}
           customerLng={item.customerLng}
-          customerAddress={item.customerAddress}
         />
       )}
 
@@ -2897,9 +2897,9 @@ export default function CampaignItemDetail() {
               <WeatherCapturePanel
                 item={item as WeatherCapturableItem}
                 campaignId={campaignId!}
+                customerId={item.customerId}
                 customerLat={item.customerLat}
                 customerLng={item.customerLng}
-                customerAddress={item.customerAddress}
               />
               {!(item.weatherTemp != null && item.weatherWindSpeed != null && item.weatherConditions) && (
                 <p className="text-xs text-muted-foreground" data-testid="text-weather-required-hint">

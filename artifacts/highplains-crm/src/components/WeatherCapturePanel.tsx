@@ -30,6 +30,7 @@ interface WeatherData {
 
 export interface WeatherCapturableItem {
   id: string;
+  customerId?: string;
   weatherTemp?: number | null;
   weatherWindSpeed?: number | null;
   weatherWindDirection?: string | null;
@@ -41,9 +42,9 @@ export interface WeatherCapturableItem {
 interface WeatherCapturePanelProps {
   item: WeatherCapturableItem;
   campaignId: string;
+  customerId?: string;
   customerLat?: number | null;
   customerLng?: number | null;
-  customerAddress?: string;
 }
 
 function windDirectionLabel(deg: number | null): string {
@@ -95,47 +96,27 @@ function WeatherPreviewCard({ weather }: { weather: WeatherData }) {
   );
 }
 
-export default function WeatherCapturePanel({ item, campaignId, customerLat, customerLng, customerAddress }: WeatherCapturePanelProps) {
+export default function WeatherCapturePanel({ item, campaignId, customerId, customerLat, customerLng }: WeatherCapturePanelProps) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [mode, setMode] = useState<"now" | "custom">("now");
   const [customDatetime, setCustomDatetime] = useState("");
   const [preview, setPreview] = useState<WeatherData | null>(null);
   const [fetching, setFetching] = useState(false);
-  const [resolvedCoords, setResolvedCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [editing, setEditing] = useState(false);
 
   const hasSavedWeather = item.weatherTemp != null || item.weatherConditions != null;
-
-  const getCoords = async (): Promise<{ lat: number; lng: number } | null> => {
-    if (customerLat != null && customerLng != null) return { lat: customerLat, lng: customerLng };
-    if (resolvedCoords) return resolvedCoords;
-    if (customerAddress) {
-      try {
-        const res = await fetch(`/api/geocode?address=${encodeURIComponent(customerAddress)}`, { credentials: "include" });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.lat && data.lng) {
-            setResolvedCoords({ lat: data.lat, lng: data.lng });
-            return { lat: data.lat, lng: data.lng };
-          }
-        }
-      } catch {}
-    }
-    return null;
-  };
 
   const fetchWeather = async () => {
     setFetching(true);
     setPreview(null);
     try {
-      const coords = await getCoords();
-      if (!coords) {
-        toast({ title: "Could not determine property location", variant: "destructive" });
-        setFetching(false);
-        return;
+      const params = new URLSearchParams();
+      if (customerId) params.set("customerId", customerId);
+      if (customerLat != null && customerLng != null) {
+        params.set("lat", String(customerLat));
+        params.set("lng", String(customerLng));
       }
-      const params = new URLSearchParams({ lat: String(coords.lat), lng: String(coords.lng) });
       if (mode === "custom" && customDatetime) {
         params.set("datetime", new Date(customDatetime).toISOString());
       }
