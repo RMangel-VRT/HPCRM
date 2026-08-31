@@ -143,6 +143,7 @@
 
   --tt-tint:  15%;
   --tt-tint2: 13%;
+  --tt-on-hue: #ffffff;
 }
 
 /* DARK MODE - High Plains Property Maintenance Theme (Lime Green & Charcoal) */
@@ -277,6 +278,7 @@
 
   --tt-tint:  24%;
   --tt-tint2: 17%;
+  --tt-on-hue: #17170f;
 }
 
 @layer base {

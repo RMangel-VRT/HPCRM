@@ -1016,79 +1016,117 @@ export default function TicketDetail() {
   return (
     <div className="space-y-4 pb-24">
       <div
-        className="rounded-xl border px-3 py-3 -mx-1"
+        className="rounded-xl border border-t-4 overflow-hidden -mx-1"
         style={{
-          background: `linear-gradient(180deg, color-mix(in srgb, ${hue} var(--tt-tint2), transparent) 0%, transparent 100%)`,
-          borderColor: `color-mix(in srgb, ${hue} 22%, var(--border))`,
+          borderColor: `color-mix(in srgb, ${hue} 20%, var(--border))`,
+          borderTopColor: hue,
         }}
+        data-testid="header-ticket-identity"
       >
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" data-testid="button-back" onClick={() => window.history.back()}>
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span
-                className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold whitespace-nowrap"
-                style={{
-                  background: `color-mix(in srgb, ${hue} var(--tt-tint), var(--background))`,
-                  color: `color-mix(in srgb, ${hue} 88%, var(--foreground))`,
-                  borderColor: `color-mix(in srgb, ${hue} 32%, transparent)`,
-                }}
-                data-testid="badge-ticket-type"
-              >
-                <TypeIcon className="w-3.5 h-3.5" />
-                {ticketType.name}
-              </span>
-              {(() => {
-                const state = deriveStatusState(currentStatus);
-                return (
+        <div className="px-3 py-3">
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" data-testid="button-back" onClick={() => window.history.back()}>
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span
+                  className="inline-flex items-center overflow-hidden rounded-md border bg-background"
+                  style={{ borderColor: `color-mix(in srgb, ${hue} 38%, var(--border))` }}
+                  data-testid="badge-ticket-type"
+                >
                   <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap ${state === "waiting" ? "border-dashed" : ""}`}
-                    style={{
-                      background: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 13%, var(--background))`,
-                      color: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 80%, var(--foreground))`,
-                      borderColor: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 28%, transparent)`,
-                    }}
-                    title={STATUS_STATE_LABEL[state]}
+                    className="flex w-6 self-stretch items-center justify-center"
+                    style={{ background: hue, color: "var(--tt-on-hue)" }}
                   >
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_STATE_VAR[state] }} />
-                    {currentStatus?.name ?? "—"}
+                    <TypeIcon className="h-3.5 w-3.5" />
                   </span>
-                );
-              })()}
-              {isComplete && (
-                <Badge variant="default" className="text-xs bg-green-600">
-                  <Check className="w-3 h-3 mr-1" />
-                  {t('statuses.completed')}
-                </Badge>
-              )}
+                  <span
+                    className="px-2.5 py-1 text-[12px] font-semibold whitespace-nowrap"
+                    style={{ color: `color-mix(in srgb, ${hue} 82%, var(--foreground))` }}
+                  >
+                    {ticketType.name}
+                  </span>
+                </span>
+                {(() => {
+                  const state = deriveStatusState(currentStatus);
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap ${state === "waiting" ? "border-dashed" : ""}`}
+                      style={{
+                        background: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 13%, var(--background))`,
+                        color: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 80%, var(--foreground))`,
+                        borderColor: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 28%, transparent)`,
+                      }}
+                      title={STATUS_STATE_LABEL[state]}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_STATE_VAR[state] }} />
+                      {currentStatus?.name ?? "—"}
+                    </span>
+                  );
+                })()}
+                {isComplete && (
+                  <Badge variant="default" className="text-xs bg-green-600">
+                    <Check className="w-3 h-3 mr-1" />
+                    {t('statuses.completed')}
+                  </Badge>
+                )}
+              </div>
+              <h1 className="text-xl md:text-2xl font-semibold tracking-tight line-clamp-2" data-testid="text-ticket-title">
+                {ticket.title}
+              </h1>
             </div>
-            <h1 className="text-xl md:text-2xl font-semibold tracking-tight line-clamp-2" data-testid="text-ticket-title">
-              {ticket.title}
-            </h1>
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleOpenEdit}
+                data-testid="button-edit-ticket"
+              >
+                <Pencil className="w-5 h-5" />
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={() => setShowDeleteDialog(true)}
+                data-testid="button-delete-ticket"
+              >
+                <Trash2 className="w-5 h-5" />
+              </Button>
+            )}
           </div>
-          {canEdit && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleOpenEdit}
-              data-testid="button-edit-ticket"
-            >
-              <Pencil className="w-5 h-5" />
-            </Button>
-          )}
-          {canDelete && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              onClick={() => setShowDeleteDialog(true)}
-              data-testid="button-delete-ticket"
-            >
-              <Trash2 className="w-5 h-5" />
-            </Button>
-          )}
+        </div>
+        <div
+          className="flex flex-wrap border-t bg-muted/40"
+          data-testid="strip-ticket-meta"
+        >
+          {[
+            customer ? { label: t('common.customer'), value: customer.name } : null,
+            { label: t('ticketDetail.assignedTo'), value: assignedUser?.email ?? t('common.unassigned') },
+            { label: t('common.priority'), value: priority.label },
+            ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType]
+              ? { label: t('tickets.workType'), value: WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel }
+              : null,
+            { label: t('ticketDetail.dueDate'), value: ticket.dueDate ? format(new Date(ticket.dueDate), "MMM d, yyyy") : t('common.none') },
+            ticket.workCompletedDate
+              ? { label: t('ticketDetail.workCompletedDate'), value: format(new Date(ticket.workCompletedDate), "MMM d, yyyy") }
+              : null,
+          ]
+            .filter((cell): cell is { label: string; value: string } => cell !== null)
+            .map((cell, index) => (
+              <div
+                key={cell.label}
+                className={`min-w-0 flex-auto px-4 py-2 ${index === 0 ? "" : "border-l"}`}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-muted-foreground">
+                  {cell.label}
+                </p>
+                <p className="truncate text-[12.5px] font-medium">{cell.value}</p>
+              </div>
+            ))}
         </div>
       </div>
 
@@ -1124,13 +1162,18 @@ export default function TicketDetail() {
                 const NodeTypeIcon = nodeTypeIconKey ? TYPE_ICON[nodeTypeIconKey] : ClipboardList;
                 const nodeContent = (
                   <div
-                    className={`flex min-w-[10.5rem] items-center gap-2 rounded-lg border px-2.5 py-2 text-left ${node.isCurrent ? "" : "border-transparent hover:bg-muted/60"}`}
+                    className={`flex min-w-[10.5rem] items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left ${node.isCurrent ? "bg-background border-l-[3px]" : "border-transparent hover:bg-muted/60"}`}
                     style={node.isCurrent ? {
-                      background: `color-mix(in srgb, ${hue} var(--tt-tint), var(--background))`,
-                      borderColor: `color-mix(in srgb, ${hue} 55%, transparent)`,
+                      borderColor: `color-mix(in srgb, ${hue} 45%, var(--border))`,
+                      borderLeftColor: hue,
                     } : undefined}
                   >
-                    <NodeTypeIcon className="h-4 w-4 shrink-0" style={{ color: hue }} />
+                    <span
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                      style={{ background: hue, color: "var(--tt-on-hue)" }}
+                    >
+                      <NodeTypeIcon className="h-3.5 w-3.5" />
+                    </span>
                     <span className="min-w-0">
                       <span className="block truncate text-xs font-bold">{node.ticketType?.name ?? "Ticket"}</span>
                       <span className="block truncate text-[11px] text-muted-foreground">
@@ -1168,9 +1211,10 @@ export default function TicketDetail() {
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
             activeTab === "overview"
-              ? "border-primary text-primary"
+              ? "text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
+          style={activeTab === "overview" ? { borderBottomColor: hue } : undefined}
           onClick={() => setActiveTab("overview")}
           data-testid="tab-overview"
         >
@@ -1180,9 +1224,10 @@ export default function TicketDetail() {
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "workflow"
-              ? "border-primary text-primary"
+              ? "text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
+          style={activeTab === "workflow" ? { borderBottomColor: hue } : undefined}
           onClick={() => setActiveTab("workflow")}
           data-testid="tab-workflow"
         >
@@ -1191,9 +1236,10 @@ export default function TicketDetail() {
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
             activeTab === "comments"
-              ? "border-primary text-primary"
+              ? "text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
+          style={activeTab === "comments" ? { borderBottomColor: hue } : undefined}
           onClick={() => setActiveTab("comments")}
           data-testid="tab-comments"
         >
@@ -1203,9 +1249,10 @@ export default function TicketDetail() {
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
             activeTab === "history"
-              ? "border-primary text-primary"
+              ? "text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
+          style={activeTab === "history" ? { borderBottomColor: hue } : undefined}
           onClick={() => setActiveTab("history")}
           data-testid="tab-history"
         >
@@ -1215,9 +1262,10 @@ export default function TicketDetail() {
           <button
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === "emails"
-                ? "border-primary text-primary"
+                ? "text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
+            style={activeTab === "emails" ? { borderBottomColor: hue } : undefined}
             onClick={() => setActiveTab("emails")}
             data-testid="tab-emails"
           >
@@ -1231,29 +1279,7 @@ export default function TicketDetail() {
         <div className="space-y-4">
           <Card data-testid="card-ticket-summary">
             <CardContent className="p-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('common.priority')}</p>
-                  <div className={`flex items-center gap-1.5 ${priority.textColor}`}>
-                    <div className={`w-2.5 h-2.5 rounded-full ${priority.color}`} />
-                    <span className="font-medium">{priority.label}</span>
-                  </div>
-                </div>
-                
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('tickets.workType')}</p>
-                  {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] ? (
-                    <Badge 
-                      variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
-                      data-testid="badge-worktype"
-                    >
-                      {WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel}
-                    </Badge>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">{t('common.none')}</span>
-                  )}
-                </div>
-
+              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('common.status')}</p>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -1287,28 +1313,6 @@ export default function TicketDetail() {
                 </div>
 
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('ticketDetail.dueDate')}</p>
-                  {ticket.dueDate ? (
-                    <div className="flex items-center gap-1.5">
-                      <CalendarDays className="w-4 h-4 text-muted-foreground" />
-                      <span className="font-medium">{format(new Date(ticket.dueDate), "MMM d, yyyy")}</span>
-                    </div>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">{t('common.none')}</span>
-                  )}
-                </div>
-
-                {ticket.workCompletedDate && (
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('ticketDetail.workCompletedDate')}</p>
-                    <div className="flex items-center gap-1.5">
-                      <CalendarDays className="w-4 h-4 text-muted-foreground" />
-                      <span className="font-medium">{format(new Date(ticket.workCompletedDate), "MMM d, yyyy")}</span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="col-span-2 space-y-1">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('ticketDetail.assignedTo')}</p>
                   {canReassign ? (
                     <div className="flex items-center gap-2">
@@ -1353,7 +1357,7 @@ export default function TicketDetail() {
                 </div>
                 
                 {isDelegated && delegatedByUser && (
-                  <div className="col-span-2 space-y-1" data-testid="delegation-indicator">
+                  <div className="space-y-1" data-testid="delegation-indicator">
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('ticketDetail.delegateTicket')}</p>
                     <div className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
                       <CornerDownLeft className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
