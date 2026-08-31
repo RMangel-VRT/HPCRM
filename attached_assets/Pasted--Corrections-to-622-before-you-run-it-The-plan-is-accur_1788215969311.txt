@@ -1,0 +1,104 @@
+# Corrections to #622 before you run it
+
+The plan is accurate and complete. Four fixes, three of them mine.
+
+---
+
+## 1. My `#22c55e` verification criterion was wrong — replace it
+
+Done criterion 3 in the slice said the grep should return "only `TicketListView.tsx`
+L706." That is false. The actual census across `artifacts/highplains-crm/src` is **eight**
+occurrences:
+
+| File | Line | What it is | Action |
+|---|---|---|---|
+| `components/TicketCard.tsx` | 83 | ticket `completedAt` override | **remove** (Step 3) |
+| `pages/TicketsList.tsx` | 1329 | ticket `completedAt` override | **remove** (Step 5) |
+| `components/TicketListView.tsx` | 706 | **equipment** ticket bar | leave |
+| `pages/TicketsList.tsx` | 949 | **equipment** ticket bar | leave |
+| `pages/MyTickets.tsx` | 1130 | **equipment** ticket bar | leave |
+| `components/LayerMapViewer.tsx` | 422 | map layer default colour | leave |
+| `pages/VisualScopeEditor.tsx` | 182 | plant symbol colour | leave |
+| `pages/CustomerRouteMap.tsx` | 59 | route palette entry | leave |
+
+There are **three** equipment-ticket green bars, not one. All three are keyed on
+`ticket.status === "completed" || "closed"` and link to `/dashboard/equipment-tickets/…`
+with testids `card-equip-ticket-*` / `card-my-equip-ticket-*`. Equipment tickets are a
+different table with no ticket type, so they have no hue to inherit. Leave all three
+exactly as they are.
+
+**Replace Done criterion 3 with:**
+
+> `grep -rn "22c55e" artifacts/highplains-crm/src` returns exactly six lines:
+> `TicketListView.tsx:706`, `TicketsList.tsx:949`, `MyTickets.tsx:1130` (the three
+> equipment bars), plus `LayerMapViewer.tsx:422`, `VisualScopeEditor.tsx:182` and
+> `CustomerRouteMap.tsx:59` (unrelated map/plant colours). The two ticket
+> `completedAt` overrides — `TicketCard.tsx:83` and `TicketsList.tsx:1329` — are gone.
+
+Criterion 2 (`ticketType.color` returns nothing) stands as written and is correct.
+
+## 2. The new component must be its own `.tsx` file
+
+Your relevant-files list includes `shared/ticketVisuals.ts` but not a new component file,
+which reads like the identity primitives might go into `ticketVisuals.ts`. They cannot.
+
+`shared/ticketVisuals.ts` is a **`.ts` file with no React import and no JSX** — it is a
+pure vocabulary module deliberately kept renderer-free so server-adjacent code can read
+it. Adding components would force a rename to `.tsx` and drag React into a module that
+has no business importing it.
+
+**Create `artifacts/highplains-crm/src/components/TicketIdentity.tsx`** as the slice
+specifies. `ticketVisuals.ts` is **read-only** in this slice — it is imported, never
+edited. Same for `index.css`: Step 1 verifies `--tt-on-hue` exists in both `:root` and
+`.dark`; it adds nothing.
+
+## 3. File count: five, not six
+
+The slice's Done criterion 10 says "exactly six files" and then lists five. Five is
+correct:
+
+1. `components/TicketIdentity.tsx` *(new)*
+2. `components/TicketCard.tsx`
+3. `pages/MyTickets.tsx`
+4. `pages/TicketsList.tsx`
+5. `pages/TicketDetail.tsx`
+
+`TicketListView.tsx`, `index.css`, `ticketVisuals.ts` and `package.json` are **read
+context only** and must not appear in `git diff --stat`. If `TicketListView.tsx` shows up
+in the diff, something went wrong — its only colour site is the equipment bar.
+
+## 4. Answering the question the slice asked you to report on
+
+Yes — the large card in `TicketsList.tsx` (site 4) **does** have the full progress-dot
+strip, so Step 2f applies to it verbatim. The green lives at:
+
+* **L1476** — connector `bg-green-500 dark:bg-green-400`
+* **L1498** — completed dot `bg-green-500 dark:bg-green-400`
+* **L1505** — tooltip label `text-green-600 dark:text-green-400`
+* **L1519** — the final-step connector before the Complete badge
+
+It also carries `data-testid={`workflow-progress-${ticket.id}`}` and
+`data-testid={`bubble-status-${status.id}`}` — same testids as `TicketCard`, so keep them.
+
+Apply the same treatment as `TicketCard`: completed connectors and dots take
+`style={{ backgroundColor: hue }}` with the colour class removed, the tooltip span takes
+`style={{ color: hue }}`, incomplete keeps `bg-muted-foreground/30 dark:bg-muted-foreground/20`
+untouched, and the Complete badge moves to `var(--ts-done)`.
+
+---
+
+## Verified correct as written — do not change
+
+* Retiring the `completedAt` green override on ticket cards while keeping it on equipment
+  cards. Type identity is not a completion state.
+* No parent-link fetching for invoice hue. There is no parent column on `tickets` and
+  `/api/tickets` returns bare rows — the neutral fallback is the correct, documented
+  behaviour.
+* Keeping the waiting-category and needs-action badges alongside the new status pill.
+  They carry the waiting *category*, which the pill does not.
+* Leaving `ticketType?.name === "Invoice"` (TicketCard L185) and
+  `ticketTypes.find(tt => tt.name === "Invoice")` (TicketsList ~L302) alone.
+* Explicit structural prop types on the new components rather than importing `TicketType`
+  from `@shared/schema` — that type is `any` through the drizzle stub and would check
+  nothing.
+* Moving `truncate` / `max-w-[120px]` onto a wrapper span rather than onto the pill.

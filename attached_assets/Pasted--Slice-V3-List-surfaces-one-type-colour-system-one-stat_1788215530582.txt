@@ -1,0 +1,371 @@
+# Slice V3 — List surfaces: one type-colour system, one status scale
+
+## Why this slice exists
+
+The ticket list is running a **second, competing colour system**. Every list surface
+colours its rail and type label from `ticket.ticketType?.color` — an arbitrary per-row hex
+in the `ticket_types` table, chosen by whoever created the type. It has no relationship to
+the validated `--tt-*` palette that Slices V0–V2 installed on the detail page, it is not
+contrast- or colourblind-checked, and it is used as **text colour** as well as a fill.
+
+That is why the list and the detail page do not feel like one product. This slice retires
+`ticketType.color` from the client and routes every list surface through `typeHueVar()`.
+
+A third system is in play too: the workflow progress dots are hardcoded
+`bg-green-500 / dark:bg-green-400`, and current-status badges are outlined with
+`status.color` — another arbitrary per-row hex. Those move onto the universal status scale.
+
+## Complete census — these are ALL the sites, verified by repo-wide grep
+
+`ticketType.color` / `ticketType?.color` readers in `artifacts/highplains-crm/src`:
+
+| # | File | Line | What it colours |
+|---|------|------|-----------------|
+| 1 | `components/TicketCard.tsx` | 84 | `barColor` — rail **and** type-label text |
+| 2 | `pages/MyTickets.tsx` | 958 | `MyKanbanCard` rail + type-label text |
+| 3 | `pages/TicketsList.tsx` | 1060 | `KanbanCard` rail + type-label text |
+| 4 | `pages/TicketsList.tsx` | 1330 | big card rail, with a `completedAt` green override |
+| 5 | `pages/TicketDetail.tsx` | 1514 | dot inside `card-linked-tickets` |
+
+There are **no others**. Do not go looking for more, and do not change any other file.
+
+Note: `TicketsList.tsx` and `TicketListView.tsx` are two parallel list implementations —
+`TicketListView` renders `TicketCard`, while `TicketsList` has its own inline card markup
+at site 4. Consolidating them is a real cleanup but is **out of scope**; this slice makes
+both correct where they stand.
+
+---
+
+## Preconditions
+
+1. `git status` clean.
+2. Baseline: `pnpm --filter @workspace/highplains-crm run typecheck`. Record errors.
+   This slice must not add to that list.
+3. Confirm `artifacts/highplains-crm/src/shared/ticketVisuals.ts` exports `typeHueVar`,
+   `deriveStatusState`, `STATUS_STATE_VAR`, `STATUS_STATE_LABEL`, `isSeededTicketType`,
+   `TICKET_TYPE_NAMES_BY_KEY`. If not, stop.
+4. Confirm `--tt-on-hue` exists in **both** the `:root` and `.dark` blocks of `index.css`
+   (added by Slice V2). If missing, stop — the badge depends on it.
+
+## Facts established by analysis — do not deviate
+
+* **`typeKey` and `statusKey` reach every list surface.** `/api/ticket-types` and
+  `/api/ticket-types/:id/statuses` both come from `db.select().from(...)` full-row
+  selects, and the client enriches tickets from those payloads
+  (`TicketListView.tsx` L188–192, `MyTickets.tsx` L275–278, `TicketsList.tsx` L324).
+  So key-first lookups work here exactly as they do on the detail page.
+* **Parent-hue inheritance is NOT possible in the list and must not be attempted.**
+  There is no parent column on `tickets` — the only parent link is the `ticket_links`
+  table, and `/api/tickets` returns bare ticket rows with no links. A standalone Invoice
+  row therefore resolves to `var(--tt-fallback)` (stone), which is the documented
+  behaviour of `typeHueVar` — `invoice` is deliberately absent from its map. Do not add a
+  query, do not join links client-side, do not guess by title prefix.
+* **`TicketType` and `TicketTypeStatus` from `@shared/schema` are `any`** (drizzle stub).
+  Passing them into `typeHueVar` / `deriveStatusState` compiles regardless, which means
+  the compiler will not catch a wrong argument. Pass the object itself, never a field.
+* `TicketCard.tsx` already declares an explicit structural `TicketWithDetails` with
+  `typeKey` and `statusKey` (L26–36) precisely because of the `any` problem. Do not
+  replace it with a schema import.
+
+---
+
+## Step 0 — Fix the priority regression from Slice V2
+
+In `pages/TicketDetail.tsx`, inside `data-testid="strip-ticket-meta"`, the Priority cell
+currently renders `priority.label` as plain text. It used to render a coloured dot, so an
+urgent ticket no longer reads as urgent.
+
+The strip cells are built from a `{ label, value }` array, so this one cell needs to opt
+out of the plain-text path. Change the cell object to carry an optional `dot`:
+
+```tsx
+{ label: t('common.priority'), value: priority.label, dot: priority.color },
+```
+
+widen the filter predicate and the value renderer:
+
+```tsx
+.filter((cell): cell is { label: string; value: string; dot?: string } => cell !== null)
+```
+
+```tsx
+<p className="flex items-center gap-1.5 truncate text-[12.5px] font-medium">
+  {cell.dot && <span className={`h-2 w-2 shrink-0 rounded-full ${cell.dot}`} />}
+  {cell.value}
+</p>
+```
+
+`priority.color` is a Tailwind class string (`"bg-red-500"` etc. — see `priorityConfig`
+at L148), so it goes in `className`, **not** in a style prop. Every other cell omits
+`dot` and is unaffected.
+
+## Step 1 — New shared component
+
+Create `artifacts/highplains-crm/src/components/TicketIdentity.tsx`:
+
+```tsx
+import { Calculator, Layers, Receipt, FilePlus, FileText, Check, ClipboardList } from "lucide-react";
+import {
+  typeHueVar,
+  deriveStatusState,
+  isSeededTicketType,
+  STATUS_STATE_VAR,
+  STATUS_STATE_LABEL,
+  type TicketTypeKey,
+} from "@shared/ticketVisuals";
+
+const TYPE_ICON: Record<TicketTypeKey, typeof ClipboardList> = {
+  estimate_request: Calculator,
+  project: Layers,
+  extra_billable: Receipt,
+  rfp_request: FilePlus,
+  invoice: FileText,
+  todo: Check,
+};
+
+// Written out structurally on purpose: TicketType from @shared/schema is `any`
+// (drizzle stub), so an imported type would check nothing.
+export interface TicketTypeLike {
+  name: string;
+  typeKey?: string | null;
+}
+
+export interface TicketStatusLike {
+  name: string;
+  statusKey?: string | null;
+  actionType?: "needs_action" | "waiting" | null;
+  isFinal?: "true" | "false" | null;
+}
+
+/** Resolve a ticket type's hue. Standalone invoices get the neutral fallback. */
+export function ticketHue(type: TicketTypeLike | null | undefined): string {
+  return typeHueVar(type);
+}
+
+export function TicketTypeBadge({
+  type,
+  testId,
+}: {
+  type: TicketTypeLike | null | undefined;
+  testId?: string;
+}) {
+  if (!type) return null;
+  const hue = typeHueVar(type);
+  const iconKey = (Object.keys(TYPE_ICON) as TicketTypeKey[]).find(k => isSeededTicketType(type, k));
+  const Icon = iconKey ? TYPE_ICON[iconKey] : ClipboardList;
+  return (
+    <span
+      className="inline-flex items-center overflow-hidden rounded-md border bg-background"
+      style={{ borderColor: `color-mix(in srgb, ${hue} 38%, var(--border))` }}
+      data-testid={testId}
+    >
+      <span
+        className="flex w-5 self-stretch items-center justify-center"
+        style={{ background: hue, color: "var(--tt-on-hue)" }}
+      >
+        <Icon className="h-3 w-3" />
+      </span>
+      <span
+        className="px-2 py-0.5 text-[11.5px] font-semibold whitespace-nowrap"
+        style={{ color: `color-mix(in srgb, ${hue} 82%, var(--foreground))` }}
+      >
+        {type.name}
+      </span>
+    </span>
+  );
+}
+
+export function TicketStatusPill({
+  status,
+  testId,
+}: {
+  status: TicketStatusLike | null | undefined;
+  testId?: string;
+}) {
+  if (!status) return null;
+  const state = deriveStatusState(status);
+  const c = STATUS_STATE_VAR[state];
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap ${state === "waiting" ? "border-dashed" : ""}`}
+      style={{
+        background: `color-mix(in srgb, ${c} 13%, var(--background))`,
+        color: `color-mix(in srgb, ${c} 80%, var(--foreground))`,
+        borderColor: `color-mix(in srgb, ${c} 28%, transparent)`,
+      }}
+      title={STATUS_STATE_LABEL[state]}
+      data-testid={testId}
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: c }} />
+      {status.name}
+    </span>
+  );
+}
+```
+
+These are deliberately the same values Slice V2 shipped inline on the detail page. Do not
+refactor `TicketDetail.tsx` to consume them in this slice — that is a later cleanup and
+would balloon the diff.
+
+## Step 2 — `components/TicketCard.tsx`
+
+**2a.** Replace L84:
+
+```tsx
+const barColor = ticket.completedAt
+  ? "#22c55e"
+  : (ticket.ticketType?.color || "#6b7280");
+```
+
+with:
+
+```tsx
+const hue = ticketHue(ticket.ticketType);
+```
+
+Drop the `completedAt` green override entirely. A ticket's **type** does not change when
+it completes; completion is what the status pill is for. Keeping the override would mean
+every finished ticket loses its type identity — the exact confusion this slice removes.
+
+**2b.** The rail (`<div className="w-1 self-stretch rounded-full" style={{ backgroundColor: barColor }} />`)
+becomes `style={{ backgroundColor: hue }}` and `w-1` → `w-1.5`.
+
+**2c.** Replace the type-label span (`data-testid={`text-tickettype-${ticket.id}`}`, the
+one wrapped in `{ticket.ticketType && (…)}`) with:
+
+```tsx
+<TicketTypeBadge type={ticket.ticketType} testId={`text-tickettype-${ticket.id}`} />
+```
+
+Keep the same `data-testid` value so nothing that targets it breaks. `TicketTypeBadge`
+already returns `null` for a missing type, so drop the surrounding `{ticket.ticketType && }`
+guard.
+
+**2d.** The current-status badge inside the workflow progress strip
+(`data-testid={`badge-current-status-${ticket.id}`}`, styled with
+`style={{ borderColor: status.color || undefined }}`) becomes:
+
+```tsx
+<TicketStatusPill status={status} testId={`badge-current-status-${ticket.id}`} />
+```
+
+Drop the `className="text-xs mx-0.5"` wrapper styling into a surrounding
+`<span className="mx-0.5">` if spacing changes; do not put layout classes on the pill.
+
+**2e.** Same treatment for the `workflowStatuses.length === 0` fallback badge (the one
+with `style={{ borderColor: ticket.currentStatus.color || undefined }}` and no testid) —
+replace with `<TicketStatusPill status={ticket.currentStatus} />`.
+
+**2f.** The progress dots and connectors currently use
+`bg-green-500 dark:bg-green-400` for the completed state. Green is the *status* language,
+not the *type* language, and these dots represent "steps of this ticket type's workflow".
+Match the detail-page stepper: completed dots and connectors take the type hue.
+
+Replace the completed arm of both the connector `<div>` and the dot `<div>` class
+ternaries so the completed case carries no colour class, and add
+`style={isCompleted || isCurrent || isOnFinalStep ? { backgroundColor: hue } : undefined}`
+to the connector, and `style={isCompleted ? { backgroundColor: hue } : undefined}` to the
+dot. Keep `bg-muted-foreground/30 dark:bg-muted-foreground/20` for the incomplete case
+exactly as-is.
+
+In the `TooltipContent`, replace `text-green-600 dark:text-green-400` with
+`style={{ color: hue }}` on that span, keeping `text-muted-foreground` for incomplete.
+
+**2g.** The `data-testid={`badge-complete-${ticket.id}`}` "Complete" badge keeps its shape
+but moves onto the status scale: replace
+`border-green-500 dark:border-green-400 text-green-600 dark:text-green-400` with
+`style={{ borderColor: "var(--ts-done)", color: "var(--ts-done)" }}`.
+
+**2h. Leave alone**: `badge-overdue-*`, `badge-worktype-*`, `badge-needs-scheduling-*`,
+`badge-action-type-waiting-*`, `badge-action-type-needs-action-*`, and
+`badge-invoice-category-*`. The two action-type badges look redundant with the status
+pill's "waiting" state but are not — they carry the waiting *category* (Customer / Vendor
+/ Internal), which the pill does not show.
+
+Also leave `ticket.ticketType?.name === "Invoice"` at L185 exactly as written. It is a
+type-name comparison and this slice changes no name comparisons.
+
+Add to the imports: `import { TicketTypeBadge, TicketStatusPill, ticketHue } from "@/components/TicketIdentity";`
+
+## Step 3 — `pages/MyTickets.tsx` (`MyKanbanCard`, ~L957)
+
+* L958 `const barColor = ticket.ticketType?.color || "#6b7280";` → `const hue = ticketHue(ticket.ticketType);`
+* rail `style={{ backgroundColor: barColor }}` → `{{ backgroundColor: hue }}`, `w-1` → `w-1.5`
+* type-label span (`data-testid={`kanban-my-tickettype-${ticket.id}`}`) →
+  `<TicketTypeBadge type={ticket.ticketType} testId={`kanban-my-tickettype-${ticket.id}`} />`
+* status badge (`data-testid={`kanban-my-status-${ticket.id}`}`, styled
+  `borderColor: currentStatus.color`) →
+  `<TicketStatusPill status={currentStatus} testId={`kanban-my-status-${ticket.id}`} />`
+
+  Note this card wraps the badge in `truncate max-w-[120px]`. Move those classes to a
+  wrapping `<span className="min-w-0 truncate">` rather than onto the pill.
+
+Add the same import.
+
+## Step 4 — `pages/TicketsList.tsx` (two sites)
+
+**Site 3 — `KanbanCard`, ~L1059.** Identical treatment to Step 3, using this file's
+testids: `kanban-tickettype-${ticket.id}` and its own status badge.
+
+**Site 4 — the big card, ~L1328.**
+* Delete the `completedAt ? "#22c55e"` override; `const hue = ticketHue(ticket.ticketType);`
+* rail → `{{ backgroundColor: hue }}`, `w-1` → `w-1.5`
+* its type-label span → `<TicketTypeBadge …>` keeping the existing testid
+* its current-status badge(s) → `<TicketStatusPill …>` keeping existing testids
+* if this card has the same green progress-dot strip as `TicketCard`, apply Step 2f
+  identically. If it does not, skip — do not invent one.
+
+Add the same import.
+
+**Do not touch** `ticketTypes.find(tt => tt.name === "Invoice")` at ~L302. It is a
+type-name comparison scheduled for a later slice.
+
+## Step 5 — `pages/TicketDetail.tsx` L1514 (`card-linked-tickets` dot)
+
+```tsx
+style={{ backgroundColor: linked.ticketType?.color || "#6b7280" }}
+```
+→
+```tsx
+style={{ backgroundColor: ticketHue(linked.ticketType) }}
+```
+
+Add the import. Change nothing else in that card.
+
+---
+
+## Explicitly out of scope
+
+* Refactoring `TicketDetail.tsx`'s inline badge/pill markup to use the new components.
+* Merging `TicketsList.tsx` and `TicketListView.tsx`.
+* `TicketListView.tsx` L706 `barColor = isCompleted ? "#22c55e" : "#f59e0b"` — that is the
+  **equipment-tickets** section, a different table with no ticket type. Leave it.
+* `MyTicketsPreview.tsx` — it renders a priority badge and no type or status colour.
+  Nothing to change.
+* Any status-name or type-name string comparison.
+* Any server, schema, or migration file.
+* `ticket_types.color` in the database. The column stays; the client just stops reading it.
+  Removing it is a separate decision.
+
+## Done when
+
+1. Typecheck shows no errors beyond the Step 0 baseline.
+2. `grep -rn "ticketType?.color\|ticketType.color" artifacts/highplains-crm/src` returns
+   **nothing**.
+3. `grep -rn "#22c55e" artifacts/highplains-crm/src` returns only `TicketListView.tsx`
+   L706 (the equipment section).
+4. The tickets list shows the same indigo on an Estimate Request row that the detail page
+   shows on that ticket's header — open both and compare.
+5. A **completed** ticket in the list still shows its type hue on the rail and badge, with
+   completion carried by the status pill, not by a green rail.
+6. A standalone Invoice ticket shows the neutral stone fallback. No crash, no blank rail.
+7. Progress dots on a list card are the type hue for completed steps, not green.
+8. The waiting/needs-action badges and the work-type badge are still present on list rows.
+9. Priority in the detail header strip shows a coloured dot again.
+10. `git diff --stat` shows exactly six files: the new `TicketIdentity.tsx`, `TicketCard.tsx`,
+    `MyTickets.tsx`, `TicketsList.tsx`, `TicketDetail.tsx`, and nothing else.
+
+## Report back
+
+Paste `git diff --stat`, the output of the two greps in criteria 2 and 3, and state
+whether site 4 had a progress-dot strip.

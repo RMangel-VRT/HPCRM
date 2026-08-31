@@ -1,0 +1,191 @@
+# Slice B3 — Retire status-name comparisons on the server
+
+**This slice is server-only and shares no files with Slice V3 (list visuals).**
+`artifacts/api-server/**` only. It touches **zero** client files, so it can run alongside
+or in either merge order with V3 without conflict. If you find yourself editing anything
+under `artifacts/highplains-crm/`, stop — you are in the wrong slice.
+
+## Why
+
+Slices A/A2/B1/B2 moved ticket-*type* identity off display names onto `type_key`, and
+backfilled `status_key` onto `ticket_type_statuses`. The status side of the server was
+never finished: the code still identifies workflow statuses by comparing
+`status.name === "Ready for Billing"` and friends. Those strings are user-editable —
+renaming a status in the admin UI silently breaks invoice auto-creation, scheduling
+detection and the RFP decision branches.
+
+There is already an `isSeededTicketType()` helper for the type side. This slice adds the
+status-side equivalent and routes every comparison through it.
+
+**Behaviour must not change.** The helper is key-first with a display-name fallback, so an
+unkeyed legacy row resolves exactly as it does today.
+
+---
+
+## Step 1 — Census first, report before editing beyond `routes.ts`
+
+I could only read 36 of the 59 server `.ts` files from my end (the rest are uncached
+iCloud placeholders on the local mirror). **You can read all of them.** So before editing,
+run the census yourself:
+
+```
+grep -rn 'name === "' artifacts/api-server/src --include=*.ts | grep -v '\.test\.ts'
+```
+
+and narrow to comparisons against a **ticket workflow status name**. The seeded status
+display names are exactly the keys of the inner objects in `STATUS_KEY_BACKFILL`
+(`artifacts/api-server/src/shared/ticketCapabilities.ts` L126).
+
+**Report the full list before you edit anything outside `routes.ts`.** These files were
+unreadable to me and are the likely places for extra hits — several are directly on the
+invoicing path:
+
+```
+lib/rfbInvoiceAutoCreate.ts        routes/extraBillableBilling.ts
+routes/unsortedEmails.ts           services/emailService.ts
+services/pushNotifications.ts      services/qboClient.ts
+utils/parentGuard.ts               services/testHelpers/dbSeed.ts
+```
+
+Do **not** silently expand scope. List what you found, then proceed.
+
+Also capture a typecheck baseline: `pnpm --filter @workspace/api-server run typecheck`
+(or the root `pnpm run typecheck`). This slice must add no new errors.
+
+## Step 2 — Add the status-side helpers
+
+In `artifacts/api-server/src/shared/ticketCapabilities.ts`, after `STATUS_KEY_BACKFILL`,
+add:
+
+```ts
+export interface TicketStatusIdentity {
+  name: string;
+  statusKey?: string | null;
+}
+
+/**
+ * Every display name that has ever mapped to a given status key, derived from
+ * STATUS_KEY_BACKFILL so there is exactly one source of truth. Used only for the
+ * legacy fallback path — a row with a non-null status_key never consults this.
+ */
+const STATUS_NAMES_BY_KEY: Record<string, Set<string>> = (() => {
+  const out: Record<string, Set<string>> = {};
+  for (const byName of Object.values(STATUS_KEY_BACKFILL)) {
+    for (const [name, key] of Object.entries(byName)) {
+      (out[key] ??= new Set<string>()).add(name);
+    }
+  }
+  return out;
+})();
+
+/** Key-first. A non-null key is authoritative; only unkeyed rows fall back to name. */
+export function isSeededStatus(
+  status: TicketStatusIdentity | null | undefined,
+  key: string,
+): boolean {
+  if (!status) return false;
+  if (status.statusKey != null) return status.statusKey === key;
+  return STATUS_NAMES_BY_KEY[key]?.has(status.name) ?? false;
+}
+
+/** Array convenience mirroring findSeededTicketType. */
+export function findSeededStatus<T extends TicketStatusIdentity>(
+  statuses: readonly T[],
+  key: string,
+): T | undefined {
+  return statuses.find(s => isSeededStatus(s, key));
+}
+```
+
+Deriving `STATUS_NAMES_BY_KEY` from `STATUS_KEY_BACKFILL` rather than hardcoding a second
+list is the point — a new seeded status added to the backfill map is automatically
+understood by the fallback, with no second place to update.
+
+`??=` on an index signature is supported by this repo's TS target; if the baseline
+typecheck disagrees, use an explicit `if (!out[key]) out[key] = new Set<string>();`.
+
+## Step 3 — Migrate the fifteen known sites in `routes/routes.ts`
+
+These are verified against the current commit. Line numbers will drift as you edit — match
+on the **code**, not the number.
+
+| Line | Current | Becomes |
+|---|---|---|
+| 269 | `invoiceStatuses.find(s => s.name === "Pending Invoice")` | `findSeededStatus(invoiceStatuses, "pending_invoice")` |
+| 270 | `invoiceStatuses.find(s => s.name === "Invoiced")` | `findSeededStatus(invoiceStatuses, "invoiced")` |
+| 704 | `statuses.find(s => s.name === "Ready to Schedule")` | `findSeededStatus(statuses, "ready_to_schedule")` |
+| 1157 | `statuses.find(s => s.name === "Ready for Billing")` | `findSeededStatus(statuses, "ready_for_billing")` |
+| 1230 | `statuses.find(s => s.name === "Invoicing")` | `findSeededStatus(statuses, "invoicing")` |
+| 5688 | `statuses.find(st => st.name === "Ready to Schedule")` | `findSeededStatus(statuses, "ready_to_schedule")` |
+| 6778 | `sortedStatuses.find(s => s.name === "Ready for Billing")` | `findSeededStatus(sortedStatuses, "ready_for_billing")` |
+| 6859 | `newStatus?.name === "Work Completed"` | `isSeededStatus(newStatus, "work_completed")` |
+| 6986 | `newStatus?.name === "Invoicing"` | `isSeededStatus(newStatus, "invoicing")` |
+| 7044 | `newStatus?.name === "Ready for Billing"` | `isSeededStatus(newStatus, "ready_for_billing")` |
+| 7529 | `statuses.find(s => s.name === "Ready to Schedule")` | `findSeededStatus(statuses, "ready_to_schedule")` |
+| 7544 | `statuses.find(s => s.name === "Closed - Lost")` | `findSeededStatus(statuses, "closed_lost")` |
+| 7567 | `statuses.find(s => s.name === "Closed - Lost")` | `findSeededStatus(statuses, "closed_lost")` |
+| 7825 | `invoiceStatuses.find(s => s.name === "Pending Invoice")` | `findSeededStatus(invoiceStatuses, "pending_invoice")` |
+| 8008 | `statuses.find(s => s.name === "Ready for Billing")` | `findSeededStatus(statuses, "ready_for_billing")` |
+
+Notes that matter:
+
+* **`isSeededStatus` handles `null`/`undefined` internally**, so `newStatus?.name === "X"`
+  becomes `isSeededStatus(newStatus, "x")` with **no** optional chaining. Writing
+  `isSeededStatus(newStatus?, …)` is a syntax error; writing
+  `newStatus && isSeededStatus(...)` is redundant but harmless.
+* **L6986 and L7044 are the invoice auto-creation path** that Slice B1 worked on. L6986
+  gates whether an Invoice ticket gets created when a ticket reaches Invoicing; L7044
+  feeds the Ready-for-Billing branch. Convert them exactly as tabled and change nothing
+  else in those expressions — in particular leave `isProjectTypeForInvoice`,
+  `isEstimateRequestTypeForInvoice` and `isInvoiceTicketType` untouched. They are already
+  key-based from B1/B2.
+* **L269–270** are inside an invoice-status ensure/seed helper. Converting them is
+  correct — a re-run against a renamed status should still find it by key.
+* `let` vs `const`: L269–270 use `let` because they are reassigned if not found. Keep
+  `let`.
+
+Add to the file's existing import from `../shared/ticketCapabilities` (or `./shared/...`
+per that file's convention — **copy the path already used in `routes.ts`**, do not invent
+one): `isSeededStatus`, `findSeededStatus`.
+
+## Step 4 — Migrate whatever Step 1 turned up elsewhere
+
+Same mechanical conversion, same key vocabulary. If a hit compares against a status name
+that is **not** in `STATUS_KEY_BACKFILL`, do not invent a key — leave that comparison
+alone and list it in your report.
+
+---
+
+## Explicitly out of scope
+
+* Every file under `artifacts/highplains-crm/` — Slice V3 owns the client.
+* `artifacts/highplains-crm/src/shared/ticketVisuals.ts` — the client's own copy of this
+  vocabulary. It already has `deriveStatusState` and needs no change here.
+* Ticket **type** name comparisons. Those were handled in A2/B2; if you find a straggler,
+  report it, do not fix it here.
+* `STATUS_KEY_BACKFILL` itself — no new entries, no edits.
+* Any schema file, migration, or `ticket_type_statuses` row.
+* Test files (`*.test.ts`). If a test asserts on a status name, leave it; it should still
+  pass, and if it does not, that is a finding worth reporting rather than editing away.
+* Adding `status_key` to any API response shape.
+
+## Done when
+
+1. `pnpm --filter @workspace/api-server run typecheck` adds no errors over the Step 1
+   baseline, and the existing server test suite passes.
+2. `grep -rn 'name === "Ready for Billing"\|name === "Pending Invoice"\|name === "Invoiced"\|name === "Work Completed"\|name === "Closed - Lost"\|name === "Closed - Won"\|name === "Ready to Schedule"\|name === "Invoicing"' artifacts/api-server/src --include=*.ts | grep -v test`
+   returns **nothing**.
+3. `git diff --stat` shows only files under `artifacts/api-server/src/`. No client file,
+   no schema file, no migration.
+4. `isSeededStatus` and `findSeededStatus` are exported from `ticketCapabilities.ts` and
+   `STATUS_NAMES_BY_KEY` is derived from `STATUS_KEY_BACKFILL`, not hardcoded.
+5. Behavioural spot-check: move a ticket to Ready for Billing and confirm the invoice
+   ticket is still auto-created; move one to Work Completed on a delegated ticket and
+   confirm the delegation notification still fires.
+
+## Report back
+
+1. The full Step 1 census — every file and line, including any outside `routes.ts`.
+2. Any status-name comparison you left alone because its name is not in
+   `STATUS_KEY_BACKFILL`.
+3. `git diff --stat` and the output of the Done criterion 2 grep.
