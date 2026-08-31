@@ -39,6 +39,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractApiErrorMessage } from "@/lib/apiError";
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
+import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 
 interface CompanyUserWithDetails {
   companyUser: CompanyUser;
@@ -1057,7 +1058,7 @@ interface KanbanCardProps {
 }
 
 function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavigate }: KanbanCardProps) {
-  const barColor = ticket.ticketType?.color || "#6b7280";
+  const hue = ticketHue(ticket.ticketType);
   const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
   const currentStatus = allStatuses.find(s => s.id === ticket.currentStatusId);
 
@@ -1069,15 +1070,16 @@ function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavig
       >
         <CardContent className="p-3">
           <div className="flex items-start gap-2">
-            <div className="w-1 self-stretch rounded-full shrink-0" style={{ backgroundColor: barColor }} />
+            <div className="w-1.5 self-stretch rounded-full shrink-0" style={{ backgroundColor: hue }} />
             <div className="flex-1 min-w-0">
               {/* Type badge + ticket ID */}
               <div className="flex items-center justify-between gap-1 mb-1">
-                {ticket.ticketType && (
-                  <span className="text-xs font-semibold" style={{ color: barColor }} data-testid={`kanban-tickettype-${ticket.id}`}>
-                    {ticket.ticketType.name}
-                  </span>
-                )}
+                <span className="min-w-0 truncate">
+                  <TicketTypeBadge
+                    type={ticket.ticketType}
+                    testId={`kanban-tickettype-${ticket.id}`}
+                  />
+                </span>
                 <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`kanban-ticket-id-${ticket.id}`}>
                   #{ticket.id.slice(0, 8)}
                 </span>
@@ -1095,16 +1097,12 @@ function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavig
               )}
               {/* Status + assignee row */}
               <div className="flex items-center justify-between gap-2">
-                {currentStatus && (
-                  <Badge
-                    variant="outline"
-                    className="text-xs truncate max-w-[120px]"
-                    style={{ borderColor: currentStatus.color || undefined }}
-                    data-testid={`kanban-status-${ticket.id}`}
-                  >
-                    {currentStatus.name}
-                  </Badge>
-                )}
+                <span className="min-w-0 max-w-[120px] truncate">
+                  <TicketStatusPill
+                    status={currentStatus}
+                    testId={`kanban-status-${ticket.id}`}
+                  />
+                </span>
                 {ticket.assignedToId && (
                   <span className="text-xs text-muted-foreground truncate max-w-[80px]" data-testid={`kanban-assignee-${ticket.id}`}>
                     {usersMap.get(ticket.assignedToId)?.name || usersMap.get(ticket.assignedToId)?.email?.split("@")[0] || ""}
@@ -1324,10 +1322,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
       })
     : null;
 
-  // Bar color: green for completed, ticket type color for open tickets
-  const barColor = ticket.completedAt 
-    ? "#22c55e" // green-500
-    : (ticket.ticketType?.color || "#6b7280"); // gray-500 fallback
+  const hue = ticketHue(ticket.ticketType);
 
   // Check if this ticket needs scheduling (ID-based: currentStatusId === schedulingStatusId)
   const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
@@ -1355,22 +1350,17 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
             </div>
           )}
           <div 
-            className="w-1 self-stretch rounded-full" 
-            style={{ backgroundColor: barColor }}
+            className="w-1.5 self-stretch rounded-full"
+            style={{ backgroundColor: hue }}
           />
           
           <div className="flex-1 min-w-0">
             {/* Row 1: Ticket type (colored text) + overdue + needs scheduling indicator */}
             <div className="flex items-center gap-2 flex-wrap">
-              {ticket.ticketType && (
-                <span 
-                  className="text-sm font-semibold"
-                  style={{ color: barColor }}
-                  data-testid={`text-tickettype-${ticket.id}`}
-                >
-                  {ticket.ticketType.name}
-                </span>
-              )}
+              <TicketTypeBadge
+                type={ticket.ticketType}
+                testId={`text-tickettype-${ticket.id}`}
+              />
               {dueInfo?.text === "Overdue" && (
                 <Badge 
                   variant="destructive"
@@ -1471,38 +1461,33 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                             {/* Connector line before (except for first element) */}
                             {!isFirst && (
                               <div 
-                                className={`w-2 h-0.5 ${
-                                  isCompleted || isCurrent || isOnFinalStep
-                                    ? "bg-green-500 dark:bg-green-400" 
-                                    : "bg-muted-foreground/30 dark:bg-muted-foreground/20"
-                                }`}
+                                className="w-2 h-0.5 bg-muted-foreground/30 dark:bg-muted-foreground/20"
+                                style={isCompleted || isCurrent || isOnFinalStep ? { backgroundColor: hue } : undefined}
                               />
                             )}
                             
                             {/* Current step shows badge, others show bubble */}
                             {isCurrent ? (
-                              <Badge 
-                                variant="outline" 
-                                className="text-xs mx-0.5"
-                                style={{ borderColor: status.color || undefined }}
-                                data-testid={`badge-current-status-${ticket.id}`}
-                              >
-                                {status.name}
-                              </Badge>
+                              <span className="mx-0.5">
+                                <TicketStatusPill
+                                  status={status}
+                                  testId={`badge-current-status-${ticket.id}`}
+                                />
+                              </span>
                             ) : (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <div
-                                    className={`w-2.5 h-2.5 rounded-full cursor-default transition-all shrink-0 ${
-                                      isCompleted 
-                                        ? "bg-green-500 dark:bg-green-400" 
-                                        : "bg-muted-foreground/30 dark:bg-muted-foreground/20"
-                                    }`}
+                                    className="w-2.5 h-2.5 rounded-full cursor-default transition-all shrink-0 bg-muted-foreground/30 dark:bg-muted-foreground/20"
+                                    style={isCompleted ? { backgroundColor: hue } : undefined}
                                     data-testid={`bubble-status-${status.id}`}
                                   />
                                 </TooltipTrigger>
                                 <TooltipContent side="top" className="text-xs">
-                                  <span className={isCompleted ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}>
+                                  <span
+                                    className={isCompleted ? "" : "text-muted-foreground"}
+                                    style={isCompleted ? { color: hue } : undefined}
+                                  >
                                     {status.name}
                                     {isCompleted && " ✓"}
                                   </span>
@@ -1516,10 +1501,11 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                       {/* Complete indicator when on final step */}
                       {isOnFinalStep && (
                         <>
-                          <div className="w-2 h-0.5 bg-green-500 dark:bg-green-400" />
+                          <div className="w-2 h-0.5" style={{ backgroundColor: hue }} />
                           <Badge 
                             variant="outline" 
-                            className="text-xs mx-0.5 border-green-500 dark:border-green-400 text-green-600 dark:text-green-400"
+                            className="text-xs mx-0.5"
+                            style={{ borderColor: "var(--ts-done)", color: "var(--ts-done)" }}
                             data-testid={`badge-complete-${ticket.id}`}
                           >
                             <Check className="w-3 h-3 mr-1" />
@@ -1532,13 +1518,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                 })()}
                 {/* Fallback: show badge if no workflow statuses */}
                 {workflowStatuses.length === 0 && ticket.currentStatus && (
-                  <Badge 
-                    variant="outline" 
-                    className="text-xs"
-                    style={{ borderColor: ticket.currentStatus.color || undefined }}
-                  >
-                    {ticket.currentStatus.name}
-                  </Badge>
+                  <TicketStatusPill status={ticket.currentStatus} />
                 )}
                 {dueInfo && dueInfo.text !== "Overdue" && (
                   <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>

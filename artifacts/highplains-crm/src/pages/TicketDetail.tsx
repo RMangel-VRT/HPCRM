@@ -83,6 +83,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import LayerMapViewer from "@/components/LayerMapViewer";
 import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType } from "@shared/ticketVisuals";
+import { ticketHue } from "@/components/TicketIdentity";
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -1106,7 +1107,7 @@ export default function TicketDetail() {
           {[
             customer ? { label: t('common.customer'), value: customer.name } : null,
             { label: t('ticketDetail.assignedTo'), value: assignedUser?.email ?? t('common.unassigned') },
-            { label: t('common.priority'), value: priority.label },
+            { label: t('common.priority'), value: priority.label, dot: priority.color },
             ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType]
               ? { label: t('tickets.workType'), value: WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel }
               : null,
@@ -1115,7 +1116,7 @@ export default function TicketDetail() {
               ? { label: t('ticketDetail.workCompletedDate'), value: format(new Date(ticket.workCompletedDate), "MMM d, yyyy") }
               : null,
           ]
-            .filter((cell): cell is { label: string; value: string } => cell !== null)
+            .filter((cell): cell is { label: string; value: string; dot?: string } => cell !== null)
             .map((cell, index) => (
               <div
                 key={cell.label}
@@ -1124,7 +1125,10 @@ export default function TicketDetail() {
                 <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-muted-foreground">
                   {cell.label}
                 </p>
-                <p className="truncate text-[12.5px] font-medium">{cell.value}</p>
+                <p className="flex items-center gap-1.5 truncate text-[12.5px] font-medium">
+                  {cell.dot && <span className={`h-2 w-2 shrink-0 rounded-full ${cell.dot}`} />}
+                  {cell.value}
+                </p>
               </div>
             ))}
         </div>
@@ -1511,7 +1515,7 @@ export default function TicketDetail() {
                         <div className="flex items-center gap-2 min-w-0">
                           <div 
                             className={`w-2 h-2 rounded-full shrink-0 ${isChild ? "ring-2 ring-primary/30" : ""}`}
-                            style={{ backgroundColor: linked.ticketType?.color || "#6b7280" }} 
+                            style={{ backgroundColor: ticketHue(linked.ticketType) }}
                           />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1">

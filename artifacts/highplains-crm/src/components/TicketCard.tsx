@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, Customer, User as UserType } from "@shared/schema";
 import type { WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
+import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 
 const WAITING_CATEGORY_LABELS: Record<string, string> = {
   customer: "Customer",
@@ -79,9 +80,7 @@ export default function TicketCard({
       })
     : null;
 
-  const barColor = ticket.completedAt
-    ? "#22c55e"
-    : (ticket.ticketType?.color || "#6b7280");
+  const hue = ticketHue(ticket.ticketType);
 
   const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
 
@@ -108,21 +107,16 @@ export default function TicketCard({
             </div>
           )}
           <div
-            className="w-1 self-stretch rounded-full"
-            style={{ backgroundColor: barColor }}
+            className="w-1.5 self-stretch rounded-full"
+            style={{ backgroundColor: hue }}
           />
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              {ticket.ticketType && (
-                <span
-                  className="text-sm font-semibold"
-                  style={{ color: barColor }}
-                  data-testid={`text-tickettype-${ticket.id}`}
-                >
-                  {ticket.ticketType.name}
-                </span>
-              )}
+              <TicketTypeBadge
+                type={ticket.ticketType}
+                testId={`text-tickettype-${ticket.id}`}
+              />
               {dueInfo?.text === "Overdue" && (
                 <Badge
                   variant="destructive"
@@ -222,37 +216,32 @@ export default function TicketCard({
                           <div key={status.id} className="flex items-center">
                             {!isFirst && (
                               <div
-                                className={`w-2 h-0.5 ${
-                                  isCompleted || isCurrent || isOnFinalStep
-                                    ? "bg-green-500 dark:bg-green-400"
-                                    : "bg-muted-foreground/30 dark:bg-muted-foreground/20"
-                                }`}
+                                className="w-2 h-0.5 bg-muted-foreground/30 dark:bg-muted-foreground/20"
+                                style={isCompleted || isCurrent || isOnFinalStep ? { backgroundColor: hue } : undefined}
                               />
                             )}
 
                             {isCurrent ? (
-                              <Badge
-                                variant="outline"
-                                className="text-xs mx-0.5"
-                                style={{ borderColor: status.color || undefined }}
-                                data-testid={`badge-current-status-${ticket.id}`}
-                              >
-                                {status.name}
-                              </Badge>
+                              <span className="mx-0.5">
+                                <TicketStatusPill
+                                  status={status}
+                                  testId={`badge-current-status-${ticket.id}`}
+                                />
+                              </span>
                             ) : (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <div
-                                    className={`w-2.5 h-2.5 rounded-full cursor-default transition-all shrink-0 ${
-                                      isCompleted
-                                        ? "bg-green-500 dark:bg-green-400"
-                                        : "bg-muted-foreground/30 dark:bg-muted-foreground/20"
-                                    }`}
+                                    className="w-2.5 h-2.5 rounded-full cursor-default transition-all shrink-0 bg-muted-foreground/30 dark:bg-muted-foreground/20"
+                                    style={isCompleted ? { backgroundColor: hue } : undefined}
                                     data-testid={`bubble-status-${status.id}`}
                                   />
                                 </TooltipTrigger>
                                 <TooltipContent side="top" className="text-xs">
-                                  <span className={isCompleted ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}>
+                                  <span
+                                    className={isCompleted ? "" : "text-muted-foreground"}
+                                    style={isCompleted ? { color: hue } : undefined}
+                                  >
                                     {status.name}
                                     {isCompleted && " \u2713"}
                                   </span>
@@ -265,10 +254,11 @@ export default function TicketCard({
 
                       {isOnFinalStep && (
                         <>
-                          <div className="w-2 h-0.5 bg-green-500 dark:bg-green-400" />
+                           <div className="w-2 h-0.5" style={{ backgroundColor: hue }} />
                           <Badge
                             variant="outline"
-                            className="text-xs mx-0.5 border-green-500 dark:border-green-400 text-green-600 dark:text-green-400"
+                             className="text-xs mx-0.5"
+                             style={{ borderColor: "var(--ts-done)", color: "var(--ts-done)" }}
                             data-testid={`badge-complete-${ticket.id}`}
                           >
                             <Check className="w-3 h-3 mr-1" />
@@ -280,13 +270,7 @@ export default function TicketCard({
                   );
                 })()}
                 {workflowStatuses.length === 0 && ticket.currentStatus && (
-                  <Badge
-                    variant="outline"
-                    className="text-xs"
-                    style={{ borderColor: ticket.currentStatus.color || undefined }}
-                  >
-                    {ticket.currentStatus.name}
-                  </Badge>
+                  <TicketStatusPill status={ticket.currentStatus} />
                 )}
                 {dueInfo && dueInfo.text !== "Overdue" && (
                   <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>

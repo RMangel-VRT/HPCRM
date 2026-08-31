@@ -19,6 +19,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
 import TicketCard from "@/components/TicketCard";
 import type { TicketWithDetails } from "@/components/TicketCard";
+import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 
 const MY_TICKETS_SCROLL_STORAGE_KEY = "myTicketsScrollPosition";
 
@@ -955,7 +956,7 @@ interface MyKanbanCardProps {
 }
 
 function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavigate }: MyKanbanCardProps) {
-  const barColor = ticket.ticketType?.color || "#6b7280";
+  const hue = ticketHue(ticket.ticketType);
   const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
   const currentStatus = allStatuses.find(s => s.id === ticket.currentStatusId);
 
@@ -967,14 +968,15 @@ function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNav
       >
         <CardContent className="p-3">
           <div className="flex items-start gap-2">
-            <div className="w-1 self-stretch rounded-full shrink-0" style={{ backgroundColor: barColor }} />
+            <div className="w-1.5 self-stretch rounded-full shrink-0" style={{ backgroundColor: hue }} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-1 mb-1">
-                {ticket.ticketType && (
-                  <span className="text-xs font-semibold" style={{ color: barColor }} data-testid={`kanban-my-tickettype-${ticket.id}`}>
-                    {ticket.ticketType.name}
-                  </span>
-                )}
+                <span className="min-w-0 truncate">
+                  <TicketTypeBadge
+                    type={ticket.ticketType}
+                    testId={`kanban-my-tickettype-${ticket.id}`}
+                  />
+                </span>
                 <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`kanban-my-ticket-id-${ticket.id}`}>
                   #{ticket.id.slice(0, 8)}
                 </span>
@@ -989,16 +991,12 @@ function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNav
                 </div>
               )}
               <div className="flex items-center justify-between gap-2">
-                {currentStatus && (
-                  <Badge
-                    variant="outline"
-                    className="text-xs truncate max-w-[120px]"
-                    style={{ borderColor: currentStatus.color || undefined }}
-                    data-testid={`kanban-my-status-${ticket.id}`}
-                  >
-                    {currentStatus.name}
-                  </Badge>
-                )}
+                <span className="min-w-0 max-w-[120px] truncate">
+                  <TicketStatusPill
+                    status={currentStatus}
+                    testId={`kanban-my-status-${ticket.id}`}
+                  />
+                </span>
                 {ticket.assignedToId && (
                   <span className="text-xs text-muted-foreground truncate max-w-[80px]" data-testid={`kanban-my-assignee-${ticket.id}`}>
                     {usersMap.get(ticket.assignedToId)?.name || usersMap.get(ticket.assignedToId)?.email?.split("@")[0] || ""}
