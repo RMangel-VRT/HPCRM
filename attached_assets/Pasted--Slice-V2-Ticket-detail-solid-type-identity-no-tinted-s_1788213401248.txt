@@ -1,0 +1,345 @@
+# Slice V2 — Ticket detail: solid type identity, no tinted surfaces
+
+**Scope: exactly one file — `artifacts/highplains-crm/src/pages/TicketDetail.tsx`.**
+No CSS token changes. No server changes. No other component.
+
+## Why
+
+Slice V1 carried ticket-type colour as a translucent wash: a `linear-gradient` at
+`var(--tt-tint2)` (13% light / 17% dark) over the header, plus `color-mix` fills at
+`var(--tt-tint)` on the type badge and the current work-thread node. On a white page a
+13% wash reads as a smudge, not as identity — and it cannot be fixed by turning it up,
+because at 30% it stops being a background and starts fighting the text.
+
+**The rule this slice installs: ticket-type colour only ever appears at full strength,
+on a small opaque object.** Nothing gets a tint. Specifically the hue appears on:
+
+* a 4px solid line across the **top** of the header card
+* the **icon tile** inside the type badge (solid fill, inverted glyph)
+* the **icon tile** on each work-thread node
+* a 3px solid **left edge** on the current work-thread node
+* the **active tab underline**
+
+Everything else — header background, card backgrounds, badge backgrounds — becomes plain
+`var(--background)` / `var(--card)`. The status pill is the one soft fill that stays, on
+purpose: status appears on every row and should not shout, while type is the thing the
+user is meant to catch at a glance.
+
+This slice also replaces the sparse `grid-cols-2` summary with a dense metadata strip
+inside the header card.
+
+---
+
+## Preconditions — verify before editing
+
+1. `git status` is clean and the branch is current. If not, stop and say so.
+2. Capture a typecheck baseline:
+   `pnpm --filter @workspace/highplains-crm run typecheck`
+   Record the current error list. This slice must not add to it.
+3. Confirm these anchors exist in `TicketDetail.tsx`. If any line is materially
+   different from what is described, **stop and report** rather than guessing:
+   * L1018–1023 — header wrapper `<div className="rounded-xl border px-3 py-3 -mx-1">`
+     with a `linear-gradient` background.
+   * L1027–1040 — `data-testid="badge-ticket-type"` span.
+   * L1092 — the work-thread IIFE beginning `const child = linkedTickets.find(`.
+   * L1165 — `<div className="flex border-b sticky top-0 bg-background z-10">`.
+   * L1232 — `<Card data-testid="card-ticket-summary">`.
+
+---
+
+## Facts established by analysis — do not deviate from these
+
+These were checked against the current commit. Several contradict what a
+"make it look like the mockup" reading would assume.
+
+* **There is no scheduled-date column on tickets.** `grep` for `scheduledDate` /
+  `scheduledStart` / `scheduled_date` in `TicketDetail.tsx` returns nothing. Do **not**
+  add a "Scheduled" cell to the metadata strip. There is nothing to put in it.
+* **`crewsList` is gated.** `const { data: crewsList = [] } = useQuery({ queryKey:
+  ["/api/crews"], enabled: showEditDialog })` at ~L263. It is empty until the edit dialog
+  opens. Do **not** add a "Crew" cell reading from it — it would render blank on load.
+  Do **not** change `enabled` either; that adds a query to every ticket page load.
+* **The capability flags DO reach the client.** `GET /api/tickets/:id/details` calls
+  `storage.getTicketTypeById`, which is `db.select().from(ticketTypes)` — a full-row
+  select — so `ticketType.requiresInvoicing` and `ticketType.requiresScheduling` are
+  present at runtime as the strings `"true"` / `"false"`.
+* **They are untyped.** `TicketType` comes from `@shared/schema`, whose `pgTable()` is
+  declared `: any` on the drizzle stub. So `ticketType.requiresInvoicing` compiles no
+  matter what. Always compare explicitly: `ticketType?.requiresInvoicing === "true"`.
+  Never rely on truthiness — the string `"false"` is truthy.
+* **`card-ticket-summary` contains interactive controls**: the reassign `<Select
+  data-testid="select-reassign-ticket">` and the `data-testid="delegation-indicator"`
+  block. Both must survive this slice. See Step 6.
+* Available in scope after the L708 destructure: `ticket`, `ticketType`, `customer`,
+  `assignedUser`, `priority` (L709), `currentStatus` (L710), `linkedTickets`.
+* `WORK_TYPE_CATALOG` is already imported at L79.
+
+---
+
+## Step 1 — Header wrapper: kill the gradient, add the top edge
+
+Find the wrapper immediately inside `return (` — currently:
+
+```tsx
+<div
+  className="rounded-xl border px-3 py-3 -mx-1"
+  style={{
+    background: `linear-gradient(180deg, color-mix(in srgb, ${hue} var(--tt-tint2), transparent) 0%, transparent 100%)`,
+    borderColor: `color-mix(in srgb, ${hue} 22%, var(--border))`,
+  }}
+>
+```
+
+Replace with:
+
+```tsx
+<div
+  className="rounded-xl border border-t-4 overflow-hidden -mx-1"
+  style={{
+    borderColor: `color-mix(in srgb, ${hue} 20%, var(--border))`,
+    borderTopColor: hue,
+  }}
+  data-testid="header-ticket-identity"
+>
+  <div className="px-3 py-3">
+```
+
+and **close that new inner `<div>`** immediately after the existing
+`data-testid="button-delete-ticket"` block's closing `</div>` — i.e. the inner wrapper
+contains exactly the existing `<div className="flex items-center gap-2">…</div>` row and
+nothing else. The metadata strip in Step 3 goes *after* the inner div, still inside the
+outer one.
+
+**Key ordering matters.** In the style object `borderColor` must come *before*
+`borderTopColor`. React applies style properties in object-key order; `borderColor` is a
+shorthand that resets all four sides, so if it came second it would silently erase the
+top colour and the whole feature would vanish with no error.
+
+`overflow-hidden` is required so the full-bleed strip in Step 3 is clipped by the card's
+rounded corners.
+
+Notes:
+* `background` is removed entirely — no replacement. The card inherits the page.
+* `px-3 py-3` moves to the inner div; `-mx-1` stays on the outer.
+* `var(--tt-tint2)` now has no reader in this file. Leave the token in `index.css` —
+  removing it is out of scope and other slices may adopt it.
+
+## Step 2 — Type badge: solid tile, not a tinted pill
+
+Replace the whole `data-testid="badge-ticket-type"` span (L1027–1040) with:
+
+```tsx
+<span
+  className="inline-flex items-center overflow-hidden rounded-md border bg-background"
+  style={{ borderColor: `color-mix(in srgb, ${hue} 38%, var(--border))` }}
+  data-testid="badge-ticket-type"
+>
+  <span
+    className="flex w-6 self-stretch items-center justify-center"
+    style={{ background: hue, color: "var(--tt-on-hue)" }}
+  >
+    <TypeIcon className="h-3.5 w-3.5" />
+  </span>
+  <span
+    className="px-2.5 py-1 text-[12px] font-semibold whitespace-nowrap"
+    style={{ color: `color-mix(in srgb, ${hue} 82%, var(--foreground))` }}
+  >
+    {ticketType.name}
+  </span>
+</span>
+```
+
+`--tt-on-hue` does not exist yet. **Add it to `artifacts/highplains-crm/src/index.css`**,
+beside the existing `--tt-tint` declarations:
+
+* in the `:root` block (near L144, where `--tt-tint: 15%;` lives): `--tt-on-hue: #ffffff;`
+* in the `.dark` block (near L278, where `--tt-tint: 24%;` lives): `--tt-on-hue: #17170f;`
+
+The flip is required, not cosmetic: the dark-theme type hues (`#7a6ff0`, `#3ca694`,
+`#be47b8`, `#cf7132`, `#9a9a90`) are light colours, and a white glyph on them fails
+contrast. A near-black glyph passes on both.
+
+*(This is the only `index.css` edit in the slice.)*
+
+## Step 3 — Dense metadata strip
+
+Directly after the inner `px-3 py-3` div closes, still inside the header card, add:
+
+```tsx
+<div
+  className="flex flex-wrap border-t bg-muted/40"
+  data-testid="strip-ticket-meta"
+>
+  {[
+    customer ? { label: t('common.customer'), value: customer.name } : null,
+    { label: t('ticketDetail.assignedTo'), value: assignedUser?.email ?? t('common.unassigned') },
+    { label: t('common.priority'), value: priority.label },
+    ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType]
+      ? { label: t('tickets.workType'), value: WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel }
+      : null,
+    { label: t('ticketDetail.dueDate'), value: ticket.dueDate ? format(new Date(ticket.dueDate), "MMM d, yyyy") : t('common.none') },
+    ticket.workCompletedDate
+      ? { label: t('ticketDetail.workCompletedDate'), value: format(new Date(ticket.workCompletedDate), "MMM d, yyyy") }
+      : null,
+  ]
+    .filter((cell): cell is { label: string; value: string } => cell !== null)
+    .map((cell, index) => (
+      <div
+        key={cell.label}
+        className={`min-w-0 flex-auto px-4 py-2 ${index === 0 ? "" : "border-l"}`}
+      >
+        <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-muted-foreground">
+          {cell.label}
+        </p>
+        <p className="truncate text-[12.5px] font-medium">{cell.value}</p>
+      </div>
+    ))}
+</div>
+```
+
+The `border-l` is on every cell except the first rather than `border-r` on every cell
+except the last, so a wrapped second row still starts flush.
+
+`format` and `WorkType` are already imported and used in this file — confirm before
+adding any import.
+
+## Step 4 — Work-thread nodes: solid tile, solid edge
+
+Inside the work-thread IIFE, in `nodeContent`, replace:
+
+```tsx
+<div
+  className={`flex min-w-[10.5rem] items-center gap-2 rounded-lg border px-2.5 py-2 text-left ${node.isCurrent ? "" : "border-transparent hover:bg-muted/60"}`}
+  style={node.isCurrent ? {
+    background: `color-mix(in srgb, ${hue} var(--tt-tint), var(--background))`,
+    borderColor: `color-mix(in srgb, ${hue} 55%, transparent)`,
+  } : undefined}
+>
+  <NodeTypeIcon className="h-4 w-4 shrink-0" style={{ color: hue }} />
+```
+
+with:
+
+```tsx
+<div
+  className={`flex min-w-[10.5rem] items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left ${node.isCurrent ? "bg-background border-l-[3px]" : "border-transparent hover:bg-muted/60"}`}
+  style={node.isCurrent ? {
+    borderColor: `color-mix(in srgb, ${hue} 45%, var(--border))`,
+    borderLeftColor: hue,
+  } : undefined}
+>
+  <span
+    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+    style={{ background: hue, color: "var(--tt-on-hue)" }}
+  >
+    <NodeTypeIcon className="h-3.5 w-3.5" />
+  </span>
+```
+
+Same shorthand-ordering rule as Step 1: `borderColor` before `borderLeftColor`.
+
+**Do not touch** the surrounding IIFE logic: the `child` / `parent` finds, the `nodes`
+array construction and its real-order guarantee, the `NodeTypeIcon` resolution via
+`isSeededTicketType`, the `<Link>` wrapper on non-current nodes, the `ChevronRight`
+separator, `data-testid="bar-work-thread"`, or the
+`data-testid="text-awaiting-invoice"` paragraph. That paragraph is the only thing telling
+a user at "Ready for Billing" why the advance button is hidden.
+
+Also leave the container's `rounded-t-xl border border-b-0` and its `borderColor`
+`color-mix(… 30% …)` as they are — that is a border, not a fill, and it is what fuses the
+bar to the tab row below it.
+
+## Step 5 — Active tab underline takes the type hue
+
+There are **exactly five** tab buttons, at L1171, L1183, L1194, L1206 and L1218. Each has
+the identical ternary arm:
+
+```tsx
+? "border-primary text-primary"
+```
+
+For each of the five, replace that arm with `"text-foreground"` and add to the same
+button a style prop:
+
+```tsx
+style={activeTab === "<thisTabValue>" ? { borderBottomColor: hue } : undefined}
+```
+
+where `<thisTabValue>` is that button's own tab value (`"overview"`, `"workflow"`,
+`"comments"`, and the values used by the remaining two — read each one, do not assume).
+
+Leave the inactive arm (`"border-transparent text-muted-foreground hover:text-foreground"`)
+untouched, leave `border-b-2` in the base class list, and leave every `data-testid`
+(`tab-overview`, `tab-workflow`, `tab-comments`, …) exactly as-is.
+
+Leave the tab row's `sticky top-0 bg-background z-10` alone.
+
+## Step 6 — Slim `card-ticket-summary` down to what the strip does not cover
+
+The strip now shows Priority, Work Type, Due Date, Work Completed Date and Assigned To.
+Inside `<Card data-testid="card-ticket-summary">`:
+
+**Delete** these four blocks from the `grid grid-cols-2 gap-4`:
+* the Priority block (`t('common.priority')` + the coloured dot)
+* the Work Type block (`t('tickets.workType')` + `data-testid="badge-worktype"`)
+* the Due Date block (`t('ticketDetail.dueDate')`)
+* the Work Completed Date block (`ticket.workCompletedDate && …`)
+
+**Keep, unchanged:**
+* the **Status** block — its `data-testid="badge-action-type-waiting"` /
+  `data-testid="badge-action-type-needs-action"` badges carry the waiting-category and
+  needs-action information, which the header status pill does not.
+* the **Assigned To** block *in full*, including `canReassign`, the
+  `data-testid="select-reassign-ticket"` dropdown, `reassignMutation`, the `Avatar`, and
+  the read-only branch. The strip's "Assigned" cell is a read-only echo; this is the
+  control. Do not delete one because the other exists.
+* the `data-testid="delegation-indicator"` block.
+
+Change the grid to `className="grid grid-cols-1 gap-4"` — with only Status and Assigned
+To left, both of which are already `col-span-2`, a two-column grid leaves a hole.
+Remove the now-redundant `col-span-2` from those two blocks.
+
+If deleting the Work Type block leaves `WorkType` or `WORK_TYPE_CATALOG` referenced only
+by the new strip, that is fine — both stay imported.
+
+---
+
+## Explicitly out of scope
+
+* `TicketListView.tsx`, `TicketCard.tsx`, `MyTickets.tsx`, `MyTicketsPreview.tsx` — the
+  list surfaces are a later slice.
+* The workflow-tab stepper (~L2300–2450). Its `color-mix(… ${hue} 78% …)` on completed
+  segments is already effectively solid and reads correctly. Leave it.
+* `card-rate-sheet` (L1739), `card-linked-tickets` (L1479), `card-customer` (L1405) and
+  every other Overview card.
+* Any status-name or type-name string comparison. This slice adds none and removes none.
+* `deriveStatusState`, `typeHueVar`, `isSeededTicketType` and everything else in
+  `ticketVisuals.ts` — unchanged.
+* Any server file, schema file, or migration.
+
+## Done when
+
+1. `pnpm --filter @workspace/highplains-crm run typecheck` shows no errors beyond the
+   Step 2 baseline.
+2. No `linear-gradient` remains in `TicketDetail.tsx` except the
+   `repeating-linear-gradient` hatch on waiting steps at ~L2343.
+3. No `var(--tt-tint)` or `var(--tt-tint2)` remains in `TicketDetail.tsx`.
+4. `--tt-on-hue` is defined in **both** the `:root` and `.dark` blocks of `index.css`.
+5. Opening an Estimate Request ticket shows a 4px solid indigo line across the top of the
+   header card, a badge with a solid indigo icon tile, and a metadata strip with no empty
+   cells.
+6. Opening the Invoice ticket created from that Estimate Request shows the **same indigo**
+   in all three places — top edge, badge tile, work-thread tiles — because the invoice
+   inherits its parent's hue via the existing L719–721 logic, which this slice does not
+   touch.
+7. The reassign dropdown still works on the Overview tab and still has
+   `data-testid="select-reassign-ticket"`.
+8. A ticket at "Ready for Billing" with an incomplete linked invoice still shows
+   "Complete the linked invoice to advance this ticket to its final status."
+9. Dark mode: the glyph inside every solid hue tile is dark, not white.
+10. `git diff --stat` shows exactly two files changed: `TicketDetail.tsx` and `index.css`.
+
+## Report back
+
+State which of the five tab buttons you edited and the tab value you used for each, and
+paste the final `git diff --stat`.
