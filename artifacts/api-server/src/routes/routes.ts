@@ -33,6 +33,8 @@ import {
   TICKET_TYPE_KEYS,
   STATUS_KEY_BACKFILL,
   findSeededTicketType,
+  findSeededStatus,
+  isSeededStatus,
   isSeededTicketType,
 } from "../shared/ticketCapabilities";
 import { findClosestHourIndex, buildDateWindow } from "../lib/weatherHourMatch";
@@ -53,6 +55,12 @@ import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRA
  */
 const LABEL_URL_TTL_SEC = 3600;
 const TEMPLATE_LABEL_TTL_SEC = 604800; // 7 days for template-level label PDFs
+const APPROVED_BILLING_STATUS_KEYS = [
+  "ready_to_schedule",
+  "work_completed",
+  "ready_for_billing",
+  "invoicing",
+] as const;
 
 // BLOCK_PRODUCT_LABEL_FALLBACK and MISSING_LABEL_ERROR are imported from
 // '../services/chemLabelService' above.
@@ -266,8 +274,8 @@ async function ensureInvoiceTicketType(companyId: string): Promise<{
   
   // Check if statuses exist, create if missing
   let invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
-  let pendingStatus = invoiceStatuses.find(s => s.name === "Pending Invoice");
-  let invoicedStatus = invoiceStatuses.find(s => s.name === "Invoiced");
+  let pendingStatus = findSeededStatus(invoiceStatuses, "pending_invoice");
+  let invoicedStatus = findSeededStatus(invoiceStatuses, "invoiced");
   
   if (!pendingStatus) {
     pendingStatus = await storage.createTicketTypeStatus({
@@ -375,7 +383,9 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
   
   // Create missing statuses
   for (const statusDef of rfpStatuses) {
-    let status = existingStatuses.find(s => s.name === statusDef.name);
+    const statusKey = STATUS_KEY_BACKFILL["RFP Request"]?.[statusDef.name];
+    if (!statusKey) throw new Error(`Missing seeded status key for RFP Request / ${statusDef.name}`);
+    let status = findSeededStatus(existingStatuses, statusKey);
     if (!status) {
       status = await storage.createTicketTypeStatus({
         ticketTypeId: rfpType.id,
@@ -589,7 +599,9 @@ async function ensureEstimateRequestTicketType(companyId: string): Promise<{
   
   // Create missing statuses (preserves existing ones to not break current tickets)
   for (const statusDef of estimateRequestStatuses) {
-    let status = existingStatuses.find(s => s.name === statusDef.name);
+    const statusKey = STATUS_KEY_BACKFILL["Estimate Request"]?.[statusDef.name];
+    if (!statusKey) throw new Error(`Missing seeded status key for Estimate Request / ${statusDef.name}`);
+    let status = findSeededStatus(existingStatuses, statusKey);
     if (!status) {
       status = await storage.createTicketTypeStatus({
         ticketTypeId: projectType.id,
@@ -604,7 +616,7 @@ async function ensureEstimateRequestTicketType(companyId: string): Promise<{
       });
       console.log(`Created status "${statusDef.name}" for Estimate Request type`);
     }
-    statusMap.set(status.name, status.id);
+    statusMap.set(statusDef.name, status.id);
   }
   
   // Get existing fields to avoid duplicates
@@ -700,8 +712,8 @@ async function migrateApprovedEstimateRequestTickets(companyId: string, triggeri
   
   // Get all statuses for this ticket type
   const statuses = await storage.getTicketTypeStatuses(projectType.id);
-  const decisionReceivedStatus = statuses.find(s => s.name === "Decision Received");
-  const readyToScheduleStatus = statuses.find(s => s.name === "Ready to Schedule");
+  const decisionReceivedStatus = findSeededStatus(statuses, "decision_received");
+  const readyToScheduleStatus = findSeededStatus(statuses, "ready_to_schedule");
   
   if (!decisionReceivedStatus || !readyToScheduleStatus) {
     console.log(`Migration skipped for company ${companyId}: Required statuses not found`);
@@ -795,7 +807,9 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
   const statusMap = new Map<string, string>();
   
   for (const statusDef of ebStatuses) {
-    let status = existingStatuses.find(s => s.name === statusDef.name);
+    const statusKey = STATUS_KEY_BACKFILL["Extra Billable"]?.[statusDef.name];
+    if (!statusKey) throw new Error(`Missing seeded status key for Extra Billable / ${statusDef.name}`);
+    let status = findSeededStatus(existingStatuses, statusKey);
     if (!status) {
       status = await storage.createTicketTypeStatus({
         ticketTypeId: ebType.id,
@@ -810,7 +824,7 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
       });
       console.log(`Created status "${statusDef.name}" for Extra Billable type`);
     }
-    statusMap.set(status.name, status.id);
+    statusMap.set(statusDef.name, status.id);
   }
   
   // Define fields for Work Completed status
@@ -884,7 +898,9 @@ async function ensureProjectTicketType(companyId: string): Promise<{
   const statusMap = new Map<string, string>();
 
   for (const statusDef of projectStatuses) {
-    let status = existingStatuses.find(s => s.name === statusDef.name);
+    const statusKey = STATUS_KEY_BACKFILL["Project"]?.[statusDef.name];
+    if (!statusKey) throw new Error(`Missing seeded status key for Project / ${statusDef.name}`);
+    let status = findSeededStatus(existingStatuses, statusKey);
     if (!status) {
       status = await storage.createTicketTypeStatus({
         ticketTypeId: pneType.id,
@@ -899,7 +915,7 @@ async function ensureProjectTicketType(companyId: string): Promise<{
       });
       console.log(`Created status "${statusDef.name}" for Project type`);
     }
-    statusMap.set(status.name, status.id);
+    statusMap.set(statusDef.name, status.id);
   }
 
   const existingFields = await storage.getTicketTypeFields(pneType.id);
@@ -988,7 +1004,9 @@ async function ensureToDoTicketType(companyId: string): Promise<{
   const statusMap = new Map<string, string>();
   
   for (const statusDef of todoStatuses) {
-    let status = existingStatuses.find(s => s.name === statusDef.name);
+    const statusKey = STATUS_KEY_BACKFILL["To-Do"]?.[statusDef.name];
+    if (!statusKey) throw new Error(`Missing seeded status key for To-Do / ${statusDef.name}`);
+    let status = findSeededStatus(existingStatuses, statusKey);
     if (!status) {
       status = await storage.createTicketTypeStatus({
         ticketTypeId: todoType.id,
@@ -1003,7 +1021,7 @@ async function ensureToDoTicketType(companyId: string): Promise<{
       });
       console.log(`Created status "${statusDef.name}" for To-Do type`);
     }
-    statusMap.set(status.name, status.id);
+    statusMap.set(statusDef.name, status.id);
   }
   
   // Ensure "Internal Tasks" customer exists for non-customer-related to-dos
@@ -1153,8 +1171,8 @@ export async function fixExtraBillableDoneOrder(): Promise<void> {
       if (!ebType) continue;
       
       const statuses = await storage.getTicketTypeStatuses(ebType.id);
-      const doneStatus = statuses.find(s => s.name === "Done");
-      const readyForBilling = statuses.find(s => s.name === "Ready for Billing");
+      const doneStatus = findSeededStatus(statuses, "closed_won");
+      const readyForBilling = findSeededStatus(statuses, "ready_for_billing");
       
       if (doneStatus && doneStatus.displayOrder < 5) {
         await storage.updateTicketTypeStatus(doneStatus.id, { displayOrder: 5 });
@@ -1227,7 +1245,7 @@ export async function removeProjectInvoicingFields(): Promise<void> {
       if (!projectType) continue;
       
       const statuses = await storage.getTicketTypeStatuses(projectType.id);
-      const invoicingStatus = statuses.find(s => s.name === "Invoicing");
+      const invoicingStatus = findSeededStatus(statuses, "invoicing");
       if (!invoicingStatus) continue;
       
       const fields = await storage.getTicketTypeFields(projectType.id);
@@ -1300,7 +1318,7 @@ export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
       const statuses = await storage.getTicketTypeStatuses(projectType.id);
 
       // 1. Ensure "Create Proposal" status exists (order 2)
-      let createProposalStatus = statuses.find(s => s.name === "Create Proposal");
+      let createProposalStatus = findSeededStatus(statuses, "proposal_draft");
       if (!createProposalStatus) {
         createProposalStatus = await storage.createTicketTypeStatus({
           ticketTypeId: projectType.id,
@@ -1315,7 +1333,7 @@ export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
       }
 
       // 2. Ensure "Proposal Sent" status exists (order 3)
-      let proposalSentStatus = statuses.find(s => s.name === "Proposal Sent");
+      let proposalSentStatus = findSeededStatus(statuses, "proposal_sent");
       if (!proposalSentStatus) {
         proposalSentStatus = await storage.createTicketTypeStatus({
           ticketTypeId: projectType.id,
@@ -1402,8 +1420,8 @@ export async function migrateExtraBillableTicketType(): Promise<void> {
       if (!todoType) continue;
       
       const todoStatuses = await storage.getTicketTypeStatuses(todoType.id);
-      const openStatus = todoStatuses.find(s => s.name === "Open");
-      const doneStatus = todoStatuses.find(s => s.name === "Done");
+      const openStatus = findSeededStatus(todoStatuses, "new");
+      const doneStatus = findSeededStatus(todoStatuses, "closed_won");
       
       // Get all tickets of To-Do type with extra_work work type
       const allTickets = await storage.getTickets(company.id);
@@ -5685,7 +5703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     const schedulingStatusIds: string[] = [];
     for (const statuses of allStatuses) {
-      const s = statuses.find(st => st.name === "Ready to Schedule");
+      const s = findSeededStatus(statuses, "ready_to_schedule");
       if (s) schedulingStatusIds.push(s.id);
     }
 
@@ -6775,7 +6793,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // 2. Handle invoice link cleanup when stepping back past or from "Ready for Billing"
-        const readyForBillingStatus = sortedStatuses.find(s => s.name === "Ready for Billing");
+        const readyForBillingStatus = findSeededStatus(sortedStatuses, "ready_for_billing");
         const isSteppingBackPastBilling = readyForBillingStatus && 
           oldStatus.displayOrder >= readyForBillingStatus.displayOrder &&
           newStatus.displayOrder < readyForBillingStatus.displayOrder;
@@ -6834,8 +6852,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (existingTicket.workType === "estimate_request" && newStatus) {
           const ticketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
           if (isSeededTicketType(ticketType, "estimate_request")) {
-            const approvedPathStatuses = ["Ready to Schedule", "Work Completed", "Ready for Billing", "Invoicing"];
-            const isInApprovedPath = approvedPathStatuses.includes(newStatus.name);
+            const isInApprovedPath = APPROVED_BILLING_STATUS_KEYS.some(
+              statusKey => isSeededStatus(newStatus, statusKey)
+            );
             if (isInApprovedPath) {
               req.body.billingBehavior = "invoice_required";
               console.log(`Auto-setting billing_behavior to invoice_required for ticket ${existingTicket.id} (status: ${newStatus.name})`);
@@ -6847,8 +6866,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (newStatus && existingTicket.workType !== "estimate_request") {
           const ticketTypeForBilling = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
           if (isSeededTicketType(ticketTypeForBilling, "project") && existingTicket.billingBehavior !== "invoice_required") {
-            const approvedPathStatuses = ["Ready to Schedule", "Work Completed", "Ready for Billing", "Invoicing"];
-            if (approvedPathStatuses.includes(newStatus.name)) {
+            if (APPROVED_BILLING_STATUS_KEYS.some(statusKey => isSeededStatus(newStatus, statusKey))) {
               req.body.billingBehavior = "invoice_required";
               console.log(`Correcting billingBehavior to invoice_required for direct Project ticket ${existingTicket.id} stepping to ${newStatus.name}`);
             }
@@ -6856,7 +6874,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Auto-return delegation: when ticket moves to "Work Completed" and has a delegator
-        if (newStatus?.name === "Work Completed" && existingTicket.delegatedById) {
+        if (isSeededStatus(newStatus, "work_completed") && existingTicket.delegatedById) {
           req.body.assignedToId = existingTicket.delegatedById;
           req.body.delegatedById = null;
           console.log(`Delegation return: ticket ${existingTicket.id} reassigned back to delegator ${existingTicket.delegatedById}`);
@@ -6983,7 +7001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const isInvoiceTicketType = isSeededTicketType(currentTicketTypeForFallback, "invoice");
         const isProjectTypeForInvoice = isSeededTicketType(currentTicketTypeForFallback, "project");
         const isEstimateRequestTypeForInvoice = isSeededTicketType(currentTicketTypeForFallback, "estimate_request");
-        if (newStatus?.name === "Invoicing" && (isProjectTypeForInvoice || isEstimateRequestTypeForInvoice) && !isInvoiceTicketType) {
+        if (isSeededStatus(newStatus, "invoicing") && (isProjectTypeForInvoice || isEstimateRequestTypeForInvoice) && !isInvoiceTicketType) {
           const existingLinksForFallback = await storage.getTicketLinks(existingTicket.id);
           const hasExistingInvoiceFallback = existingLinksForFallback.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
           
@@ -7041,7 +7059,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // prefer the stable key; fall back to the display name for unkeyed custom statuses
       const isRfbStatus = newStatus?.statusKey
         ? newStatus.statusKey === "ready_for_billing"
-        : newStatus?.name === "Ready for Billing";
+        : isSeededStatus(newStatus, "ready_for_billing");
 
       if (isRfbStatus) {
         const rfbTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
@@ -7524,9 +7542,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
         const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
 
-        if (isSeededTicketType(ticketType, "estimate_request") && currentStatus?.name === "Decision Received") {
+        if (isSeededTicketType(ticketType, "estimate_request") && isSeededStatus(currentStatus, "decision_received")) {
           if (req.body.value === "Approved") {
-            const readyToScheduleStatus = statuses.find(s => s.name === "Ready to Schedule");
+            const readyToScheduleStatus = findSeededStatus(statuses, "ready_to_schedule");
             if (readyToScheduleStatus) {
               await storage.createTicketStatusHistory({
                 ticketId: ticket.id,
@@ -7541,7 +7559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               console.log(`Auto-transitioned Estimate Request ${ticket.id} to "Ready to Schedule" after approval`);
             }
           } else if (req.body.value === "Denied") {
-            const closedLostStatus = statuses.find(s => s.name === "Closed - Lost");
+            const closedLostStatus = findSeededStatus(statuses, "closed_lost");
             if (closedLostStatus) {
               await storage.createTicketStatusHistory({
                 ticketId: ticket.id,
@@ -7562,9 +7580,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
 
-        if (isSeededTicketType(ticketType, "rfp_request") && currentStatus?.name === "Decision Received") {
+        if (isSeededTicketType(ticketType, "rfp_request") && isSeededStatus(currentStatus, "decision_received")) {
           if (req.body.value === "Lost") {
-            const closedLostStatus = statuses.find(s => s.name === "Closed - Lost");
+            const closedLostStatus = findSeededStatus(statuses, "closed_lost");
             if (closedLostStatus) {
               await storage.createTicketStatusHistory({
                 ticketId: ticket.id,
@@ -7822,7 +7840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const invoiceType = findSeededTicketType(ticketTypes, "invoice");
     if (invoiceType) {
       const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
-      const pendingStatus = invoiceStatuses.find(s => s.name === "Pending Invoice");
+      const pendingStatus = findSeededStatus(invoiceStatuses, "pending_invoice");
       if (pendingStatus) {
         const pendingInvoices = allTickets.filter(
           t => t.ticketTypeId === invoiceType.id && t.currentStatusId === pendingStatus.id
@@ -8005,7 +8023,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const statuses = await storage.getTicketTypeStatuses(tt.id);
       
       // Find tickets at "Ready for Billing" status
-      const readyForBillingStatus = statuses.find(s => s.name === "Ready for Billing");
+      const readyForBillingStatus = findSeededStatus(statuses, "ready_for_billing");
       if (readyForBillingStatus) {
         const ticketsAtBilling = allTickets.filter(t => t.ticketTypeId === tt.id && t.currentStatusId === readyForBillingStatus.id);
         for (const t of ticketsAtBilling) {
@@ -8936,20 +8954,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const projectTypeId = projectTicketType.id;
 
       // Get the approved-path statuses for Project workflow
-      const approvedStatusNames = [
-        "Ready to Schedule",
-        "Work Completed", 
-        "Ready for Billing",
-        "Invoicing"
-      ];
-
       const approvedStatuses = await db
         .select()
         .from(ticketTypeStatuses)
         .where(
           and(
             eq(ticketTypeStatuses.ticketTypeId, projectTypeId),
-            inArray(ticketTypeStatuses.name, approvedStatusNames)
+            sql`status_key IN ('ready_to_schedule', 'work_completed', 'ready_for_billing', 'invoicing')`
           )
         );
 

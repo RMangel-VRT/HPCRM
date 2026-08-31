@@ -182,3 +182,43 @@ export const STATUS_KEY_BACKFILL: Record<string, Record<string, string>> = {
     "Closed - Won": "closed_won",
   },
 };
+
+export interface TicketStatusIdentity {
+  name: string;
+  statusKey?: string | null;
+}
+
+/**
+ * Every display name that has ever mapped to a given status key, derived from
+ * STATUS_KEY_BACKFILL so there is exactly one source of truth. Used only for
+ * the legacy fallback path — a row with a non-null status_key never consults this.
+ */
+const STATUS_NAMES_BY_KEY: Record<string, Set<string>> = (() => {
+  const out: Record<string, Set<string>> = {};
+  for (const byName of Object.values(STATUS_KEY_BACKFILL)) {
+    for (const [name, key] of Object.entries(byName)) {
+      if (!out[key]) out[key] = new Set<string>();
+      out[key].add(name);
+    }
+  }
+  return out;
+})();
+
+/** Key-first. A non-null key is authoritative; only unkeyed rows fall back to name. */
+export function isSeededStatus(
+  status: TicketStatusIdentity | null | undefined,
+  key: string,
+): boolean {
+  if (!status) return false;
+  if (status.statusKey != null) return status.statusKey === key;
+  return STATUS_NAMES_BY_KEY[key]?.has(status.name) ?? false;
+}
+
+/** Array convenience mirroring findSeededTicketType. */
+export function findSeededStatus<T extends TicketStatusIdentity>(
+  statuses: readonly T[],
+  key: string,
+): T | undefined {
+  return statuses.find(status => status.statusKey === key)
+    ?? statuses.find(status => status.statusKey == null && isSeededStatus(status, key));
+}
