@@ -1,0 +1,249 @@
+# Slice V1 (FINAL) — Ticket detail: type identity, work thread, stepper
+
+**This supersedes `slice-V1-detail-view.md` and corrections 1, 2 and 3. Replace the #617 body with this and discard the rest.**
+
+One file: `artifacts/highplains-crm/src/pages/TicketDetail.tsx`. Builds on V0 (`e41c9a8`), which landed the CSS tokens, `ticketVisuals.ts`, and the narrowed response shapes. Line numbers are against commit `e41c9a8`.
+
+Design source is `ticket-visual-system-mockup.html`. **The agent cannot open it** — all values are inlined here. The palette was validated with a colorblindness/contrast checker across all pairs in both modes; do not substitute "nicer" colors.
+
+---
+
+## Three visible changes
+
+1. Header wears the ticket type's hue — tint wash plus a proper type chip and a universal status pill.
+2. A **work-thread bar** above the tabs, always visible and navigable **both ways**, replacing the status-gated one-directional invoice card.
+3. The workflow tab becomes a **stepper**, replacing one full Card per status (RFP Request currently renders seventeen).
+
+---
+
+## Step 1 — Baseline
+
+Run `pnpm run typecheck` from `artifacts/highplains-crm` (that package has its own script; root `pnpm run typecheck` also covers it). Record the error count. There are known pre-existing errors; the bar is **no new ones**.
+
+## Step 2 — Imports
+
+```ts
+import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType } from "@shared/ticketVisuals";
+```
+
+Add `Calculator`, `Receipt`, `FilePlus` to the `lucide-react` import block (~L40–69). Already imported and used below: `ClipboardList`, `Layers`, `FileText`, `Check`, `ChevronRight`.
+
+## Step 3 — Two hooks, with the other top-level hooks
+
+**These must sit above the early return at ~L682 (`if (isLoading || !details) { return (…) }`), near the existing `useState` cluster ending ~L225.** A hook declared inside the `activeTab === "workflow"` block is called conditionally *and* after an early return — React throws "Rendered fewer hooks than expected" as soon as a ticket loads.
+
+```ts
+// Workflow stepper: which step's detail panel is showing (null = follow the current
+// status), and whether the collapsed long-workflow rail has been expanded.
+const [selectedStatusId, setSelectedStatusId] = useState<string | null>(null);
+const [stepperExpanded, setStepperExpanded] = useState(false);
+```
+
+Default `selectedStatusId` to `null`, **not** `ticket.currentStatusId` — `ticket` does not exist yet; `details` is destructured at ~L690, after the return.
+
+## Step 4 — Resolve the hue (insert after ~L693, where `sortedStatuses` is defined)
+
+```ts
+// An Invoice ticket has no hue of its own — it inherits from the work that created it.
+// `relationship === "target"` is the incoming direction: this ticket IS the invoice.
+const parentLink = linkedTickets.find(
+  lt => lt.link.linkType === "invoice_for" && lt.relationship === "target" && lt.ticketType
+);
+const hue = isSeededTicketType(ticketType, "invoice") && parentLink?.ticketType
+  ? typeHueVar(parentLink.ticketType)
+  : typeHueVar(ticketType);
+```
+
+`linkedTickets` is destructured at L690, so it is in scope. `hue` is a plain `const` in the component body and is therefore in scope in the workflow block at ~L2177 as well.
+
+## Step 5 — Type icon map
+
+```ts
+const TYPE_ICON = {
+  estimate_request: Calculator,
+  project: Layers,
+  extra_billable: Receipt,
+  rfp_request: FilePlus,
+  invoice: FileText,
+  todo: Check,
+} as const;
+```
+
+Resolve via `isSeededTicketType`, defaulting to `ClipboardList`.
+
+## Step 6 — Header (region ~L987–1036)
+
+Wrap the outer header `<div className="flex items-center gap-2">` in:
+
+```tsx
+<div
+  className="rounded-xl border px-3 py-3 -mx-1"
+  style={{
+    background: `linear-gradient(180deg, color-mix(in srgb, ${hue} var(--tt-tint2), transparent) 0%, transparent 100%)`,
+    borderColor: `color-mix(in srgb, ${hue} 22%, var(--border))`,
+  }}
+>
+```
+
+**Only those two styles.** Do not add a `--tc` custom property — nothing reads it, and React's `CSSProperties` rejects arbitrary custom props without a cast that can fail typecheck.
+
+Replace the shadcn `<Badge>` at ~L993 (the one with `${ticketType.color}20` inline hex) with:
+
+```tsx
+<span
+  className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold whitespace-nowrap"
+  style={{
+    background: `color-mix(in srgb, ${hue} var(--tt-tint), var(--background))`,
+    color: `color-mix(in srgb, ${hue} 88%, var(--foreground))`,
+    borderColor: `color-mix(in srgb, ${hue} 32%, transparent)`,
+  }}
+  data-testid="badge-ticket-type"
+>
+  <TypeIcon className="w-3.5 h-3.5" />
+  {ticketType.name}
+</span>
+```
+
+Keep `data-testid="badge-ticket-type"`. Add the universal status pill beside it:
+
+```tsx
+{(() => {
+  const state = deriveStatusState(currentStatus);
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap ${state === "waiting" ? "border-dashed" : ""}`}
+      style={{
+        background: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 13%, var(--background))`,
+        color: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 80%, var(--foreground))`,
+        borderColor: `color-mix(in srgb, ${STATUS_STATE_VAR[state]} 28%, transparent)`,
+      }}
+      title={STATUS_STATE_LABEL[state]}
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_STATE_VAR[state] }} />
+      {currentStatus?.name ?? "—"}
+    </span>
+  );
+})()}
+```
+
+`STATUS_STATE_VAR[state]` is the string `"var(--ts-active)"` etc., which interpolates into `color-mix()` correctly. Leave the existing `isComplete` green "Completed" Badge in place.
+
+## Step 7 — Delete the gated invoice card — EXACT boundaries
+
+⚠️ **Delete lines 1611 through 1652 inclusive** — from the `{(() => {` that opens the block, through its closing `})()}`. Verify by content, not line number:
+
+* **first line removed:** the `{(() => {` immediately preceding `const isAtBillingOrFinal = (`
+* **last line removed:** the `})()}` immediately following `return null;`
+
+**L1654 begins a different block that must survive:**
+
+```tsx
+{ticketType?.name === "Invoice" && rateSheet && ticket?.invoiceCategory && (
+  <Card data-testid="card-rate-sheet">
+```
+
+That is the Invoice rate-sheet card showing snow/maintenance rates. **Do not touch it.** (An earlier draft of this spec gave the range as "~L1610–1655", which would have clipped it.)
+
+Also keep, unchanged: the "Create Invoice Ticket" button (~L1335) and the "Linked Tickets" Card (~L1351).
+
+## Step 8 — Work-thread bar
+
+Insert after the header container from Step 6, before the sticky tab row at ~L1037.
+
+```tsx
+{(() => {
+  const child  = linkedTickets.find(lt => lt.link.linkType === "invoice_for" && lt.relationship === "source" && lt.ticket);
+  const parent = linkedTickets.find(lt => lt.link.linkType === "invoice_for" && lt.relationship === "target" && lt.ticket);
+  if (!child && !parent) return null;
+
+  // Always render in real order: originating work → invoice.
+  const nodes = parent
+    ? [{ ...parent, isCurrent: false, stage: "Originating work" },
+       { ticket, ticketType, currentStatus, isCurrent: true, stage: "Billing stage" }]
+    : [{ ticket, ticketType, currentStatus, isCurrent: true, stage: "Originating work" },
+       { ...child!, isCurrent: false, stage: "Billing stage" }];
+
+  return (
+    <div
+      className="flex flex-col rounded-t-xl border border-b-0"
+      style={{ borderColor: `color-mix(in srgb, ${hue} 30%, var(--border))` }}
+      data-testid="bar-work-thread"
+    >
+      <div className="flex items-stretch overflow-x-auto p-1.5">
+        {/* "WORK THREAD" label, then nodes separated by ChevronRight */}
+      </div>
+      {isAwaitingInvoiceCompletion && (
+        <p className="px-3 pb-2 text-[11.5px] text-muted-foreground" data-testid="text-awaiting-invoice">
+          Complete the linked invoice to advance this ticket to its final status.
+        </p>
+      )}
+    </div>
+  );
+})()}
+```
+
+Each node: type icon, bold type name, and muted `{stage} · {status name}` beneath. The non-current node is a `Link` to `/dashboard/tickets/${n.ticket.id}`; the current node is not a link and gets:
+
+```
+background: color-mix(in srgb, ${hue} var(--tt-tint), var(--background));
+borderColor: color-mix(in srgb, ${hue} 55%, transparent);
+```
+
+Separator is `ChevronRight` in `color-mix(in srgb, ${hue} 50%, var(--muted-foreground))`. **Both nodes wear the same hue** — the parent's. That is the feature.
+
+**Why the note matters:** `isAwaitingInvoiceCompletion` (~L741) **hides the advance button** when a ticket sits at Ready for Billing with an incomplete invoice. The card deleted in Step 7 was the only thing explaining that. Without this line the user sees no advance button, no error, and nothing to read. **Do not modify `isAwaitingInvoiceCompletion` itself** — it matches on a status *name*, which this slice leaves alone.
+
+If joining the bar to the tab row visually conflicts with the tab row's `sticky top-0`, keep sticky and drop the visual join.
+
+## Step 9 — Workflow tab becomes a stepper (region ~L2177–2280)
+
+**Keep verbatim:** the RFP branch-filter IIFE producing `filteredStatuses` (it matches status *names* — later slice), and the `visitedIds` / `isCurrent` / `isCompleted` derivation.
+
+After `filteredStatuses` is computed:
+
+```ts
+const selectedStatus = filteredStatuses.find(s => s.id === selectedStatusId) ?? currentStatus;
+const progressIndex  = filteredStatuses.findIndex(s => s.id === ticket.currentStatusId);
+```
+
+The `?? currentStatus` fallback handles first render, the ticket advancing while a step is selected, and the RFP branch filter removing the selected step. `progressIndex` tracks the **current** status so the counter does not move as you click through steps.
+
+Label above the rail: `PROGRESS · {progressIndex + 1} OF {filteredStatuses.length}`, uppercase muted 11px.
+
+**≤ 8 steps — continuous rail.** Equal-width segments, a 5px rounded bar above a two-line clamped label:
+
+* completed → `color-mix(in srgb, ${hue} 78%, var(--border))`
+* current → `STATUS_STATE_VAR[deriveStatusState(status)]` with `box-shadow: 0 0 0 3px color-mix(in srgb, <same> 26%, transparent)`
+* upcoming → `var(--border)`
+* `actionType === "waiting"` → overlay `repeating-linear-gradient(135deg, transparent 0 3px, rgba(255,255,255,.55) 3px 6px)` on the bar
+
+**> 8 steps — collapsed dot rail** (unless `stepperExpanded`). Show first, current−1, current, current+1, last; insert a `+N more` pill (dashed border, muted) for each skipped run, calling `setStepperExpanded(true)`. Dots 9px, 11px for current, same colour rules; connectors 1.5px lines, `color-mix(in srgb, ${hue} 70%, var(--border))` once passed. Expanding must not change the selected step.
+
+**Below the rail, one detail panel** for `selectedStatus`: its `description` and its captured field values, using the existing `statusFields` / `getFieldValue` logic moved verbatim (`getFieldValue` is defined at ~L940, above this block). **Preserve the existing `(isCompleted || isCurrent)` gate** — a step the ticket has never reached shows no values. This panel is why the stepper is not a pure replacement: the old Cards displayed these values and they must not be lost.
+
+Clicking a step selects it. Optionally carry `data-testid={`card-status-${status.id}`}` onto each step node to preserve the old selectors.
+
+---
+
+## Out of scope
+
+* Every other file. This slice touches `TicketDetail.tsx` only.
+* `card-rate-sheet` (~L1654), the "Create Invoice Ticket" button (~L1335), the "Linked Tickets" Card (~L1351).
+* `isAwaitingInvoiceCompletion` itself, the RFP branch filter, and the ~20 other `ticketType.name === "…"` / status-name comparisons in this file.
+* The status-advance mutation, the edit dialog, any tab other than `workflow`.
+* `ticketVisuals.ts` — consume it, do not change it.
+* Pre-existing TypeScript errors in files this slice does not own.
+
+## Done looks like
+
+1. Typecheck: no new errors vs the Step 1 baseline.
+2. An Estimate Request shows an indigo header wash, indigo chip with Calculator icon, and a status pill in its universal state colour.
+3. Its linked Invoice shows the **same indigo**, not grey.
+4. The work-thread bar appears on **both** tickets and navigates both ways, at **any** status.
+5. A ticket with no linked invoice renders no bar — no empty container, no stray border.
+6. A ticket at Ready for Billing with a pending invoice still explains why its advance button is hidden.
+7. **The Invoice rate-sheet card still renders** on an Invoice ticket with an `invoiceCategory`.
+8. Workflow tab shows a rail, not stacked Cards; captured field values still visible for the selected step.
+9. RFP Request renders the collapsed dot rail with working `+N more`; branch filtering unchanged.
+10. Both themes checked; no hardcoded hex — everything resolves through `var(--tt-*)` / `var(--ts-*)`.
+11. A ticket type with no `typeKey` falls back to `--tt-fallback` grey without error.
