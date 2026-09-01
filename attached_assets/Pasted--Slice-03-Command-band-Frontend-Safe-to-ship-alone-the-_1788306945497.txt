@@ -1,0 +1,89 @@
+# Slice 03 — Command band
+
+Frontend. Safe to ship alone: the existing widgets stay exactly where they are, below the new band.
+
+**Assumes the ground rules doc (00-RULES.md).** The ones that bite hardest here:
+scope is `AdminOfficeDashboard` only; every colour from a token, both themes; lime `--primary` is
+reserved for primary actions; **no dead controls**.
+
+Depends on slice 02 (`GET /api/dashboard/pulse`) for the season chips and crew ticker.
+
+---
+
+## Goal
+
+Replace the current page header — an `<h1>` and a muted subtitle at `Dashboard.tsx` L157-164 — with
+a dark command band that makes the top of the page read as chrome you act from, not a title you
+read past.
+
+## Files
+
+- **New:** `artifacts/highplains-crm/src/components/dashboard/CommandBand.tsx`
+- **Edit:** `artifacts/highplains-crm/src/pages/Dashboard.tsx` — swap the header block for
+  `<CommandBand />`. **Change nothing else in this slice.** `SchedulePreview`, `MyTicketsPreview`,
+  `UpcomingRenewals`, `TopCustomers`, `PendingInvoices`, `CommCenterWidgets` and the four stat cards
+  all stay put; slices 04 and 05 remove them.
+
+## Contents, top to bottom
+
+**1 — Identity and date.**
+Eyebrow `HIGH PLAINS · OPERATIONS` in a small, letterspaced, uppercase treatment. Below it the date
+as the H1: `Tuesday, September 1` with the year in a lighter weight. Localize via `useTranslation`
+and `i18n.language` the same way the existing `currentMonth` line in `AdminOfficeDashboard` does
+(`es-MX` vs `en-US`).
+
+**2 — Jump-to control**, right-aligned on the H1 row, showing a `⌘K` hint.
+
+> **In this slice it is a button that routes to `/dashboard/customers`.** A real command palette is
+> its own project. Do not build one, and do not ship a control that does nothing.
+
+**3 — Season chips**, from `pulse.activeSeason`, `pulse.nextSeason` and `pulse.snowBook`.
+Something like: *Mow season · week 18 of 22* · *Fall cleanup opens Oct 6* · *Snow ops in 61 days ·
+14 contracts expire first*. Render **only** the chips whose data exists — render nothing rather
+than a placeholder or an em-dash. A company with no season rows sees no chip row at all.
+
+**4 — Live ticker**, from `pulse.crewsToday`: crews out, stops today, completed, flagged. The
+flagged count takes the warning colour when non-zero. Omit the row entirely when `crewsToday` is
+empty.
+
+**5 — Action row.** This is the "hub" half of the page.
+
+| Button | Route |
+|---|---|
+| **New Ticket** (primary, lime) | `/dashboard/tickets/new` |
+| Estimate Request | `/dashboard/tickets/new` (prefilled type, if that's cheap; otherwise same route) |
+| Build Proposal | `/dashboard/tools/proposals` |
+| Crew Worksheet | `/dashboard/tools/crew-worksheets` |
+| Log Snow Event | `/dashboard/snow/new` |
+| Open Scheduler | `/dashboard/scheduler` |
+
+**Gate each button by the same `allowedRoles` its route declares in `App.tsx`.** Never render a
+button that bounces the user to `/access-denied`. Check the route table before wiring — several of
+these are `["admin", "office"]` only.
+
+## Styling
+
+- Band background is the existing sidebar token (`--sidebar`, `150 10% 24%`) so it reads as an
+  extension of the app chrome rather than a new coloured box.
+- Full-bleed to the content edges, with the inner content sharing the page's max width.
+- Exactly one primary (lime) button. Everything else is a quiet outline on the dark ground.
+- Every colour from a token; legible in light and dark.
+
+## One decision to make and report
+
+The mockup uses **Archivo** for the display type — the eyebrow, the H1 and the ticker numbers.
+
+If adding a Google webfont is unwelcome in this app, use the existing **Inter at weight 800 with
+`letter-spacing: -0.028em`** instead. The hierarchy matters far more than the specific face.
+
+**Say in your summary which one you did.**
+
+## Acceptance
+
+- The band renders above the untouched existing widgets and the page still works exactly as before
+  below it.
+- No console errors; both themes legible.
+- No action button is visible to a role whose route would reject it.
+- A company with no seasons and no crews renders the band cleanly, with those two rows simply
+  absent.
+- `pnpm run typecheck` clean at the repo root.

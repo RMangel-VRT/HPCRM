@@ -1,0 +1,137 @@
+# Slice 01 — `GET /api/dashboard/action-queue`
+
+Backend only. No UI changes. Curl-testable on its own.
+
+**Assumes the ground rules doc (00-RULES.md).** The ones that bite hardest here:
+static top-level imports only; import from `@workspace/db`; identity by stable key via
+`findSeededTicketType` / `findSeededStatus`; every query scoped by `user.activeCompanyId`;
+**no DDL of any kind**; and do **not** copy `/api/pending-invoices`' habit of calling
+`storage.getTickets(companyId, {})` and filtering in memory.
+
+---
+
+## Goal
+
+One endpoint returning everything that needs an office decision, already prioritized — so the
+dashboard makes a single request instead of racing six.
+
+## Files
+
+- **New:** `artifacts/api-server/src/routes/dashboardQueue.ts`, exporting
+  `registerDashboardQueueRoutes(app: Express): void`. Follow `routes/flags.ts` as the module
+  pattern.
+- **Edit:** `routes/routes.ts` — call `registerDashboardQueueRoutes(app);` inside `registerRoutes()`
+  immediately after the existing `registerFlagsRoutes(app);` (~L2639), and add the static import
+  alongside the existing `import { registerFlagsRoutes } from "./flags";` (~L13).
+
+## Auth
+
+`req.isAuthenticated()` → 401. Then the same role gate `/api/pending-invoices` uses: reject
+`field`, `field_manager`, `chemical_manager`, `irrigation_manager`, `landscape_supervisor`
+with 403.
+
+## Response shape
+
+```ts
+type QueueBand = "overdue" | "today" | "week";
+
+type QueueSource =
+  | "pending_invoice" | "ready_for_billing" | "stale_proposal"
+  | "blocked_rfp" | "unassigned_request" | "comm_draft"
+  | "comm_followup" | "contract_renewal";
+
+interface ActionQueueItem {
+  id: string;                 // ticket / communication / contract id
+  source: QueueSource;
+  band: QueueBand;
+  href: string;               // e.g. "/dashboard/tickets/<id>"
+  customerName: string | null;
+  headline: string;           // one line: what is stuck, and since when
+  ageDays: number;
+  verb: string;               // button label, e.g. "Create invoice"
+  amountCents: number | null;
+
+  // present only on ticket-backed rows, so the client can feed
+  // TicketTypeBadge / TicketStatusPill directly
+  ticketType: { name: string; typeKey: string | null } | null;
+  ticketStatus: {
+    name: string;
+    statusKey: string | null;
+    actionType: "needs_action" | "waiting" | null;
+    isFinal: "true" | "false" | null;
+  } | null;
+
+  parentTicketId: string | null;  // set on Invoice rows: lets the client nest them
+                                  // and inherit the parent's hue
+}
+
+interface ActionQueueResponse {
+  items: ActionQueueItem[];   // pre-sorted: overdue → today → week, then ageDays desc
+  total: number;
+  byFilter: {
+    billing: number; communications: number;
+    estimates: number; contracts: number; flags: number;
+  };
+}
+```
+
+## The eight sources
+
+| `source` | predicate | `verb` |
+|---|---|---|
+| `pending_invoice` | ticket, type key `invoice`, status key `pending_invoice` | Approve & sync |
+| `ready_for_billing` | ticket, any type, status key `ready_for_billing` | Create invoice |
+| `stale_proposal` | ticket, status key `proposal_sent` or `awaiting_response`, `updatedAt` older than 10 days | Send follow-up |
+| `blocked_rfp` | ticket, type key `rfp_request`, status key `maps_requested` or `waiting_info`, `updatedAt` older than 5 days | Nudge |
+| `unassigned_request` | ticket, status key `new`, `assignedToId IS NULL` | Assign |
+| `comm_draft` | `communications`, `status = 'draft'`, `deletedAt IS NULL` | Review draft |
+| `comm_followup` | `communications`, `followUpStatus IN ('open','snoozed')`, `followUpDueAt < NOW()`, `deletedAt IS NULL` | Follow up |
+| `contract_renewal` | `contracts`, `status = 'active'`, `endDate` between now and +60 days | Start renewal |
+
+`byFilter` maps: **billing** = `pending_invoice` + `ready_for_billing`;
+**communications** = `comm_draft` + `comm_followup`; **estimates** = `stale_proposal` +
+`unassigned_request`; **contracts** = `contract_renewal`; **flags** = 0 for now (the key exists so
+slice 04's chip row is stable — wiring the flags inbox in is a later slice).
+
+## How to query it efficiently
+
+This is the part that matters.
+
+1. Resolve type and status ids **once per request**: `storage.getTicketTypes(companyId)`, then
+   `storage.getTicketTypeStatuses(typeId)` per seeded type, then `findSeededTicketType` /
+   `findSeededStatus` to get the ids for the status keys listed above.
+2. Query `tickets` **once**, with `and(eq(tickets.companyId, ...), inArray(tickets.currentStatusId, [...allIds]))`.
+   Partition the result by status id in JS. One indexed query — not a full-company scan.
+3. Bulk-fetch customer names with a single `inArray(customers.id, [...])`.
+4. For `pending_invoice` rows, resolve `parentTicketId` from `ticketLinks` where
+   `linkType = 'invoice_for'` and `targetTicketId` is the invoice id, bulk-fetched with `inArray`.
+   `/api/pending-invoices` already does exactly this correctly — **copy that link-resolution block,
+   not its `getTickets({})` opener.**
+5. `communications` and `contracts` are two more small queries with their own predicates. Both
+   tables already have the indexes these need.
+
+## Banding
+
+- **`overdue`** — `ready_for_billing` / `pending_invoice` older than 7d; every `stale_proposal`;
+  every `comm_followup` (they are overdue by definition); `comm_draft` older than 3d;
+  `contract_renewal` with 30 or fewer days remaining.
+- **`today`** — `blocked_rfp`; `unassigned_request`; `ready_for_billing` / `pending_invoice` at
+  7 days or fewer.
+- **`week`** — everything else.
+
+## Headlines
+
+Write them as one plain sentence naming what is stuck and since when, e.g.
+`Irrigation repair closed Aug 19 — 13 days in Ready for Billing`, or
+`Proposal sent Aug 11 — follow-up was due Aug 25`. The client renders the customer name
+separately, so do not repeat it in the headline.
+
+## Acceptance
+
+- `curl` as an admin: 200, sorted `items`, `byFilter` counts consistent with `total`.
+- As a `field_manager`: 403. Unauthenticated: 401.
+- A company with none of the eight conditions returns
+  `{ items: [], total: 0, byFilter: { billing: 0, communications: 0, estimates: 0, contracts: 0, flags: 0 } }`
+  — not a 500, not a partial object.
+- The endpoint issues a bounded number of queries that does **not** grow with ticket count.
+- `pnpm run typecheck` clean at the repo root.

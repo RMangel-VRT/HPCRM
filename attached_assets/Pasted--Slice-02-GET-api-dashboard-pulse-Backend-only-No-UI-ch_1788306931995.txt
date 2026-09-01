@@ -1,0 +1,113 @@
+# Slice 02 — `GET /api/dashboard/pulse`
+
+Backend only. No UI changes. Curl-testable on its own. Depends on slice 01 having created the
+route module.
+
+**Assumes the ground rules doc (00-RULES.md).** The ones that bite hardest here:
+static top-level imports only; import from `@workspace/db`; identity by stable key via
+`findSeededStatus`; every query scoped by `user.activeCompanyId`; **no DDL of any kind**; and
+`contracts` has **no signed/unsigned state** — see the snow book note below.
+
+---
+
+## Goal
+
+One payload for the dashboard's right-hand pulse rail, so it doesn't fire five separate queries on
+page load.
+
+## Files
+
+- **Edit:** `artifacts/api-server/src/routes/dashboardQueue.ts` (created in slice 01). Add this
+  second endpoint to the same module. No new file, no new registration.
+
+## Auth
+
+Identical to slice 01: `req.isAuthenticated()` → 401; reject `field`, `field_manager`,
+`chemical_manager`, `irrigation_manager`, `landscape_supervisor` with 403.
+
+## Response shape
+
+```ts
+interface PulseResponse {
+  stats: {
+    customersCount: number; activeContractsCount: number;
+    monthlyRevenue: number; ytdRevenue: number;
+  };
+
+  revenue: {
+    year: number;  months: number[];        // always length 12, index 0 = January
+    priorYear: number; priorMonths: number[];  // always length 12
+  };
+
+  unbilledCents: number;
+  avgDaysCloseToInvoice: number | null;
+
+  activeSeason: { id: string; name: string;
+                  startDate: string | null; endDate: string | null } | null;
+  nextSeason:   { id: string; name: string; startDate: string | null } | null;
+
+  snowBook: { activeSnowContracts: number; expiringBeforeSeasonStart: number };
+
+  renewals: Array<{
+    contractId: string; customerId: string; customerName: string;
+    serviceType: string; endDate: string; daysUntilExpiry: number;
+  }>;
+
+  crewsToday: Array<{
+    crewId: string; crewName: string;
+    stops: number; complete: number; flagged: number;
+  }>;
+}
+```
+
+## Where each field comes from
+
+**`stats`** — `storage.getDashboardStats(companyId, currentMonth, currentYear)`, unchanged. This is
+what `/api/dashboard/stats` already returns.
+
+**`revenue`** — `storage.getMonthlyRevenueData(companyId, year)` called twice, for the current year
+and the prior one. Normalize both to a dense 12-element array of numbers, zero-filling months with
+no data, so the client never has to handle a sparse series.
+
+**`unbilledCents`** — sum the ticket amounts for tickets currently at status key
+`ready_for_billing`. Resolve that status id the same way slice 01 does
+(`findSeededStatus`), never by display name.
+
+**`avgDaysCloseToInvoice`** — average of
+`invoiceTicket.createdAt − sourceTicket.workCompletedDate`, in days, over invoice tickets created in
+the last 90 days, joined through `ticketLinks` on `linkType = 'invoice_for'`. Return `null` when
+there are no qualifying pairs — **not** `0`, which would read as excellent performance.
+
+**`activeSeason` / `nextSeason`** — the `seasons` table (`id`, `name`, `startDate`, `endDate`, all
+company-scoped). Active = today falls between `startDate` and `endDate`. Next = the earliest season
+whose `startDate` is in the future. Both are legitimately `null` for a company with no season rows;
+the client handles that.
+
+**`snowBook`** — this replaces the mockup's signed/unsigned meter, which is not modeled:
+- `activeSnowContracts` = `contracts` where `serviceType = 'Snow'` and `status = 'active'`.
+- `expiringBeforeSeasonStart` = of those, how many have an `endDate` earlier than
+  `nextSeason.startDate` — or earlier than **November 1 of the current year** when there is no
+  future season row.
+
+That is a real "renewals you have to close before the snow flies" number, built from columns that
+exist.
+
+**`renewals`** — `storage.getUpcomingRenewals(companyId, 60)`, unchanged.
+
+**`crewsToday`** — group `tickets` by `crewId` where `dueDate` is today, counting rows overall,
+rows at `mobileStatus = 'complete'`, and rows at `mobileStatus = 'flagged'`. Join `crews` for
+`name`. This hits the existing `tickets_company_crew_due_date_idx` index on
+`(companyId, crewId, dueDate)` — use that column order in the predicate. Skip tickets with a null
+`crewId`.
+
+## Acceptance
+
+- 200 with **every key present**. Nulls where there is genuinely no data; never a missing key — the
+  client destructures this.
+- `months` and `priorMonths` are always exactly 12 numbers.
+- `avgDaysCloseToInvoice` is `null`, not `0`, when nothing qualifies.
+- A company with no seasons, no snow contracts and no crews returns
+  `activeSeason: null`, `nextSeason: null`, `snowBook: { activeSnowContracts: 0, expiringBeforeSeasonStart: 0 }`,
+  `crewsToday: []` — and a 200.
+- As a `field_manager`: 403. Unauthenticated: 401.
+- `pnpm run typecheck` clean at the repo root.

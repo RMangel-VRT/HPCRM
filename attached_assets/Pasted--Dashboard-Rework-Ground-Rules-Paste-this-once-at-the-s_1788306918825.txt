@@ -1,0 +1,122 @@
+# Dashboard Rework — Ground Rules
+
+Paste this once at the start of the session. Every slice (01–05) assumes it.
+
+---
+
+## Scope
+
+Rework the **admin/office dashboard only**: the `AdminOfficeDashboard` function inside
+`artifacts/highplains-crm/src/pages/Dashboard.tsx`.
+
+`Dashboard.tsx` branches to three different dashboards at L54-63. `SuperAdminDashboard` and
+`FieldHomeDashboard` are **out of scope and must not change**.
+
+**Design reference:** `dashboard-rework-mockup.html` in this same folder.
+Layout is a dark **command band** across the top, then a **split row** — a `1.85fr` decision queue
+on the left, a `1fr` read-only pulse rail on the right.
+
+---
+
+## No schema changes. In any slice.
+
+Nothing in this project needs DDL. So:
+
+- **No new numbered SQL file** in `.migration-backup/migrations/`.
+- **Nothing registered in `runStartupMigrations()`** — that runner is never called at boot, so
+  anything added there ships as a silent no-op.
+- No `drizzle-kit push`.
+
+If a slice looks like it needs a new column, **stop and ask** rather than adding one.
+
+---
+
+## Three schema facts that override the mockup
+
+The mockup is a layout study. Three of its details are not backed by the database. Do not
+"restore" them:
+
+1. **There is no human-readable ticket number.** The `tickets` table has `invoiceNumber` and
+   `estimateNumber`, but no ticket key/number column. The mockup's `HPM-2211` sub-label under each
+   type badge is fiction — **omit that sub-label entirely.**
+
+2. **Contracts have no signed/unsigned state.** `contracts.status` is only
+   `active | paused | ended`, and `contracts.serviceType` is
+   `Maintenance | Chemical | Snow | Irrigation | Other`. The mockup's "24 signed / 14 unsigned"
+   snow meter cannot be built. Slice 05 defines a real replacement measure.
+
+3. **`storage.getTickets()` loads every ticket for the company and filters in memory.** See
+   `/api/pending-invoices` (routes.ts ~L7824), which calls `getTickets(companyId, {})` and then
+   filters the result set in JS. **Do not reuse that pattern.** Query with SQL predicates against
+   the existing indexes instead.
+
+---
+
+## Server-side house rules
+
+- **Static top-level imports only.** A relative `await import("./x")` resolves against `dist/` in
+  the esbuild-bundled api-server and throws `ERR_MODULE_NOT_FOUND` — a 500 that appears **only in
+  production**, never in dev.
+- **Import schema and types from `@workspace/db`**, never from a local `./schema`. There is no
+  `artifacts/api-server/src/shared/schema.ts` and one must not be created — it would be a third
+  hand-synced duplicate.
+- **Identity by stable key, never by display name.** Use `findSeededTicketType` and
+  `findSeededStatus` from `../shared/ticketCapabilities`. A non-null `typeKey` / `statusKey` is
+  authoritative; display names are the fallback for unkeyed legacy rows only.
+- **Everything is scoped by `user.activeCompanyId`.** This app is multi-tenant; a query without a
+  company predicate is a bug.
+- **Zod:** validate query params with an explicit `z.object({ ...optional fields })` carrying **no
+  `.default()`**. `schema.partial().safeParse({})` still fills in defaults, which silently resets
+  columns.
+- New route modules follow the `routes/flags.ts` pattern: one file exporting
+  `registerXxxRoutes(app: Express): void`, called from `registerRoutes()` in `routes/routes.ts`.
+
+## Client-side house rules
+
+- **The ticket visual system is already implemented — do not rebuild it.**
+  - `artifacts/highplains-crm/src/shared/ticketVisuals.ts` — `typeHueVar()`,
+    `deriveStatusState()`, `STATUS_STATE_VAR`, `STATUS_STATE_LABEL`.
+  - `artifacts/highplains-crm/src/components/TicketIdentity.tsx` — `TicketTypeBadge`,
+    `TicketStatusPill`, `ticketHue`.
+
+  These already implement the validated type hues (`--tt-*`) and the universal status scale
+  (`--ts-*`) from `index.css`. Import them; write no new hue logic.
+
+- **The frontend `@shared/schema` is a lenient drizzle stub.** Its `createInsertSchema()` cannot
+  introspect columns, so a zodResolver silently strips any field not re-declared in `.extend()`.
+  Not directly relevant to read-only dashboard work, but do not add forms here without knowing it.
+
+## Two colour rules that are locked decisions
+
+1. **A ticket type's hue appears in exactly two places, and they always match:** the row's left
+   rail and the type badge. Nowhere else.
+2. **Status uses the universal scale only** — the same five states on every ticket type. A status
+   indicator never wears a type hue.
+
+Lime `--primary` is reserved for primary actions and the revenue series. Nothing else.
+
+## Layout rule that is the whole point of the redesign
+
+**Not everything is a card.** The old page was nine sibling `<Card>` components of identical
+border, radius and padding, which is why nothing on it felt more important than anything else.
+
+Rows separate with 1px bottom rules. Section heads carry a 2px bottom rule. No borders, no radius,
+no shadow on list rows. Reach for a card only when something genuinely needs to lift off the page.
+
+## Both themes, always
+
+Every colour comes from a CSS custom property, never a literal. The page must be legible in light
+and dark. Chart text takes theme tokens too.
+
+**Cascade gotcha, hit twice on this project:** type-hue classes must come **last** in source order.
+A later `--tc` declaration on a container silently wins over the `.t-*` classes and greys out the
+whole palette.
+
+## Definition of done, every slice
+
+- `pnpm run typecheck` at the repo root is clean. (`lib/db` has no `typecheck` script of its own —
+  use the root one, or `typecheck:libs`.)
+- No console errors.
+- Renders correctly for a company with **no** seasons, **no** snow contracts, **no** crews and an
+  empty queue — empty states, never a 500 and never a blank card.
+- Keyboard focus is visible on every interactive element.
