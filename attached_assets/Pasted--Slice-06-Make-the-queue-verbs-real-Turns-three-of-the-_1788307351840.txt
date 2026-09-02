@@ -1,0 +1,150 @@
+# Slice 06 — Make the queue verbs real
+
+Turns three of the queue's buttons from links-wearing-action-labels into actual one-click actions,
+and fixes a duplicate-row bug in slice 01 found while verifying them.
+
+**Assumes the ground rules doc (00-RULES.md).** The ones that bite hardest here:
+identity by stable key, never display name; every query scoped by `user.activeCompanyId`;
+**no DDL**; and the PATCH rule — validate with an explicit `z.object({...})` carrying no
+`.default()`, since `.partial()` on an insert schema still injects defaults.
+
+Depends on slices 01 and 04.
+
+---
+
+## Part 0 — What I got wrong, verified against the code
+
+Three corrections before anything is built. These are mistakes in slices 01 and 04, not in your
+implementation of them.
+
+**1. "Create invoice" is largely redundant — invoices auto-create already.**
+`maybeAutoCreateInvoiceOnRfb` (`lib/rfbInvoiceAutoCreate.ts`, called from the ticket PATCH handler
+at `routes.ts` ~L7073) fires on **any** landing at `ready_for_billing`, forward moves and step-backs
+alike, for Project / Estimate Request / Extra Billable. It is idempotent — it skips when an
+`invoice_for` link already exists.
+
+So a ticket sitting at Ready for Billing normally **already has** an Invoice ticket at
+`pending_invoice`. Calling `POST /api/tickets/:id/create-invoice` on it returns
+**409 `INVOICE_EXISTS`**.
+
+**2. That means slice 01's queue shows the same work twice** — once as the parent at
+`ready_for_billing` and once as its auto-created child at `pending_invoice`. Part 1 fixes this.
+
+**3. "Approve & sync" is fiction. QuickBooks integration does not push invoices.**
+`routes/qbo.ts` is customer mapping only — connect, callback, customers pull/cache/bind/unbind/
+create/promote. There is no invoice endpoint anywhere in it. The real action on a pending invoice
+is advancing its status to `invoiced`, so that is what the button must say and do.
+
+`POST /api/tickets/:id/create-invoice` also rejects Extra Billable tickets outright
+(routes.ts ~L7266: it accepts only `estimate_request` and `project`), even though the *auto*-create
+path accepts Extra Billable. Another reason not to wire that endpoint to a button.
+
+---
+
+## Part 1 — De-duplicate the queue (amends slice 01)
+
+In the `action-queue` builder, after assembling the ticket rows:
+
+- For every `ready_for_billing` row, check whether an `invoice_for` link exists with that ticket as
+  `sourceTicketId`. You already bulk-fetch `ticketLinks` for the `pending_invoice` rows — widen that
+  fetch to cover both directions in the same query.
+- **If a link exists, drop the `ready_for_billing` row.** The invoice child represents the work now;
+  showing both is showing one job twice.
+- **If no link exists, keep it** — that is the genuinely interesting case: auto-create was skipped
+  (ineligible type, or `billingBehavior` never became `invoice_required`), so the work is stranded.
+  Change its `verb` to **"Open"** and leave it as navigation. Do not wire the create-invoice endpoint
+  to it; that endpoint would reject an Extra Billable ticket anyway.
+
+Recompute `total` and `byFilter.billing` after the drop, not before.
+
+## Part 2 — Add an `action` descriptor to the queue payload
+
+The server knows the status ids; the client should not have to look them up. Add one optional field
+to `ActionQueueItem`:
+
+```ts
+interface QueueAction {
+  kind: "patch_ticket" | "patch_communication";
+  payload: Record<string, unknown>;   // the PATCH body, ready to send
+  confirm: string | null;             // confirmation sentence, or null for no dialog
+  optimistic: "remove_row";           // what the client does before the response lands
+}
+
+// on ActionQueueItem:
+action: QueueAction | null;   // null → the verb stays a plain navigation link
+```
+
+Populate it for exactly three sources. Everything else keeps `action: null`.
+
+| source | verb | `kind` | `payload` | `confirm` |
+|---|---|---|---|---|
+| `pending_invoice` | **Mark invoiced** | `patch_ticket` | `{ currentStatusId: <the Invoice type's `invoiced` status id> }` | `"Mark this invoice as invoiced? This closes it out of the queue."` |
+| `comm_followup` | **Mark done** | `patch_communication` | `{ followUpStatus: "done" }` | `null` |
+| `unassigned_request` | **Assign to me** | `patch_ticket` | `{ assignedToId: <the requesting user's id> }` | `null` |
+
+Resolve the `invoiced` status id with `findSeededStatus(invoiceStatuses, "invoiced")` — the same
+lookup slice 01 already does for `pending_invoice`. If it can't be resolved, set `action: null` for
+those rows rather than emitting a broken payload.
+
+`assignedToId` uses `user.id` from the authenticated request — the server fills it in, so the client
+never constructs it.
+
+## Part 3 — Wire the buttons (amends slice 04)
+
+One `useMutation` in `NeedsYouQueue.tsx` handling both kinds:
+
+```
+patch_ticket        → PATCH /api/tickets/<item.id>
+patch_communication → PATCH /api/communications/<item.id>
+```
+
+Both send `action.payload` verbatim as the JSON body. Both already exist and need no server changes:
+the ticket PATCH is what `TicketDetail`'s `updateStatusMutation` uses (`TicketDetail.tsx` L455-470),
+and `PATCH /api/communications/:id` is gated by `requireCommPermission("send")`.
+
+**Behavior:**
+
+- Rows whose `action` is `null` keep the slice-04 behavior — the button navigates to `href`.
+- Rows with an `action` and a non-null `confirm` open a small confirm dialog first. Use the
+  existing shadcn `AlertDialog`; do not use `window.confirm`, which blocks the page.
+- On confirm, optimistically remove the row and decrement the band count and the relevant
+  `byFilter` chip, then fire the mutation.
+- **On success:** a toast with an **Undo** action. Undo re-PATCHes the inverse —
+  the row's previous `currentStatusId` for a ticket, or `{ followUpStatus: "open" }` for a
+  communication. Include the previous value in the payload the client captured before mutating, so
+  Undo needs no extra fetch. Give it a 10-second window, then invalidate
+  `["/api/dashboard/action-queue"]`.
+- **On error:** restore the row in place, and toast the server's message. Handle **409**
+  specifically — the ticket PATCH returns 409 `INVOICE_COMPLETED` when a status move would orphan a
+  completed invoice. Show that message and leave the row; do not retry.
+- Disable the button and show a spinner in it while in flight. Never allow a second click on a row
+  that is already mutating.
+
+**Do not** invalidate the whole query on every click — that refetches and re-renders the entire
+queue, and the optimistic removal already gave the user their feedback. Invalidate once, after the
+undo window closes.
+
+## What stays a navigation link, and why
+
+- `stale_proposal` — "Send follow-up" means composing an email against a template. That belongs in
+  the Communications composer, not a dashboard button. Routes to the ticket.
+- `blocked_rfp` — "Nudge mapping" has no mechanism behind it. Routes to the ticket.
+- `comm_draft` — "Review draft" should open the draft; reviewing is the point.
+- `contract_renewal` — routes to the contract.
+- `ready_for_billing` — see Part 1.
+
+Do not invent endpoints for these. If you think one of them has a real one-click path, say so and
+stop rather than building it.
+
+## Acceptance
+
+- The queue never shows a `ready_for_billing` parent alongside its own `pending_invoice` child.
+- "Mark invoiced" advances the invoice ticket and it disappears from the queue; reloading confirms
+  the status actually changed.
+- "Mark done" clears the follow-up; `/api/communications/stats` reflects it on next fetch.
+- "Assign to me" sets `assignedToId` to the acting user, verified by reloading the ticket.
+- Undo restores the previous value in all three cases.
+- A failed mutation puts the row back where it was — the queue never silently loses an item.
+- A 409 shows the server's message and leaves the row in place.
+- Rows with `action: null` still navigate exactly as they did after slice 04.
+- `pnpm run typecheck` clean at the repo root.
