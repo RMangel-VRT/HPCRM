@@ -67,6 +67,8 @@
   --destructive: 0 84% 35%;
 
   --destructive-foreground: 0 0% 98%;
+  --warning: 43 95% 27%;
+  --success: 142 55% 35%;
 
   --table-header: 150 20% 95%;
   --table-border: 150 15% 85%;
@@ -210,6 +212,8 @@
   --destructive: 0 84% 35%;
 
   --destructive-foreground: 0 0% 98%;
+  --warning: 45 85% 60%;
+  --success: 142 55% 55%;
 
   --table-header: 150 10% 14%;
   --table-border: 150 8% 22%;

@@ -1,22 +1,14 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, FileText, DollarSign, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/components/ui/skeleton";
-import TopCustomers from "@/components/TopCustomers";
-import UpcomingRenewals from "@/components/UpcomingRenewals";
 import SchedulePreview from "@/components/SchedulePreview";
 import NeedsYouQueue from "@/components/dashboard/NeedsYouQueue";
+import CommandBand from "@/components/dashboard/CommandBand";
+import PulseRail, { type PulseResponse } from "@/components/dashboard/PulseRail";
 import { useAuth } from "@/hooks/use-auth";
 import SuperAdminDashboard from "./SuperAdminDashboard";
 import FieldHomeDashboard from "./FieldHomeDashboard";
-
-interface DashboardStats {
-  customersCount: number;
-  activeContractsCount: number;
-  monthlyRevenue: number;
-  ytdRevenue: number;
-}
 
 export default function Dashboard() {
   const { user, isLoading } = useAuth();
@@ -28,23 +20,7 @@ export default function Dashboard() {
           <Skeleton className="h-9 w-48 mb-2" />
           <Skeleton className="h-4 w-64" />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-4 w-4" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-20" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Skeleton className="h-64" />
-          <Skeleton className="h-64" />
-        </div>
+        <Skeleton className="h-48 w-full" />
       </div>
     );
   }
@@ -62,44 +38,10 @@ export default function Dashboard() {
 }
 
 function AdminOfficeDashboard() {
-  const { t, i18n } = useTranslation();
-  const { data: stats, isLoading, error } = useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats"],
+  const { t } = useTranslation();
+  const { data: pulse, isLoading, error } = useQuery<PulseResponse>({
+    queryKey: ["/api/dashboard/pulse"],
   });
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const currentMonth = new Date().toLocaleDateString(i18n.language === 'es' ? 'es-MX' : 'en-US', { month: 'long' });
-
-  const dashboardCards = stats ? [
-    { 
-      title: t("dashboard.activeCustomers"), 
-      value: stats.customersCount.toString(), 
-      icon: Users,
-    },
-    { 
-      title: t("dashboard.activeContracts"), 
-      value: stats.activeContractsCount.toString(), 
-      icon: FileText,
-    },
-    { 
-      title: t("dashboard.monthlyRevenue", { month: currentMonth }), 
-      value: formatCurrency(stats.monthlyRevenue), 
-      icon: DollarSign,
-    },
-    { 
-      title: t("dashboard.ytdRevenue"), 
-      value: formatCurrency(stats.ytdRevenue), 
-      icon: TrendingUp,
-    },
-  ] : [];
 
   if (error) {
     return (
@@ -152,57 +94,14 @@ function AdminOfficeDashboard() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">
-          {t("dashboard.title")}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {t("dashboard.businessOverview")}
-        </p>
-      </div>
+      <CommandBand pulse={pulse} />
 
-      {isLoading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-4 w-4" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-9 w-24 mb-2" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {dashboardCards.map((card) => (
-            <Card key={card.title} data-testid={`card-stat-${card.title.toLowerCase().replace(/\s+/g, '-')}`}>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-1">
-                <CardTitle className="text-xs font-medium text-muted-foreground">{card.title}</CardTitle>
-                <card.icon className="w-3.5 h-3.5 text-muted-foreground" />
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="text-2xl font-bold" data-testid={`text-stat-value-${card.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                  {card.value}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-11 min-[1040px]:grid-cols-[minmax(0,1.85fr)_minmax(0,1fr)]">
         <NeedsYouQueue />
-        <SchedulePreview />
+        <PulseRail pulse={pulse} isLoading={isLoading} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <UpcomingRenewals />
-        <TopCustomers />
-      </div>
-
+      <SchedulePreview />
     </div>
   );
 }
