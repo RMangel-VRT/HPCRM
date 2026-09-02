@@ -1041,7 +1041,10 @@ export const maintenanceVisitConfigs = pgTable("maintenance_visit_configs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
-  customerUnique: unique().on(table.customerId, table.companyId),
+  customerUnique: unique("maintenance_visit_configs_customer_id_company_id_unique").on(
+    table.customerId,
+    table.companyId,
+  ),
 }));
 
 export const insertMaintenanceVisitConfigSchema = createInsertSchema(maintenanceVisitConfigs).omit({
