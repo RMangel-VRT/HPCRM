@@ -12,7 +12,7 @@ import FieldHomeDashboard from "./FieldHomeDashboard";
 
 export default function Dashboard() {
   const { user, isLoading } = useAuth();
-  
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -24,16 +24,16 @@ export default function Dashboard() {
       </div>
     );
   }
-  
+
   if (user?.isSuperAdminBool) {
     return <SuperAdminDashboard />;
   }
-  
+
   const FIELD_APP_ROLES = ["field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"];
   if (user?.activeRole && FIELD_APP_ROLES.includes(user.activeRole)) {
     return <FieldHomeDashboard />;
   }
-  
+
   return <AdminOfficeDashboard />;
 }
 
