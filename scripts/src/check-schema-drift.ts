@@ -1,5 +1,5 @@
 import pg from "pg";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, relative, resolve } from "node:path";
 import { checkSchemaDrift, formatDriftReport } from "@workspace/db/check-drift";
@@ -17,6 +17,14 @@ const IGNORED_DIRECTORIES = new Set([
   "node_modules",
 ]);
 const DRIZZLE_CONFIG_PATTERN = /^drizzle\.config\.(?:[cm]?[jt]s)$/;
+const LEGACY_PUBLISH_DISCOVERY_FILES = [
+  ".migration-backup/drizzle.config.ts",
+  ".migration-backup/shared/schema.ts",
+  ".migration-backup/package.json",
+  ".migration-backup/package-lock.json",
+  ".migration-backup/migrations/meta/0000_snapshot.json",
+  ".migration-backup/migrations/meta/_journal.json",
+];
 
 function findDrizzleConfigs(directory: string): string[] {
   const configs: string[] = [];
@@ -53,8 +61,23 @@ function assertSingleDrizzleConfig(): void {
   }
 }
 
+function assertNoLegacyPublishSchema(): void {
+  const staleFiles = LEGACY_PUBLISH_DISCOVERY_FILES.filter((filePath) =>
+    existsSync(resolve(WORKSPACE_ROOT, filePath)),
+  );
+
+  if (staleFiles.length > 0) {
+    const paths = staleFiles.map((filePath) => `  - ${filePath}`).join("\n");
+    throw new Error(
+      `Legacy project files can make Replit Publish generate destructive schema drops:\n${paths}\n` +
+        "Keep only the SQL files under .migration-backup/migrations/.",
+    );
+  }
+}
+
 async function main(): Promise<void> {
   assertSingleDrizzleConfig();
+  assertNoLegacyPublishSchema();
 
   const databaseUrl = process.env["DATABASE_URL"];
   if (!databaseUrl) {
