@@ -5,13 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   communications,
   contracts,
+  crews,
   customers,
+  seasons,
   ticketLinks,
   tickets,
 } from "@workspace/db";
 
 const mocks = vi.hoisted(() => ({
   select: vi.fn(),
+  getDashboardStats: vi.fn(),
+  getMonthlyRevenueData: vi.fn(),
+  getUpcomingRenewals: vi.fn(),
   getTicketTypes: vi.fn(),
   getTicketTypeStatuses: vi.fn(),
 }));
@@ -24,6 +29,9 @@ vi.mock("../db", () => ({
 
 vi.mock("../storage", () => ({
   storage: {
+    getDashboardStats: mocks.getDashboardStats,
+    getMonthlyRevenueData: mocks.getMonthlyRevenueData,
+    getUpcomingRenewals: mocks.getUpcomingRenewals,
     getTicketTypes: mocks.getTicketTypes,
     getTicketTypeStatuses: mocks.getTicketTypeStatuses,
   },
@@ -58,6 +66,25 @@ function installDbRows(rowsByTable: Map<unknown, unknown[]>) {
     from: (table: unknown) => ({
       where: vi.fn(async () => rowsByTable.get(table) ?? []),
     }),
+  }));
+}
+
+function queryResult(rows: unknown[]) {
+  const builder: any = {
+    innerJoin: vi.fn(() => builder),
+    where: vi.fn(() => builder),
+    groupBy: vi.fn(() => builder),
+    orderBy: vi.fn(() => builder),
+    then: (resolve: (value: unknown[]) => unknown, reject: (error: unknown) => unknown) =>
+      Promise.resolve(rows).then(resolve, reject),
+  };
+  return builder;
+}
+
+function installDbSequence(rowsByQuery: unknown[][]) {
+  const rows = [...rowsByQuery];
+  mocks.select.mockImplementation(() => ({
+    from: vi.fn(() => queryResult(rows.shift() ?? [])),
   }));
 }
 
@@ -266,5 +293,174 @@ describe("GET /api/dashboard/action-queue", () => {
     expect(mocks.getTicketTypes).toHaveBeenCalledTimes(1);
     expect(mocks.getTicketTypeStatuses).toHaveBeenCalledTimes(6);
     expect(mocks.select).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe("GET /api/dashboard/pulse", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    vi.clearAllMocks();
+    mocks.getDashboardStats.mockResolvedValue({
+      customersCount: 0,
+      activeContractsCount: 0,
+      monthlyRevenue: 0,
+      ytdRevenue: 0,
+    });
+    mocks.getMonthlyRevenueData.mockResolvedValue([]);
+    mocks.getUpcomingRenewals.mockResolvedValue([]);
+    mocks.getTicketTypes.mockResolvedValue([]);
+    mocks.getTicketTypeStatuses.mockResolvedValue([]);
+    installDbSequence([[], [], []]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns 401 when unauthenticated and 403 to field-facing roles", async () => {
+    const unauthenticated = await request(createApp({ authenticated: false }))
+      .get("/api/dashboard/pulse");
+    const fieldFacing = await request(createApp({ role: "field_manager" }))
+      .get("/api/dashboard/pulse");
+
+    expect(unauthenticated.status).toBe(401);
+    expect(fieldFacing.status).toBe(403);
+    expect(mocks.getDashboardStats).not.toHaveBeenCalled();
+    expect(mocks.select).not.toHaveBeenCalled();
+  });
+
+  it("returns every pulse key with dense revenue and safe empty values", async () => {
+    const response = await request(createApp({ role: "office" }))
+      .get("/api/dashboard/pulse");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      stats: {
+        customersCount: 0,
+        activeContractsCount: 0,
+        monthlyRevenue: 0,
+        ytdRevenue: 0,
+      },
+      revenue: {
+        year: 2026,
+        months: Array(12).fill(0),
+        priorYear: 2025,
+        priorMonths: Array(12).fill(0),
+      },
+      unbilledTicketCount: 0,
+      avgDaysCloseToInvoice: null,
+      activeSeason: null,
+      nextSeason: null,
+      snowBook: {
+        activeSnowContracts: 0,
+        expiringBeforeSeasonStart: 0,
+      },
+      renewals: [],
+      crewsToday: [],
+    });
+  });
+
+  it("assembles billing, season, snow, renewal, and crew metrics with stable keys", async () => {
+    mocks.getDashboardStats.mockResolvedValue({
+      customersCount: 17,
+      activeContractsCount: 9,
+      monthlyRevenue: 12000,
+      ytdRevenue: 80000,
+    });
+    mocks.getMonthlyRevenueData
+      .mockResolvedValueOnce([
+        { month: "Jan", revenue: 100 },
+        { month: "Mar", revenue: 300 },
+      ])
+      .mockResolvedValueOnce([
+        { month: "2", revenue: 200 },
+        { month: "Dec", revenue: 1200 },
+      ]);
+    mocks.getUpcomingRenewals.mockResolvedValue([{
+      contractId: "contract-renewal",
+      customerId: "customer-renewal",
+      customerName: "Renewal HOA",
+      serviceType: "Maintenance",
+      endDate: new Date("2026-10-01T00:00:00.000Z"),
+      daysUntilExpiry: 29,
+    }]);
+    mocks.getTicketTypes.mockResolvedValue([
+      { id: "type-project", name: "Renamed project", typeKey: "project" },
+      { id: "type-invoice", name: "Renamed invoice", typeKey: "invoice" },
+    ]);
+    mocks.getTicketTypeStatuses.mockImplementation(async (typeId: string) =>
+      typeId === "type-project"
+        ? [{ id: "status-ready", name: "Renamed ready", statusKey: "ready_for_billing" }]
+        : [{ id: "status-invoiced", name: "Renamed invoiced", statusKey: "invoiced" }],
+    );
+    installDbSequence([
+      [
+        { id: "season-active", name: "Summer", startDate: "2026-04-01", endDate: "2026-10-31" },
+        { id: "season-next", name: "Winter", startDate: "2026-11-15", endDate: "2027-03-31" },
+      ],
+      [
+        { endDate: new Date("2026-10-15T00:00:00.000Z") },
+        { endDate: new Date("2026-12-15T00:00:00.000Z") },
+      ],
+      [{ count: 4 }],
+      [{ crewId: "crew-1", crewName: "North Crew", stops: 8, complete: 5, flagged: 1 }],
+      [{ id: "invoice-1", createdAt: new Date("2026-08-20T12:00:00.000Z") }],
+      [{
+        sourceTicketId: "source-1",
+        targetTicketId: "invoice-1",
+        workCompletedDate: new Date("2026-08-16T12:00:00.000Z"),
+      }],
+    ]);
+
+    const response = await request(createApp()).get("/api/dashboard/pulse");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      stats: {
+        customersCount: 17,
+        activeContractsCount: 9,
+        monthlyRevenue: 12000,
+        ytdRevenue: 80000,
+      },
+      unbilledTicketCount: 4,
+      avgDaysCloseToInvoice: 4,
+      activeSeason: {
+        id: "season-active",
+        name: "Summer",
+        startDate: "2026-04-01",
+        endDate: "2026-10-31",
+      },
+      nextSeason: {
+        id: "season-next",
+        name: "Winter",
+        startDate: "2026-11-15",
+      },
+      snowBook: {
+        activeSnowContracts: 2,
+        expiringBeforeSeasonStart: 1,
+      },
+      renewals: [{
+        contractId: "contract-renewal",
+        customerId: "customer-renewal",
+        customerName: "Renewal HOA",
+        serviceType: "Maintenance",
+        endDate: "2026-10-01T00:00:00.000Z",
+        daysUntilExpiry: 29,
+      }],
+      crewsToday: [{
+        crewId: "crew-1",
+        crewName: "North Crew",
+        stops: 8,
+        complete: 5,
+        flagged: 1,
+      }],
+    });
+    expect(response.body.revenue.months).toEqual([
+      100, 0, 300, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+    expect(response.body.revenue.priorMonths).toEqual([
+      0, 200, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1200,
+    ]);
   });
 });
