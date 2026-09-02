@@ -1,0 +1,56 @@
+Three revisions to the current plan, then two more tickets to add.
+
+--- REVISE #626 (Dashboard action queue API) ---
+
+Add a de-duplication step. Invoices already auto-create: maybeAutoCreateInvoiceOnRfb
+(lib/rfbInvoiceAutoCreate.ts, called from the ticket PATCH handler in routes.ts ~L7073)
+fires on any landing at ready_for_billing for Project / Estimate Request / Extra Billable,
+and is idempotent. So a ticket sitting at Ready for Billing normally already has an Invoice
+child at pending_invoice, and the queue as specced would show the same job twice — once as
+the parent, once as the child.
+
+Required change:
+- Widen the ticketLinks bulk fetch to cover both directions in the same query.
+- For each ready_for_billing row, if an invoice_for link exists with that ticket as
+  sourceTicketId, DROP the row. The invoice child represents the work.
+- Keep it only when no link exists — that means auto-create was skipped (ineligible type,
+  or billingBehavior never became invoice_required) and the work is genuinely stranded.
+- Set that surviving row's verb to "Open" and leave it as plain navigation. Do NOT wire
+  POST /api/tickets/:id/create-invoice to it — that endpoint rejects Extra Billable tickets
+  (routes.ts ~L7266, accepts only estimate_request and project) and returns 409 INVOICE_EXISTS
+  when a link already exists.
+- Recompute total and byFilter.billing AFTER the drop, not before.
+- Acceptance: the queue never shows a ready_for_billing parent alongside its own
+  pending_invoice child.
+
+--- REVISE #627 (Dashboard pulse API) ---
+
+The relevant-files list points at artifacts/api-server/src/routes/routes.ts. The pulse
+endpoint must go in artifacts/api-server/src/routes/dashboardQueue.ts, beside the queue
+endpoint — do not append it to routes.ts.
+
+--- REVISE #628 (Dashboard command band) ---
+
+Drop artifacts/highplains-crm/src/components/TicketIdentity.tsx and
+artifacts/highplains-crm/src/shared/ticketVisuals.ts from the relevant-files list. Those are
+for the queue slice; nothing in the command band should touch them.
+
+--- ADD: two more tickets ---
+
+Please plan these from the spec files already provided:
+
+- 04-needs-you-queue.md  — the "Needs you" decision queue. Replaces MyTicketsPreview,
+  PendingInvoices and the CommCenterWidgets block. Deletes code.
+- 05-pulse-rail.md — the pulse rail. Retires the four stat cards, UpcomingRenewals and
+  TopCustomers. Deletes code.
+
+Without these two the page is just a new header sitting on top of the old nine cards.
+
+--- ADD: one more, after 04 and 05 ---
+
+06-real-verbs.md (attached) — makes three queue buttons real one-click actions
+(Mark invoiced / Mark done / Assign to me) with optimistic removal and undo. Note two facts
+it establishes: QuickBooks does not push invoices (routes/qbo.ts is customer mapping only,
+no invoice endpoint), so "Approve & sync" is not a real action — the real action is a status
+advance to invoiced via PATCH /api/tickets/:id. Its Part 1 is the same de-dup fix now folded
+into #626, so skip that part if #626 already covers it.
