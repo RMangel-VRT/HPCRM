@@ -1,0 +1,91 @@
+# Slice 04 — "Needs you" queue
+
+Frontend. **This slice deletes code** — review the diff for removals, not just additions.
+
+**Assumes the ground rules doc (00-RULES.md).** The ones that bite hardest here:
+the ticket visual system is **already implemented — do not rebuild it**; a type hue appears in
+exactly two matching places (rail + badge) and nowhere else; status uses the universal scale only;
+**not everything is a card**; there is **no ticket number column**.
+
+Depends on slice 01 (`GET /api/dashboard/action-queue`).
+
+---
+
+## Goal
+
+Collapse `MyTicketsPreview`, `PendingInvoices` and the four `CommCenterWidgets` tiles into one
+prioritized queue in the left column of the split row.
+
+Today those are six sibling boxes of identical visual weight, so nothing on the page reads as
+urgent. One ranked stack with a verb on every row is the entire point of the redesign.
+
+## Files
+
+- **New:** `artifacts/highplains-crm/src/components/dashboard/NeedsYouQueue.tsx`
+- **Edit:** `artifacts/highplains-crm/src/pages/Dashboard.tsx`
+
+## Reuse — do not write new hue logic
+
+```ts
+import { TicketTypeBadge, TicketStatusPill, ticketHue } from "@/components/TicketIdentity";
+import { typeHueVar, deriveStatusState } from "@shared/ticketVisuals";
+```
+
+These already implement the validated type hues and the five-state universal status scale. The
+queue payload's `ticketType` and `ticketStatus` objects are shaped to feed them directly.
+
+## Row anatomy
+
+A CSS grid: `3px | badge | minmax(0,1fr) | state | verb`.
+
+1. **3px left rail** in the ticket's type hue — the same colour as the badge beside it. That
+   pairing is a locked decision; they must never diverge.
+2. **`<TicketTypeBadge />`**. **No sub-label beneath it** — there is no ticket number to put there.
+3. **Customer name** at font-weight 600, then the `headline` on a second line in muted text.
+4. **`<TicketStatusPill />`** plus `ageDays` in the mono font, right-aligned, muted.
+5. **The `verb` as a button.** Rows in the `overdue` band get the lime primary treatment; every
+   other row gets a quiet outline button.
+
+**Nested invoice rows.** A row with `parentTicketId` set indents and draws an elbow connector up to
+its parent, and takes the **parent's** hue rather than the neutral invoice fallback. Resolve the
+parent's type from the sibling row in the same payload; fall back to `--tt-fallback` when the parent
+isn't in the current result set.
+
+## Section structure
+
+- Section head: `Needs you` + the total, with a 2px bottom rule in the foreground colour.
+- A filter chip row driven by `byFilter` — All / Billing / Communications / Estimates / Contracts /
+  Flags, each with its count. Chips filter the rendered list client-side; no refetch.
+- Three bands, each introduced by a small uppercase rule-label with its count:
+  **OVERDUE** (label and rule in the destructive colour) / **TODAY** / **THIS WEEK**.
+- **Bands with zero items are omitted entirely** — no empty headings.
+- Cap the `week` band at 3 rows behind a `+ N more this week →` disclosure.
+
+## Not cards
+
+Rows separate with a 1px bottom rule. No border, no radius, no shadow, no `<Card>`. Hover gets a
+subtle background tint, nothing more.
+
+## Empty state
+
+When `total` is 0, render one quiet line — *"Nothing waiting on the office."* — not an empty card
+and not a spinner-shaped placeholder.
+
+## Removals in `Dashboard.tsx`
+
+- Delete the `<MyTicketsPreview />` and `<PendingInvoices />` placements.
+- Delete the entire `CommCenterWidgets` function (L224-314) and its `CommStats` interface, plus the
+  now-unused `AlarmClock`, `Clock`, `Send`, `Bell` and `useLocation` imports.
+- **Before deleting the component files themselves,** grep for other importers of
+  `components/MyTicketsPreview.tsx` and `components/PendingInvoices.tsx`. Leave them on disk if
+  anything else uses them, and **say what you found** either way.
+
+## Acceptance
+
+- Every row's rail colour is identical to its badge colour.
+- No status indicator anywhere wears a type hue.
+- Filter chips actually filter, and the active chip is visually unambiguous.
+- Nested invoice rows indent and inherit the parent's hue.
+- Keyboard focus is visible on chips, verb buttons and the disclosure.
+- An empty queue renders the single quiet line, not a 500 and not a blank card.
+- `pnpm run typecheck` clean at the repo root.

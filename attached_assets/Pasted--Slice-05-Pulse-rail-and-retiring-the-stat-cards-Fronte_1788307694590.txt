@@ -1,0 +1,107 @@
+# Slice 05 — Pulse rail, and retiring the stat cards
+
+Frontend. **This slice deletes code** and finalizes the page layout — review the diff for removals.
+
+**Assumes the ground rules doc (00-RULES.md).** The ones that bite hardest here:
+**not everything is a card**; lime `--primary` is reserved; every colour from a token in both
+themes; contracts have **no signed/unsigned state**.
+
+Depends on slice 02 (`GET /api/dashboard/pulse`), and lands on top of slices 03 and 04.
+
+---
+
+## Goal
+
+Build the right-hand column, and delete the four vanity stat cards that currently open the page.
+
+Customer count, contract count, monthly revenue and YTD revenue are numbers you *read*, not things
+you *do* — putting them first made the least actionable content on the page its most prominent.
+They survive, demoted, as a hairline ledger in the rail.
+
+## Files
+
+- **New:** `artifacts/highplains-crm/src/components/dashboard/PulseRail.tsx`
+- **Edit:** `artifacts/highplains-crm/src/pages/Dashboard.tsx`
+
+## Rail sections, top to bottom
+
+**1 — Revenue pace.**
+YTD as one large figure with the delta vs the prior year beside it, then a small area chart of
+`revenue.months` with `revenue.priorMonths` as a dashed grey reference line.
+
+- **One y-scale.** Never two axes.
+- Gridlines and axis text recessive; every axis label names a value the chart actually reaches.
+- The current month's point gets an emphasized marker and a direct label.
+- **Both series labelled** — identity is never colour alone.
+- Chart text takes theme tokens so it stays legible in dark mode; every drawn shape gets an explicit
+  fill; leave room in the viewBox for the outermost labels.
+- The current-year series is the only thing on this page besides the primary button allowed to use
+  lime `--primary`.
+
+**2 — Ledger.** `label … value` pairs on 1px rules — **not stat cards, not tiles**:
+
+- September billed
+- Active customers
+- Active contracts
+- Unbilled completed work (`unbilledCents`)
+- Avg days close → invoice (`avgDaysCloseToInvoice`)
+
+The last two render in the warning colour above threshold — **$25,000** and **7 days**
+respectively. `avgDaysCloseToInvoice` of `null` renders as `—`, never as `0`.
+
+**3 — Snow book.** A two-segment meter from `snowBook`. Label it honestly:
+
+> *N snow contracts · M expire before the season opens*
+
+**Not** "signed / unsigned" — that state does not exist in the database. Omit the whole section when
+`activeSnowContracts` is 0.
+
+**4 — Contracts expiring.** The first three of `renewals`, each a name, service type and day count.
+Days show in the destructive colour at 30 or fewer.
+
+**5 — Crews today.** From `crewsToday`: crew name, stop count, and the flagged count in the warning
+colour when non-zero. Omit the section when the array is empty.
+
+**6 — A `Top customers →` link** at the foot of the rail, routing to `/dashboard/reports`. See the
+removals below — this is how that widget's content stays reachable rather than silently vanishing.
+
+## Removals and final layout in `Dashboard.tsx`
+
+Delete:
+
+- The `dashboardCards` array (L83-104) and the stat-card grid that renders it (L166-196), including
+  its loading skeleton branch.
+- The now-unused `Users`, `FileText`, `DollarSign`, `TrendingUp` imports.
+- The `<UpcomingRenewals />` placement — the rail covers renewals.
+- The `<TopCustomers />` placement — replaced by the rail's link. Grep for other importers of both
+  component files before deleting them from disk, and say what you found.
+- The `DashboardStats` interface and the `/api/dashboard/stats` query, now that `pulse` carries it.
+
+Keep:
+
+- The entire error branch (L106-153) **exactly as it is**, repointed at the pulse query.
+- `<SchedulePreview />`, moved to full width **below** the split row.
+
+Final structure:
+
+```
+<CommandBand />
+<div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.85fr)_minmax(0,1fr)] gap-11">
+  <NeedsYouQueue />
+  <PulseRail />
+</div>
+<SchedulePreview />
+```
+
+The split collapses to a single column below 1040px, queue first.
+
+## Acceptance
+
+- **No four-card stat row anywhere on the page.**
+- The chart reads correctly in both themes and its labels don't collide at the rail's narrowest
+  width; the page body never scrolls sideways.
+- `avgDaysCloseToInvoice: null` shows `—`.
+- The page renders without error for a company with no seasons, no snow contracts, no crews, no
+  renewals and an empty queue.
+- Top customers is still reachable from the page.
+- `pnpm run typecheck` clean at the repo root.
