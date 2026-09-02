@@ -44,13 +44,15 @@ export function ticketHue(type: TicketTypeLike | null | undefined): string {
 
 export function TicketTypeBadge({
   type,
+  hueType,
   testId,
 }: {
   type: TicketTypeLike | null | undefined;
+  hueType?: TicketTypeLike | null;
   testId?: string;
 }) {
   if (!type) return null;
-  const hue = typeHueVar(type);
+  const hue = typeHueVar(hueType ?? type);
   const iconKey = (Object.keys(TYPE_ICON) as TicketTypeKey[])
     .find((key) => isSeededTicketType(type, key));
   const Icon = iconKey ? TYPE_ICON[iconKey] : ClipboardList;
