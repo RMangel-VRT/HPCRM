@@ -34,6 +34,20 @@ export type QueueSource =
   | "comm_followup"
   | "contract_renewal";
 
+export interface QueueAction {
+  kind: "patch";
+  method: "PATCH";
+  endpoint: string;
+  payload: Record<string, unknown>;
+  undoPayload: Record<string, unknown>;
+  optimistic: "remove";
+  confirmation?: {
+    title: string;
+    description: string;
+    confirmLabel: string;
+  };
+}
+
 export interface ActionQueueItem {
   id: string;
   source: QueueSource;
@@ -55,6 +69,7 @@ export interface ActionQueueItem {
     isFinal: "true" | "false" | null;
   } | null;
   parentTicketId: string | null;
+  action: QueueAction | null;
 }
 
 export interface ActionQueueResponse {
@@ -306,6 +321,7 @@ function makeTicketItem(args: {
   headline: string;
   ageDays: number;
   parentTicketId?: string | null;
+  action?: QueueAction | null;
 }): ActionQueueItem {
   return {
     id: args.ticket.id,
@@ -319,6 +335,7 @@ function makeTicketItem(args: {
     amountCents: null,
     ...ticketIdentity(args.ticketType, args.status),
     parentTicketId: args.parentTicketId ?? null,
+    action: args.action ?? null,
   };
 }
 
@@ -330,6 +347,7 @@ function makeNonTicketItem(args: {
   headline: string;
   ageDays: number;
   verb: string;
+  action?: QueueAction | null;
 }): ActionQueueItem {
   return {
     id: args.id,
@@ -344,6 +362,7 @@ function makeNonTicketItem(args: {
     ticketType: null,
     ticketStatus: null,
     parentTicketId: null,
+    action: args.action ?? null,
   };
 }
 
@@ -534,11 +553,31 @@ export function registerDashboardQueueRoutes(app: Express): void {
         let source: QueueSource | null = null;
         let band: QueueBand = "week";
         let verb = "Open";
+        let action: QueueAction | null = null;
 
         if (type.typeKey === "invoice" && status.statusKey === "pending_invoice") {
           source = "pending_invoice";
           band = isOlderThan(date, 7, now) ? "overdue" : "today";
-          verb = "Approve & sync";
+          const invoicedStatus = findSeededStatus(
+            statusesByTypeKey.get("invoice") ?? [],
+            "invoiced",
+          );
+          if (invoicedStatus) {
+            verb = "Mark invoiced";
+            action = {
+              kind: "patch",
+              method: "PATCH",
+              endpoint: `/api/tickets/${ticket.id}`,
+              payload: { currentStatusId: invoicedStatus.id },
+              undoPayload: { currentStatusId: ticket.currentStatusId },
+              optimistic: "remove",
+              confirmation: {
+                title: "Mark invoice as invoiced?",
+                description: "This changes the ticket status only. It does not create or sync an invoice in QuickBooks.",
+                confirmLabel: "Mark invoiced",
+              },
+            };
+          }
         } else if (status.statusKey === "ready_for_billing") {
           // A linked parent is represented by its pending-invoice child. A
           // stranded parent remains navigable, but cannot claim invoice creation.
@@ -562,7 +601,15 @@ export function registerDashboardQueueRoutes(app: Express): void {
         } else if (status.statusKey === "new" && ticket.assignedToId == null) {
           source = "unassigned_request";
           band = "today";
-          verb = "Assign";
+          verb = "Assign to me";
+          action = {
+            kind: "patch",
+            method: "PATCH",
+            endpoint: `/api/tickets/${ticket.id}`,
+            payload: { assignedToId: user.id },
+            undoPayload: { assignedToId: null },
+            optimistic: "remove",
+          };
         }
 
         if (!source) continue;
@@ -579,6 +626,7 @@ export function registerDashboardQueueRoutes(app: Express): void {
           headline: ticketHeadline(ticket, status, date, ageDays),
           ageDays,
           parentTicketId,
+          action,
         }));
       }
 
@@ -598,7 +646,18 @@ export function registerDashboardQueueRoutes(app: Express): void {
             href: `/dashboard/communications/${communication.id}`,
             headline: `${communication.subject} — follow-up was due ${shortDate(date)}`,
             ageDays,
-            verb: "Follow up",
+            verb: "Mark done",
+            action: {
+              kind: "patch",
+              method: "PATCH",
+              endpoint: `/api/communications/${communication.id}`,
+              payload: { followUpStatus: "done" },
+              undoPayload: {
+                followUpStatus: communication.followUpStatus,
+                followUpDueAt: serializedDate(communication.followUpDueAt),
+              },
+              optimistic: "remove",
+            },
           }));
         } else if (isDraft) {
           items.push(makeNonTicketItem({

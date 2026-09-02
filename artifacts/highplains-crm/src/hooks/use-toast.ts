@@ -5,7 +5,9 @@ import type {
   ToastProps,
 } from "@/components/ui/toast"
 
-const TOAST_LIMIT = 1
+// Keep actionable success messages available when a background notification
+// arrives at nearly the same time (for example, completing an invoice ticket).
+const TOAST_LIMIT = 3
 const TOAST_REMOVE_DELAY = 1000000
 
 type ToasterToast = ToastProps & {

@@ -150,6 +150,7 @@ describe("GET /api/dashboard/action-queue", () => {
     const statusRowsByType = new Map<string, any[]>([
       ["type-invoice", [
         { id: "status-pending", name: "Pending Invoice", statusKey: "pending_invoice", actionType: "needs_action", isFinal: "false" },
+        { id: "status-invoiced", name: "Invoiced", statusKey: "invoiced", actionType: "needs_action", isFinal: "true" },
       ]],
       ["type-estimate", [
         { id: "status-proposal", name: "Proposal Sent", statusKey: "proposal_sent", actionType: "waiting", isFinal: "false" },
@@ -265,7 +266,7 @@ describe("GET /api/dashboard/action-queue", () => {
     expect(invoice).toMatchObject({
       parentTicketId: "linked-parent",
       customerName: "Alpha HOA",
-      verb: "Approve & sync",
+      verb: "Mark invoiced",
       amountCents: null,
       ticketType: { name: "Invoice", typeKey: "invoice" },
       ticketStatus: {
@@ -274,11 +275,53 @@ describe("GET /api/dashboard/action-queue", () => {
         actionType: "needs_action",
         isFinal: "false",
       },
+      action: {
+        kind: "patch",
+        method: "PATCH",
+        endpoint: "/api/tickets/invoice",
+        payload: { currentStatusId: "status-invoiced" },
+        undoPayload: { currentStatusId: "status-pending" },
+        optimistic: "remove",
+        confirmation: {
+          confirmLabel: "Mark invoiced",
+        },
+      },
     });
     expect(invoice).not.toHaveProperty("amount");
 
     const strandedParent = response.body.items.find((item: any) => item.id === "stranded-parent");
-    expect(strandedParent).toMatchObject({ verb: "Open", parentTicketId: null });
+    expect(strandedParent).toMatchObject({ verb: "Open", parentTicketId: null, action: null });
+
+    const followup = response.body.items.find((item: any) => item.id === "followup");
+    expect(followup).toMatchObject({
+      verb: "Mark done",
+      action: {
+        kind: "patch",
+        method: "PATCH",
+        endpoint: "/api/communications/followup",
+        payload: { followUpStatus: "done" },
+        undoPayload: {
+          followUpStatus: "open",
+          followUpDueAt: day(3).toISOString(),
+        },
+        optimistic: "remove",
+      },
+    });
+
+    const unassigned = response.body.items.find((item: any) => item.id === "unassigned");
+    expect(unassigned).toMatchObject({
+      verb: "Assign to me",
+      action: {
+        kind: "patch",
+        method: "PATCH",
+        endpoint: "/api/tickets/unassigned",
+        payload: { assignedToId: "user-1" },
+        undoPayload: { assignedToId: null },
+        optimistic: "remove",
+      },
+    });
+
+    expect(response.body.items.filter((item: any) => item.action !== null)).toHaveLength(3);
 
     expect(response.body).toMatchObject({
       total: 9,
