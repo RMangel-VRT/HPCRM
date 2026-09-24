@@ -71,7 +71,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
-import type { Campaign, CampaignItem, CampaignChecklistTask, Contact } from "@shared/schema";
+import type { Campaign, CampaignItem, CampaignChecklistTask } from "@shared/schema";
 import LayerMapViewer from "@/components/LayerMapViewer";
 import WeatherCapturePanel, { type WeatherCapturableItem } from "@/components/WeatherCapturePanel";
 import { Label } from "@/components/ui/label";
@@ -190,6 +190,7 @@ export default function CampaignItemDetail() {
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [showEmailConfirm, setShowEmailConfirm] = useState<"pre" | "post" | null>(null);
   const [emailPreview, setEmailPreview] = useState<{ recipientEmail: string | null; subject: string; htmlBody: string; templateName: string; contactName: string | null } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [showEmailFullPreview, setShowEmailFullPreview] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -261,16 +262,17 @@ export default function CampaignItemDetail() {
     queryKey: ["/api/campaigns", campaignId],
   });
 
-  const { data: contacts } = useQuery<Contact[]>({
-    queryKey: ["/api/customers", campaign?.items?.find(i => i.id === itemId)?.customerId, "contacts"],
+  const { data: notificationRecipient, isPending: recipientLoading, isError: recipientError, refetch: retryRecipient } = useQuery<{ email: string | null; contactName: string | null }>({
+    queryKey: ["/api/campaigns", campaignId, "items", itemId, "notification-recipient"],
     queryFn: async () => {
-      const custId = campaign?.items?.find(i => i.id === itemId)?.customerId;
-      if (!custId) return [];
-      const res = await fetch(`/api/customers/${custId}/contacts`, { credentials: "include" });
-      if (!res.ok) return [];
+      const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/notification-recipient`, { credentials: "include" });
+      if (!res.ok) throw new Error(`Recipient lookup failed (${res.status})`);
       return res.json();
     },
-    enabled: !!campaign?.items?.find(i => i.id === itemId)?.customerId && campaign?.category === "chemical",
+    enabled: !!campaignId && !!itemId && campaign?.category === "chemical" && ["admin", "office", "chemical_manager"].includes(user?.activeRole || ""),
+    staleTime: 0,
+    refetchOnMount: "always",
+    retry: false,
   });
 
   const item = campaign?.items?.find(i => i.id === itemId);
@@ -354,9 +356,54 @@ export default function CampaignItemDetail() {
   const [notifPreviewData, setNotifPreviewData] = useState<{ subject: string; htmlBody: string; templateName: string; recipientEmail: string | null; contactName: string | null } | null>(null);
   const [loadingNotifPreview, setLoadingNotifPreview] = useState(false);
   const [sendingNotification, setSendingNotification] = useState(false);
+  const [notificationManualEmail, setNotificationManualEmail] = useState("");
   const [uploadingVisitLabel, setUploadingVisitLabel] = useState(false);
-  const primaryContact = contacts?.find(c => c.isPrimary === "true") || contacts?.[0];
-  const recipientEmail = primaryContact?.emails?.[0] || contacts?.find(c => c.emails && c.emails.length > 0)?.emails?.[0] || null;
+  const recipientEmail = notificationRecipient?.email || null;
+
+  const loadNotificationPreview = async () => {
+    setLoadingNotifPreview(true);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?type=notification`, { credentials: "include" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || t("campaigns.previewFailed"));
+      }
+      const data = await res.json();
+      setNotifPreviewData(data);
+      setNotificationManualEmail("");
+      setShowNotifPreview(true);
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : t("campaigns.previewFailed"), variant: "destructive" });
+    } finally {
+      setLoadingNotifPreview(false);
+    }
+  };
+
+  const sendNotification = async () => {
+    const confirmedEmail = (notifPreviewData?.recipientEmail || notificationManualEmail).trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(confirmedEmail)) return;
+    setSendingNotification(true);
+    try {
+      // Pin the send to the address the operator reviewed, even if contacts
+      // change between preview and send.
+      await apiRequest("PATCH", `/api/campaigns/${campaignId}/items/${itemId}`, {
+        chemAction: "send_notification",
+        overrideEmail: confirmedEmail,
+      });
+      setShowNotifPreview(false);
+      setNotifPreviewData(null);
+      setNotificationManualEmail("");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] }),
+        retryRecipient(),
+      ]);
+      toast({ title: t("campaigns.chemNotifSent") });
+    } catch (err) {
+      toast({ title: extractApiErrorMessage(err), variant: "destructive" });
+    } finally {
+      setSendingNotification(false);
+    }
+  };
 
   const saveChemVisitMutation = useMutation({
     mutationFn: async () => {
@@ -558,15 +605,23 @@ export default function CampaignItemDetail() {
   // those values being stripped by the server's filterUserChemTemplateVars.
   const refreshChemPreview = useCallback(async (kind: 'pre' | 'post', body: Record<string, unknown> = {}) => {
     setPreviewLoading(true);
+    setPreviewError(null);
     try {
       const res = await apiRequest(
         'POST',
         `/api/campaigns/${campaignId}/items/${itemId}/preview-comm`,
         { type: kind, ...body },
       );
-      if (res.ok) setEmailPreview(await res.json());
-    } catch {}
-    setPreviewLoading(false);
+      const preview = await res.json();
+      setEmailPreview(preview);
+      return true;
+    } catch (error) {
+      setEmailPreview(null);
+      setPreviewError(extractApiErrorMessage(error) || "Unable to load email preview.");
+      return false;
+    } finally {
+      setPreviewLoading(false);
+    }
   }, [campaignId, itemId]);
 
   const handleLoadCompletionEmailPreview = async () => {
@@ -580,6 +635,7 @@ export default function CampaignItemDetail() {
   };
 
   const handleConfirmSend = async () => {
+    if (!emailPreview || previewError) return;
     const action = showEmailConfirm === "pre" ? "send_pre_communication" : "send_post_communication";
     const effectiveEmail = emailPreview?.recipientEmail || manualEmail.trim();
     const isDynamic = !!templateVarSpec?.hasTemplate;
@@ -591,7 +647,7 @@ export default function CampaignItemDetail() {
     const nextVisitDate = !isDynamic && showEmailConfirm === "post" ? postCommNextVisitDate : undefined;
     const templateVars = isDynamic ? formVars : undefined;
     try {
-      await updateItemMutation.mutateAsync({ chemAction: action, notes, overrideEmail: !emailPreview?.recipientEmail ? effectiveEmail : undefined, customWindowStart, customWindowEnd, completedAt, areasTreated, applicationConditions, nextVisitDate, templateVars });
+      await updateItemMutation.mutateAsync({ chemAction: action, notes, overrideEmail: effectiveEmail, customWindowStart, customWindowEnd, completedAt, areasTreated, applicationConditions, nextVisitDate, templateVars });
     } catch {
       return;
     }
@@ -622,8 +678,7 @@ export default function CampaignItemDetail() {
         ? { completedAt: postCommDate, templateVars: formVars }
         : { completedAt: postCommDate, templateVars: { areasTreated: postCommAreasTreated, applicationConditions: postCommApplicationConditions, nextVisitDate: postCommNextVisitDate } };
     }
-    await refreshChemPreview(kind, body);
-    setShowEmailFullPreview(true);
+    if (await refreshChemPreview(kind, body)) setShowEmailFullPreview(true);
   };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1227,26 +1282,26 @@ export default function CampaignItemDetail() {
                 </Button>
                 {canSendChemEmails && (
                   <>
+                    {recipientLoading ? (
+                      <p className="w-full text-xs text-muted-foreground">Checking notification recipient…</p>
+                    ) : recipientError ? (
+                      <div className="w-full flex items-center gap-2 text-xs text-destructive" data-testid="notification-recipient-error">
+                        Unable to check the recipient. No email has been sent.
+                        <Button size="sm" variant="outline" onClick={() => void retryRecipient()}>Retry</Button>
+                      </div>
+                    ) : recipientEmail ? (
+                      <p className="w-full text-xs text-muted-foreground" data-testid="notification-recipient">
+                        To: {notificationRecipient?.contactName ? `${notificationRecipient.contactName} <${recipientEmail}>` : recipientEmail}
+                      </p>
+                    ) : (
+                      <p className="w-full text-xs text-amber-700 dark:text-amber-400" data-testid="notification-recipient-missing">
+                        No contact or property manager email is available. <Link href={`/dashboard/customers/${item.customerId}`} className="underline">Add a customer contact</Link> or enter an address in the notification preview.
+                      </p>
+                    )}
                     <Button
                       variant="outline"
-                      onClick={async () => {
-                        setLoadingNotifPreview(true);
-                        try {
-                          const res = await fetch(`/api/campaigns/${campaignId}/items/${itemId}/preview-email?type=notification`, { credentials: "include" });
-                          if (res.ok) {
-                            const data = await res.json();
-                            setNotifPreviewData(data);
-                            setShowNotifPreview(true);
-                          } else {
-                            toast({ title: t("campaigns.previewFailed"), variant: "destructive" });
-                          }
-                        } catch {
-                          toast({ title: t("campaigns.previewFailed"), variant: "destructive" });
-                        } finally {
-                          setLoadingNotifPreview(false);
-                        }
-                      }}
-                      disabled={loadingNotifPreview}
+                      onClick={() => void loadNotificationPreview()}
+                      disabled={loadingNotifPreview || recipientLoading || recipientError}
                       data-testid="button-preview-notification-email"
                     >
                       {loadingNotifPreview ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Eye className="w-4 h-4 mr-2" />}
@@ -1254,22 +1309,11 @@ export default function CampaignItemDetail() {
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={async () => {
-                        setSendingNotification(true);
-                        try {
-                          await apiRequest("PATCH", `/api/campaigns/${campaignId}/items/${itemId}`, { chemAction: "send_notification" });
-                          toast({ title: t("campaigns.chemNotifSent") });
-                        } catch (err: unknown) {
-                          const message = err instanceof Error ? err.message : t("campaigns.chemNotifSendFailed");
-                          toast({ title: message, variant: "destructive" });
-                        } finally {
-                          setSendingNotification(false);
-                        }
-                      }}
-                      disabled={sendingNotification || !recipientEmail}
+                      onClick={() => void loadNotificationPreview()}
+                      disabled={loadingNotifPreview || recipientLoading || recipientError}
                       data-testid="button-send-notification-email"
                     >
-                      {sendingNotification ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+                      {loadingNotifPreview ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
                       {t("campaigns.chemSendNotification")}
                     </Button>
                   </>
@@ -2475,6 +2519,27 @@ export default function CampaignItemDetail() {
             </div>
             {notifPreviewData && (
               <>
+                <div className="rounded-md border p-3 space-y-2 text-sm">
+                  <p className="text-xs text-muted-foreground">Notification recipient</p>
+                  {notifPreviewData.recipientEmail ? (
+                    <p className="font-medium" data-testid="notification-confirm-recipient">
+                      {notifPreviewData.contactName ? `${notifPreviewData.contactName} <${notifPreviewData.recipientEmail}>` : notifPreviewData.recipientEmail}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-amber-700 dark:text-amber-400">No contact or property manager email is available. Enter and verify the address before sending.</p>
+                      <Input
+                        type="email"
+                        value={notificationManualEmail}
+                        onChange={e => setNotificationManualEmail(e.target.value)}
+                        placeholder={t("campaigns.chemManualEmailPlaceholder")}
+                        aria-label="Notification recipient email"
+                        data-testid="input-notification-manual-email"
+                      />
+                      <Link href={`/dashboard/customers/${item.customerId}`} className="text-primary underline text-xs">Add a customer contact</Link>
+                    </>
+                  )}
+                </div>
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">{t("campaigns.emailSubject")}</p>
                   <p className="text-sm font-medium">{notifPreviewData.subject}</p>
@@ -2496,13 +2561,24 @@ export default function CampaignItemDetail() {
                     />
                   </div>
                 )}
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowNotifPreview(false)}>Cancel</Button>
+                  <Button
+                    onClick={() => void sendNotification()}
+                    disabled={sendingNotification || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((notifPreviewData.recipientEmail || notificationManualEmail).trim())}
+                    data-testid="button-confirm-notification-send"
+                  >
+                    {sendingNotification && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    Confirm &amp; Send Notification
+                  </Button>
+                </DialogFooter>
               </>
             )}
           </div>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!showEmailConfirm} onOpenChange={() => { if (previewDebounceRef.current) { clearTimeout(previewDebounceRef.current); previewDebounceRef.current = null; } setShowEmailConfirm(null); setEmailPreview(null); setPreviewLoading(false); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); setTemplateVarSpec(null); setFormVars({}); }}>
+      <Dialog open={!!showEmailConfirm} onOpenChange={() => { if (previewDebounceRef.current) { clearTimeout(previewDebounceRef.current); previewDebounceRef.current = null; } setShowEmailConfirm(null); setEmailPreview(null); setPreviewError(null); setPreviewLoading(false); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); setTemplateVarSpec(null); setFormVars({}); }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" data-testid="dialog-chem-email-compose">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -2526,16 +2602,28 @@ export default function CampaignItemDetail() {
                 </div>
               </div>
             )}
+            {previewError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert" data-testid="chem-preview-error">
+                Email preview failed: {previewError}
+                {previewError.includes("product label PDF") && (
+                  <p className="mt-1">Attach a label PDF to the notification template or this visit, then reopen the email preview. The notification cannot be sent without it.</p>
+                )}
+              </div>
+            )}
             <Separator />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Left column: recipient + form inputs */}
               <div className="space-y-3">
                 <div>
                   <Label className="text-xs text-muted-foreground">{t("campaigns.chemEmailRecipient")}</Label>
-                  {emailPreview?.recipientEmail ? (
+                  {(emailPreview?.recipientEmail || (previewError && recipientEmail)) ? (
                     <div className="text-sm font-medium mt-0.5" data-testid="text-email-recipient">
-                      <span>{emailPreview.contactName ? `${emailPreview.contactName} <${emailPreview.recipientEmail}>` : emailPreview.recipientEmail}</span>
+                      <span>{emailPreview?.recipientEmail
+                        ? (emailPreview.contactName ? `${emailPreview.contactName} <${emailPreview.recipientEmail}>` : emailPreview.recipientEmail)
+                        : (notificationRecipient?.contactName ? `${notificationRecipient.contactName} <${recipientEmail}>` : recipientEmail)}</span>
                     </div>
+                  ) : previewError ? (
+                    <p className="text-xs text-destructive mt-1">Recipient preview is unavailable. Resolve the preview error above before sending.</p>
                   ) : (
                     <div className="mt-1 space-y-2">
                       <div className="flex items-center gap-2 p-2 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs">
@@ -2783,14 +2871,14 @@ export default function CampaignItemDetail() {
             </div>
             <Separator />
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-              <Button variant="outline" className="w-full sm:w-auto" onClick={() => { if (previewDebounceRef.current) { clearTimeout(previewDebounceRef.current); previewDebounceRef.current = null; } setShowEmailConfirm(null); setEmailPreview(null); setPreviewLoading(false); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); setTemplateVarSpec(null); setFormVars({}); }} data-testid="button-cancel-email">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => { if (previewDebounceRef.current) { clearTimeout(previewDebounceRef.current); previewDebounceRef.current = null; } setShowEmailConfirm(null); setEmailPreview(null); setPreviewError(null); setPreviewLoading(false); setManualEmail(""); setPreNoticeWindowStart(""); setPreNoticeWindowEnd(""); setPostCommDate(""); setPostCommAreasTreated(""); setPostCommApplicationConditions(""); setPostCommNextVisitDate(""); setTemplateVarSpec(null); setFormVars({}); }} data-testid="button-cancel-email">
                 {t("common.cancel")}
               </Button>
               <Button
                 variant="ghost"
                 className="w-full sm:w-auto text-muted-foreground"
                 onClick={handleConfirmSend}
-                disabled={updateItemMutation.isPending || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate)}
+                disabled={updateItemMutation.isPending || !emailPreview || !!previewError || (!emailPreview.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate)}
                 data-testid="button-send-without-preview"
               >
                 {updateItemMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
@@ -2799,7 +2887,7 @@ export default function CampaignItemDetail() {
               <Button
                 className="w-full sm:w-auto"
                 onClick={() => { void handleOpenPreview(); }}
-                disabled={previewLoading || (!emailPreview?.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate)}
+                disabled={previewLoading || !!previewError || !emailPreview || (!emailPreview.recipientEmail && (!manualEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim()))) || (showEmailConfirm === "post" && !postCommDate)}
                 data-testid="button-preview-email"
               >
                 <Eye className="w-4 h-4 mr-1" />

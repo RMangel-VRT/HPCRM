@@ -24,6 +24,7 @@ import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "../
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalNotificationTemplate, resolveChemicalNotificationTemplate, MissingChemicalNotificationTemplateError, classifyChemTemplateVariables, filterUserChemTemplateVars, CHEM_SYSTEM_TEMPLATE_VARS, getSendGridConnectionStatus } from '../services/emailService';
 import type { ChemTemplateVarSpec } from '../services/emailService';
 import { resolveChemLabelAttachment, BLOCK_PRODUCT_LABEL_FALLBACK, MISSING_LABEL_ERROR } from '../services/chemLabelService';
+import { resolveChemRecipientEmail } from '../services/chemRecipient';
 import { migrateRemoveChemicalEmailTemplates } from '../services/legacyChemEmailCleanup';
 import heicConvert from 'heic-convert';
 import multer from 'multer';
@@ -14278,32 +14279,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   }
 
-  async function resolveChemRecipientEmail(customerId: string, companyId: string): Promise<{ email: string | null; contactName: string | null }> {
-    const customer = await storage.getCustomerById(customerId, companyId);
-    if (customer?.propertyManagerId) {
-      const pm = await storage.getPropertyManagerWithContacts(customer.propertyManagerId, companyId);
-      if (pm) {
-        const primaryPmEmail = pm.emails?.find(e => e.isPrimary === "true")?.email || pm.emails?.[0]?.email || pm.email;
-        if (primaryPmEmail) {
-          return { email: primaryPmEmail, contactName: pm.name };
-        }
-      }
+  // Lightweight lookup for the Send Notification control. Unlike email preview,
+  // recipient availability is not dependent on a configured template or label.
+  app.get("/api/campaigns/:id/items/:itemId/notification-recipient", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const user = req.user as UserWithContext;
+    if (!["admin", "office", "chemical_manager"].includes(user.activeRole)) {
+      return res.status(403).json({ error: "Insufficient permissions" });
     }
-    const customerContacts = await storage.getContactsByCustomerId(customerId, companyId);
-    const pmContacts = customerContacts.filter(c =>
-      (c.propertyManagerId || (c.role && c.role.toLowerCase().includes("property manager"))) &&
-      c.emails && c.emails.length > 0
-    );
-    if (pmContacts.length > 0) {
-      const allPmEmails = pmContacts.flatMap(c => c.emails || []).filter(Boolean);
-      if (allPmEmails.length > 0) {
-        return { email: allPmEmails[0], contactName: pmContacts[0].name };
-      }
-    }
-    const primaryContact = customerContacts.find(c => c.isPrimary === "true") || customerContacts[0];
-    const recipientEmail = primaryContact?.emails?.[0] || customerContacts.find(c => c.emails && c.emails.length > 0)?.emails?.[0];
-    return { email: recipientEmail || null, contactName: primaryContact?.name || null };
-  }
+    const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
+    if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
+    const item = (await storage.getCampaignItems(req.params.id, user.activeCompanyId))
+      .find((entry: { id: string }) => entry.id === req.params.itemId);
+    if (!item) return res.status(404).json({ error: "Item not found" });
+    res.json(await resolveChemRecipientEmail(item.customerId, user.activeCompanyId));
+  });
 
   const emailPreviewHandler: express.RequestHandler = async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
@@ -15425,6 +15415,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         if (!notifApplicatorId) {
           return res.status(400).json({ error: "Licensed applicator must be assigned before sending a notification" });
+        }
+        if (overrideEmail != null && (typeof overrideEmail !== "string" || !z.email().safeParse(overrideEmail.trim()).success)) {
+          return res.status(400).json({ error: "Enter a valid recipient email address." });
         }
         const company = await storage.getCompanyById(user.activeCompanyId);
         const { email: resolvedEmail } = await resolveChemRecipientEmail(targetItem.customerId, user.activeCompanyId);
