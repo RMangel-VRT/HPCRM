@@ -712,14 +712,7 @@ export default function TicketDetail() {
   const sortedStatuses = [...statuses].sort((a, b) => a.displayOrder - b.displayOrder);
   const sortedCurrentIndex = sortedStatuses.findIndex(s => s.id === ticket.currentStatusId);
 
-  // An Invoice ticket has no hue of its own — it inherits from the work that created it.
-  // When this ticket is the invoice target, its linked `source` is the originating work.
-  const parentLink = linkedTickets.find(
-    lt => lt.link.linkType === "invoice_for" && lt.relationship === "source" && lt.ticketType
-  );
-  const hue = isSeededTicketType(ticketType, "invoice") && parentLink?.ticketType
-    ? typeHueVar(parentLink.ticketType)
-    : typeHueVar(ticketType);
+  const hue = typeHueVar(ticketType);
   const typeIconKey = (Object.keys(TYPE_ICON) as Array<keyof typeof TYPE_ICON>)
     .find(key => isSeededTicketType(ticketType, key));
   const TypeIcon = typeIconKey ? TYPE_ICON[typeIconKey] : ClipboardList;

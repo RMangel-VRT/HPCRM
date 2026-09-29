@@ -37,7 +37,7 @@ export interface TicketStatusLike {
   isFinal?: "true" | "false" | null;
 }
 
-/** Resolve a ticket type's hue. Standalone invoices get the neutral fallback. */
+/** Resolve a ticket type's hue, including a distinct hue for invoices. */
 export function ticketHue(type: TicketTypeLike | null | undefined): string {
   return typeHueVar(type);
 }

@@ -1,0 +1,106 @@
+# Slice 3 — Read-only damage audit (report only, NO writes)
+
+> Assumes 00-RULES.md. What bites hardest here: this slice **must not change any data.** Run the SELECTs and report the results. Randy decides what gets repaired, row by row or with a follow-up slice.
+
+Run each query against **production** (read-only) and against dev. Report the row counts and the first 25 rows of each.
+
+Some damage can't be detected afterwards, because the reset value looks identical to a real one: ticket `priority`, customer `tags` and `ranking`, chemical products switched back to active, templates un-archived. Say so in the report instead of guessing.
+
+## A. Extra Billable tickets knocked off billing
+
+```sql
+SELECT t.id, t.title, t.work_type, t.billing_behavior, s.name AS status, t.updated_at
+FROM tickets t
+JOIN ticket_types tt ON tt.id = t.ticket_type_id
+JOIN ticket_type_statuses s ON s.id = t.current_status_id
+WHERE tt.type_key = 'extra_billable'
+  AND (t.billing_behavior <> 'invoice_required' OR t.work_type <> 'extra_work')
+ORDER BY t.updated_at DESC;
+```
+
+Also list any of those rows that are at or past Ready for Billing **with no linked invoice**:
+
+```sql
+SELECT t.id, t.title, s.name AS status
+FROM tickets t
+JOIN ticket_types tt ON tt.id = t.ticket_type_id
+JOIN ticket_type_statuses s ON s.id = t.current_status_id
+WHERE tt.type_key = 'extra_billable'
+  AND s.status_key IN ('ready_for_billing', 'closed_won')
+  AND NOT EXISTS (
+    SELECT 1 FROM ticket_links l
+    WHERE l.source_ticket_id = t.id AND l.link_type = 'invoice_for'
+  );
+```
+
+## B. Estimate Requests whose work type was reset
+
+```sql
+SELECT t.id, t.title, t.work_type, t.billing_behavior, s.name AS status
+FROM tickets t
+JOIN ticket_types tt ON tt.id = t.ticket_type_id
+JOIN ticket_type_statuses s ON s.id = t.current_status_id
+WHERE tt.type_key = 'estimate_request' AND t.work_type <> 'estimate_request';
+```
+
+## C. Invoice tickets reset (these are created as admin / internal)
+
+```sql
+SELECT t.id, t.title, t.work_type, t.billing_behavior
+FROM tickets t
+JOIN ticket_types tt ON tt.id = t.ticket_type_id
+WHERE tt.type_key = 'invoice'
+  AND (t.work_type <> 'admin' OR t.billing_behavior <> 'internal');
+```
+
+## D. Shop To-Dos turned into contract work
+
+```sql
+SELECT t.id, t.title, t.work_type, t.equipment_id
+FROM tickets t
+JOIN ticket_types tt ON tt.id = t.ticket_type_id
+WHERE tt.type_key = 'todo' AND t.work_type = 'contract' AND t.equipment_id IS NOT NULL;
+```
+
+## E. Mobile status wiped on finished crew work (informational)
+
+```sql
+SELECT t.id, t.title, s.name AS status, t.mobile_status, t.crew_id
+FROM tickets t
+JOIN ticket_type_statuses s ON s.id = t.current_status_id
+WHERE t.crew_id IS NOT NULL
+  AND t.mobile_status = 'not_started'
+  AND (s.is_final = 'true' OR s.status_key IN ('work_completed', 'ready_for_billing'));
+```
+
+## F. Parent customers that lost their parent flag
+
+```sql
+SELECT p.id, p.name, p.is_parent,
+       (SELECT COUNT(*) FROM customers c WHERE c.parent_customer_id = p.id) AS children
+FROM customers p
+WHERE p.is_parent = 'false'
+  AND EXISTS (SELECT 1 FROM customers c WHERE c.parent_customer_id = p.id);
+```
+
+## G. Customers with an active Snow contract but snow disabled
+
+```sql
+SELECT DISTINCT cu.id, cu.name, cu.snow_enabled
+FROM customers cu
+JOIN contracts co ON co.customer_id = cu.id
+WHERE co.service_type = 'Snow' AND co.status = 'active' AND cu.snow_enabled = false;
+```
+
+## H. Company settings, for Randy to eyeball
+
+```sql
+SELECT company_id, feature_flags, mowing_season_months, cleanup_season_months, hourly_rate_benchmarks, updated_at
+FROM settings;
+```
+
+If `feature_flags` is `{}` or the season months are empty where Randy expects values, they were probably wiped.
+
+## Deliverable
+
+A short report with, for each query: the count, sample rows, and a one-line read on what it means. Change nothing.

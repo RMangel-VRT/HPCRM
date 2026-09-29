@@ -1,0 +1,47 @@
+# PATCH Default-Injection Fix — Rules (paste once at session start)
+
+## The bug this pack fixes
+
+`lib/db/src/schema/schema.ts` imports `z` from **`zod/v4`**. In zod v4, `.partial()` does **not** strip `.default()` values: a key that is missing from the request body still comes back from the parse *filled with its default*. Your own note `.agents/memory/zod-partial-defaults-and-bundled-dynamic-imports.md` describes this exact trap.
+
+Several PATCH routes validate with `insertXSchema.partial()` and then write `result.data` straight to the database. So **any field the client did not send gets overwritten with its schema default.**
+
+Verified by running the repo's exact versions (zod 3.25.76 → `zod/v4`, drizzle-zod 0.8.3) against the real `schema.ts`. Parsing an empty body `{}` returns:
+
+| Schema | Defaults injected on every partial PATCH |
+|---|---|
+| `insertTicketSchema` | `workType:"contract"`, `billingBehavior:"no_invoice"`, `priority:"normal"`, `mobileStatus:"not_started"` |
+| `insertCustomerSchema` | `status:"active"`, `tags:[]`, `isParent:"false"`, `active:"true"`, `snowEnabled:false`, `ranking:"standard"` |
+| `insertContactSchema` | `phones:[]`, `emails:[]`, `isPrimary:"false"` |
+| `insertCompanySchema` | `subscriptionPlan:"free"`, `subscriptionStatus:"active"` |
+| `insertSettingsSchema` | `mowingSeasonMonths:[]`, `cleanupSeasonMonths:[]`, `hourlyRateBenchmarks:"{}"`, `featureFlags:"{}"` |
+| `insertContractBuilderDocumentSchema` | `status:"draft"`, `version:1` |
+| `insertTicketTypeFieldSchema` | `isRequired:"false"`, `options:[]` |
+| `insertCommunicationTemplateSchema` | `category:"general_outreach"`, `isActive:true`, `isArchived:false` |
+| `insertChemicalProductSchema` | `isOrganic:false`, `isActive:true` |
+| `insertChemicalNotificationTemplateSchema` | `isDefault:false` |
+
+Real example: the **Reassign** button in `TicketDetail.tsx` sends only `{ assignedToId }`. The server then writes `billingBehavior:"no_invoice"`, `workType:"contract"`, `priority:"normal"` and `mobileStatus:"not_started"` onto that ticket.
+
+## The fix pattern already exists in this repo. Copy it.
+
+`PATCH /api/ticket-types/:id` and `PATCH /api/ticket-type-statuses/:id` already do this correctly. After parsing, they keep only the keys the client actually sent:
+
+```ts
+Object.entries(result.data).filter(([key]) => Object.prototype.hasOwnProperty.call(req.body, key))
+```
+
+This pack turns that into one shared helper and applies it everywhere it's missing.
+
+## Rules for every slice in this pack
+
+1. **Do not remove or change any `.default()` in `schema.ts`.** INSERT paths rely on them. The fix belongs in the PATCH handlers only.
+2. **No DDL.** No migrations, no startup-time DDL (see `replit.md` §"Production schema & extensions").
+3. **Line numbers are from GitHub commit `877e19f` (Sept 2), which may be older than this workspace.** Find every site by its route string and content, not by line number.
+4. **Once a handler has been fixed, `result.data` must not be used after the pick.** Downstream reads, writes and mutations all go through the picked object. Enumerate every `result.data` / `parsed.data` reference in the handler before you edit it.
+5. **Server-side code that assigns `req.body.X = …` before the parse still works,** because the key is then present in the body. Confirm any such assignment happens *before* the parse.
+6. **Drizzle throws on `.set({})`.** If the picked object can end up empty and the storage call doesn't add `updatedAt`, handle that case the way `PATCH /api/ticket-types/:id` already does.
+7. **Do not touch the Extra Billable "normalize billingBehavior at Ready for Billing" block** in `PATCH /api/tickets/:id`. It stays until the Task-type merge replaces it.
+8. **Static imports only.** No relative dynamic `import()` in api-server code.
+9. Tests use vitest (`pnpm --filter api-server test`). Run the root `pnpm run typecheck` before finishing.
+10. When a slice is done, report every file changed and every handler touched.

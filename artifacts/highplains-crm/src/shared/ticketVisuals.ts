@@ -31,15 +31,13 @@ export function isSeededTicketType(
   return type.name === TICKET_TYPE_NAMES_BY_KEY[key];
 }
 
-/**
- * `invoice` is deliberately absent — an Invoice ticket inherits its parent's hue.
- * Callers resolve the parent first and use the fallback only for a standalone one.
- */
-const TYPE_HUE_VAR: Record<Exclude<TicketTypeKey, "invoice">, string> = {
+/** Each ticket type has its own hue, independent of its workflow status. */
+const TYPE_HUE_VAR: Record<TicketTypeKey, string> = {
   estimate_request: "--tt-estimate",
   project:          "--tt-project",
   rfp_request:      "--tt-rfp",
   extra_billable:   "--tt-extra",
+  invoice:          "--tt-invoice",
   todo:             "--tt-todo",
 };
 

@@ -1,0 +1,77 @@
+# Slice 1 — Shared helper + fix PATCH /api/tickets/:id
+
+> Assumes 00-RULES.md. What bites hardest here: this handler is several hundred lines long, and `result.data` is read again after the database write. Every reference has to move to the picked object.
+
+## Why this slice comes first
+
+Every partial ticket PATCH (reassign, delegate, the edit dialog, status moves) silently resets `billingBehavior`, `workType`, `priority` and `mobileStatus`. The upcoming Task-type merge makes invoicing depend on each ticket's own `billingBehavior`. So until this is fixed, billable work can silently stop producing invoices.
+
+## 1. New helper: `artifacts/api-server/src/lib/patchBody.ts`
+
+```ts
+/**
+ * zod v4 `.partial()` still injects `.default()` values for keys the client
+ * never sent. Keep only keys actually present in the request body so a PATCH
+ * never overwrites columns the caller didn't touch.
+ */
+export function pickProvided<T extends Record<string, unknown>>(
+  parsed: T,
+  body: unknown,
+): Partial<T> {
+  if (!body || typeof body !== "object") return {};
+  const out: Partial<T> = {};
+  for (const key of Object.keys(parsed) as (keyof T)[]) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      out[key] = parsed[key];
+    }
+  }
+  return out;
+}
+```
+
+## 2. Apply it in `PATCH /api/tickets/:id`
+
+Find `app.patch("/api/tickets/:id"` in `artifacts/api-server/src/routes/routes.ts` (~L6737 at 877e19f). The parse is:
+
+```ts
+const result = insertTicketSchema.partial().omit({ companyId: true, createdById: true }).safeParse(req.body);
+```
+
+Directly after the `if (!result.success)` guard, add:
+
+```ts
+const updates = pickProvided(result.data, req.body);
+```
+
+Then **enumerate every `result.data` reference from that point to the end of the handler** and switch each one to `updates`. At 877e19f these include at least:
+
+- `storage.updateTicket(req.params.id, user.activeCompanyId, result.data)`
+- the due-date notification check that reads `result.data.dueDate`
+
+There may be more. Grep the handler itself; don't rely on this list.
+
+Checks to make:
+
+- `req.body.billingBehavior = "invoice_required"` (the Extra Billable normalization at Ready for Billing) runs **before** the parse. Confirm it does, so the key is present and survives the pick.
+- Look for any other `req.body.X = …` assignments in the handler. If any run *after* the parse, report them; don't silently restructure.
+- `storage.updateTicket` always adds `updatedAt`, so an empty `updates` is safe here.
+
+## 3. Tests: `artifacts/api-server/src/lib/patchBody.test.ts`
+
+1. `pickProvided({a:1,b:2}, {a:9})` returns `{a:1}` (keeps the parsed value, drops the unsent key).
+2. A key explicitly sent as `null` is kept: `pickProvided({a:null}, {a:null})` returns `{a:null}`.
+3. A non-object body returns `{}`.
+4. **Regression test against the real schema:** import `insertTicketSchema` from `@workspace/db`, then run `insertTicketSchema.partial().omit({ companyId: true, createdById: true }).safeParse({ assignedToId: "u1" })`.
+   - Assert the raw `result.data` **does** contain `billingBehavior` (this documents the trap).
+   - Assert `pickProvided(result.data, { assignedToId: "u1" })` equals exactly `{ assignedToId: "u1" }`.
+
+## 4. Manual acceptance (dev)
+
+1. Pick an Extra Billable ticket with `billing_behavior = 'invoice_required'` and `priority = 'high'`. Note its `work_type` and `mobile_status`.
+2. Reassign it with the Reassign button in TicketDetail.
+3. Re-query the row. `billing_behavior`, `work_type`, `priority` and `mobile_status` must all be unchanged, and only `assigned_to_id` should differ.
+4. Change a status and edit the title through the edit dialog. Confirm the same four columns don't change.
+
+## Out of scope
+
+Other routes (Slice 2), repairing already-damaged data (Slice 3), and the Extra Billable normalization block (stays as is).

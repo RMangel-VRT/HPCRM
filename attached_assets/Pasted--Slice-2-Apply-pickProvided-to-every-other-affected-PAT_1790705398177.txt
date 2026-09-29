@@ -1,0 +1,48 @@
+# Slice 2 — Apply pickProvided to every other affected PATCH route
+
+> Assumes 00-RULES.md and Slice 1 merged (`lib/patchBody.ts` exists). What bites hardest here: the customer handler mutates `result.data` after parsing. Those mutations must happen on the picked object, or they'll be lost.
+
+All in `artifacts/api-server/src/routes/routes.ts`. Find each by its route string. For each one: parse, then `const updates = pickProvided(<parsed>.data, <the object that was parsed>)`, then switch every later `.data` reference in that handler to `updates`.
+
+**Pick against the object that was actually parsed,** which is not always `req.body`:
+
+| # | Route | Parsed object | Real client caller that triggers the damage today |
+|---|---|---|---|
+| 1 | `PATCH /api/customers/:id` | `updateData` (req.body minus `expectedUpdatedAt`) | `ParentCustomerDashboard` renames with `{ name }`, which **resets `isParent` to "false"**, un-parenting the customer. `CustomersList` sends `{ active }`, and `CustomerLocationEditor` sends `{ locationLat, locationLng }`. |
+| 2 | `PATCH /api/contacts/:id` | `contactData` | `CustomerDetail` contact edits. A partial body would wipe `phones` and `emails`. |
+| 3 | `PATCH /api/admin/companies/:id` | `req.body` | A partial update resets the subscription plan to "free". |
+| 4 | `PATCH /api/settings` | `req.body` | `SettingsPage` sends `{ companyName }` and other partial updates, which **wipes `featureFlags`**, the season months and the rate benchmarks. |
+| 5 | `PATCH /api/contract-builder/documents/:id` | the object literal passed to `safeParse({...})`. Assign it to a const first and pick against that. | Resets `status` to "draft" and `version` to 1. |
+| 6 | `PATCH /api/ticket-type-fields/:id` | `req.body` | Resets `isRequired` and `options`. |
+| 7 | `PATCH /api/communication-templates/:id`, **both registrations** (~L16886 and ~L16944) | `req.body` | Un-archives templates and resets category and `isActive`. |
+| 8 | `PATCH /api/chemical-products/:id` | `patchBody` | `ChemicalProductsAdmin`. Re-activates deactivated products. |
+| 9 | the chemical-notification-templates update handler (`handleUpdateChemicalNotificationTemplate`) | `patchBody` | Resets `isDefault`. |
+
+### Customer handler specifics (#1)
+
+After the pick, the existing logic writes into `result.data`, for example `result.data.propertyManagerId = null`, and checks `'parentCustomerId' in result.data`. Move all of those reads and writes to `updates`. Assigning a key on `updates` adds it to the write, which is the behavior intended today. `storage.updateCustomer(req.params.id, user.activeCompanyId, result.data, expectedDate)` becomes `updates`.
+
+### Empty-object guard
+
+Check each storage `update*` call. If it doesn't add `updatedAt` and `updates` can be empty, return the current row unchanged instead of calling `.set({})`, matching `PATCH /api/ticket-types/:id`.
+
+### Do NOT change in this slice
+
+- `PATCH /api/ticket-types/:id` and `PATCH /api/ticket-type-statuses/:id` already filter correctly.
+- `PATCH /api/email-templates/:id` and `/api/email-rules/:id` currently inject no defaults. Leave them alone.
+- The `.partial()` schemas in `crewsAndMobile.ts` (crews, site notes, templates, template items): **verify** that none of them inject defaults by parsing `{}` in a quick test. If any do, apply the helper there too and report it.
+- The duplicated `communication-templates/:id` route. Fix both copies, but **don't delete either one.** (Randy is deciding; see the note below.)
+
+## Tests
+
+Add a small test in `patchBody.test.ts` for each schema in the table above, the same shape as Slice 1's regression test. Parse a one-key body, assert the raw parse contains an injected default, and assert `pickProvided` returns only that one key.
+
+## Manual acceptance (dev)
+
+- Rename a parent customer from its dashboard. `is_parent` stays "true".
+- Deactivate a customer with `snow_enabled = true` and `ranking = 'key_account'`. Both stay unchanged.
+- Save the company name in Settings. `feature_flags` and the season months stay unchanged.
+
+## Note for Randy (not for the agent to act on)
+
+`PATCH /api/communication-templates/:id` is registered twice. Express runs the first registration. That one only checks `COMM_VIEW_ROLES`, so the second one's `requireCommPermission("manage_templates")` check never runs. Anyone with view access can edit templates. Deleting the first registration fixes that, but it changes who can edit, so it's a decision for Randy.
