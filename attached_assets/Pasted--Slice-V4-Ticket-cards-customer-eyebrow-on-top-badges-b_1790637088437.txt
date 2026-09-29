@@ -1,0 +1,204 @@
+# Slice V4 — Ticket cards: customer eyebrow on top, badges below the title
+
+**Layout only.** No colour changes, no logic changes, no data changes. Every hue, pill,
+badge, testid and conditional stays exactly as Slice V3 left it — this slice only moves
+rows around and adjusts type scale.
+
+## Why
+
+On every ticket card the first thing you read is a row of badges, and the customer — the
+thing you actually scan for — is buried on the fourth line in muted grey. Reverse it: the
+customer becomes a small eyebrow at the top, the title stays the dominant element, and the
+badge row drops to where the customer used to be.
+
+## Target layout — all four card surfaces
+
+```
+BEFORE                              AFTER
+─────────────────────────────       ─────────────────────────────
+[type][overdue][T&M]      →         ASPEN RIDGE HOA    #a3f2b1c9  →
+Clubhouse bed renovation            Clubhouse bed renovation
+  #a3f2b1c9                         [▉ Estimate Request][Overdue][T&M]
+[invoice category]                  ─────────────────────────────
+📍 Aspen Ridge HOA                  ●━●━○━○  Ready for Billing  Due
+─────────────────────────────
+●━●━○━○  Ready for Billing  Due
+```
+
+Four rows, in this order:
+
+1. **Customer eyebrow** — small, muted, uppercase-ish. Ticket `#id` and the chevron sit
+   right-aligned on this same row.
+2. **Title** — the dominant element, promoted to `font-semibold`.
+3. **Badges** — type badge first, then every other badge that used to be on the old top
+   row, plus the invoice-category badge folded in.
+4. **Footer** — `border-t` progress / status / due / created. **Completely unchanged.**
+
+### Eyebrow styling (use verbatim on all four surfaces)
+
+```tsx
+<div className="flex items-center gap-1.5 min-w-0">
+  <MapPin className="w-3 h-3 shrink-0 text-muted-foreground" />
+  <span className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+    {ticket.customer.name}
+  </span>
+</div>
+```
+
+### Title
+
+Change `font-medium` → `font-semibold`. Keep `text-base leading-tight line-clamp-2` and
+keep the existing `data-testid={`text-ticket-title-${ticket.id}`}`.
+
+---
+
+## Preconditions — read this first
+
+**I could not read the current files to re-verify anchors** (the local mirror is serving
+uncached iCloud placeholders; even `git show` of the blobs comes back empty). Everything
+below is from a read earlier in this session, post-V3. **Before editing, open each file
+and confirm the structure matches what is described. If a surface does not look like this,
+stop and report rather than guessing.**
+
+1. `git status` clean, HEAD at or after `86a5614` (Slice V3).
+2. Typecheck baseline: `pnpm --filter @workspace/highplains-crm run typecheck`.
+
+## Step 1 — `components/TicketCard.tsx` (the shared list card)
+
+Inside `<div className="flex-1 min-w-0">` there are currently five sibling blocks. Match
+them **by content**, not line number:
+
+* **(A)** `<div className="flex items-center gap-2 flex-wrap">` — opens with
+  `<TicketTypeBadge … testId={`text-tickettype-${ticket.id}`} />` and ends with the
+  `{!selectionMode && <ChevronRight … ml-auto />}`.
+* **(B)** `<div className="flex items-start justify-between gap-2 mt-1">` — the `h3`
+  with `text-ticket-title-${ticket.id}` and the `span` with `text-ticket-id-${ticket.id}`.
+* **(C)** the invoice-category block, gated on
+  `ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory`.
+* **(D)** the customer block, gated on `showCustomer && ticket.customer`, currently
+  `<div className="flex items-center gap-1 mt-1.5 text-sm text-muted-foreground">` with
+  `<MapPin className="w-3.5 h-3.5" />`.
+* **(E)** the footer, `<div className="flex items-center flex-wrap justify-between gap-2 mt-3 pt-3 border-t">`.
+
+**Reorder and restructure to:**
+
+```tsx
+{/* 1 — customer eyebrow, ticket id, chevron */}
+<div className="flex items-center gap-2">
+  {showCustomer && ticket.customer && (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <MapPin className="w-3 h-3 shrink-0 text-muted-foreground" />
+      <span className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        {ticket.customer.name}
+      </span>
+    </div>
+  )}
+  <span
+    className="ml-auto shrink-0 font-mono text-xs text-muted-foreground"
+    data-testid={`text-ticket-id-${ticket.id}`}
+  >
+    #{ticket.id.slice(0, 8)}
+  </span>
+  {!selectionMode && (
+    <ChevronRight className="w-5 h-5 shrink-0 text-muted-foreground" />
+  )}
+</div>
+
+{/* 2 — title */}
+<h3
+  className="mt-0.5 font-semibold text-base leading-tight line-clamp-2"
+  data-testid={`text-ticket-title-${ticket.id}`}
+>
+  {ticket.title}
+</h3>
+
+{/* 3 — badges */}
+<div className="flex items-center gap-2 flex-wrap mt-2">
+  … the full contents of old block (A), minus the ChevronRight …
+  … followed by the invoice-category Badge from old block (C), unwrapped from its
+    `<div className="mt-1.5">` but keeping its own conditional and testid …
+</div>
+
+{/* 4 — footer, byte-for-byte unchanged */}
+```
+
+Rules for this step:
+
+* **`ml-auto` moves off the ChevronRight and onto the `#id` span.** On the old row the
+  chevron carried `ml-auto` to push itself right. Now the id + chevron are a right-aligned
+  pair, so the *first* of them takes `ml-auto` and the chevron takes plain `shrink-0`.
+  Leaving `ml-auto` on both would push the id left and the chevron right with a gap
+  between them.
+* Row 1 is **not** `flex-wrap`. The eyebrow truncates; it must never push the id onto a
+  second line.
+* Keep every badge's conditional and `data-testid` exactly as-is:
+  `badge-overdue-*`, `badge-worktype-*`, `badge-needs-scheduling-*`,
+  `badge-action-type-waiting-*`, `badge-action-type-needs-action-*`,
+  `badge-invoice-category-*`, and `text-tickettype-*` on the type badge.
+* The `selectionMode` checkbox and the `hue` rail are **outside** `flex-1 min-w-0`. Do not
+  touch them.
+* Do not change `ticket.ticketType?.name === "Invoice"` — name comparisons are a separate
+  slice.
+* `MapPin` stays imported; it just gets smaller.
+
+## Step 2 — `pages/TicketsList.tsx`, the big card (~L1328, `card-ticket-*`)
+
+This card mirrors `TicketCard`. Apply Step 1 identically, using **this file's own**
+testids and conditionals — read them, do not copy the ones above. If a block listed in
+Step 1 does not exist here (for example no invoice-category badge), skip it rather than
+adding one.
+
+## Step 3 — `pages/TicketsList.tsx`, `KanbanCard` (~L1059)
+
+Narrower card, same idea, tighter scale. Current order is: type label + `#id` on one row,
+title, customer, then status. Change to:
+
+1. customer eyebrow + `#id` (`kanban-ticket-id-*`) — **no chevron**, kanban cards have none
+2. title (`kanban-title-*`)
+3. `<TicketTypeBadge … testId={`kanban-tickettype-${ticket.id}`} />` and any other badges
+4. status row — unchanged
+
+Keep the eyebrow classes from the top of this doc. In a ~280px column a long customer name
+will truncate to one line; that is intended — `truncate` plus `min-w-0` on the wrapper is
+what makes it degrade cleanly rather than wrap or overflow.
+
+## Step 4 — `pages/MyTickets.tsx`, `MyKanbanCard` (~L957)
+
+Same as Step 3 with this file's testids: `kanban-my-tickettype-*`,
+`kanban-my-ticket-id-*`, `kanban-my-title-*`, `kanban-my-customer-*`,
+`kanban-my-status-*`. The assignee name on the status row stays where it is.
+
+**Keep `data-testid={`kanban-my-customer-${ticket.id}`}` on the customer span** — it moves
+with the customer name to the eyebrow, it does not disappear.
+
+---
+
+## Out of scope
+
+* Any colour, hue, badge component, or status-pill change. V3 settled those.
+* The footer row on every surface — progress dots, status pill, due, created, assignee.
+* Equipment-ticket cards (`card-equip-ticket-*`, `card-my-equip-ticket-*`). Different
+  shape, no ticket type, leave them.
+* `MyTicketsPreview.tsx`.
+* `TicketDetail.tsx` — this slice does not touch the detail page at all.
+* Any server file, API, schema, or name comparison.
+
+## Done when
+
+1. Typecheck adds no errors over baseline.
+2. All four surfaces read: customer eyebrow → title → badges → footer.
+3. `grep -rn "data-testid" artifacts/highplains-crm/src/components/TicketCard.tsx | wc -l`
+   returns the same count as before the slice — no testid added or lost. Same for the two
+   kanban cards and the big card.
+4. On a customer's own tickets tab (`showCustomer={false}`) the card starts with the title
+   and the `#id` is still right-aligned on the row above it — no empty gap, no crash.
+5. A ticket with a very long customer name truncates on one line and does not push the
+   `#id` or chevron out of view, at both desktop and kanban-column width.
+6. Selection mode still shows the checkbox and hides the chevron.
+7. `git diff --stat` shows exactly three files: `TicketCard.tsx`, `TicketsList.tsx`,
+   `MyTickets.tsx`.
+
+## Report back
+
+`git diff --stat`, the before/after testid counts from criterion 3, and confirmation that
+each of the four surfaces matched the structure described in Step 1 before you edited it.
