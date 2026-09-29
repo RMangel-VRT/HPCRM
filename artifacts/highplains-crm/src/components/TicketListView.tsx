@@ -28,6 +28,7 @@ import type { Ticket, TicketTypeStatus, Customer, User as UserType, CompanyUser,
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { extractApiErrorMessage } from "@/lib/apiError";
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
 import TicketCard from "@/components/TicketCard";
@@ -236,36 +237,44 @@ export default function TicketListView({
       const res = await apiRequest("DELETE", "/api/tickets/batch", { ticketIds });
       return res.json();
     },
-    onSuccess: (result) => {
+    onSuccess: (result: { failed: { id: string; error: string }[]; summary: { deletedCount: number; failedCount: number } }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       if (customerId) {
         queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "tickets"] });
       }
       const { summary } = result;
       toast({
-        title: `Deleted ${summary.deletedCount} ticket${summary.deletedCount !== 1 ? "s" : ""}`,
+        title: summary.failedCount ? `Deleted ${summary.deletedCount}; ${summary.failedCount} failed` : `Deleted ${summary.deletedCount} ticket${summary.deletedCount !== 1 ? "s" : ""}`,
         description: summary.failedCount > 0 
-          ? `${summary.failedCount} failed to delete` 
+          ? `Failed tickets remain selected for retry. ${result.failed.slice(0, 3).map(f => `${f.id.slice(0, 8)}: ${f.error}`).join("; ")}`
           : undefined,
+        variant: summary.failedCount ? "destructive" : undefined,
       });
-      setSelectionMode(false);
+      setSelectedTicketIds(new Set(result.failed.map(f => f.id)));
+      if (!summary.failedCount) setSelectionMode(false);
       setDeleteConfirmOpen(false);
     },
     onError: (error: Error) => {
       toast({ 
         title: "Failed to delete tickets", 
-        description: error.message || "An unexpected error occurred",
+        description: extractApiErrorMessage(error) ?? "An unexpected error occurred",
         variant: "destructive" 
       });
     },
   });
 
   const toggleTicketSelection = (ticketId: string) => {
+    if (!isAdmin || batchDeleteMutation.isPending) return;
     setSelectedTicketIds(prev => {
       const newSet = new Set(prev);
       if (newSet.has(ticketId)) {
         newSet.delete(ticketId);
       } else {
+        if (newSet.size >= 100) {
+          toast({ title: "Maximum 100 tickets", variant: "destructive" });
+          return prev;
+        }
         newSet.add(ticketId);
       }
       return newSet;
@@ -273,8 +282,14 @@ export default function TicketListView({
   };
 
   const selectAllVisible = () => {
-    const allVisibleIds = [...openTickets, ...completedTickets].map(t => t.id);
-    setSelectedTicketIds(new Set(allVisibleIds));
+    const visible = [...(!openSectionCollapsed ? openTickets : []), ...(!completedSectionCollapsed ? completedTickets.slice((completedPage - 1) * completedPerPage, completedPage * completedPerPage) : [])];
+    const ids = new Set(selectedTicketIds);
+    for (const ticket of visible) {
+      if (ids.size >= 100) break;
+      ids.add(ticket.id);
+    }
+    setSelectedTicketIds(ids);
+    if (ids.size === 100 && visible.some(t => !ids.has(t.id))) toast({ title: "Maximum 100 tickets", description: "Only the first 100 selectable tickets were selected." });
   };
 
   const clearSelection = () => {
@@ -282,7 +297,7 @@ export default function TicketListView({
   };
 
   const handleBatchDelete = () => {
-    if (selectedTicketIds.size > 0) {
+    if (isAdmin && selectedTicketIds.size > 0 && selectedTicketIds.size <= 100 && !batchDeleteMutation.isPending) {
       batchDeleteMutation.mutate(Array.from(selectedTicketIds));
     }
   };
@@ -337,13 +352,14 @@ export default function TicketListView({
                     className="gap-2"
                   >
                     <Checkbox className="w-4 h-4" />
-                    <span className="hidden sm:inline">Select</span>
+                     <span>Select tickets</span>
                   </Button>
                 ) : (
                   <Button 
                     variant="outline" 
                     size="default" 
-                    onClick={() => setSelectionMode(false)}
+                     onClick={() => { setSelectionMode(false); clearSelection(); }}
+                     disabled={batchDeleteMutation.isPending}
                     data-testid="button-exit-select-mode" 
                     className="gap-2"
                   >
@@ -537,44 +553,39 @@ export default function TicketListView({
           </CardContent>
         </Card>
       )}
-      {filteredTickets.length > 0 && (
-        <div className="space-y-4">
-          {selectionMode && (
+      {selectionMode && isAdmin && (
             <div className="flex items-center justify-between gap-3 py-2 px-3 bg-muted/50 rounded-lg">
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium">
-                  {selectedTicketIds.size} selected
+                  {selectedTicketIds.size} / 100 selected
                 </span>
                 <Button 
                   variant="ghost" 
                   size="sm" 
                   onClick={selectAllVisible}
+                  disabled={batchDeleteMutation.isPending}
                   data-testid="button-select-all"
                 >
-                  Select All ({filteredTickets.length})
+                  Select visible (up to 100)
                 </Button>
                 {selectedTicketIds.size > 0 && (
                   <Button 
                     variant="ghost" 
                     size="sm" 
                     onClick={clearSelection}
+                    disabled={batchDeleteMutation.isPending}
                     data-testid="button-clear-selection"
                   >
                     Clear
                   </Button>
                 )}
               </div>
-              {selectedTicketIds.size > 100 && (
-                <span className="text-xs text-destructive font-medium">
-                  Max 100 at once
-                </span>
-              )}
               {selectedTicketIds.size > 0 && (
                 <Button 
                   variant="destructive" 
                   size="sm"
                   onClick={() => setDeleteConfirmOpen(true)}
-                  disabled={selectedTicketIds.size > 100}
+                  disabled={batchDeleteMutation.isPending}
                   data-testid="button-delete-selected"
                   className="gap-2"
                 >
@@ -583,7 +594,9 @@ export default function TicketListView({
                 </Button>
               )}
             </div>
-          )}
+      )}
+      {filteredTickets.length > 0 && (
+        <div className="space-y-4">
 
           {openTickets.length > 0 && (
             <div className="space-y-3 md:space-y-2">
@@ -771,7 +784,7 @@ export default function TicketListView({
         </>
       )}
 
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => { if (!batchDeleteMutation.isPending) setDeleteConfirmOpen(open); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {selectedTicketIds.size} ticket{selectedTicketIds.size !== 1 ? "s" : ""}?</AlertDialogTitle>
@@ -780,9 +793,9 @@ export default function TicketListView({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={batchDeleteMutation.isPending} data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
             <AlertDialogAction 
-              onClick={handleBatchDelete}
+              onClick={(event) => { event.preventDefault(); handleBatchDelete(); }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={batchDeleteMutation.isPending}
               data-testid="button-confirm-delete"

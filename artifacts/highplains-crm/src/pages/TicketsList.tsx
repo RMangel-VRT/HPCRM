@@ -37,6 +37,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractApiErrorMessage } from "@/lib/apiError";
+import { saveTicketOrigin, ticketDetailHref, RETURN_SCROLL_KEY } from "@/lib/ticketListReturn";
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
@@ -88,6 +89,7 @@ export default function TicketsList() {
   const searchString = useSearch();
   const hasRestoredScroll = useRef(false);
   const isUpdatingFromUrl = useRef(false);
+  const urlSyncedFilters = useRef<string | null>(null);
   
   // Parse URL params for filter state
   const urlParams = useMemo(() => new URLSearchParams(searchString), [searchString]);
@@ -112,9 +114,9 @@ export default function TicketsList() {
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   
   // Collapsible section states
-  const [openSectionCollapsed, setOpenSectionCollapsed] = useState(false);
-  const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
-  const [equipmentSectionCollapsed, setEquipmentSectionCollapsed] = useState(false);
+  const [openSectionCollapsed, setOpenSectionCollapsed] = useState(urlParams.get("openCollapsed") === "true");
+  const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(urlParams.get("completedCollapsed") === "true");
+  const [equipmentSectionCollapsed, setEquipmentSectionCollapsed] = useState(urlParams.get("equipmentCollapsed") === "true");
   
   // Sync state from URL when URL changes (e.g., browser back/forward)
   const prevSearchString = useRef(searchString);
@@ -124,6 +126,12 @@ export default function TicketsList() {
     prevSearchString.current = searchString;
     
     isUpdatingFromUrl.current = true;
+    urlSyncedFilters.current = JSON.stringify([
+      urlParams.get("q") || "", urlParams.get("priority") || "all",
+      urlParams.get("type") || "", urlParams.get("workType") || "all",
+      urlParams.get("status") || "all", urlParams.get("assignedTo") || "all",
+      urlParams.get("actionType") || "all", urlParams.get("needsScheduling") === "true",
+    ]);
     setSearch(urlParams.get("q") || "");
     setPriorityFilter(urlParams.get("priority") || "all");
     const rawType = urlParams.get("type");
@@ -135,8 +143,12 @@ export default function TicketsList() {
     setShowNeedsScheduling(urlParams.get("needsScheduling") === "true");
     const rv = urlParams.get("view");
     setViewMode((rv === "kanban-type" || rv === "kanban-user") ? rv : "list");
+    setCompletedPage(Math.max(1, Number.parseInt(urlParams.get("completedPage") || "1", 10) || 1));
+    setOpenSectionCollapsed(urlParams.get("openCollapsed") === "true");
+    setCompletedSectionCollapsed(urlParams.get("completedCollapsed") === "true");
+    setEquipmentSectionCollapsed(urlParams.get("equipmentCollapsed") === "true");
   }, [searchString, urlParams]);
-  const [completedPage, setCompletedPage] = useState(1);
+  const [completedPage, setCompletedPage] = useState(() => Math.max(1, Number.parseInt(urlParams.get("completedPage") || "1", 10) || 1));
   const completedPerPage = 10;
   const [batchToDoOpen, setBatchToDoOpen] = useState(false);
   const [batchInvoiceOpen, setBatchInvoiceOpen] = useState(false);
@@ -169,6 +181,10 @@ export default function TicketsList() {
     if (actionTypeFilter !== "all") params.set("actionType", actionTypeFilter);
     if (showNeedsScheduling) params.set("needsScheduling", "true");
     if (viewMode !== "list") params.set("view", viewMode);
+    if (completedPage > 1) params.set("completedPage", String(completedPage));
+    if (openSectionCollapsed) params.set("openCollapsed", "true");
+    if (completedSectionCollapsed) params.set("completedCollapsed", "true");
+    if (equipmentSectionCollapsed) params.set("equipmentCollapsed", "true");
     
     const queryString = params.toString();
     const currentQuery = searchString.startsWith("?") ? searchString.slice(1) : searchString;
@@ -181,18 +197,20 @@ export default function TicketsList() {
     
     // Use replace to avoid adding to browser history on every keystroke
     window.history.replaceState(null, "", newUrl);
-  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, actionTypeFilter, showNeedsScheduling, viewMode, searchString, hasPendingView]);
+  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, actionTypeFilter, showNeedsScheduling, viewMode, completedPage, openSectionCollapsed, completedSectionCollapsed, equipmentSectionCollapsed, searchString, hasPendingView]);
 
   // Save scroll position before navigating away
   const saveScrollPosition = useCallback(() => {
-    const scrollContainer = document.querySelector('[data-radix-scroll-area-viewport]') || 
-                           document.querySelector('main') ||
-                           window;
+    const scrollContainer = document.querySelector('main') || window;
     const scrollTop = scrollContainer === window 
       ? window.scrollY 
       : (scrollContainer as HTMLElement).scrollTop;
     sessionStorage.setItem(SCROLL_STORAGE_KEY, String(scrollTop));
   }, []);
+  const onOpenTicket = useCallback((ticketId: string) => {
+    saveScrollPosition();
+    saveTicketOrigin(ticketId);
+  }, [saveScrollPosition]);
 
 
   useSetBreadcrumbs([
@@ -240,15 +258,14 @@ export default function TicketsList() {
   useEffect(() => {
     if (!isDataLoaded || hasRestoredScroll.current) return;
     
-    const savedPosition = sessionStorage.getItem(SCROLL_STORAGE_KEY);
+    const savedPosition = sessionStorage.getItem(RETURN_SCROLL_KEY) ?? sessionStorage.getItem(SCROLL_STORAGE_KEY);
     if (savedPosition) {
       hasRestoredScroll.current = true;
       const scrollTop = parseInt(savedPosition, 10);
       // Use double requestAnimationFrame to ensure DOM has rendered with data
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          const scrollContainer = document.querySelector('[data-radix-scroll-area-viewport]') || 
-                                 document.querySelector('main');
+          const scrollContainer = document.querySelector('main');
           if (scrollContainer) {
             (scrollContainer as HTMLElement).scrollTop = scrollTop;
           } else {
@@ -258,10 +275,11 @@ export default function TicketsList() {
       });
       // Clear stored position after restoring
       sessionStorage.removeItem(SCROLL_STORAGE_KEY);
+      sessionStorage.removeItem(RETURN_SCROLL_KEY);
     } else {
       hasRestoredScroll.current = true;
     }
-  }, [isDataLoaded]);
+  }, [isDataLoaded, completedPage]);
 
   // Create a lookup map for users by ID (extract user from companyUser structure)
   const usersMap = useMemo(() => {
@@ -378,9 +396,22 @@ export default function TicketsList() {
   const completedTickets = filteredTickets.filter(t => t.completedAt);
   
   // Reset completed page when filters change
+  const filtersInitialized = useRef(false);
   useEffect(() => {
+    if (!filtersInitialized.current) {
+      filtersInitialized.current = true;
+      return;
+    }
+    const signature = JSON.stringify([
+      search, priorityFilter, typeFilters.join(","), workTypeFilter,
+      statusFilter, assignedToFilter, actionTypeFilter, showNeedsScheduling,
+    ]);
+    if (signature === urlSyncedFilters.current) {
+      urlSyncedFilters.current = null;
+      return;
+    }
     setCompletedPage(1);
-  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, showNeedsScheduling]);
+  }, [search, priorityFilter, typeFilters, workTypeFilter, statusFilter, assignedToFilter, actionTypeFilter, showNeedsScheduling]);
 
   // Reset statusFilter when type selection changes to 0 or 2+
   useEffect(() => {
@@ -397,10 +428,10 @@ export default function TicketsList() {
   // Clamp page when data changes (e.g., after refetch)
   useEffect(() => {
     const totalPages = Math.ceil(completedTickets.length / completedPerPage);
-    if (completedPage > totalPages && totalPages > 0) {
-      setCompletedPage(totalPages);
+    if (isDataLoaded && completedPage > Math.max(1, totalPages)) {
+      setCompletedPage(Math.max(1, totalPages));
     }
-  }, [completedTickets.length, completedPage, completedPerPage]);
+  }, [completedTickets.length, completedPage, completedPerPage, isDataLoaded]);
 
   // Clear selection when exiting selection mode
   useEffect(() => {
@@ -415,16 +446,20 @@ export default function TicketsList() {
       const res = await apiRequest("DELETE", "/api/tickets/batch", { ticketIds });
       return res.json();
     },
-    onSuccess: (result) => {
+    onSuccess: (result: { deleted: string[]; failed: { id: string; error: string }[]; summary: { deletedCount: number; failedCount: number } }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
       const { summary } = result;
       toast({
-        title: `Deleted ${summary.deletedCount} ticket${summary.deletedCount !== 1 ? "s" : ""}`,
+        title: summary.failedCount ? `Deleted ${summary.deletedCount}; ${summary.failedCount} failed` : `Deleted ${summary.deletedCount} ticket${summary.deletedCount !== 1 ? "s" : ""}`,
         description: summary.failedCount > 0 
-          ? `${summary.failedCount} failed to delete` 
+          ? `Failed tickets remain selected for retry. ${result.failed.slice(0, 3).map(f => `${f.id.slice(0, 8)}: ${f.error}`).join("; ")}`
           : undefined,
+        variant: summary.failedCount ? "destructive" : undefined,
       });
-      setSelectionMode(false);
+      setSelectedTicketIds(new Set(result.failed.map(f => f.id)));
+      if (summary.failedCount === 0) setSelectionMode(false);
       setDeleteConfirmOpen(false);
     },
     onError: (error: Error) => {
@@ -438,11 +473,16 @@ export default function TicketsList() {
 
 
   const toggleTicketSelection = (ticketId: string) => {
+    if (!isAdmin || batchDeleteMutation.isPending) return;
     setSelectedTicketIds(prev => {
       const newSet = new Set(prev);
       if (newSet.has(ticketId)) {
         newSet.delete(ticketId);
       } else {
+        if (newSet.size >= 100) {
+          toast({ title: "Maximum 100 tickets", description: "Delete this selection before selecting more.", variant: "destructive" });
+          return prev;
+        }
         newSet.add(ticketId);
       }
       return newSet;
@@ -450,8 +490,20 @@ export default function TicketsList() {
   };
 
   const selectAllVisible = () => {
-    const allVisibleIds = [...openTickets, ...completedTickets].map(t => t.id);
-    setSelectedTicketIds(new Set(allVisibleIds));
+    // Only the displayed cards are selected; completed tickets on other pages are excluded.
+    const visibleOpen = viewMode === "kanban-type"
+      ? openTickets.filter(t => ticketTypes.some(type => type.id === t.ticketTypeId))
+      : openTickets;
+    const visible = [...visibleOpen, ...(viewMode === "list" && !completedSectionCollapsed ? completedTickets.slice((completedPage - 1) * completedPerPage, completedPage * completedPerPage) : [])].filter(t => viewMode !== "list" || (!t.completedAt ? !openSectionCollapsed : true));
+    const ids = new Set(selectedTicketIds);
+    for (const ticket of visible) {
+      if (ids.size >= 100) break;
+      ids.add(ticket.id);
+    }
+    setSelectedTicketIds(ids);
+    if (ids.size === 100 && visible.some(t => !ids.has(t.id))) {
+      toast({ title: "Maximum 100 tickets", description: "Only the first 100 selectable tickets were selected." });
+    }
   };
 
   const clearSelection = () => {
@@ -459,7 +511,7 @@ export default function TicketsList() {
   };
 
   const handleBatchDelete = () => {
-    if (selectedTicketIds.size > 0) {
+    if (isAdmin && selectedTicketIds.size > 0 && selectedTicketIds.size <= 100 && !batchDeleteMutation.isPending) {
       batchDeleteMutation.mutate(Array.from(selectedTicketIds));
     }
   };
@@ -509,13 +561,14 @@ export default function TicketsList() {
                   className="gap-2"
                 >
                   <Checkbox className="w-4 h-4" />
-                  <span className="hidden sm:inline">Select</span>
+                  <span>Select tickets</span>
                 </Button>
               ) : (
                 <Button 
                   variant="outline" 
                   size="default" 
                   onClick={() => setSelectionMode(false)}
+                  disabled={batchDeleteMutation.isPending}
                   data-testid="button-exit-select-mode" 
                   className="gap-2"
                 >
@@ -743,7 +796,11 @@ export default function TicketsList() {
           allStatuses={allStatuses}
           usersMap={usersMap}
           schedulingStatusId={schedulingStatusId}
-          onNavigate={saveScrollPosition}
+          onNavigate={onOpenTicket}
+          ticketHref={ticketDetailHref}
+          selectionMode={selectionMode}
+          selectedTicketIds={selectedTicketIds}
+          onToggleSelect={toggleTicketSelection}
         />
       )}
 
@@ -753,8 +810,31 @@ export default function TicketsList() {
           usersMap={usersMap}
           allStatuses={allStatuses}
           schedulingStatusId={schedulingStatusId}
-          onNavigate={saveScrollPosition}
+          onNavigate={onOpenTicket}
+          ticketHref={ticketDetailHref}
+          selectionMode={selectionMode}
+          selectedTicketIds={selectedTicketIds}
+          onToggleSelect={toggleTicketSelection}
         />
+      )}
+
+      {isAdmin && selectionMode && (
+        <div className="flex flex-wrap items-center gap-2 py-2 px-3 bg-muted/50 rounded-lg" data-testid="ticket-selection-toolbar">
+          <span className="text-sm font-medium" data-testid="text-selected-count">{selectedTicketIds.size} / 100 selected</span>
+          <span className="text-xs text-muted-foreground">Select visible cards only; selections remain when filters or views change.</span>
+          <Button variant="ghost" size="sm" onClick={selectAllVisible} disabled={batchDeleteMutation.isPending} data-testid="button-select-all">
+            Select visible (up to 100)
+          </Button>
+          {selectedTicketIds.size > 0 && (
+            <>
+              <Button variant="ghost" size="sm" onClick={clearSelection} disabled={batchDeleteMutation.isPending} data-testid="button-clear-selection">Clear</Button>
+              <Button variant="destructive" size="sm" onClick={() => setDeleteConfirmOpen(true)}
+                disabled={batchDeleteMutation.isPending} data-testid="button-delete-selected" className="gap-2 ml-auto">
+                <Trash2 className="w-4 h-4" /> Delete ({selectedTicketIds.size})
+              </Button>
+            </>
+          )}
+        </div>
       )}
 
       {viewMode === "list" && filteredTickets.length === 0 ? (
@@ -783,53 +863,6 @@ export default function TicketsList() {
         </Card>
       ) : viewMode === "list" ? (
         <div className="space-y-4">
-          {/* Selection mode header */}
-          {selectionMode && (
-            <div className="flex items-center justify-between gap-3 py-2 px-3 bg-muted/50 rounded-lg">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium">
-                  {selectedTicketIds.size} selected
-                </span>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={selectAllVisible}
-                  data-testid="button-select-all"
-                >
-                  Select All ({filteredTickets.length})
-                </Button>
-                {selectedTicketIds.size > 0 && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={clearSelection}
-                    data-testid="button-clear-selection"
-                  >
-                    Clear
-                  </Button>
-                )}
-              </div>
-              {selectedTicketIds.size > 100 && (
-                <span className="text-xs text-destructive font-medium">
-                  Max 100 at once
-                </span>
-              )}
-              {selectedTicketIds.size > 0 && (
-                <Button 
-                  variant="destructive" 
-                  size="sm"
-                  onClick={() => setDeleteConfirmOpen(true)}
-                  disabled={selectedTicketIds.size > 100}
-                  data-testid="button-delete-selected"
-                  className="gap-2"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete ({selectedTicketIds.size})
-                </Button>
-              )}
-            </div>
-          )}
-
           {openTickets.length > 0 && (
             <div className="space-y-3 md:space-y-2">
               <button 
@@ -852,7 +885,8 @@ export default function TicketsList() {
                       selectionMode={selectionMode}
                       isSelected={selectedTicketIds.has(ticket.id)}
                       onToggleSelect={() => toggleTicketSelection(ticket.id)}
-                      onNavigate={saveScrollPosition}
+                      onNavigate={() => onOpenTicket(ticket.id)}
+                      href={ticketDetailHref(ticket.id)}
                       workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
                     />
                   ))}
@@ -889,7 +923,8 @@ export default function TicketsList() {
                           selectionMode={selectionMode}
                           isSelected={selectedTicketIds.has(ticket.id)}
                           onToggleSelect={() => toggleTicketSelection(ticket.id)}
-                          onNavigate={saveScrollPosition}
+                          onNavigate={() => onOpenTicket(ticket.id)}
+                          href={ticketDetailHref(ticket.id)}
                           workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
                         />
                       ))}
@@ -1012,7 +1047,7 @@ export default function TicketsList() {
       />
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => { if (!batchDeleteMutation.isPending) setDeleteConfirmOpen(open); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {selectedTicketIds.size} ticket{selectedTicketIds.size !== 1 ? "s" : ""}?</AlertDialogTitle>
@@ -1021,9 +1056,9 @@ export default function TicketsList() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={batchDeleteMutation.isPending} data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
             <AlertDialogAction 
-              onClick={handleBatchDelete}
+              onClick={(event) => { event.preventDefault(); handleBatchDelete(); }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={batchDeleteMutation.isPending}
               data-testid="button-confirm-delete"
@@ -1054,22 +1089,26 @@ interface KanbanCardProps {
   usersMap: Map<string, UserType>;
   allStatuses: TicketTypeStatus[];
   schedulingStatusId?: string | null;
-  onNavigate?: () => void;
+  onNavigate?: (id: string) => void;
+  ticketHref: (id: string) => string;
+  selectionMode: boolean;
+  selectedTicketIds: Set<string>;
+  onToggleSelect: (id: string) => void;
 }
 
-function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavigate }: KanbanCardProps) {
+function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect }: KanbanCardProps) {
   const hue = ticketHue(ticket.ticketType);
   const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
   const currentStatus = allStatuses.find(s => s.id === ticket.currentStatusId);
 
-  return (
-    <Link href={`/dashboard/tickets/${ticket.id}`} onClick={() => onNavigate?.()}>
+  const content = (
       <Card
-        className={`hover-elevate active-elevate-2 cursor-pointer mb-2 ${needsScheduling ? "ring-2 ring-pink-500 dark:ring-pink-400" : ""}`}
+        className={`hover-elevate active-elevate-2 cursor-pointer mb-2 ${selectedTicketIds.has(ticket.id) && selectionMode ? "ring-2 ring-primary" : ""} ${needsScheduling ? "ring-2 ring-pink-500 dark:ring-pink-400" : ""}`}
         data-testid={`kanban-card-ticket-${ticket.id}`}
       >
         <CardContent className="p-3">
           <div className="flex items-start gap-2">
+            {selectionMode && <Checkbox checked={selectedTicketIds.has(ticket.id)} aria-label={`Select ${ticket.title}`} data-testid={`checkbox-ticket-${ticket.id}`} />}
             <div className="w-1.5 self-stretch rounded-full shrink-0" style={{ backgroundColor: hue }} />
             <div className="flex-1 min-w-0">
               {/* Customer eyebrow + ticket ID */}
@@ -1138,8 +1177,10 @@ function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavig
           </div>
         </CardContent>
       </Card>
-    </Link>
   );
+  return selectionMode
+    ? <button type="button" className="w-full text-left" onClick={() => onToggleSelect(ticket.id)} data-testid={`select-kanban-ticket-${ticket.id}`}>{content}</button>
+    : <Link href={ticketHref(ticket.id)} onClick={() => onNavigate?.(ticket.id)}>{content}</Link>;
 }
 
 interface KanbanColumnProps {
@@ -1149,11 +1190,15 @@ interface KanbanColumnProps {
   usersMap: Map<string, UserType>;
   allStatuses: TicketTypeStatus[];
   schedulingStatusId?: string | null;
-  onNavigate?: () => void;
+  onNavigate?: (id: string) => void;
+  ticketHref: (id: string) => string;
+  selectionMode: boolean;
+  selectedTicketIds: Set<string>;
+  onToggleSelect: (id: string) => void;
   testId?: string;
 }
 
-function KanbanColumn({ title, color, tickets, usersMap, allStatuses, schedulingStatusId, onNavigate, testId }: KanbanColumnProps) {
+function KanbanColumn({ title, color, tickets, usersMap, allStatuses, schedulingStatusId, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect, testId }: KanbanColumnProps) {
   return (
     <div
       className="flex flex-col shrink-0 w-72 bg-muted/30 rounded-md border"
@@ -1183,6 +1228,10 @@ function KanbanColumn({ title, color, tickets, usersMap, allStatuses, scheduling
               allStatuses={allStatuses}
               schedulingStatusId={schedulingStatusId}
               onNavigate={onNavigate}
+              ticketHref={ticketHref}
+              selectionMode={selectionMode}
+              selectedTicketIds={selectedTicketIds}
+              onToggleSelect={onToggleSelect}
             />
           ))
         )}
@@ -1197,10 +1246,14 @@ interface KanbanByTypeProps {
   allStatuses: TicketTypeStatus[];
   usersMap: Map<string, UserType>;
   schedulingStatusId?: string | null;
-  onNavigate?: () => void;
+  onNavigate?: (id: string) => void;
+  ticketHref: (id: string) => string;
+  selectionMode: boolean;
+  selectedTicketIds: Set<string>;
+  onToggleSelect: (id: string) => void;
 }
 
-function KanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, schedulingStatusId, onNavigate }: KanbanByTypeProps) {
+function KanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, schedulingStatusId, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect }: KanbanByTypeProps) {
   const columns = ticketTypes.map(tt => ({
     id: tt.id,
     title: tt.name,
@@ -1228,6 +1281,10 @@ function KanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, schedul
           allStatuses={allStatuses}
           schedulingStatusId={schedulingStatusId}
           onNavigate={onNavigate}
+          ticketHref={ticketHref}
+          selectionMode={selectionMode}
+          selectedTicketIds={selectedTicketIds}
+          onToggleSelect={onToggleSelect}
           testId={`kanban-col-type-${col.id}`}
         />
       ))}
@@ -1240,10 +1297,14 @@ interface KanbanByUserProps {
   usersMap: Map<string, UserType>;
   allStatuses: TicketTypeStatus[];
   schedulingStatusId?: string | null;
-  onNavigate?: () => void;
+  onNavigate?: (id: string) => void;
+  ticketHref: (id: string) => string;
+  selectionMode: boolean;
+  selectedTicketIds: Set<string>;
+  onToggleSelect: (id: string) => void;
 }
 
-function KanbanByUser({ openTickets, usersMap, allStatuses, schedulingStatusId, onNavigate }: KanbanByUserProps) {
+function KanbanByUser({ openTickets, usersMap, allStatuses, schedulingStatusId, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect }: KanbanByUserProps) {
   const unassignedTickets = openTickets.filter(t => !t.assignedToId);
   
   const assignedUserIds = useMemo(() => {
@@ -1279,6 +1340,10 @@ function KanbanByUser({ openTickets, usersMap, allStatuses, schedulingStatusId, 
         allStatuses={allStatuses}
         schedulingStatusId={schedulingStatusId}
         onNavigate={onNavigate}
+        ticketHref={ticketHref}
+        selectionMode={selectionMode}
+        selectedTicketIds={selectedTicketIds}
+        onToggleSelect={onToggleSelect}
         testId="kanban-col-unassigned"
       />
       {userColumns.map(col => (
@@ -1290,6 +1355,10 @@ function KanbanByUser({ openTickets, usersMap, allStatuses, schedulingStatusId, 
           allStatuses={allStatuses}
           schedulingStatusId={schedulingStatusId}
           onNavigate={onNavigate}
+          ticketHref={ticketHref}
+          selectionMode={selectionMode}
+          selectedTicketIds={selectedTicketIds}
+          onToggleSelect={onToggleSelect}
           testId={`kanban-col-user-${col.userId}`}
         />
       ))}
@@ -1308,10 +1377,11 @@ interface TicketCardProps {
   isSelected?: boolean;
   onToggleSelect?: () => void;
   onNavigate?: () => void;
+  href?: string;
   workflowStatuses?: TicketTypeStatus[];
 }
 
-function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selectionMode, isSelected, onToggleSelect, onNavigate, workflowStatuses = [] }: TicketCardProps) {
+function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selectionMode, isSelected, onToggleSelect, onNavigate, href, workflowStatuses = [] }: TicketCardProps) {
   const dueInfo = formatDueDate(ticket.dueDate);
 
   const createdDate = ticket.createdAt ? new Date(ticket.createdAt) : null;
@@ -1555,14 +1625,14 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
   // Otherwise, clicking navigates to ticket detail
   if (selectionMode) {
     return (
-      <div onClick={() => onToggleSelect?.()}>
+      <div role="checkbox" aria-checked={!!isSelected} tabIndex={0} onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onToggleSelect?.(); } }} onClick={() => onToggleSelect?.()}>
         {cardInner}
       </div>
     );
   }
 
   return (
-    <Link href={`/dashboard/tickets/${ticket.id}`} onClick={() => onNavigate?.()}>
+    <Link href={href ?? `/dashboard/tickets/${ticket.id}`} onClick={() => onNavigate?.()}>
       {cardInner}
     </Link>
   );

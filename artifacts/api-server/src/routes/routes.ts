@@ -7339,7 +7339,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin role required for batch deletion");
     }
 
-    const { ticketIds } = req.body;
+    const ticketIds = req.body?.ticketIds;
 
     if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
       return res.status(400).send("ticketIds array is required");
@@ -7348,12 +7348,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (ticketIds.length > 100) {
       return res.status(400).send("Cannot delete more than 100 tickets at once");
     }
+    if (ticketIds.some((id: unknown) => typeof id !== "string" || !id.trim()) ||
+        new Set(ticketIds).size !== ticketIds.length) {
+      return res.status(400).send("ticketIds must contain distinct ticket IDs");
+    }
 
     const deleted: string[] = [];
     const failed: Array<{ id: string; error: string }> = [];
 
     for (const ticketId of ticketIds) {
       try {
+        // deleteTicket is a no-op for missing/foreign-company IDs. Do not report
+        // those as successfully deleted in the per-ticket batch result.
+        if (!await storage.getTicketById(ticketId, user.activeCompanyId)) {
+          failed.push({ id: ticketId, error: "Ticket not found" });
+          continue;
+        }
         await storage.deleteTicket(ticketId, user.activeCompanyId);
         deleted.push(ticketId);
       } catch (err) {

@@ -72,6 +72,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { consumeTicketOrigin, RETURN_MARKER, RETURN_SCROLL_KEY } from "@/lib/ticketListReturn";
 import { DatePickerField } from "@/components/DatePickerField";
 import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import { TicketWorkItemsCard } from "@/components/TicketWorkItemsCard";
@@ -406,8 +407,17 @@ export default function TicketDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
       toast({ title: t('ticketDetail.deleted') });
-      setLocation("/dashboard/tickets");
+      const origin = new URLSearchParams(window.location.search).get(RETURN_MARKER) === "1" && ticketId
+        ? consumeTicketOrigin(ticketId) : null;
+      sessionStorage.removeItem("ticketsList_scrollPosition");
+      if (origin) {
+        sessionStorage.setItem(RETURN_SCROLL_KEY, String(origin.scrollTop));
+      } else {
+        sessionStorage.removeItem(RETURN_SCROLL_KEY);
+      }
+      setLocation(origin?.url ?? "/dashboard/tickets");
     },
     onError: (error: Error) => {
       toast({ title: t('tickets.deleteFailed'), description: error.message, variant: "destructive" });
