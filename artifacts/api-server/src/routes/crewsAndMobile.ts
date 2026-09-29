@@ -36,6 +36,7 @@ import {
 } from "../mobileAuth";
 import type { UserWithContext } from "../auth";
 import { addPushSubscription, removePushSubscription } from "../services/pushNotifications";
+import { pickProvided } from "../lib/patchBody";
 
 // Mobile v1 Slice 6: shape stored in users.notification_prefs_json.
 const notificationPrefsSchema = z.object({
@@ -163,12 +164,13 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       res.status(400).json({ message: "Invalid crew", errors: parsed.error.flatten() });
       return;
     }
-    if (parsed.data.supervisorUserId) {
+    const updates = pickProvided(parsed.data, req.body);
+    if (updates.supervisorUserId) {
       const [m] = await db
         .select()
         .from(companyUsers)
         .where(and(
-          eq(companyUsers.userId, parsed.data.supervisorUserId),
+          eq(companyUsers.userId, updates.supervisorUserId),
           eq(companyUsers.companyId, u.activeCompanyId),
           eq(companyUsers.status, "active"),
         ));
@@ -180,7 +182,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     try {
       const [updated] = await db
         .update(crews)
-        .set({ ...parsed.data, updatedAt: new Date() })
+        .set({ ...updates, updatedAt: new Date() })
         .where(and(eq(crews.id, req.params.id), eq(crews.companyId, u.activeCompanyId)))
         .returning();
       if (!updated) {
@@ -856,9 +858,10 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       res.status(400).json({ message: "Invalid site note", errors: parsed.error.flatten() });
       return;
     }
+    const updates = pickProvided(parsed.data, req.body);
     const [updated] = await db
       .update(propertySiteNotes)
-      .set({ ...parsed.data, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date() })
       .where(and(
         eq(propertySiteNotes.id, req.params.id),
         eq(propertySiteNotes.customerId, req.params.customerId),
@@ -960,9 +963,10 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       res.status(400).json({ message: "Invalid template", errors: parsed.error.flatten() });
       return;
     }
+    const updates = pickProvided(parsed.data, req.body);
     const [updated] = await db
       .update(serviceTypeTemplates)
-      .set({ ...parsed.data, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date() })
       .where(and(
         eq(serviceTypeTemplates.id, req.params.id),
         eq(serviceTypeTemplates.companyId, u.activeCompanyId),
@@ -1047,9 +1051,10 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       res.status(400).json({ message: "Invalid item", errors: parsed.error.flatten() });
       return;
     }
+    const updates = pickProvided(parsed.data, req.body);
     const [updated] = await db
       .update(serviceTypeTemplateItems)
-      .set({ ...parsed.data, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date() })
       .where(and(
         eq(serviceTypeTemplateItems.id, req.params.id),
         eq(serviceTypeTemplateItems.templateId, req.params.templateId),

@@ -2965,32 +2965,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
+    const updates = pickProvided(result.data, updateData);
 
     // Validate property manager belongs to property management company
-    const hasManagerId = result.data.propertyManagerId !== undefined;
-    const hasCompanyId = result.data.propertyManagementCompanyId !== undefined;
+    const hasManagerId = updates.propertyManagerId !== undefined;
+    const hasCompanyId = updates.propertyManagementCompanyId !== undefined;
     
     // If company is being cleared to null, also clear the manager
-    if (hasCompanyId && result.data.propertyManagementCompanyId === null) {
-      result.data.propertyManagerId = null;
+    if (hasCompanyId && updates.propertyManagementCompanyId === null) {
+      updates.propertyManagerId = null;
     }
     
     // If company is being changed (non-null), validate or clear the existing manager
-    if (hasCompanyId && result.data.propertyManagementCompanyId && !hasManagerId) {
+    if (hasCompanyId && updates.propertyManagementCompanyId && !hasManagerId) {
       // Company is changing but no manager in payload - check if existing manager is valid
       const existingCustomer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
       if (existingCustomer?.propertyManagerId) {
         const existingManager = await storage.getPropertyManagerById(existingCustomer.propertyManagerId, user.activeCompanyId);
         // If existing manager doesn't belong to new company, clear it
-        if (!existingManager || existingManager.propertyManagementCompanyId !== result.data.propertyManagementCompanyId) {
-          result.data.propertyManagerId = null;
+        if (!existingManager || existingManager.propertyManagementCompanyId !== updates.propertyManagementCompanyId) {
+          updates.propertyManagerId = null;
         }
       }
     }
     
-    if (hasManagerId && result.data.propertyManagerId) {
+    if (hasManagerId && updates.propertyManagerId) {
       // Get the company ID - either from the update data or from existing customer
-      let companyIdToCheck = result.data.propertyManagementCompanyId;
+      let companyIdToCheck = updates.propertyManagementCompanyId;
       
       if (!hasCompanyId) {
         // propertyManagementCompanyId not in update payload - fetch from existing customer
@@ -3004,19 +3005,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).send("Cannot assign a property manager without a property management company");
       }
       
-      const manager = await storage.getPropertyManagerById(result.data.propertyManagerId, user.activeCompanyId);
+      const manager = await storage.getPropertyManagerById(updates.propertyManagerId, user.activeCompanyId);
       if (!manager || manager.propertyManagementCompanyId !== companyIdToCheck) {
         return res.status(400).send("Property manager does not belong to the selected property management company");
       }
     }
 
     // Validate parentCustomerId if being set
-    if ('parentCustomerId' in result.data) {
-      if (result.data.parentCustomerId) {
-        if (result.data.parentCustomerId === req.params.id) {
+    if ('parentCustomerId' in updates) {
+      if (updates.parentCustomerId) {
+        if (updates.parentCustomerId === req.params.id) {
           return res.status(400).send("A customer cannot be its own parent");
         }
-        const parentCust = await storage.getCustomerById(result.data.parentCustomerId, user.activeCompanyId);
+        const parentCust = await storage.getCustomerById(updates.parentCustomerId, user.activeCompanyId);
         if (!parentCust) {
           return res.status(400).send("Parent customer not found");
         }
@@ -3024,13 +3025,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).send("Cannot set a child customer as a parent (only one level of hierarchy allowed)");
         }
         if (parentCust.isParent !== "true") {
-          await storage.updateCustomer(result.data.parentCustomerId, user.activeCompanyId, { isParent: "true" });
+          await storage.updateCustomer(updates.parentCustomerId, user.activeCompanyId, { isParent: "true" });
         }
       }
       
       // If removing parentCustomerId, check if old parent still has other children
       const existingCust = await storage.getCustomerById(req.params.id, user.activeCompanyId);
-      if (existingCust?.parentCustomerId && existingCust.parentCustomerId !== result.data.parentCustomerId) {
+      if (existingCust?.parentCustomerId && existingCust.parentCustomerId !== updates.parentCustomerId) {
         const siblings = await storage.getChildCustomers(existingCust.parentCustomerId, user.activeCompanyId);
         if (siblings.filter(s => s.id !== req.params.id).length === 0) {
           await storage.updateCustomer(existingCust.parentCustomerId, user.activeCompanyId, { isParent: "false" });
@@ -3041,7 +3042,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Parse expectedUpdatedAt if provided
     const expectedDate = expectedUpdatedAt ? new Date(expectedUpdatedAt) : undefined;
     
-    const customer = await storage.updateCustomer(req.params.id, user.activeCompanyId, result.data, expectedDate);
+    const customer = await storage.updateCustomer(req.params.id, user.activeCompanyId, updates, expectedDate);
     
     if (!customer) {
       return res.status(404).send("Customer not found");
@@ -3057,15 +3058,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Auto-create contact when propertyManagerId is assigned
-    if (hasManagerId && result.data.propertyManagerId) {
+    if (hasManagerId && updates.propertyManagerId) {
       try {
         // Check if a contact linked to this manager already exists for this customer
         const existingContacts = await storage.getContactsByCustomerId(req.params.id, user.activeCompanyId);
-        const existingManagerContact = existingContacts.find(c => c.propertyManagerId === result.data.propertyManagerId);
+        const existingManagerContact = existingContacts.find(c => c.propertyManagerId === updates.propertyManagerId);
         
         if (!existingManagerContact) {
           // Get the manager with their contact info
-          const managerWithContacts = await storage.getPropertyManagerWithContacts(result.data.propertyManagerId, user.activeCompanyId);
+          const managerWithContacts = await storage.getPropertyManagerWithContacts(updates.propertyManagerId, user.activeCompanyId);
           
           if (managerWithContacts) {
             // Collect all emails and phones from the manager
@@ -3085,7 +3086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await storage.createContact({
               companyId: user.activeCompanyId,
               customerId: req.params.id,
-              propertyManagerId: result.data.propertyManagerId,
+              propertyManagerId: updates.propertyManagerId,
               name: managerWithContacts.name,
               role: managerWithContacts.title || "Property Manager",
               emails: managerEmails,
@@ -3240,6 +3241,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
+    const updates = pickProvided(result.data, contactData);
 
     // Get existing contact to check if we need to create a PM
     const existingContact = await storage.getContactById(req.params.id, user.activeCompanyId);
@@ -3247,13 +3249,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(404).send("Contact not found");
     }
 
-    let contact = await storage.updateContact(req.params.id, user.activeCompanyId, result.data);
+    let contact = Object.keys(updates).length
+      ? await storage.updateContact(req.params.id, user.activeCompanyId, updates)
+      : existingContact;
     if (!contact) {
       return res.status(404).send("Contact not found");
     }
     
     // If role changed to Property Manager and PM company selected, create PM record
-    if (result.data.role === "Property Manager" && selectedPmCompanyId && !existingContact.propertyManagerId) {
+    if (updates.role === "Property Manager" && selectedPmCompanyId && !existingContact.propertyManagerId) {
       const propertyManager = await storage.createPropertyManager({
         companyId: user.activeCompanyId,
         propertyManagementCompanyId: selectedPmCompanyId,
@@ -4065,7 +4069,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
-    const company = await storage.updateCompany(req.params.id, result.data);
+    const updates = pickProvided(result.data, req.body);
+    const company = await storage.updateCompany(req.params.id, updates);
     if (!company) {
       return res.status(404).send("Company not found");
     }
@@ -4430,7 +4435,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
-    const settings = await storage.updateSettings(user.activeCompanyId, result.data);
+    const updates = pickProvided(result.data, req.body);
+    const settings = await storage.updateSettings(user.activeCompanyId, updates);
     if (!settings) {
       return res.status(404).send("Settings not found");
     }
@@ -5069,15 +5075,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
 
-    const result = insertContractBuilderDocumentSchema.partial().omit({ companyId: true, createdBy: true }).safeParse({
+    const documentInput = {
       ...req.body,
       updatedBy: user.id,
-    });
+    };
+    const result = insertContractBuilderDocumentSchema.partial().omit({ companyId: true, createdBy: true }).safeParse(documentInput);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
 
-    const document = await storage.updateContractBuilderDocument(req.params.id, user.activeCompanyId, result.data);
+    const updates = pickProvided(result.data, documentInput);
+    const document = await storage.updateContractBuilderDocument(req.params.id, user.activeCompanyId, updates);
     if (!document) {
       return res.status(404).send("Document not found");
     }
@@ -6116,7 +6124,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
-    const field = await storage.updateTicketTypeField(req.params.id, result.data);
+    const updates = pickProvided(result.data, req.body);
+    const field = Object.keys(updates).length
+      ? await storage.updateTicketTypeField(req.params.id, updates)
+      : await storage.getTicketTypeFieldById(req.params.id);
     if (!field) {
       return res.status(404).send("Field not found");
     }
@@ -16892,9 +16903,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const parsed = insertCommunicationTemplateSchema.partial().safeParse(req.body);
+    const parsed = insertCommunicationTemplateSchema.partial().omit({ companyId: true }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const item = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, parsed.data);
+    const updates = pickProvided(parsed.data, req.body);
+    const item = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, updates);
     if (!item) return res.status(404).json({ error: "Not found" });
     res.json(item);
   });
@@ -16948,7 +16960,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PATCH /api/communication-templates/:id — edit template
   app.patch("/api/communication-templates/:id", requireCommPermission("manage_templates"), async (req, res) => {
     const user = req.user as UserWithContext;
-    const updates = insertCommunicationTemplateSchema.partial().omit({ companyId: true }).parse(req.body);
+    const parsed = insertCommunicationTemplateSchema.partial().omit({ companyId: true }).parse(req.body);
+    const updates = pickProvided(parsed, req.body);
     const template = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, updates);
     if (!template) return res.status(404).json({ error: "Template not found" });
 
@@ -17846,7 +17859,8 @@ ${pdfText.slice(0, 8000)}`;
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid fields", details: parsed.error.flatten() });
       }
-      const product = await storage.updateChemicalProduct(req.params.id, user.activeCompanyId, parsed.data);
+      const updates = pickProvided(parsed.data, patchBody);
+      const product = await storage.updateChemicalProduct(req.params.id, user.activeCompanyId, updates);
       if (!product) return res.status(404).json({ error: "Not found" });
       res.json(product);
     } catch (error) {
@@ -18996,7 +19010,8 @@ ${pdfText.slice(0, 8000)}`;
       const { companyId: _c, id: _i, createdBy: _b, ...patchBody } = req.body || {};
       const parsed = insertChemicalNotificationTemplateSchema.partial().safeParse(patchBody);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-      const tpl = await storage.updateChemicalNotificationTemplate(req.params.id, user.activeCompanyId, parsed.data);
+      const updates = pickProvided(parsed.data, patchBody);
+      const tpl = await storage.updateChemicalNotificationTemplate(req.params.id, user.activeCompanyId, updates);
       if (!tpl) return res.status(404).json({ error: "Not found" });
       res.json(tpl);
     } catch (err) {

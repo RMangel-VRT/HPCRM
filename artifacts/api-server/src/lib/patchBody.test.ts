@@ -1,6 +1,23 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { insertTicketSchema } from "@workspace/db";
+import {
+  insertTicketSchema,
+  insertCustomerSchema,
+  insertContactSchema,
+  insertCompanySchema,
+  insertSettingsSchema,
+  insertContractBuilderDocumentSchema,
+  insertTicketTypeFieldSchema,
+  insertCommunicationTemplateSchema,
+  insertChemicalProductSchema,
+  insertChemicalNotificationTemplateSchema,
+  insertCrewSchema,
+  insertPropertySiteNoteSchema,
+  insertServiceTypeTemplateSchema,
+  insertServiceTypeTemplateItemSchema,
+  insertEmailTemplateSchema,
+  insertEmailRuleSchema,
+} from "@workspace/db";
 import { pickProvided } from "./patchBody";
 
 const ticketPatchSchema = insertTicketSchema.partial().omit({
@@ -16,6 +33,57 @@ function validatedTicketUpdate(body: unknown) {
 }
 
 describe("pickProvided", () => {
+  it.each([
+    ["customer", insertCustomerSchema.partial().omit({ companyId: true }), { name: "Renamed" }, "isParent", "false"],
+    ["contact", insertContactSchema.partial().omit({ customerId: true, companyId: true }), { name: "Renamed" }, "phones", []],
+    ["company", insertCompanySchema.partial(), { name: "Renamed" }, "subscriptionPlan", "free"],
+    ["settings", insertSettingsSchema.partial().omit({ companyId: true }), { companyName: "Renamed" }, "featureFlags", "{}"],
+    ["document", insertContractBuilderDocumentSchema.partial().omit({ companyId: true, createdBy: true }), { documentTitle: "Updated", updatedBy: "user-1" }, "status", "draft"],
+    ["ticket type field", insertTicketTypeFieldSchema.partial().omit({ ticketTypeId: true }), { fieldLabel: "Updated" }, "isRequired", "false"],
+    ["communication template", insertCommunicationTemplateSchema.partial().omit({ companyId: true }), { name: "Updated" }, "isArchived", false],
+    ["chemical product", insertChemicalProductSchema.partial(), { name: "Updated" }, "isActive", true],
+    ["chemical notification template", insertChemicalNotificationTemplateSchema.partial(), { name: "Updated" }, "isDefault", false],
+    ["crew", insertCrewSchema.omit({ companyId: true }).partial(), { name: "Updated" }, "isActive", true],
+    ["site note", insertPropertySiteNoteSchema.omit({ companyId: true, customerId: true }).partial(), { label: "Updated" }, "sortOrder", 0],
+    ["service template item", insertServiceTypeTemplateItemSchema.omit({ templateId: true }).partial(), { label: "Updated" }, "photoRequired", false],
+  ] as const)("removes injected %s defaults but keeps supplied fields", (_name, schema, body, defaultKey, defaultValue) => {
+    const empty = schema.parse({});
+    expect(empty).toHaveProperty(defaultKey, defaultValue);
+    expect(pickProvided(empty, {})).toEqual({});
+    const parsed = schema.safeParse(body);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw parsed.error;
+    expect(parsed.data).toHaveProperty(defaultKey, defaultValue);
+    expect(pickProvided(parsed.data, body)).toEqual(body);
+  });
+
+  it("checks the adjacent service template schema's empty PATCH", () => {
+    const schema = insertServiceTypeTemplateSchema.omit({ companyId: true }).partial();
+    const parsed = schema.parse({});
+    expect(pickProvided(parsed, {})).toEqual({});
+    // This schema currently has no injected defaults.
+    expect(parsed).toEqual({});
+  });
+
+  it("confirms email template and rule PATCH schemas do not inject defaults", () => {
+    const templateSchema = insertEmailTemplateSchema.partial().omit({ companyId: true });
+    const ruleSchema = insertEmailRuleSchema.partial().omit({ companyId: true });
+    expect(templateSchema.parse({})).toEqual({});
+    expect(ruleSchema.parse({})).toEqual({});
+    expect(templateSchema.parse({ subject: "Revised" })).toEqual({ subject: "Revised" });
+    expect(ruleSchema.parse({ conditionsJson: { event: "sent" } })).toEqual({
+      conditionsJson: { event: "sent" },
+    });
+  });
+
+  it("does not allow company reassignment through the communication-template PATCH schema used by both registrations", () => {
+    const body = { name: "Updated", companyId: "other-company" };
+    const schema = insertCommunicationTemplateSchema.partial().omit({ companyId: true });
+    const parsed = schema.parse(body);
+    expect(parsed).not.toHaveProperty("companyId");
+    expect(pickProvided(parsed, body)).toEqual({ name: "Updated" });
+  });
+
   it("keeps parsed values only for own keys provided in the body", () => {
     expect(pickProvided({ a: 1, b: 2 }, { a: 9 })).toEqual({ a: 1 });
     expect(pickProvided({ a: 1 }, Object.create({ a: 9 }))).toEqual({});
