@@ -128,14 +128,14 @@
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 
-  /* ── Ticket type hues — validated all-pairs light: CVD ΔE 11.0, normal-vision 20.6, all ≥3:1 ── */
-  --tt-estimate: #4338ca;
-  --tt-project:  #0d9488;
-  --tt-rfp:      #a21a6b;
-  --tt-extra:    #bd6112;
-  --tt-invoice:  #956400;
-  --tt-todo:     #6b6b62;
-  --tt-fallback: #6b6b62;
+  /* ── Ticket type hues — type identity is separate from workflow status ── */
+  --tt-estimate: #6536b4;
+  --tt-project:  #005caa;
+  --tt-rfp:      #ad2169;
+  --tt-extra:    #a65a00;
+  --tt-invoice:  #15803d;
+  --tt-todo:     #5b6470;
+  --tt-fallback: #5b6470;
 
   /* ── Universal status scale — all ≥3.78:1 on this surface ── */
   --ts-open:    #787468;
@@ -266,15 +266,14 @@
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 
-  /* Same hues re-stepped for the dark surface — NOT derived from the light values.
-     Validated all-pairs dark: CVD ΔE 9.7, normal-vision 15.4, all ≥3:1. */
-  --tt-estimate: #7a6ff0;
-  --tt-project:  #3ca694;
-  --tt-rfp:      #be47b8;
-  --tt-extra:    #cf7132;
-  --tt-invoice:  #facc15;
-  --tt-todo:     #9a9a90;
-  --tt-fallback: #9a9a90;
+  /* Same type families re-stepped for the dark surface. */
+  --tt-estimate: #b49aff;
+  --tt-project:  #65b2ff;
+  --tt-rfp:      #f47eb7;
+  --tt-extra:    #ffa757;
+  --tt-invoice:  #65d894;
+  --tt-todo:     #afbac7;
+  --tt-fallback: #afbac7;
 
   --ts-open:    #a3a08f;
   --ts-active:  #5b9bd9;
