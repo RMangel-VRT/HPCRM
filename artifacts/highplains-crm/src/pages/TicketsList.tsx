@@ -1072,29 +1072,54 @@ function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavig
           <div className="flex items-start gap-2">
             <div className="w-1.5 self-stretch rounded-full shrink-0" style={{ backgroundColor: hue }} />
             <div className="flex-1 min-w-0">
-              {/* Type badge + ticket ID */}
-              <div className="flex items-center justify-between gap-1 mb-1">
-                <span className="min-w-0 truncate">
-                  <TicketTypeBadge
-                    type={ticket.ticketType}
-                    testId={`kanban-tickettype-${ticket.id}`}
-                  />
-                </span>
-                <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`kanban-ticket-id-${ticket.id}`}>
+              {/* Customer eyebrow + ticket ID */}
+              <div className="flex items-center gap-2">
+                {ticket.customer && (
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <MapPin className="w-3 h-3 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground" data-testid={`kanban-customer-${ticket.id}`}>
+                      {ticket.customer.name}
+                    </span>
+                  </div>
+                )}
+                <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground" data-testid={`kanban-ticket-id-${ticket.id}`}>
                   #{ticket.id.slice(0, 8)}
                 </span>
               </div>
               {/* Title */}
-              <p className="text-sm font-medium leading-snug line-clamp-2 mb-1" data-testid={`kanban-title-${ticket.id}`}>
+              <p className="mt-0.5 text-sm font-semibold leading-snug line-clamp-2" data-testid={`kanban-title-${ticket.id}`}>
                 {ticket.title}
               </p>
-              {/* Customer name */}
-              {ticket.customer && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5">
-                  <MapPin className="w-3 h-3 shrink-0" />
-                  <span className="truncate" data-testid={`kanban-customer-${ticket.id}`}>{ticket.customer.name}</span>
-                </div>
-              )}
+              {/* Badges */}
+              <div className="flex items-center gap-2 flex-wrap mt-2 mb-1.5">
+                <TicketTypeBadge
+                  type={ticket.ticketType}
+                  testId={`kanban-tickettype-${ticket.id}`}
+                />
+                {currentStatus && !ticket.completedAt && (
+                  currentStatus.actionType === "waiting" ? (
+                    <Badge
+                      className="text-xs font-normal bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700 gap-1"
+                      data-testid={`badge-action-type-waiting-${ticket.id}`}
+                    >
+                      <Clock className="w-3 h-3" />
+                      Waiting{currentStatus.waitingCategory ? ` · ${
+                        currentStatus.waitingCategory === "customer" ? "Customer" :
+                        currentStatus.waitingCategory === "vendor" ? "Vendor" :
+                        currentStatus.waitingCategory === "internal" ? "Internal" : "Other"
+                      }` : ""}
+                    </Badge>
+                  ) : (
+                    <Badge
+                      className="text-xs font-normal bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700 gap-1"
+                      data-testid={`badge-action-type-needs-action-${ticket.id}`}
+                    >
+                      <AlertCircle className="w-3 h-3" />
+                      Needs Action
+                    </Badge>
+                  )
+                )}
+              </div>
               {/* Status + assignee row */}
               <div className="flex items-center justify-between gap-2">
                 <span className="min-w-0 max-w-[120px] truncate">
@@ -1109,30 +1134,6 @@ function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavig
                   </span>
                 )}
               </div>
-              {/* Action type badge */}
-              {currentStatus && !ticket.completedAt && (
-                currentStatus.actionType === "waiting" ? (
-                  <Badge
-                    className="text-xs font-normal bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700 gap-1 mt-1.5"
-                    data-testid={`badge-action-type-waiting-${ticket.id}`}
-                  >
-                    <Clock className="w-3 h-3" />
-                    Waiting{currentStatus.waitingCategory ? ` · ${
-                      currentStatus.waitingCategory === "customer" ? "Customer" :
-                      currentStatus.waitingCategory === "vendor" ? "Vendor" :
-                      currentStatus.waitingCategory === "internal" ? "Internal" : "Other"
-                    }` : ""}
-                  </Badge>
-                ) : (
-                  <Badge
-                    className="text-xs font-normal bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700 gap-1 mt-1.5"
-                    data-testid={`badge-action-type-needs-action-${ticket.id}`}
-                  >
-                    <AlertCircle className="w-3 h-3" />
-                    Needs Action
-                  </Badge>
-                )
-              )}
             </div>
           </div>
         </CardContent>
@@ -1355,8 +1356,31 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
           />
           
           <div className="flex-1 min-w-0">
-            {/* Row 1: Ticket type (colored text) + overdue + needs scheduling indicator */}
-            <div className="flex items-center gap-2 flex-wrap">
+            {/* Customer eyebrow, ticket ID, chevron */}
+            <div className="flex items-center gap-2">
+              {ticket.customer && (
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <MapPin className="w-3 h-3 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+                    {ticket.customer.name}
+                  </span>
+                </div>
+              )}
+              <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground" data-testid={`text-ticket-id-${ticket.id}`}>
+                #{ticket.id.slice(0, 8)}
+              </span>
+              {!selectionMode && (
+                <ChevronRight className="w-5 h-5 shrink-0 text-muted-foreground" />
+              )}
+            </div>
+
+            {/* Title */}
+            <h3 className="mt-0.5 font-semibold text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
+              {ticket.title}
+            </h3>
+
+            {/* Badges */}
+            <div className="flex items-center gap-2 flex-wrap mt-2">
               <TicketTypeBadge
                 type={ticket.ticketType}
                 testId={`text-tickettype-${ticket.id}`}
@@ -1401,24 +1425,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                   </Badge>
                 )
               )}
-              {!selectionMode && (
-                <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 ml-auto" />
-              )}
-            </div>
-
-            {/* Row 2: Title + ticket ID */}
-            <div className="flex items-start justify-between gap-2 mt-1">
-              <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-ticket-title-${ticket.id}`}>
-                {ticket.title}
-              </h3>
-              <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`text-ticket-id-${ticket.id}`}>
-                #{ticket.id.slice(0, 8)}
-              </span>
-            </div>
-
-            {/* Row 3: Invoice category badge (only for Invoice tickets) */}
-            {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
-              <div className="mt-1.5">
+              {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
                 <Badge 
                   variant="outline"
                   className={`text-xs font-normal ${
@@ -1430,16 +1437,8 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                 >
                   {ticket.invoiceCategory === "snow" ? "Snow" : "Maintenance"}
                 </Badge>
-              </div>
-            )}
-
-            {/* Row 4: Customer */}
-            {ticket.customer && (
-              <div className="flex items-center gap-1 mt-1.5 text-sm text-muted-foreground">
-                <MapPin className="w-3.5 h-3.5" />
-                <span className="truncate">{ticket.customer.name}</span>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Divider + Workflow progress row */}
             <div className="flex items-center justify-between mt-3 pt-3 border-t">

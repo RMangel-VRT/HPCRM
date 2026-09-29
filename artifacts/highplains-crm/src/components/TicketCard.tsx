@@ -112,7 +112,28 @@ export default function TicketCard({
           />
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              {showCustomer && ticket.customer && (
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <MapPin className="w-3 h-3 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+                    {ticket.customer.name}
+                  </span>
+                </div>
+              )}
+              <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground" data-testid={`text-ticket-id-${ticket.id}`}>
+                #{ticket.id.slice(0, 8)}
+              </span>
+              {!selectionMode && (
+                <ChevronRight className="w-5 h-5 shrink-0 text-muted-foreground" />
+              )}
+            </div>
+
+            <h3 className="mt-0.5 font-semibold text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
+              {ticket.title}
+            </h3>
+
+            <div className="flex items-center gap-2 flex-wrap mt-2">
               <TicketTypeBadge
                 type={ticket.ticketType}
                 testId={`text-tickettype-${ticket.id}`}
@@ -162,22 +183,7 @@ export default function TicketCard({
                   </Badge>
                 )
               )}
-              {!selectionMode && (
-                <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 ml-auto" />
-              )}
-            </div>
-
-            <div className="flex items-start justify-between gap-2 mt-1">
-              <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-ticket-title-${ticket.id}`}>
-                {ticket.title}
-              </h3>
-              <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`text-ticket-id-${ticket.id}`}>
-                #{ticket.id.slice(0, 8)}
-              </span>
-            </div>
-
-            {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
-              <div className="mt-1.5">
+              {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
                 <Badge
                   variant="outline"
                   className={`text-xs font-normal ${
@@ -189,15 +195,8 @@ export default function TicketCard({
                 >
                   {ticket.invoiceCategory === "snow" ? "Snow" : "Maintenance"}
                 </Badge>
-              </div>
-            )}
-
-            {showCustomer && ticket.customer && (
-              <div className="flex items-center gap-1 mt-1.5 text-sm text-muted-foreground">
-                <MapPin className="w-3.5 h-3.5" />
-                <span className="truncate">{ticket.customer.name}</span>
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="flex items-center flex-wrap justify-between gap-2 mt-3 pt-3 border-t">
               <div className="flex items-center gap-3 min-w-0 flex-1">

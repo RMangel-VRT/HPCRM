@@ -970,26 +970,28 @@ function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNav
           <div className="flex items-start gap-2">
             <div className="w-1.5 self-stretch rounded-full shrink-0" style={{ backgroundColor: hue }} />
             <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-1 mb-1">
-                <span className="min-w-0 truncate">
-                  <TicketTypeBadge
-                    type={ticket.ticketType}
-                    testId={`kanban-my-tickettype-${ticket.id}`}
-                  />
-                </span>
-                <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`kanban-my-ticket-id-${ticket.id}`}>
+              <div className="flex items-center gap-2">
+                {ticket.customer && (
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <MapPin className="w-3 h-3 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground" data-testid={`kanban-my-customer-${ticket.id}`}>
+                      {ticket.customer.name}
+                    </span>
+                  </div>
+                )}
+                <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground" data-testid={`kanban-my-ticket-id-${ticket.id}`}>
                   #{ticket.id.slice(0, 8)}
                 </span>
               </div>
-              <p className="text-sm font-medium leading-snug line-clamp-2 mb-1" data-testid={`kanban-my-title-${ticket.id}`}>
+              <p className="mt-0.5 text-sm font-semibold leading-snug line-clamp-2" data-testid={`kanban-my-title-${ticket.id}`}>
                 {ticket.title}
               </p>
-              {ticket.customer && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5">
-                  <MapPin className="w-3 h-3 shrink-0" />
-                  <span className="truncate" data-testid={`kanban-my-customer-${ticket.id}`}>{ticket.customer.name}</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2 flex-wrap mt-2 mb-1.5">
+                <TicketTypeBadge
+                  type={ticket.ticketType}
+                  testId={`kanban-my-tickettype-${ticket.id}`}
+                />
+              </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="min-w-0 max-w-[120px] truncate">
                   <TicketStatusPill
