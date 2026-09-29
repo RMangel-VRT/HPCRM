@@ -1,0 +1,22 @@
+#642 (the other save routes)
+
+The two catches beyond my spec:
+
+The chemical notification template handler also serves a full-replace (PUT) route. My spec only mentioned the partial-edit route; covering both is right.
+The contract document save adds a server-set "updated by" field. The plan filters against the object that includes it, so that field still gets saved. If it had filtered against only what the browser sent, "updated by" would have been silently dropped.
+
+One thing to add before approving. The first of the two communication-template save routes, which is the one that actually runs, doesn't block the company ID field. So a request can change which company a template belongs to. The server only looks the template up within your own company, but the save can still move it to another one. With one company in the app, the real-world risk is low. It's still a cross-company data leak waiting to happen, and this fix doesn't change it: the new filter keeps any field the request sends, including company ID.
+
+Tell the agent: "In the first PATCH /api/communication-templates/:id registration, add companyId to the omitted fields, matching the second registration. Don't change the permission check or delete either registration." That closes the hole without making the permissions decision for you. Whether to delete the duplicate route is still your call.
+
+#643 (damage audit)
+
+This is a good plan. It's strictly read-only. It reports a query it couldn't run, or no production access, as a problem rather than as zero rows. And it refuses to blame every flagged row on this bug. That last part matters, because some rows (like contract to-dos) are legitimately what they look like.
+
+The likely snag is production access. The Replit agent may not be able to query production. If it reports that, run the queries yourself in Replit's Database pane with the production database selected. They're all read-only lookups, and copying the results back is enough.
+
+Order
+#641 (tickets): merge.
+#643, check A only: find Extra Billable tickets knocked off billing. Anything it finds may be work you haven't invoiced yet.
+#642 (other routes), with the addition above.
+#643, remaining checks B–H.
