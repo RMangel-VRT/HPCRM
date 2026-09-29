@@ -11,9 +11,12 @@ validation silently resets those columns on every update.
 
 **Why:** partial wraps fields in optional, but defaulted fields still produce
 their default when the key is absent.
-**How to apply:** for PATCH routes, validate with an explicit
-`z.object({ ...optional fields, no defaults })` and drop `undefined` keys
-before `db.update().set()` (drizzle throws on `.set({})`).
+**How to apply:** when a PATCH route reuses an insert schema, select only
+the parsed keys that were own properties of the body actually parsed, using
+the shared key-preserving helper. This keeps coercion and explicit nulls while
+removing injected defaults; retain server-added fields by adding them before
+parsing. If the storage write doesn't add a timestamp, guard empty updates
+because Drizzle throws on `.set({})`.
 
 # Relative dynamic `import("./x")` breaks in the esbuild-bundled api-server
 

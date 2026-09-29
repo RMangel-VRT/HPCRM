@@ -48,6 +48,7 @@ import { registerExtraBillablePhotoRoutes } from "./extraBillablePhotos";
 import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes";
 import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks';
 import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
+import { pickProvided } from '../lib/patchBody';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
 /**
@@ -7118,6 +7119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
+    const updates = pickProvided(result.data, req.body);
 
     // Check if assignment is changing for notification purposes
     const assignmentChanged = req.body.assignedToId !== undefined && 
@@ -7130,7 +7132,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const previousCrewId = existingTicket.crewId;
     const newCrewId: string | null = crewChanged ? (req.body.crewId ?? null) : null;
 
-    const ticket = await storage.updateTicket(req.params.id, user.activeCompanyId, result.data);
+    const ticket = await storage.updateTicket(req.params.id, user.activeCompanyId, updates);
 
     // Dismiss stale due-date notifications when the due date is extended to a strictly
     // future date (tomorrow or later) or when the ticket moves to a final (resolved) status
@@ -7143,8 +7145,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // the new value is strictly in the future (tomorrow or later), and it
       // actually differs from the existing due date.
       let dueDateExtendedToFuture = false;
-      if (result.data.dueDate !== undefined && result.data.dueDate !== null) {
-        const newDueDate = new Date(result.data.dueDate as string | Date);
+      if (updates.dueDate !== undefined && updates.dueDate !== null) {
+        const newDueDate = new Date(updates.dueDate as string | Date);
         const oldDueDate = existingTicket.dueDate ? new Date(String(existingTicket.dueDate)) : null;
         const dueDateActuallyChanged = !oldDueDate || newDueDate.getTime() !== oldDueDate.getTime();
         dueDateExtendedToFuture = dueDateActuallyChanged && newDueDate > todayEnd;
