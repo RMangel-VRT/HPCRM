@@ -1,0 +1,90 @@
+# P1-2: Billing rules for Task (server)
+
+> Assumes 00-RULES.md and P1-1 merged. The risk here: every guard must run **before** any side effect in `PATCH /api/tickets/:id`. The step-back logic below the guards deletes field values and invoice tickets.
+
+## The rules
+
+1. **For a Task, `tickets.billing_behavior` alone decides invoicing.** `invoice_required` means billable; `no_invoice` means contract.
+2. **`work_type` and `billing_behavior` always move together on a Task:**
+   - `extra_work` ⇔ `invoice_required`
+   - `contract` ⇔ `no_invoice`
+3. **Billing can change only while the Task is before Ready for billing.** It can't change when the status key is `ready_for_billing` or `closed_won`. To bill a closed contract job, step it back to Work completed first, then switch it.
+4. **A contract Task can't enter `ready_for_billing`.**
+5. **A billable Task can't enter `closed_won` (Done) unless an `invoice_for` link from it exists.**
+6. **Every billing change is recorded** as a ticket comment.
+
+## 1. Create: `POST /api/tickets` (~L6371)
+
+When `req.body.workType` is `"contract"` or `"extra_work"`:
+
+- **The server picks the type.** Call `ensureTaskTicketType(user.activeCompanyId)` and use its `typeId`. **Ignore any `ticketTypeId` the client sent.** Take the initial status from `statuses.get("new")`. Keep the existing "first status by displayOrder" logic for every other work type.
+- **The server sets billing:** `billingBehavior = workType === "extra_work" ? "invoice_required" : "no_invoice"`. Ignore the client's value.
+- Put both into the object passed to `insertTicketSchema.safeParse` so they override `...req.body`.
+
+Everything else in this handler stays as it is, including the admin-only check. Also check `POST /api/tickets/batch` (~L6640). It uses the client's `ticketTypeId` and hard-codes `billingBehavior: "no_invoice"`. If it can receive `workType` `contract` or `extra_work`, apply the same resolution. If it can't, say so in the report.
+
+## 2. Billing switch in `PATCH /api/tickets/:id`
+
+Near the top of the handler, after the existing permission and parent-customer guards and **before** the status-change block, add:
+
+```ts
+const ptType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+const isTask = isSeededTicketType(ptType, "task");
+```
+
+If `isTask` and the body includes `workType` or `billingBehavior`:
+
+1. **Pair them.** If only one was sent, derive the other using rule 2. If both were sent and they disagree, return `422 { error: "BILLING_MISMATCH" }`. A `workType` other than `contract` or `extra_work` gets `422 { error: "TASK_WORK_TYPE" }`.
+2. **Check the status.** If the ticket's *current* status key is `ready_for_billing` or `closed_won` and the billing value would change, return `422 { error: "BILLING_LOCKED", message: "Billing can't change once the job reaches billing. Step it back to Work completed first." }`.
+3. **Write the pair back into `req.body`** (both keys) so `pickProvided` keeps them.
+4. **Record the change.** After the ticket update succeeds, if the effective billing actually changed, call `storage.createTicketComment({ ticketId, authorId: user.id, body: "Billing changed from Contract to Billable" })` (or the reverse).
+
+## 3. Status guards (same handler, status-change block, ~L6779)
+
+Right after `newStatus` / `oldStatus` are computed and **before** the step-back cleanup, when `isTask`:
+
+```ts
+const effectiveBilling = req.body.billingBehavior ?? existingTicket.billingBehavior;
+if (isSeededStatus(newStatus, "ready_for_billing") && effectiveBilling !== "invoice_required") {
+  return res.status(422).json({ error: "CONTRACT_CANNOT_BILL", message: "Contract work doesn't go to billing. Close it, or switch it to Billable first." });
+}
+if (isSeededStatus(newStatus, "closed_won") && effectiveBilling === "invoice_required") {
+  const links = await storage.getTicketLinks(existingTicket.id);
+  const hasInvoice = links.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id);
+  if (!hasInvoice) {
+    return res.status(422).json({ error: "BILLABLE_MUST_BILL", message: "Billable work goes to Ready for billing before it closes." });
+  }
+}
+```
+
+Use `isSeededStatus`, never the display name.
+
+## 4. Remove the Extra Billable fix-up
+
+Delete the block that begins "Normalize billingBehavior for Extra Billable tickets arriving at RFB" (~L7060–7074; its key was changed to `"task"` in P1-1). Keep the `maybeAutoCreateInvoiceOnRfb(...)` call directly below it **unchanged**. With the guards above, only a billable Task can land at Ready for billing, and `maybeAutoCreateInvoiceOnRfb` already accepts `ticket.billingBehavior === "invoice_required"` or the pending value.
+
+Check that nothing else in the codebase sets `billingBehavior = "invoice_required"` based on ticket type alone. Grep and report.
+
+## Leave alone
+
+- `POST /api/tickets/:id/create-invoice` stays limited to Estimate Request and Project.
+- The Estimate Request / Project invoicing fallback at "Invoicing."
+- Extra-billable **campaign** ticket generation (`extraBillableBilling.ts`) already sets `extra_work` / `invoice_required` explicitly.
+
+## Tests: `routes/taskBilling.test.ts`
+
+Follow the harness style in `ticketPatchRfbInvoice.test.ts`.
+
+- **Create:** a contract Task gets the Task type, `no_invoice` and status `new`, even when the client sends another `ticketTypeId` and `billingBehavior: "invoice_required"`. A billable Task gets `invoice_required`.
+- **Billing switch:** `{ billingBehavior: "invoice_required" }` alone also sets `workType: "extra_work"` and writes a comment. A mismatched pair returns 422. Switching at `ready_for_billing` returns `BILLING_LOCKED`.
+- **Status guards:**
+  - a contract Task moving to `ready_for_billing` returns `CONTRACT_CANNOT_BILL`, and nothing else in the ticket changes;
+  - a billable Task moving `work_completed` → `ready_for_billing` creates exactly one invoice ticket;
+  - a billable Task moving `work_completed` → `closed_won` with no invoice returns `BILLABLE_MUST_BILL`;
+  - a contract Task moving `work_completed` → `closed_won` succeeds;
+  - a billable Task moving `ready_for_billing` → `closed_won` succeeds.
+- **Regression:** a PATCH that only reassigns a billable Task leaves `billing_behavior` as it was (checks #641 still holds).
+
+## Done when
+
+All of the above pass, the typecheck is clean, and the report lists every place that previously set billing from the ticket type.

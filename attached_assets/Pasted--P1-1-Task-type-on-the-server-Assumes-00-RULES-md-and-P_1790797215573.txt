@@ -1,0 +1,85 @@
+# P1-1: Task type on the server
+
+> Assumes 00-RULES.md and P0-1 merged. The risk here: the one-time conversion must run **exactly once**. If it ran every boot, it would flip every contract Task back to billable on each restart.
+
+## What changes
+
+The Extra Billable ticket type row becomes **Task**. It keeps its id, its statuses (and their status keys), its fields, and every ticket and history row. Only its name, its `type_key` (`extra_billable` → `task`), its description and its capability flags change. Task holds both contract and billable field work. Whether a Task gets invoiced is decided **per ticket** (P1-2), so the Task type's `requires_invoicing` is `false`.
+
+Status names don't change in this slice. Phase 2 renames "Ready to Schedule" and adds "Scheduled."
+
+## 1. Identity: `shared/ticketCapabilities.ts` + `lib/db/src/schema/schema.ts`
+
+- `lib/db/src/schema/schema.ts`: in `TicketTypeKey`, replace `"extra_billable"` with `"task"`. In the `typeKey` zod enum on the ticket-type insert schema (~L629), do the same.
+- `TICKET_TYPE_NAMES_BY_KEY`: replace `extra_billable: "Extra Billable"` with `task: "Task"`.
+- `LEGACY_TICKET_TYPE_NAME_ALIASES`: add `task: ["Extra Billable"]`. An unkeyed row still named "Extra Billable" then resolves as Task through the existing fallback path.
+- `TICKET_TYPE_CAPABILITIES`: replace the `"Extra Billable"` entry with:
+  ```ts
+  "Task": {
+    requiresCustomer: "true",
+    requiresScheduling: "true",
+    requiresCompletion: "true",
+    requiresInvoicing: "false",   // decided per ticket by billingBehavior — see P1-2
+    terminalBehavior: "close",
+  },
+  ```
+- `STATUS_KEY_BACKFILL`: rename the `"Extra Billable"` key to `"Task"`. Keep the same status names and keys: `new`, `ready_to_schedule`, `in_progress`, `work_completed`, `ready_for_billing`, `closed_won`.
+- `TICKET_TYPE_KEYS` is derived from `TICKET_TYPE_NAMES_BY_KEY`, so it updates on its own.
+
+## 2. One-time conversion: new `migrateExtraBillableToTask()` in routes.ts
+
+Call it in `registerRoutes()` **after** `migrateTicketTypeRename()` and **before** `backfillTicketTypeCapabilities()`.
+
+For each company:
+
+1. Find the row with `type_key = 'extra_billable'`, or if there's none, the row with `type_key IS NULL AND name = 'Extra Billable'`. **If there's no such row, do nothing.** That's what makes it one-time: after the first run no row matches.
+2. If the company **already has** a row with `type_key = 'task'`, log a warning and skip that company. Don't merge.
+3. Otherwise, in one `db.transaction`:
+   ```sql
+   UPDATE tickets SET work_type = 'extra_work', billing_behavior = 'invoice_required', updated_at = now()
+     WHERE ticket_type_id = $ebTypeId;
+   UPDATE ticket_types SET name = 'Task', type_key = 'task',
+     description = 'Field work for a crew: contract or billable. Billable tasks create a linked invoice ticket.'
+     WHERE id = $ebTypeId;
+   ```
+   Every existing Extra Billable ticket becomes a billable Task. Randy approved this. It also repairs the tickets the old save bug had reset to contract / no invoice.
+4. Log the per-company ticket count.
+
+Don't touch `mobile_status`, `priority`, statuses or history.
+
+## 3. Seeding helper: `ensureExtraBillableTicketType` → `ensureTaskTicketType`
+
+- Rename it everywhere. That includes the dependency passed to `registerExtraBillableBillingRoutes` (~L14952), its `BillingDeps` type in `extraBillableBilling.ts`, and the mock in `extraBillableCampaign.generateTickets.test.ts`.
+- Look the type up with `findSeededTicketType(ticketTypes, "task")`. When creating it, use `name: "Task"`, the new description, `...TICKET_TYPE_CAPABILITIES["Task"]` and `typeKey: TICKET_TYPE_KEYS["Task"]`.
+- **Key the returned `statuses` map by status key, not by display name.** Today it's `statusMap.set(statusDef.name, status.id)`; make it `statusMap.set(statusKey, status.id)`. Then update every reader:
+  - `extraBillableBilling.ts`: `info.statuses.get("Ready for Billing")` → `.get("ready_for_billing")`.
+  - Inside the helper: `statusMap.get("Work Completed")` → `.get("work_completed")`.
+  - Grep for any other `.statuses.get(` on this helper's return value.
+- Don't change the other `ensure*` helpers in this slice.
+
+## 4. Remaining `"extra_billable"` **ticket-type** references (not campaign category)
+
+| File | Change |
+|---|---|
+| `routes/dashboardQueue.ts` `SEEDED_TYPE_KEYS`, `PULSE_TYPE_KEYS`, `READY_FOR_BILLING_TYPE_KEYS` | `"extra_billable"` → `"task"` |
+| `lib/rfbInvoiceAutoCreate.ts` `isInvoiceEligibleType` | Remove `"Extra Billable"` from the string overload. Remove `\|\| isSeededTicketType(type, "extra_billable")` from the fallback. **A Task is never invoice-eligible by type.** Update the doc comment. |
+| `lib/rfbInvoiceAutoCreate.ts` `isExtraBillableType` (log only) | Rename to `isTaskType` using `"task"` |
+| `routes.ts` the RFB normalization block ("Normalize billingBehavior for Extra Billable tickets arriving at RFB", ~L7060–7074) | **Leave it for P1-2**, which replaces it. Only change its key argument to `"task"` here so it compiles. |
+| `routes.ts` `fixExtraBillableDoneOrder()` and `migrateExtraBillableTicketType()` | **Delete both functions and their two lines in `runStartupMigrations()`.** That runner is never called (confirm with grep). `migrateExtraBillableTicketType` also encodes the old rule that moved `extra_work` To-Dos onto the EB type. |
+| `shared/workTypeCatalog.ts` (server) | `TicketTypeName`: replace `"Extra Billable"` with `"Task"`. `WORK_TYPE_TO_TICKET_TYPE`: `contract: "Task"`, `extra_work: "Task"`. `admin` and `shop_todo` stay `"To-Do"`. Catalog display names: `contract.name = "Contract"`, `extra_work.name = "Billable"` (billing labels unchanged). |
+
+Then grep the api-server for `extra_billable` and `Extra Billable` and account for every remaining hit in your report. It should be campaign-category code, i18n strings, tests you've updated, or the legacy alias.
+
+## Tests
+
+- Update `ticketCapabilities.test.ts`, `ticketPatchRfbInvoice.test.ts`, `dashboardQueue.test.ts` and `extraBillableCampaign.generateTickets.test.ts` for the new key and name.
+- New test for `migrateExtraBillableToTask`, using the same approach the repo uses for other DB-touching tests:
+  - converts a keyed EB row and its tickets,
+  - converts an unkeyed row named "Extra Billable",
+  - a second call changes nothing,
+  - skips a company that already has a `task` row.
+- `isInvoiceEligibleType({ name: "Task", typeKey: "task", requiresInvoicing: "false" })` returns `false`.
+
+## Done when
+
+After one boot in dev: the type is named Task with key `task`, every former EB ticket has `extra_work` / `invoice_required`, a second boot logs zero conversions, and extra-billable campaign ticket generation still works end to end.

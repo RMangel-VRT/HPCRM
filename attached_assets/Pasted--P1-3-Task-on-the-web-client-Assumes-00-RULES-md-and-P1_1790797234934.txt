@@ -1,0 +1,56 @@
+# P1-3: Task on the web client
+
+> Assumes 00-RULES.md and P1-2 merged. The risk here: the client schema copy has **no `typeKey`**, and several screens find ticket types by display name. After P1-1, "Extra Billable" no longer exists as a name, so every name lookup for it breaks.
+
+## 1. Give the client the type key
+
+- `artifacts/highplains-crm/src/shared/schema.ts` (the hand-synced copy): add `typeKey` to the ticket-types table definition, **mirroring** `lib/db/src/schema/schema.ts`, and export the same `TicketTypeKey` union (with `"task"`). The API already returns `typeKey`; the client types just don't declare it. Check the stub caveat in `.agents/memory/frontend-drizzle-stub-strips-fields.md`: this is a type declaration, not a form field, so it shouldn't matter, but confirm.
+- `shared/ticketVisuals.ts`: in `TicketTypeKey`, `TICKET_TYPE_NAMES_BY_KEY` and `TYPE_HUE_VAR`, replace `extra_billable` with `task`. `task: "Task"` keeps the `--tt-extra` hue. Add the same legacy fallback as the server so an unkeyed "Extra Billable" still matches `task`.
+- `components/TicketIdentity.tsx` `TYPE_ICON` and `pages/TicketDetail.tsx` (~L166 icon map): `extra_billable: Receipt` → `task: ClipboardCheck` (or keep `Receipt` if that icon isn't imported yet; either is fine).
+
+## 2. New ticket screen: `pages/NewTicket.tsx`
+
+**Choosing the type.** Replace the flat `workTypeOptions` list with two groups:
+
+- **Task** (heading, one line: "Work for a person or a crew"), with three cards:
+  - **To-Do**: `admin`. "A person's job. Doesn't go on the crew calendar."
+  - **Contract**: `contract`. "Crew work covered by the contract. No invoice."
+  - **Billable**: `extra_work`. "Crew work outside the contract. Creates an invoice ticket when it's done."
+- **Other** (heading), with cards: Estimate Request (`estimate_request`) and Shop To-Do (`shop_todo`). Keep the existing RFP Request and Invoice entry paths exactly as they are.
+
+**Finding the ticket type** (`getTicketTypeForWorkType`, ~L219):
+
+- For `contract` and `extra_work`, find the active type with `typeKey === "task"`. The server overrides this anyway (P1-2), but the client still needs a valid id to send.
+- Every `t.name === "…"` in this function and in the `eligibleTypes` filter becomes a `typeKey` check. That covers `"RFP Request"` → `rfp_request`, `"Invoice"` → `invoice`, `"Project"` → `project`, `"Estimate Request"` → `estimate_request`, and `"Extra Billable"` → `task`. Keep the name fallback only for rows whose `typeKey` is null.
+- `admin` and `shop_todo` keep resolving to the To-Do type, found by `typeKey === "todo"`.
+
+Don't send `billingBehavior` from the client for `contract` or `extra_work`. The server sets it now. Removing it from the POST for those two is fine.
+
+## 3. Show and change billing on Task tickets
+
+- **Badge:** wherever `TicketTypeBadge` renders a Task, show a small billing chip next to it. It reads "Billable" when `ticket.billingBehavior === "invoice_required"` and "Contract" otherwise. Use the existing badge styles; this matches the mockup.
+- **`pages/TicketDetail.tsx`:** for Task tickets, add a **Billing** control (a two-option segmented control, Contract | Billable) near the work-type display (~L1114).
+  - It sends `PATCH /api/tickets/:id` with `{ workType, billingBehavior }`, both set.
+  - It's disabled when the current status key is `ready_for_billing` or `closed_won`, with the helper text "Locked once the job reaches billing."
+  - Show the server's 422 `message` in a toast when the server rejects a change.
+- **Status moves:** when a status move returns 422 `CONTRACT_CANNOT_BILL` or `BILLABLE_MUST_BILL`, show that server `message` in a toast and leave the status where it was. Don't treat it as a generic error.
+
+## 4. Labels
+
+- `shared/workTypeCatalog.ts` (client): mirror the server's P1-1 changes (`TicketTypeName`, `WORK_TYPE_TO_TICKET_TYPE`, `contract.name = "Contract"`, `extra_work.name = "Billable"`).
+- `TicketListView.tsx` ~L495, `TicketsList.tsx` ~L739 and `MyTickets.tsx` ~L464: change the `extra_work` filter label "Extra Billable" to "Billable". If `contract` isn't already a filter option in these lists, add a "Contract" option.
+- `i18n/locales`: update any user-visible "Extra Billable" string that refers to the **ticket type**. Leave campaign-category strings (`campaigns.categoryExtraBillable`) unchanged; campaigns keep that name.
+
+## 5. Don't touch
+
+- `QuickAddToDo.tsx` and `BatchTicketDialog.tsx`. They create To-Do and Invoice tickets, and those types don't change. (They look types up by name; that's a later cleanup.)
+- Anything keyed on `campaign.category === "extra_billable"`.
+- The mobile app.
+
+## Done when
+
+- Creating Task · Contract and Task · Billable from New Ticket works, and each shows the right billing chip.
+- Switching billing on ticket detail works before billing and is locked after.
+- The two 422s show readable toasts.
+- No client code references the ticket-type name "Extra Billable" or the key `extra_billable` (campaign code excepted). Include the grep in the report.
+- Typecheck passes.

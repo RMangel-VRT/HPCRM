@@ -1,0 +1,54 @@
+# P1-4: Review list of To-Do tickets marked "contract" (read-only)
+
+> Assumes 00-RULES.md. The risk here: **this slice makes no changes.** It produces a list for Randy to decide on.
+
+## Why a list instead of an automatic conversion
+
+Before P1, contract work created **To-Do** tickets, so real field jobs are sitting in To-Do and can never be scheduled. They should become Tasks. But the old save bug (fixed in #641) reset `work_type` to `contract` on **every** edited ticket. So `work_type = 'contract'` on a To-Do doesn't reliably mean contract field work; many of these are admin or shop to-dos that got relabeled. Randy picks which ones convert.
+
+## Queries
+
+Run in **production** (read-only) and in dev, with each result labeled by environment.
+
+**A. Open To-Dos marked contract, with the evidence Randy needs to judge them:**
+
+```sql
+SELECT t.id, t.title, c.name AS customer, s.name AS status, t.priority,
+       t.equipment_id IS NOT NULL AS has_equipment,
+       t.crew_id IS NOT NULL AS has_crew, t.due_date, t.created_at, t.updated_at,
+       u.name AS assigned_to
+FROM tickets t
+JOIN ticket_types tt ON tt.id = t.ticket_type_id
+JOIN ticket_type_statuses s ON s.id = t.current_status_id
+LEFT JOIN customers c ON c.id = t.customer_id
+LEFT JOIN users u ON u.id = t.assigned_to_id
+WHERE tt.type_key = 'todo'
+  AND t.work_type = 'contract'
+  AND s.is_final = 'false'
+ORDER BY c.name NULLS FIRST, t.created_at DESC;
+```
+
+**B. Count of closed ones** (for context only; nobody needs to convert these):
+
+```sql
+SELECT COUNT(*) FROM tickets t
+JOIN ticket_types tt ON tt.id = t.ticket_type_id
+JOIN ticket_type_statuses s ON s.id = t.current_status_id
+WHERE tt.type_key = 'todo' AND t.work_type = 'contract' AND s.is_final = 'true';
+```
+
+Check the column names against `lib/db/src/schema/schema.ts` first (for example `users.name`). If one differs, adjust the query and say so.
+
+## Report format
+
+A table of query A (all rows if there are 100 or fewer; otherwise the first 100 plus the total), with one extra column, **"Likely"**, filled in with this rule of thumb:
+
+- **Field job**: the customer is a real property (not "Internal Tasks") and the title reads like on-site work.
+- **Internal**: the customer is "Internal Tasks", or `has_equipment` is true, or the title reads like office or shop work.
+- **Unsure**: anything else.
+
+This is a suggestion for Randy, not a decision. Also give the count from B.
+
+## Out of scope
+
+Converting anything. A small follow-up slice will move the rows Randy picks, by id, onto the Task type (status Open → New, billing contract).

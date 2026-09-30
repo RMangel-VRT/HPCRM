@@ -1,0 +1,50 @@
+# P0-1: Startup capability backfill matches by type key
+
+> Assumes 00-RULES.md. The risk here: this runs on **every boot**. A mistake rewrites every ticket type's flags each time the server starts.
+
+## Why
+
+`backfillTicketTypeCapabilities()` in `artifacts/api-server/src/routes/routes.ts` is called at the top of `registerRoutes()`, right after `migrateTicketTypeRename()`. On every boot it:
+
+1. writes the capability flags with `UPDATE ticket_types … WHERE name = ${typeName}`, and
+2. writes status keys with `… AND t.name = ${typeName} AND s.name = ${statusName} AND s.status_key IS NULL`.
+
+Both match by **display name**. In P1-1 the Extra Billable type is renamed to "Task", and after that the name match would silently stop finding it. The same thing happens today if a user renames any seeded type in Settings.
+
+## Change
+
+In `backfillTicketTypeCapabilities()` only:
+
+1. **Capability flags.** For each `[typeName, caps]` in `TICKET_TYPE_CAPABILITIES`, look up `const typeKey = TICKET_TYPE_KEYS[typeName]` and match
+   ```sql
+   WHERE type_key = ${typeKey} OR (type_key IS NULL AND name = ${typeName})
+   ```
+   A keyed row is matched by key. An unkeyed row falls back to its name, which keeps today's behavior for rows that haven't been keyed yet.
+
+2. **Status keys.** Change the join condition the same way:
+   ```sql
+   AND (t.type_key = ${typeKey} OR (t.type_key IS NULL AND t.name = ${typeName}))
+   AND s.name = ${statusName}
+   AND s.status_key IS NULL
+   ```
+   Keep `s.name` and the `IS NULL` guard. Status keys are written once, by name, onto unkeyed statuses only.
+
+3. **Leave the type-key backfill (the middle block) name-based.** It exists to key unkeyed rows by their name, so matching on the key there would be circular. It already has the `type_key IS NULL` guard.
+
+4. **Leave `migrateTicketTypeRename()` alone.** It finds rows by their old names on purpose.
+
+If `TICKET_TYPE_KEYS[typeName]` is ever undefined, log an error for that entry and skip it rather than running an `UPDATE` with a NULL key.
+
+## Tests
+
+Add `artifacts/api-server/src/routes/backfillTicketTypeCapabilities.test.ts`, or extend an existing test if there's a suitable harness. Assert on the generated SQL, or run it against the test database if one is used elsewhere:
+
+- A type row with `type_key = 'invoice'` and a custom name ("Invoices (QBO)") still gets the Invoice flags.
+- An unkeyed row named "To-Do" still gets the To-Do flags.
+- A keyed row whose name matches a *different* type's display name does **not** get that type's flags.
+
+## Done when
+
+- Boot logs are unchanged apart from the new matching.
+- Renaming a seeded type in Settings and restarting leaves its capability flags correct.
+- Tests and typecheck pass.
