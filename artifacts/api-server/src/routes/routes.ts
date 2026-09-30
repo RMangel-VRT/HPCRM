@@ -1501,7 +1501,7 @@ export async function migrateTicketTypeCapabilityColumns(): Promise<void> {
 // by SQL migration 0040 (post-merge `pnpm migrate`) or by the startup-migration
 // runner; if they don't exist yet this logs and skips. Idempotent: the status
 // backfill only writes WHERE status_key IS NULL (preserving hand-edited values).
-// Must run AFTER migrateTicketTypeRename() — it matches on post-rename type names.
+// Must run AFTER migrateTicketTypeRename() for the legacy unkeyed name fallback.
 export async function backfillTicketTypeCapabilities(): Promise<void> {
   console.log("Running startup migration: Ticket type capability flags and status keys...");
   try {
@@ -1516,8 +1516,21 @@ export async function backfillTicketTypeCapabilities(): Promise<void> {
       return;
     }
 
-    // Backfill capability flags on every matching ticket_types row (by post-rename name)
+    // 0040 may be applied before 0041. Never reference type_key until its
+    // column exists, but still backfill capabilities by name in that window.
+    const typeKeyCol = await db.execute(sql`
+      SELECT COUNT(*)::int AS count FROM information_schema.columns
+      WHERE table_name = 'ticket_types' AND column_name = 'type_key'
+    `);
+    const hasTypeKey = ((typeKeyCol.rows[0] as { count: number })?.count ?? 0) > 0;
+
+    // A non-null key is authoritative. Only unkeyed rows use the seed name.
     for (const [typeName, caps] of Object.entries(TICKET_TYPE_CAPABILITIES)) {
+      const typeKey = TICKET_TYPE_KEYS[typeName];
+      if (!typeKey) {
+        console.warn(`Ticket capability backfill skipped: no registered type key for "${typeName}"`);
+        continue;
+      }
       await db.execute(sql`
         UPDATE ticket_types SET
           requires_customer = ${caps.requiresCustomer},
@@ -1525,17 +1538,15 @@ export async function backfillTicketTypeCapabilities(): Promise<void> {
           requires_completion = ${caps.requiresCompletion},
           requires_invoicing = ${caps.requiresInvoicing},
           terminal_behavior = ${caps.terminalBehavior}
-        WHERE name = ${typeName}
+        WHERE ${hasTypeKey
+          ? sql`(type_key = ${typeKey} OR (type_key IS NULL AND name = ${typeName}))`
+          : sql`name = ${typeName}`}
       `);
     }
 
     // Stable type keys are independent of the capability-column migration:
     // 0040 may be applied before 0041. Identities are written only once.
-    const typeKeyCol = await db.execute(sql`
-      SELECT COUNT(*)::int AS count FROM information_schema.columns
-      WHERE table_name = 'ticket_types' AND column_name = 'type_key'
-    `);
-    if (((typeKeyCol.rows[0] as { count: number })?.count ?? 0) > 0) {
+    if (hasTypeKey) {
       let typeKeysWritten = 0;
       for (const [typeName, typeKey] of Object.entries(TICKET_TYPE_KEYS)) {
         const result = await db.execute(sql`
@@ -1552,13 +1563,20 @@ export async function backfillTicketTypeCapabilities(): Promise<void> {
     // Backfill status keys, preserving any already-set (hand-edited) values
     let keysWritten = 0;
     for (const [typeName, statusKeys] of Object.entries(STATUS_KEY_BACKFILL)) {
+      const typeKey = TICKET_TYPE_KEYS[typeName];
+      if (!typeKey) {
+        console.warn(`Ticket status key backfill skipped: no registered type key for "${typeName}"`);
+        continue;
+      }
       for (const [statusName, statusKey] of Object.entries(statusKeys)) {
         const result = await db.execute(sql`
           UPDATE ticket_type_statuses s
           SET status_key = ${statusKey}
           FROM ticket_types t
           WHERE s.ticket_type_id = t.id
-            AND t.name = ${typeName}
+            AND ${hasTypeKey
+              ? sql`(t.type_key = ${typeKey} OR (t.type_key IS NULL AND t.name = ${typeName}))`
+              : sql`t.name = ${typeName}`}
             AND s.name = ${statusName}
             AND s.status_key IS NULL
         `);
@@ -2633,7 +2651,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await migrateTicketTypeRename();
 
   // Slice A: DML-only backfill of capability flags and status keys. Runs after the
-  // rename above (it matches post-rename names). No DDL — columns come from SQL
+  // rename above (unkeyed rows match post-rename names). No DDL — columns come from SQL
   // migration 0040 via post-merge `pnpm migrate`; skips cleanly if columns are absent.
   await backfillTicketTypeCapabilities();
 
