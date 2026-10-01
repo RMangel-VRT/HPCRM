@@ -1,0 +1,21 @@
+Approve it, with one small addition. First, the order is fine: #651 merged yesterday afternoon. I checked it on GitHub, and it does what we agreed, including the missing-column fallback and the new tests. So the warning in #654 that #651 is "still a draft" is out of date, and you can start #654.
+
+The #654 plan matches P1-1 point for point:
+
+The same database row is renamed and re-keyed, so its id, statuses, fields, tickets and history all stay.
+The Task type isn't invoice-required by type; billing comes from each ticket.
+Existing tickets are converted once, and the conversion is skipped if the company already has a Task type.
+It runs at startup, after the old rename and before the capability backfill.
+The two dead migrations are deleted, and campaign code keeps its extra_billable category.
+
+The addition. There's one case neither my spec nor the plan covers. On every startup, the server automatically tags any untagged ticket type whose name is exactly "Task" with the internal key task. If one of your companies already has a hand-made type called exactly "Task", after this change it would get the task key too, and you'd have two ticket types claiming to be Task. Paste this into the #654 task before approving:
+
+"In the conversion, also treat an unkeyed ticket type named exactly Task as a conflict: log a warning and skip that company, same as an existing keyed Task. Add a test for it. Also run this read-only check against dev and production and include the results in your report: SELECT company_id, id, name, type_key FROM ticket_types WHERE name ILIKE '%task%';"
+
+That lookup tells us whether the case is real. It probably isn't, but your New Ticket screen looks for types with "task" in the name, so a custom "Quick Task" type might exist.
+
+When it reports back, look for:
+
+That lookup's results.
+Conversion counts from the first dev startup (it should show your Extra Billable tickets), and a second startup showing 0.
+The list of remaining extra_billable / "Extra Billable" references with a reason for each one.
