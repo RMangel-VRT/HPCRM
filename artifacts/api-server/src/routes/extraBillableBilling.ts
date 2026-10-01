@@ -23,7 +23,7 @@ export interface BillingDeps {
     getCompanyUsersByCompanyId: (companyId: string) => Promise<any[]>;
     createTicketLink: (link: { sourceTicketId: string; targetTicketId: string; linkType: string }) => Promise<any>;
   };
-  ensureExtraBillableTicketType: (companyId: string) => Promise<{ typeId: string; statuses: Map<string, string> } | null>;
+  ensureTaskTicketType: (companyId: string) => Promise<{ typeId: string; statuses: Map<string, string> } | null>;
   ensureInvoiceTicketType: (companyId: string) => Promise<{ typeId: string; pendingStatusId: string } | null>;
   copyPhoto: (
     srcKey: string,
@@ -156,26 +156,26 @@ async function generateExtraBillableTicketForItem(
       });
       invoiceTicketId = invoiceTicket.id;
       (deps.logger ?? defaultLogger()).info(
-        `Auto-created Invoice ticket ${invoiceTicket.id} for Extra Billable ticket ${ticket.id} (campaign item ${item.id})`,
+        `Auto-created Invoice ticket ${invoiceTicket.id} for Task ticket ${ticket.id} (campaign item ${item.id})`,
       );
     }
   } catch (err) {
     (deps.logger ?? defaultLogger()).error(
-      `Failed to auto-create invoice ticket for Extra Billable ticket ${ticket.id}:`,
+      `Failed to auto-create invoice ticket for Task ticket ${ticket.id}:`,
       err,
     );
   }
 
   (deps.logger ?? defaultLogger()).info(
-    `Generated Extra Billable ticket ${ticket.id} for campaign item ${item.id} (campaign ${campaign.id}) by user ${user.id}`,
+    `Generated Task ticket ${ticket.id} for campaign item ${item.id} (campaign ${campaign.id}) by user ${user.id}`,
   );
   return { ticketId: ticket.id, invoiceTicketId, photoCopyFailures: failures };
 }
 
 async function resolveTicketTypeInfo(deps: BillingDeps, companyId: string) {
-  const info = await deps.ensureExtraBillableTicketType(companyId);
+  const info = await deps.ensureTaskTicketType(companyId);
   if (!info) return null;
-  const readyForBillingStatusId = info.statuses.get("Ready for Billing");
+  const readyForBillingStatusId = info.statuses.get("ready_for_billing");
   if (!readyForBillingStatusId) return null;
   return { typeId: info.typeId, readyForBillingStatusId };
 }
@@ -230,7 +230,7 @@ export function registerExtraBillableBillingRoutes(app: Express, deps: BillingDe
     if (ticketIds.length > 0) {
       const tickets = await deps.storage.getTicketsByIds(ticketIds, user.activeCompanyId);
       const ticketById = new Map(tickets.map(t => [t.id, t]));
-      const ttypeInfo = await deps.ensureExtraBillableTicketType(user.activeCompanyId);
+      const ttypeInfo = await deps.ensureTaskTicketType(user.activeCompanyId);
       const statuses = ttypeInfo ? await deps.storage.getTicketTypeStatuses(ttypeInfo.typeId) : [];
       const statusNameById = new Map(statuses.map(s => [s.id, s.name]));
       billedTickets = billedItemTicketPairs.map(p => {
@@ -301,7 +301,7 @@ export function registerExtraBillableBillingRoutes(app: Express, deps: BillingDe
 
     const ticketTypeInfo = await resolveTicketTypeInfo(deps, user.activeCompanyId);
     if (!ticketTypeInfo) {
-      return res.status(500).json({ error: "Extra Billable ticket type or 'Ready for Billing' status not configured" });
+      return res.status(500).json({ error: "Task ticket type or 'Ready for Billing' status not configured" });
     }
 
     let generated = 0;
@@ -360,7 +360,7 @@ export function registerExtraBillableBillingRoutes(app: Express, deps: BillingDe
     }
     const ticketTypeInfo = await resolveTicketTypeInfo(deps, user.activeCompanyId);
     if (!ticketTypeInfo) {
-      return res.status(500).json({ error: "Extra Billable ticket type or 'Ready for Billing' status not configured" });
+      return res.status(500).json({ error: "Task ticket type or 'Ready for Billing' status not configured" });
     }
     try {
       const out = await generateExtraBillableTicketForItem(deps, item, campaign, user, ticketTypeInfo);

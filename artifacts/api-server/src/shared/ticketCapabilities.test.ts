@@ -5,6 +5,7 @@ import {
   findSeededTicketType,
   isSeededTicketType,
   TICKET_TYPE_NAMES_BY_KEY,
+  TICKET_TYPE_CAPABILITIES,
 } from "./ticketCapabilities";
 
 describe("seeded ticket type identity", () => {
@@ -13,7 +14,7 @@ describe("seeded ticket type identity", () => {
       todo: "To-Do",
       estimate_request: "Estimate Request",
       project: "Project",
-      extra_billable: "Extra Billable",
+      task: "Task",
       invoice: "Invoice",
       rfp_request: "RFP Request",
     });
@@ -24,6 +25,17 @@ describe("seeded ticket type identity", () => {
       { name: "Customer Billing", typeKey: "invoice" },
       "invoice"
     )).toBe(true);
+  });
+
+  it("recognizes Task by stable key and only accepts the old name when unkeyed", () => {
+    expect(isSeededTicketType({ name: "Field Work", typeKey: "task" }, "task")).toBe(true);
+    expect(isSeededTicketType({ name: "Extra Billable", typeKey: null }, "task")).toBe(true);
+    expect(isSeededTicketType({ name: "Extra Billable", typeKey: "todo" }, "task")).toBe(false);
+    expect(isSeededTicketType({ name: "Quick Task" }, "task")).toBe(false);
+    expect(TICKET_TYPE_CAPABILITIES.Task).toEqual({
+      requiresCustomer: "true", requiresScheduling: "true", requiresCompletion: "true",
+      requiresInvoicing: "false", terminalBehavior: "close",
+    });
   });
 
   it("treats a present key as authoritative over a matching display name", () => {

@@ -585,7 +585,7 @@ export type TicketTypeKey =
   | "todo"
   | "estimate_request"
   | "project"
-  | "extra_billable"
+  | "task"
   | "invoice"
   | "rfp_request";
 
@@ -626,7 +626,7 @@ export const insertTicketTypeSchema = createInsertSchema(ticketTypes).omit({
   requiresCompletion: z.enum(["true", "false"]).default("false"),
   requiresInvoicing: z.enum(["true", "false"]).default("false"),
   terminalBehavior: z.enum(["close", "invoice", "handoff"]).default("close"),
-  typeKey: z.enum(["todo", "estimate_request", "project", "extra_billable", "invoice", "rfp_request"]).nullable().optional(),
+  typeKey: z.enum(["todo", "estimate_request", "project", "task", "invoice", "rfp_request"]).nullable().optional(),
 });
 
 export type InsertTicketType = z.infer<typeof insertTicketTypeSchema>;

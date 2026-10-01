@@ -41,6 +41,12 @@ function installDb(types: TypeRow[], statuses: StatusRow[], hasTypeKey: boolean)
       return { rowCount };
     }
     if (text.startsWith("UPDATE ticket_types SET")) {
+      if (text.includes('WHERE type_key = "task"')) {
+        for (const type of types) {
+          if (type.typeKey === "task") type.caps = TICKET_TYPE_CAPABILITIES.Task;
+        }
+        return { rowCount: types.filter(type => type.typeKey === "task").length };
+      }
       const keyed = text.includes("type_key IS NULL");
       const typeKey = keyed ? query.params[5] : null;
       const name = query.params[keyed ? 6 : 5];
@@ -62,6 +68,17 @@ function installDb(types: TypeRow[], statuses: StatusRow[], hasTypeKey: boolean)
     }
     if (text.startsWith("UPDATE ticket_type_statuses")) {
       expect(text).toContain("s.status_key IS NULL");
+      if (text.includes('AND t.type_key = "task"')) {
+        let rowCount = 0;
+        for (const status of statuses) {
+          const parent = types.find(type => type.id === status.typeId);
+          if (parent?.typeKey === "task" && status.name === query.params[2] && status.statusKey === null) {
+            status.statusKey = query.params[0] as string;
+            rowCount++;
+          }
+        }
+        return { rowCount };
+      }
       const keyed = text.includes("t.type_key IS NULL");
       const typeKey = keyed ? query.params[1] : null;
       const name = query.params[keyed ? 2 : 1];
@@ -87,6 +104,24 @@ function installDb(types: TypeRow[], statuses: StatusRow[], hasTypeKey: boolean)
 
 describe("startup ticket capability backfill", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("backfills keyed Task only and does not claim a conflicting custom exact-name Task", async () => {
+    const types: TypeRow[] = [
+      { id: "seeded", name: "Field Work", typeKey: "task" },
+      { id: "custom", name: "Task", typeKey: null },
+      { id: "legacy", name: "Extra Billable", typeKey: "extra_billable" },
+    ];
+    const statuses: StatusRow[] = [
+      { typeId: "seeded", name: "Done", statusKey: null },
+      { typeId: "custom", name: "Done", statusKey: null },
+    ];
+    installDb(types, statuses, true);
+    await backfillTicketTypeCapabilities();
+    expect(types[0].caps).toEqual(TICKET_TYPE_CAPABILITIES.Task);
+    expect(types[1]).toEqual({ id: "custom", name: "Task", typeKey: null });
+    expect(types[2].caps).toBeUndefined();
+    expect(statuses.map(status => status.statusKey)).toEqual(["closed_won", null]);
+  });
 
   it("uses keyed identities after renames, falls back for unkeyed types, and preserves status keys", async () => {
     const types: TypeRow[] = [

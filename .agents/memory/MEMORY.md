@@ -2,3 +2,4 @@
 - [PATCH pitfalls: zod partial defaults & bundled dynamic imports](zod-partial-defaults-and-bundled-dynamic-imports.md) — `.partial()` still injects `.default()`s; relative `import("./x")` 500s only in prod bundle.
 - [Startup migrations runner not wired](startup-migrations-not-wired.md) — the runner is never called at boot; ship DDL as a `.migration-backup/migrations/` SQL file, boot backfills must be DML-only + guarded.
 - [Optional enum Select submits ""](optional-enum-select-empty-string.md) — untouched optional Select sends ""; server `z.enum().optional()` 400s. Preprocess ""/null→undefined in shared insert schema.
+- [Task name conflicts](task-name-conflict-policy.md) — Task backfill must not claim custom exact-name Task rows after the conversion deliberately skips them.

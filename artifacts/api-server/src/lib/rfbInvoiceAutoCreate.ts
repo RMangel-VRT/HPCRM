@@ -2,7 +2,7 @@
  * Direction-independent "Ready for Billing" invoice auto-creation helper.
  *
  * Fires on ANY landing at "Ready for Billing" — forward moves AND step-backs
- * (e.g. Done → Ready for Billing for Extra Billable tickets).
+ * (e.g. Done → Ready for Billing for Tasks).
  *
  * Returns the newly-created Invoice ticket, or null when creation was skipped
  * (idempotency guard: invoice already exists, ticket type not eligible, etc.).
@@ -72,8 +72,8 @@ export interface RfbStorageDeps {
  * when it lands on "Ready for Billing".
  *
  * Accepts either a string (legacy name-based check) or an RfbTicketType object.
- * When an object is passed: if `requiresInvoicing === "true"` return true;
- * if `"false"` return false; otherwise fall back to name check.
+ * When an object is passed, Task is never type-eligible; other types honor
+ * `requiresInvoicing` before falling back to their seeded type key.
  *
  * @note The name-check fallback exists for rows that predate migration 0040
  *       which backfilled `requires_invoicing`. Once all rows are confirmed
@@ -82,18 +82,14 @@ export interface RfbStorageDeps {
 export function isInvoiceEligibleType(type: RfbTicketType | string | null | undefined): boolean {
   if (type === undefined || type === null) return false;
   if (typeof type === "string") {
-    return (
-      type === "Project" ||
-      type === "Estimate Request" ||
-      type === "Extra Billable"
-    );
+    return type === "Project" || type === "Estimate Request";
   }
-  // Object overload: prefer the stable flag, fall back to name
+  // Task invoice eligibility is determined only by the ticket's billing behavior.
+  if (isSeededTicketType(type, "task")) return false;
   if (type.requiresInvoicing === "true") return true;
   if (type.requiresInvoicing === "false") return false;
   return isSeededTicketType(type, "project")
-    || isSeededTicketType(type, "estimate_request")
-    || isSeededTicketType(type, "extra_billable");
+    || isSeededTicketType(type, "estimate_request");
 }
 
 export interface MaybeAutoCreateInvoiceParams {
@@ -114,7 +110,7 @@ export interface MaybeAutoCreateInvoiceParams {
 /**
  * Idempotently creates an Invoice ticket linked to `ticket` when:
  *  - newStatusName is "Ready for Billing"
- *  - the ticket type is Project, Estimate Request, or Extra Billable
+ *  - the ticket type is Project or Estimate Request
  *    OR billingBehavior is already "invoice_required"
  *  - no invoice_for link already exists from `ticket`
  *
@@ -133,8 +129,6 @@ export async function maybeAutoCreateInvoiceOnRfb(
 
   const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, ticket.companyId);
   const isInvoiceType = isSeededTicketType(ticketType, "invoice");
-  const isExtraBillableType = isSeededTicketType(ticketType, "extra_billable");
-
   const invoiceEligible =
     ticket.billingBehavior === "invoice_required" ||
     pendingBillingBehavior === "invoice_required" ||
@@ -190,7 +184,7 @@ export async function maybeAutoCreateInvoiceOnRfb(
 
     console.log(
       `Auto-created Invoice ticket ${invoiceTicket.id} for ticket ${ticket.id} at Ready for Billing ` +
-      `(direction-independent, type="${ticketType?.name}", ebNormalized=${isExtraBillableType}, ` +
+      `(direction-independent, type="${ticketType?.name}", ` +
       `assigned to: ${billingUser?.userId || "unassigned"}) with ${sourceComments.length} notes copied`
     );
     return invoiceTicket;

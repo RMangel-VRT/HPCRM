@@ -143,7 +143,7 @@ describe("GET /api/dashboard/action-queue", () => {
       { id: "type-invoice", name: "Invoice", typeKey: "invoice" },
       { id: "type-estimate", name: "Estimate Request", typeKey: "estimate_request" },
       { id: "type-project", name: "Project", typeKey: "project" },
-      { id: "type-extra", name: "Extra Billable", typeKey: "extra_billable" },
+      { id: "type-task", name: "Task", typeKey: "task" },
       { id: "type-rfp", name: "RFP Request", typeKey: "rfp_request" },
       { id: "type-todo", name: "To-Do", typeKey: "todo" },
     ];
@@ -156,10 +156,10 @@ describe("GET /api/dashboard/action-queue", () => {
         { id: "status-proposal", name: "Proposal Sent", statusKey: "proposal_sent", actionType: "waiting", isFinal: "false" },
         { id: "status-new-estimate", name: "New", statusKey: "new", actionType: "needs_action", isFinal: "false" },
       ]],
-      ["type-project", [
+      ["type-project", []],
+      ["type-task", [
         { id: "status-rfb", name: "Ready for Billing", statusKey: "ready_for_billing", actionType: "needs_action", isFinal: "false" },
       ]],
-      ["type-extra", []],
       ["type-rfp", [
         { id: "status-maps", name: "Maps Requested", statusKey: "maps_requested", actionType: "waiting", isFinal: "false" },
       ]],
@@ -178,9 +178,9 @@ describe("GET /api/dashboard/action-queue", () => {
     };
     const ticketRows = [
       { ...ticketBase, id: "invoice", ticketTypeId: "type-invoice", currentStatusId: "status-pending", title: "Invoice review", updatedAt: justOlderThan(7) },
-      { ...ticketBase, id: "linked-parent", ticketTypeId: "type-project", currentStatusId: "status-rfb", title: "Linked work", updatedAt: day(12) },
-      { ...ticketBase, id: "linked-complete-parent", ticketTypeId: "type-project", currentStatusId: "status-rfb", title: "Already invoiced work", updatedAt: day(11) },
-      { ...ticketBase, id: "stranded-parent", ticketTypeId: "type-project", currentStatusId: "status-rfb", title: "Stranded work", updatedAt: day(2) },
+      { ...ticketBase, id: "linked-parent", ticketTypeId: "type-task", currentStatusId: "status-rfb", title: "Linked work", updatedAt: day(12) },
+      { ...ticketBase, id: "linked-complete-parent", ticketTypeId: "type-task", currentStatusId: "status-rfb", title: "Already invoiced work", updatedAt: day(11) },
+      { ...ticketBase, id: "stranded-parent", ticketTypeId: "type-task", currentStatusId: "status-rfb", title: "Stranded work", updatedAt: day(2) },
       { ...ticketBase, id: "proposal", ticketTypeId: "type-estimate", currentStatusId: "status-proposal", title: "Proposal waiting", updatedAt: justOlderThan(10) },
       { ...ticketBase, id: "blocked", ticketTypeId: "type-rfp", currentStatusId: "status-maps", title: "Maps missing", updatedAt: justOlderThan(5) },
       { ...ticketBase, id: "blocked-recent", ticketTypeId: "type-rfp", currentStatusId: "status-maps", title: "Maps just requested", updatedAt: day(4) },
@@ -290,7 +290,13 @@ describe("GET /api/dashboard/action-queue", () => {
     expect(invoice).not.toHaveProperty("amount");
 
     const strandedParent = response.body.items.find((item: any) => item.id === "stranded-parent");
-    expect(strandedParent).toMatchObject({ verb: "Open", parentTicketId: null, action: null });
+    expect(strandedParent).toMatchObject({
+      verb: "Open",
+      parentTicketId: null,
+      action: null,
+      ticketType: { name: "Task", typeKey: "task" },
+      ticketStatus: { statusKey: "ready_for_billing" },
+    });
 
     const followup = response.body.items.find((item: any) => item.id === "followup");
     expect(followup).toMatchObject({
@@ -430,10 +436,11 @@ describe("GET /api/dashboard/pulse", () => {
     }]);
     mocks.getTicketTypes.mockResolvedValue([
       { id: "type-project", name: "Renamed project", typeKey: "project" },
+      { id: "type-task", name: "Renamed task", typeKey: "task" },
       { id: "type-invoice", name: "Renamed invoice", typeKey: "invoice" },
     ]);
     mocks.getTicketTypeStatuses.mockImplementation(async (typeId: string) =>
-      typeId === "type-project"
+      typeId === "type-task"
         ? [{ id: "status-ready", name: "Renamed ready", statusKey: "ready_for_billing" }]
         : [{ id: "status-invoiced", name: "Renamed invoiced", statusKey: "invoiced" }],
     );

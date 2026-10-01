@@ -49,6 +49,7 @@ import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes
 import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks';
 import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
+import { convertExtraBillableToTask } from '../lib/convertExtraBillableToTask';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
 /**
@@ -774,27 +775,27 @@ async function migrateApprovedEstimateRequestTickets(companyId: string, triggeri
   return migratedCount;
 }
 
-// Helper to ensure Extra Billable ticket type exists with scheduling workflow
-async function ensureExtraBillableTicketType(companyId: string): Promise<{ 
+// Helper to ensure Task ticket type exists with scheduling workflow
+export async function ensureTaskTicketType(companyId: string): Promise<{
   typeId: string; 
   statuses: Map<string, string>;
 } | null> {
   const ticketTypes = await storage.getTicketTypes(companyId);
-  let ebType = findSeededTicketType(ticketTypes, "extra_billable");
+  let ebType = findSeededTicketType(ticketTypes, "task");
   
   if (!ebType) {
     ebType = await storage.createTicketType({
       companyId,
-      name: "Extra Billable",
-      description: "Work outside the contract scope - must be scheduled, completed, and invoiced",
+      name: "Task",
+      description: "Contract and billable field work - must be scheduled and completed; invoicing is decided per ticket",
       category: "service",
       icon: "receipt",
       color: "#f59e0b",
       isActive: "true",
-      ...TICKET_TYPE_CAPABILITIES["Extra Billable"],
-      typeKey: TICKET_TYPE_KEYS["Extra Billable"],
+      ...TICKET_TYPE_CAPABILITIES["Task"],
+      typeKey: TICKET_TYPE_KEYS["Task"],
     });
-    console.log(`Created Extra Billable ticket type for company ${companyId}`);
+    console.log(`Created Task ticket type for company ${companyId}`);
   }
   
   const ebStatuses: StatusDefinition[] = [
@@ -810,14 +811,14 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
   const statusMap = new Map<string, string>();
   
   for (const statusDef of ebStatuses) {
-    const statusKey = STATUS_KEY_BACKFILL["Extra Billable"]?.[statusDef.name];
-    if (!statusKey) throw new Error(`Missing seeded status key for Extra Billable / ${statusDef.name}`);
+    const statusKey = STATUS_KEY_BACKFILL["Task"]?.[statusDef.name];
+    if (!statusKey) throw new Error(`Missing seeded status key for Task / ${statusDef.name}`);
     let status = findSeededStatus(existingStatuses, statusKey);
     if (!status) {
       status = await storage.createTicketTypeStatus({
         ticketTypeId: ebType.id,
         name: statusDef.name,
-        statusKey: STATUS_KEY_BACKFILL["Extra Billable"]?.[statusDef.name] ?? null,
+        statusKey,
         description: statusDef.description,
         displayOrder: statusDef.order,
         color: statusDef.color,
@@ -825,16 +826,16 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
         actionType: statusDef.actionType,
         waitingCategory: statusDef.waitingCategory,
       });
-      console.log(`Created status "${statusDef.name}" for Extra Billable type`);
+      console.log(`Created status "${statusDef.name}" for Task type`);
     }
-    statusMap.set(statusDef.name, status.id);
+    statusMap.set(statusKey, status.id);
   }
   
   // Define fields for Work Completed status
   const existingFields = await storage.getTicketTypeFields(ebType.id);
   const existingFieldKeys = new Set(existingFields.map(f => f.fieldKey));
   
-  const workCompletedStatusId = statusMap.get("Work Completed");
+  const workCompletedStatusId = statusMap.get("work_completed");
   if (workCompletedStatusId) {
     const fieldDefs = [
       { fieldKey: "completion_date", fieldLabel: "Completion Date", fieldType: "date", isRequired: "false", displayOrder: 0 },
@@ -854,12 +855,12 @@ async function ensureExtraBillableTicketType(companyId: string): Promise<{
           options: [],
           displayOrder: fieldDef.displayOrder,
         });
-        console.log(`Created field "${fieldDef.fieldKey}" for Extra Billable Work Completed status`);
+        console.log(`Created field "${fieldDef.fieldKey}" for Task Work Completed status`);
       }
     }
   }
   
-  console.log(`Extra Billable ticket type setup complete for company ${companyId}`);
+  console.log(`Task ticket type setup complete for company ${companyId}`);
   return { typeId: ebType.id, statuses: statusMap };
 }
 
@@ -1053,17 +1054,17 @@ async function ensureToDoTicketType(companyId: string): Promise<{
   return { typeId: todoType.id, statuses: statusMap, internalCustomerId: internalCustomer.id };
 }
 
-// Seeds all standard ticket types for a company (Estimate Request, Invoice, To-Do, RFP Request, Extra Billable, Project)
+// Seeds all standard ticket types for a company (Estimate Request, Invoice, To-Do, RFP Request, Task, Project)
 // Called during company setup to ensure ticket types exist before users create tickets
 export async function seedAllTicketTypes(companyId: string): Promise<void> {
   console.log(`Seeding all ticket types for company ${companyId}...`);
   
-  // Seed in order: To-Do, Invoice, Estimate Request, RFP Request, Extra Billable, Project
+  // Seed in order: To-Do, Invoice, Estimate Request, RFP Request, Task, Project
   await ensureToDoTicketType(companyId);
   await ensureInvoiceTicketType(companyId);
   await ensureEstimateRequestTicketType(companyId);
   await ensureRFPRequestTicketType(companyId);
-  await ensureExtraBillableTicketType(companyId);
+  await ensureTaskTicketType(companyId);
   await ensureProjectTicketType(companyId);
   
   console.log(`All ticket types seeded for company ${companyId}`);
@@ -1160,31 +1161,6 @@ export async function migrateProjectSchedulingStatus(): Promise<void> {
     console.log(`Startup migration complete: Processed ${companies.length} companies, ensured Ready to Schedule status exists`);
   } catch (error) {
     console.error("Error during startup migration for scheduling status:", error);
-  }
-}
-
-// Startup migration: Ensure Extra Billable "Done" status has correct display order (after Ready for Billing)
-export async function fixExtraBillableDoneOrder(): Promise<void> {
-  console.log("Running startup migration: Fixing Extra Billable Done status display order...");
-  try {
-    const companies = await storage.getCompanies();
-    for (const company of companies) {
-      const ticketTypes = await storage.getTicketTypes(company.id);
-      const ebType = findSeededTicketType(ticketTypes, "extra_billable");
-      if (!ebType) continue;
-      
-      const statuses = await storage.getTicketTypeStatuses(ebType.id);
-      const doneStatus = findSeededStatus(statuses, "closed_won");
-      const readyForBilling = findSeededStatus(statuses, "ready_for_billing");
-      
-      if (doneStatus && doneStatus.displayOrder < 5) {
-        await storage.updateTicketTypeStatus(doneStatus.id, { displayOrder: 5 });
-        console.log(`Updated Extra Billable "Done" display order to 5 for company ${company.id}`);
-      }
-    }
-    console.log("Extra Billable Done order fix complete");
-  } catch (error) {
-    console.error("Error fixing Extra Billable Done order:", error);
   }
 }
 
@@ -1405,63 +1381,6 @@ export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
   }
 }
 
-// Startup migration: Ensure all companies have the Extra Billable ticket type
-// and migrate any existing extra_work To-Do tickets to the new type
-export async function migrateExtraBillableTicketType(): Promise<void> {
-  console.log("Running startup migration: Ensuring Extra Billable ticket type exists for all companies...");
-  
-  try {
-    const companies = await storage.getCompanies();
-    
-    for (const company of companies) {
-      const ebResult = await ensureExtraBillableTicketType(company.id);
-      if (!ebResult) continue;
-      
-      // Migrate existing extra_work tickets that are on the To-Do type to Extra Billable
-      const ticketTypes = await storage.getTicketTypes(company.id);
-      const todoType = findSeededTicketType(ticketTypes, "todo");
-      if (!todoType) continue;
-      
-      const todoStatuses = await storage.getTicketTypeStatuses(todoType.id);
-      const openStatus = findSeededStatus(todoStatuses, "new");
-      const doneStatus = findSeededStatus(todoStatuses, "closed_won");
-      
-      // Get all tickets of To-Do type with extra_work work type
-      const allTickets = await storage.getTickets(company.id);
-      const extraWorkTodoTickets = allTickets.filter(
-        t => t.ticketTypeId === todoType.id && t.workType === "extra_work"
-      );
-      
-      if (extraWorkTodoTickets.length === 0) continue;
-      
-      const ebNewStatusId = ebResult.statuses.get("New");
-      const ebDoneStatusId = ebResult.statuses.get("Done");
-      
-      for (const ticket of extraWorkTodoTickets) {
-        // Map old status to new status
-        let newStatusId = ebNewStatusId;
-        if (ticket.currentStatusId === doneStatus?.id && ebDoneStatusId) {
-          newStatusId = ebDoneStatusId;
-        }
-        
-        if (newStatusId) {
-          await storage.updateTicket(ticket.id, company.id, {
-            ticketTypeId: ebResult.typeId,
-            currentStatusId: newStatusId,
-          });
-          console.log(`Migrated extra_work ticket "${ticket.title}" (${ticket.id}) from To-Do to Extra Billable`);
-        }
-      }
-      
-      console.log(`Migrated ${extraWorkTodoTickets.length} extra_work tickets for company ${company.id}`);
-    }
-    
-    console.log("Extra Billable ticket type migration complete");
-  } catch (error) {
-    console.error("Error during Extra Billable migration:", error);
-  }
-}
-
 // Startup migration: Ensure all companies have the "Project" ticket type
 export async function migrateProjectNoEstimateTicketType(): Promise<void> {
   console.log("Running startup migration: Ensuring Project ticket type exists for all companies...");
@@ -1531,6 +1450,9 @@ export async function backfillTicketTypeCapabilities(): Promise<void> {
         console.warn(`Ticket capability backfill skipped: no registered type key for "${typeName}"`);
         continue;
       }
+      // Task is claimed only by the conversion/seeder. An exact-name unkeyed
+      // custom Task must remain untouched, including after a conversion conflict.
+      if (typeKey === "task" && !hasTypeKey) continue;
       await db.execute(sql`
         UPDATE ticket_types SET
           requires_customer = ${caps.requiresCustomer},
@@ -1538,7 +1460,9 @@ export async function backfillTicketTypeCapabilities(): Promise<void> {
           requires_completion = ${caps.requiresCompletion},
           requires_invoicing = ${caps.requiresInvoicing},
           terminal_behavior = ${caps.terminalBehavior}
-        WHERE ${hasTypeKey
+        WHERE ${typeKey === "task"
+          ? sql`type_key = ${typeKey}`
+          : hasTypeKey
           ? sql`(type_key = ${typeKey} OR (type_key IS NULL AND name = ${typeName}))`
           : sql`name = ${typeName}`}
       `);
@@ -1549,6 +1473,7 @@ export async function backfillTicketTypeCapabilities(): Promise<void> {
     if (hasTypeKey) {
       let typeKeysWritten = 0;
       for (const [typeName, typeKey] of Object.entries(TICKET_TYPE_KEYS)) {
+        if (typeKey === "task") continue;
         const result = await db.execute(sql`
           UPDATE ticket_types SET type_key = ${typeKey}
           WHERE name = ${typeName} AND type_key IS NULL
@@ -1568,13 +1493,16 @@ export async function backfillTicketTypeCapabilities(): Promise<void> {
         console.warn(`Ticket status key backfill skipped: no registered type key for "${typeName}"`);
         continue;
       }
+      if (typeKey === "task" && !hasTypeKey) continue;
       for (const [statusName, statusKey] of Object.entries(statusKeys)) {
         const result = await db.execute(sql`
           UPDATE ticket_type_statuses s
           SET status_key = ${statusKey}
           FROM ticket_types t
           WHERE s.ticket_type_id = t.id
-            AND ${hasTypeKey
+            AND ${typeKey === "task"
+              ? sql`t.type_key = ${typeKey}`
+              : hasTypeKey
               ? sql`(t.type_key = ${typeKey} OR (t.type_key IS NULL AND t.name = ${typeName}))`
               : sql`t.name = ${typeName}`}
             AND s.name = ${statusName}
@@ -2649,6 +2577,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Must run first — renames "Project" → "Estimate Request" and
   // "Project (No Estimate)" → "Project" before any ensure*/seed* calls look them up by name.
   await migrateTicketTypeRename();
+
+  // DML only: convert the existing row and its tickets once, before key/capability backfill.
+  await convertExtraBillableToTask();
 
   // Slice A: DML-only backfill of capability flags and status keys. Runs after the
   // rename above (unkeyed rows match post-rename names). No DDL — columns come from SQL
@@ -7096,7 +7027,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (isRfbStatus) {
         const rfbTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-        const isExtraBillableType = isSeededTicketType(rfbTicketType, "extra_billable");
+        const isExtraBillableType = isSeededTicketType(rfbTicketType, "task");
         if (isExtraBillableType && existingTicket.billingBehavior !== "invoice_required") {
           req.body.billingBehavior = "invoice_required";
           console.log(`Normalizing billingBehavior to invoice_required for Extra Billable ticket ${existingTicket.id} at Ready for Billing`);
@@ -14967,7 +14898,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== Extra Billable Campaign — Billing Queue & Ticket Generation (Slice 4) =====
   registerExtraBillableBillingRoutes(app, {
     storage: storage as unknown as Parameters<typeof registerExtraBillableBillingRoutes>[1]["storage"],
-    ensureExtraBillableTicketType,
+    ensureTaskTicketType,
     ensureInvoiceTicketType,
     copyPhoto: makeBucketCopyPhotoFn(objectStorageClient, process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID),
   });
@@ -19887,9 +19818,7 @@ export async function runStartupMigrations(): Promise<void> {
   await migrateTicketCompletionFields();
   await migrateProjectSchedulingStatus();
   await migrateFirstBankHierarchy();
-  await migrateExtraBillableTicketType();
   await removeProjectInvoicingFields();
-  await fixExtraBillableDoneOrder();
   await fixProjectDisplayOrders();
   await fixEstimateRequestBillingBehavior();
   await migrateEstimateSentToProposalWorkflow();

@@ -49,14 +49,14 @@ function makeWorld(over: Partial<World> = {}): World {
     user: { name: "Leader User" },
     tickets: [],
     ticketTypeStatuses: [
-      { id: "st-ready", name: "Ready for Billing" },
+      { id: "st-ready", name: "Renamed RFB status" },
       { id: "st-done", name: "Done" },
     ],
     ticketLinks: [],
     companyUsers: [{ userId: "billing-user-1", tags: ["billing"], status: "active" }],
     copyPhotoCalls: [],
     copyPhotoBehavior: "ok",
-    ensureReturns: { typeId: "tt-1", statuses: new Map([["Ready for Billing", "st-ready"], ["Done", "st-done"]]) },
+    ensureReturns: { typeId: "tt-1", statuses: new Map([["ready_for_billing", "st-ready"], ["done", "st-done"]]) },
     ensureInvoiceReturns: { typeId: "tt-invoice", pendingStatusId: "st-pending-invoice" },
     ...over,
   };
@@ -104,7 +104,7 @@ function buildApp(world: World, role: "admin" | "office" | "field" = "admin", au
         return l;
       }),
     },
-    ensureExtraBillableTicketType: vi.fn(async () => world.ensureReturns),
+    ensureTaskTicketType: vi.fn(async () => world.ensureReturns),
     ensureInvoiceTicketType: vi.fn(async () => world.ensureInvoiceReturns),
     copyPhoto: vi.fn(async (srcKey: string, _co: string, ticketId: string) => {
       world.copyPhotoCalls.push({ srcKey, ticketId });
@@ -138,7 +138,7 @@ function makeItem(over: Partial<Item> = {}): Item {
 }
 
 describe("POST /api/campaigns/:campaignId/items/:itemId/generate-ticket", () => {
-  it("creates a ticket with required Extra Billable fields and updates the item", async () => {
+  it("creates a Task ticket with required fields and updates the campaign item", async () => {
     const world = makeWorld({ items: [makeItem()] });
     const { app, deps } = buildApp(world, "admin");
     const res = await request(app).post("/api/campaigns/camp-1/items/i1/generate-ticket").send({});
@@ -224,7 +224,7 @@ describe("POST /api/campaigns/:campaignId/items/:itemId/generate-ticket", () => 
     expect((deps.storage.updateTicket as any).mock.calls.length).toBe(0);
   });
 
-  it("auto-creates an Invoice ticket linked to the Extra Billable ticket", async () => {
+  it("auto-creates an Invoice ticket linked to a billable Task ticket", async () => {
     const world = makeWorld({ items: [makeItem()] });
     const { app } = buildApp(world, "admin");
     const res = await request(app).post("/api/campaigns/camp-1/items/i1/generate-ticket").send({});
@@ -245,7 +245,7 @@ describe("POST /api/campaigns/:campaignId/items/:itemId/generate-ticket", () => 
     expect(res.body.invoiceTicketId).toBe(invoiceTicket.id);
   });
 
-  it("still creates the Extra Billable ticket if invoice creation fails", async () => {
+  it("still creates the Task ticket if invoice creation fails", async () => {
     const world = makeWorld({ items: [makeItem()], ensureInvoiceReturns: null });
     const { app } = buildApp(world, "admin");
     const res = await request(app).post("/api/campaigns/camp-1/items/i1/generate-ticket").send({});

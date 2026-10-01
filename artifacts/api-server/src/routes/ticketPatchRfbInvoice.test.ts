@@ -23,11 +23,10 @@ import {
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
-const EB_TYPE     = { id: "tt-eb",      name: "Extra Billable" };
+const TASK_TYPE   = { id: "tt-task",    name: "Task", typeKey: "task" as const, requiresInvoicing: "true" as const };
 const PROJECT_TYPE = { id: "tt-proj",   name: "Project" };
 const ER_TYPE     = { id: "tt-er",      name: "Estimate Request" };
 const INVOICE_TYPE = { id: "tt-inv",    name: "Invoice" };
-const TODO_TYPE   = { id: "tt-todo",    name: "To-Do" };
 
 const INVOICE_TYPE_INFO = { typeId: "tt-inv", pendingStatusId: "st-pending" };
 
@@ -35,9 +34,9 @@ function makeTicket(overrides: Record<string, unknown> = {}) {
   return {
     id: "ticket-1",
     companyId: "co-1",
-    title: "EB Job #42",
+    title: "Task #42",
     description: "Some work",
-    ticketTypeId: "tt-eb",
+    ticketTypeId: "tt-task",
     billingBehavior: null as string | null,
     customerId: null,
     contractId: null,
@@ -51,12 +50,12 @@ function makeStorage(overrides: Partial<RfbStorageDeps> = {}): RfbStorageDeps & 
   createTicketComment: ReturnType<typeof vi.fn>;
 } {
   return {
-    getTicketTypeById: vi.fn().mockResolvedValue(EB_TYPE),
+    getTicketTypeById: vi.fn().mockResolvedValue(TASK_TYPE),
     getTicketLinks: vi.fn().mockResolvedValue([]),
     getCompanyUsersByCompanyId: vi.fn().mockResolvedValue([
       { userId: "billing-user", tags: ["billing"], status: "active" },
     ]),
-    createTicket: vi.fn().mockResolvedValue({ id: "inv-ticket-1", title: "Invoice: EB Job #42" }),
+    createTicket: vi.fn().mockResolvedValue({ id: "inv-ticket-1", title: "Invoice: Task #42" }),
     createTicketLink: vi.fn().mockResolvedValue({ id: "link-1" }),
     getTicketComments: vi.fn().mockResolvedValue([]),
     createTicketComment: vi.fn().mockResolvedValue({}),
@@ -93,8 +92,8 @@ describe("isInvoiceEligibleType", () => {
   it("returns true for Estimate Request", () => {
     expect(isInvoiceEligibleType("Estimate Request")).toBe(true);
   });
-  it("returns true for Extra Billable", () => {
-    expect(isInvoiceEligibleType("Extra Billable")).toBe(true);
+  it("returns false for Task", () => {
+    expect(isInvoiceEligibleType("Task")).toBe(false);
   });
   it("returns false for Invoice", () => {
     expect(isInvoiceEligibleType("Invoice")).toBe(false);
@@ -112,10 +111,11 @@ describe("isInvoiceEligibleType", () => {
 describe("maybeAutoCreateInvoiceOnRfb", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  // ── Core EB creation ────────────────────────────────────────────────────────
+  // ── Core Task creation with per-ticket billing eligibility ────────────────────
 
-  it("step-back (Done → RFB): creates Invoice ticket for EB ticket with no existing invoice", async () => {
+  it("step-back (Done → RFB): creates Invoice ticket for a Task marked invoice-required", async () => {
     const params = makeParams();
+    params.ticket.billingBehavior = "invoice_required";
     const result = await maybeAutoCreateInvoiceOnRfb(params);
 
     expect(result).not.toBeNull();
@@ -125,7 +125,7 @@ describe("maybeAutoCreateInvoiceOnRfb", () => {
       expect.objectContaining({
         ticketTypeId: "tt-inv",
         billingBehavior: "internal",
-        title: "Invoice: EB Job #42",
+        title: "Invoice: Task #42",
         assignedToId: "billing-user",
         createdById: "user-1",
       })
@@ -139,22 +139,30 @@ describe("maybeAutoCreateInvoiceOnRfb", () => {
     );
   });
 
-  it("forward move to RFB: creates Invoice ticket for EB ticket even without billingBehavior set", async () => {
-    // Ticket currently at Work Completed → forward to RFB (no billingBehavior)
+  it("does not invoice a Task based on type alone when billingBehavior is unset", async () => {
     const params = makeParams({
       ticket: makeTicket({ billingBehavior: null }),
     });
     const result = await maybeAutoCreateInvoiceOnRfb(params);
 
-    expect(result).not.toBeNull();
-    expect(params.storage.createTicket).toHaveBeenCalledOnce();
+    expect(result).toBeNull();
+    expect(params.storage.createTicket).not.toHaveBeenCalled();
   });
 
-  it("creates Invoice ticket when billingBehavior is already invoice_required (explicit flag gate)", async () => {
+  it("does not invoice a no_invoice Task, even when its type capability requires invoicing", async () => {
     const params = makeParams({
-      ticket: makeTicket({ ticketTypeId: "tt-todo", billingBehavior: "invoice_required" }),
+      ticket: makeTicket({ billingBehavior: "no_invoice" }),
     });
-    (params.storage.getTicketTypeById as any).mockResolvedValue(TODO_TYPE);
+    const result = await maybeAutoCreateInvoiceOnRfb(params);
+
+    expect(result).toBeNull();
+    expect(params.storage.createTicket).not.toHaveBeenCalled();
+  });
+
+  it("creates Invoice ticket when Task has billingBehavior invoice_required (explicit per-ticket gate)", async () => {
+    const params = makeParams({
+      ticket: makeTicket({ billingBehavior: "invoice_required" }),
+    });
 
     const result = await maybeAutoCreateInvoiceOnRfb(params);
 
@@ -162,12 +170,11 @@ describe("maybeAutoCreateInvoiceOnRfb", () => {
     expect(params.storage.createTicket).toHaveBeenCalledOnce();
   });
 
-  it("creates Invoice ticket when pendingBillingBehavior (req.body) is invoice_required", async () => {
+  it("creates Invoice ticket when pendingBillingBehavior (req.body) is invoice_required for Task", async () => {
     const params = makeParams({
-      ticket: makeTicket({ ticketTypeId: "tt-todo", billingBehavior: null }),
+      ticket: makeTicket({ billingBehavior: null }),
       pendingBillingBehavior: "invoice_required",
     });
-    (params.storage.getTicketTypeById as any).mockResolvedValue(TODO_TYPE);
 
     const result = await maybeAutoCreateInvoiceOnRfb(params);
 
@@ -194,10 +201,12 @@ describe("maybeAutoCreateInvoiceOnRfb", () => {
   it("idempotency: a different-direction link (targetTicketId is ticket) does NOT block creation", async () => {
     // An invoice_for link where ticket-1 is the TARGET (not source) should not block
     const params = makeParams({}, {
+      getTicketTypeById: vi.fn().mockResolvedValue(TASK_TYPE),
       getTicketLinks: vi.fn().mockResolvedValue([
         { id: "link-other", linkType: "invoice_for", sourceTicketId: "other-ticket", targetTicketId: "ticket-1" },
       ]),
     });
+    params.ticket.billingBehavior = "invoice_required";
 
     const result = await maybeAutoCreateInvoiceOnRfb(params);
 
@@ -315,6 +324,7 @@ describe("maybeAutoCreateInvoiceOnRfb", () => {
         { authorId: "user-b", body: "Second comment" },
       ]),
     });
+    params.ticket.billingBehavior = "invoice_required";
 
     await maybeAutoCreateInvoiceOnRfb(params);
 
@@ -333,6 +343,7 @@ describe("maybeAutoCreateInvoiceOnRfb", () => {
         { userId: "admin-user", tags: ["admin"], status: "active" },
       ]),
     });
+    params.ticket.billingBehavior = "invoice_required";
 
     await maybeAutoCreateInvoiceOnRfb(params);
 
@@ -347,6 +358,7 @@ describe("maybeAutoCreateInvoiceOnRfb", () => {
     // This is the core bug this slice fixes: a renamed status no longer matches
     // the hard-coded display name, but the stable key still routes correctly.
     const params = makeParams({
+      ticket: makeTicket({ billingBehavior: "invoice_required" }),
       newStatusKey: "ready_for_billing",
       newStatusName: "Renamed By User",
     });
@@ -366,7 +378,7 @@ describe("isInvoiceEligibleType (object overload)", () => {
   });
 
   it("returns false when requiresInvoicing='false', even if name matches eligible type", () => {
-    expect(isInvoiceEligibleType({ id: "tt-eb", name: "Extra Billable", requiresInvoicing: "false" })).toBe(false);
+    expect(isInvoiceEligibleType({ id: "tt-project", name: "Project", typeKey: "project", requiresInvoicing: "false" })).toBe(false);
   });
 
   it("falls back to name check when requiresInvoicing is absent on the object", () => {
@@ -374,11 +386,20 @@ describe("isInvoiceEligibleType (object overload)", () => {
     expect(isInvoiceEligibleType({ id: "tt-todo", name: "To-Do" })).toBe(false);
   });
 
-  it("recognizes a renamed invoice-eligible type by its stable key", () => {
+  it("recognizes a renamed project type by its stable key", () => {
     expect(isInvoiceEligibleType({
-      id: "tt-eb",
-      name: "Change Order",
-      typeKey: "extra_billable",
+      id: "tt-project",
+      name: "Renamed",
+      typeKey: "project",
     })).toBe(true);
+  });
+
+  it("never treats Task as invoice-eligible solely from type, even with capability enabled", () => {
+    expect(isInvoiceEligibleType({
+      id: "tt-task",
+      name: "Renamed task",
+      typeKey: "task",
+      requiresInvoicing: "true",
+    })).toBe(false);
   });
 });

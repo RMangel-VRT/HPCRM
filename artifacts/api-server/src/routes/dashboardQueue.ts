@@ -148,7 +148,7 @@ const SEEDED_TYPE_KEYS: TicketTypeKey[] = [
   "invoice",
   "estimate_request",
   "project",
-  "extra_billable",
+  "task",
   "rfp_request",
   "todo",
 ];
@@ -162,14 +162,14 @@ const BAND_ORDER: Record<QueueBand, number> = {
 const PULSE_TYPE_KEYS: TicketTypeKey[] = [
   "estimate_request",
   "project",
-  "extra_billable",
+  "task",
   "invoice",
 ];
 
 const READY_FOR_BILLING_TYPE_KEYS: TicketTypeKey[] = [
   "estimate_request",
   "project",
-  "extra_billable",
+  "task",
 ];
 
 type DateLike = Date | string | null;

@@ -37,12 +37,12 @@ export const TICKET_TYPE_CAPABILITIES: Record<string, TicketTypeCapabilities> = 
     requiresInvoicing: "true",
     terminalBehavior: "invoice",
   },
-  "Extra Billable": {
+  "Task": {
     requiresCustomer: "true",
     requiresScheduling: "true",
     requiresCompletion: "true",
-    requiresInvoicing: "true",
-    terminalBehavior: "invoice",
+    requiresInvoicing: "false",
+    terminalBehavior: "close",
   },
   "Invoice": {
     requiresCustomer: "true",
@@ -71,7 +71,7 @@ export const TICKET_TYPE_NAMES_BY_KEY: Record<TicketTypeKey, string> = {
   todo: "To-Do",
   estimate_request: "Estimate Request",
   project: "Project",
-  extra_billable: "Extra Billable",
+  task: "Task",
   invoice: "Invoice",
   rfp_request: "RFP Request",
 };
@@ -92,6 +92,7 @@ export interface TicketTypeIdentity {
 // only as an unkeyed legacy fallback while missed rows are manually keyable.
 const LEGACY_TICKET_TYPE_NAME_ALIASES: Partial<Record<TicketTypeKey, readonly string[]>> = {
   invoice: ["invoice"],
+  task: ["Extra Billable"],
 };
 
 /**
@@ -144,7 +145,7 @@ export const STATUS_KEY_BACKFILL: Record<string, Record<string, string>> = {
     "Invoicing": "invoicing",
     "Closed - Lost": "closed_lost",
   },
-  "Extra Billable": {
+  "Task": {
     "New": "new",
     "Ready to Schedule": "ready_to_schedule",
     "In Progress": "in_progress",
