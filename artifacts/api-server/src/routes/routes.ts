@@ -6355,8 +6355,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send("Documents and document names arrays must have the same length");
     }
 
-    // Get the ticket type to find the initial status
-    const ticketType = await storage.getTicketTypeById(req.body.ticketTypeId, user.activeCompanyId);
+    // Contract and extra work are always Tasks, with server-owned billing and New status.
+    const isTaskWork = req.body.workType === "contract" || req.body.workType === "extra_work";
+    const taskInfo = isTaskWork
+      ? await ensureTaskTicketType(user.activeCompanyId)
+      : null;
+    if (isTaskWork && !taskInfo) return res.status(500).send("Task ticket type not configured");
+    const ticketType = await storage.getTicketTypeById(taskInfo?.typeId ?? req.body.ticketTypeId, user.activeCompanyId);
     if (!ticketType) {
       return res.status(400).send("Invalid ticket type");
     }
@@ -6367,10 +6372,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     // Sort by displayOrder and get the first status
-    const initialStatus = statuses.sort((a, b) => a.displayOrder - b.displayOrder)[0];
+    const initialStatus = taskInfo
+      ? statuses.find(s => s.id === taskInfo.statuses.get("new"))
+      : statuses.sort((a, b) => a.displayOrder - b.displayOrder)[0];
+    if (!initialStatus) return res.status(500).send("Task New status not configured");
 
     const result = insertTicketSchema.safeParse({
       ...req.body,
+      ...(taskInfo ? {
+        ticketTypeId: taskInfo.typeId,
+        billingBehavior: req.body.workType === "extra_work" ? "invoice_required" : "no_invoice",
+      } : {}),
       companyId: user.activeCompanyId,
       currentStatusId: initialStatus.id,
       createdById: user.id,
@@ -6544,7 +6556,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!title || typeof title !== "string" || !title.trim()) {
       return res.status(400).send("Title is required");
     }
-    if (!ticketTypeId) {
+    const isTaskWork = workType === "contract" || workType === "extra_work";
+    if (!ticketTypeId && !isTaskWork) {
       return res.status(400).send("Ticket type is required");
     }
     if (!assignedToId) {
@@ -6559,7 +6572,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     // Validate ticket type and get initial status
-    const ticketType = await storage.getTicketTypeById(ticketTypeId, user.activeCompanyId);
+    const taskInfo = isTaskWork ? await ensureTaskTicketType(user.activeCompanyId) : null;
+    if (isTaskWork && !taskInfo) return res.status(500).send("Task ticket type not configured");
+    const resolvedTypeId = taskInfo?.typeId ?? ticketTypeId;
+    const ticketType = await storage.getTicketTypeById(resolvedTypeId, user.activeCompanyId);
     if (!ticketType) {
       return res.status(400).send("Invalid ticket type");
     }
@@ -6568,7 +6584,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (statuses.length === 0) {
       return res.status(400).send("Ticket type has no statuses defined");
     }
-    const initialStatus = statuses.sort((a, b) => a.displayOrder - b.displayOrder)[0];
+    const initialStatus = taskInfo
+      ? statuses.find(s => s.id === taskInfo.statuses.get("new"))
+      : statuses.sort((a, b) => a.displayOrder - b.displayOrder)[0];
+    if (!initialStatus) return res.status(500).send("Task New status not configured");
 
     // Get all customers and validate they belong to this company
     const allCustomers = await storage.getCustomers(user.activeCompanyId);
@@ -6594,7 +6613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const custId of customerIds) {
         const hasDuplicate = existingTickets.some(t => 
           t.customerId === custId && 
-          t.ticketTypeId === ticketTypeId &&
+          t.ticketTypeId === resolvedTypeId &&
           t.title.toLowerCase() === normalizedTitle &&
           nonFinalStatuses.includes(t.currentStatusId)
         );
@@ -6614,22 +6633,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     for (const custId of customersToCreate) {
       try {
         const customer = customerMap.get(custId)!;
-        const ticket = await storage.createTicket({
+        const ticketData = {
           companyId: user.activeCompanyId,
           customerId: custId,
-          ticketTypeId,
+          ticketTypeId: resolvedTypeId,
           currentStatusId: initialStatus.id,
           title: title.trim(),
           description: description?.trim() || null,
           priority: priority || "normal",
           workType: workType || "admin",
-          billingBehavior: "no_invoice",
+          billingBehavior: isTaskWork && workType === "extra_work" ? "invoice_required" as const : "no_invoice" as const,
+          mobileStatus: "not_started" as const,
           assignedToId,
           dueDate: dueDate ? new Date(dueDate + "T12:00:00") : null,
           createdById: user.id,
           invoiceCategory: invoiceCategory || null,
           workCompletedDate: workCompletedDate ? new Date(workCompletedDate + "T12:00:00") : null,
-        });
+        };
+        // Validate Task batch inputs with the same schema as single creation.
+        const taskResult = isTaskWork ? insertTicketSchema.safeParse(ticketData) : null;
+        if (taskResult && !taskResult.success) {
+          failed.push({ customerId: custId, error: taskResult.error.message });
+          continue;
+        }
+        const ticket = await storage.createTicket(taskResult?.success ? taskResult.data : ticketData);
 
         // Create status history
         await storage.createTicketStatusHistory({
@@ -6724,11 +6751,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (effectiveCustomerId && await assertNotParentCustomer(effectiveCustomerId, user.activeCompanyId, res)) return;
     }
 
+    const ptType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+    const isTask = isSeededTicketType(ptType, "task");
+    let billingChanged = false;
+    if (isTask && (Object.hasOwn(req.body, "workType") || Object.hasOwn(req.body, "billingBehavior"))) {
+      const hasWorkType = Object.hasOwn(req.body, "workType");
+      const hasBilling = Object.hasOwn(req.body, "billingBehavior");
+      if (hasWorkType && req.body.workType !== "contract" && req.body.workType !== "extra_work") {
+        return res.status(422).json({ error: "TASK_WORK_TYPE" });
+      }
+      if (hasBilling && req.body.billingBehavior !== "no_invoice" && req.body.billingBehavior !== "invoice_required") {
+        return res.status(422).json({ error: "BILLING_MISMATCH" });
+      }
+      const billingBehavior = hasWorkType
+        ? (req.body.workType === "extra_work" ? "invoice_required" : "no_invoice")
+        : req.body.billingBehavior;
+      if (hasBilling && req.body.billingBehavior !== billingBehavior) {
+        return res.status(422).json({ error: "BILLING_MISMATCH" });
+      }
+      billingChanged = billingBehavior !== existingTicket.billingBehavior;
+      if (billingChanged) {
+        const statuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
+        const currentStatus = statuses.find(s => s.id === existingTicket.currentStatusId);
+        if (isSeededStatus(currentStatus, "ready_for_billing") || isSeededStatus(currentStatus, "closed_won")) {
+          return res.status(422).json({
+            error: "BILLING_LOCKED",
+            message: "Billing can't change once the job reaches billing. Step it back to Work completed first.",
+          });
+        }
+      }
+      req.body.billingBehavior = billingBehavior;
+      req.body.workType = billingBehavior === "invoice_required" ? "extra_work" : "contract";
+    }
+
     // If status is changing, record history
     if (req.body.currentStatusId && req.body.currentStatusId !== existingTicket.currentStatusId) {
       const allStatuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
       const newStatus = allStatuses.find(s => s.id === req.body.currentStatusId);
       const oldStatus = allStatuses.find(s => s.id === existingTicket.currentStatusId);
+
+      if (isTask) {
+        const effectiveBilling = req.body.billingBehavior ?? existingTicket.billingBehavior;
+        if (isSeededStatus(newStatus, "ready_for_billing") && effectiveBilling !== "invoice_required") {
+          return res.status(422).json({
+            error: "CONTRACT_CANNOT_BILL",
+            message: "Contract work doesn't go to billing. Close it, or switch it to Billable first.",
+          });
+        }
+        if (isSeededStatus(newStatus, "closed_won") && effectiveBilling === "invoice_required") {
+          const links = await storage.getTicketLinks(existingTicket.id);
+          if (!links.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id)) {
+            return res.status(422).json({
+              error: "BILLABLE_MUST_BILL",
+              message: "Billable work goes to Ready for billing before it closes.",
+            });
+          }
+        }
+      }
       
       // Determine direction: compare display orders
       const isSteppingBack = oldStatus && newStatus && newStatus.displayOrder < oldStatus.displayOrder;
@@ -7018,21 +7097,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // === DIRECTION-INDEPENDENT: Auto-create Invoice ticket when landing at "Ready for Billing" ===
-      // Fires on both forward moves AND step-backs (e.g. Done → Ready for Billing for EB tickets).
-      // Normalize billingBehavior for Extra Billable tickets arriving at RFB before persisting.
-      // prefer the stable key; fall back to the display name for unkeyed custom statuses
-      const isRfbStatus = newStatus?.statusKey
-        ? newStatus.statusKey === "ready_for_billing"
-        : isSeededStatus(newStatus, "ready_for_billing");
-
-      if (isRfbStatus) {
-        const rfbTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
-        const isExtraBillableType = isSeededTicketType(rfbTicketType, "task");
-        if (isExtraBillableType && existingTicket.billingBehavior !== "invoice_required") {
-          req.body.billingBehavior = "invoice_required";
-          console.log(`Normalizing billingBehavior to invoice_required for Extra Billable ticket ${existingTicket.id} at Ready for Billing`);
-        }
-      }
+      // Fires on both forward moves AND step-backs; Task eligibility is per-ticket.
 
       await maybeAutoCreateInvoiceOnRfb({
         ticket: {
@@ -7093,6 +7158,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const newCrewId: string | null = crewChanged ? (req.body.crewId ?? null) : null;
 
     const ticket = await storage.updateTicket(req.params.id, user.activeCompanyId, updates);
+    if (ticket && billingChanged) {
+      await storage.createTicketComment({
+        ticketId: existingTicket.id,
+        authorId: user.id,
+        body: req.body.billingBehavior === "invoice_required"
+          ? "Billing changed from Contract to Billable"
+          : "Billing changed from Billable to Contract",
+      });
+    }
 
     // Dismiss stale due-date notifications when the due date is extended to a strictly
     // future date (tomorrow or later) or when the ticket moves to a final (resolved) status
