@@ -17,6 +17,7 @@ import { ToastAction } from "@/components/ui/toast";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
+import { isSeededTicketType } from "@shared/ticketVisuals";
 
 type QueueBand = "overdue" | "today" | "week";
 type QueueSource =
@@ -212,6 +213,12 @@ function QueueRow({
   onAction: (item: ActionQueueItem) => void;
 }) {
   const type = item.ticketType ?? FALLBACK_TYPE_BY_SOURCE[item.source] ?? { name: "Flag", typeKey: null };
+  // The queue envelope omits billing data; reuse the ticket detail cache rather
+  // than guessing billing behavior from status or work type.
+  const { data: taskDetails } = useQuery<{ ticket: { billingBehavior: string | null } }>({
+    queryKey: ["/api/tickets", item.id, "details"],
+    enabled: isSeededTicketType(type, "task"),
+  });
   const inheritedType = parent?.ticketType ?? type;
   const status = item.ticketStatus ?? FALLBACK_STATUS;
   const hue = ticketHue(inheritedType);
@@ -226,6 +233,7 @@ function QueueRow({
         <span className="h-full min-h-[42px] w-[3px]" style={{ backgroundColor: hue }} aria-hidden="true" />
         <TicketTypeBadge
           type={type}
+          billingBehavior={taskDetails?.ticket.billingBehavior}
           hueType={parent?.ticketType}
           testId={`needs-you-type-${item.id}`}
         />

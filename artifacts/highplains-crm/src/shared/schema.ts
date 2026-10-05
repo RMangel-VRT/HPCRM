@@ -550,12 +550,15 @@ export type ContractBuilderVariable = typeof contractBuilderVariables.$inferSele
 
 // Ticket Type Categories - classifies the nature of ticket types
 export type TicketTypeCategory = "quick_task" | "project" | "service";
+export type TicketTypeKey =
+  | "todo" | "estimate_request" | "project" | "task" | "invoice" | "rfp_request";
 
 // Ticket Types - configurable workflow definitions (e.g., "Quick Task", "Project", "Estimate Request")
 export const ticketTypes = pgTable("ticket_types", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  typeKey: (text("type_key") as { $type<T>(): any }).$type<TicketTypeKey>(),
   description: text("description"),
   category: text("category").notNull().$type<TicketTypeCategory>().default("quick_task"),
   icon: text("icon").default("clipboard-list"),
@@ -582,6 +585,7 @@ export const ticketTypeStatuses = pgTable("ticket_type_statuses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  statusKey: text("status_key"),
   description: text("description"),
   displayOrder: integer("display_order").notNull(),
   color: text("color").default("#6b7280"),

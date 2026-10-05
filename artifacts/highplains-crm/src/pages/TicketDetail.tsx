@@ -53,6 +53,7 @@ import {
   FilePlus,
   Briefcase,
   ClipboardList,
+  ClipboardCheck,
   Layers,
   Link2,
   Trash2,
@@ -72,6 +73,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { taskValidationMessage, extractApiErrorMessage } from "@/lib/apiError";
 import { consumeTicketOrigin, RETURN_MARKER, RETURN_SCROLL_KEY } from "@/lib/ticketListReturn";
 import { DatePickerField } from "@/components/DatePickerField";
 import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
@@ -83,8 +85,8 @@ import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import LayerMapViewer from "@/components/LayerMapViewer";
-import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType } from "@shared/ticketVisuals";
-import { ticketHue } from "@/components/TicketIdentity";
+import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType, taskWorkflowStatuses } from "@shared/ticketVisuals";
+import { ticketHue, TaskBillingBadge } from "@/components/TicketIdentity";
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -163,7 +165,7 @@ interface CompanyUserWithDetails {
 const TYPE_ICON = {
   estimate_request: Calculator,
   project: Layers,
-  extra_billable: Receipt,
+  task: ClipboardCheck,
   rfp_request: FilePlus,
   invoice: FileText,
   todo: Check,
@@ -462,6 +464,30 @@ export default function TicketDetail() {
     },
   });
 
+  const updateBillingMutation = useMutation({
+    mutationFn: (billable: boolean) => apiRequest("PATCH", `/api/tickets/${ticketId}`, {
+      workType: billable ? "extra_work" : "contract",
+      billingBehavior: billable ? "invoice_required" : "no_invoice",
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pending-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/action-queue"] });
+      if (details?.ticket.customerId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/customers", details.ticket.customerId, "tickets"] });
+      }
+      toast({ title: t('ticketDetail.updated') });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('tickets.unexpectedError'),
+        description: taskValidationMessage(error) ?? extractApiErrorMessage(error) ?? error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const updateStatusMutation = useMutation({
     mutationFn: async ({ statusId, notes, confirmDeleteInvoice }: { statusId: string; notes?: string; confirmDeleteInvoice?: boolean }) => {
       const body: Record<string, unknown> = {
@@ -487,6 +513,10 @@ export default function TicketDetail() {
         throw new Error(`409: ${data.message || "Conflict"}`);
       }
       
+      if (res.status === 422) {
+        throw new Error(`422: ${await res.text()}`);
+      }
+
       if (!res.ok) {
         const text = (await res.text()) || res.statusText;
         throw new Error(`${res.status}: ${text}`);
@@ -500,6 +530,9 @@ export default function TicketDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       queryClient.invalidateQueries({ queryKey: ["/api/pending-invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "proposals"] });
+      if (details?.ticket.customerId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/customers", details.ticket.customerId, "tickets"] });
+      }
       setShowStatusDialog(false);
       setPendingStatusId(null);
       setFieldInputs({});
@@ -521,7 +554,7 @@ export default function TicketDetail() {
         });
         return;
       }
-      toast({ title: t('ticketDetail.statusUpdated'), description: error.message, variant: "destructive" });
+      toast({ title: t('tickets.unexpectedError'), description: taskValidationMessage(error) ?? error.message, variant: "destructive" });
     },
   });
 
@@ -719,7 +752,12 @@ export default function TicketDetail() {
   const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, contractServices = [], assignedUser, delegatedByUser, linkedTickets = [] } = details;
   const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
   const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
-  const sortedStatuses = [...statuses].sort((a, b) => a.displayOrder - b.displayOrder);
+  const isTask = isSeededTicketType(ticketType, "task");
+  const billingLocked = currentStatus?.statusKey === "ready_for_billing" || currentStatus?.statusKey === "closed_won";
+  const sortedStatuses = taskWorkflowStatuses(
+    [...statuses].sort((a, b) => a.displayOrder - b.displayOrder),
+    ticketType, ticket.billingBehavior,
+  );
   const sortedCurrentIndex = sortedStatuses.findIndex(s => s.id === ticket.currentStatusId);
 
   const hue = typeHueVar(ticketType);
@@ -729,6 +767,9 @@ export default function TicketDetail() {
   
   // Handle RFP Request branching at "Decision Received" status
   const getNextStatus = () => {
+    if (isTask && ticket.billingBehavior !== "invoice_required" && currentStatus?.statusKey === "work_completed") {
+      return statuses.find(status => status.statusKey === "closed_won");
+    }
     // Use sorted index to find next status in order
     const defaultNext = sortedStatuses[sortedCurrentIndex + 1];
     
@@ -780,7 +821,9 @@ export default function TicketDetail() {
     if (!linkedInvoice) return false;
     const invoiceComplete = linkedInvoice.currentStatus?.isFinal === "true";
     // Block advancement if at "Ready for Billing" with a pending invoice (any ticket type)
-    const isAtBillingStatus = currentStatus?.name === "Ready for Billing";
+    const isAtBillingStatus = isTask
+      ? currentStatus?.statusKey === "ready_for_billing"
+      : currentStatus?.name === "Ready for Billing";
     return isAtBillingStatus && !invoiceComplete;
   })();
 
@@ -1111,7 +1154,7 @@ export default function TicketDetail() {
             customer ? { label: t('common.customer'), value: customer.name } : null,
             { label: t('ticketDetail.assignedTo'), value: assignedUser?.email ?? t('common.unassigned') },
             { label: t('common.priority'), value: priority.label, dot: priority.color },
-            ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType]
+            !isTask && ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType]
               ? { label: t('tickets.workType'), value: WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel }
               : null,
             { label: t('ticketDetail.dueDate'), value: ticket.dueDate ? format(new Date(ticket.dueDate), "MMM d, yyyy") : t('common.none') },
@@ -1134,6 +1177,32 @@ export default function TicketDetail() {
                 </p>
               </div>
             ))}
+          {isTask && (
+            <div className="min-w-0 flex-auto border-l px-4 py-2" data-testid="control-task-billing">
+              <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-muted-foreground">
+                {t('ticketDetail.billing', 'Billing')}
+              </p>
+              <div className="mt-1 flex items-center gap-2">
+                <TaskBillingBadge billingBehavior={ticket.billingBehavior} />
+                <div role="group" aria-label={t('ticketDetail.billing', 'Billing')} className="inline-flex rounded-md border">
+                  {[false, true].map(billable => (
+                    <Button
+                      key={String(billable)}
+                      size="sm"
+                      variant={(ticket.billingBehavior === "invoice_required") === billable ? "secondary" : "ghost"}
+                      aria-pressed={(ticket.billingBehavior === "invoice_required") === billable}
+                      disabled={!canEdit || billingLocked || updateBillingMutation.isPending || updateStatusMutation.isPending}
+                      onClick={() => updateBillingMutation.mutate(billable)}
+                      data-testid={`button-billing-${billable ? "billable" : "contract"}`}
+                    >
+                      {billable ? t('workTypes.extra_work', 'Billable') : t('workTypes.contract', 'Contract')}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              {billingLocked && <p className="mt-1 text-xs text-muted-foreground">{t('ticketDetail.billingLocked', 'Locked once the job reaches billing.')}</p>}
+            </div>
+          )}
         </div>
       </div>
 

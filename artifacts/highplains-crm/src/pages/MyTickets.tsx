@@ -460,8 +460,8 @@ export default function MyTickets() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Work Types</SelectItem>
-              <SelectItem value="contract">Contract Work</SelectItem>
-              <SelectItem value="extra_work">Extra Billable</SelectItem>
+              <SelectItem value="contract">Contract</SelectItem>
+              <SelectItem value="extra_work">Billable</SelectItem>
               <SelectItem value="admin">Admin</SelectItem>
               <SelectItem value="estimate_request">Estimate Request</SelectItem>
               <SelectItem value="shop_todo">Shop To-Do</SelectItem>
@@ -989,6 +989,7 @@ function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNav
               <div className="flex items-center gap-2 flex-wrap mt-2 mb-1.5">
                 <TicketTypeBadge
                   type={ticket.ticketType}
+                  billingBehavior={ticket.billingBehavior}
                   testId={`kanban-my-tickettype-${ticket.id}`}
                 />
               </div>

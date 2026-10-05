@@ -41,6 +41,7 @@ import { saveTicketOrigin, ticketDetailHref, RETURN_SCROLL_KEY } from "@/lib/tic
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
+import { taskWorkflowStatuses } from "@shared/ticketVisuals";
 
 interface CompanyUserWithDetails {
   companyUser: CompanyUser;
@@ -735,8 +736,8 @@ export default function TicketsList() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Work Types</SelectItem>
-              <SelectItem value="contract">Contract Work</SelectItem>
-              <SelectItem value="extra_work">Extra Billable</SelectItem>
+              <SelectItem value="contract">Contract</SelectItem>
+              <SelectItem value="extra_work">Billable</SelectItem>
               <SelectItem value="admin">Admin</SelectItem>
               <SelectItem value="estimate_request">Estimate Request</SelectItem>
               <SelectItem value="shop_todo">Shop To-Do</SelectItem>
@@ -1133,6 +1134,7 @@ function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavig
               <div className="flex items-center gap-2 flex-wrap mt-2 mb-1.5">
                 <TicketTypeBadge
                   type={ticket.ticketType}
+                  billingBehavior={ticket.billingBehavior}
                   testId={`kanban-tickettype-${ticket.id}`}
                 />
                 {currentStatus && !ticket.completedAt && (
@@ -1382,6 +1384,7 @@ interface TicketCardProps {
 }
 
 function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selectionMode, isSelected, onToggleSelect, onNavigate, href, workflowStatuses = [] }: TicketCardProps) {
+  workflowStatuses = taskWorkflowStatuses(workflowStatuses, ticket.ticketType, ticket.billingBehavior);
   const dueInfo = formatDueDate(ticket.dueDate);
 
   const createdDate = ticket.createdAt ? new Date(ticket.createdAt) : null;
@@ -1453,6 +1456,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
             <div className="flex items-center gap-2 flex-wrap mt-2">
               <TicketTypeBadge
                 type={ticket.ticketType}
+                billingBehavior={ticket.billingBehavior}
                 testId={`text-tickettype-${ticket.id}`}
               />
               {dueInfo?.text === "Overdue" && (

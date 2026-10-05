@@ -14,7 +14,7 @@ export interface WorkTypeDefinition {
 export const WORK_TYPE_CATALOG: Record<WorkType, WorkTypeDefinition> = {
   contract: {
     type: "contract",
-    name: "Contract Work",
+    name: "Contract",
     description: "Work included in an existing customer contract",
     billingBehavior: "no_invoice",
     billingLabel: "Included in Contract",
@@ -24,10 +24,10 @@ export const WORK_TYPE_CATALOG: Record<WorkType, WorkTypeDefinition> = {
   },
   extra_work: {
     type: "extra_work",
-    name: "Extra Billable",
+    name: "Billable",
     description: "Work outside the contract scope - must be invoiced",
     billingBehavior: "invoice_required",
-    billingLabel: "Extra Billable",
+    billingLabel: "Billable",
     icon: "receipt",
     color: "#f59e0b",
     badgeVariant: "default",
@@ -95,13 +95,13 @@ export function getBillingBehaviorForWorkType(workType: WorkType): BillingBehavi
 }
 
 // Ticket Type Names used in the system
-export type TicketTypeName = "Estimate Request" | "Project" | "Invoice" | "To-Do" | "RFP Request" | "Extra Billable";
+export type TicketTypeName = "Estimate Request" | "Project" | "Invoice" | "To-Do" | "RFP Request" | "Task";
 
 // Explicit mapping from WorkType to TicketTypeName
 // This is the single source of truth for which ticket type a work type uses
 export const WORK_TYPE_TO_TICKET_TYPE: Record<WorkType, TicketTypeName> = {
-  contract: "To-Do",
-  extra_work: "Extra Billable",
+  contract: "Task",
+  extra_work: "Task",
   admin: "To-Do",
   estimate_request: "Estimate Request",
   shop_todo: "To-Do",

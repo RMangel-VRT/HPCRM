@@ -49,11 +49,12 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { extractApiErrorMessage } from "@/lib/apiError";
+import { extractApiErrorMessage, taskValidationMessage } from "@/lib/apiError";
 import { DatePickerField } from "@/components/DatePickerField";
 import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import type { Customer, TicketType, CompanyUser, User, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
+import { findSeededTicketType, isSeededTicketType } from "@shared/ticketVisuals";
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -221,48 +222,37 @@ export default function NewTicket() {
     
     // For RFP Request, find the specific RFP Request ticket type
     if (isRFPRequest) {
-      const rfpType = activeTypes.find(t => t.name === "RFP Request");
+      const rfpType = findSeededTicketType(activeTypes, "rfp_request");
       return rfpType?.id || null;
     }
     
     // For Invoice, find the Invoice ticket type
     if (isInvoice) {
-      const invoiceType = activeTypes.find(t => t.name === "Invoice");
+      const invoiceType = findSeededTicketType(activeTypes, "invoice");
       return invoiceType?.id || null;
     }
     
     if (workType === "estimate_request") {
       // Project (now renamed "Project") uses its own dedicated ticket type
       if (isProjectNoEstimate) {
-        const projectType = activeTypes.find(t => t.name === "Project");
+        const projectType = findSeededTicketType(activeTypes, "project");
         return projectType?.id || null;
       }
-      const estimateRequestType = activeTypes.find(t => t.name === "Estimate Request") 
-        || activeTypes.find(t => t.category === "project" && t.name !== "Project");
-      return estimateRequestType?.id || activeTypes[0]?.id || null;
+      const estimateRequestType = findSeededTicketType(activeTypes, "estimate_request");
+      return estimateRequestType?.id || null;
     }
     
-    // Extra Billable gets its own dedicated ticket type
-    if (workType === "extra_work") {
-      const ebType = activeTypes.find(t => t.name === "Extra Billable");
-      return ebType?.id || null;
+    // Contract and Billable are both Task work; the server resolves the work type.
+    if (workType === "contract" || workType === "extra_work") {
+      return findSeededTicketType(activeTypes, "task")?.id || null;
     }
     
-    // For admin, contract, shop_todo - look for simple task-based ticket type (To-Do)
-    const eligibleTypes = activeTypes.filter(t => 
-      t.name !== "Invoice" && 
-      t.name !== "RFP Request" &&
-      t.name !== "Extra Billable"
-    );
-    
-    const quickTaskType = eligibleTypes.find(t => 
-      t.category === "quick_task" || 
-      t.name.toLowerCase().includes("quick") ||
-      t.name.toLowerCase().includes("task") ||
-      t.name.toLowerCase().includes("maintenance")
-    );
-    
-    return quickTaskType?.id || eligibleTypes.find(t => t.name === "Estimate Request")?.id || eligibleTypes[0]?.id || null;
+    // To-Do and Shop To-Do use the seeded To-Do type.
+    if (workType === "admin" || workType === "shop_todo") {
+      return findSeededTicketType(activeTypes, "todo")?.id || null;
+    }
+
+    return null;
   };
   
   // Initialize RFP Request ticket type if needed
@@ -346,7 +336,9 @@ export default function NewTicket() {
         throw new Error("No ticket type available");
       }
       
-      const billingBehavior = WORK_TYPE_CATALOG[selectedWorkType!].billingBehavior;
+      const billingBehavior = isInvoice
+        ? WORK_TYPE_CATALOG.invoice.billingBehavior
+        : WORK_TYPE_CATALOG[selectedWorkType!].billingBehavior;
       
       // For RFP Request, use auto-generated title
       const ticketTitle = isRFPRequest 
@@ -357,7 +349,9 @@ export default function NewTicket() {
         ticketTypeId,
         customerId: selectedCustomerId,
         workType: selectedWorkType,
-        billingBehavior,
+        ...((selectedWorkType === "contract" || selectedWorkType === "extra_work") && !isInvoice
+          ? {}
+          : { billingBehavior }),
         title: ticketTitle,
         description: description || null,
         priority,
@@ -390,7 +384,7 @@ export default function NewTicket() {
       navigate(`/dashboard/tickets/${ticket.id}`);
     },
     onError: (error: Error) => {
-      toast({ title: t('newTicket.createFailed'), description: extractApiErrorMessage(error) ?? error.message, variant: "destructive" });
+      toast({ title: t('newTicket.createFailed'), description: taskValidationMessage(error) ?? extractApiErrorMessage(error) ?? error.message, variant: "destructive" });
     },
   });
 
@@ -405,7 +399,7 @@ export default function NewTicket() {
   const handleSelectWorkType = async (workType: WorkType) => {
     // Initialize Estimate Request ticket type if needed
     if (workType === "estimate_request") {
-      const estimateRequestType = ticketTypes.find(t => t.name === "Estimate Request");
+      const estimateRequestType = ticketTypes.find(t => isSeededTicketType(t, "estimate_request"));
       if (!estimateRequestType) {
         await initProjectMutation.mutateAsync();
       }
@@ -425,7 +419,7 @@ export default function NewTicket() {
   
   const handleSelectRFPRequest = async () => {
     // Initialize RFP Request ticket type if not exists
-    const rfpType = ticketTypes.find(t => t.name === "RFP Request");
+    const rfpType = ticketTypes.find(t => isSeededTicketType(t, "rfp_request"));
     if (!rfpType) {
       await initRFPMutation.mutateAsync();
     }
@@ -439,11 +433,11 @@ export default function NewTicket() {
   
   const handleSelectInvoice = async () => {
     // Initialize Invoice ticket type if not exists
-    const invoiceType = ticketTypes.find(t => t.name === "Invoice");
+    const invoiceType = ticketTypes.find(t => isSeededTicketType(t, "invoice"));
     if (!invoiceType) {
       await initInvoiceMutation.mutateAsync();
     }
-    setSelectedWorkType("extra_work"); // Invoice uses extra_work type for billing
+    setSelectedWorkType("admin"); // Keep Invoice outside Task conversion while retaining invoice billing fields.
     setIsInvoice(true);
     setIsRFPRequest(false);
     setIsProjectNoEstimate(false);
@@ -744,7 +738,50 @@ export default function NewTicket() {
     : selectedWorkType && selectedCustomerId && title.trim() && assignedToId;
   const hasLocation = locationLat !== null && locationLng !== null;
 
-  const workTypeOptions: WorkType[] = ["contract", "extra_work", "admin", "estimate_request", "shop_todo"];
+  const taskWorkTypeOptions: Array<{ type: WorkType; name: string; description: string }> = [
+    { type: "admin", name: t('newTicket.todoCard'), description: t('newTicket.todoCardDescription') },
+    { type: "contract", name: t('workTypes.contract'), description: t('newTicket.contractCardDescription') },
+    { type: "extra_work", name: t('workTypes.extra_work'), description: t('newTicket.billableCardDescription') },
+  ];
+  const otherWorkTypeOptions: WorkType[] = ["estimate_request", "shop_todo"];
+  const renderWorkTypeCard = (
+    type: WorkType,
+    name: string,
+    description: string,
+    showBillingBadge = true,
+  ) => {
+    const config = WORK_TYPE_CATALOG[type];
+    const Icon = WORK_TYPE_ICONS[type];
+
+    return (
+      <Card
+        key={type}
+        className="hover-elevate active-elevate-2 cursor-pointer"
+        onClick={() => handleSelectWorkType(type)}
+        data-testid={`card-worktype-${type}`}
+      >
+        <CardContent className="p-4 flex items-center gap-4">
+          <div
+            className="w-10 h-10 rounded-lg flex items-center justify-center"
+            style={{ backgroundColor: `${config.color}20` }}
+          >
+            <Icon className="w-5 h-5" style={{ color: config.color }} />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className="font-medium">{name}</h3>
+              {showBillingBadge && (
+                <Badge variant={config.badgeVariant} className="text-xs">
+                  {config.billingLabel}
+                </Badge>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">{description}</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -763,40 +800,29 @@ export default function NewTicket() {
         <div className="space-y-4">
           <p className="text-muted-foreground">{t('newTicket.whatType')}</p>
           
+          <section className="space-y-2">
+            <div>
+              <h2 className="font-semibold">{t('workTypes.task')}</h2>
+              <p className="text-sm text-muted-foreground">{t('newTicket.taskGroupDescription')}</p>
+            </div>
+            <div className="grid gap-3">
+              {taskWorkTypeOptions.map(({ type, name, description }) =>
+                renderWorkTypeCard(type, name, description, false)
+              )}
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="font-semibold">{t('newTicket.otherGroup')}</h2>
+            <div className="grid gap-3">
+              {otherWorkTypeOptions.map((type) => {
+                const config = WORK_TYPE_CATALOG[type];
+                return renderWorkTypeCard(type, t(`workTypes.${type}`), config.description);
+              })}
+            </div>
+          </section>
+
           <div className="grid gap-3">
-            {workTypeOptions.map((type) => {
-              const config = WORK_TYPE_CATALOG[type];
-              const Icon = WORK_TYPE_ICONS[type];
-              
-              return (
-                <Card 
-                  key={type}
-                  className="hover-elevate active-elevate-2 cursor-pointer"
-                  onClick={() => handleSelectWorkType(type)}
-                  data-testid={`card-worktype-${type}`}
-                >
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div 
-                      className="w-10 h-10 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: `${config.color}20` }}
-                    >
-                      <Icon className="w-5 h-5" style={{ color: config.color }} />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-medium">{config.name}</h3>
-                        <Badge variant={config.badgeVariant} className="text-xs">
-                          {config.billingLabel}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground line-clamp-1">
-                        {config.description}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
             
             {/* RFP Request - Special ticket type for proposal tracking */}
             <Card 

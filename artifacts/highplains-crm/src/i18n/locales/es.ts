@@ -105,8 +105,9 @@ const es = {
     superAdmin: "Super Administrador",
   },
   workTypes: {
-    contract: "Trabajo de Contrato",
-    extra_work: "Trabajo Extra Facturable",
+    task: "Tarea",
+    contract: "Contrato",
+    extra_work: "Facturable",
     admin: "Administrativo",
     estimate_request: "Solicitud de Estimado",
     shop_todo: "Tarea de Taller",
@@ -499,6 +500,8 @@ const es = {
     batchInvoice: "Lote de Facturas",
   },
   ticketDetail: {
+    billing: "Facturación",
+    billingLocked: "Se bloquea cuando el trabajo llega a facturación.",
     breadcrumb: "Tickets",
     tabs: {
       overview: "Resumen",
@@ -589,6 +592,12 @@ const es = {
     followUpTicketHint: "Vincule otro ticket que deba programarse como seguimiento de este trabajo.",
   },
   newTicket: {
+    taskGroupDescription: "Trabajo para una persona o un equipo",
+    otherGroup: "Otros",
+    todoCard: "Tarea pendiente",
+    todoCardDescription: "Trabajo de una persona. No aparece en el calendario del equipo.",
+    contractCardDescription: "Trabajo del equipo cubierto por el contrato. Sin factura.",
+    billableCardDescription: "Trabajo del equipo fuera del contrato. Crea un ticket de factura al completarse.",
     title: "Nuevo Ticket",
     whatType: "Que tipo de trabajo es este?",
     selectCustomer: "Seleccionar Cliente",
@@ -1834,7 +1843,7 @@ const es = {
     billingGenerateAll: "Generar todos ({{count}})", // TODO: human-review translation
     billingGenerateAllConfirm: "Generar tickets", // TODO: human-review translation
     billingConfirmAllTitle: "¿Generar tickets facturables?", // TODO: human-review translation
-    billingConfirmAllDesc: "Esto creará {{count}} tickets de Trabajo Extra Facturable en estado 'Listo para Facturar'. ¿Continuar?", // TODO: human-review translation
+    billingConfirmAllDesc: "Esto creará {{count}} Tareas Facturables en estado 'Listo para Facturar'. ¿Continuar?", // TODO: human-review translation
     billingGenerateAllResultTitle: "Generación masiva completa", // TODO: human-review translation
     billingGenerateAllResultDesc: "Generados {{generated}} · Omitidos {{skipped}} · Fallidos {{failed}}", // TODO: human-review translation
     billingGenerateAllFailed: "Error al generar tickets", // TODO: human-review translation
@@ -1854,12 +1863,12 @@ const es = {
     billingReasonNoLeader: "El equipo no tiene líder", // TODO: human-review translation
     billingSetLeader: "Asignar líder", // TODO: human-review translation
     billingGenerateRow: "Generar", // TODO: human-review translation
-    billingGenerateRowConfirm: "¿Crear un ticket de Trabajo Extra Facturable para esta propiedad?", // TODO: human-review translation
+    billingGenerateRowConfirm: "¿Crear una Tarea Facturable para esta propiedad?", // TODO: human-review translation
     billingGenerateOneSuccess: "Ticket creado", // TODO: human-review translation
     billingGenerateOneFailed: "Error al crear el ticket", // TODO: human-review translation
     billingSlowHint: "Aún trabajando — esto puede tardar un momento para muchas propiedades.", // TODO: human-review translation
-    billingTicketCreatedBanner: "✓ Ticket de Trabajo Extra Facturable creado el {{date}} — verlo →", // TODO: human-review translation
-    billingGenerateInline: "Generar ticket de Trabajo Extra Facturable", // TODO: human-review translation
+    billingTicketCreatedBanner: "✓ Tarea Facturable creada el {{date}} — verla →", // TODO: human-review translation
+    billingGenerateInline: "Generar Tarea Facturable", // TODO: human-review translation
   },
   chemicalProducts: {
     title: "Productos Quimicos", // TODO: human-review translation

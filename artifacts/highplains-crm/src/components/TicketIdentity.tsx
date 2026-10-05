@@ -5,7 +5,7 @@ import {
   FilePlus,
   FileText,
   Layers,
-  Receipt,
+  ClipboardCheck,
 } from "lucide-react";
 import {
   deriveStatusState,
@@ -15,11 +15,12 @@ import {
   type TicketTypeKey,
   typeHueVar,
 } from "@shared/ticketVisuals";
+import { useTranslation } from "react-i18next";
 
 const TYPE_ICON: Record<TicketTypeKey, typeof ClipboardList> = {
   estimate_request: Calculator,
   project: Layers,
-  extra_billable: Receipt,
+  task: ClipboardCheck,
   rfp_request: FilePlus,
   invoice: FileText,
   todo: Check,
@@ -46,10 +47,12 @@ export function TicketTypeBadge({
   type,
   hueType,
   testId,
+  billingBehavior,
 }: {
   type: TicketTypeLike | null | undefined;
   hueType?: TicketTypeLike | null;
   testId?: string;
+  billingBehavior?: string | null;
 }) {
   if (!type) return null;
   const hue = typeHueVar(hueType ?? type);
@@ -58,6 +61,7 @@ export function TicketTypeBadge({
   const Icon = iconKey ? TYPE_ICON[iconKey] : ClipboardList;
 
   return (
+    <>
     <span
       className="inline-flex items-center overflow-hidden rounded-md border bg-background"
       style={{ borderColor: `color-mix(in srgb, ${hue} 38%, var(--border))` }}
@@ -75,6 +79,19 @@ export function TicketTypeBadge({
       >
         {type.name}
       </span>
+    </span>
+    {isSeededTicketType(type, "task") && billingBehavior !== undefined && (
+      <TaskBillingBadge billingBehavior={billingBehavior} />
+    )}
+    </>
+  );
+}
+
+export function TaskBillingBadge({ billingBehavior }: { billingBehavior?: string | null }) {
+  const { t } = useTranslation();
+  return (
+    <span className="inline-flex rounded-md border px-2 py-0.5 text-xs font-normal" data-testid="badge-task-billing">
+      {billingBehavior === "invoice_required" ? t('workTypes.extra_work') : t('workTypes.contract')}
     </span>
   );
 }

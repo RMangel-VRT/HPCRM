@@ -13,6 +13,7 @@ import type { Ticket, Customer, User as UserType } from "@shared/schema";
 import type { WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
+import { isSeededTicketType, taskWorkflowStatuses } from "@shared/ticketVisuals";
 
 const WAITING_CATEGORY_LABELS: Record<string, string> = {
   customer: "Customer",
@@ -81,6 +82,7 @@ export default function TicketCard({
     : null;
 
   const hue = ticketHue(ticket.ticketType);
+  workflowStatuses = taskWorkflowStatuses(workflowStatuses, ticket.ticketType, ticket.billingBehavior);
 
   const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
 
@@ -136,6 +138,7 @@ export default function TicketCard({
             <div className="flex items-center gap-2 flex-wrap mt-2">
               <TicketTypeBadge
                 type={ticket.ticketType}
+                billingBehavior={ticket.billingBehavior}
                 testId={`text-tickettype-${ticket.id}`}
               />
               {dueInfo?.text === "Overdue" && (
@@ -147,7 +150,7 @@ export default function TicketCard({
                   Overdue
                 </Badge>
               )}
-              {ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
+              {!isSeededTicketType(ticket.ticketType, "task") && ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType] && (
                 <Badge
                   variant={WORK_TYPE_CATALOG[ticket.workType as WorkType].badgeVariant}
                   className="text-xs font-normal"

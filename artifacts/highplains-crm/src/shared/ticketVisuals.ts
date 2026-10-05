@@ -3,15 +3,15 @@
  * adds the presentation layer. Nothing imports this yet — visual slices V1+ do.
  */
 
-export type TicketTypeKey =
-  | "todo" | "estimate_request" | "project" | "extra_billable" | "invoice" | "rfp_request";
+import type { TicketTypeKey } from "./schema";
+export type { TicketTypeKey } from "./schema";
 
 /** Mirrors the server's TICKET_TYPE_NAMES_BY_KEY — keep in sync. */
 export const TICKET_TYPE_NAMES_BY_KEY: Record<TicketTypeKey, string> = {
   todo: "To-Do",
   estimate_request: "Estimate Request",
   project: "Project",
-  extra_billable: "Extra Billable",
+  task: "Task",
   invoice: "Invoice",
   rfp_request: "RFP Request",
 };
@@ -28,7 +28,29 @@ export function isSeededTicketType(
 ): boolean {
   if (!type) return false;
   if (type.typeKey != null) return type.typeKey === key;
-  return type.name === TICKET_TYPE_NAMES_BY_KEY[key];
+  return type.name === TICKET_TYPE_NAMES_BY_KEY[key]
+    || (key === "task" && type.name === "Extra Billable")
+    || (key === "invoice" && type.name === "invoice");
+}
+
+export function findSeededTicketType<T extends TicketTypeIdentity>(
+  types: readonly T[], key: TicketTypeKey,
+): T | undefined {
+  return types.find(type => type.typeKey === key)
+    ?? types.find(type => isSeededTicketType(type, key));
+}
+
+/** Task-only workflow projection; unrelated branching workflows remain unchanged. */
+export function taskWorkflowStatuses<T extends { statusKey?: string | null }>(
+  statuses: readonly T[],
+  type: TicketTypeIdentity | null | undefined,
+  billingBehavior: string | null | undefined,
+): T[] {
+  return statuses.filter(status => !(
+    isSeededTicketType(type, "task")
+    && billingBehavior !== "invoice_required"
+    && status.statusKey === "ready_for_billing"
+  ));
 }
 
 /** Each ticket type has its own hue, independent of its workflow status. */
@@ -36,7 +58,7 @@ const TYPE_HUE_VAR: Record<TicketTypeKey, string> = {
   estimate_request: "--tt-estimate",
   project:          "--tt-project",
   rfp_request:      "--tt-rfp",
-  extra_billable:   "--tt-extra",
+   task:             "--tt-extra",
   invoice:          "--tt-invoice",
   todo:             "--tt-todo",
 };

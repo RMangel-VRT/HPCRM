@@ -491,8 +491,8 @@ export default function TicketListView({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Work Types</SelectItem>
-              <SelectItem value="contract">Contract Work</SelectItem>
-              <SelectItem value="extra_work">Extra Billable</SelectItem>
+              <SelectItem value="contract">Contract</SelectItem>
+              <SelectItem value="extra_work">Billable</SelectItem>
               <SelectItem value="admin">Admin</SelectItem>
               <SelectItem value="estimate_request">Estimate Request</SelectItem>
               <SelectItem value="shop_todo">Shop To-Do</SelectItem>
