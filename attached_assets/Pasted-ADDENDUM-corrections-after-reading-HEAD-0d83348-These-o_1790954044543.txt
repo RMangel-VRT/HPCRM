@@ -1,0 +1,52 @@
+ADDENDUM — corrections after reading HEAD 0d83348. These override the brief where they conflict.
+
+0. P1-1 and P1-2 ARE merged (69cf3e4, 0d83348). The server has the `task` key, the
+   Task billing rules and the 422s. Ignore the "current checkout still has
+   extra_billable" note and validate end to end against the real server.
+
+1. STANDALONE INVOICE FIX (required, in scope). NewTicket.tsx handleSelectInvoice sets
+   selectedWorkType = "extra_work". Since P1-2, POST /api/tickets rewrites any
+   contract/extra_work request into a Task, so a New Ticket → Invoice is created as a
+   Billable Task. Change the Invoice path to workType "admin", matching
+   BatchTicketDialog and rfbInvoiceAutoCreate (both send "admin"). Keep everything
+   else about the Invoice path the same. Verify: create an Invoice from New Ticket →
+   it lands on the Invoice type at its Pending status with no Task conversion.
+   Also confirm RFP (already "admin") is unaffected.
+
+2. CONTRACT TASKS MUST BE ABLE TO CLOSE (required). Task statuses are linear
+   (new → … → work_completed → ready_for_billing → closed_won), and
+   TicketDetail getNextStatus() returns the next status by displayOrder, the only
+   status control on the page. For a Task with billingBehavior !== "invoice_required"
+   at work_completed, the next status must be closed_won, skipping
+   ready_for_billing. Resolve by status key (findSeededStatus / statusKey), not by
+   name. The stepper/progress display should not show Ready for Billing as a pending
+   step for Contract Tasks. Billable Tasks keep the current path. Verify: a Contract
+   Task advances Work Completed → Done in one click with no 422.
+
+3. ERROR PARSING. extractApiErrorMessage() returns `error` before `message`, so do
+   NOT rely on it for these 422s, and do not change its precedence globally (about 50
+   call sites). Add a small helper that returns { status, code, message } from the
+   response body. updateStatusMutation uses a raw fetch: handle 422 there next to the
+   existing 409 INVOICE_COMPLETED branch, and leave that branch untouched. Use the
+   server's `message` when present. TASK_WORK_TYPE and BILLING_MISMATCH return no
+   message, so give them client copy ("That work type can't be used on a Task." /
+   "Billing and work type don't match. Refresh and try again."). The toast title
+   should not be the "status updated" string the current onError uses.
+
+4. CLIENT SCHEMA. Add `statusKey` to the client ticket_type_statuses definition along
+   with `typeKey` on ticket_types. The billing lock must gate on
+   statusKey ∈ {ready_for_billing, closed_won}, never on status names.
+
+5. ONE BILLING LABEL, NOT TWO. TicketCard.tsx (~L150) and TicketDetail (~L1114)
+   already render WORK_TYPE_CATALOG[workType].billingLabel, which is still
+   "Extra Billable" for extra_work. For Task tickets, the new Contract/Billable chip
+   REPLACES that work-type badge. Do not add it alongside. In the client
+   workTypeCatalog, set extra_work.billingLabel to "Billable" (a deliberate
+   client-only divergence from the server catalog, which keeps it for its tests).
+   Note this in the report.
+
+6. CAMPAIGN STRINGS. en/es keys billingConfirmAllDesc, billingGenerateRowConfirm,
+   billingTicketCreatedBanner and billingGenerateInline live in the campaign section
+   but describe the TICKETS generated, which are now Tasks. Change "Extra Billable
+   ticket(s)" to "Billable Task(s)" in those four. Leave categoryExtraBillable and
+   any category value unchanged.
