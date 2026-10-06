@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { isCalendarDate } from "./calendarDate";
 
 export const companies = pgTable("companies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -750,6 +751,11 @@ export const tickets = pgTable("tickets", {
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   delegatedById: varchar("delegated_by_id").references(() => users.id, { onDelete: "set null" }),
   dueDate: timestamp("due_date"),
+  scheduleBy: date("schedule_by", { mode: "string" }),
+  acceptedAt: timestamp("accepted_at"),
+  acceptedById: varchar("accepted_by_id").references(() => users.id, { onDelete: "set null" }),
+  followUpDate: date("follow_up_date", { mode: "string" }),
+  followUpNote: text("follow_up_note"),
   completedAt: timestamp("completed_at"),
   // Invoice/External reference fields
   invoiceNumber: text("invoice_number"), // QuickBooks invoice number
@@ -792,6 +798,7 @@ export const tickets = pgTable("tickets", {
   ticketsAssignedToIdIdx: index("tickets_assigned_to_id_idx").on(table.assignedToId),
   ticketsContractIdIdx: index("tickets_contract_id_idx").on(table.contractId),
   ticketsCompanyCreatedAtIdx: index("tickets_company_created_at_idx").on(table.companyId, table.createdAt),
+  ticketsCompanyScheduleByIdx: index("tickets_company_schedule_by_idx").on(table.companyId, table.scheduleBy),
   ticketsEquipmentIdIdx: index("tickets_equipment_id_idx").on(table.equipmentId),
   ticketsCompanyCrewDueDateIdx: index("tickets_company_crew_due_date_idx").on(table.companyId, table.crewId, table.dueDate),
 }));
@@ -817,6 +824,9 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   assignedToId: z.string().nullable().optional(), // Optional - Invoice tickets can be unassigned
   delegatedById: z.string().nullable().optional(), // Tracks who delegated the ticket for return-on-completion
   dueDate: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
+  scheduleBy: z.preprocess(v => v === "" ? undefined : v, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, "Invalid calendar date").nullable().optional()),
+  followUpDate: z.preprocess(v => v === "" ? undefined : v, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, "Invalid calendar date").nullable().optional()),
+  followUpNote: z.string().nullable().optional(),
   completedAt: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
   invoiceNumber: z.string().nullable().optional(), // QuickBooks invoice number
   estimateNumber: z.string().nullable().optional(), // QuickBooks estimate number

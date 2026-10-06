@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   findSeededTicketType, isSeededTicketType, taskWorkflowStatuses, typeHueVar,
 } from "../../../highplains-crm/src/shared/ticketVisuals";
@@ -68,5 +69,31 @@ describe("frontend form payload preservation", () => {
     const schema = createInsertSchema({}).omit({ id: true }).extend({});
     const payload = { ticketTypeId: "task-id", workType: "contract", billingBehavior: "no_invoice", title: "Work" };
     expect(schema.parse(payload)).toEqual(payload);
+  });
+});
+
+describe("office ticket-creation entry points", () => {
+  const source = (path: string) => readFileSync(new URL(`../../../highplains-crm/src/${path}`, import.meta.url), "utf8");
+  it("opens the creation route and batch-creation container to office, not field roles", () => {
+    const app = source("App.tsx");
+    for (const path of ["/dashboard/tickets/new", "/dashboard/tickets"]) {
+      expect(app.split("\n").find(line => line.includes(`path="${path}"`)))
+        .toContain('allowedRoles={["admin", "office"]}');
+    }
+    expect(source("components/AppSidebar.tsx")).toContain(
+      'if (userRole === "admin" || userRole === "office") {\n      items.push({ title: t("nav.tickets")',
+    );
+  });
+  it("keeps selection and batch deletion admin-only while opening create buttons", () => {
+    for (const path of ["pages/TicketsList.tsx", "components/TicketListView.tsx"]) {
+      const content = source(path);
+      expect(content).toContain('const canCreateTickets = isAdmin || user?.activeRole === "office";');
+      expect(content).toContain("{isAdmin && (!selectionMode ? (");
+      expect(content).toContain("if (!isAdmin || batchDeleteMutation.isPending) return;");
+      expect(content).toContain("{canCreateTickets && (");
+    }
+    expect(source("components/QuickAddToDo.tsx")).toContain(
+      'if (!user || !["admin", "office"].includes(user.activeRole)) return null;',
+    );
   });
 });

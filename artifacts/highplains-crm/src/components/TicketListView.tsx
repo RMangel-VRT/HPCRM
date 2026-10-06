@@ -114,6 +114,7 @@ export default function TicketListView({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const isAdmin = user?.activeRole === "admin";
+  const canCreateTickets = isAdmin || user?.activeRole === "office";
   const canSeeEquipmentTickets = user?.activeRole && ["admin", "shop_manager", "office", "field_manager", "chemical_manager", "irrigation_manager"].includes(user.activeRole);
 
   const { data: tickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
@@ -341,9 +342,9 @@ export default function TicketListView({
           </div>
           <div className="flex items-center gap-2">
             {showQuickAdd && <QuickAddToDo variant="outline" />}
-            {isAdmin && (
+            {canCreateTickets && (
               <>
-                {!selectionMode ? (
+                {isAdmin && (!selectionMode ? (
                   <Button 
                     variant="outline" 
                     size="default" 
@@ -366,7 +367,7 @@ export default function TicketListView({
                     <X className="w-4 h-4" />
                     <span className="hidden sm:inline">Cancel</span>
                   </Button>
-                )}
+                ))}
                 {showBatchActions && (
                   <>
                     <Button 
@@ -403,7 +404,7 @@ export default function TicketListView({
             )}
           </div>
         </div>
-      ) : isAdmin && showNewTicketButton ? (
+      ) : canCreateTickets && showNewTicketButton ? (
         <div className="flex justify-end">
           <Link href={newTicketUrl}>
             <Button size="default" data-testid="button-add-ticket-compact" className="gap-2">
@@ -542,7 +543,7 @@ export default function TicketListView({
                   ? "Create your first ticket to get started."
                   : "No tickets found."}
             </p>
-            {isAdmin && showNewTicketButton && (
+            {canCreateTickets && showNewTicketButton && (
               <Link href={newTicketUrl}>
                 <Button data-testid="button-create-first-ticket">
                   <Plus className="w-4 h-4 mr-2" />

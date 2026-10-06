@@ -49,6 +49,7 @@ import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes
 import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks';
 import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
+import { computeScheduleBy } from '../lib/scheduleBy';
 import { convertExtraBillableToTask } from '../lib/convertExtraBillableToTask';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
@@ -6318,15 +6319,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/tickets", async (req, res) => {
+    delete req.body?.acceptedAt;
+    delete req.body?.acceptedById;
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
 
     const user = req.user as UserWithContext;
     
-    // Only admin can create tickets
-    if (user.activeRole !== "admin") {
-      return res.status(403).send("Insufficient permissions - admin role required");
+    // Ticket creation is limited to admin and office.
+    if (!["admin", "office"].includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
     if (req.body.customerId) {
@@ -6391,6 +6394,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
+    result.data.scheduleBy = isSeededTicketType(ticketType, "task") || isSeededTicketType(ticketType, "project")
+      ? result.data.scheduleBy ?? computeScheduleBy(result.data.priority, new Date())
+      : null;
     const ticket = await storage.createTicket(result.data);
     
     // Set ACL on uploaded photos to allow company members to read them
@@ -6536,18 +6542,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Batch create tickets - creates one ticket per selected customer
   app.post("/api/tickets/batch", async (req, res) => {
+    delete req.body?.acceptedAt;
+    delete req.body?.acceptedById;
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
 
     const user = req.user as UserWithContext;
     
-    // Only admin, office, and irrigation_manager can batch create tickets
-    if (!["admin", "office", "irrigation_manager"].includes(user.activeRole)) {
-      return res.status(403).send("Insufficient permissions - admin, office, or irrigation_manager role required");
+    // Ticket creation is limited to admin and office.
+    if (!["admin", "office"].includes(user.activeRole)) {
+      return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
     const { customerIds, title, description, ticketTypeId, assignedToId, dueDate, priority, workType, skipDuplicates = true, invoiceCategory, workCompletedDate } = req.body;
+    const scheduling = insertTicketSchema.pick({
+      scheduleBy: true, followUpDate: true, followUpNote: true,
+    }).safeParse(req.body);
+    if (!scheduling.success) return res.status(400).send(scheduling.error.message);
 
     // Validate required fields
     if (!customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
@@ -6641,6 +6653,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           title: title.trim(),
           description: description?.trim() || null,
           priority: priority || "normal",
+          ...scheduling.data,
+          scheduleBy: isSeededTicketType(ticketType, "task") || isSeededTicketType(ticketType, "project")
+            ? scheduling.data.scheduleBy ?? computeScheduleBy(priority, new Date())
+            : null,
           workType: workType || "admin",
           billingBehavior: isTaskWork && workType === "extra_work" ? "invoice_required" as const : "no_invoice" as const,
           mobileStatus: "not_started" as const,
@@ -6724,6 +6740,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch("/api/tickets/:id", async (req, res) => {
+    delete req.body?.acceptedAt;
+    delete req.body?.acceptedById;
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }

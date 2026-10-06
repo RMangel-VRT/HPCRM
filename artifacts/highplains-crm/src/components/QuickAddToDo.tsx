@@ -210,6 +210,8 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
 
   const isLoading = isInitializing || createTicketMutation.isPending;
 
+  if (!user || !["admin", "office"].includes(user.activeRole)) return null;
+
   return (
     <>
       <Button

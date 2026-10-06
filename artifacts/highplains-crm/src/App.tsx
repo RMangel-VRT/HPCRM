@@ -243,7 +243,7 @@ function Router() {
           component={CustomersList}
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
         />
-        <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin"]} />
+        <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
           path="/dashboard/tickets/my"
           component={MyTickets}
@@ -254,7 +254,7 @@ function Router() {
           component={TicketDetail}
           allowedRoles={["admin", "office", ...allFieldRoles]}
         />
-        <ProtectedRoute path="/dashboard/tickets" component={TicketsList} allowedRoles={["admin"]} />
+        <ProtectedRoute path="/dashboard/tickets" component={TicketsList} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
           path="/dashboard/maps"
           component={PropertyMapsPage}

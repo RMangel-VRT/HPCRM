@@ -157,7 +157,7 @@ export default function AppSidebar({
       items.push({ title: t("nav.dashboard"), url: "/dashboard", icon: LayoutDashboard });
     }
 
-    if (userRole === "admin") {
+    if (userRole === "admin" || userRole === "office") {
       items.push({ title: t("nav.tickets"), url: "/dashboard/tickets", icon: ClipboardList });
     }
 

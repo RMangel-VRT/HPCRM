@@ -6,6 +6,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { insertTicketSchema } from "@workspace/db";
 import { pickProvided } from "../lib/patchBody";
+import { computeScheduleBy } from "../lib/scheduleBy";
 import { maybeAutoCreateInvoiceOnRfb } from "../lib/rfbInvoiceAutoCreate";
 import * as capabilities from "../shared/ticketCapabilities";
 
@@ -23,7 +24,7 @@ const end = source.indexOf("  // Manual invoice ticket creation", start);
 if (start < 0 || end < 0) throw new Error("Ticket mutation registration block not found");
 const mount = new Function("deps", `
   const { app, storage, ensureTaskTicketType, ensureInvoiceTicketType,
-    insertTicketSchema, pickProvided, maybeAutoCreateInvoiceOnRfb,
+    insertTicketSchema, pickProvided, computeScheduleBy, maybeAutoCreateInvoiceOnRfb,
     isSeededTicketType, isSeededStatus, findSeededStatus,
     assertNotParentCustomer, sendPushToUser, APPROVED_BILLING_STATUS_KEYS } = deps;
   ${transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code}
@@ -95,7 +96,7 @@ beforeEach(() => {
     next();
   });
   mount({
-    app, storage, ensureTaskTicketType, insertTicketSchema, pickProvided, maybeAutoCreateInvoiceOnRfb,
+    app, storage, ensureTaskTicketType, insertTicketSchema, pickProvided, computeScheduleBy, maybeAutoCreateInvoiceOnRfb,
     ...capabilities, assertNotParentCustomer: parentGuard, sendPushToUser: vi.fn(),
     ensureInvoiceTicketType: vi.fn().mockResolvedValue({ typeId: "invoice", pendingStatusId: "pending" }),
     APPROVED_BILLING_STATUS_KEYS: ["ready_to_schedule", "work_completed", "ready_for_billing", "invoicing"],
@@ -160,14 +161,87 @@ describe("Task single and batch creation", () => {
     });
     expect(res.body).toMatchObject({ ticketTypeId: "other", billingBehavior: "internal", currentStatusId: "in_progress" });
   });
-  it("single creation remains admin-only; office can batch create", async () => {
+  it("office can create through both endpoints", async () => {
     role = "office";
-    expect((await request(app).post("/api/tickets").send({ ...createBody, workType: "contract" })).status).toBe(403);
-    expect(storage.createTicket).not.toHaveBeenCalled();
+    expect((await request(app).post("/api/tickets").send({ ...createBody, workType: "contract" })).status).toBe(200);
     const res = await request(app).post("/api/tickets/batch").send({
       ...createBody, customerIds: ["customer"], workType: "contract",
     });
     expect(res.body.summary.createdCount).toBe(1);
+  });
+});
+
+describe("Scheduling foundation mutation routes", () => {
+  const batchBody = { ...createBody, customerIds: ["customer"] };
+  for (const path of ["/api/tickets", "/api/tickets/batch"]) {
+    const body = path.endsWith("/batch") ? batchBody : createBody;
+    it.each(["field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor", "crew_supervisor", "mapping"])(
+      `${path} forbids %s creation`, async deniedRole => {
+        role = deniedRole;
+        expect((await request(app).post(path).send({ ...body, workType: "contract" })).status).toBe(403);
+        assertNoWrites();
+      },
+    );
+    it.each(["task", "project"])(`${path} defaults missing/blank/null dates for renamed %s`, async typeKey => {
+      storage.getTicketTypeById.mockResolvedValue({ ...otherType, name: "Renamed", typeKey });
+      for (const scheduleBy of [undefined, "", null]) {
+        storage.createTicket.mockClear();
+        const res = await request(app).post(path).send({ ...body, workType: "admin", priority: "urgent", scheduleBy });
+        expect(res.status).toBe(200);
+        expect(storage.createTicket).toHaveBeenCalledWith(expect.objectContaining({
+          scheduleBy: computeScheduleBy("urgent", new Date()),
+        }));
+      }
+    });
+    it.each(["task", "project"])(`${path} preserves explicit %s dates and follow-up inputs`, async typeKey => {
+      storage.getTicketTypeById.mockResolvedValue({ ...otherType, name: "Renamed", typeKey });
+      const fields = { scheduleBy: "2027-01-01", followUpDate: "2026-12-31", followUpNote: "Call back" };
+      const res = await request(app).post(path).send({ ...body, workType: "admin", ...fields });
+      expect(res.status).toBe(200);
+      expect(storage.createTicket).toHaveBeenCalledWith(expect.objectContaining(fields));
+    });
+    it(`${path} leaves unrelated and custom name-matching types unscheduled`, async () => {
+      for (const type of [
+        { ...otherType, typeKey: "estimate_request" },
+        { ...otherType, name: "Task", typeKey: "custom" },
+        { ...otherType, name: "Project", typeKey: "custom" },
+      ]) {
+        storage.getTicketTypeById.mockResolvedValue(type);
+        await request(app).post(path).send({ ...body, workType: "admin", scheduleBy: "2027-01-01" });
+        expect(storage.createTicket).toHaveBeenLastCalledWith(expect.objectContaining({ scheduleBy: null }));
+      }
+    });
+    it(`${path} validates dates before writing and ignores spoofed acceptance audit`, async () => {
+      const rejected = await request(app).post(path).send({ ...body, workType: "contract", scheduleBy: "2026-02-30" });
+      expect(rejected.status).toBe(400);
+      expect(storage.createTicket).not.toHaveBeenCalled();
+      const res = await request(app).post(path).send({
+        ...body, workType: "contract", acceptedAt: { invalid: "timestamp" }, acceptedById: ["intruder"],
+        companyId: "other-company", createdById: "intruder",
+      });
+      expect(res.status).toBe(200);
+      const written = storage.createTicket.mock.calls[0][0];
+      expect(written).toMatchObject({ companyId: "company", createdById: "actor" });
+      expect(written).not.toHaveProperty("acceptedAt");
+      expect(written).not.toHaveProperty("acceptedById");
+    });
+    it(`${path} retains assignee company validation for office users`, async () => {
+      role = "office";
+      expect((await request(app).post(path).send({ ...body, workType: "contract", assignedToId: "outsider" })).status).toBe(400);
+      assertNoWrites();
+    });
+  }
+  it("PATCH ignores audit fields before parsing, preserves sparse updates and explicit clears", async () => {
+    Object.assign(ticket, { acceptedAt: "2026-10-01T12:00:00", acceptedById: "real-owner", scheduleBy: "2026-10-09" });
+    const res = await request(app).patch("/api/tickets/job").send({
+      title: "Changed", acceptedAt: { invalid: true }, acceptedById: ["intruder"],
+    });
+    expect(res.status).toBe(200);
+    expect(storage.updateTicket).toHaveBeenLastCalledWith("job", "company", { title: "Changed" });
+    expect(ticket).toMatchObject({ acceptedById: "real-owner", acceptedAt: "2026-10-01T12:00:00", scheduleBy: "2026-10-09" });
+    const clear = { scheduleBy: null, followUpDate: null, followUpNote: null };
+    expect((await request(app).patch("/api/tickets/job").send(clear)).status).toBe(200);
+    expect(storage.updateTicket).toHaveBeenLastCalledWith("job", "company", clear);
   });
 });
 

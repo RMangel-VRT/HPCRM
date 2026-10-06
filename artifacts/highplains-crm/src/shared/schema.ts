@@ -1,4 +1,12 @@
 import { z } from "zod";
+
+/** Calendar validation mirrors the server without timestamp/time-zone conversion. */
+function isCalendarDate(value: string): boolean {
+  const [year, month, day] = value.split("-").map(Number);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1];
+}
 import { sql, pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, createInsertSchema } from "./drizzle-stub";
 
 export const companies = pgTable("companies", {
@@ -693,6 +701,11 @@ export const tickets = pgTable("tickets", {
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   delegatedById: varchar("delegated_by_id").references(() => users.id, { onDelete: "set null" }),
   dueDate: timestamp("due_date"),
+  scheduleBy: date("schedule_by", { mode: "string" }),
+  acceptedAt: timestamp("accepted_at"),
+  acceptedById: varchar("accepted_by_id").references(() => users.id, { onDelete: "set null" }),
+  followUpDate: date("follow_up_date", { mode: "string" }),
+  followUpNote: text("follow_up_note"),
   completedAt: timestamp("completed_at"),
   // Invoice/External reference fields
   invoiceNumber: text("invoice_number"), // QuickBooks invoice number
@@ -728,6 +741,7 @@ export const tickets = pgTable("tickets", {
   ticketsAssignedToIdIdx: index("tickets_assigned_to_id_idx").on(table.assignedToId),
   ticketsContractIdIdx: index("tickets_contract_id_idx").on(table.contractId),
   ticketsCompanyCreatedAtIdx: index("tickets_company_created_at_idx").on(table.companyId, table.createdAt),
+  ticketsCompanyScheduleByIdx: index("tickets_company_schedule_by_idx").on(table.companyId, table.scheduleBy),
   ticketsEquipmentIdIdx: index("tickets_equipment_id_idx").on(table.equipmentId),
 }));
 
@@ -752,6 +766,9 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   assignedToId: z.string().nullable().optional(), // Optional - Invoice tickets can be unassigned
   delegatedById: z.string().nullable().optional(), // Tracks who delegated the ticket for return-on-completion
   dueDate: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
+  scheduleBy: z.preprocess(v => v === "" ? undefined : v, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, "Invalid calendar date").nullable().optional()),
+  followUpDate: z.preprocess(v => v === "" ? undefined : v, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, "Invalid calendar date").nullable().optional()),
+  followUpNote: z.string().nullable().optional(),
   completedAt: z.coerce.date().nullable().optional(), // Coerce ISO string to Date
   invoiceNumber: z.string().nullable().optional(), // QuickBooks invoice number
   estimateNumber: z.string().nullable().optional(), // QuickBooks estimate number

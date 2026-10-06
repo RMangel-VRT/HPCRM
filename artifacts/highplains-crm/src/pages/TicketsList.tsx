@@ -219,6 +219,7 @@ export default function TicketsList() {
   ], []);
 
   const isAdmin = user?.activeRole === "admin";
+  const canCreateTickets = isAdmin || user?.activeRole === "office";
   const canSeeEquipmentTickets = user?.activeRole != null && ["admin", "shop_manager", "office", "field_manager", "chemical_manager", "irrigation_manager"].includes(user.activeRole);
 
   const { data: tickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
@@ -551,9 +552,9 @@ export default function TicketsList() {
         </div>
         <div className="flex items-center gap-2">
           <QuickAddToDo variant="outline" />
-          {isAdmin && (
+          {canCreateTickets && (
             <>
-              {!selectionMode ? (
+              {isAdmin && (!selectionMode ? (
                 <Button 
                   variant="outline" 
                   size="default" 
@@ -576,7 +577,7 @@ export default function TicketsList() {
                   <X className="w-4 h-4" />
                   <span className="hidden sm:inline">Cancel</span>
                 </Button>
-              )}
+              ))}
               <Button 
                 variant="outline" 
                 size="default" 
@@ -852,7 +853,7 @@ export default function TicketsList() {
                   ? "Create your first ticket to get started."
                   : "No tickets found."}
             </p>
-            {isAdmin && (
+            {canCreateTickets && (
               <Link href="/dashboard/tickets/new">
                 <Button data-testid="button-create-first-ticket">
                   <Plus className="w-4 h-4 mr-2" />
