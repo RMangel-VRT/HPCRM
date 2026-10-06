@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { insertTicketSchema, insertTicketFieldValueSchema } from "@workspace/db";
 import { pickProvided } from "../lib/patchBody";
 import { computeScheduleBy } from "../lib/scheduleBy";
+import { maintainScheduleBy } from "../lib/scheduleByMaintenance";
+import { notifyTicketAssignment } from "../lib/ticketAssignmentNotification";
 import { maybeAutoCreateInvoiceOnRfb } from "../lib/rfbInvoiceAutoCreate";
 import * as capabilities from "../shared/ticketCapabilities";
 
@@ -24,7 +26,7 @@ const end = source.indexOf("  // Manual invoice ticket creation", start);
 if (start < 0 || end < 0) throw new Error("Ticket mutation registration block not found");
 const mount = new Function("deps", `
   const { app, storage, ensureTaskTicketType, ensureInvoiceTicketType,
-    insertTicketSchema, pickProvided, computeScheduleBy, maybeAutoCreateInvoiceOnRfb,
+     insertTicketSchema, pickProvided, computeScheduleBy, maintainScheduleBy, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
     isSeededTicketType, isSeededStatus, findSeededStatus,
     assertNotParentCustomer, sendPushToUser, APPROVED_BILLING_STATUS_KEYS } = deps;
   ${transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code}
@@ -33,7 +35,7 @@ const decisionStart = source.indexOf('  app.put("/api/tickets/:ticketId/field-va
 const decisionEnd = source.indexOf("  // Ticket Status History routes", decisionStart);
 if (decisionStart < 0 || decisionEnd < 0) throw new Error("Decision field mutation registration block not found");
 const mountDecision = new Function("deps", `
-  const { app, storage, insertTicketFieldValueSchema, isSeededTicketType, isSeededStatus, findSeededStatus } = deps;
+   const { app, storage, insertTicketFieldValueSchema, computeScheduleBy, isSeededTicketType, isSeededStatus, findSeededStatus } = deps;
   ${transformSync(source.slice(decisionStart, decisionEnd), { loader: "ts", target: "es2022" }).code}
 `);
 
@@ -70,7 +72,8 @@ beforeEach(() => {
   ticket = {
     id: "job", companyId: "company", title: "Work", ticketTypeId: "task",
     currentStatusId: "work_completed", workType: "contract", billingBehavior: "no_invoice",
-    assignedToId: "actor", customerId: null,
+     assignedToId: "actor", customerId: null, priority: "normal",
+     createdAt: new Date("2026-09-01T12:00:00"), scheduleBy: null, acceptedAt: null,
   };
   for (const name of ["createTicketStatusHistory", "createTicketSource", "createTicketComment",
     "deleteTicket", "deleteTicketLink", "deleteTicketFieldValuesByFieldIds",
@@ -103,7 +106,7 @@ beforeEach(() => {
     next();
   });
   mount({
-    app, storage, ensureTaskTicketType, insertTicketSchema, pickProvided, computeScheduleBy, maybeAutoCreateInvoiceOnRfb,
+     app, storage, ensureTaskTicketType, insertTicketSchema, pickProvided, computeScheduleBy, maintainScheduleBy, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
     ...capabilities, assertNotParentCustomer: parentGuard, sendPushToUser: vi.fn(),
     ensureInvoiceTicketType: vi.fn().mockResolvedValue({ typeId: "invoice", pendingStatusId: "pending" }),
     APPROVED_BILLING_STATUS_KEYS: ["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing", "invoicing"],
@@ -249,6 +252,97 @@ describe("Scheduling foundation mutation routes", () => {
     const clear = { scheduleBy: null, followUpDate: null, followUpNote: null };
     expect((await request(app).patch("/api/tickets/job").send(clear)).status).toBe(200);
     expect(storage.updateTicket).toHaveBeenLastCalledWith("job", "company", clear);
+  });
+});
+
+describe("Follow-ups and schedule-by upkeep", () => {
+  it("writes waiting/clearing comments without changing status, even with persisted crew/date", async () => {
+    Object.assign(ticket, { currentStatusId: "ready_to_schedule", crewId: "crew", dueDate: new Date() });
+    await request(app).patch("/api/tickets/job").send({ followUpDate: "2026-10-12", followUpNote: "Need access" });
+    expect(ticket.currentStatusId).toBe("ready_to_schedule");
+    expect(storage.createTicketComment).toHaveBeenLastCalledWith({
+      ticketId: "job", authorId: "actor", body: "Waiting on customer until 2026-10-12: Need access",
+    });
+    await request(app).patch("/api/tickets/job").send({ followUpDate: null });
+    expect(storage.createTicketComment).toHaveBeenLastCalledWith({
+      ticketId: "job", authorId: "actor", body: "Customer replied",
+    });
+    expect(storage.createTicketStatusHistory).not.toHaveBeenCalled();
+  });
+  it("uses persisted note when omitted, but honors an explicit note clear", async () => {
+    ticket.followUpNote = "Existing note";
+    await request(app).patch("/api/tickets/job").send({ followUpDate: "2026-10-12" });
+    expect(storage.createTicketComment).toHaveBeenLastCalledWith(expect.objectContaining({
+      body: "Waiting on customer until 2026-10-12: Existing note",
+    }));
+    await request(app).patch("/api/tickets/job").send({ followUpDate: "2026-10-13", followUpNote: null });
+    expect(storage.createTicketComment).toHaveBeenLastCalledWith(expect.objectContaining({
+      body: "Waiting on customer until 2026-10-13: ",
+    }));
+  });
+  it("writes no follow-up comment on unrelated or note-only PATCH", async () => {
+    await request(app).patch("/api/tickets/job").send({ title: "Changed", followUpNote: "Note only" });
+    expect(storage.createTicketComment).not.toHaveBeenCalled();
+  });
+  it("blank dates are omissions, not manual overrides or customer replies", async () => {
+    ticket.currentStatusId = "new";
+    await request(app).patch("/api/tickets/job").send({ priority: "urgent", scheduleBy: "", followUpDate: "" });
+    expect(ticket.scheduleBy).toBe(computeScheduleBy("urgent", ticket.createdAt));
+    expect(storage.createTicketComment).not.toHaveBeenCalled();
+  });
+  it.each(["new", "ready_to_schedule"])("recomputes real priority changes in %s from acceptance or creation", async currentStatusId => {
+    Object.assign(ticket, { currentStatusId, acceptedAt: new Date("2026-09-03T12:00:00") });
+    await request(app).patch("/api/tickets/job").send({ priority: "urgent" });
+    expect(ticket.scheduleBy).toBe(computeScheduleBy("urgent", ticket.acceptedAt));
+    Object.assign(ticket, { acceptedAt: null, priority: "normal" });
+    await request(app).patch("/api/tickets/job").send({ priority: "urgent" });
+    expect(ticket.scheduleBy).toBe(computeScheduleBy("urgent", ticket.createdAt));
+  });
+  it("does not recompute unchanged priorities or priorities outside eligible statuses", async () => {
+    Object.assign(ticket, { currentStatusId: "new", scheduleBy: "2026-12-01" });
+    await request(app).patch("/api/tickets/job").send({ priority: "normal" });
+    expect(ticket.scheduleBy).toBe("2026-12-01");
+    ticket.currentStatusId = "work_completed";
+    await request(app).patch("/api/tickets/job").send({ priority: "urgent" });
+    expect(ticket.scheduleBy).toBe("2026-12-01");
+  });
+  it.each(["admin", "office"])("explicit %s schedule-by including null wins over priority and entry", async activeRole => {
+    role = activeRole;
+    for (const scheduleBy of ["2026-12-01", null]) {
+      Object.assign(ticket, { currentStatusId: "new", priority: "normal", scheduleBy: null });
+      await request(app).patch("/api/tickets/job").send({ priority: "urgent", currentStatusId: "ready_to_schedule", scheduleBy });
+      expect(ticket.scheduleBy).toBe(scheduleBy);
+    }
+  });
+  it.each(["2026-12-01", null, { invalid: true }])("ignores non-office date %j without suppressing recomputation", async scheduleBy => {
+    role = "field_manager";
+    ticket.currentStatusId = "new";
+    await request(app).patch("/api/tickets/job").send({ priority: "urgent", scheduleBy });
+    expect(ticket.scheduleBy).toBe(computeScheduleBy("urgent", ticket.createdAt));
+  });
+  it("ignores manual-only non-office date input", async () => {
+    role = "field_manager";
+    ticket.scheduleBy = "2026-12-01";
+    await request(app).patch("/api/tickets/job").send({ title: "Changed", scheduleBy: "bad-date" });
+    expect(storage.updateTicket).toHaveBeenLastCalledWith("job", "company", { title: "Changed" });
+  });
+  it("entry to Needs scheduling computes from today and effective priority", async () => {
+    ticket.currentStatusId = "in_progress";
+    await request(app).patch("/api/tickets/job").send({ currentStatusId: "ready_to_schedule", priority: "high" });
+    expect(ticket.scheduleBy).toBe(computeScheduleBy("high", new Date()));
+  });
+  it("entry preserves an existing date", async () => {
+    ticket.scheduleBy = "2026-09-01";
+    await request(app).patch("/api/tickets/job").send({ currentStatusId: "ready_to_schedule" });
+    expect(ticket.scheduleBy).toBe("2026-09-01");
+  });
+  it("PATCH shares the extracted assignment notification unchanged", async () => {
+    ticket.title = "Original title";
+    ticket.customerId = "customer";
+    await request(app).patch("/api/tickets/job").send({ assignedToId: "creator", title: "New title" });
+    expect(storage.createNotification).toHaveBeenCalledWith(expect.objectContaining({
+      recipientId: "creator", message: "Ticket assigned: Original title - Customer",
+    }));
   });
 });
 
@@ -436,10 +530,11 @@ describe("crew/date scheduling PATCH", () => {
     ]);
     storage.upsertTicketFieldValue = vi.fn().mockImplementation(async data => data);
     storage.getTicketTypeFieldById = vi.fn().mockResolvedValue({ id: "decision-field", fieldKey: "decision_outcome" });
-    mountDecision({ app, storage, insertTicketFieldValueSchema, ...capabilities });
+     mountDecision({ app, storage, insertTicketFieldValueSchema, computeScheduleBy, ...capabilities });
     const res = await request(app).put("/api/tickets/job/field-values/decision-field").send({ value: "Approved" });
     expect(res.status).toBe(200);
     expect(ticket.currentStatusId).toBe("ready_to_schedule");
+    expect(ticket.scheduleBy).toBe(computeScheduleBy("normal", new Date()));
     expect(storage.createTicketStatusHistory).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       ticketId: "job", fromStatusId: "decision_received", toStatusId: "ready_to_schedule", changedById: "actor",
     }));

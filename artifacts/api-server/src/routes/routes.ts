@@ -51,6 +51,10 @@ import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
 import { computeScheduleBy } from '../lib/scheduleBy';
 import { migrateSchedulingStatuses } from '../lib/schedulingStatuses';
+import { backfillScheduleBy } from '../lib/backfillScheduleBy';
+import { maintainScheduleBy } from '../lib/scheduleByMaintenance';
+import { notifyTicketAssignment } from '../lib/ticketAssignmentNotification';
+import { registerTicketOwnerResponseRoutes } from './ticketOwnerResponse';
 import { convertExtraBillableToTask } from '../lib/convertExtraBillableToTask';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
@@ -754,6 +758,7 @@ async function migrateApprovedEstimateRequestTickets(companyId: string, triggeri
       // Transition to Ready to Schedule
       await storage.updateTicket(ticket.id, companyId, {
         currentStatusId: readyToScheduleStatus.id,
+        ...(ticket.scheduleBy == null ? { scheduleBy: computeScheduleBy(ticket.priority, new Date()) } : {}),
       });
       
       // Create history entry if we have a triggering user
@@ -2592,8 +2597,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await backfillTicketTypeCapabilities();
 
   await migrateSchedulingStatuses();
+  await backfillScheduleBy();
 
   setupAuth(app);
+  registerTicketOwnerResponseRoutes(app);
   registerCrewsAndMobileRoutes(app);
   registerFlagsRoutes(app);
   registerDashboardQueueRoutes(app);
@@ -6769,6 +6776,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions");
     }
 
+    // Manual date inputs from non-office roles are ignored before parsing.
+    // They must not suppress legitimate priority/status-entry recomputation.
+    if (user.activeRole !== "admin" && user.activeRole !== "office") delete req.body.scheduleBy;
+    else if (req.body.scheduleBy === "" || req.body.scheduleBy === undefined) delete req.body.scheduleBy;
+
     // Guard against operational records being on a parent customer
     {
       const effectiveCustomerId = req.body.customerId ?? existingTicket.customerId;
@@ -6810,7 +6822,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Sparse crew/date edits use persisted values for omitted keys. Explicit status
     // intent (including null or the current ID) must never be overridden.
-    if (!Object.hasOwn(req.body, "currentStatusId")) {
+    if (!Object.hasOwn(req.body, "currentStatusId")
+      && !(Object.hasOwn(req.body, "followUpDate")
+        && !Object.hasOwn(req.body, "crewId") && !Object.hasOwn(req.body, "dueDate"))) {
       const statuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
       const current = statuses.find(s => s.id === existingTicket.currentStatusId);
       const scheduled = findSeededStatus(statuses, "scheduled");
@@ -6827,6 +6841,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
     }
+
+    maintainScheduleBy(req.body, existingTicket, await storage.getTicketTypeStatuses(existingTicket.ticketTypeId));
 
     // Validate inferred scheduling edits before the existing history/cleanup writes.
     if (!insertTicketSchema.partial().safeParse(req.body).success) {
@@ -7207,6 +7223,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const newCrewId: string | null = crewChanged ? (req.body.crewId ?? null) : null;
 
     const ticket = await storage.updateTicket(req.params.id, user.activeCompanyId, updates);
+    if (ticket && Object.hasOwn(updates, "followUpDate") && updates.followUpDate !== undefined) {
+      await storage.createTicketComment({
+        ticketId: existingTicket.id,
+        authorId: user.id,
+        body: updates.followUpDate == null
+          ? "Customer replied"
+          : `Waiting on customer until ${updates.followUpDate}: ${Object.hasOwn(updates, "followUpNote") ? updates.followUpNote ?? "" : existingTicket.followUpNote ?? ""}`,
+      });
+    }
     if (ticket && billingChanged) {
       await storage.createTicketComment({
         ticketId: existingTicket.id,
@@ -7253,31 +7278,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Create notification for ticket assignment/reassignment
     if (isBeingAssigned) {
-      try {
-        // Get customer name for the notification message
-        const customer = existingTicket.customerId 
-          ? await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId)
-          : null;
-        
-        const dueDateText = existingTicket.dueDate 
-          ? ` (Due: ${new Date(existingTicket.dueDate).toLocaleDateString()})` 
-          : "";
-        const customerText = customer ? ` - ${customer.name}` : "";
-        
-        await storage.createNotification({
-          companyId: user.activeCompanyId,
-          recipientId: newAssigneeId,
-          ticketId: existingTicket.id,
-          type: "assigned",
-          message: `Ticket assigned: ${existingTicket.title}${customerText}${dueDateText}`,
-          isRead: false,
-        });
-        
-        console.log(`Created assignment notification for ticket ${existingTicket.id} to user ${newAssigneeId}`);
-      } catch (err) {
-        console.error("Failed to create assignment notification:", err);
-        // Don't fail the update - notification is secondary
-      }
+      await notifyTicketAssignment(existingTicket, newAssigneeId, user);
     }
 
     // Mobile v1 Slice 6: push on reassignment. We notify three distinct
@@ -7654,6 +7655,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
               await storage.updateTicket(ticket.id, user.activeCompanyId, {
                 currentStatusId: readyToScheduleStatus.id,
+                ...(ticket.scheduleBy == null ? { scheduleBy: computeScheduleBy(ticket.priority, new Date()) } : {}),
               });
               console.log(`Auto-transitioned Estimate Request ${ticket.id} to "Ready to Schedule" after approval`);
             }

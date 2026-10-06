@@ -525,6 +525,41 @@ export interface EligibleSupervisor {
   role: Role;
 }
 
+export interface TicketSendBackInput {
+  /**
+   * Trimmed before validating length and storing the comment.
+   * @minLength 1
+   * @maxLength 1000
+   */
+  note: string;
+}
+
+/**
+ * Full updated ticket row; calendar dates use the server-local Colorado day.
+ */
+export interface OwnerResponseTicket {
+  id: string;
+  companyId: string;
+  ticketTypeId: string;
+  currentStatusId: string;
+  title: string;
+  /** @nullable */
+  assignedToId?: string | null;
+  /** @nullable */
+  createdById?: string | null;
+  /** @nullable */
+  acceptedAt?: string | null;
+  /** @nullable */
+  acceptedById?: string | null;
+  /** @nullable */
+  scheduleBy?: string | null;
+  /** @nullable */
+  followUpDate?: string | null;
+  /** @nullable */
+  followUpNote?: string | null;
+  [key: string]: unknown;
+}
+
 export type MobileMeWeekParams = {
   /**
    * YYYY-MM-DD; defaults to today

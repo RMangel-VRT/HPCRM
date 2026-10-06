@@ -8,6 +8,70 @@
 import * as zod from "zod";
 
 /**
+ * Assignee, admin or office only. Atomically records acceptance, status history and a missing schedule-by date.
+ * @summary Accept a New Task or Project
+ */
+export const AcceptTicketParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const AcceptTicketResponse = zod
+  .object({
+    id: zod.string(),
+    companyId: zod.string(),
+    ticketTypeId: zod.string(),
+    currentStatusId: zod.string(),
+    title: zod.string(),
+    assignedToId: zod.string().nullish(),
+    createdById: zod.string().nullish(),
+    acceptedAt: zod.coerce.date().nullish(),
+    acceptedById: zod.string().nullish(),
+    scheduleBy: zod.coerce.date().nullish(),
+    followUpDate: zod.coerce.date().nullish(),
+    followUpNote: zod.string().nullish(),
+  })
+  .describe(
+    "Full updated ticket row; calendar dates use the server-local Colorado day.",
+  );
+
+/**
+ * Assignee, admin or office only. Reassigns, comments and notifies without changing status.
+ * @summary Send a New ticket back to its creator
+ */
+export const SendBackTicketParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const sendBackTicketBodyNoteMax = 1000;
+
+export const SendBackTicketBody = zod.object({
+  note: zod
+    .string()
+    .min(1)
+    .max(sendBackTicketBodyNoteMax)
+    .describe("Trimmed before validating length and storing the comment."),
+});
+
+export const SendBackTicketResponse = zod
+  .object({
+    id: zod.string(),
+    companyId: zod.string(),
+    ticketTypeId: zod.string(),
+    currentStatusId: zod.string(),
+    title: zod.string(),
+    assignedToId: zod.string().nullish(),
+    createdById: zod.string().nullish(),
+    acceptedAt: zod.coerce.date().nullish(),
+    acceptedById: zod.string().nullish(),
+    scheduleBy: zod.coerce.date().nullish(),
+    followUpDate: zod.coerce.date().nullish(),
+    followUpNote: zod.string().nullish(),
+  })
+  .describe(
+    "Full updated ticket row; calendar dates use the server-local Colorado day.",
+  );
+
+/**
  * Returns server health status
  * @summary Health check
  */

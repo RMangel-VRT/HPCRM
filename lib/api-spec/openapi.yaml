@@ -23,6 +23,61 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /tickets/{id}/accept:
+    post:
+      operationId: acceptTicket
+      tags: [tickets]
+      summary: Accept a New Task or Project
+      description: Assignee, admin or office only. Atomically records acceptance, status history and a missing schedule-by date.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Updated ticket
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OwnerResponseTicket" }
+        "401": { description: Not authenticated }
+        "403": { description: Actor is neither assignee nor admin/office }
+        "404": { description: Ticket not found in active company }
+        "409":
+          description: NOT_ACCEPTABLE — not a New Task/Project or missing eligible target status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "500": { description: Acceptance transaction failed }
+  /tickets/{id}/send-back:
+    post:
+      operationId: sendBackTicket
+      tags: [tickets]
+      summary: Send a New ticket back to its creator
+      description: Assignee, admin or office only. Reassigns, comments and notifies without changing status.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TicketSendBackInput" }
+      responses:
+        "200":
+          description: Updated ticket
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OwnerResponseTicket" }
+        "400": { description: INVALID_NOTE — trimmed note must be 1–1000 characters }
+        "401": { description: Not authenticated }
+        "403": { description: Actor is neither assignee nor admin/office }
+        "404": { description: Ticket not found in active company }
+        "409": { description: NOT_ACCEPTABLE — ticket is not New }
+        "422": { description: NO_CREATOR — ticket has no creator }
+        "500": { description: Send-back transaction failed }
   /healthz:
     get:
       operationId: healthCheck
@@ -1557,3 +1612,30 @@ components:
         role:
           $ref: "#/components/schemas/Role"
       required: [id, name, role]
+    TicketSendBackInput:
+      type: object
+      properties:
+        note:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Trimmed before validating length and storing the comment.
+      required: [note]
+    OwnerResponseTicket:
+      type: object
+      description: Full updated ticket row; calendar dates use the server-local Colorado day.
+      additionalProperties: true
+      properties:
+        id: { type: string }
+        companyId: { type: string }
+        ticketTypeId: { type: string }
+        currentStatusId: { type: string }
+        title: { type: string }
+        assignedToId: { type: [string, "null"] }
+        createdById: { type: [string, "null"] }
+        acceptedAt: { type: [string, "null"], format: date-time }
+        acceptedById: { type: [string, "null"] }
+        scheduleBy: { type: [string, "null"], format: date }
+        followUpDate: { type: [string, "null"], format: date }
+        followUpNote: { type: [string, "null"] }
+      required: [id, companyId, ticketTypeId, currentStatusId, title]

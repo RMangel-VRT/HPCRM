@@ -51,8 +51,10 @@ import type {
   MobileUser,
   MobileWeekResponse,
   MobileWorkItemPatch,
+  OwnerResponseTicket,
   ServiceTypeTemplate,
   ServiceTypeTemplateInput,
+  TicketSendBackInput,
   TicketWorkItem,
   TicketWorkItemInput,
   TicketWorkItemPatch,
@@ -66,6 +68,179 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+/**
+ * Assignee, admin or office only. Atomically records acceptance, status history and a missing schedule-by date.
+ * @summary Accept a New Task or Project
+ */
+export const getAcceptTicketUrl = (id: string) => {
+  return `/api/tickets/${id}/accept`;
+};
+
+export const acceptTicket = async (
+  id: string,
+  options?: RequestInit,
+): Promise<OwnerResponseTicket> => {
+  return customFetch<OwnerResponseTicket>(getAcceptTicketUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getAcceptTicketMutationOptions = <
+  TError = ErrorType<void | ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acceptTicket>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof acceptTicket>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["acceptTicket"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof acceptTicket>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return acceptTicket(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AcceptTicketMutationResult = NonNullable<
+  Awaited<ReturnType<typeof acceptTicket>>
+>;
+
+export type AcceptTicketMutationError = ErrorType<void | ErrorResponse>;
+
+/**
+ * @summary Accept a New Task or Project
+ */
+export const useAcceptTicket = <
+  TError = ErrorType<void | ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof acceptTicket>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof acceptTicket>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getAcceptTicketMutationOptions(options));
+};
+
+/**
+ * Assignee, admin or office only. Reassigns, comments and notifies without changing status.
+ * @summary Send a New ticket back to its creator
+ */
+export const getSendBackTicketUrl = (id: string) => {
+  return `/api/tickets/${id}/send-back`;
+};
+
+export const sendBackTicket = async (
+  id: string,
+  ticketSendBackInput: TicketSendBackInput,
+  options?: RequestInit,
+): Promise<OwnerResponseTicket> => {
+  return customFetch<OwnerResponseTicket>(getSendBackTicketUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(ticketSendBackInput),
+  });
+};
+
+export const getSendBackTicketMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendBackTicket>>,
+    TError,
+    { id: string; data: BodyType<TicketSendBackInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendBackTicket>>,
+  TError,
+  { id: string; data: BodyType<TicketSendBackInput> },
+  TContext
+> => {
+  const mutationKey = ["sendBackTicket"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendBackTicket>>,
+    { id: string; data: BodyType<TicketSendBackInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return sendBackTicket(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendBackTicketMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendBackTicket>>
+>;
+export type SendBackTicketMutationBody = BodyType<TicketSendBackInput>;
+export type SendBackTicketMutationError = ErrorType<void>;
+
+/**
+ * @summary Send a New ticket back to its creator
+ */
+export const useSendBackTicket = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendBackTicket>>,
+    TError,
+    { id: string; data: BodyType<TicketSendBackInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendBackTicket>>,
+  TError,
+  { id: string; data: BodyType<TicketSendBackInput> },
+  TContext
+> => {
+  return useMutation(getSendBackTicketMutationOptions(options));
+};
 
 /**
  * Returns server health status
