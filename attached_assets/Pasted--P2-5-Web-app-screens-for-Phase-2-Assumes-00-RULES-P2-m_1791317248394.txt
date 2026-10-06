@@ -1,0 +1,48 @@
+# P2-5: Web app screens for Phase 2
+
+> Assumes 00-RULES-P2.md and P2-4 merged. The risk here: several screens compare against **one** `schedulingStatusId`. Since Phase 1 there are three "Needs scheduling" statuses (Task, Estimate Request, Project), so a single-id comparison misses most tickets.
+
+## 1. Needs-scheduling indicators use the set
+
+`TicketsList.tsx` already builds `schedulingStatusSet` from `schedulingStatusIds`. Do the same in `components/TicketListView.tsx`, `components/TicketCard.tsx`, the Kanban cards in `TicketsList.tsx`, and `pages/MyTickets.tsx`. Pass a `Set<string>` (or a `isNeedsScheduling(statusId)` function) instead of `schedulingStatusId`, and change every `ticket.currentStatusId === schedulingStatusId` comparison. List each one you change.
+
+Relabel the existing filter chip and pulse badge from "Ready to Schedule" to **"Needs scheduling"** (`i18n` `needsScheduling` already says "Needs Scheduling"; make it sentence case in en and es).
+
+## 2. Ticket detail: `pages/TicketDetail.tsx`
+
+- **~L811:** `currentStatus?.name === "Ready to Schedule"` → `currentStatus?.statusKey === "ready_to_schedule"`. This matches how the rest of TicketDetail already checks status keys; the client has no `isSeededStatus` helper.
+- **New tickets:** when the status key is `new`, the type is Task or Project, and the viewer is the assignee, admin or office:
+  - show **Accept** (primary), which calls `POST /accept`;
+  - show **Send back**, which opens a dialog with a required note and calls `POST /send-back`.
+  
+  On success, refresh the ticket and lists and show a toast: "Accepted. It's in Needs scheduling." or "Sent back to {name}."
+- **Schedule by:** shown in the detail facts for Task, Project, and Estimate Request (once set). It's red with "· overdue" when it's before today and the status is still `new` or `ready_to_schedule`. Admin and office can edit it with the existing date picker; the PATCH sends `scheduleBy`.
+- **Waiting on customer:** a button when the status is `ready_to_schedule` or `scheduled`. It opens a small dialog with a follow-up date (default today + 3) and a note, then PATCHes `followUpDate` and `followUpNote`. While a follow-up date is set, show a "Waiting · follow up {date}" pill and a **Customer replied** button that clears it.
+- **Crew and date:** no new UI. The existing edit dialog that sets crew and due date now moves the ticket to Scheduled on the server. Make sure the page refetches the status afterward, and add the hint "Setting a crew and date schedules this job."
+
+## 3. New ticket: `pages/NewTicket.tsx`
+
+For Contract and Billable Tasks, show a line under the priority picker using the client `computeScheduleBy` (P2-1): **"Must be on the calendar by {Thu Oct 8}"** (plus "(next business day)" for urgent). It's only a preview; the server is authoritative.
+
+## 4. Dashboard: `components/dashboard/NeedsYouQueue.tsx`
+
+Render the three new sources (`new_for_you`, `past_schedule_by`, `followup_due`) with the existing row layout. Give each source the same label and icon treatment the other sources get. They navigate to the ticket ("Open").
+
+## 5. Don't touch
+
+- The crew app.
+- The scheduling board (Phase 3).
+- Campaign screens.
+- QuickAddToDo / BatchTicketDialog type lookups.
+
+## Done when
+
+As an office user in dev:
+1. create a Billable Task assigned to the Ops Manager;
+2. as the Ops Manager, see it under New for you, open it, Accept;
+3. it shows Needs scheduling with a schedule-by date;
+4. set a crew and date and it shows Scheduled, and it appears on that crew's phone Today if the date is today;
+5. clear the date and it's back to Needs scheduling;
+6. set a schedule-by date in the past and it appears under Past schedule-by.
+
+Then **Publish**: P2-1's migration adds the columns in production, and P2-2 and P2-3's boot steps run once. In your report, include the deployment log lines from `migrateSchedulingStatuses` and `backfillScheduleBy`.

@@ -1,0 +1,74 @@
+# P2-1: Ticket scheduling fields, schedule-by helper, office can create tickets
+
+> Assumes 00-RULES-P2.md. The risk here: the new columns must be added in **three** places (SQL migration, server schema, client schema copy), or the client stub silently drops the fields (`.agents/memory/frontend-drizzle-stub-strips-fields.md`).
+
+## 1. Migration `0042_ticket_scheduling_fields.sql`
+
+Check the folder for the next free number first. Then:
+
+```sql
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS schedule_by date;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS accepted_at timestamp;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS accepted_by_id varchar REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS follow_up_date date;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS follow_up_note text;
+CREATE INDEX IF NOT EXISTS tickets_company_schedule_by_idx ON tickets (company_id, schedule_by);
+```
+
+Mirror these in `lib/db/src/schema/schema.ts` (`tickets` table). Use `date(..., { mode: "string" })` for the two date columns. Then mirror them in the client copy.
+
+In `insertTicketSchema` `.extend({...})`:
+- `scheduleBy` and `followUpDate`: `z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional()`, with the `""` → `undefined` preprocess from `.agents/memory/optional-enum-select-empty-string.md`.
+- `followUpNote`: `z.string().nullable().optional()`.
+- **No `.default()` on any of them.**
+
+## 2. Helper `artifacts/api-server/src/lib/scheduleBy.ts`
+
+```ts
+export type Priority = "urgent" | "high" | "normal" | "low";
+/** Calendar date (YYYY-MM-DD) the job must be on the calendar by. */
+export function computeScheduleBy(priority: Priority, base: Date): string
+export function localDateString(d: Date): string   // server-local YYYY-MM-DD
+```
+
+The rules:
+
+| Priority | Schedule by |
+|---|---|
+| `urgent` | next **business** day after `base` (Sat/Sun skipped) |
+| `high` | `base` + 3 calendar days |
+| `normal` | `base` + 7 calendar days |
+| `low` | `base` + 21 calendar days |
+
+Unknown priority values are treated as `normal`.
+
+Mirror the same pure function in the client at `artifacts/highplains-crm/src/shared/scheduleBy.ts` (it's only used for previews in P2-5). Add a test that runs both against the same fixtures, the same way `taskWebClient.test.ts` compares server and client code.
+
+## 3. Set schedule-by on create
+
+In `POST /api/tickets` and `POST /api/tickets/batch`, for ticket types whose key is `task` or `project`:
+- If the body has a valid `scheduleBy`, keep it.
+- Otherwise set `scheduleBy = computeScheduleBy(priority ?? "normal", new Date())`.
+
+For every other type, leave `scheduleBy` null. Estimate Requests get theirs when they reach Needs scheduling (P2-3).
+
+## 4. Office can create tickets
+
+Randy's decision (Oct 5): **admin and office** can create tickets.
+- `POST /api/tickets`: the "Only admin can create tickets" check (~L6381) becomes admin **or** office.
+- `POST /api/tickets/batch`: same change.
+- Leave every other permission alone.
+- Client: wherever the New Ticket / New Task button, the `/dashboard/tickets/new` route, or QuickAddToDo is hidden from non-admins, allow `office` too. Grep `App.tsx` `allowedRoles` and the buttons, and list each one you change.
+
+## 5. Strip server-owned fields
+
+At the top of the two POST handlers and the PATCH handler: `delete req.body.acceptedAt; delete req.body.acceptedById;`
+
+## Tests
+
+- `scheduleBy.test.ts`: every priority; urgent on a Friday lands on Monday; urgent on a Saturday lands on Monday; month and year boundaries; server and client give the same answers.
+- Route tests: an office user can create a Task, while a field user still gets 403. A Task created without `scheduleBy` gets the computed date, and one created with an explicit `scheduleBy` keeps it. `acceptedAt` in a POST or PATCH body is ignored.
+
+## Done when
+
+The migration applies in dev with `pnpm --filter @workspace/scripts run migrate`, the three schema copies match, tests pass, and the typecheck shows no new errors.

@@ -1,0 +1,81 @@
+# P2-2: "Needs scheduling", the Scheduled status, crew + date → Scheduled
+
+> Assumes 00-RULES-P2.md and P2-1 merged. The risk here: inserting a status **shifts `display_order`** on existing rows. The PATCH handler decides "stepping back" by comparing display orders, so an out-of-order insert would make normal forward moves look like step-backs and delete field values.
+
+## Target status lists
+
+Status keys never change. Only names and the new rows do.
+
+| Type | Order: name (key) |
+|---|---|
+| **Task** | 0 New (`new`) · 1 **Needs scheduling** (`ready_to_schedule`) · 2 **Scheduled** (`scheduled`, NEW) · 3 In Progress · 4 Work Completed · 5 Ready for Billing · 6 Done (`closed_won`) |
+| **Estimate Request** | … 4 Decision Received · 5 **Needs scheduling** (`ready_to_schedule`) · 6 **Scheduled** (`scheduled`, NEW) · 7 Work Completed · 8 Ready for Billing · 9 Invoicing · 10 Closed - Lost |
+| **Project** | 0 New · 1 **Needs scheduling** (`ready_to_schedule`) · 2 Scheduled (already exists, key `scheduled`) · … unchanged |
+
+New "Scheduled" rows get: description "On the calendar with a crew and date", color `#3b82f6`, `is_final 'false'`, `action_type 'needs_action'`.
+
+## 1. Seed definitions: `shared/ticketCapabilities.ts` + the `ensure*` helpers
+
+- `STATUS_KEY_BACKFILL`:
+  - For Task, Estimate Request and Project, add `"Needs scheduling": "ready_to_schedule"`. **Keep** `"Ready to Schedule": "ready_to_schedule"` as a legacy name, so unkeyed rows and `isSeededStatus` fallbacks still resolve.
+  - For Task and Estimate Request, add `"Scheduled": "scheduled"`.
+- `ensureTaskTicketType` and `ensureEstimateRequestTicketType`: update the status definitions to the target lists (new names and orders, plus the Scheduled row). `ensureProjectTicketType`: rename only. These helpers only create *missing* statuses, so existing companies are handled by step 2.
+- Check that nothing else seeds or looks up these statuses by name. Grep for `"Ready to Schedule"`; the hits at ~L708–772, ~L1140–1182 and ~L5758 are old migrations and an init endpoint. Report each one, and change only those that are actually called.
+
+## 2. One-time boot DML: `migrateSchedulingStatuses()`
+
+Call it in `registerRoutes()` after `backfillTicketTypeCapabilities()`. For each company, and for each type with key `task` or `estimate_request`, in one transaction:
+
+1. Find the `ready_to_schedule` status with `findSeededStatus`. If it's missing, skip and warn.
+2. If a status with key `scheduled` already exists on this type, skip the insert. **This is what makes it idempotent.**
+3. Otherwise:
+   ```sql
+   UPDATE ticket_type_statuses SET display_order = display_order + 1
+     WHERE ticket_type_id = $typeId AND display_order > $rtsOrder;
+   INSERT INTO ticket_type_statuses (ticket_type_id, name, status_key, description, display_order, color, is_final, action_type)
+     VALUES ($typeId, 'Scheduled', 'scheduled', 'On the calendar with a crew and date', $rtsOrder + 1, '#3b82f6', 'false', 'needs_action');
+   ```
+   Check the insert columns against the `ticket_type_statuses` table in `schema.ts` before writing it.
+
+Then, for **all three** types, rename **only rows still using the default name**:
+```sql
+UPDATE ticket_type_statuses SET name = 'Needs scheduling', description = 'Accepted. Waiting for a crew and date.'
+  WHERE status_key = 'ready_to_schedule' AND name = 'Ready to Schedule';
+```
+If someone has renamed it to something else, leave it.
+
+Log counts. A second boot must log 0 inserts and 0 renames.
+
+**Before writing**, run read-only in dev and production and include the output in your report:
+```sql
+SELECT tt.type_key, s.name, s.status_key, s.display_order
+FROM ticket_type_statuses s JOIN ticket_types tt ON tt.id = s.ticket_type_id
+WHERE tt.type_key IN ('task','estimate_request','project') ORDER BY tt.type_key, s.display_order;
+```
+If any type has **duplicate display orders** or custom statuses between Ready to Schedule and the next one, stop and report instead of writing.
+
+## 3. Key lists that need `scheduled`
+
+- `routes.ts` `APPROVED_BILLING_STATUS_KEYS` (~L62): add `"scheduled"`. An Estimate Request or Project at Scheduled is on the approved path.
+- `routes.ts` ~L9012 `status_key IN ('ready_to_schedule','work_completed','ready_for_billing','invoicing')`: add `'scheduled'`.
+- Grep every other list containing `ready_to_schedule` or `work_completed` and say for each whether `scheduled` belongs.
+
+## 4. Crew + date moves a job to Scheduled (PATCH `/api/tickets/:id`)
+
+The crew app already shows any ticket with `crew_id` + `due_date`, so having both **is** being scheduled. In the PATCH handler, **before** the status-change block, for a ticket whose type has a `scheduled` status:
+
+- Work out the effective crew and date: the body's value if the key is present, otherwise the existing value.
+- If the current status is `ready_to_schedule`, both are non-null, and the body sets no other status: set `req.body.currentStatusId` to the `scheduled` status id and `req.body.statusChangeNotes = "Crew and date set"`.
+- If the current status is `scheduled`, either one becomes null, and the body sets no other status: set it back to `ready_to_schedule` with the note "Crew or date cleared".
+
+Because this sets `req.body.currentStatusId`, the existing block writes the status history and runs the guards. Don't write history yourself.
+
+## Tests
+
+- **Migration:** for both types, the insert keeps orders strictly increasing with no duplicates. A second run changes nothing. The rename skips a custom name. A Project is renamed but gets no insert.
+- **PATCH:** a Task at Needs scheduling given a crew and date moves to Scheduled with a history row. Clearing the date moves it back. A forward move from Scheduled to In Progress is *not* treated as a step-back, and no field values are deleted.
+- **Estimate Request:** decision Approved still lands at `ready_to_schedule` (the auto-transition at ~L7584).
+
+## Done when
+
+The read-only check shows the target lists in dev, tests pass, and the typecheck shows no new errors.

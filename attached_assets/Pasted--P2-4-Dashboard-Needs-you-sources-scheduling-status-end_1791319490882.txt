@@ -1,0 +1,36 @@
+# P2-4: Dashboard "Needs you" sources + scheduling-status endpoint
+
+> Assumes 00-RULES-P2.md and P2-3 merged. The risk here: the queue only loads tickets whose **status id** is in a fixed key list, so new sources show nothing unless their keys are added to that list.
+
+## 1. Queue sources: `routes/dashboardQueue.ts`
+
+Add three `QueueSource` values. Add their status keys to the list that builds `statusIds` (~L423: currently `pending_invoice … new`). `ready_to_schedule` is the new key; `new` is already there.
+
+| Source | Matches | Band | Verb |
+|---|---|---|---|
+| `new_for_you` | status `new`, type `task` or `project`, `assignedToId === user.id` | `overdue` if created more than 1 business day ago, else `today` | "Open" (no inline action; Accept and Send back live on the ticket page in P2-5) |
+| `past_schedule_by` | status `ready_to_schedule` (any type), `scheduleBy < today`, and `followUpDate` null or before today | `overdue` | "Open" |
+| `followup_due` | any open ticket whose `followUpDate <= today` | `today` | "Open" |
+
+- **Order matters.** Put these checks **after** the existing `unassigned_request` check. A new ticket with no assignee stays `unassigned_request`, and a new ticket assigned to you becomes `new_for_you`.
+- `followup_due` needs tickets in any open status. Don't add every key. Run a **second, small query**: `company_id = $1 AND follow_up_date <= today AND current_status_id NOT IN (final statuses)`. Merge its results, and make sure nobody's ticket appears twice.
+- **Headlines:**
+  - "New · from {creator name}"
+  - "Schedule by {Mon Oct 6} · {n} days late"
+  - "Follow up · {note, trimmed to 60 chars}"
+
+  Use the existing `ticketHeadline` style.
+- Check what the dashboard Pulse rail or other consumers do with an unknown `QueueSource`, and update the shared type wherever it's mirrored on the client (`components/dashboard/NeedsYouQueue.tsx`).
+
+## 2. `GET /api/scheduling-status` (~L5639)
+
+Include **Task** types (`isSeededTicketType(type, "task")`) alongside Estimate Request and Project. Keep returning `schedulingStatusIds` (all of them) and the legacy `schedulingStatusId` (the first one) for older callers. Update its comment: this is the Needs scheduling status set, not one Project status.
+
+## Tests
+
+Extend `dashboardQueue.test.ts`:
+- A new Task assigned to me → `new_for_you`. Assigned to someone else → not shown. Unassigned → still `unassigned_request`.
+- `ready_to_schedule` with `scheduleBy` yesterday → `past_schedule_by`. With a future follow-up date → not shown.
+- A follow-up date of today on a Scheduled ticket → `followup_due`.
+- No duplicates. Existing sources unchanged.
+- `/api/scheduling-status` returns the Task's `ready_to_schedule` id.

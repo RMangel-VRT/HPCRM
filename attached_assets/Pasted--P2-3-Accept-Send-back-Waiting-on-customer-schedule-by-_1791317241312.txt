@@ -1,0 +1,45 @@
+# P2-3: Accept, Send back, Waiting on customer, schedule-by upkeep
+
+> Assumes 00-RULES-P2.md and P2-2 merged. The risk here: Accept is a status change outside the PATCH handler, so it must write history and respect the same rules the PATCH would.
+
+## 1. `POST /api/tickets/:id/accept`
+
+- **Who:** the ticket's assignee, or any admin or office user. Anyone else gets 403.
+- **When:** the type key is `task` or `project` **and** the current status key is `new`. Otherwise return `409 { error: "NOT_ACCEPTABLE", message: "Only new Tasks and Projects can be accepted." }`.
+- **Effect,** in one transaction:
+  - The target status is `scheduled` if the ticket already has both `crewId` and `dueDate`, otherwise `ready_to_schedule`.
+  - Set `currentStatusId`, `acceptedAt = now`, `acceptedById = user.id`, and `scheduleBy` if it's null (P2-1 helper, base = `createdAt`).
+  - Write a status-history row with the note "Accepted".
+- Return the updated ticket.
+
+## 2. `POST /api/tickets/:id/send-back`
+
+- **Body:** `{ note: string }` (required, trimmed, 1–1000 characters).
+- **Who:** same as Accept. **When:** current status key `new`.
+- **Effect:** set `assignedToId = createdById`. If `createdById` is null, return `422 { error: "NO_CREATOR" }`. The status stays New. Add a ticket comment `Sent back: <note>`, authored by the user.
+- **Notification:** if the PATCH handler's assignment notification (`isBeingAssigned` ~L7153–7260) is a reusable function, call it so the creator is notified. If it's inline, pull it out into a function both can call, without changing its behavior. Report which you did.
+
+## 3. Waiting on customer (PATCH fields)
+
+- `followUpDate` and `followUpNote` are normal PATCH fields (P2-1 added them to the schema). There's no status change.
+- When the body sets `followUpDate` to a non-null date, also write a ticket comment `Waiting on customer until <date>: <note>`.
+- When it sets `followUpDate` to null, write the comment "Customer replied".
+
+## 4. Keep schedule-by up to date
+
+- **Entering Needs scheduling:** whenever a ticket moves into `ready_to_schedule` and `scheduleBy` is null, set it with base = **today**. That covers the PATCH status change and the Estimate Request approval auto-transition (~L7584–7610), so check both. Estimate Requests get their date at approval.
+- **Priority change:** when a PATCH changes `priority` on a ticket whose status key is `new` or `ready_to_schedule`, and the body doesn't include `scheduleBy`, recompute it from the new priority with base = `acceptedAt ?? createdAt`. Moving a ticket up to urgent can make it overdue at once. That's intended.
+- **Manual edits:** an explicit `scheduleBy` in the body always wins, for admin and office only. For other roles, ignore it silently.
+
+## 5. Backfill existing open jobs (boot DML, one-time by nature)
+
+`backfillScheduleBy()`, called after `migrateSchedulingStatuses()`, guarded by the column-exists check. For tickets on types `task`, `project` or `estimate_request` whose status key is `new` or `ready_to_schedule` and whose `schedule_by IS NULL`: set `schedule_by = computeScheduleBy(priority, created_at)`. Do it in TypeScript, row by row or in batches, so the business-day rule matches.
+
+**This will make old, forgotten jobs show as overdue. That's the point:** they're the ones that got lost. Log the count. Before writing, run a read-only count in production and include it in your report.
+
+## Tests
+
+- **Accept:** by the assignee → `ready_to_schedule` with history and `acceptedAt`. With a crew and date already set → `scheduled`. By an unrelated field user → 403. On a To-Do → 409.
+- **Send back:** reassigns to the creator, adds a comment, and the status is unchanged. No creator → 422.
+- **Waiting:** setting and clearing the follow-up date writes the comments.
+- **Schedule-by:** Estimate Request approval sets it. A priority change recomputes it. An explicit value wins for office and is ignored for a field user. The backfill sets only null rows, and a second run does nothing.
