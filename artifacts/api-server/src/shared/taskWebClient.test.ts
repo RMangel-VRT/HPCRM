@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  findSeededTicketType, isSeededTicketType, taskWorkflowStatuses, typeHueVar,
+  findSeededTicketType, isSeededTicketType, isSeededStatus, taskWorkflowStatuses, typeHueVar,
 } from "../../../highplains-crm/src/shared/ticketVisuals";
 import {
   extractApiErrorMessage, parseApiValidationError, taskValidationMessage,
@@ -9,6 +9,16 @@ import {
 import { createInsertSchema } from "../../../highplains-crm/src/shared/drizzle-stub";
 
 describe("Task web client stable identity", () => {
+  it("keeps delegation available after the default or custom scheduling label rename", () => {
+    for (const status of [
+      { name: "Needs scheduling", statusKey: "ready_to_schedule" },
+      { name: "Dispatch queue", statusKey: "ready_to_schedule" },
+      { name: "Ready to Schedule", statusKey: null },
+      { name: "Needs scheduling", statusKey: null },
+    ]) expect(isSeededStatus(status, "ready_to_schedule")).toBe(true);
+    expect(isSeededStatus({ name: "Needs scheduling", statusKey: "custom" }, "ready_to_schedule")).toBe(false);
+    expect(isSeededStatus({ name: "Booked", statusKey: "scheduled" }, "scheduled")).toBe(true);
+  });
   it("uses keys even after renames, never overrides a non-null key", () => {
     expect(isSeededTicketType({ name: "Renamed work", typeKey: "task" }, "task")).toBe(true);
     expect(isSeededTicketType({ name: "Task", typeKey: "custom" }, "task")).toBe(false);

@@ -50,6 +50,7 @@ import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks
 import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
 import { computeScheduleBy } from '../lib/scheduleBy';
+import { migrateSchedulingStatuses } from '../lib/schedulingStatuses';
 import { convertExtraBillableToTask } from '../lib/convertExtraBillableToTask';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
@@ -62,6 +63,7 @@ const LABEL_URL_TTL_SEC = 3600;
 const TEMPLATE_LABEL_TTL_SEC = 604800; // 7 days for template-level label PDFs
 const APPROVED_BILLING_STATUS_KEYS = [
   "ready_to_schedule",
+  "scheduled",
   "work_completed",
   "ready_for_billing",
   "invoicing",
@@ -562,7 +564,7 @@ async function ensureRFPRequestTicketType(companyId: string): Promise<{
 
 // Helper to ensure Estimate Request ticket type exists with the 10-step workflow
 // This is Office-owned for sales/estimating/billing. Use needs_scheduling for field work.
-async function ensureEstimateRequestTicketType(companyId: string): Promise<{ 
+export async function ensureEstimateRequestTicketType(companyId: string): Promise<{
   typeId: string; 
   statuses: Map<string, string>;
 } | null> {
@@ -573,7 +575,7 @@ async function ensureEstimateRequestTicketType(companyId: string): Promise<{
     projectType = await storage.createTicketType({
       companyId,
       name: "Estimate Request",
-      description: "Customer estimate request — 10-step workflow through approval, scheduling, and invoicing",
+      description: "Customer estimate request — 11-step workflow through approval, scheduling, and invoicing",
       category: "project",
       icon: "folder-kanban",
       color: "#8b5cf6",
@@ -584,18 +586,19 @@ async function ensureEstimateRequestTicketType(companyId: string): Promise<{
     console.log(`Created Estimate Request ticket type for company ${companyId}`);
   }
   
-  // Define the 10-step Estimate Request workflow (Create Proposal + Proposal Sent replace Estimate Sent)
+  // Define the 11-step Estimate Request workflow (Create Proposal + Proposal Sent replace Estimate Sent)
   const estimateRequestStatuses: StatusDefinition[] = [
     { name: "New", description: "Request captured - pending estimate", color: "#6366f1", order: 0, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Estimating", description: "Estimate being prepared in QuickBooks", color: "#8b5cf6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Create Proposal", description: "Build the proposal document in this system", color: "#8b5cf6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Proposal Sent", description: "Proposal delivered to customer, awaiting decision", color: "#f59e0b", order: 3, isFinal: "false" as const, actionType: "waiting" as const, waitingCategory: "customer" as const },
     { name: "Decision Received", description: "Customer decision received", color: "#eab308", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 5, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Work Completed", description: "Execution task completed - ready for billing review", color: "#10b981", order: 6, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 7, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 8, isFinal: "true" as const, actionType: "needs_action" as const },
-    { name: "Closed - Lost", description: "Project declined or cancelled", color: "#ef4444", order: 9, isFinal: "true" as const, actionType: "needs_action" as const },
+    { name: "Needs scheduling", description: "Accepted. Waiting for a crew and date.", color: "#f472b6", order: 5, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Scheduled", description: "On the calendar with a crew and date", color: "#3b82f6", order: 6, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Work Completed", description: "Execution task completed - ready for billing review", color: "#10b981", order: 7, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 8, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 9, isFinal: "true" as const, actionType: "needs_action" as const },
+    { name: "Closed - Lost", description: "Project declined or cancelled", color: "#ef4444", order: 10, isFinal: "true" as const, actionType: "needs_action" as const },
   ];
   
   // Get existing statuses
@@ -801,11 +804,12 @@ export async function ensureTaskTicketType(companyId: string): Promise<{
   
   const ebStatuses: StatusDefinition[] = [
     { name: "New", description: "Extra work request received", color: "#6366f1", order: 0, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "In Progress", description: "Work is underway", color: "#3b82f6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Work Completed", description: "Field work finished - pending billing", color: "#10b981", order: 3, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Done", description: "Invoice created - ticket closed", color: "#22c55e", order: 5, isFinal: "true" as const, actionType: "needs_action" as const },
+    { name: "Needs scheduling", description: "Accepted. Waiting for a crew and date.", color: "#f472b6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Scheduled", description: "On the calendar with a crew and date", color: "#3b82f6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "In Progress", description: "Work is underway", color: "#3b82f6", order: 3, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Work Completed", description: "Field work finished - pending billing", color: "#10b981", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 5, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Done", description: "Invoice created - ticket closed", color: "#22c55e", order: 6, isFinal: "true" as const, actionType: "needs_action" as const },
   ];
   
   let existingStatuses = await storage.getTicketTypeStatuses(ebType.id);
@@ -867,7 +871,7 @@ export async function ensureTaskTicketType(companyId: string): Promise<{
 
 // Helper to ensure "Project" ticket type exists
 // For approved work that skips the estimating/proposal phase entirely
-async function ensureProjectTicketType(companyId: string): Promise<{
+export async function ensureProjectTicketType(companyId: string): Promise<{
   typeId: string;
   statuses: Map<string, string>;
 } | null> {
@@ -891,7 +895,7 @@ async function ensureProjectTicketType(companyId: string): Promise<{
 
   const projectStatuses: StatusDefinition[] = [
     { name: "New", description: "Project request received and approved", color: "#6366f1", order: 0, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Ready to Schedule", description: "Approved - needs to be scheduled with crew", color: "#f472b6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Needs scheduling", description: "Accepted. Waiting for a crew and date.", color: "#f472b6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Scheduled", description: "Scheduled with crew", color: "#3b82f6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Work Completed", description: "Field work finished - pending billing review", color: "#10b981", order: 3, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
@@ -2586,6 +2590,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // rename above (unkeyed rows match post-rename names). No DDL — columns come from SQL
   // migration 0040 via post-merge `pnpm migrate`; skips cleanly if columns are absent.
   await backfillTicketTypeCapabilities();
+
+  await migrateSchedulingStatuses();
 
   setupAuth(app);
   registerCrewsAndMobileRoutes(app);
@@ -6802,6 +6808,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.body.workType = billingBehavior === "invoice_required" ? "extra_work" : "contract";
     }
 
+    // Sparse crew/date edits use persisted values for omitted keys. Explicit status
+    // intent (including null or the current ID) must never be overridden.
+    if (!Object.hasOwn(req.body, "currentStatusId")) {
+      const statuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
+      const current = statuses.find(s => s.id === existingTicket.currentStatusId);
+      const scheduled = findSeededStatus(statuses, "scheduled");
+      const ready = findSeededStatus(statuses, "ready_to_schedule");
+      const crew = Object.hasOwn(req.body, "crewId") ? req.body.crewId : existingTicket.crewId;
+      const date = Object.hasOwn(req.body, "dueDate") ? req.body.dueDate : existingTicket.dueDate;
+      if (scheduled && ready) {
+        if (isSeededStatus(current, "ready_to_schedule") && crew != null && date != null) {
+          req.body.currentStatusId = scheduled.id;
+          req.body.statusChangeNotes = "Crew and date set";
+        } else if (isSeededStatus(current, "scheduled") && (crew == null || date == null)) {
+          req.body.currentStatusId = ready.id;
+          req.body.statusChangeNotes = "Crew or date cleared";
+        }
+      }
+    }
+
+    // Validate inferred scheduling edits before the existing history/cleanup writes.
+    if (!insertTicketSchema.partial().safeParse(req.body).success) {
+      return res.status(400).json({ message: "Invalid ticket update" });
+    }
+
     // If status is changing, record history
     if (req.body.currentStatusId && req.body.currentStatusId !== existingTicket.currentStatusId) {
       const allStatuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
@@ -7189,6 +7220,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Dismiss stale due-date notifications when the due date is extended to a strictly
     // future date (tomorrow or later) or when the ticket moves to a final (resolved) status
     try {
+      // Calendar-day boundaries follow the server-local Colorado day, as in the crew app.
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
@@ -9027,7 +9059,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(ticketTypeStatuses.ticketTypeId, projectTypeId),
-            sql`status_key IN ('ready_to_schedule', 'work_completed', 'ready_for_billing', 'invoicing')`
+            sql`status_key IN ('ready_to_schedule', 'scheduled', 'work_completed', 'ready_for_billing', 'invoicing')`
           )
         );
 

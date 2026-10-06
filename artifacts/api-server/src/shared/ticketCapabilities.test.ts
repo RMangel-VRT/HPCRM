@@ -6,6 +6,8 @@ import {
   isSeededTicketType,
   TICKET_TYPE_NAMES_BY_KEY,
   TICKET_TYPE_CAPABILITIES,
+  findSeededStatus,
+  isSeededStatus,
 } from "./ticketCapabilities";
 
 describe("seeded ticket type identity", () => {
@@ -56,5 +58,17 @@ describe("seeded ticket type identity", () => {
     const keyed = { id: "keyed", name: "Billing Queue", typeKey: "invoice" as const };
 
     expect(findSeededTicketType([legacy, keyed], "invoice")).toBe(keyed);
+  });
+});
+
+describe("scheduling status identity", () => {
+  it.each(["Ready to Schedule", "Needs scheduling"])("keeps the unkeyed %s fallback", name => {
+    expect(isSeededStatus({ name }, "ready_to_schedule")).toBe(true);
+    expect(isSeededStatus({ name, statusKey: "custom" }, "ready_to_schedule")).toBe(false);
+  });
+  it("uses Scheduled's stable identity despite renames and prefers keyed rows", () => {
+    const keyed = { name: "Booked", statusKey: "scheduled" };
+    expect(findSeededStatus([{ name: "Scheduled" }, keyed], "scheduled")).toBe(keyed);
+    expect(isSeededStatus({ name: "Scheduled", statusKey: "custom" }, "scheduled")).toBe(false);
   });
 });

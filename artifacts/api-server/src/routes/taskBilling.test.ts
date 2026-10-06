@@ -4,7 +4,7 @@ import { transformSync } from "esbuild";
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { insertTicketSchema } from "@workspace/db";
+import { insertTicketSchema, insertTicketFieldValueSchema } from "@workspace/db";
 import { pickProvided } from "../lib/patchBody";
 import { computeScheduleBy } from "../lib/scheduleBy";
 import { maybeAutoCreateInvoiceOnRfb } from "../lib/rfbInvoiceAutoCreate";
@@ -29,10 +29,17 @@ const mount = new Function("deps", `
     assertNotParentCustomer, sendPushToUser, APPROVED_BILLING_STATUS_KEYS } = deps;
   ${transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code}
 `);
+const decisionStart = source.indexOf('  app.put("/api/tickets/:ticketId/field-values/:fieldId",');
+const decisionEnd = source.indexOf("  // Ticket Status History routes", decisionStart);
+if (decisionStart < 0 || decisionEnd < 0) throw new Error("Decision field mutation registration block not found");
+const mountDecision = new Function("deps", `
+  const { app, storage, insertTicketFieldValueSchema, isSeededTicketType, isSeededStatus, findSeededStatus } = deps;
+  ${transformSync(source.slice(decisionStart, decisionEnd), { loader: "ts", target: "es2022" }).code}
+`);
 
 const taskType = { id: "task", name: "Renamed Field Jobs", typeKey: "task" };
 const otherType = { id: "other", name: "Other", typeKey: "todo" };
-const statuses = ["new", "ready_to_schedule", "in_progress", "work_completed", "ready_for_billing", "closed_won"]
+const statuses = ["new", "ready_to_schedule", "scheduled", "in_progress", "work_completed", "ready_for_billing", "closed_won"]
   .map((statusKey, displayOrder) => ({
     id: statusKey, statusKey, name: `Renamed ${statusKey}`,
     displayOrder, isFinal: statusKey === "closed_won" ? "true" : "false",
@@ -99,7 +106,7 @@ beforeEach(() => {
     app, storage, ensureTaskTicketType, insertTicketSchema, pickProvided, computeScheduleBy, maybeAutoCreateInvoiceOnRfb,
     ...capabilities, assertNotParentCustomer: parentGuard, sendPushToUser: vi.fn(),
     ensureInvoiceTicketType: vi.fn().mockResolvedValue({ typeId: "invoice", pendingStatusId: "pending" }),
-    APPROVED_BILLING_STATUS_KEYS: ["ready_to_schedule", "work_completed", "ready_for_billing", "invoicing"],
+    APPROVED_BILLING_STATUS_KEYS: ["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing", "invoicing"],
   });
 });
 
@@ -323,6 +330,119 @@ describe("Task PATCH billing", () => {
     expect((await request(app).patch("/api/tickets/job").send({ workType: "extra_work" })).status).toBe(500);
     expect(storage.createTicketComment).not.toHaveBeenCalled();
     expect(ticket.billingBehavior).toBe("no_invoice");
+  });
+});
+
+describe("crew/date scheduling PATCH", () => {
+  beforeEach(() => {
+    Object.assign(ticket, { currentStatusId: "ready_to_schedule", crewId: null, dueDate: null });
+  });
+  it("schedules renamed Task with crew and date through existing history", async () => {
+    const res = await request(app).patch("/api/tickets/job").send({ crewId: "crew", dueDate: "2026-10-08" });
+    expect(res.status).toBe(200);
+    expect(ticket.currentStatusId).toBe("scheduled");
+    expect(storage.updateTicket).toHaveBeenCalledWith("job", "company", expect.objectContaining({
+      currentStatusId: "scheduled", crewId: "crew",
+    }));
+    expect(storage.createTicketStatusHistory).toHaveBeenCalledExactlyOnceWith({
+      ticketId: "job", fromStatusId: "ready_to_schedule", toStatusId: "scheduled",
+      changedById: "actor", notes: "Crew and date set",
+    });
+    expect(storage.deleteTicketFieldValuesByFieldIds).not.toHaveBeenCalled();
+  });
+  it.each(["crewId", "dueDate"])("uses persisted complementary field for sparse %s edits", async field => {
+    Object.assign(ticket, { crewId: "crew", dueDate: new Date("2026-10-08") });
+    const res = await request(app).patch("/api/tickets/job").send({ [field]: field === "crewId" ? "new-crew" : "2026-10-09" });
+    expect(res.status).toBe(200);
+    expect(ticket.currentStatusId).toBe("scheduled");
+    const updates = storage.updateTicket.mock.calls[0][2];
+    expect(updates).not.toHaveProperty(field === "crewId" ? "dueDate" : "crewId");
+  });
+  it.each(["crewId", "dueDate"])("clearing %s returns Scheduled to Needs scheduling", async field => {
+    Object.assign(ticket, { currentStatusId: "scheduled", crewId: "crew", dueDate: new Date("2026-10-08") });
+    expect((await request(app).patch("/api/tickets/job").send({ [field]: null })).status).toBe(200);
+    expect(ticket.currentStatusId).toBe("ready_to_schedule");
+    expect(storage.createTicketStatusHistory).toHaveBeenCalledExactlyOnceWith({
+      ticketId: "job", fromStatusId: "scheduled", toStatusId: "ready_to_schedule",
+      changedById: "actor", notes: "Crew or date cleared",
+    });
+  });
+  it.each(["in_progress", "ready_to_schedule"])("respects explicit status intent %s", async currentStatusId => {
+    expect((await request(app).patch("/api/tickets/job").send({
+      crewId: "crew", dueDate: "2026-10-08", currentStatusId, statusChangeNotes: "Explicit",
+    })).status).toBe(200);
+    expect(ticket.currentStatusId).toBe(currentStatusId);
+    if (currentStatusId === "in_progress") {
+      expect(storage.createTicketStatusHistory).toHaveBeenCalledWith(expect.objectContaining({ notes: "Explicit" }));
+    } else expect(storage.createTicketStatusHistory).not.toHaveBeenCalled();
+  });
+  it("does not override explicit null status intent; schema rejects it without writes", async () => {
+    expect((await request(app).patch("/api/tickets/job").send({
+      crewId: "crew", dueDate: "2026-10-08", currentStatusId: null,
+    })).status).toBe(400);
+    assertNoWrites();
+  });
+  it("forward Scheduled to In Progress preserves fields and invoice links", async () => {
+    ticket.currentStatusId = "scheduled";
+    storage.getTicketTypeFields.mockResolvedValue([{ id: "scheduled-field", statusId: "scheduled" }, { id: "progress-field", statusId: "in_progress" }]);
+    links.push({ linkType: "invoice_for", sourceTicketId: "job", targetTicketId: "invoice" });
+    expect((await request(app).patch("/api/tickets/job").send({ currentStatusId: "in_progress" })).status).toBe(200);
+    expect(storage.deleteTicketFieldValuesByFieldIds).not.toHaveBeenCalled();
+    expect(storage.deleteTicket).not.toHaveBeenCalled();
+    expect(storage.deleteTicketLink).not.toHaveBeenCalled();
+  });
+  it("does not transition with only one effective scheduling field", async () => {
+    expect((await request(app).patch("/api/tickets/job").send({ crewId: "crew" })).status).toBe(200);
+    expect((await request(app).patch("/api/tickets/job").send({ title: "Changed" })).status).toBe(200);
+    expect(ticket.currentStatusId).toBe("ready_to_schedule");
+    expect(storage.createTicketStatusHistory).not.toHaveBeenCalled();
+  });
+  it("uses both persisted values when neither scheduling key is included", async () => {
+    Object.assign(ticket, { crewId: "crew", dueDate: new Date("2026-10-08") });
+    expect((await request(app).patch("/api/tickets/job").send({ title: "Changed" })).status).toBe(200);
+    expect(ticket.currentStatusId).toBe("scheduled");
+    expect(storage.updateTicket).toHaveBeenCalledWith("job", "company", {
+      title: "Changed", currentStatusId: "scheduled",
+    });
+  });
+  it("skips types without Scheduled and custom name-matching status keys", async () => {
+    storage.getTicketTypeStatuses.mockResolvedValue(statuses.filter(s => s.statusKey !== "scheduled"));
+    await request(app).patch("/api/tickets/job").send({ crewId: "crew", dueDate: "2026-10-08" });
+    expect(ticket.currentStatusId).toBe("ready_to_schedule");
+    storage.getTicketTypeStatuses.mockResolvedValue(statuses.map(s => s.statusKey === "ready_to_schedule"
+      ? { ...s, name: "Needs scheduling", statusKey: "custom" } : s));
+    await request(app).patch("/api/tickets/job").send({ crewId: "crew", dueDate: "2026-10-08" });
+    expect(storage.createTicketStatusHistory).not.toHaveBeenCalled();
+  });
+  it.each(["estimate_request", "project"])("Scheduled is on the %s approved billing path", async typeKey => {
+    ticket.ticketTypeId = "other";
+    ticket.workType = typeKey === "estimate_request" ? "estimate_request" : "admin";
+    storage.getTicketTypeById.mockResolvedValue({ ...otherType, typeKey });
+    await request(app).patch("/api/tickets/job").send({ crewId: "crew", dueDate: "2026-10-08" });
+    expect(ticket).toMatchObject({ currentStatusId: "scheduled", billingBehavior: "invoice_required" });
+  });
+  it("rejects invalid scheduling edits before history or cleanup writes", async () => {
+    expect((await request(app).patch("/api/tickets/job").send({ crewId: "crew", dueDate: "not-a-date" })).status).toBe(400);
+    assertNoWrites();
+  });
+  it("Estimate approval still enters Needs scheduling even when crew and date already exist", async () => {
+    Object.assign(ticket, {
+      ticketTypeId: "other", currentStatusId: "decision_received",
+      crewId: "crew", dueDate: new Date("2026-10-08"),
+    });
+    storage.getTicketTypeById.mockResolvedValue({ ...otherType, name: "Renamed estimates", typeKey: "estimate_request" });
+    storage.getTicketTypeStatuses.mockResolvedValue([
+      ...statuses, { id: "decision_received", statusKey: "decision_received", name: "Renamed decision", displayOrder: -1 },
+    ]);
+    storage.upsertTicketFieldValue = vi.fn().mockImplementation(async data => data);
+    storage.getTicketTypeFieldById = vi.fn().mockResolvedValue({ id: "decision-field", fieldKey: "decision_outcome" });
+    mountDecision({ app, storage, insertTicketFieldValueSchema, ...capabilities });
+    const res = await request(app).put("/api/tickets/job/field-values/decision-field").send({ value: "Approved" });
+    expect(res.status).toBe(200);
+    expect(ticket.currentStatusId).toBe("ready_to_schedule");
+    expect(storage.createTicketStatusHistory).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      ticketId: "job", fromStatusId: "decision_received", toStatusId: "ready_to_schedule", changedById: "actor",
+    }));
   });
 });
 

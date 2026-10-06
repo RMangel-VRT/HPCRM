@@ -83,9 +83,22 @@ export const STATUS_STATE_VAR: Record<TicketStatusState, string> = {
 };
 
 export interface TicketStatusIdentity {
+  name?: string;
   statusKey?: string | null;
   actionType?: "needs_action" | "waiting" | null;
   isFinal?: "true" | "false" | null;
+}
+
+/** Scheduling identity mirrors the server; legacy labels apply only to unkeyed rows. */
+export function isSeededStatus(
+  status: TicketStatusIdentity | null | undefined,
+  key: "ready_to_schedule" | "scheduled",
+): boolean {
+  if (!status) return false;
+  if (status.statusKey != null) return status.statusKey === key;
+  return key === "ready_to_schedule"
+    ? status.name === "Ready to Schedule" || status.name === "Needs scheduling"
+    : status.name === "Scheduled";
 }
 
 const OPEN_KEYS = new Set(["new", "pending_invoice"]);

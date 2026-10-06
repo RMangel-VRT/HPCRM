@@ -85,7 +85,7 @@ import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import LayerMapViewer from "@/components/LayerMapViewer";
-import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType, taskWorkflowStatuses } from "@shared/ticketVisuals";
+import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType, isSeededStatus, taskWorkflowStatuses } from "@shared/ticketVisuals";
 import { ticketHue, TaskBillingBadge } from "@/components/TicketIdentity";
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -807,9 +807,9 @@ export default function TicketDetail() {
   const previousStatus = sortedCurrentIndex > 0 ? sortedStatuses[sortedCurrentIndex - 1] : null;
   const isComplete = !!ticket.completedAt || currentStatus?.isFinal === "true";
   
-  // Check if ticket is at "Ready to Schedule" on a Project workflow - show delegate option
-  const isAtReadyToSchedule = currentStatus?.name === "Ready to Schedule"
-    && (ticketType.name === "Estimate Request" || ticketType.name === "Project");
+  // Preserve the existing delegate option when seeded scheduling/type labels are renamed.
+  const isAtReadyToSchedule = isSeededStatus(currentStatus, "ready_to_schedule")
+    && (isSeededTicketType(ticketType, "estimate_request") || isSeededTicketType(ticketType, "project"));
   const isDelegated = !!ticket.delegatedById;
   
   // Check if ticket is waiting for a linked invoice to complete (hide advance button)

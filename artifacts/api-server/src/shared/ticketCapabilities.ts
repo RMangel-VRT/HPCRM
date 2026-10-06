@@ -140,6 +140,8 @@ export const STATUS_KEY_BACKFILL: Record<string, Record<string, string>> = {
     "Proposal Sent": "proposal_sent",
     "Decision Received": "decision_received",
     "Ready to Schedule": "ready_to_schedule",
+    "Needs scheduling": "ready_to_schedule",
+    "Scheduled": "scheduled",
     "Work Completed": "work_completed",
     "Ready for Billing": "ready_for_billing",
     "Invoicing": "invoicing",
@@ -148,6 +150,8 @@ export const STATUS_KEY_BACKFILL: Record<string, Record<string, string>> = {
   "Task": {
     "New": "new",
     "Ready to Schedule": "ready_to_schedule",
+    "Needs scheduling": "ready_to_schedule",
+    "Scheduled": "scheduled",
     "In Progress": "in_progress",
     "Work Completed": "work_completed",
     "Ready for Billing": "ready_for_billing",
@@ -156,6 +160,7 @@ export const STATUS_KEY_BACKFILL: Record<string, Record<string, string>> = {
   "Project": {
     "New": "new",
     "Ready to Schedule": "ready_to_schedule",
+    "Needs scheduling": "ready_to_schedule",
     "Scheduled": "scheduled",
     "Work Completed": "work_completed",
     "Ready for Billing": "ready_for_billing",
