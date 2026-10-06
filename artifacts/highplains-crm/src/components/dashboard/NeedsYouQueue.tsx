@@ -26,6 +26,9 @@ type QueueSource =
   | "stale_proposal"
   | "blocked_rfp"
   | "unassigned_request"
+  | "new_for_you"
+  | "past_schedule_by"
+  | "followup_due"
   | "comm_draft"
   | "comm_followup"
   | "contract_renewal";
@@ -114,7 +117,10 @@ const FALLBACK_STATUS: QueueStatus = {
   isFinal: "false",
 };
 
-function filterForSource(source: QueueSource): Exclude<QueueFilter, "all"> {
+function filterForSource(source: QueueSource): Exclude<QueueFilter, "all"> | null {
+  // Scheduling signals belong in All until P2-5 adds their visible treatment;
+  // they are not Flags, Estimates, or financial/communications work.
+  if (source === "new_for_you" || source === "past_schedule_by" || source === "followup_due") return null;
   if (source === "pending_invoice" || source === "ready_for_billing") return "billing";
   if (source === "comm_draft" || source === "comm_followup") return "communications";
   if (source === "stale_proposal" || source === "blocked_rfp" || source === "unassigned_request") return "estimates";
@@ -126,7 +132,7 @@ function ageLabel(ageDays: number): string {
   return `${ageDays}d`;
 }
 
-function filterCountForSource(source: QueueSource): keyof ActionQueueResponse["byFilter"] {
+function filterCountForSource(source: QueueSource): keyof ActionQueueResponse["byFilter"] | null {
   return filterForSource(source);
 }
 
@@ -139,7 +145,7 @@ function removeQueueItem(data: ActionQueueResponse | undefined, itemId: string):
     ...data,
     items: data.items.filter((item) => item.id !== itemId),
     total: Math.max(0, data.total - 1),
-    byFilter: {
+    byFilter: filter === null ? data.byFilter : {
       ...data.byFilter,
       [filter]: Math.max(0, data.byFilter[filter] - 1),
     },
@@ -159,7 +165,7 @@ function insertQueueItem(
     ...data,
     items,
     total: data.total + 1,
-    byFilter: {
+    byFilter: filter === null ? data.byFilter : {
       ...data.byFilter,
       [filter]: data.byFilter[filter] + 1,
     },

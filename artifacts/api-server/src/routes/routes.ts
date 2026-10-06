@@ -55,6 +55,7 @@ import { backfillScheduleBy } from '../lib/backfillScheduleBy';
 import { maintainScheduleBy } from '../lib/scheduleByMaintenance';
 import { notifyTicketAssignment } from '../lib/ticketAssignmentNotification';
 import { registerTicketOwnerResponseRoutes } from './ticketOwnerResponse';
+import { registerSchedulingStatusRoute } from './schedulingStatus';
 import { convertExtraBillableToTask } from '../lib/convertExtraBillableToTask';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
@@ -5648,49 +5649,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(ticketTypes);
   });
 
-  // Get the canonical scheduling status ID for this company
-  // Returns the "Ready to Schedule" status ID from the Project ticket type
-  // This is the single source of truth for scheduling queue membership
-  app.get("/api/scheduling-status", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-
-    const user = req.user as UserWithContext;
-    
-    // Collect "Ready to Schedule" status IDs across all project-related ticket types.
-    // "Estimate Request" is the primary project workflow (renamed from "Project" in the
-    // ticket-type rename migration); "Project" is the no-estimate variant. Both feed the
-    // scheduling queue.
-    const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
-    const projectTypes = ticketTypes.filter(
-      ticketType => isSeededTicketType(ticketType, "estimate_request")
-        || isSeededTicketType(ticketType, "project")
-    );
-    
-    if (projectTypes.length === 0) {
-      return res.json({ schedulingStatusId: null, schedulingStatusIds: [], message: "No project ticket types found" });
-    }
-    
-    const allStatuses = await Promise.all(
-      projectTypes.map(pt => storage.getTicketTypeStatuses(pt.id))
-    );
-    
-    const schedulingStatusIds: string[] = [];
-    for (const statuses of allStatuses) {
-      const s = findSeededStatus(statuses, "ready_to_schedule");
-      if (s) schedulingStatusIds.push(s.id);
-    }
-
-    if (schedulingStatusIds.length === 0) {
-      return res.json({ schedulingStatusId: null, schedulingStatusIds: [], message: "Ready to Schedule status not found in any project workflow" });
-    }
-    
-    res.json({ 
-      schedulingStatusId: schedulingStatusIds[0],
-      schedulingStatusIds,
-    });
-  });
+  registerSchedulingStatusRoute(app);
 
   // Initialize RFP Request ticket type for a company
   app.post("/api/ticket-types/init-rfp", async (req, res) => {

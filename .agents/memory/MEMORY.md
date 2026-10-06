@@ -4,3 +4,4 @@
 - [Optional enum Select submits ""](optional-enum-select-empty-string.md) — untouched optional Select sends ""; server `z.enum().optional()` 400s. Preprocess ""/null→undefined in shared insert schema.
 - [Task name conflicts](task-name-conflict-policy.md) — Task backfill must not claim custom exact-name Task rows after the conversion deliberately skips them.
 - [Task billing terminology](task-billing-terminology.md) — client Billable labels deliberately differ from the server's legacy billing label; campaign categories keep their own terminology.
+- [Workspace declaration baselines](workspace-declaration-baselines.md) — refresh emitted library types before attributing missing schema fields to leaf-package changes.

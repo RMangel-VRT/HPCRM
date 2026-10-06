@@ -15,12 +15,17 @@ import {
   ticketTypeStatuses,
   ticketTypes,
   tickets,
+  users,
+  companyUsers,
   type TicketTypeKey,
 } from "@workspace/db";
 import {
   findSeededStatus,
   findSeededTicketType,
+  isSeededTicketType,
+  isSeededStatus,
 } from "../shared/ticketCapabilities";
+import { localDateString } from "../lib/scheduleBy";
 
 export type QueueBand = "overdue" | "today" | "week";
 
@@ -30,6 +35,9 @@ export type QueueSource =
   | "stale_proposal"
   | "blocked_rfp"
   | "unassigned_request"
+  | "new_for_you"
+  | "past_schedule_by"
+  | "followup_due"
   | "comm_draft"
   | "comm_followup"
   | "contract_renewal";
@@ -277,6 +285,21 @@ function ageDaysSince(date: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - date.getTime()) / DAY_MS));
 }
 
+function calendarDaysBetween(from: string, to: string): number {
+  return Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / DAY_MS));
+}
+
+function businessDaysSince(createdAt: Date, now: Date): number {
+  const day = new Date(createdAt);
+  day.setHours(12, 0, 0, 0);
+  let count = 0;
+  while (localDateString(day) < localDateString(now)) {
+    day.setDate(day.getDate() + 1);
+    if (day.getDay() !== 0 && day.getDay() !== 6) count++;
+  }
+  return count;
+}
+
 function isOlderThan(date: Date, days: number, now: Date): boolean {
   return date.getTime() < now.getTime() - days * DAY_MS;
 }
@@ -376,12 +399,20 @@ function ticketHeadline(ticket: TicketRow, status: TicketStatusRow, date: Date, 
 
 export function registerDashboardQueueRoutes(app: Express): void {
   app.get("/api/dashboard/action-queue", async (req, res) => {
-    const user = authorizeAdminOrOffice(req, res);
-    if (!user) return;
+    if (!req.isAuthenticated || !req.isAuthenticated()) {
+      res.status(401).json({ message: "Not authenticated" });
+      return;
+    }
+    const user = req.user as UserWithContext;
+    // Ticket owners can Accept/Send back regardless of role. Only admin/office
+    // receive the full queue; everyone else gets their own scheduling signals.
+    const ownerOnly = user.activeRole !== "admin" && user.activeRole !== "office";
 
     try {
       const companyId = user.activeCompanyId;
       const now = new Date();
+      // Calendar dates use the server-local Colorado day, matching the crew app.
+      const today = localDateString(now);
       const ticketTypeRows = await storage.getTicketTypes(companyId);
 
       const seededTypes = new Map<TicketTypeKey, TicketTypeRow>();
@@ -392,13 +423,13 @@ export function registerDashboardQueueRoutes(app: Express): void {
 
       const statusesByTypeKey = new Map<TicketTypeKey, TicketStatusRow[]>();
       const statusRows = await Promise.all(
-        [...seededTypes.entries()].map(async ([typeKey, type]) => {
+        ticketTypeRows.map(async (type) => {
           const statuses = await storage.getTicketTypeStatuses(type.id);
-          return [typeKey, statuses] as const;
+          return [type.id, statuses] as const;
         }),
       );
-      for (const [typeKey, statuses] of statusRows) {
-        statusesByTypeKey.set(typeKey, statuses);
+      for (const [typeKey, type] of seededTypes) {
+        statusesByTypeKey.set(typeKey, statusRows.find(([id]) => id === type.id)?.[1] ?? []);
       }
 
       const statusById = new Map<string, TicketStatusRow>();
@@ -414,9 +445,9 @@ export function registerDashboardQueueRoutes(app: Express): void {
         statusIdsByKey.set(statusKey, ids);
       };
 
-      for (const [typeKey, type] of seededTypes) {
+      for (const type of ticketTypeRows) {
         typeById.set(type.id, type);
-        const statuses = statusesByTypeKey.get(typeKey) ?? [];
+        const statuses = statusRows.find(([id]) => id === type.id)?.[1] ?? [];
         for (const status of statuses) {
           statusById.set(status.id, status);
         }
@@ -428,20 +459,43 @@ export function registerDashboardQueueRoutes(app: Express): void {
           "maps_requested",
           "waiting_info",
           "new",
+          "ready_to_schedule",
         ]) {
-          addStatus(findSeededStatus(statuses, statusKey), statusKey);
+          if (![...seededTypes.values()].some(seeded => seeded.id === type.id) && statusKey !== "ready_to_schedule") continue;
+          if (statusKey === "ready_to_schedule") {
+            for (const status of statuses.filter(status => isSeededStatus(status, statusKey))) addStatus(status, statusKey);
+          } else {
+            addStatus(findSeededStatus(statuses, statusKey), statusKey);
+          }
         }
       }
 
-      const ticketRows =
+      const mainTicketRows =
         statusIds.length > 0
           ? await db
               .select()
               .from(tickets)
-              .where(and(eq(tickets.companyId, companyId), inArray(tickets.currentStatusId, statusIds)))
+              .where(and(eq(tickets.companyId, companyId), inArray(tickets.currentStatusId, statusIds),
+                ownerOnly ? eq(tickets.assignedToId, user.id) : undefined))
           : [];
 
-      const communicationsRowsPromise = db
+      // Date-bounded follow-ups include Scheduled and custom open workflows;
+      // never expand the main query to every open status.
+      const followUpRows = await db.select().from(tickets).where(and(
+        eq(tickets.companyId, companyId),
+        lte(tickets.followUpDate, today),
+        sql`${tickets.currentStatusId} NOT IN (
+          SELECT ${ticketTypeStatuses.id} FROM ${ticketTypeStatuses}
+          INNER JOIN ${ticketTypes} ON ${ticketTypes.id} = ${ticketTypeStatuses.ticketTypeId}
+          WHERE ${ticketTypes.companyId} = ${companyId} AND ${ticketTypeStatuses.isFinal} = 'true'
+        )`,
+        ownerOnly ? eq(tickets.assignedToId, user.id) : undefined,
+      ));
+      const ticketRows = [...new Map([...mainTicketRows, ...followUpRows]
+        .filter(ticket => ticket.companyId === companyId && (!ownerOnly || ticket.assignedToId === user.id))
+        .map(ticket => [ticket.id, ticket])).values()];
+
+      const communicationsRowsPromise = ownerOnly ? Promise.resolve([]) : db
         .select({
           id: communications.id,
           customerId: communications.customerId,
@@ -465,7 +519,7 @@ export function registerDashboardQueueRoutes(app: Express): void {
           ),
         ));
 
-      const contractsRowsPromise = db
+      const contractsRowsPromise = ownerOnly ? Promise.resolve([]) : db
         .select({
           id: contracts.id,
           customerId: contracts.customerId,
@@ -498,7 +552,7 @@ export function registerDashboardQueueRoutes(app: Express): void {
       // from company-scoped ready-for-billing tickets. Parent IDs are exposed
       // only after matching a ticket from the same company-scoped ticket set.
       const invoiceLinksPromise =
-        pendingTicketIds.length > 0 || readyTicketIds.length > 0
+        !ownerOnly && (pendingTicketIds.length > 0 || readyTicketIds.length > 0)
           ? db
               .select()
               .from(ticketLinks)
@@ -543,17 +597,34 @@ export function registerDashboardQueueRoutes(app: Express): void {
       }
 
       const items: ActionQueueItem[] = [];
+      const creatorIds = [...new Set(ticketRows.filter(ticket =>
+        isSeededStatus(statusById.get(ticket.currentStatusId), "new")
+        && ticket.assignedToId === user.id
+        && (isSeededTicketType(typeById.get(ticket.ticketTypeId), "task")
+          || isSeededTicketType(typeById.get(ticket.ticketTypeId), "project")),
+      ).map(ticket => ticket.createdById).filter(Boolean))];
+      const creatorRows = creatorIds.length ? await db.select({ id: users.id, name: users.name })
+        .from(users).innerJoin(companyUsers, eq(companyUsers.userId, users.id))
+        .where(and(eq(companyUsers.companyId, companyId), inArray(users.id, creatorIds))) : [];
+      const creatorNames = new Map(creatorRows.map(creator => [creator.id, creator.name]));
       for (const ticket of ticketRows) {
         const type = typeById.get(ticket.ticketTypeId);
         const status = statusById.get(ticket.currentStatusId);
-        if (!type || !status || !status.statusKey) continue;
+        if (!type || !status || status.isFinal === "true") continue;
+        // Owner visibility follows the existing field ticket flow, not financial
+        // or communications workflows, even when those have a follow-up date.
+        if (ownerOnly && !isSeededTicketType(type, "task") && !isSeededTicketType(type, "project")) continue;
 
         const date = ticketActivityDate(ticket);
-        const ageDays = ageDaysSince(date, now);
+        let ageDays = ageDaysSince(date, now);
+        let headline = ticketHeadline(ticket, status, date, ageDays);
         let source: QueueSource | null = null;
         let band: QueueBand = "week";
         let verb = "Open";
         let action: QueueAction | null = null;
+
+        if (ownerOnly && ["ready_for_billing", "invoicing", "work_completed"]
+          .some(key => isSeededStatus(status, key))) continue;
 
         if (type.typeKey === "invoice" && status.statusKey === "pending_invoice") {
           source = "pending_invoice";
@@ -586,18 +657,20 @@ export function registerDashboardQueueRoutes(app: Express): void {
           band = isOlderThan(date, 7, now) ? "overdue" : "today";
           verb = "Open";
         } else if (status.statusKey === "proposal_sent" || status.statusKey === "awaiting_response") {
-          if (!isOlderThan(date, 10, now)) continue;
-          source = "stale_proposal";
-          band = "overdue";
-          verb = "Send follow-up";
+          if (isOlderThan(date, 10, now)) {
+            source = "stale_proposal";
+            band = "overdue";
+            verb = "Send follow-up";
+          }
         } else if (
           type.typeKey === "rfp_request" &&
           (status.statusKey === "maps_requested" || status.statusKey === "waiting_info")
         ) {
-          if (!isOlderThan(date, 5, now)) continue;
-          source = "blocked_rfp";
-          band = "today";
-          verb = "Nudge";
+          if (isOlderThan(date, 5, now)) {
+            source = "blocked_rfp";
+            band = "today";
+            verb = "Nudge";
+          }
         } else if (status.statusKey === "new" && ticket.assignedToId == null) {
           source = "unassigned_request";
           band = "today";
@@ -612,7 +685,33 @@ export function registerDashboardQueueRoutes(app: Express): void {
           };
         }
 
+        if (!source && isSeededStatus(status, "new")
+          && (isSeededTicketType(type, "task") || isSeededTicketType(type, "project"))
+          && ticket.assignedToId === user.id) {
+          source = "new_for_you";
+          ageDays = calendarDaysBetween(localDateString(ticket.createdAt), today);
+          band = businessDaysSince(ticket.createdAt, now) > 1 ? "overdue" : "today";
+          headline = `${ticket.title} — New · from ${creatorNames.get(ticket.createdById) ?? "Unknown creator"}`;
+        }
+        if (!source && isSeededStatus(status, "ready_to_schedule")
+          && ticket.scheduleBy && ticket.scheduleBy < today
+          && (!ticket.followUpDate || ticket.followUpDate < today)) {
+          source = "past_schedule_by";
+          band = "overdue";
+          ageDays = calendarDaysBetween(ticket.scheduleBy, today);
+          const formatted = new Date(`${ticket.scheduleBy}T12:00:00`).toLocaleDateString("en-US", {
+            weekday: "short", month: "short", day: "numeric",
+          }).replace(",", "");
+          headline = `${ticket.title} — Schedule by ${formatted} · ${ageDays} days late`;
+        }
+        if (!source && ticket.followUpDate && ticket.followUpDate <= today) {
+          source = "followup_due";
+          band = "today";
+          ageDays = calendarDaysBetween(ticket.followUpDate, today);
+          headline = `${ticket.title} — Follow up · ${(ticket.followUpNote ?? "").trim().slice(0, 60)}`;
+        }
         if (!source) continue;
+        if (ownerOnly && !["new_for_you", "past_schedule_by", "followup_due"].includes(source)) continue;
         const parentTicketId = source === "pending_invoice"
           ? linksByInvoiceId.get(ticket.id) ?? null
           : null;
@@ -623,7 +722,7 @@ export function registerDashboardQueueRoutes(app: Express): void {
           source,
           band,
           verb,
-          headline: ticketHeadline(ticket, status, date, ageDays),
+          headline,
           ageDays,
           parentTicketId,
           action,
