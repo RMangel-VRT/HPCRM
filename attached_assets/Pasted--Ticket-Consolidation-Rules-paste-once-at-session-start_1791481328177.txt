@@ -1,0 +1,26 @@
+# Ticket Consolidation: Rules (paste once at session start)
+
+**Goal (Randy):** one job reads as one stream. A job and its Invoice ticket should stop looking like two unrelated open tickets, and the billing manager gets one list where each charge appears once.
+
+**Invoice tickets stay tickets.** Auto-created, standalone, batch, project and snow invoices all keep working exactly as they do now. This pack changes what the screens *show*, plus one narrow fix to how a job closes when it has several invoices (C2 §3).
+
+## Order
+
+| Slice | What | Publish after? |
+|---|---|---|
+| C1 | Ticket lists learn about invoice links; cards show the link in both directions; a read-only count of the 500-ticket cap | Yes (display only) |
+| C2 | A Billing view on the Tickets page, the pending-invoices query without the cap, and the multi-invoice close fix | Yes |
+| C3 | Hide linked Invoice cards from the board. **Not written yet.** It comes only after the billing manager has used C2. | — |
+
+Merge C1 before starting C2.
+
+## Rules
+
+1. **Line numbers are from GitHub `5db5655`** (Phase 2 published). Find code by its content.
+2. **No schema change and no migration** in this pack.
+3. **Never compare type or status display names.** Use `isSeededTicketType` / `findSeededTicketType` / `isSeededStatus` / `findSeededStatus` on the server, and `typeKey` / `statusKey` on the client.
+4. **Keep Phase 2 intact.** The list and card components now take `schedulingStatusSet` (a set of Needs scheduling status ids). Don't revert to a single `schedulingStatusId`.
+5. **Links:** `ticket_links` with `link_type = 'invoice_for'` means `target_ticket_id` is the Invoice for `source_ticket_id`. One parent can have **several** invoices; an invoice has at most one parent. Links have no `company_id`, so always scope by fetching the counterpart tickets with `companyId` and skip any that don't come back.
+6. **No per-row queries.** Bulk-load with `inArray`, following `GET /api/pending-invoices`.
+7. **Cards are wrapped in a link.** Anything added inside a card must be display-only: no anchor and no navigating button.
+8. **Tests use vitest.** Report changed files, call sites, test results and baseline failures separately (the 7 known plantEnrichment and mailbox-OAuth failures; verify them rather than assume). Report typecheck results against the baseline, the way P2-5 did.

@@ -1,0 +1,95 @@
+# C1: Invoice links on ticket lists and cards
+
+> Assumes 00-RULES-C.md. Read `.agents/memory/` first. The risk here: adding the link fields with a per-row query, or nesting a link inside a card's link.
+
+## 1. Server: bulk link summary
+
+New file `artifacts/api-server/src/lib/ticketLinkSummary.ts`:
+
+```ts
+export interface TicketLinkSummary {
+  invoices: Array<{ id: string; title: string; statusKey: string | null; statusName: string; isFinal: boolean }>;
+  parent: { id: string; title: string; typeKey: string | null; typeName: string } | null;
+}
+export async function getInvoiceLinkSummaries(
+  companyId: string, ticketIds: string[],
+): Promise<Map<string, TicketLinkSummary>>
+```
+
+- Empty `ticketIds` → empty map, no queries.
+- One query on `ticket_links`: `link_type = 'invoice_for' AND (source_ticket_id IN ids OR target_ticket_id IN ids)`.
+- One `storage.getTicketsByIds(counterpartIds, companyId)`. If a counterpart is missing from the result (deleted, or belongs to another company), skip that link. Never trust the link alone.
+- One `storage.getAllTicketTypeStatuses(companyId)` and one `storage.getTicketTypes(companyId)` for status keys, names, `isFinal`, type keys and type names.
+- Tickets with no links get `{ invoices: [], parent: null }`.
+
+The total number of queries must not grow with the number of rows.
+
+**Attach `linkSummary` to every row of:**
+- `GET /api/tickets` (~L6186)
+- `GET /api/tickets/my` (~L6156)
+- `GET /api/customers/:customerId/tickets` (~L6229), used by `TicketListView` on the customer page
+
+Then grep for any other endpoint whose rows reach a component that renders `TicketTypeBadge` or `TicketCard`. Add the field there too, or list it in the report and say why you left it out.
+
+**Tests** (`ticketLinkSummary.test.ts`):
+- a parent with one invoice
+- a parent with two invoices
+- a standalone invoice (no parent)
+- an invoice whose parent belongs to another company → `parent: null`
+- a link to a deleted ticket → skipped
+- empty input → no queries
+
+## 2. Client: show the link on cards
+
+- Mirror `TicketLinkSummary` in a client shared file (for example `artifacts/highplains-crm/src/shared/ticketLinks.ts`). Don't import server code.
+- Add `linkSummary?: TicketLinkSummary` to the client list-row types (`TicketWithDetails` in `TicketsList.tsx`, and the ticket prop type in `components/TicketCard.tsx` / `MyTickets.tsx`).
+
+**On a parent card** (`invoices.length > 0`), add a small chip next to the status pill:
+- With one invoice: `Invoice · Pending` or `Invoice · Invoiced`.
+- With several: `2 invoices · 1 pending`.
+
+Color the chip with the universal status scale: `deriveStatusState` in `shared/ticketVisuals.ts` from the invoice's `statusKey`, never the type hue. With several invoices, use the least-finished one's state.
+
+**On an Invoice card with a parent,** add one muted line under the title: `For: <parent title>`, truncated to one line, with a small dot in the parent's type hue (`typeHueVar({ name: typeName, typeKey })`).
+
+**On an Invoice card with no parent,** change nothing. Standalone invoices look exactly as they do today.
+
+Both are **display-only**: no click handler and no anchor. The card's own link still opens the ticket, and the detail page already lets you jump between the job and its invoice.
+
+**Render sites.** Confirm each one, and report any you skip:
+- `KanbanCard` in `TicketsList.tsx` (~L1097)
+- the list `TicketCard` in `TicketsList.tsx` (~L1383)
+- `components/TicketCard.tsx` (used by MyTickets and TicketListView)
+- MyTickets' `MyKanbanCard`
+
+Leave the dashboard `NeedsYouQueue` and the TicketDetail page alone.
+
+## 3. Read-only check: the 500-ticket cap
+
+`storage.getTickets()` (storage.ts ~L1943) ends with `.orderBy(desc(createdAt)).limit(500)` across open **and** closed tickets, and TicketsList splits open from closed on the client. So once a company has more than 500 tickets, its oldest **open** tickets silently drop off the board and the list.
+
+Run this read-only query in **production and development**, labeled by environment, and put the counts at the top of the report:
+
+```sql
+WITH ranked AS (
+  SELECT t.company_id, t.id, s.is_final,
+         ROW_NUMBER() OVER (PARTITION BY t.company_id ORDER BY t.created_at DESC) AS rn
+  FROM tickets t JOIN ticket_type_statuses s ON s.id = t.current_status_id
+)
+SELECT company_id,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE is_final = 'false') AS open,
+       COUNT(*) FILTER (WHERE is_final = 'false' AND rn > 500) AS open_beyond_cap
+FROM ranked GROUP BY company_id;
+```
+
+**Don't change `getTickets()` in this slice.** It has many callers. If `open_beyond_cap > 0` anywhere, say so in the **first line** of the report; that becomes its own fix slice.
+
+## Done when
+
+- Every enumerated endpoint returns `linkSummary` using a fixed number of queries.
+- On the By Type board, a Billable Task at Ready for billing shows `Invoice · Pending`, and its Invoice card shows `For: <task title>`. Standalone invoices are unchanged.
+- The cards still receive `schedulingStatusSet`, and the Needs scheduling indicator still works.
+- The browser console shows no DOM-nesting warnings on TicketsList, MyTickets or a customer page.
+- New tests pass, and the typecheck shows no new diagnostics.
+- The report starts with the cap counts for both environments.

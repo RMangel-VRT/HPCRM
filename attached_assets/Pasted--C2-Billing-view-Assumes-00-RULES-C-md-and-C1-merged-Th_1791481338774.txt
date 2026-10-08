@@ -1,0 +1,64 @@
+# C2: Billing view
+
+> Assumes 00-RULES-C.md and C1 merged. The risk here: §3 changes when a job closes. It must only make the job wait for its *other* invoices; single-invoice jobs must behave exactly as they do today.
+
+## Facts (verified at 5db5655)
+
+- `GET /api/pending-invoices` (routes.ts ~L7884) returns every Invoice ticket at `pending_invoice`, enriched with customer and source ticket. **No screen uses it yet.** It's limited to admin and office.
+- It loads candidates through `storage.getTickets(companyId, {})`, so it has the **same 500-row cap** as C1 §3.
+- A job reaching Ready for billing gets its Invoice ticket created immediately (`maybeAutoCreateInvoiceOnRfb`). So "pending Invoice tickets" already covers both auto-created and standalone charges, and no second source is needed.
+- **This view shows charges (Invoice tickets), one row each.** That's the same rule the Dashboard "Needs you" queue already uses. Don't change the Dashboard.
+
+## 1. Server: the pending-invoices query without the cap
+
+In `GET /api/pending-invoices`, replace `storage.getTickets(...)` plus its in-memory filter with a direct query:
+`company_id = $1 AND ticket_type_id = <invoice type id> AND current_status_id = <pending_invoice status id>`, with **no row limit**. Find the type and status with `findSeededTicketType(…, "invoice")` and `findSeededStatus(…, "pending_invoice")`.
+
+Keep the response shape and the role guard. Add to each row:
+- On `sourceTicket`: `typeKey` and `typeName` (`sourceTicket` stays null for standalone invoices).
+- `ageDays`: days since `workCompletedDate`, or `createdAt` if that's empty, counted in the server's local (Colorado) calendar day. Reuse P2-1's `localDateString` helper; don't write a new one.
+
+**Test:** a pending invoice older than 500 newer tickets is still returned.
+
+## 2. Client: Billing view on the Tickets page
+
+- **The button:** a fourth view-mode button, **Billing**, next to List / By Type / By User in `TicketsList.tsx`. Show it only to admin and office, the same roles the endpoint allows. It reads `/api/pending-invoices`.
+- **Header:** `N charges waiting`.
+- **Columns** (one row per Invoice ticket):
+
+  | Property | Charge (invoice title) | From (parent title + type badge, or "Standalone") | Work completed | Category (`invoiceCategory`) | Age | Assignee |
+
+- **Default sort:** property A–Z, then oldest first.
+- **Group by property** toggle, **off** by default. When it's on, rows group under a property header showing that property's count, so a whole property's monthly extras can be invoiced together. Remember the toggle per viewer in `localStorage`, wrapped in try/catch.
+- **Row click** opens the **Invoice** ticket.
+- **Empty state:** "Nothing waiting to be invoiced."
+- **Refresh:** the view refreshes through the existing `/api/pending-invoices` cache invalidations (TicketDetail, SettingsPage, `lib/schedulingStatus.ts`). Confirm marking an invoice Invoiced removes its row.
+
+## 3. Fix: a job with several invoices waits for all of them
+
+In `PATCH /api/tickets/:id`, find the block commented **"Auto-propagate Invoice completion back to parent ticket"** (~L7000). Today it moves the parent to its next final status as soon as **any one** linked invoice closes. A Project billed in parts (`create-invoice-from-project`) is marked finished while its other invoices are still pending.
+
+Change it as follows:
+- **Always** write the `[Invoice Completed] …` comment on the parent, as today.
+- Advance the parent **only if every** `invoice_for` child of that parent is now in a final status. Load the siblings in one query; the invoice that just closed counts as final.
+- If any sibling is still open, leave the parent's status unchanged and log it.
+
+Everything else in that block stays as it is: how the next final status is chosen, `completedAt`, the status-history note, and dismissing due-date notifications.
+
+**Tests:**
+- One invoice: closing it advances the parent, unchanged from today. Run it for a Billable Task (→ Done) and an Estimate Request (→ Invoicing).
+- Two invoices: closing the first leaves the parent open with the comment written. Closing the second advances the parent.
+
+## Done when
+
+- The Billing view lists every pending Invoice ticket once, both auto-created and standalone, with the parent shown for auto-created ones.
+- It's hidden from roles the endpoint rejects.
+- **Checked end to end once in dev:** a Billable Task to Ready for billing; its charge appears in the Billing view; mark it Invoiced; the row disappears and the Task is Done.
+- The cap test, the multi-invoice tests and the typecheck baseline all pass.
+
+## Out of scope
+
+- Hiding cards from the board (C3).
+- QuickBooks.
+- Batch actions from this view.
+- The Dashboard queue.
