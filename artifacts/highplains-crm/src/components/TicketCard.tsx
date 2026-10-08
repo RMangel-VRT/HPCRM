@@ -1,4 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
+import { useTranslation } from "react-i18next";
+import { isNeedsSchedulingStatus } from "@/lib/schedulingStatus";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -44,7 +46,7 @@ export interface TicketCardProps {
   ticket: TicketWithDetails;
   formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
   usersMap?: Map<string, UserType>;
-  schedulingStatusId?: string | null;
+  schedulingStatusSet?: ReadonlySet<string>;
   selectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
@@ -62,7 +64,7 @@ export default function TicketCard({
   ticket,
   formatDueDate,
   usersMap,
-  schedulingStatusId,
+  schedulingStatusSet,
   selectionMode,
   isSelected,
   onToggleSelect,
@@ -70,6 +72,7 @@ export default function TicketCard({
   workflowStatuses = [],
   onNavigate,
 }: TicketCardProps) {
+  const { t } = useTranslation();
   const dueInfo = formatDueDate(ticket.dueDate);
 
   const createdDate = ticket.createdAt ? new Date(ticket.createdAt) : null;
@@ -84,7 +87,7 @@ export default function TicketCard({
   const hue = ticketHue(ticket.ticketType);
   workflowStatuses = taskWorkflowStatuses(workflowStatuses, ticket.ticketType, ticket.billingBehavior);
 
-  const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
+  const needsScheduling = isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId);
 
   const cardInner = (
     <Card
@@ -164,7 +167,7 @@ export default function TicketCard({
                   className="text-xs font-semibold bg-pink-500 text-white border-pink-600 dark:bg-pink-600 dark:border-pink-500"
                   data-testid={`badge-needs-scheduling-${ticket.id}`}
                 >
-                  Needs Scheduling
+                  {t("tickets.needsScheduling")}
                 </Badge>
               )}
               {ticket.currentStatus && !ticket.completedAt && (

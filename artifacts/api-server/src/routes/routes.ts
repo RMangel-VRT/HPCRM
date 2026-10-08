@@ -8327,13 +8327,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Fetch all fields for all statuses in a single batch query
     const statusIds = statuses.map(s => s.id);
-    const [allStatusFields, assignedUser, delegatedByUser, contract, contractServices, links] = await Promise.all([
+    const [allStatusFields, assignedUser, delegatedByUser, contract, contractServices, links, createdByUser] = await Promise.all([
       storage.getTicketTypeFieldsByStatuses(statusIds),
       ticket.assignedToId ? storage.getUserById(ticket.assignedToId) : Promise.resolve(null),
       ticket.delegatedById ? storage.getUserById(ticket.delegatedById) : Promise.resolve(null),
       ticket.contractId ? storage.getContractById(ticket.contractId, user.activeCompanyId) : Promise.resolve(null),
       ticket.contractId ? storage.getContractServices(ticket.contractId, user.activeCompanyId) : Promise.resolve([]),
       storage.getTicketLinks(ticket.id),
+      // Only the creator's display identity, and only while in this company.
+      // Field owners must not load the restricted company user directory.
+      ticket.createdById
+        ? storage.getCompanyUser(ticket.createdById, user.activeCompanyId)
+            .then(member => member ? storage.getUserById(ticket.createdById!) : undefined)
+        : null,
     ]);
 
     // Group fields by statusId for O(1) lookup
@@ -8397,6 +8403,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       contractServices,
       assignedUser: assignedUser ? { id: assignedUser.id, email: assignedUser.email } : null,
       delegatedByUser: delegatedByUser ? { id: delegatedByUser.id, email: delegatedByUser.email } : null,
+      createdByUser: createdByUser ? { id: createdByUser.id, name: createdByUser.name } : null,
       linkedTickets,
     });
   });

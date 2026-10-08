@@ -1,4 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { isNeedsSchedulingStatus, useSchedulingStatusSet } from "@/lib/schedulingStatus";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,6 +90,7 @@ export default function TicketListView({
   showNewTicketButton = true,
   compact = false,
 }: TicketListViewProps) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   
@@ -137,15 +140,7 @@ export default function TicketListView({
     queryKey: ["/api/companies/users"],
   });
 
-  const { data: schedulingStatusData } = useQuery<{
-    schedulingStatusId: string | null;
-    statusName?: string;
-    ticketTypeId?: string;
-    ticketTypeName?: string;
-  }>({
-    queryKey: ["/api/scheduling-status"],
-  });
-  const schedulingStatusId = schedulingStatusData?.schedulingStatusId;
+  const schedulingStatusSet = useSchedulingStatusSet();
 
   const { data: equipmentTicketsList = [] } = useQuery<EquipmentTicketWithName[]>({
     queryKey: ["/api/equipment-tickets-list"],
@@ -217,7 +212,7 @@ export default function TicketListView({
     const matchesAssignedTo = assignedToFilter === "all" || ticket.assignedToId === assignedToFilter;
     
     const matchesNeedsScheduling = !showNeedsScheduling || 
-      (schedulingStatusId && ticket.currentStatusId === schedulingStatusId);
+      isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId);
     
     return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus && matchesAssignedTo && matchesNeedsScheduling;
   });
@@ -229,8 +224,8 @@ export default function TicketListView({
   const openTickets = filteredTickets.filter(t => !t.completedAt);
   const completedTickets = filteredTickets.filter(t => t.completedAt);
   
-  const needsSchedulingCount = schedulingStatusId 
-    ? enrichedTickets.filter(t => t.currentStatusId === schedulingStatusId && !t.completedAt).length
+  const needsSchedulingCount = schedulingStatusSet.size > 0
+    ? enrichedTickets.filter(t => isNeedsSchedulingStatus(schedulingStatusSet, t.currentStatusId) && !t.completedAt).length
     : 0;
 
   const batchDeleteMutation = useMutation({
@@ -448,7 +443,7 @@ export default function TicketListView({
             data-testid="button-needs-scheduling-filter"
           >
             <CalendarDays className="w-4 h-4" />
-            Needs Scheduling
+            {t("tickets.needsScheduling")}
             <Badge 
               variant="secondary" 
               className={`${showNeedsScheduling ? "bg-white text-pink-600" : "bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-200"}`}
@@ -617,7 +612,7 @@ export default function TicketListView({
                       ticket={ticket} 
                       formatDueDate={formatDueDate}
                       usersMap={usersMap}
-                      schedulingStatusId={schedulingStatusId}
+                      schedulingStatusSet={schedulingStatusSet}
                       selectionMode={selectionMode}
                       isSelected={selectedTicketIds.has(ticket.id)}
                       onToggleSelect={() => toggleTicketSelection(ticket.id)}
@@ -654,7 +649,7 @@ export default function TicketListView({
                           ticket={ticket} 
                           formatDueDate={formatDueDate}
                           usersMap={usersMap}
-                          schedulingStatusId={schedulingStatusId}
+                          schedulingStatusSet={schedulingStatusSet}
                           selectionMode={selectionMode}
                           isSelected={selectedTicketIds.has(ticket.id)}
                           onToggleSelect={() => toggleTicketSelection(ticket.id)}

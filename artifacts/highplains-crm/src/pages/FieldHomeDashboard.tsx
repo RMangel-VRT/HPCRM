@@ -12,6 +12,7 @@ import {
   ArrowRight,
   ListChecks,
 } from "lucide-react";
+import NeedsYouQueue from "@/components/dashboard/NeedsYouQueue";
 import MyExtraBillableBatchesWidget from "@/components/MyExtraBillableBatchesWidget";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -224,6 +225,8 @@ export default function FieldHomeDashboard() {
           </Link>
         )}
       </div>
+
+      {role === "field_manager" && <NeedsYouQueue scope="owner" />}
 
       {showBatchWidget && <MyExtraBillableBatchesWidget />}
 

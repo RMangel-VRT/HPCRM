@@ -55,6 +55,8 @@ import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import type { Customer, TicketType, CompanyUser, User, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { findSeededTicketType, isSeededTicketType } from "@shared/ticketVisuals";
+import { format } from "date-fns";
+import { parseCalendarDate, previewScheduleBy } from "@/lib/schedulingStatus";
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -1480,6 +1482,16 @@ export default function NewTicket() {
                 />
               </div>
             </div>
+
+            {(selectedWorkType === "contract" || selectedWorkType === "extra_work") && !isInvoice && (
+              <div>
+              <p className="text-sm text-muted-foreground" data-testid="text-schedule-by-preview">
+                {t('tickets.mustBeOnCalendar', { date: format(parseCalendarDate(previewScheduleBy(priority)), "EEE MMM d") })}
+                {priority === "urgent" ? ` ${t('tickets.nextBusinessDay')}` : ""}
+              </p>
+              <p className="text-xs text-muted-foreground">{t('tickets.scheduleByPreview')}</p>
+              </div>
+            )}
 
             {/* Work Completed Date - only for Invoice tickets */}
             {isInvoice && (

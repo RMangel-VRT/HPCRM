@@ -107,3 +107,31 @@ describe("office ticket-creation entry points", () => {
     );
   });
 });
+
+describe("scheduling web entry points", () => {
+  const source = (path: string) => readFileSync(new URL(`../../../highplains-crm/src/${path}`, import.meta.url), "utf8");
+  it("threads the complete set through both Kanban and list/card surfaces", () => {
+    for (const path of ["pages/TicketsList.tsx", "pages/MyTickets.tsx", "components/TicketListView.tsx"]) {
+      const content = source(path);
+      expect(content).toContain("useSchedulingStatusSet()");
+      expect(content).not.toMatch(/currentStatusId\s*===\s*schedulingStatusId\b/);
+      expect(content).toContain("schedulingStatusSet={schedulingStatusSet}");
+    }
+    expect(source("components/TicketCard.tsx")).toContain("isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId)");
+  });
+  it("keeps owner controls, official acceptance feedback and preview-only creation copy", () => {
+    const detail = source("pages/TicketDetail.tsx");
+    expect(detail).toContain('isSeededStatus(currentStatus, "new") && isTaskOrProject && (isAssignee || isAdminOrOffice)');
+    expect(detail).toContain('scheduledStatusId={statuses.find(s => isSeededStatus(s, "scheduled"))?.id}');
+    const panel = source("components/TicketSchedulingPanel.tsx");
+    expect(panel).toContain('accepted.currentStatusId === scheduledStatusId ? "tickets.schedAcceptedScheduled" : "tickets.schedAccepted"');
+    expect(panel).toContain("trimmedNote.length === 0 || sendBackMutation.isPending");
+    expect(source("pages/NewTicket.tsx")).toContain("t('tickets.scheduleByPreview')");
+  });
+  it("shows the scoped manager queue without changing the restricted Pulse path", () => {
+    expect(source("pages/FieldHomeDashboard.tsx")).toContain('<NeedsYouQueue scope="owner" />');
+    expect(source("pages/FieldHomeDashboard.tsx")).not.toContain("/api/dashboard/pulse");
+    expect(source("pages/Dashboard.tsx")).toContain("return <FieldHomeDashboard />;");
+    expect(source("components/dashboard/NeedsYouQueue.tsx")).toContain('{scope === "office" && (');
+  });
+});

@@ -16,6 +16,7 @@ import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Fi
 import { Link, useSearch } from "wouter";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, EquipmentTicket, Equipment, CompanyUser, User as UserType, CampaignWithProgress } from "@shared/schema";
 import { useTranslation } from "react-i18next";
+import { isNeedsSchedulingStatus, useSchedulingStatusSet } from "@/lib/schedulingStatus";
 import { useAuth } from "@/hooks/use-auth";
 import TicketCard from "@/components/TicketCard";
 import type { TicketWithDetails } from "@/components/TicketCard";
@@ -177,15 +178,7 @@ export default function MyTickets() {
     queryKey: ["/api/ticket-type-statuses"],
   });
 
-  const { data: schedulingStatusData } = useQuery<{
-    schedulingStatusId: string | null;
-    statusName?: string;
-    ticketTypeId?: string;
-    ticketTypeName?: string;
-  }>({
-    queryKey: ["/api/scheduling-status"],
-  });
-  const schedulingStatusId = schedulingStatusData?.schedulingStatusId;
+  const schedulingStatusSet = useSchedulingStatusSet();
 
   const { data: companyUsersData = [] } = useQuery<CompanyUserWithDetails[]>({
     queryKey: ["/api/companies/users"],
@@ -519,7 +512,7 @@ export default function MyTickets() {
                 ticketTypes={ticketTypes}
                 allStatuses={allStatuses}
                 usersMap={usersMap}
-                schedulingStatusId={schedulingStatusId}
+                schedulingStatusSet={schedulingStatusSet}
                 onNavigate={saveScrollPosition}
               />
             ) : (
@@ -541,7 +534,7 @@ export default function MyTickets() {
                             key={ticket.id}
                             ticket={ticket}
                             formatDueDate={formatDueDate}
-                            schedulingStatusId={schedulingStatusId}
+                            schedulingStatusSet={schedulingStatusSet}
                             onNavigate={saveScrollPosition}
                             usersMap={usersMap}
                             workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
@@ -573,7 +566,7 @@ export default function MyTickets() {
                                 key={ticket.id}
                                 ticket={ticket}
                                 formatDueDate={formatDueDate}
-                                schedulingStatusId={schedulingStatusId}
+                                schedulingStatusSet={schedulingStatusSet}
                                 onNavigate={saveScrollPosition}
                                 usersMap={usersMap}
                                 workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
@@ -690,7 +683,7 @@ export default function MyTickets() {
               ticketTypes={ticketTypes}
               allStatuses={allStatuses}
               usersMap={usersMap}
-              schedulingStatusId={schedulingStatusId}
+              schedulingStatusSet={schedulingStatusSet}
               onNavigate={saveScrollPosition}
             />
           ) : hasAnyCustomerTickets ? (
@@ -712,7 +705,7 @@ export default function MyTickets() {
                           key={ticket.id}
                           ticket={ticket}
                           formatDueDate={formatDueDate}
-                          schedulingStatusId={schedulingStatusId}
+                          schedulingStatusSet={schedulingStatusSet}
                           onNavigate={saveScrollPosition}
                           usersMap={usersMap}
                           workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
@@ -746,7 +739,7 @@ export default function MyTickets() {
                               key={ticket.id}
                               ticket={ticket}
                               formatDueDate={formatDueDate}
-                              schedulingStatusId={schedulingStatusId}
+                              schedulingStatusSet={schedulingStatusSet}
                               onNavigate={saveScrollPosition}
                               usersMap={usersMap}
                               workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
@@ -951,13 +944,13 @@ interface MyKanbanCardProps {
   ticket: TicketWithDetails;
   usersMap: Map<string, UserType>;
   allStatuses: TicketTypeStatus[];
-  schedulingStatusId?: string | null;
+  schedulingStatusSet?: ReadonlySet<string>;
   onNavigate?: () => void;
 }
 
-function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavigate }: MyKanbanCardProps) {
+function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusSet, onNavigate }: MyKanbanCardProps) {
   const hue = ticketHue(ticket.ticketType);
-  const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
+  const needsScheduling = isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId);
   const currentStatus = allStatuses.find(s => s.id === ticket.currentStatusId);
 
   return (
@@ -1020,12 +1013,12 @@ interface MyKanbanColumnProps {
   tickets: TicketWithDetails[];
   usersMap: Map<string, UserType>;
   allStatuses: TicketTypeStatus[];
-  schedulingStatusId?: string | null;
+  schedulingStatusSet?: ReadonlySet<string>;
   onNavigate?: () => void;
   testId?: string;
 }
 
-function MyKanbanColumn({ title, color, tickets, usersMap, allStatuses, schedulingStatusId, onNavigate, testId }: MyKanbanColumnProps) {
+function MyKanbanColumn({ title, color, tickets, usersMap, allStatuses, schedulingStatusSet, onNavigate, testId }: MyKanbanColumnProps) {
   return (
     <div
       className="flex flex-col shrink-0 w-72 bg-muted/30 rounded-md border"
@@ -1051,7 +1044,7 @@ function MyKanbanColumn({ title, color, tickets, usersMap, allStatuses, scheduli
               ticket={ticket}
               usersMap={usersMap}
               allStatuses={allStatuses}
-              schedulingStatusId={schedulingStatusId}
+              schedulingStatusSet={schedulingStatusSet}
               onNavigate={onNavigate}
             />
           ))
@@ -1066,11 +1059,11 @@ interface MyKanbanByTypeProps {
   ticketTypes: TicketType[];
   allStatuses: TicketTypeStatus[];
   usersMap: Map<string, UserType>;
-  schedulingStatusId?: string | null;
+  schedulingStatusSet?: ReadonlySet<string>;
   onNavigate?: () => void;
 }
 
-function MyKanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, schedulingStatusId, onNavigate }: MyKanbanByTypeProps) {
+function MyKanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, schedulingStatusSet, onNavigate }: MyKanbanByTypeProps) {
   const columns = ticketTypes.map(tt => ({
     id: tt.id,
     title: tt.name,
@@ -1096,7 +1089,7 @@ function MyKanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, sched
           tickets={col.tickets}
           usersMap={usersMap}
           allStatuses={allStatuses}
-          schedulingStatusId={schedulingStatusId}
+          schedulingStatusSet={schedulingStatusSet}
           onNavigate={onNavigate}
           testId={`kanban-col-my-type-${col.id}`}
         />

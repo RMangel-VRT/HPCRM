@@ -87,6 +87,8 @@ import "leaflet/dist/leaflet.css";
 import LayerMapViewer from "@/components/LayerMapViewer";
 import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType, isSeededStatus, taskWorkflowStatuses } from "@shared/ticketVisuals";
 import { ticketHue, TaskBillingBadge } from "@/components/TicketIdentity";
+import { TicketSchedulingPanel, ScheduleByFact } from "@/components/TicketSchedulingPanel";
+import { invalidateTicketScheduling } from "@/lib/schedulingStatus";
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -146,6 +148,7 @@ interface TicketDetails {
   contractServices: ContractService[];
   assignedUser: { id: string; email: string } | null;
   delegatedByUser: { id: string; email: string } | null;
+  createdByUser?: { id: string; name: string | null } | null;
   linkedTickets: LinkedTicketInfo[];
 }
 
@@ -370,9 +373,7 @@ export default function TicketDetail() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
+      invalidateTicketScheduling(queryClient, ticketId, details?.ticket.customerId);
       toast({ title: t('ticketDetail.reassigned') });
     },
     onError: (error: Error) => {
@@ -389,9 +390,7 @@ export default function TicketDetail() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
+      invalidateTicketScheduling(queryClient, ticketId, details?.ticket.customerId);
       setShowDelegateDialog(false);
       setDelegateTargetId(null);
       toast({ title: t('ticketDetail.delegated') });
@@ -453,9 +452,8 @@ export default function TicketDetail() {
       return apiRequest("PATCH", `/api/tickets/${ticketId}`, updates);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
+      // Crew + date edits can move the ticket to Scheduled (or back) on the server.
+      invalidateTicketScheduling(queryClient, ticketId, details?.ticket.customerId);
       setShowEditDialog(false);
       toast({ title: t('ticketDetail.updated') });
     },
@@ -525,14 +523,8 @@ export default function TicketDetail() {
       return res;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/pending-invoices"] });
+      invalidateTicketScheduling(queryClient, ticketId, details?.ticket.customerId);
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "proposals"] });
-      if (details?.ticket.customerId) {
-        queryClient.invalidateQueries({ queryKey: ["/api/customers", details.ticket.customerId, "tickets"] });
-      }
       setShowStatusDialog(false);
       setPendingStatusId(null);
       setFieldInputs({});
@@ -811,6 +803,18 @@ export default function TicketDetail() {
   const isAtReadyToSchedule = isSeededStatus(currentStatus, "ready_to_schedule")
     && (isSeededTicketType(ticketType, "estimate_request") || isSeededTicketType(ticketType, "project"));
   const isDelegated = !!ticket.delegatedById;
+  const isTaskOrProject = isTask || isSeededTicketType(ticketType, "project");
+  const isEstimateRequest = isSeededTicketType(ticketType, "estimate_request");
+  const isAssignee = !!currentUser?.id && ticket.assignedToId === currentUser.id;
+  const canRespondNew = isSeededStatus(currentStatus, "new") && isTaskOrProject && (isAssignee || isAdminOrOffice);
+  const canSetFollowUp = (isSeededStatus(currentStatus, "ready_to_schedule") || isSeededStatus(currentStatus, "scheduled"))
+    && (isAssignee || isAdminOrOffice);
+  const scheduleByEligible = isSeededStatus(currentStatus, "new") || isSeededStatus(currentStatus, "ready_to_schedule");
+  const showScheduleBy = isTaskOrProject || (isEstimateRequest && !!ticket.scheduleBy);
+  // Missing/unknown creator is safe: the panel falls back to generic wording.
+  const creatorName = ticket.createdById
+    ? (details.createdByUser?.name ?? teamMembers.find((m) => m.id === ticket.createdById)?.name ?? null)
+    : null;
   
   // Check if ticket is waiting for a linked invoice to complete (hide advance button)
   const isAwaitingInvoiceCompletion = (() => {
@@ -1157,12 +1161,27 @@ export default function TicketDetail() {
             !isTask && ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType]
               ? { label: t('tickets.workType'), value: WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel }
               : null,
+            showScheduleBy
+              ? {
+                  label: t('tickets.scheduleBy'),
+                  value: "",
+                  node: (
+                    <ScheduleByFact
+                      ticketId={ticket.id}
+                      customerId={ticket.customerId}
+                      scheduleBy={(ticket.scheduleBy as string | null) ?? null}
+                      overdueEligible={scheduleByEligible}
+                      canEdit={!!isAdminOrOffice}
+                    />
+                  ),
+                }
+              : null,
             { label: t('ticketDetail.dueDate'), value: ticket.dueDate ? format(new Date(ticket.dueDate), "MMM d, yyyy") : t('common.none') },
             ticket.workCompletedDate
               ? { label: t('ticketDetail.workCompletedDate'), value: format(new Date(ticket.workCompletedDate), "MMM d, yyyy") }
               : null,
           ]
-            .filter((cell): cell is { label: string; value: string; dot?: string } => cell !== null)
+            .filter((cell): cell is NonNullable<typeof cell> => cell !== null)
             .map((cell, index) => (
               <div
                 key={cell.label}
@@ -1171,10 +1190,10 @@ export default function TicketDetail() {
                 <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-muted-foreground">
                   {cell.label}
                 </p>
-                <p className="flex items-center gap-1.5 truncate text-[12.5px] font-medium">
+                <div className="flex items-center gap-1.5 truncate text-[12.5px] font-medium">
                   {cell.dot && <span className={`h-2 w-2 shrink-0 rounded-full ${cell.dot}`} />}
-                  {cell.value}
-                </p>
+                  {cell.node ?? cell.value}
+                </div>
               </div>
             ))}
           {isTask && (
@@ -1205,6 +1224,19 @@ export default function TicketDetail() {
           )}
         </div>
       </div>
+
+      <TicketSchedulingPanel
+        ticketId={ticket.id}
+        customerId={ticket.customerId}
+        canRespond={!!canRespondNew}
+        canWait={!!canSetFollowUp}
+        followUpDate={(ticket.followUpDate as string | null) ?? null}
+        followUpNote={(ticket.followUpNote as string | null) ?? null}
+        creatorName={creatorName}
+        scheduledStatusId={statuses.find(s => isSeededStatus(s, "scheduled"))?.id}
+        onSentBack={!isAdminOrOffice && ticket.createdById !== currentUser?.id
+          ? () => setLocation("/dashboard/my-tickets") : undefined}
+      />
 
       {(() => {
         const child = linkedTickets.find(
@@ -3438,6 +3470,9 @@ export default function TicketDetail() {
                 />
               </div>
             </div>
+            <p className="text-xs text-muted-foreground" data-testid="text-edit-schedule-hint">
+              {t('tickets.crewDateHint')}
+            </p>
 
             {ticketType?.name === "Invoice" && (
               <div className="space-y-2">

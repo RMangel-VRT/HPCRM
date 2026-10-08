@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { isNeedsSchedulingStatus, useSchedulingStatusSet } from "@/lib/schedulingStatus";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,6 +87,7 @@ const EQUIPMENT_CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function TicketsList() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   const searchString = useSearch();
@@ -239,15 +242,8 @@ export default function TicketsList() {
     queryKey: ["/api/companies/users"],
   });
 
-  // Fetch the canonical scheduling status IDs across all project ticket types
-  const { data: schedulingStatusData } = useQuery<{
-    schedulingStatusId: string | null;
-    schedulingStatusIds?: string[];
-  }>({
-    queryKey: ["/api/scheduling-status"],
-  });
-  const schedulingStatusId = schedulingStatusData?.schedulingStatusId;
-  const schedulingStatusSet = new Set<string>(schedulingStatusData?.schedulingStatusIds ?? (schedulingStatusId ? [schedulingStatusId] : []));
+  // Every Needs scheduling status id across Task, Estimate Request and Project
+  const schedulingStatusSet = useSchedulingStatusSet();
 
   type EquipmentTicketWithName = EquipmentTicket & { equipmentName: string; _type: "equipment" };
   const { data: equipmentTicketsList = [] } = useQuery<EquipmentTicketWithName[]>({
@@ -384,7 +380,7 @@ export default function TicketsList() {
     
     // Quick filter for scheduling queue — matches any project type's "Ready to Schedule" status
     const matchesNeedsScheduling = !showNeedsScheduling || 
-      schedulingStatusSet.has(ticket.currentStatusId ?? "");
+      isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId);
     
     return matchesSearch && matchesPriority && matchesType && matchesWorkType && matchesStatus && matchesAssignedTo && matchesActionType && matchesNeedsScheduling;
   });
@@ -424,7 +420,7 @@ export default function TicketsList() {
   
   // Count of tickets needing scheduling across all project ticket types
   const needsSchedulingCount = schedulingStatusSet.size > 0
-    ? enrichedTickets.filter(t => schedulingStatusSet.has(t.currentStatusId ?? "") && !t.completedAt).length
+    ? enrichedTickets.filter(t => isNeedsSchedulingStatus(schedulingStatusSet, t.currentStatusId) && !t.completedAt).length
     : 0;
   
   // Clamp page when data changes (e.g., after refetch)
@@ -677,7 +673,7 @@ export default function TicketsList() {
             data-testid="button-needs-scheduling-filter"
           >
             <CalendarDays className="w-4 h-4" />
-            Needs Scheduling
+            {t("tickets.needsScheduling")}
             <Badge 
               variant="secondary" 
               className={`${showNeedsScheduling ? "bg-white text-pink-600" : "bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-200"}`}
@@ -797,7 +793,7 @@ export default function TicketsList() {
           ticketTypes={ticketTypes}
           allStatuses={allStatuses}
           usersMap={usersMap}
-          schedulingStatusId={schedulingStatusId}
+          schedulingStatusSet={schedulingStatusSet}
           onNavigate={onOpenTicket}
           ticketHref={ticketDetailHref}
           selectionMode={selectionMode}
@@ -811,7 +807,7 @@ export default function TicketsList() {
           openTickets={openTickets}
           usersMap={usersMap}
           allStatuses={allStatuses}
-          schedulingStatusId={schedulingStatusId}
+          schedulingStatusSet={schedulingStatusSet}
           onNavigate={onOpenTicket}
           ticketHref={ticketDetailHref}
           selectionMode={selectionMode}
@@ -883,7 +879,7 @@ export default function TicketsList() {
                       ticket={ticket} 
                       formatDueDate={formatDueDate}
                       usersMap={usersMap}
-                      schedulingStatusId={schedulingStatusId}
+                      schedulingStatusSet={schedulingStatusSet}
                       selectionMode={selectionMode}
                       isSelected={selectedTicketIds.has(ticket.id)}
                       onToggleSelect={() => toggleTicketSelection(ticket.id)}
@@ -921,7 +917,7 @@ export default function TicketsList() {
                           ticket={ticket} 
                           formatDueDate={formatDueDate}
                           usersMap={usersMap}
-                          schedulingStatusId={schedulingStatusId}
+                          schedulingStatusSet={schedulingStatusSet}
                           selectionMode={selectionMode}
                           isSelected={selectedTicketIds.has(ticket.id)}
                           onToggleSelect={() => toggleTicketSelection(ticket.id)}
@@ -1090,7 +1086,7 @@ interface KanbanCardProps {
   ticket: TicketWithDetails;
   usersMap: Map<string, UserType>;
   allStatuses: TicketTypeStatus[];
-  schedulingStatusId?: string | null;
+  schedulingStatusSet?: ReadonlySet<string>;
   onNavigate?: (id: string) => void;
   ticketHref: (id: string) => string;
   selectionMode: boolean;
@@ -1098,9 +1094,9 @@ interface KanbanCardProps {
   onToggleSelect: (id: string) => void;
 }
 
-function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusId, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect }: KanbanCardProps) {
+function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusSet, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect }: KanbanCardProps) {
   const hue = ticketHue(ticket.ticketType);
-  const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
+  const needsScheduling = isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId);
   const currentStatus = allStatuses.find(s => s.id === ticket.currentStatusId);
 
   const content = (
@@ -1192,7 +1188,7 @@ interface KanbanColumnProps {
   tickets: TicketWithDetails[];
   usersMap: Map<string, UserType>;
   allStatuses: TicketTypeStatus[];
-  schedulingStatusId?: string | null;
+  schedulingStatusSet?: ReadonlySet<string>;
   onNavigate?: (id: string) => void;
   ticketHref: (id: string) => string;
   selectionMode: boolean;
@@ -1201,7 +1197,7 @@ interface KanbanColumnProps {
   testId?: string;
 }
 
-function KanbanColumn({ title, color, tickets, usersMap, allStatuses, schedulingStatusId, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect, testId }: KanbanColumnProps) {
+function KanbanColumn({ title, color, tickets, usersMap, allStatuses, schedulingStatusSet, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect, testId }: KanbanColumnProps) {
   return (
     <div
       className="flex flex-col shrink-0 w-72 bg-muted/30 rounded-md border"
@@ -1229,7 +1225,7 @@ function KanbanColumn({ title, color, tickets, usersMap, allStatuses, scheduling
               ticket={ticket}
               usersMap={usersMap}
               allStatuses={allStatuses}
-              schedulingStatusId={schedulingStatusId}
+              schedulingStatusSet={schedulingStatusSet}
               onNavigate={onNavigate}
               ticketHref={ticketHref}
               selectionMode={selectionMode}
@@ -1248,7 +1244,7 @@ interface KanbanByTypeProps {
   ticketTypes: TicketType[];
   allStatuses: TicketTypeStatus[];
   usersMap: Map<string, UserType>;
-  schedulingStatusId?: string | null;
+  schedulingStatusSet?: ReadonlySet<string>;
   onNavigate?: (id: string) => void;
   ticketHref: (id: string) => string;
   selectionMode: boolean;
@@ -1256,7 +1252,7 @@ interface KanbanByTypeProps {
   onToggleSelect: (id: string) => void;
 }
 
-function KanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, schedulingStatusId, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect }: KanbanByTypeProps) {
+function KanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, schedulingStatusSet, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect }: KanbanByTypeProps) {
   const columns = ticketTypes.map(tt => ({
     id: tt.id,
     title: tt.name,
@@ -1282,7 +1278,7 @@ function KanbanByType({ openTickets, ticketTypes, allStatuses, usersMap, schedul
           tickets={col.tickets}
           usersMap={usersMap}
           allStatuses={allStatuses}
-          schedulingStatusId={schedulingStatusId}
+          schedulingStatusSet={schedulingStatusSet}
           onNavigate={onNavigate}
           ticketHref={ticketHref}
           selectionMode={selectionMode}
@@ -1299,7 +1295,7 @@ interface KanbanByUserProps {
   openTickets: TicketWithDetails[];
   usersMap: Map<string, UserType>;
   allStatuses: TicketTypeStatus[];
-  schedulingStatusId?: string | null;
+  schedulingStatusSet?: ReadonlySet<string>;
   onNavigate?: (id: string) => void;
   ticketHref: (id: string) => string;
   selectionMode: boolean;
@@ -1307,7 +1303,7 @@ interface KanbanByUserProps {
   onToggleSelect: (id: string) => void;
 }
 
-function KanbanByUser({ openTickets, usersMap, allStatuses, schedulingStatusId, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect }: KanbanByUserProps) {
+function KanbanByUser({ openTickets, usersMap, allStatuses, schedulingStatusSet, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect }: KanbanByUserProps) {
   const unassignedTickets = openTickets.filter(t => !t.assignedToId);
   
   const assignedUserIds = useMemo(() => {
@@ -1341,7 +1337,7 @@ function KanbanByUser({ openTickets, usersMap, allStatuses, schedulingStatusId, 
         tickets={unassignedTickets}
         usersMap={usersMap}
         allStatuses={allStatuses}
-        schedulingStatusId={schedulingStatusId}
+        schedulingStatusSet={schedulingStatusSet}
         onNavigate={onNavigate}
         ticketHref={ticketHref}
         selectionMode={selectionMode}
@@ -1356,7 +1352,7 @@ function KanbanByUser({ openTickets, usersMap, allStatuses, schedulingStatusId, 
           tickets={col.tickets}
           usersMap={usersMap}
           allStatuses={allStatuses}
-          schedulingStatusId={schedulingStatusId}
+          schedulingStatusSet={schedulingStatusSet}
           onNavigate={onNavigate}
           ticketHref={ticketHref}
           selectionMode={selectionMode}
@@ -1375,7 +1371,7 @@ interface TicketCardProps {
   ticket: TicketWithDetails;
   formatDueDate: (date: Date | null | undefined) => { text: string; className: string } | null;
   usersMap: Map<string, UserType>;
-  schedulingStatusId?: string | null;
+  schedulingStatusSet?: ReadonlySet<string>;
   selectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
@@ -1384,7 +1380,8 @@ interface TicketCardProps {
   workflowStatuses?: TicketTypeStatus[];
 }
 
-function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selectionMode, isSelected, onToggleSelect, onNavigate, href, workflowStatuses = [] }: TicketCardProps) {
+function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusSet, selectionMode, isSelected, onToggleSelect, onNavigate, href, workflowStatuses = [] }: TicketCardProps) {
+  const { t } = useTranslation();
   workflowStatuses = taskWorkflowStatuses(workflowStatuses, ticket.ticketType, ticket.billingBehavior);
   const dueInfo = formatDueDate(ticket.dueDate);
 
@@ -1399,8 +1396,8 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
 
   const hue = ticketHue(ticket.ticketType);
 
-  // Check if this ticket needs scheduling (ID-based: currentStatusId === schedulingStatusId)
-  const needsScheduling = schedulingStatusId && ticket.currentStatusId === schedulingStatusId;
+  // Check if this ticket needs scheduling (set membership)
+  const needsScheduling = isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId);
 
   const cardInner = (
     <Card 
@@ -1474,7 +1471,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusId, selec
                   className="text-xs font-semibold bg-pink-500 text-white border-pink-600 dark:bg-pink-600 dark:border-pink-500"
                   data-testid={`badge-needs-scheduling-${ticket.id}`}
                 >
-                  Needs Scheduling
+                  {t("tickets.needsScheduling")}
                 </Badge>
               )}
               {ticket.currentStatus && !ticket.completedAt && (

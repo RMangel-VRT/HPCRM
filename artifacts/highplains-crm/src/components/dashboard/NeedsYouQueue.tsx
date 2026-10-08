@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertCircle, ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, CalendarX2, ChevronRight, Inbox, Loader2, PhoneCall, RefreshCw, type LucideIcon } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
@@ -110,6 +110,12 @@ const FALLBACK_TYPE_BY_SOURCE: Partial<Record<QueueSource, QueueType>> = {
   contract_renewal: { name: "Contract", typeKey: null },
 };
 
+const SCHEDULING_SOURCE_META: Partial<Record<QueueSource, { label: string; Icon: LucideIcon }>> = {
+  new_for_you: { label: "New for you", Icon: Inbox },
+  past_schedule_by: { label: "Past schedule-by", Icon: CalendarX2 },
+  followup_due: { label: "Follow-up due", Icon: PhoneCall },
+};
+
 const FALLBACK_STATUS: QueueStatus = {
   name: "Needs action",
   statusKey: null,
@@ -118,8 +124,8 @@ const FALLBACK_STATUS: QueueStatus = {
 };
 
 function filterForSource(source: QueueSource): Exclude<QueueFilter, "all"> | null {
-  // Scheduling signals belong in All until P2-5 adds their visible treatment;
-  // they are not Flags, Estimates, or financial/communications work.
+  // Scheduling signals appear under All with their own source label; they are
+  // not Flags, Estimates, or financial/communications work.
   if (source === "new_for_you" || source === "past_schedule_by" || source === "followup_due") return null;
   if (source === "pending_invoice" || source === "ready_for_billing") return "billing";
   if (source === "comm_draft" || source === "comm_followup") return "communications";
@@ -229,6 +235,7 @@ function QueueRow({
   const status = item.ticketStatus ?? FALLBACK_STATUS;
   const hue = ticketHue(inheritedType);
   const isNested = item.parentTicketId !== null;
+  const sourceMeta = SCHEDULING_SOURCE_META[item.source];
 
   return (
     <div className={isNested ? "relative ml-7 before:absolute before:-left-4 before:top-0 before:h-1/2 before:w-4 before:border-b before:border-l before:border-border" : undefined}>
@@ -237,12 +244,15 @@ function QueueRow({
         data-testid={`needs-you-row-${item.id}`}
       >
         <span className="h-full min-h-[42px] w-[3px]" style={{ backgroundColor: hue }} aria-hidden="true" />
-        <TicketTypeBadge
-          type={type}
-          billingBehavior={taskDetails?.ticket.billingBehavior}
-          hueType={parent?.ticketType}
-          testId={`needs-you-type-${item.id}`}
-        />
+        {/* Task identity includes two badges; keep them in one grid cell. */}
+        <div className="flex flex-col items-start gap-1">
+          <TicketTypeBadge
+            type={type}
+            billingBehavior={taskDetails?.ticket.billingBehavior}
+            hueType={parent?.ticketType}
+            testId={`needs-you-type-${item.id}`}
+          />
+        </div>
         <div className="min-w-0">
           {item.customerName && (
             <p className="truncate text-sm font-semibold" data-testid={`needs-you-customer-${item.id}`}>
@@ -253,7 +263,16 @@ function QueueRow({
             {item.headline}
           </p>
         </div>
-        <div className="flex items-center gap-2 max-sm:col-start-3 max-sm:row-start-2 max-sm:justify-self-start">
+        <div className="flex flex-wrap items-center gap-2 max-sm:col-start-3 max-sm:row-start-2 max-sm:justify-self-start">
+          {sourceMeta && (
+            <span
+              className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-muted-foreground"
+              data-testid={`needs-you-source-${item.id}`}
+            >
+              <sourceMeta.Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              {sourceMeta.label}
+            </span>
+          )}
           <TicketStatusPill status={status} testId={`needs-you-status-${item.id}`} />
           <span className="font-mono text-xs text-muted-foreground" data-testid={`needs-you-age-${item.id}`}>
             {ageLabel(item.ageDays)}
@@ -264,7 +283,7 @@ function QueueRow({
             type="button"
             size="sm"
             variant={item.band === "overdue" ? "default" : "outline"}
-            className="h-8 shrink-0 px-2.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-sm:col-start-3 max-sm:row-start-1"
+            className="h-8 shrink-0 px-2.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-sm:col-start-3 max-sm:row-start-3 max-sm:justify-self-start"
             onClick={() => onAction(item)}
             disabled={isActionActive}
             aria-busy={isActionActive}
@@ -278,7 +297,7 @@ function QueueRow({
             asChild
             size="sm"
             variant={item.band === "overdue" ? "default" : "outline"}
-            className="h-8 shrink-0 px-2.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-sm:col-start-3 max-sm:row-start-1"
+            className="h-8 shrink-0 px-2.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 max-sm:col-start-3 max-sm:row-start-3 max-sm:justify-self-start"
             data-testid={`needs-you-action-${item.id}`}
           >
             <Link href={item.href}>{item.verb}</Link>
@@ -346,7 +365,11 @@ function QueueBandSection({
   );
 }
 
-export default function NeedsYouQueue() {
+/**
+ * scope "owner" is for field managers: the server already limits their rows to
+ * their own scheduling signals, so the office-only filter chips are hidden.
+ */
+export default function NeedsYouQueue({ scope = "office" }: { scope?: "office" | "owner" } = {}) {
   const [activeFilter, setActiveFilter] = useState<QueueFilter>("all");
   const [weekExpanded, setWeekExpanded] = useState(false);
   const [confirmationItem, setConfirmationItem] = useState<ActionQueueItem | null>(null);
@@ -511,7 +534,7 @@ export default function NeedsYouQueue() {
         <QueueHeading total={null} />
         <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground" role="status">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading office decisions…
+          {scope === "owner" ? "Loading your scheduling queue…" : "Loading office decisions…"}
         </div>
       </section>
     );
@@ -543,6 +566,7 @@ export default function NeedsYouQueue() {
   return (
     <section className="space-y-3" aria-labelledby="needs-you-heading" data-testid="needs-you-queue">
       <QueueHeading total={data?.total ?? 0} />
+      {scope === "office" && (
       <div className="flex flex-wrap gap-1.5" role="toolbar" aria-label="Filter office decisions">
         {FILTERS.map((filter) => (
           <button
@@ -561,9 +585,10 @@ export default function NeedsYouQueue() {
           </button>
         ))}
       </div>
+      )}
       {data?.total === 0 ? (
         <p className="py-7 text-sm text-muted-foreground" data-testid="needs-you-empty">
-          Nothing waiting on the office.
+          {scope === "owner" ? "Nothing waiting on you." : "Nothing waiting on the office."}
         </p>
       ) : filteredItems.length === 0 ? (
         <p className="py-7 text-sm text-muted-foreground" data-testid="needs-you-filter-empty">

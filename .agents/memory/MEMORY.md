@@ -5,3 +5,4 @@
 - [Task name conflicts](task-name-conflict-policy.md) — Task backfill must not claim custom exact-name Task rows after the conversion deliberately skips them.
 - [Task billing terminology](task-billing-terminology.md) — client Billable labels deliberately differ from the server's legacy billing label; campaign categories keep their own terminology.
 - [Workspace declaration baselines](workspace-declaration-baselines.md) — refresh emitted library types before attributing missing schema fields to leaf-package changes.
+- [Cross-artifact query types](cross-artifact-query-types.md) — separate TanStack Query installs can make QueryClient types incompatible even when their public APIs match.
