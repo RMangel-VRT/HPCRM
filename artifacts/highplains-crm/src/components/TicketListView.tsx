@@ -13,7 +13,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -120,7 +119,7 @@ export default function TicketListView({
   const canCreateTickets = isAdmin || user?.activeRole === "office";
   const canSeeEquipmentTickets = user?.activeRole && ["admin", "shop_manager", "office", "field_manager", "chemical_manager", "irrigation_manager"].includes(user.activeRole);
 
-  const { data: tickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
+  const { data: tickets = [], isLoading: ticketsLoading } = useQuery<TicketWithDetails[]>({
     queryKey: customerId ? ["/api/customers", customerId, "tickets"] : ["/api/tickets"],
   });
 
@@ -347,7 +346,7 @@ export default function TicketListView({
                     data-testid="button-enter-select-mode" 
                     className="gap-2"
                   >
-                    <Checkbox className="w-4 h-4" />
+                    <span aria-hidden="true" className="w-4 h-4 rounded-sm border border-primary shadow" />
                      <span>Select tickets</span>
                   </Button>
                 ) : (

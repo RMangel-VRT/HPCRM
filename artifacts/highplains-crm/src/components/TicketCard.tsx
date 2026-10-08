@@ -16,6 +16,8 @@ import type { WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { isSeededTicketType, taskWorkflowStatuses } from "@shared/ticketVisuals";
+import type { TicketLinkSummary } from "@shared/ticketLinks";
+import { InvoiceLinkChip, InvoiceParentLine } from "./TicketLinkDisplay";
 
 const WAITING_CATEGORY_LABELS: Record<string, string> = {
   customer: "Customer",
@@ -28,6 +30,7 @@ const WAITING_CATEGORY_LABELS: Record<string, string> = {
 // explicitly so they are actually checked. Do not replace with a schema import
 // or intersect with one — `any & T` is `any`.
 export interface TicketWithDetails extends Ticket {
+  linkSummary?: TicketLinkSummary;
   ticketType?: { id: string; name: string; color: string | null; typeKey?: string | null };
   currentStatus?: {
     id: string; name: string; color: string | null;
@@ -137,6 +140,7 @@ export default function TicketCard({
             <h3 className="mt-0.5 font-semibold text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
               {ticket.title}
             </h3>
+            <InvoiceParentLine summary={ticket.linkSummary} typeKey={ticket.ticketType?.typeKey} />
 
             <div className="flex items-center gap-2 flex-wrap mt-2">
               <TicketTypeBadge
@@ -277,6 +281,7 @@ export default function TicketCard({
                 {workflowStatuses.length === 0 && ticket.currentStatus && (
                   <TicketStatusPill status={ticket.currentStatus} />
                 )}
+                <InvoiceLinkChip summary={ticket.linkSummary} />
                 {dueInfo && dueInfo.text !== "Overdue" && (
                   <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
                     <CalendarDays className="w-3 h-3" />

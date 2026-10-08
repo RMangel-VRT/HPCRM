@@ -1,3 +1,4 @@
+import { withInvoiceLinkSummaries } from "../lib/ticketLinkSummary";
 import express from "express";
 import type { Express } from "express";
 import { createServer, type Server } from "http";
@@ -6180,7 +6181,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
     });
 
-    res.json(enrichedTickets);
+    res.json(await withInvoiceLinkSummaries(user.activeCompanyId, enrichedTickets));
   });
 
   app.get("/api/tickets", async (req, res) => {
@@ -6204,7 +6205,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const tickets = await storage.getTickets(user.activeCompanyId, filters);
-    res.json(tickets);
+    res.json(await withInvoiceLinkSummaries(user.activeCompanyId, tickets));
   });
 
   app.get("/api/tickets/:id", async (req, res) => {
@@ -6233,7 +6234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     const tickets = await storage.getTicketsByCustomerId(req.params.customerId, user.activeCompanyId);
-    res.json(tickets);
+    res.json(await withInvoiceLinkSummaries(user.activeCompanyId, tickets));
   });
 
   app.get("/api/contracts/:contractId/tickets", async (req, res) => {

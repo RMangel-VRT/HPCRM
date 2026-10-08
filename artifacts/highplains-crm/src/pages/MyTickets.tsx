@@ -21,6 +21,7 @@ import { useAuth } from "@/hooks/use-auth";
 import TicketCard from "@/components/TicketCard";
 import type { TicketWithDetails } from "@/components/TicketCard";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
+import { InvoiceLinkChip, InvoiceParentLine } from "@/components/TicketLinkDisplay";
 
 const MY_TICKETS_SCROLL_STORAGE_KEY = "myTicketsScrollPosition";
 
@@ -154,7 +155,7 @@ export default function MyTickets() {
     sessionStorage.setItem(MY_TICKETS_SCROLL_STORAGE_KEY, scrollTop.toString());
   }, []);
 
-  const { data: tickets = [], isLoading: ticketsLoading, refetch, isFetching } = useQuery<Ticket[]>({
+  const { data: tickets = [], isLoading: ticketsLoading, refetch, isFetching } = useQuery<TicketWithDetails[]>({
     queryKey: ["/api/tickets/my", { userId: user?.id }],
     queryFn: async () => {
       const res = await fetch("/api/tickets/my", { credentials: "include" });
@@ -979,6 +980,7 @@ function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusSet, onNa
               <p className="mt-0.5 text-sm font-semibold leading-snug line-clamp-2" data-testid={`kanban-my-title-${ticket.id}`}>
                 {ticket.title}
               </p>
+              <InvoiceParentLine summary={ticket.linkSummary} typeKey={ticket.ticketType?.typeKey} />
               <div className="flex items-center gap-2 flex-wrap mt-2 mb-1.5">
                 <TicketTypeBadge
                   type={ticket.ticketType}
@@ -987,11 +989,12 @@ function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusSet, onNa
                 />
               </div>
               <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 max-w-[120px] truncate">
+                <span className={ticket.linkSummary?.invoices.length ? "min-w-0 flex flex-wrap items-center gap-1" : "min-w-0 max-w-[120px] truncate"}>
                   <TicketStatusPill
                     status={currentStatus}
                     testId={`kanban-my-status-${ticket.id}`}
                   />
+                  <InvoiceLinkChip summary={ticket.linkSummary} />
                 </span>
                 {ticket.assignedToId && (
                   <span className="text-xs text-muted-foreground truncate max-w-[80px]" data-testid={`kanban-my-assignee-${ticket.id}`}>

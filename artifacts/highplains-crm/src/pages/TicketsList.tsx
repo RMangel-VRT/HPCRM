@@ -44,6 +44,8 @@ import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { taskWorkflowStatuses } from "@shared/ticketVisuals";
+import type { TicketLinkSummary } from "@shared/ticketLinks";
+import { InvoiceLinkChip, InvoiceParentLine } from "@/components/TicketLinkDisplay";
 
 interface CompanyUserWithDetails {
   companyUser: CompanyUser;
@@ -52,6 +54,7 @@ interface CompanyUserWithDetails {
 }
 
 interface TicketWithDetails extends Ticket {
+  linkSummary?: TicketLinkSummary;
   ticketType?: TicketType;
   currentStatus?: TicketTypeStatus;
   customer?: Customer;
@@ -225,7 +228,7 @@ export default function TicketsList() {
   const canCreateTickets = isAdmin || user?.activeRole === "office";
   const canSeeEquipmentTickets = user?.activeRole != null && ["admin", "shop_manager", "office", "field_manager", "chemical_manager", "irrigation_manager"].includes(user.activeRole);
 
-  const { data: tickets = [], isLoading: ticketsLoading } = useQuery<Ticket[]>({
+  const { data: tickets = [], isLoading: ticketsLoading } = useQuery<TicketWithDetails[]>({
     queryKey: ["/api/tickets"],
   });
 
@@ -558,7 +561,7 @@ export default function TicketsList() {
                   data-testid="button-enter-select-mode" 
                   className="gap-2"
                 >
-                  <Checkbox className="w-4 h-4" />
+                  <span aria-hidden="true" className="w-4 h-4 rounded-sm border border-primary shadow" />
                   <span>Select tickets</span>
                 </Button>
               ) : (
@@ -1127,6 +1130,7 @@ function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusSet, onNavi
               <p className="mt-0.5 text-sm font-semibold leading-snug line-clamp-2" data-testid={`kanban-title-${ticket.id}`}>
                 {ticket.title}
               </p>
+              <InvoiceParentLine summary={ticket.linkSummary} typeKey={ticket.ticketType?.typeKey} />
               {/* Badges */}
               <div className="flex items-center gap-2 flex-wrap mt-2 mb-1.5">
                 <TicketTypeBadge
@@ -1160,11 +1164,12 @@ function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusSet, onNavi
               </div>
               {/* Status + assignee row */}
               <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 max-w-[120px] truncate">
+                <span className={ticket.linkSummary?.invoices.length ? "min-w-0 flex flex-wrap items-center gap-1" : "min-w-0 max-w-[120px] truncate"}>
                   <TicketStatusPill
                     status={currentStatus}
                     testId={`kanban-status-${ticket.id}`}
                   />
+                  <InvoiceLinkChip summary={ticket.linkSummary} />
                 </span>
                 {ticket.assignedToId && (
                   <span className="text-xs text-muted-foreground truncate max-w-[80px]" data-testid={`kanban-assignee-${ticket.id}`}>
@@ -1449,6 +1454,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusSet, sele
             <h3 className="mt-0.5 font-semibold text-base leading-tight line-clamp-2" data-testid={`text-ticket-title-${ticket.id}`}>
               {ticket.title}
             </h3>
+            <InvoiceParentLine summary={ticket.linkSummary} typeKey={ticket.ticketType?.typeKey} />
 
             {/* Badges */}
             <div className="flex items-center gap-2 flex-wrap mt-2">
@@ -1591,6 +1597,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusSet, sele
                 {workflowStatuses.length === 0 && ticket.currentStatus && (
                   <TicketStatusPill status={ticket.currentStatus} />
                 )}
+                <InvoiceLinkChip summary={ticket.linkSummary} />
                 {dueInfo && dueInfo.text !== "Overdue" && (
                   <span className={`text-xs flex items-center gap-1 ${dueInfo.className}`}>
                     <CalendarDays className="w-3 h-3" />
