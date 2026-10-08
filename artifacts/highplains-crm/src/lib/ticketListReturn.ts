@@ -40,7 +40,7 @@ export function consumeTicketOrigin(ticketId: string): TicketOrigin | null {
     const view = url.searchParams.get("view");
     const page = url.searchParams.get("completedPage");
     if (url.origin !== window.location.origin || url.pathname !== "/dashboard/tickets" ||
-        (view !== null && !["list", "kanban-type", "kanban-user"].includes(view)) ||
+        (view !== null && !["list", "kanban-type", "kanban-user", "billing"].includes(view)) ||
         (page !== null && (!/^[1-9]\d*$/.test(page) || !Number.isSafeInteger(Number(page)))) ||
         [...url.searchParams.keys()].some(key => ![
           "q", "priority", "type", "workType", "status", "assignedTo",

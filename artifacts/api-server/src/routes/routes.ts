@@ -57,6 +57,8 @@ import { maintainScheduleBy } from '../lib/scheduleByMaintenance';
 import { notifyTicketAssignment } from '../lib/ticketAssignmentNotification';
 import { registerTicketOwnerResponseRoutes } from './ticketOwnerResponse';
 import { registerSchedulingStatusRoute } from './schedulingStatus';
+import { registerPendingInvoicesRoute } from './pendingInvoices';
+import { propagateInvoiceCompletion } from '../lib/invoiceCompletion';
 import { convertExtraBillableToTask } from '../lib/convertExtraBillableToTask';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
@@ -7004,60 +7006,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (isInvoiceTicket) {
             try {
-              const links = await storage.getTicketLinks(existingTicket.id);
-              const parentLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === existingTicket.id);
-              
-              if (parentLink) {
-                const parentTicket = await storage.getTicketById(parentLink.sourceTicketId, user.activeCompanyId);
-                if (parentTicket) {
-                  const parentTicketType = await storage.getTicketTypeById(parentTicket.ticketTypeId, user.activeCompanyId);
-                  const parentStatuses = await storage.getTicketTypeStatuses(parentTicket.ticketTypeId);
-                  
-                  const invoiceFieldValues = await storage.getTicketFieldValues(existingTicket.id);
-                  const invoiceFields = await storage.getTicketTypeFields(existingTicket.ticketTypeId);
-                  
-                  const invoiceDataParts: string[] = [];
-                  for (const fv of invoiceFieldValues) {
-                    const field = invoiceFields.find(f => f.id === fv.fieldId);
-                    if (field && fv.value) {
-                      invoiceDataParts.push(`${field.fieldLabel}: ${fv.value}`);
-                    }
-                  }
-                  
-                  if (invoiceDataParts.length > 0) {
-                    await storage.createTicketComment({
-                      ticketId: parentTicket.id,
-                      authorId: user.id,
-                      body: `[Invoice Completed] ${invoiceDataParts.join(" | ")}`,
-                    });
-                  }
-                  
-                  const sortedParentStatuses = [...parentStatuses].sort((a, b) => a.displayOrder - b.displayOrder);
-                  const currentStatusIndex = sortedParentStatuses.findIndex(s => s.id === parentTicket.currentStatusId);
-                  const nextFinalStatus = sortedParentStatuses.find((s, i) => i > currentStatusIndex && s.isFinal === "true");
-                  
-                  if (nextFinalStatus) {
-                    await storage.updateTicket(parentTicket.id, user.activeCompanyId, {
-                      currentStatusId: nextFinalStatus.id,
-                      completedAt: new Date(),
-                    });
-                    
-                    await storage.createTicketStatusHistory({
-                      ticketId: parentTicket.id,
-                      toStatusId: nextFinalStatus.id,
-                      changedById: user.id,
-                      notes: `Auto-advanced: linked Invoice ticket completed`,
-                    });
-
-                    // Dismiss stale due-date notifications for the parent ticket
-                    await storage.dismissDueDateNotificationsForTicket(parentTicket.id).catch(err => {
-                      console.error("Failed to dismiss due-date notifications for parent ticket:", err);
-                    });
-                    
-                    console.log(`Auto-advanced parent ticket ${parentTicket.id} (${parentTicketType?.name}) to "${nextFinalStatus.name}" after Invoice completion`);
-                  }
-                }
-              }
+              await propagateInvoiceCompletion(existingTicket, user.activeCompanyId, user.id, storage);
             } catch (err) {
               console.error("Failed to propagate Invoice completion to parent ticket:", err);
             }
@@ -7880,85 +7829,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).send("Deleted");
   });
 
-  // Pending Invoices dashboard endpoint
-  // Returns ONLY Invoice tickets in "Pending Invoice" status
-  app.get("/api/pending-invoices", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-
-    const user = req.user as UserWithContext;
-    
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    const allTickets = await storage.getTickets(user.activeCompanyId, {});
-    const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
-    
-    const ticketsNeedingInvoice: typeof allTickets = [];
-    
-    const invoiceType = findSeededTicketType(ticketTypes, "invoice");
-    if (invoiceType) {
-      const invoiceStatuses = await storage.getTicketTypeStatuses(invoiceType.id);
-      const pendingStatus = findSeededStatus(invoiceStatuses, "pending_invoice");
-      if (pendingStatus) {
-        const pendingInvoices = allTickets.filter(
-          t => t.ticketTypeId === invoiceType.id && t.currentStatusId === pendingStatus.id
-        );
-        ticketsNeedingInvoice.push(...pendingInvoices);
-      }
-    }
-
-    // Bulk enrich with customer info and linked source ticket
-    const invoiceTicketIds = ticketsNeedingInvoice.map(t => t.id);
-    const customerIds = ticketsNeedingInvoice.map(t => t.customerId).filter(Boolean) as string[];
-
-    const [allLinks, allCustomers] = await Promise.all([
-      invoiceTicketIds.length > 0
-        ? db.select().from(ticketLinks).where(inArray(ticketLinks.targetTicketId, invoiceTicketIds))
-        : Promise.resolve([]),
-      customerIds.length > 0
-        ? db.select().from(customersTable).where(inArray(customersTable.id, customerIds))
-        : Promise.resolve([]),
-    ]);
-
-    const customerMap = new Map(allCustomers.map(c => [c.id, c]));
-    const linksByTarget = new Map<string, (typeof allLinks)[number][]>();
-    for (const link of allLinks) {
-      if (!linksByTarget.has(link.targetTicketId)) linksByTarget.set(link.targetTicketId, []);
-      linksByTarget.get(link.targetTicketId)!.push(link);
-    }
-
-    // Collect source ticket IDs for bulk fetch
-    const sourceTicketIds: string[] = [];
-    for (const ticket of ticketsNeedingInvoice) {
-      const links = linksByTarget.get(ticket.id) || [];
-      const sourceLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === ticket.id);
-      if (sourceLink) sourceTicketIds.push(sourceLink.sourceTicketId);
-    }
-
-    const sourceTickets = sourceTicketIds.length > 0
-      ? await db.select().from(tickets).where(and(inArray(tickets.id, sourceTicketIds), eq(tickets.companyId, user.activeCompanyId)))
-      : [];
-    const sourceTicketMap = new Map(sourceTickets.map(t => [t.id, t]));
-
-    const enrichedInvoices = ticketsNeedingInvoice.map((ticket) => {
-      const customer = ticket.customerId ? customerMap.get(ticket.customerId) || null : null;
-      const links = linksByTarget.get(ticket.id) || [];
-      const sourceLink = links.find(l => l.linkType === "invoice_for" && l.targetTicketId === ticket.id);
-      const sourceTicket = sourceLink ? sourceTicketMap.get(sourceLink.sourceTicketId) || null : null;
-      const ticketType = ticketTypes.find(tt => tt.id === ticket.ticketTypeId);
-      return {
-        ...ticket,
-        customer,
-        sourceTicket,
-        ticketTypeName: ticketType?.name || "Unknown",
-      };
-    });
-
-    res.json(enrichedInvoices);
-  });
+  registerPendingInvoicesRoute(app);
 
   // Update user tags (admin only)
   app.patch("/api/company-users/:id/tags", async (req, res) => {

@@ -7,3 +7,4 @@
 - [Workspace declaration baselines](workspace-declaration-baselines.md) — refresh emitted library types before attributing missing schema fields to leaf-package changes.
 - [Cross-artifact query types](cross-artifact-query-types.md) — separate TanStack Query installs can make QueryClient types incompatible even when their public APIs match.
 - [Ticket consolidation scope](ticket-consolidation-scope.md) — preserve Invoice tickets and scheduling; merge C1 before C2; defer card hiding until after Billing use.
+- [Colorado calendar days](colorado-calendar-days.md) — hosting may run in UTC; Colorado business-day calculations must not silently inherit the host timezone.

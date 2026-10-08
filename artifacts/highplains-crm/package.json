@@ -8,6 +8,7 @@
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "test:ticket-links": "vitest run --config vitest.config.ts src/shared/ticketLinks.test.ts src/components/TicketLinkDisplay.test.tsx src/components/TicketListView.ticketLinks.test.tsx",
+    "test:billing": "vitest run --config vitest.config.ts src/lib/billing.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

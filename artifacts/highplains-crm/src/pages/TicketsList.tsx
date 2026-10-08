@@ -30,7 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers, Check, List, Columns, Wrench, AlertCircle } from "lucide-react";
+import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers, Check, List, Columns, Wrench, AlertCircle, Receipt } from "lucide-react";
 import { Link, useSearch } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType, CompanyUser, EquipmentTicket } from "@shared/schema";
@@ -45,6 +45,8 @@ import BatchTicketDialog from "@/components/BatchTicketDialog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { taskWorkflowStatuses } from "@shared/ticketVisuals";
 import type { TicketLinkSummary } from "@shared/ticketLinks";
+import BillingView from "@/components/BillingView";
+import { canViewBilling } from "@/lib/billing";
 import { InvoiceLinkChip, InvoiceParentLine } from "@/components/TicketLinkDisplay";
 
 interface CompanyUserWithDetails {
@@ -115,9 +117,10 @@ export default function TicketsList() {
   const [showNeedsScheduling, setShowNeedsScheduling] = useState(urlParams.get("needsScheduling") === "true");
   
   // View mode: list | kanban-type | kanban-user
-  type ViewMode = "list" | "kanban-type" | "kanban-user";
+  type ViewMode = "list" | "kanban-type" | "kanban-user" | "billing";
+  const billingAllowed = canViewBilling(user?.activeRole);
   const rawView = urlParams.get("view");
-  const initialViewMode: ViewMode = (rawView === "kanban-type" || rawView === "kanban-user") ? rawView : "list";
+  const initialViewMode: ViewMode = (rawView === "kanban-type" || rawView === "kanban-user" || (rawView === "billing" && billingAllowed)) ? rawView : "list";
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   
   // Collapsible section states
@@ -149,12 +152,13 @@ export default function TicketsList() {
     setActionTypeFilter(urlParams.get("actionType") || "all");
     setShowNeedsScheduling(urlParams.get("needsScheduling") === "true");
     const rv = urlParams.get("view");
-    setViewMode((rv === "kanban-type" || rv === "kanban-user") ? rv : "list");
+    setViewMode((rv === "kanban-type" || rv === "kanban-user" || (rv === "billing" && billingAllowed)) ? rv : "list");
     setCompletedPage(Math.max(1, Number.parseInt(urlParams.get("completedPage") || "1", 10) || 1));
     setOpenSectionCollapsed(urlParams.get("openCollapsed") === "true");
     setCompletedSectionCollapsed(urlParams.get("completedCollapsed") === "true");
     setEquipmentSectionCollapsed(urlParams.get("equipmentCollapsed") === "true");
-  }, [searchString, urlParams]);
+  }, [searchString, urlParams, billingAllowed]);
+  useEffect(() => { if (viewMode === "billing" && !billingAllowed) setViewMode("list"); }, [viewMode, billingAllowed]);
   const [completedPage, setCompletedPage] = useState(() => Math.max(1, Number.parseInt(urlParams.get("completedPage") || "1", 10) || 1));
   const completedPerPage = 10;
   const [batchToDoOpen, setBatchToDoOpen] = useState(false);
@@ -640,9 +644,21 @@ export default function TicketsList() {
           <UserIcon className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">By User</span>
         </Button>
+        {billingAllowed && (
+          <Button
+            variant={viewMode === "billing" ? "secondary" : "ghost"}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setViewMode("billing")}
+            data-testid="button-view-billing"
+          >
+            <Receipt className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Billing</span>
+          </Button>
+        )}
       </div>
 
-      <div className="flex gap-2 items-center">
+      {viewMode !== "billing" && <div className="flex gap-2 items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -685,10 +701,10 @@ export default function TicketsList() {
             </Badge>
           </Button>
         )}
-      </div>
+      </div>}
 
       {/* Ticket type pill filters */}
-      {ticketTypes.length > 0 && (
+      {viewMode !== "billing" && ticketTypes.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none" data-testid="pill-filter-row">
           {ticketTypes.map((tt) => {
             const isActive = typeFilters.includes(tt.id);
@@ -715,7 +731,7 @@ export default function TicketsList() {
         </div>
       )}
 
-      {showFilters && (
+      {viewMode !== "billing" && showFilters && (
         <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
           <Select value={priorityFilter} onValueChange={setPriorityFilter}>
             <SelectTrigger className="w-[130px] h-10" data-testid="select-priority-filter">
@@ -788,6 +804,10 @@ export default function TicketsList() {
             </SelectContent>
           </Select>
         </div>
+      )}
+
+      {viewMode === "billing" && billingAllowed && (
+        <BillingView key={`${user?.activeCompanyId}:${user?.id}`} role={user?.activeRole} userId={user?.id} companyId={user?.activeCompanyId} users={usersMap} onOpenTicket={onOpenTicket} />
       )}
 
       {viewMode === "kanban-type" && (
