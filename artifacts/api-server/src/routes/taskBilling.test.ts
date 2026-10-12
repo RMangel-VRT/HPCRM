@@ -10,6 +10,8 @@ import { computeScheduleBy } from "../lib/scheduleBy";
 import { maintainScheduleBy } from "../lib/scheduleByMaintenance";
 import { notifyTicketAssignment } from "../lib/ticketAssignmentNotification";
 import { maybeAutoCreateInvoiceOnRfb } from "../lib/rfbInvoiceAutoCreate";
+import { canSeeBilling, isBillingInvoiceAction } from "../lib/billing";
+import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from "../lib/dueDateDismissal";
 import * as capabilities from "../shared/ticketCapabilities";
 
 const mockedStorage = vi.hoisted(() => ({}));
@@ -27,7 +29,7 @@ if (start < 0 || end < 0) throw new Error("Ticket mutation registration block no
 const mount = new Function("deps", `
   const { app, storage, ensureTaskTicketType, ensureInvoiceTicketType,
      insertTicketSchema, pickProvided, computeScheduleBy, maintainScheduleBy, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
-    isSeededTicketType, isSeededStatus, findSeededStatus,
+    isSeededTicketType, isSeededStatus, findSeededStatus, canSeeBilling, isBillingInvoiceAction, propagateInvoiceCompletion, wasDueDateExtendedToFuture,
     assertNotParentCustomer, sendPushToUser, APPROVED_BILLING_STATUS_KEYS } = deps;
   ${transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code}
 `);
@@ -50,6 +52,8 @@ let ticket: any;
 let links: any[];
 let app: ReturnType<typeof express>;
 let role: string;
+let activeTags: string[];
+const invoicePropagation = vi.fn();
 const storage: Record<string, ReturnType<typeof vi.fn>> = mockedStorage;
 const parentGuard = vi.fn();
 
@@ -68,6 +72,8 @@ const createBody = { title: "Work", assignedToId: "actor", customerId: "customer
 beforeEach(() => {
   vi.clearAllMocks();
   role = "admin";
+  activeTags = [];
+  invoicePropagation.mockReset();
   links = [];
   ticket = {
     id: "job", companyId: "company", title: "Work", ticketTypeId: "task",
@@ -102,14 +108,76 @@ beforeEach(() => {
   app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => true) as any;
-    req.user = { id: "actor", activeCompanyId: "company", activeRole: role } as any;
+    req.user = { id: "actor", activeCompanyId: "company", activeRole: role, activeTags } as any;
     next();
   });
   mount({
      app, storage, ensureTaskTicketType, insertTicketSchema, pickProvided, computeScheduleBy, maintainScheduleBy, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
+    canSeeBilling, isBillingInvoiceAction, propagateInvoiceCompletion: invoicePropagation, wasDueDateExtendedToFuture,
     ...capabilities, assertNotParentCustomer: parentGuard, sendPushToUser: vi.fn(),
     ensureInvoiceTicketType: vi.fn().mockResolvedValue({ typeId: "invoice", pendingStatusId: "pending" }),
     APPROVED_BILLING_STATUS_KEYS: ["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing", "invoicing"],
+  });
+});
+
+describe("C3 status-only Invoice PATCH", () => {
+  beforeEach(() => {
+    Object.assign(ticket, { ticketTypeId: "invoice", currentStatusId: "pending", workType: "admin",
+      billingBehavior: "internal", priority: "urgent", assignedToId: null, invoiceNumber: "old", tags: ["keep"] });
+    storage.getTicketTypeById.mockResolvedValue({ id: "invoice", name: "Renamed Charges", typeKey: "invoice" });
+    storage.getTicketTypeStatuses.mockResolvedValue([
+      { id: "pending", statusKey: "pending_invoice", name: "Renamed waiting", displayOrder: 0, isFinal: "false" },
+      { id: "final", statusKey: "invoiced", name: "Renamed final", displayOrder: 1, isFinal: "true" },
+    ]);
+    storage.getTicketTypeFields.mockResolvedValue([]);
+  });
+  it.each(["field_manager", "field"])("billing-tagged %s can invoice an unassigned charge without resetting omitted data", async activeRole => {
+    role = activeRole; activeTags = ["billing"];
+    invoicePropagation.mockResolvedValue({ parentTicketId: "parent", parentTitle: "Work", parentTypeKey: "task", parentAdvanced: true, siblingHeld: false });
+    const res = await request(app).patch("/api/tickets/job").send({ currentStatusId: "final", invoiceNumber: "QB-42" });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ invoiceNumber: "QB-42", billingBehavior: "internal", priority: "urgent", workType: "admin", assignedToId: null,
+      invoiceCompletion: { parentAdvanced: true, parentTypeKey: "task" } });
+    expect(storage.updateTicket).toHaveBeenCalledWith("job", "company", {
+      currentStatusId: "final", invoiceNumber: "QB-42", completedAt: expect.any(Date), completedByUserId: "actor",
+    });
+  });
+  it("an untagged field manager cannot mutate an unassigned charge", async () => {
+    role = "field_manager";
+    expect((await request(app).patch("/api/tickets/job").send({ currentStatusId: "final" })).status).toBe(403);
+    expect(storage.updateTicket).not.toHaveBeenCalled();
+  });
+  it("billing access does not authorize ordinary edits to somebody else's ticket", async () => {
+    role = "field_manager"; activeTags = ["billing"];
+    expect((await request(app).patch("/api/tickets/job").send({ title: "changed" })).status).toBe(403);
+    expect(storage.updateTicket).not.toHaveBeenCalled();
+  });
+  it.each(["field_manager", "field"])("billing-tagged %s cannot reopen an unassigned final Invoice", async activeRole => {
+    role = activeRole; activeTags = ["billing"];
+    Object.assign(ticket, { currentStatusId: "final", completedAt: new Date("2026-10-10T15:00:00Z") });
+    const res = await request(app).patch("/api/tickets/job").send({ currentStatusId: "pending" });
+    expect(res.status).toBe(403);
+    expect(storage.updateTicket).not.toHaveBeenCalled();
+    expect(invoicePropagation).not.toHaveBeenCalled();
+  });
+  it.each([
+    { invoiceNumber: "number-only" },
+    { currentStatusId: "pending" },
+    { currentStatusId: "other-company-final" },
+    { currentStatusId: "final", priority: "normal" },
+  ])("does not grant billing-only access for non-invoicing body %j", async body => {
+    role = "field_manager"; activeTags = ["billing"];
+    expect((await request(app).patch("/api/tickets/job").send(body)).status).toBe(403);
+    expect(storage.updateTicket).not.toHaveBeenCalled();
+  });
+  it("requires the Invoiced target to actually be final", async () => {
+    role = "field"; activeTags = ["billing"];
+    storage.getTicketTypeStatuses.mockResolvedValue([
+      { id: "pending", statusKey: "pending_invoice", name: "Waiting", isFinal: "false" },
+      { id: "final", statusKey: "invoiced", name: "Closed label", isFinal: "false" },
+    ]);
+    expect((await request(app).patch("/api/tickets/job").send({ currentStatusId: "final" })).status).toBe(403);
+    expect(storage.updateTicket).not.toHaveBeenCalled();
   });
 });
 

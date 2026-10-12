@@ -59,7 +59,8 @@ import { notifyTicketAssignment } from '../lib/ticketAssignmentNotification';
 import { registerTicketOwnerResponseRoutes } from './ticketOwnerResponse';
 import { registerSchedulingStatusRoute } from './schedulingStatus';
 import { registerPendingInvoicesRoute } from './pendingInvoices';
-import { propagateInvoiceCompletion } from '../lib/invoiceCompletion';
+import { propagateInvoiceCompletion, type InvoiceCompletionOutcome } from '../lib/invoiceCompletion';
+import { canSeeBilling, canManuallyInvoice, isBillingInvoiceAction, isStrandedEligible } from '../lib/billing';
 import { convertExtraBillableToTask } from '../lib/convertExtraBillableToTask';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
@@ -6218,13 +6219,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
-    if (!ticket) {
+    if (!ticket || ticket.companyId !== user.activeCompanyId) {
       return res.status(404).send("Ticket not found");
     }
     
     // Ops users can only view their assigned tickets
     if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
-      return res.status(403).send("Access denied - not assigned to this ticket");
+      let billingRead = false;
+      if (canSeeBilling(user)) {
+        const type = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
+        billingRead = isSeededTicketType(type, "invoice");
+        if (!billingRead && isStrandedEligible(ticket, type)) {
+          const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
+          if (isSeededStatus(statuses.find(status => status.id === ticket.currentStatusId), "ready_for_billing")) {
+            const links = (await storage.getTicketLinks(ticket.id))
+              .filter(link => link.sourceTicketId === ticket.id && link.linkType === "invoice_for");
+            const targets = await storage.getTicketsByIds(links.map(link => link.targetTicketId), user.activeCompanyId);
+            const invoiceType = findSeededTicketType(await storage.getTicketTypes(user.activeCompanyId), "invoice");
+            billingRead = !targets.some(target => target.companyId === user.activeCompanyId && target.ticketTypeId === invoiceType?.id);
+          }
+        }
+      }
+      if (!billingRead) return res.status(403).send("Access denied - not assigned to this ticket");
     }
     
     res.json(ticket);
@@ -6729,13 +6745,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(404).send("Ticket not found");
     }
     
+    // Billing-tagged field roles can perform the shared status-only billing action,
+    // including unassigned charges, without broadening ordinary ticket edits.
+    const billingStatusIntent = user.activeTags?.includes("billing") && canSeeBilling(user)
+      && typeof req.body?.currentStatusId === "string"
+      && Object.keys(req.body).every(key => key === "currentStatusId" || key === "invoiceNumber");
+    const billingType = billingStatusIntent ? await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId) : undefined;
+    const billingStatuses = billingStatusIntent && isSeededTicketType(billingType, "invoice")
+      ? await storage.getTicketTypeStatuses(existingTicket.ticketTypeId) : [];
+    const billingStatusEdit = billingStatusIntent && isBillingInvoiceAction(req.body, existingTicket, billingType, billingStatuses);
     // Ops users can update their assigned tickets (for status changes and field values)
-    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager" || user.activeRole === "landscape_supervisor") && existingTicket.assignedToId !== user.id) {
+    if (!billingStatusEdit && (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager" || user.activeRole === "shop_manager" || user.activeRole === "landscape_supervisor") && existingTicket.assignedToId !== user.id) {
       return res.status(403).send("Access denied - not assigned to this ticket");
     }
     
     // Viewers cannot update tickets
-    if (user.activeRole === "field") {
+    if (user.activeRole === "field" && !billingStatusEdit) {
       return res.status(403).send("Insufficient permissions");
     }
 
@@ -6750,7 +6775,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (effectiveCustomerId && await assertNotParentCustomer(effectiveCustomerId, user.activeCompanyId, res)) return;
     }
 
-    const ptType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+    const ptType = billingType ?? await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+    let invoiceCompletion: InvoiceCompletionOutcome | undefined;
     const isTask = isSeededTicketType(ptType, "task");
     let billingChanged = false;
     if (isTask && (Object.hasOwn(req.body, "workType") || Object.hasOwn(req.body, "billingBehavior"))) {
@@ -7007,7 +7033,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (isInvoiceTicket) {
             try {
-              await propagateInvoiceCompletion(existingTicket, user.activeCompanyId, user.id, storage);
+              invoiceCompletion = await propagateInvoiceCompletion(existingTicket, user.activeCompanyId, user.id, storage);
             } catch (err) {
               console.error("Failed to propagate Invoice completion to parent ticket:", err);
             }
@@ -7236,7 +7262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     })();
 
-    res.json(ticket);
+    res.json(invoiceCompletion ? { ...ticket, invoiceCompletion } : ticket);
   });
 
   // Manual invoice ticket creation from an Estimate Request or Project ticket
@@ -7245,6 +7271,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
+    if (!canSeeBilling(user)) return res.status(403).send("Billing access required");
 
     const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
     if (!ticket) {
@@ -7252,15 +7279,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
-    if (
-      !isSeededTicketType(ticketType, "estimate_request")
-      && !isSeededTicketType(ticketType, "project")
-    ) {
-      return res.status(400).send("Invoice tickets can only be created from Estimate Request or Project tickets");
+    const currentStatus = (await storage.getTicketTypeStatuses(ticket.ticketTypeId)).find(s => s.id === ticket.currentStatusId);
+    if (!canManuallyInvoice(ticket, ticketType, currentStatus)) {
+      return res.status(400).send("Invoice creation requires an Estimate Request, Project, or billable job at Ready for billing");
     }
 
     const existingLinks = await storage.getTicketLinks(ticket.id);
-    const hasExistingInvoice = existingLinks.some(l => l.linkType === "invoice_for" && l.sourceTicketId === ticket.id);
+    const outgoing = existingLinks.filter(l => l.linkType === "invoice_for" && l.sourceTicketId === ticket.id);
+    const counterparts = await storage.getTicketsByIds(outgoing.map(l => l.targetTicketId), user.activeCompanyId);
+    const companyTypes = await storage.getTicketTypes(user.activeCompanyId);
+    const invoiceType = findSeededTicketType(companyTypes, "invoice");
+    const hasExistingInvoice = counterparts.some(t => t.ticketTypeId === invoiceType?.id);
     if (hasExistingInvoice) {
       return res.status(409).json({ error: "INVOICE_EXISTS", message: "An invoice ticket already exists for this ticket" });
     }
@@ -7274,12 +7303,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
       const billingUser = companyUsers.find(cu => cu.tags?.includes("billing") && cu.status === "active");
 
-      const title = (req.body.title as string | undefined)?.trim() || `Invoice: ${ticket.title}`;
+      const title = (req.body?.title as string | undefined)?.trim() || `Invoice: ${ticket.title}`;
 
       const invoiceTicket = await storage.createTicket({
         companyId: user.activeCompanyId,
         customerId: ticket.customerId,
         contractId: ticket.contractId,
+        workCompletedDate: ticket.workCompletedDate,
         ticketTypeId: invoiceTypeInfo.typeId,
         currentStatusId: invoiceTypeInfo.pendingStatusId,
         workType: "admin",

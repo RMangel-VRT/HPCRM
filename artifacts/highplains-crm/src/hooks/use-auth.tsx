@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 export type UserWithCompanyContext = Omit<User, "passwordHash"> & {
   activeCompanyId: string;
   activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+  activeTags?: string[];
   isSuperAdminBool: boolean;
   activeCompany?: Company | null;
 };

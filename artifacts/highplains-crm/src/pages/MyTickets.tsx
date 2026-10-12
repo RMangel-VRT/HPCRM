@@ -13,7 +13,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Search, ChevronRight, ChevronLeft, ChevronDown, Clock, CalendarDays, Filter, Loader2, CheckCircle2, RefreshCw, Wrench, ClipboardCheck, List, Columns, MapPin } from "lucide-react";
-import { Link, useSearch } from "wouter";
+import { Link, useSearch, useLocation } from "wouter";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, EquipmentTicket, Equipment, CompanyUser, User as UserType, CampaignWithProgress } from "@shared/schema";
 import { useTranslation } from "react-i18next";
 import { isNeedsSchedulingStatus, useSchedulingStatusSet } from "@/lib/schedulingStatus";
@@ -21,6 +21,9 @@ import { useAuth } from "@/hooks/use-auth";
 import TicketCard from "@/components/TicketCard";
 import type { TicketWithDetails } from "@/components/TicketCard";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
+import BillingView from "@/components/BillingView";
+import { apiRequest } from "@/lib/queryClient";
+import { canViewBilling, isBillingItem, isBillingPerson, pendingInvoicesKey, type PendingInvoice } from "@/lib/billing";
 import { InvoiceLinkChip, InvoiceParentLine } from "@/components/TicketLinkDisplay";
 
 const MY_TICKETS_SCROLL_STORAGE_KEY = "myTicketsScrollPosition";
@@ -69,6 +72,7 @@ type ViewMode = "list" | "kanban-type";
 export default function MyTickets() {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const [, navigate] = useLocation();
   
   const searchString = useSearch();
   const urlParams = useMemo(() => new URLSearchParams(searchString), [searchString]);
@@ -129,6 +133,8 @@ export default function MyTickets() {
     if (typeFilters.length > 0) params.set("type", typeFilters.join(","));
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (viewMode !== "list") params.set("view", viewMode);
+    const tabParam = urlParams.get("tab");
+    if (tabParam === "invoice" || tabParam === "other") params.set("tab", tabParam);
     
     const queryString = params.toString();
     const currentQuery = searchString.startsWith("?") ? searchString.slice(1) : searchString;
@@ -139,7 +145,7 @@ export default function MyTickets() {
     prevSearchString.current = queryString ? `?${queryString}` : "";
     
     window.history.replaceState(null, "", newUrl);
-  }, [search, priorityFilter, workTypeFilter, typeFilters, statusFilter, viewMode, searchString]);
+  }, [search, priorityFilter, workTypeFilter, typeFilters, statusFilter, viewMode, searchString, urlParams]);
 
   // Reset statusFilter when type selection changes to 0 or 2+
   useEffect(() => {
@@ -289,7 +295,33 @@ export default function MyTickets() {
     return count;
   }, [search, priorityFilter, workTypeFilter, typeFilters, statusFilter]);
 
+  const statusById = new Map<string, TicketTypeStatus>((allStatuses as TicketTypeStatus[]).map((s) => [s.id, s]));
+  const typeById = new Map<string, TicketType>(ticketTypes.map((tt) => [tt.id, tt]));
+  const isBilling = (ticket: TicketWithDetails) => isBillingItem(ticket, typeById, statusById);
+  // Landscape-supervisor My Work (showTabs) keeps every ticket, unchanged.
+  const handedOffCount = showTabs ? 0 : enrichedTickets.filter((tk) => !tk.completedAt && isBilling(tk)).length;
+
+  const billingAllowed = !showTabs && canViewBilling(user);
+  const billingPerson = isBillingPerson(user);
+  const { data: mineRows } = useQuery<PendingInvoice[]>({
+    queryKey: pendingInvoicesKey(user?.activeCompanyId, user?.id, "mine", "waiting"),
+    queryFn: async () => (await apiRequest("GET", "/api/pending-invoices?scope=mine&view=waiting")).json(),
+    enabled: billingAllowed,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const invoiceCount = Array.isArray(mineRows) ? mineRows.length : 0;
+  const hasInvoiceTabs = billingAllowed && (billingPerson || invoiceCount > 0);
+  const rawTab = urlParams.get("tab");
+  const currentTab: "invoice" | "other" = rawTab === "invoice" || rawTab === "other" ? rawTab : billingPerson ? "invoice" : "other";
+  const selectTab = (next: string) => {
+    const params = new URLSearchParams(searchString);
+    params.set("tab", next);
+    navigate(`/dashboard/tickets/my?${params.toString()}`);
+  };
+
   const filteredTickets = enrichedTickets.filter((ticket) => {
+    if (!showTabs && isBilling(ticket)) return false;
     const matchesSearch =
       ticket.title.toLowerCase().includes(search.toLowerCase()) ||
       ticket.customer?.name?.toLowerCase().includes(search.toLowerCase()) || false;
@@ -675,6 +707,26 @@ export default function MyTickets() {
 
       {!showTabs && (
         <div className="space-y-4">
+          {hasInvoiceTabs && (
+            <Tabs value={currentTab} onValueChange={selectTab} data-testid="tabs-my-billing">
+              <TabsList>
+                <TabsTrigger value="invoice" data-testid="tab-to-invoice">To invoice ({invoiceCount})</TabsTrigger>
+                <TabsTrigger value="other" data-testid="tab-other-tickets">Other tickets ({openTickets.length})</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          )}
+          {hasInvoiceTabs && currentTab === "invoice" ? (
+            <BillingView
+              key={`${user?.activeCompanyId}:${user?.id}`}
+              scope="mine"
+              role={user?.activeRole}
+              activeTags={user?.activeTags}
+              userId={user?.id}
+              companyId={user?.activeCompanyId}
+              users={usersMap}
+            />
+          ) : (
+          <>
           {filterControls}
 
               {/* Customer tickets: list or kanban view */}
@@ -715,6 +767,12 @@ export default function MyTickets() {
                     </div>
                   )}
                 </div>
+              )}
+
+              {!hasInvoiceTabs && handedOffCount > 0 && (
+                <p className="px-1 text-xs text-muted-foreground" data-testid="text-with-billing-note">
+                  {handedOffCount} of your {handedOffCount === 1 ? "job is" : "jobs are"} with billing
+                </p>
               )}
 
               {completedTickets.length > 0 && (() => {
@@ -933,6 +991,8 @@ export default function MyTickets() {
                   </CardContent>
                 </Card>
               )}
+          </>
+          )}
         </div>
       )}
     </div>

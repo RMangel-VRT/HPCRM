@@ -86,4 +86,12 @@ describe("Invoice final-status parent propagation", () => {
     expect(deps.getTicketById).not.toHaveBeenCalled();
     expect(deps.updateTicket).not.toHaveBeenCalled();
   });
+  it("reports Done only after the parent write confirms final status and completedAt", async () => {
+    vi.mocked(deps.updateTicket).mockResolvedValue({ ...parent, currentStatusId: "done", completedAt: new Date() });
+    expect(await propagateInvoiceCompletion(invoice, "company", "actor", deps)).toMatchObject({ parentTypeKey: "task", parentAdvanced: true, siblingHeld: false });
+    vi.mocked(deps.updateTicket).mockResolvedValue(undefined);
+    expect(await propagateInvoiceCompletion(invoice, "company", "actor", deps)).toMatchObject({ parentAdvanced: false });
+    siblings = [invoice, makeInvoice("second")];
+    expect(await propagateInvoiceCompletion(invoice, "company", "actor", deps)).toMatchObject({ parentAdvanced: false, siblingHeld: true });
+  });
 });

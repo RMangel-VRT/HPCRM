@@ -10,6 +10,7 @@ export const hashPassword = sharedHashPassword;
 
 export interface UserWithContext extends SelectUser {
   activeCompanyId: string;
+  activeTags: string[];
   activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
   isSuperAdminBool: boolean;
 }
@@ -68,6 +69,7 @@ export function setupAuth(app: Express) {
 
           const isSuperAdminBool = user.isSuperAdmin === "true";
           let activeCompanyId: string;
+          let activeTags: string[] = [];
           let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
 
           if (isSuperAdminBool) {
@@ -76,6 +78,8 @@ export function setupAuth(app: Express) {
             }
             activeCompanyId = user.defaultCompanyId;
             activeRole = "admin";
+            const membership = await storage.getCompanyUser(user.id, activeCompanyId);
+            activeTags = membership?.status === "active" ? membership.tags ?? [] : [];
           } else {
             const companyMemberships = await storage.getCompanyUsersByUserId(user.id);
             const activeMemberships = companyMemberships.filter(m => m.status === "active");
@@ -86,12 +90,14 @@ export function setupAuth(app: Express) {
             
             const activeMembership = activeMemberships[0];
             activeCompanyId = activeMembership.companyId;
+            activeTags = activeMembership.tags ?? [];
             activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
           }
 
           const userWithContext: UserWithContext = {
             ...user,
             activeCompanyId,
+            activeTags,
             activeRole,
             isSuperAdminBool,
           };
@@ -104,9 +110,11 @@ export function setupAuth(app: Express) {
     )
   );
 
-  passport.serializeUser((user, done) => done(null, user.id));
-  passport.deserializeUser(async (id: string, done) => {
+  passport.serializeUser((user, done) => done(null, { id: user.id, companyId: user.activeCompanyId }));
+  passport.deserializeUser(async (sessionUser: string | { id: string; companyId: string }, done) => {
     try {
+      const id = typeof sessionUser === "string" ? sessionUser : sessionUser.id;
+      const preferredCompanyId = typeof sessionUser === "string" ? undefined : sessionUser.companyId;
       const user = await storage.getUserById(id);
       if (!user) {
         return done(null, false);
@@ -115,14 +123,17 @@ export function setupAuth(app: Express) {
       const isSuperAdminBool = user.isSuperAdmin === "true";
       
       let activeCompanyId: string;
+      let activeTags: string[] = [];
       let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
 
       if (isSuperAdminBool) {
         if (!user.defaultCompanyId) {
           return done(new Error("Super admin must have a default company"));
         }
-        activeCompanyId = user.defaultCompanyId;
+        activeCompanyId = preferredCompanyId ?? user.defaultCompanyId;
         activeRole = "admin";
+        const membership = await storage.getCompanyUser(id, activeCompanyId);
+        activeTags = membership?.status === "active" ? membership.tags ?? [] : [];
       } else {
         const companyMemberships = await storage.getCompanyUsersByUserId(id);
         const activeMemberships = companyMemberships.filter(m => m.status === "active");
@@ -132,14 +143,16 @@ export function setupAuth(app: Express) {
           return done(null, false);
         }
         
-        const activeMembership = activeMemberships[0];
+        const activeMembership = activeMemberships.find(m => m.companyId === preferredCompanyId) ?? activeMemberships[0];
         activeCompanyId = activeMembership.companyId;
+        activeTags = activeMembership.tags ?? [];
         activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
       }
 
       const userWithContext: UserWithContext = {
         ...user,
         activeCompanyId,
+        activeTags,
         activeRole,
         isSuperAdminBool,
       };
@@ -164,6 +177,7 @@ export function setupAuth(app: Express) {
 
       const isSuperAdminBool = user.isSuperAdmin === "true";
       let activeCompanyId: string;
+      let activeTags: string[] = [];
       let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
 
       if (isSuperAdminBool) {
@@ -172,6 +186,8 @@ export function setupAuth(app: Express) {
         }
         activeCompanyId = user.defaultCompanyId;
         activeRole = "admin";
+        const membership = await storage.getCompanyUser(user.id, activeCompanyId);
+        activeTags = membership?.status === "active" ? membership.tags ?? [] : [];
       } else {
         const companyMemberships = await storage.getCompanyUsersByUserId(user.id);
         const activeMemberships = companyMemberships.filter(m => m.status === "active");
@@ -182,12 +198,14 @@ export function setupAuth(app: Express) {
         
         const activeMembership = activeMemberships[0];
         activeCompanyId = activeMembership.companyId;
+        activeTags = activeMembership.tags ?? [];
         activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
       }
 
       const userWithContext: UserWithContext = {
         ...user,
         activeCompanyId,
+        activeTags,
         activeRole,
         isSuperAdminBool,
       };
@@ -306,6 +324,7 @@ export function setupAuth(app: Express) {
     const userWithContext: UserWithContext = {
       ...updatedUser,
       activeCompanyId: companyId,
+      activeTags: await storage.getCompanyUser(user.id, companyId).then(m => m?.status === "active" ? m.tags ?? [] : []),
       activeRole,
       isSuperAdminBool: isSuperAdmin,
     };
@@ -412,6 +431,7 @@ export function setupAuth(app: Express) {
       const userWithContext: UserWithContext = {
         ...user,
         activeCompanyId: company.id,
+        activeTags: [],
         activeRole: "admin",
         isSuperAdminBool: false,
       };

@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { BreadcrumbsProvider } from "@/hooks/use-breadcrumbs";
+import { canViewBilling } from "@/lib/billing";
+import { DefaultRedirect } from "@/lib/landing";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { AlertTriangle } from "lucide-react";
 import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -38,6 +40,7 @@ const ContractBuilderPage = lazy(() => import("@/pages/ContractBuilderPage"));
 const TicketsList = lazy(() => import("@/pages/TicketsList"));
 const TicketDetail = lazy(() => import("@/pages/TicketDetail"));
 const NewTicket = lazy(() => import("@/pages/NewTicket"));
+const BillingPage = lazy(() => import("@/pages/BillingPage"));
 const MyTickets = lazy(() => import("@/pages/MyTickets"));
 const UsersPage = lazy(() => import("@/pages/UsersPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
@@ -204,14 +207,6 @@ function Router() {
 
   const allFieldRoles = ["field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "landscape_supervisor"] as const;
 
-  function getDefaultRedirect() {
-    if (!user) return "/login";
-    if (user.isSuperAdminBool) return "/admin";
-    if (user.activeRole === "mapping") return "/dashboard/maps";
-    if (user.activeRole === "field") return "/dashboard";
-    return "/dashboard";
-  }
-
   function renderRouteSwitch() {
     if (!user) return null;
 
@@ -243,16 +238,17 @@ function Router() {
           component={CustomersList}
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
         />
+        <ProtectedRoute path="/dashboard/billing" component={BillingPage} access={canViewBilling} />
         <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
           path="/dashboard/tickets/my"
           component={MyTickets}
-          allowedRoles={["admin", "office", ...allFieldRoles]}
+          access={(viewer) => canViewBilling(viewer) || allFieldRoles.includes(viewer.activeRole as typeof allFieldRoles[number])}
         />
         <ProtectedRoute
           path="/dashboard/tickets/:id"
           component={TicketDetail}
-          allowedRoles={["admin", "office", ...allFieldRoles]}
+          access={(viewer) => canViewBilling(viewer) || allFieldRoles.includes(viewer.activeRole as typeof allFieldRoles[number])}
         />
         <ProtectedRoute path="/dashboard/tickets" component={TicketsList} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
@@ -365,10 +361,10 @@ function Router() {
         <ProtectedRoute path="/dashboard/settings/:tab" component={SettingsPage} allowedRoles={["admin", "office"]} />
         <Route path="/access-denied" component={AccessDenied} />
         <Route path="/">
-          <Redirect to={getDefaultRedirect()} />
+          <DefaultRedirect user={user} />
         </Route>
         <Route>
-          <Redirect to={getDefaultRedirect()} />
+          <DefaultRedirect user={user} />
         </Route>
       </Switch>
     );
@@ -397,6 +393,9 @@ function Router() {
           <div className="flex h-screen w-full">
             <AppSidebar
               userRole={user.activeRole}
+              activeTags={user.activeTags}
+              companyId={user.activeCompanyId}
+              userId={user.id}
               isSuperAdmin={user.isSuperAdminBool}
               userName={user.name}
               onLogout={() => logoutMutation.mutate()}

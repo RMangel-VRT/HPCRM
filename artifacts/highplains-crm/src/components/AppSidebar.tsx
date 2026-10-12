@@ -34,6 +34,7 @@ import {
   MessagesSquare,
   Activity,
   Flag,
+  Receipt,
 } from "lucide-react";
 import {
   Dialog,
@@ -54,6 +55,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import type { Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { pendingInvoicesKey, showBillingSidebar, type PendingInvoice } from "@/lib/billing";
 import {
   resolveCustomersRouteAsync,
   resolveCustomersRouteSync,
@@ -79,6 +81,9 @@ interface AppSidebarProps {
   userName?: string;
   onLogout?: () => void;
   isCustomerDetail?: boolean;
+  activeTags?: string[];
+  companyId?: string | null;
+  userId?: string | null;
 }
 
 export default function AppSidebar({
@@ -87,6 +92,9 @@ export default function AppSidebar({
   userName = "John Doe",
   onLogout,
   isCustomerDetail = false,
+  activeTags = [],
+  companyId = null,
+  userId = null,
 }: AppSidebarProps) {
   const [location, navigate] = useLocation();
   const { t, i18n } = useTranslation();
@@ -136,8 +144,22 @@ export default function AppSidebar({
 
   type NavItem = { title: string; url: string; icon: typeof LayoutDashboard };
 
+  // Sidebar visibility is deliberately narrower than canViewBilling.
+  const showBillingEntry = showBillingSidebar({ activeRole: userRole, activeTags });
+  const { data: billingBadgeRows } = useQuery<PendingInvoice[]>({
+    queryKey: pendingInvoicesKey(companyId, userId, "all", "waiting"),
+    queryFn: async () => (await apiRequest("GET", "/api/pending-invoices?scope=all&view=waiting")).json(),
+    enabled: showBillingEntry,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const billingBadgeCount = Array.isArray(billingBadgeRows) ? billingBadgeRows.length : 0;
+
   const getDashboardItems = (): NavItem[] => {
-    if (isSuperAdmin) return [];
+    if (isSuperAdmin) return showBillingEntry ? [
+      { title: t("nav.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
+      { title: t("nav.billing"), url: "/dashboard/billing", icon: Receipt },
+    ] : [];
     const items: NavItem[] = [];
 
     if (userRole === "landscape_supervisor") {
@@ -162,6 +184,10 @@ export default function AppSidebar({
     }
 
     items.push({ title: t("nav.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck });
+
+    if (showBillingEntry) {
+      items.push({ title: t("nav.billing"), url: "/dashboard/billing", icon: Receipt });
+    }
 
     return items;
   };
@@ -386,6 +412,11 @@ export default function AppSidebar({
                     <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
+                      {item.url === "/dashboard/billing" && billingBadgeCount > 0 && (
+                        <Badge className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-billing-sidebar">
+                          {billingBadgeCount > 99 ? "99+" : billingBadgeCount}
+                        </Badge>
+                      )}
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

@@ -30,8 +30,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers, Check, List, Columns, Wrench, AlertCircle, Receipt } from "lucide-react";
-import { Link, useSearch } from "wouter";
+import { Plus, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Clock, User as UserIcon, MapPin, CalendarDays, Filter, Loader2, Trash2, X, Layers, Check, List, Columns, Wrench, AlertCircle } from "lucide-react";
+import { Link, Redirect, useSearch } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Ticket, TicketType, TicketTypeStatus, Customer, WorkType, User as UserType, CompanyUser, EquipmentTicket } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
@@ -45,8 +45,7 @@ import BatchTicketDialog from "@/components/BatchTicketDialog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { taskWorkflowStatuses } from "@shared/ticketVisuals";
 import type { TicketLinkSummary } from "@shared/ticketLinks";
-import BillingView from "@/components/BillingView";
-import { canViewBilling } from "@/lib/billing";
+import { isBillingItem } from "@/lib/billing";
 import { InvoiceLinkChip, InvoiceParentLine } from "@/components/TicketLinkDisplay";
 
 interface CompanyUserWithDetails {
@@ -92,6 +91,16 @@ const EQUIPMENT_CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function TicketsList() {
+  const search = useSearch();
+  // Redirect before mounting the operational list: its URL-normalization
+  // effects otherwise erase the legacy view parameter in the same commit.
+  if (new URLSearchParams(search).get("view") === "billing") {
+    return <Redirect to="/dashboard/billing" replace />;
+  }
+  return <OperationalTicketsList />;
+}
+
+function OperationalTicketsList() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -117,10 +126,11 @@ export default function TicketsList() {
   const [showNeedsScheduling, setShowNeedsScheduling] = useState(urlParams.get("needsScheduling") === "true");
   
   // View mode: list | kanban-type | kanban-user
-  type ViewMode = "list" | "kanban-type" | "kanban-user" | "billing";
-  const billingAllowed = canViewBilling(user?.activeRole);
+  type ViewMode = "list" | "kanban-type" | "kanban-user";
+  // Non-persisted: billing items are hidden again on every page load.
+  const [showBillingItems, setShowBillingItems] = useState(false);
   const rawView = urlParams.get("view");
-  const initialViewMode: ViewMode = (rawView === "kanban-type" || rawView === "kanban-user" || (rawView === "billing" && billingAllowed)) ? rawView : "list";
+  const initialViewMode: ViewMode = (rawView === "kanban-type" || rawView === "kanban-user") ? rawView : "list";
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   
   // Collapsible section states
@@ -152,13 +162,12 @@ export default function TicketsList() {
     setActionTypeFilter(urlParams.get("actionType") || "all");
     setShowNeedsScheduling(urlParams.get("needsScheduling") === "true");
     const rv = urlParams.get("view");
-    setViewMode((rv === "kanban-type" || rv === "kanban-user" || (rv === "billing" && billingAllowed)) ? rv : "list");
+    setViewMode((rv === "kanban-type" || rv === "kanban-user") ? rv : "list");
     setCompletedPage(Math.max(1, Number.parseInt(urlParams.get("completedPage") || "1", 10) || 1));
     setOpenSectionCollapsed(urlParams.get("openCollapsed") === "true");
     setCompletedSectionCollapsed(urlParams.get("completedCollapsed") === "true");
     setEquipmentSectionCollapsed(urlParams.get("equipmentCollapsed") === "true");
-  }, [searchString, urlParams, billingAllowed]);
-  useEffect(() => { if (viewMode === "billing" && !billingAllowed) setViewMode("list"); }, [viewMode, billingAllowed]);
+  }, [searchString, urlParams]);
   const [completedPage, setCompletedPage] = useState(() => Math.max(1, Number.parseInt(urlParams.get("completedPage") || "1", 10) || 1));
   const completedPerPage = 10;
   const [batchToDoOpen, setBatchToDoOpen] = useState(false);
@@ -397,8 +406,18 @@ export default function TicketsList() {
     ? allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === typeFilters[0])
     : [];
 
-  const openTickets = filteredTickets.filter(t => !t.completedAt);
-  const completedTickets = filteredTickets.filter(t => t.completedAt);
+  const statusById = useMemo(() => new Map((allStatuses as TicketTypeStatus[]).map(s => [s.id, s])), [allStatuses]);
+  const typeById = useMemo(() => new Map(ticketTypes.map(tt => [tt.id, tt])), [ticketTypes]);
+  const isBilling = (t: TicketWithDetails) => isBillingItem(t, typeById, statusById);
+  const workTickets = filteredTickets.filter(t => !isBilling(t));
+  const billingTickets = filteredTickets.filter(isBilling);
+  // Boards put billing items back in their normal columns; the list uses a separate muted section.
+  const boardSource = showBillingItems ? filteredTickets : workTickets;
+  const listSource = workTickets;
+  const openTickets = (viewMode === "list" ? listSource : boardSource).filter(t => !t.completedAt);
+  const completedTickets = (viewMode === "list" ? listSource : boardSource).filter(t => t.completedAt);
+  const withBillingTickets = viewMode === "list" && showBillingItems ? billingTickets : [];
+  const boardTypes = showBillingItems ? ticketTypes : ticketTypes.filter(tt => tt.typeKey !== "invoice");
   
   // Reset completed page when filters change
   const filtersInitialized = useRef(false);
@@ -644,21 +663,17 @@ export default function TicketsList() {
           <UserIcon className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">By User</span>
         </Button>
-        {billingAllowed && (
-          <Button
-            variant={viewMode === "billing" ? "secondary" : "ghost"}
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setViewMode("billing")}
-            data-testid="button-view-billing"
-          >
-            <Receipt className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Billing</span>
-          </Button>
-        )}
+        <label className="ml-auto flex items-center gap-2 text-sm cursor-pointer" data-testid="label-show-billing-items">
+          <Checkbox
+            checked={showBillingItems}
+            onCheckedChange={(v) => setShowBillingItems(v === true)}
+            data-testid="checkbox-show-billing-items"
+          />
+          Show billing items
+        </label>
       </div>
 
-      {viewMode !== "billing" && <div className="flex gap-2 items-center">
+      {<div className="flex gap-2 items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -704,7 +719,7 @@ export default function TicketsList() {
       </div>}
 
       {/* Ticket type pill filters */}
-      {viewMode !== "billing" && ticketTypes.length > 0 && (
+      {ticketTypes.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none" data-testid="pill-filter-row">
           {ticketTypes.map((tt) => {
             const isActive = typeFilters.includes(tt.id);
@@ -731,7 +746,7 @@ export default function TicketsList() {
         </div>
       )}
 
-      {viewMode !== "billing" && showFilters && (
+      {showFilters && (
         <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
           <Select value={priorityFilter} onValueChange={setPriorityFilter}>
             <SelectTrigger className="w-[130px] h-10" data-testid="select-priority-filter">
@@ -806,14 +821,11 @@ export default function TicketsList() {
         </div>
       )}
 
-      {viewMode === "billing" && billingAllowed && (
-        <BillingView key={`${user?.activeCompanyId}:${user?.id}`} role={user?.activeRole} userId={user?.id} companyId={user?.activeCompanyId} users={usersMap} onOpenTicket={onOpenTicket} />
-      )}
 
       {viewMode === "kanban-type" && (
         <KanbanByType
           openTickets={openTickets}
-          ticketTypes={ticketTypes}
+          ticketTypes={boardTypes}
           allStatuses={allStatuses}
           usersMap={usersMap}
           schedulingStatusSet={schedulingStatusSet}
@@ -858,7 +870,7 @@ export default function TicketsList() {
         </div>
       )}
 
-      {viewMode === "list" && filteredTickets.length === 0 ? (
+      {viewMode === "list" && listSource.length + withBillingTickets.length === 0 ? (
         <Card className="mt-8">
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -913,6 +925,29 @@ export default function TicketsList() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {withBillingTickets.length > 0 && (
+            <div className="space-y-3 md:space-y-2 opacity-70" data-testid="section-with-billing">
+              <div className="px-1 text-sm font-medium text-muted-foreground">With billing ({withBillingTickets.length})</div>
+              <div className="space-y-3 md:space-y-2">
+                {withBillingTickets.map((ticket) => (
+                  <TicketCard
+                    key={ticket.id}
+                    ticket={ticket}
+                    formatDueDate={formatDueDate}
+                    usersMap={usersMap}
+                    schedulingStatusSet={schedulingStatusSet}
+                    selectionMode={selectionMode}
+                    isSelected={selectedTicketIds.has(ticket.id)}
+                    onToggleSelect={() => toggleTicketSelection(ticket.id)}
+                    onNavigate={() => onOpenTicket(ticket.id)}
+                    href={ticketDetailHref(ticket.id)}
+                    workflowStatuses={allStatuses.filter((s: TicketTypeStatus) => s.ticketTypeId === ticket.ticketTypeId).sort((a: TicketTypeStatus, b: TicketTypeStatus) => (a.displayOrder || 0) - (b.displayOrder || 0))}
+                  />
+                ))}
+              </div>
             </div>
           )}
 

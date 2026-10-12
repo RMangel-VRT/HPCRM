@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
+import { LoginLandingRedirect, loginLandingPath } from "@/lib/landing";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 export default function LoginPage() {
@@ -14,12 +15,6 @@ export default function LoginPage() {
   const [, setLocation] = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-
-  useEffect(() => {
-    if (user) {
-      setLocation("/dashboard");
-    }
-  }, [user, setLocation]);
 
   useEffect(() => {
     document.body.classList.add("no-mountain-bg");
@@ -33,8 +28,8 @@ export default function LoginPage() {
     loginMutation.mutate(
       { username, password },
       {
-        onSuccess: () => {
-          setLocation("/dashboard");
+        onSuccess: (loggedIn) => {
+          setLocation(loginLandingPath(loggedIn));
         },
       }
     );
@@ -43,6 +38,8 @@ export default function LoginPage() {
   const toggleLanguage = (lang: "en" | "es") => {
     i18n.changeLanguage(lang);
   };
+
+  if (user) return <LoginLandingRedirect user={user} />;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-muted/30 relative overflow-hidden">

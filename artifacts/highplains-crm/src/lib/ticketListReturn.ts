@@ -23,8 +23,31 @@ export function ticketDetailHref(ticketId: string) {
   return `/dashboard/tickets/${ticketId}?${RETURN_MARKER}=1`;
 }
 
-// Never use an untrusted stored URL as a navigation target. Only the main list,
-// with its known query fields, is a valid origin.
+const LIST_KEYS = [
+  "q", "priority", "type", "workType", "status", "assignedTo",
+  "actionType", "needsScheduling", "view", "completedPage",
+  "openCollapsed", "completedCollapsed", "equipmentCollapsed",
+];
+
+/** Allowed origins: main Tickets list (known query fields), Billing, and My Tickets ?tab=invoice|other. */
+export function isSafeOriginUrl(url: URL, siteOrigin: string): boolean {
+  if (url.origin !== siteOrigin) return false;
+  const keys = [...url.searchParams.keys()];
+  if (url.pathname === "/dashboard/billing") return keys.length === 0;
+  if (url.pathname === "/dashboard/tickets/my") {
+    const tab = url.searchParams.get("tab");
+    return keys.length === 1 && url.searchParams.getAll("tab").length === 1 && (tab === "invoice" || tab === "other");
+  }
+  if (url.pathname !== "/dashboard/tickets") return false;
+  const view = url.searchParams.get("view");
+  const page = url.searchParams.get("completedPage");
+  return !((view !== null && !["list", "kanban-type", "kanban-user"].includes(view)) ||
+    (page !== null && (!/^[1-9]\d*$/.test(page) || !Number.isSafeInteger(Number(page)))) ||
+    keys.some(key => !LIST_KEYS.includes(key)));
+}
+
+// Never use an untrusted stored URL as a navigation target. Operational and
+// billing origins each have a narrowly validated path and query allowlist.
 export function consumeTicketOrigin(ticketId: string): TicketOrigin | null {
   const raw = sessionStorage.getItem(ORIGIN_KEY);
   sessionStorage.removeItem(ORIGIN_KEY);
@@ -37,16 +60,7 @@ export function consumeTicketOrigin(ticketId: string): TicketOrigin | null {
         origin.savedAt > Date.now() ||
         typeof origin.url !== "string" || origin.url.length > 4000) return null;
     const url = new URL(origin.url, window.location.origin);
-    const view = url.searchParams.get("view");
-    const page = url.searchParams.get("completedPage");
-    if (url.origin !== window.location.origin || url.pathname !== "/dashboard/tickets" ||
-        (view !== null && !["list", "kanban-type", "kanban-user", "billing"].includes(view)) ||
-        (page !== null && (!/^[1-9]\d*$/.test(page) || !Number.isSafeInteger(Number(page)))) ||
-        [...url.searchParams.keys()].some(key => ![
-          "q", "priority", "type", "workType", "status", "assignedTo",
-          "actionType", "needsScheduling", "view", "completedPage",
-          "openCollapsed", "completedCollapsed", "equipmentCollapsed",
-        ].includes(key))) return null;
+    if (!isSafeOriginUrl(url, window.location.origin)) return null;
     return { ...origin, url: url.pathname + url.search };
   } catch {
     return null;

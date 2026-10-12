@@ -7,6 +7,8 @@ interface ProtectedRouteProps {
   component: React.ComponentType;
   allowedRoles?: Array<"admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor">;
   superAdminOnly?: boolean;
+  /** Extra access predicate (e.g. canViewBilling), replaces role list when given. */
+  access?: (user: NonNullable<ReturnType<typeof useAuth>["user"]>) => boolean;
 }
 
 export function ProtectedRoute({
@@ -14,6 +16,7 @@ export function ProtectedRoute({
   component: Component,
   allowedRoles,
   superAdminOnly = false,
+  access,
 }: ProtectedRouteProps) {
   const { user, isLoading } = useAuth();
 
@@ -38,6 +41,14 @@ export function ProtectedRoute({
   }
 
   if (superAdminOnly && !user.isSuperAdminBool) {
+    return (
+      <Route path={path}>
+        {() => <Redirect to="/access-denied" />}
+      </Route>
+    );
+  }
+
+  if (access && !user.isSuperAdminBool && !access(user)) {
     return (
       <Route path={path}>
         {() => <Redirect to="/access-denied" />}

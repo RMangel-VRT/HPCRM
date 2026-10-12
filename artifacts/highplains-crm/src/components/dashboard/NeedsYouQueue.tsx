@@ -16,6 +16,8 @@ import {
 import { ToastAction } from "@/components/ui/toast";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { BILLING_LANDING, canViewBilling, isBillingPerson } from "@/lib/billing";
 import { queryClient } from "@/lib/queryClient";
 import { isSeededTicketType } from "@shared/ticketVisuals";
 
@@ -370,6 +372,7 @@ function QueueBandSection({
  * their own scheduling signals, so the office-only filter chips are hidden.
  */
 export default function NeedsYouQueue({ scope = "office" }: { scope?: "office" | "owner" } = {}) {
+  const { user: authUser } = useAuth();
   const [activeFilter, setActiveFilter] = useState<QueueFilter>("all");
   const [weekExpanded, setWeekExpanded] = useState(false);
   const [confirmationItem, setConfirmationItem] = useState<ActionQueueItem | null>(null);
@@ -585,6 +588,16 @@ export default function NeedsYouQueue({ scope = "office" }: { scope?: "office" |
           </button>
         ))}
       </div>
+      )}
+      {canViewBilling(authUser) && ((scope === "office" && activeFilter === "billing") || (scope === "owner" && isBillingPerson(authUser))) && (
+        <Link
+          href={isBillingPerson(authUser) ? BILLING_LANDING : "/dashboard/billing"}
+          className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline"
+          data-testid="needs-you-billing-link"
+        >
+          {isBillingPerson(authUser) ? "Open To invoice" : "Open Billing"}
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Link>
       )}
       {data?.total === 0 ? (
         <p className="py-7 text-sm text-muted-foreground" data-testid="needs-you-empty">

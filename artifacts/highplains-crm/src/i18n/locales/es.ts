@@ -165,6 +165,7 @@ const es = {
     adminHome: "Inicio Admin",
     dashboard: "Panel",
     myTickets: "Mis Tickets",
+    billing: "Facturación",
     tickets: "Tickets",
     customerMaps: "Mapas de Clientes",
     customers: "Clientes",

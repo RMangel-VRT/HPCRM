@@ -177,6 +177,7 @@ export function requireMobileAuth() {
       ...u,
       activeCompanyId: tokenRow.companyId,
       activeRole: membership.role as UserWithContext["activeRole"],
+      activeTags: membership.tags ?? [],
       isSuperAdminBool: u.isSuperAdmin === "true",
     };
     req.user = userWithContext;

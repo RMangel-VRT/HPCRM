@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Router } from "wouter";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const fixtures = vi.hoisted(() => ({ rows: [] as any[] }));
 vi.mock("@tanstack/react-query", async importOriginal => ({
@@ -19,9 +20,11 @@ describe("rendered Billing header", () => {
       id: `charge-${i}`, title: `Charge ${i}`, customer: null, sourceTicket: null,
     }));
     const html = renderToStaticMarkup(
-      <Router ssrPath="/dashboard/tickets?view=billing">
-        <BillingView role="office" companyId="company" userId="viewer" users={new Map()} />
-      </Router>,
+      <QueryClientProvider client={new QueryClient()}>
+        <Router ssrPath="/dashboard/billing">
+          <BillingView role="office" companyId="company" userId="viewer" users={new Map()} />
+        </Router>
+      </QueryClientProvider>,
     );
     expect(html).toContain(`data-testid="text-billing-count">${label}</h2>`);
     expect(html.includes('data-testid="billing-empty"')).toBe(count === 0);

@@ -7,16 +7,28 @@ type CompletionStorage = Pick<IStorage,
   | "getTicketsByIds" | "getTicketTypeStatusesByTypeIds" | "updateTicket"
   | "createTicketStatusHistory" | "dismissDueDateNotificationsForTicket">;
 
+export interface InvoiceCompletionOutcome {
+  parentTicketId: string;
+  parentTitle: string;
+  parentTypeKey: string | null;
+  parentAdvanced: boolean;
+  siblingHeld: boolean;
+}
+
 /** Called only when an Invoice is moving into a final status. */
 export async function propagateInvoiceCompletion(
   existingTicket: Ticket, companyId: string, actorId: string, storage: CompletionStorage,
-): Promise<void> {
+): Promise<InvoiceCompletionOutcome | undefined> {
   const links = await storage.getTicketLinks(existingTicket.id);
   const parentLink = links.find(link => link.linkType === "invoice_for" && link.targetTicketId === existingTicket.id);
   if (!parentLink) return;
   const parentTicket = await storage.getTicketById(parentLink.sourceTicketId, companyId);
   if (!parentTicket) return;
   const parentTicketType = await storage.getTicketTypeById(parentTicket.ticketTypeId, companyId);
+  const outcome: InvoiceCompletionOutcome = {
+    parentTicketId: parentTicket.id, parentTitle: parentTicket.title,
+    parentTypeKey: parentTicketType?.typeKey ?? null, parentAdvanced: false, siblingHeld: false,
+  };
   const parentStatuses = await storage.getTicketTypeStatuses(parentTicket.ticketTypeId);
   const invoiceFieldValues = await storage.getTicketFieldValues(existingTicket.id);
   const invoiceFields = await storage.getTicketTypeFields(existingTicket.ticketTypeId);
@@ -45,15 +57,16 @@ export async function propagateInvoiceCompletion(
   // The PATCH persists the invoice after this block, so count this one as final.
   if (siblings.some(ticket => ticket.id !== existingTicket.id && !finalStatusIds.has(ticket.currentStatusId))) {
     console.log(`Waiting to advance parent ticket ${parentTicket.id}: another linked Invoice is still open`);
-    return;
+    return { ...outcome, siblingHeld: true };
   }
   const sortedParentStatuses = [...parentStatuses].sort((a, b) => a.displayOrder - b.displayOrder);
   const currentStatusIndex = sortedParentStatuses.findIndex(status => status.id === parentTicket.currentStatusId);
   const nextFinalStatus = sortedParentStatuses.find((status, index) => index > currentStatusIndex && status.isFinal === "true");
   if (nextFinalStatus) {
-    await storage.updateTicket(parentTicket.id, companyId, {
+    const advanced = await storage.updateTicket(parentTicket.id, companyId, {
       currentStatusId: nextFinalStatus.id, completedAt: new Date(),
     });
+    outcome.parentAdvanced = advanced?.currentStatusId === nextFinalStatus.id && !!advanced.completedAt;
     await storage.createTicketStatusHistory({
       ticketId: parentTicket.id, toStatusId: nextFinalStatus.id, changedById: actorId,
       notes: "Auto-advanced: linked Invoice ticket completed",
@@ -63,4 +76,5 @@ export async function propagateInvoiceCompletion(
     });
     console.log(`Auto-advanced parent ticket ${parentTicket.id} (${parentTicketType?.name}) to "${nextFinalStatus.name}" after Invoice completion`);
   }
+  return outcome;
 }

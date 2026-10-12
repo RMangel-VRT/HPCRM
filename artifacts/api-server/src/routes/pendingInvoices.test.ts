@@ -1,27 +1,27 @@
 import express from "express";
 import request from "supertest";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { tickets, ticketLinks, customers } from "@workspace/db";
+import { tickets, ticketLinks, customers, companyUsers } from "@workspace/db";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   select: vi.fn(), getTicketTypes: vi.fn(), getTicketTypeStatuses: vi.fn(),
-  getTicketsByIds: vi.fn(), getTickets: vi.fn(),
+  getTicketsByIds: vi.fn(), getTickets: vi.fn(), getTicketTypeStatusesByTypeIds: vi.fn(),
 }));
 vi.mock("../db", () => ({ db: { select: mocks.select } }));
 vi.mock("../storage", () => ({ storage: mocks }));
-import { invoiceAgeDays, registerPendingInvoicesRoute } from "./pendingInvoices";
+import { invoiceAgeDays, recentInvoiceBounds, registerPendingInvoicesRoute } from "./pendingInvoices";
 
 const dialect = new PgDialect();
 let rows: any[];
 let links: any[];
 let sources: any[];
 let query: { sql: string; params: unknown[] } | undefined;
-function app(role = "admin", authenticated = true) {
+function app(role = "admin", authenticated = true, tags: string[] = []) {
   const app = express();
   app.use((req, _res, next) => {
     (req as any).isAuthenticated = () => authenticated;
-    (req as any).user = { id: "viewer", activeCompanyId: "company", activeRole: role };
+    (req as any).user = { id: "viewer", activeCompanyId: "company", activeRole: role, activeTags: tags };
     next();
   });
   registerPendingInvoicesRoute(app);
@@ -44,22 +44,45 @@ describe("GET /api/pending-invoices", () => {
       { id: "invoice-type", typeKey: "invoice", name: "Renamed Charges" },
       { id: "task-type", typeKey: "task", name: "Renamed Task" },
     ]);
-    mocks.getTicketTypeStatuses.mockResolvedValue([
-      { id: "pending", statusKey: "pending_invoice", name: "Renamed Waiting" },
-      { id: "decoy", statusKey: "invoiced", name: "Pending Invoice" },
+    mocks.getTicketTypeStatusesByTypeIds.mockResolvedValue([
+      { id: "pending", ticketTypeId: "invoice-type", statusKey: "pending_invoice", name: "Renamed Waiting", isFinal: "false" },
+      { id: "decoy", ticketTypeId: "invoice-type", statusKey: "invoiced", name: "Pending Invoice", isFinal: "true" },
+      { id: "rfb", ticketTypeId: "task-type", statusKey: "ready_for_billing", name: "Renamed ready", isFinal: "false" },
     ]);
     mocks.getTicketsByIds.mockImplementation(async (ids: string[], companyId: string) =>
-      sources.filter(ticket => ids.includes(ticket.id) && ticket.companyId === companyId));
+      [...sources, ...rows].filter(ticket => ids.includes(ticket.id) && ticket.companyId === companyId));
     mocks.select.mockImplementation(() => ({
       from: (table: unknown) => ({
+        innerJoin: () => ({
+          where: (condition: any) => {
+            expect(table).toBe(companyUsers);
+            expect(dialect.sqlToQuery(condition).params).toContain("company");
+            return Promise.resolve([{ id: "viewer", name: "Viewer" }, { id: "other", name: "Other assignee" }]);
+          },
+        }),
         // No limit() on this double: adding a limit fails the regression.
         where: (condition: any) => {
           const compiled = dialect.sqlToQuery(condition);
           if (table === tickets) {
-            query = compiled;
-            return Promise.resolve(rows.filter(ticket =>
-              ticket.companyId === compiled.params[0] && ticket.ticketTypeId === compiled.params[1]
-              && ticket.currentStatusId === compiled.params[2]));
+            if (compiled.sql.includes('"ticket_type_id" =')) query = compiled;
+            return Promise.resolve(rows.filter(ticket => {
+              const columns: Record<string, string> = { company_id: "companyId", ticket_type_id: "ticketTypeId", current_status_id: "currentStatusId" };
+              for (const match of compiled.sql.matchAll(/"tickets"\."(\w+)" (=|<>) \$(\d+)/g)) {
+                if (!columns[match[1]]) continue;
+                const equal = ticket[columns[match[1]]] === compiled.params[Number(match[3]) - 1];
+                if (match[2] === "=" ? !equal : equal) return false;
+              }
+              for (const match of compiled.sql.matchAll(/"tickets"\."(\w+)" in \(([^)]+)\)/g)) {
+                const values = [...match[2].matchAll(/\$(\d+)/g)].map(m => compiled.params[Number(m[1]) - 1]);
+                if (!values.includes(ticket[columns[match[1]]])) return false;
+              }
+              if (compiled.sql.includes('"assigned_to_id"') && ticket.assignedToId != null && ticket.assignedToId !== "viewer") return false;
+              const start = compiled.sql.match(/"completed_at" >= \$(\d+)/);
+              const end = compiled.sql.match(/"completed_at" < \$(\d+)/);
+              if (start && (!ticket.completedAt || new Date(ticket.completedAt) < new Date(compiled.params[Number(start[1]) - 1] as string))) return false;
+              if (end && (!ticket.completedAt || new Date(ticket.completedAt) >= new Date(compiled.params[Number(end[1]) - 1] as string))) return false;
+              return true;
+            }));
           }
           if (table === ticketLinks) return Promise.resolve(links);
           if (table === customers) return Promise.resolve([]);
@@ -117,7 +140,7 @@ describe("GET /api/pending-invoices", () => {
     expect(response.body[0].sourceTicket).toMatchObject({ title: "Source job", typeKey: "task", typeName: "Renamed Task" });
     expect(response.body[1].sourceTicket).toBeNull();
     expect(response.body[2].sourceTicket).toBeNull();
-    expect(mocks.getTicketsByIds).toHaveBeenCalledExactlyOnceWith(["parent", "foreign"], "company");
+    expect(mocks.getTicketsByIds).toHaveBeenCalledExactlyOnceWith(["parent", "linked", "foreign", "foreign-link"], "company");
   });
   it("uses workCompletedDate before createdAt for age", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -131,10 +154,90 @@ describe("GET /api/pending-invoices", () => {
     expect((await request(app()).get("/api/pending-invoices")).body).toEqual([]);
     expect(mocks.select).not.toHaveBeenCalled();
   });
+  it("allows billing-tagged field managers but denies untagged ones", async () => {
+    expect((await request(app("field_manager", true, ["billing"])).get("/api/pending-invoices")).status).toBe(200);
+    expect((await request(app("field_manager")).get("/api/pending-invoices")).status).toBe(403);
+  });
+  it("tagged field viewers receive scoped names without administrative directory access", async () => {
+    rows = [invoice("charge", { assignedToId: "other" })];
+    const result = await request(app("field_manager", true, ["billing"])).get("/api/pending-invoices?scope=all");
+    expect(result.status).toBe(200);
+    expect(result.body[0]).toMatchObject({ assignedToId: "other", assigneeName: "Other assignee" });
+  });
+  it("mine includes own and unassigned invoices and every stranded job, never another assignee's invoice", async () => {
+    rows = [invoice("own", { assignedToId: "viewer" }), invoice("unassigned"), invoice("someone-else", { assignedToId: "other" }),
+      invoice("job", { ticketTypeId: "task-type", currentStatusId: "rfb", billingBehavior: "invoice_required", assignedToId: "other" })];
+    const response = await request(app()).get("/api/pending-invoices?scope=mine");
+    expect(response.body.map((r: any) => [r.id, r.kind])).toEqual([["own", "invoice"], ["unassigned", "invoice"], ["job", "stranded"]]);
+    expect(response.body[2]).toMatchObject({ invoiceCategory: null, assignedToId: "other", sourceTicket: { id: "job", typeKey: "task", typeName: "Renamed Task" } });
+  });
+  it("excludes contract Tasks; deleted, non-Invoice and cross-company targets do not hide a stranded charge", async () => {
+    const job = (id: string, billingBehavior = "invoice_required") => invoice(id, { ticketTypeId: "task-type", currentStatusId: "rfb", billingBehavior });
+    rows = [job("contract", "no_invoice"), job("valid"), job("deleted"), job("foreign"), job("not-invoice"), invoice("charge")];
+    links = [
+      { sourceTicketId: "valid", targetTicketId: "charge" },
+      { sourceTicketId: "deleted", targetTicketId: "missing" },
+      { sourceTicketId: "foreign", targetTicketId: "other-company-charge" },
+      { sourceTicketId: "not-invoice", targetTicketId: "contract" },
+    ];
+    sources = [invoice("other-company-charge", { companyId: "other" })];
+    const result = await request(app()).get("/api/pending-invoices");
+    expect(result.body.filter((r: any) => r.kind === "stranded").map((r: any) => r.id)).toEqual(["deleted", "foreign", "not-invoice"]);
+  });
+  it("recovery replaces one stranded job with one normal Invoice charge", async () => {
+    rows = [invoice("job", { ticketTypeId: "task-type", currentStatusId: "rfb", billingBehavior: "invoice_required" })];
+    expect((await request(app()).get("/api/pending-invoices")).body.map((r: any) => r.kind)).toEqual(["stranded"]);
+    rows.push(invoice("recovered"));
+    links = [{ sourceTicketId: "job", targetTicketId: "recovered" }];
+    const result = await request(app()).get("/api/pending-invoices");
+    expect(result.body).toHaveLength(1);
+    expect(result.body[0]).toMatchObject({ id: "recovered", kind: "invoice", sourceTicket: { id: "job" } });
+  });
+  it("keeps a fixed bulk query budget for thousands of pending and stranded rows", async () => {
+    const calls = async (count: number) => {
+      vi.clearAllMocks();
+      rows = Array.from({ length: count }, (_, i) => [
+        invoice(`charge-${i}`, { customerId: "property", assignedToId: "viewer" }),
+        invoice(`job-${i}`, { customerId: "property", assignedToId: "other", ticketTypeId: "task-type", currentStatusId: "rfb", billingBehavior: "invoice_required" }),
+      ]).flat();
+      const result = await request(app()).get("/api/pending-invoices");
+      expect(result.body).toHaveLength(count * 2);
+      return [mocks.select.mock.calls.length, mocks.getTicketsByIds.mock.calls.length, mocks.getTicketTypeStatusesByTypeIds.mock.calls.length];
+    };
+    expect(await calls(1500)).toEqual(await calls(1));
+  });
+  it("recent uses final statuses, newest first and the same assignment boundary, never stranded", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-09T02:00:00Z")); // October 8, 8 pm Colorado; host UTC
+    rows = [
+      invoice("today", { currentStatusId: "decoy", completedAt: new Date("2026-10-09T01:00:00Z") }),
+      invoice("first-day", { currentStatusId: "decoy", completedAt: new Date("2026-09-09T06:00:00Z") }),
+      invoice("too-old", { currentStatusId: "decoy", completedAt: new Date("2026-09-09T05:59:59Z") }),
+      invoice("31-days", { currentStatusId: "decoy", completedAt: new Date("2026-09-07T18:00:00Z") }),
+      invoice("tomorrow", { currentStatusId: "decoy", completedAt: new Date("2026-10-09T06:00:00Z") }),
+      invoice("someone-else", { currentStatusId: "decoy", completedAt: new Date("2026-10-09T01:30:00Z"), assignedToId: "other" }),
+      invoice("pending"), invoice("stranded", { ticketTypeId: "task-type", currentStatusId: "rfb", billingBehavior: "invoice_required" }),
+    ];
+    const result = await request(app()).get("/api/pending-invoices?scope=mine&view=recent");
+    expect(result.body.map((r: any) => r.id)).toEqual(["today", "first-day"]);
+    expect(result.body.every((r: any) => r.kind === "invoice" && r.completedAt)).toBe(true);
+  });
+  it("rejects unknown scope/view", async () => {
+    expect((await request(app()).get("/api/pending-invoices?scope=other")).status).toBe(400);
+    expect((await request(app()).get("/api/pending-invoices?view=other")).status).toBe(400);
+  });
   afterEach(() => vi.useRealTimers());
 });
 
 describe("Colorado calendar invoice age", () => {
+  it.each([
+    ["2026-03-10T02:00:00Z", "2026-02-08T07:00:00.000Z", "2026-03-10T06:00:00.000Z"],
+    ["2026-11-03T03:00:00Z", "2026-10-04T06:00:00.000Z", "2026-11-03T07:00:00.000Z"],
+  ])("recent half-open window resolves each DST midnight at %s", (now, start, end) => {
+    const bounds = recentInvoiceBounds(new Date(now));
+    expect(bounds.start.toISOString()).toBe(start);
+    expect(bounds.end.toISOString()).toBe(end);
+  });
   it.each([
     ["2026-10-08T05:30:00Z", "2026-10-08T06:30:00Z", 1],
     ["2026-10-08T00:00:00Z", "2026-10-08T05:30:00Z", 0],

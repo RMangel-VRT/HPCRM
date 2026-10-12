@@ -7,9 +7,9 @@ const r = (id: string, name: string, d: string, cid = name) =>
 describe("billing", () => {
   afterEach(() => vi.unstubAllGlobals());
   it("roles", () => {
-    expect(canViewBilling("admin")).toBe(true);
-    expect(canViewBilling("office")).toBe(true);
-    expect(canViewBilling("field")).toBe(false);
+    expect(canViewBilling({ activeRole: "admin" })).toBe(true);
+    expect(canViewBilling({ activeRole: "office" })).toBe(true);
+    expect(canViewBilling({ activeRole: "field" })).toBe(false);
     expect(canViewBilling(undefined)).toBe(false);
   });
   it("sorts property then oldest, dedupes", () => {
@@ -48,5 +48,15 @@ describe("billing", () => {
     expect(groups.map(group => [group.key, group.rows.map(row => row.id)])).toEqual([
       ["first-property", ["1", "3"]], ["second-property", ["2"]],
     ]);
+  });
+});
+
+import { isBillingItem } from "./billing";
+describe("isBillingItem", () => {
+  it("matches invoice type and ready_for_billing by stable keys only", () => {
+    expect(isBillingItem({ ticketType: { typeKey: "invoice" } })).toBe(true);
+    expect(isBillingItem({ ticketType: { typeKey: "task" }, currentStatus: { statusKey: "ready_for_billing" } })).toBe(true);
+    expect(isBillingItem({ ticketType: { typeKey: "task" }, currentStatus: { statusKey: "in_progress" } })).toBe(false);
+    expect(isBillingItem({ ticketTypeId: "t", currentStatusId: "s" }, new Map([["t", { typeKey: "task" }]]), new Map([["s", { statusKey: "ready_for_billing" }]]))).toBe(true);
   });
 });

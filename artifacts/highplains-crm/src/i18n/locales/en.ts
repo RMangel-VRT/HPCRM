@@ -165,6 +165,7 @@ const en = {
     adminHome: "Admin Home",
     dashboard: "Dashboard",
     myTickets: "My Tickets",
+    billing: "Billing",
     tickets: "Tickets",
     customerMaps: "Customer Maps",
     customers: "Customers",
