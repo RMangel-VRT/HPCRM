@@ -51,6 +51,7 @@ import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks
 import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
 import { computeScheduleBy } from '../lib/scheduleBy';
+import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from '../lib/dueDateDismissal';
 import { migrateSchedulingStatuses } from '../lib/schedulingStatuses';
 import { backfillScheduleBy } from '../lib/backfillScheduleBy';
 import { maintainScheduleBy } from '../lib/scheduleByMaintenance';
@@ -7154,21 +7155,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Dismiss stale due-date notifications when the due date is extended to a strictly
     // future date (tomorrow or later) or when the ticket moves to a final (resolved) status
     try {
-      // Calendar-day boundaries follow the server-local Colorado day, as in the crew app.
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
-
       // Only fire when dueDate was explicitly included in the update payload,
       // the new value is strictly in the future (tomorrow or later), and it
       // actually differs from the existing due date.
-      let dueDateExtendedToFuture = false;
-      if (updates.dueDate !== undefined && updates.dueDate !== null) {
-        const newDueDate = new Date(updates.dueDate as string | Date);
-        const oldDueDate = existingTicket.dueDate ? new Date(String(existingTicket.dueDate)) : null;
-        const dueDateActuallyChanged = !oldDueDate || newDueDate.getTime() !== oldDueDate.getTime();
-        dueDateExtendedToFuture = dueDateActuallyChanged && newDueDate > todayEnd;
-      }
+      const dueDateExtendedToFuture = wasDueDateExtendedToFuture(
+        updates.dueDate as string | Date | null | undefined, existingTicket.dueDate,
+      );
 
       let resolvedToFinalStatus = false;
       if (req.body.currentStatusId && req.body.currentStatusId !== existingTicket.currentStatusId) {

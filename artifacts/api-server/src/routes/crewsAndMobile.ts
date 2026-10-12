@@ -37,6 +37,19 @@ import {
 import type { UserWithContext } from "../auth";
 import { addPushSubscription, removePushSubscription } from "../services/pushNotifications";
 import { pickProvided } from "../lib/patchBody";
+import { addCalendarDays, companyDateString, companyDayBounds, companyToday } from "../lib/companyDay";
+
+// Query values are calendar dates, not instants. Invalid values retain the
+// existing default-to-today behavior rather than being projected through a zone.
+function requestedCompanyDate(value: unknown, today: string): string {
+  if (typeof value !== "string") return today;
+  try {
+    addCalendarDays(value, 0);
+    return value;
+  } catch {
+    return today;
+  }
+}
 
 // Mobile v1 Slice 6: shape stored in users.notification_prefs_json.
 const notificationPrefsSchema = z.object({
@@ -297,31 +310,18 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     const u = req.user as UserWithContext;
     const crewId = await resolveSupervisorCrewId(u.id, u.activeCompanyId);
 
-    // "Today" in the server's local timezone — good enough for v1; the field
-    // crew lives in one geography (Colorado) so server-local matches their day.
-    // Slice 6: accept ?date=YYYY-MM-DD so the Me-tab week strip can scope
-    // the Today view to a different day. When omitted, defaults to today.
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-    if (typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)) {
-      const [y, m, d] = req.query.date.split("-").map((p) => Number.parseInt(p, 10));
-      const parsed = new Date(y, m - 1, d);
-      if (!Number.isNaN(parsed.getTime())) {
-        parsed.setHours(0, 0, 0, 0);
-        dayStart.setTime(parsed.getTime());
-      }
-    }
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    // ?date=YYYY-MM-DD is a Colorado calendar date; otherwise use Colorado today.
+    const today = companyToday();
+    const date = requestedCompanyDate(req.query.date, today);
+    const { start: dayStart, end: dayEnd } = companyDayBounds(date);
 
     // Past-day responses show *all* stops including completed ones, since
     // they're read-only history rather than the live work queue.
-    const todayMidnight = new Date();
-    todayMidnight.setHours(0, 0, 0, 0);
-    const isPastDay = dayStart.getTime() < todayMidnight.getTime();
+    const isPastDay = date < today;
 
     if (!crewId) {
       res.json({
-        date: dayStart.toISOString().slice(0, 10),
+        date,
         crewId: null,
         crewName: null,
         summary: { total: 0, notStarted: 0, inProgress: 0, complete: 0, skipped: 0, flagged: 0 },
@@ -391,7 +391,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     }));
 
     res.json({
-      date: dayStart.toISOString().slice(0, 10),
+      date,
       crewId,
       crewName: crewRow?.name ?? null,
       summary,
@@ -459,16 +459,14 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
   // Helper: load a ticket (scoped to the caller's crew + company) joined with
   // the customer row that backs the curated site-notes block.
   // Slice 6 read-only enforcement: a ticket is "past-day" when its dueDate
-  // falls strictly before today's local midnight. Used by both the GET detail
+  // falls strictly before today's Colorado midnight. Used by both the GET detail
   // (to set `readOnly: true` so the mobile UI hides mutation affordances) and
   // by the start/complete/work-item PATCH mutation routes (to refuse writes
   // server-side, so a stale client or hand-crafted request can't bypass the
   // UI guard). Tickets with no dueDate are treated as live (not past-day).
   function isTicketPastDay(dueDate: Date | null): boolean {
     if (!dueDate) return false;
-    const todayMidnight = new Date();
-    todayMidnight.setHours(0, 0, 0, 0);
-    return dueDate.getTime() < todayMidnight.getTime();
+    return dueDate.getTime() < companyDayBounds(companyToday()).start.getTime();
   }
 
   async function loadMobileTicket(ticketId: string, companyId: string, crewId: string) {
@@ -1711,7 +1709,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
   // notification prefs, push subscription registry ───────────────────────────
 
   // 7-day rollup for the supervisor's crew. Defaults to a window starting
-  // today (server-local) and including today + 6 future days. The mobile
+  // today in Colorado and including today + 6 future calendar days. The mobile
   // week strip pages back/forward by passing `startDate=YYYY-MM-DD`.
   app.get("/api/m/me/week", requireMobileAuth(), async (req, res) => {
     const u = req.user as UserWithContext;
@@ -1720,24 +1718,15 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       return;
     }
 
-    let weekStart = new Date();
-    weekStart.setHours(0, 0, 0, 0);
-    if (typeof req.query.startDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.startDate)) {
-      const [y, m, d] = req.query.startDate.split("-").map((p) => Number.parseInt(p, 10));
-      const parsed = new Date(y, m - 1, d);
-      if (!Number.isNaN(parsed.getTime())) {
-        parsed.setHours(0, 0, 0, 0);
-        weekStart = parsed;
-      }
-    }
-    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const startDate = requestedCompanyDate(req.query.startDate, companyToday());
+    const weekStart = companyDayBounds(startDate).start;
+    const weekEnd = companyDayBounds(addCalendarDays(startDate, 7)).start;
 
     const crewId = await resolveSupervisorCrewIdLocal(u.id, u.activeCompanyId);
     const days: { date: string; total: number; complete: number; flagged: number }[] = [];
     for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart.getTime() + i * 24 * 60 * 60 * 1000);
       days.push({
-        date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+        date: addCalendarDays(startDate, i),
         total: 0,
         complete: 0,
         flagged: 0,
@@ -1764,8 +1753,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
 
     for (const r of rows) {
       if (!r.dueDate) continue;
-      const d = new Date(r.dueDate);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const key = companyDateString(new Date(r.dueDate));
       const bucket = days.find((x) => x.date === key);
       if (!bucket) continue;
       bucket.total++;
@@ -1866,9 +1854,8 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     const crewId = await resolveSupervisorCrewIdLocal(u.id, u.activeCompanyId);
 
     // Today (live) — same shape as /api/m/today.
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const today = companyToday();
+    const { start: dayStart, end: dayEnd } = companyDayBounds(today);
 
     let crewName: string | null = null;
     let todayStops: Array<Record<string, unknown>> = [];
@@ -1924,16 +1911,15 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     // Week strip — 7 days starting today.
     const weekDays: { date: string; total: number; complete: number; flagged: number }[] = [];
     for (let i = 0; i < 7; i++) {
-      const d = new Date(dayStart.getTime() + i * 24 * 60 * 60 * 1000);
       weekDays.push({
-        date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+        date: addCalendarDays(today, i),
         total: 0,
         complete: 0,
         flagged: 0,
       });
     }
     if (crewId) {
-      const weekEnd = new Date(dayStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const weekEnd = companyDayBounds(addCalendarDays(today, 7)).start;
       const wkRows = await db
         .select({ dueDate: tickets.dueDate, mobileStatus: tickets.mobileStatus })
         .from(tickets)
@@ -1945,8 +1931,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
         ));
       for (const r of wkRows) {
         if (!r.dueDate) continue;
-        const d = new Date(r.dueDate);
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const key = companyDateString(new Date(r.dueDate));
         const bucket = weekDays.find((x) => x.date === key);
         if (!bucket) continue;
         bucket.total++;
@@ -2054,7 +2039,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     res.json({
       serverTime: new Date().toISOString(),
       today: {
-        date: dayStart.toISOString().slice(0, 10),
+        date: today,
         crewId,
         crewName,
         summary: todaySummary,

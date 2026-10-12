@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { computeScheduleBy, localDateString, type Priority } from "../shared/scheduleBy";
+import { addCalendarDays, COMPANY_TIME_ZONE, computeScheduleBy, localDateString, type Priority } from "../shared/scheduleBy";
 
 export interface SchedulingStatusResponse {
   schedulingStatusId: string | null;
@@ -35,17 +35,12 @@ export function isNeedsSchedulingStatus(
 
 /**
  * Company calendar day (YYYY-MM-DD) in Colorado. schedule_by and follow_up_date
- * are calendar dates in the company's local day; the server compares in
- * server-local (Colorado) time, so the browser must not use its own zone.
+ * are Colorado calendar dates; neither server nor browser uses its host zone.
  */
-export const COMPANY_TIME_ZONE = "America/Denver";
+export { COMPANY_TIME_ZONE };
 
 export function companyToday(now: Date = new Date()): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: COMPANY_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(now);
-  const pick = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${pick("year")}-${pick("month")}-${pick("day")}`;
+  return localDateString(now);
 }
 
 /** Parse YYYY-MM-DD as a local noon Date (never UTC midnight). */
@@ -55,9 +50,12 @@ export function parseCalendarDate(ymd: string): Date {
 }
 
 export function addDaysYmd(ymd: string, days: number): string {
-  const d = parseCalendarDate(ymd);
-  d.setDate(d.getDate() + days);
-  return localDateString(d);
+  return addCalendarDays(ymd, days);
+}
+
+/** Date pickers encode calendar components in browser-local Dates, not instants. */
+export function calendarDateString(date: Date): string {
+  return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 /** YYYY-MM-DD strings compare lexically. */
@@ -67,7 +65,7 @@ export function isBeforeCompanyToday(ymd: string | null | undefined): boolean {
 
 /** Preview of the server's schedule-by, based on the Colorado day. */
 export function previewScheduleBy(priority: Priority | string | null | undefined): string {
-  return computeScheduleBy(priority, parseCalendarDate(companyToday()));
+  return computeScheduleBy(priority, new Date());
 }
 
 import type { QueryClient } from "@tanstack/react-query";

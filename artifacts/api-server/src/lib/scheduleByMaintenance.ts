@@ -16,7 +16,7 @@ export function maintainScheduleBy(
     && (isSeededStatus(current, "new") || isSeededStatus(current, "ready_to_schedule"))) {
     body.scheduleBy = computeScheduleBy(body.priority as string, new Date(ticket.acceptedAt ?? ticket.createdAt));
   } else if (target?.id !== current?.id && isSeededStatus(target, "ready_to_schedule") && ticket.scheduleBy == null) {
-    // Server-local Colorado calendar day, matching the crew app's "today".
+    // Explicit Colorado calendar day, matching the crew app's "today".
     body.scheduleBy = computeScheduleBy((body.priority ?? ticket.priority) as string, now);
   }
 }

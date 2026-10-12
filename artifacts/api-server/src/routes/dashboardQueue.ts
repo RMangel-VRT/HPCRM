@@ -26,6 +26,7 @@ import {
   isSeededStatus,
 } from "../shared/ticketCapabilities";
 import { localDateString } from "../lib/scheduleBy";
+import { addCalendarDays, companyDateString, companyDayBounds, companyToday, isWeekend } from "../lib/companyDay";
 
 export type QueueBand = "overdue" | "today" | "week";
 
@@ -184,21 +185,13 @@ type DateLike = Date | string | null;
 
 function dateOnly(value: DateLike): string | null {
   if (!value) return null;
-  if (typeof value === "string") return value.slice(0, 10);
-  return value.toISOString().slice(0, 10);
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return companyDateString(value instanceof Date ? value : new Date(value));
 }
 
 function serializedDate(value: DateLike): string | null {
   if (!value) return null;
   return value instanceof Date ? value.toISOString() : value;
-}
-
-function utcDayBounds(now: Date): { start: Date; end: Date } {
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  return {
-    start,
-    end: new Date(start.getTime() + DAY_MS),
-  };
 }
 
 function denseRevenueMonths(rows: Array<{ month: string; revenue: number }>): number[] {
@@ -290,12 +283,12 @@ function calendarDaysBetween(from: string, to: string): number {
 }
 
 function businessDaysSince(createdAt: Date, now: Date): number {
-  const day = new Date(createdAt);
-  day.setHours(12, 0, 0, 0);
+  let day = companyDateString(createdAt);
+  const today = companyToday(now);
   let count = 0;
-  while (localDateString(day) < localDateString(now)) {
-    day.setDate(day.getDate() + 1);
-    if (day.getDay() !== 0 && day.getDay() !== 6) count++;
+  while (day < today) {
+    day = addCalendarDays(day, 1);
+    if (!isWeekend(day)) count++;
   }
   return count;
 }
@@ -411,7 +404,7 @@ export function registerDashboardQueueRoutes(app: Express): void {
     try {
       const companyId = user.activeCompanyId;
       const now = new Date();
-      // Calendar dates use the server-local Colorado day, matching the crew app.
+      // Calendar dates use Colorado, regardless of the host timezone.
       const today = localDateString(now);
       const ticketTypeRows = await storage.getTicketTypes(companyId);
 
@@ -693,21 +686,23 @@ export function registerDashboardQueueRoutes(app: Express): void {
           band = businessDaysSince(ticket.createdAt, now) > 1 ? "overdue" : "today";
           headline = `${ticket.title} — New · from ${creatorNames.get(ticket.createdById) ?? "Unknown creator"}`;
         }
+        const scheduleBy = dateOnly(ticket.scheduleBy);
+        const followUpDate = dateOnly(ticket.followUpDate);
         if (!source && isSeededStatus(status, "ready_to_schedule")
-          && ticket.scheduleBy && ticket.scheduleBy < today
-          && (!ticket.followUpDate || ticket.followUpDate < today)) {
+          && scheduleBy && scheduleBy < today
+          && (!followUpDate || followUpDate < today)) {
           source = "past_schedule_by";
           band = "overdue";
-          ageDays = calendarDaysBetween(ticket.scheduleBy, today);
-          const formatted = new Date(`${ticket.scheduleBy}T12:00:00`).toLocaleDateString("en-US", {
-            weekday: "short", month: "short", day: "numeric",
+          ageDays = calendarDaysBetween(scheduleBy, today);
+          const formatted = new Date(`${scheduleBy}T12:00:00Z`).toLocaleDateString("en-US", {
+            weekday: "short", month: "short", day: "numeric", timeZone: "UTC",
           }).replace(",", "");
           headline = `${ticket.title} — Schedule by ${formatted} · ${ageDays} days late`;
         }
-        if (!source && ticket.followUpDate && ticket.followUpDate <= today) {
+        if (!source && followUpDate && followUpDate <= today) {
           source = "followup_due";
           band = "today";
-          ageDays = calendarDaysBetween(ticket.followUpDate, today);
+          ageDays = calendarDaysBetween(followUpDate, today);
           headline = `${ticket.title} — Follow up · ${(ticket.followUpNote ?? "").trim().slice(0, 60)}`;
         }
         if (!source) continue;
@@ -851,9 +846,8 @@ export function registerDashboardQueueRoutes(app: Express): void {
     try {
       const companyId = user.activeCompanyId;
       const now = new Date();
-      const year = now.getUTCFullYear();
-      const month = now.getUTCMonth() + 1;
-      const { start: todayStart, end: tomorrowStart } = utcDayBounds(now);
+      const [year, month] = companyToday(now).split("-").map(Number);
+      const { start: todayStart, end: tomorrowStart } = companyDayBounds(companyToday(now));
       const { invoiceTypeId, readyStatusIds } = await getPulseTicketTypeContext(companyId);
 
       const [
@@ -954,7 +948,7 @@ export function registerDashboardQueueRoutes(app: Express): void {
         }
       }
 
-      const today = todayStart.toISOString().slice(0, 10);
+      const today = companyToday(now);
       const activeSeasons = seasonRows
         .filter((season) => {
           const startDate = dateOnly(season.startDate);

@@ -1,21 +1,30 @@
 export type Priority = "urgent" | "high" | "normal" | "low";
 
-/** Local calendar day for previews; the server-local company day (Colorado),
- * matching the crew app's "today", is authoritative when a ticket is created.
- * Do not use toISOString(): UTC can be the next day in the evening.
- */
+export const COMPANY_TIME_ZONE = "America/Denver";
+
+/** An instant's Colorado calendar day; not a date-picker serializer. */
 export function localDateString(d: Date): string {
-  return `${String(d.getFullYear()).padStart(4, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: COMPANY_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(d);
+  const pick = (type: string) => parts.find(part => part.type === type)!.value;
+  return `${pick("year")}-${pick("month")}-${pick("day")}`;
+}
+
+/** Calendar-string math, with UTC used only as a day-number representation. */
+export function addCalendarDays(date: string, days: number): string {
+  const day = new Date(`${date}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() + days);
+  return day.toISOString().slice(0, 10);
 }
 
 /** Calendar date (YYYY-MM-DD) the job must be on the calendar by. */
 export function computeScheduleBy(priority: Priority | string | null | undefined, base: Date): string {
-  const day = new Date(base.getTime());
-  day.setHours(12, 0, 0, 0);
+  let day = localDateString(base);
   if (priority === "urgent") {
-    do { day.setDate(day.getDate() + 1); } while (day.getDay() === 0 || day.getDay() === 6);
+    do { day = addCalendarDays(day, 1); } while ([0, 6].includes(new Date(`${day}T00:00:00Z`).getUTCDay()));
   } else {
-    day.setDate(day.getDate() + (priority === "high" ? 3 : priority === "low" ? 21 : 7));
+    day = addCalendarDays(day, priority === "high" ? 3 : priority === "low" ? 21 : 7);
   }
-  return localDateString(day);
+  return day;
 }

@@ -79,10 +79,13 @@ function installDbRows(rowsByTable: Map<unknown, unknown[]>) {
   }));
 }
 
-function queryResult(rows: unknown[]) {
+function queryResult(rows: unknown[], table?: unknown) {
   const builder: any = {
     innerJoin: vi.fn(() => builder),
-    where: vi.fn(() => builder),
+    where: vi.fn((predicate: any) => {
+      mocks.where(table, new PgDialect().sqlToQuery(predicate));
+      return builder;
+    }),
     groupBy: vi.fn(() => builder),
     orderBy: vi.fn(() => builder),
     then: (resolve: (value: unknown[]) => unknown, reject: (error: unknown) => unknown) =>
@@ -94,7 +97,7 @@ function queryResult(rows: unknown[]) {
 function installDbSequence(rowsByQuery: unknown[][]) {
   const rows = [...rowsByQuery];
   mocks.select.mockImplementation(() => ({
-    from: vi.fn(() => queryResult(rows.shift() ?? [])),
+    from: vi.fn((table: unknown) => queryResult(rows.shift() ?? [], table)),
   }));
 }
 
@@ -410,11 +413,11 @@ describe("GET /api/dashboard/action-queue", () => {
   });
 
   it.each([
-    ["2026-09-04T12:00:00", "2026-09-05T23:59:00", "today"],
-    ["2026-09-04T12:00:00", "2026-09-06T23:59:00", "today"],
-    ["2026-09-04T12:00:00", "2026-09-07T23:59:00", "today"],
-    ["2026-09-04T12:00:00", "2026-09-08T00:00:00", "overdue"],
-    ["2026-09-05T12:00:00", "2026-09-07T12:00:00", "today"],
+    ["2026-09-04T12:00:00-06:00", "2026-09-05T23:59:00-06:00", "today"],
+    ["2026-09-04T12:00:00-06:00", "2026-09-06T23:59:00-06:00", "today"],
+    ["2026-09-04T12:00:00-06:00", "2026-09-07T23:59:00-06:00", "today"],
+    ["2026-09-04T12:00:00-06:00", "2026-09-08T00:00:00-06:00", "overdue"],
+    ["2026-09-05T12:00:00-06:00", "2026-09-07T12:00:00-06:00", "today"],
   ])("ages New by business days from %s through %s", async (created, now, band) => {
     vi.setSystemTime(new Date(now));
     schedulingFixtures([schedulingTicket("new", { createdAt: new Date(created) })]);
@@ -422,9 +425,7 @@ describe("GET /api/dashboard/action-queue", () => {
     expect(body.items.find((item: any) => item.id === "new").band).toBe(band);
   });
 
-  it("uses Colorado server-local day at UTC midnight, with DST-safe calendar lateness", async () => {
-    vi.stubEnv("TZ", "America/Denver");
-    try {
+  it("uses Colorado day at UTC midnight, with DST-safe calendar lateness", async () => {
       vi.setSystemTime(new Date("2026-09-03T01:00:00Z")); // Still Sep 2 locally.
       schedulingFixtures([
         schedulingTicket("today", { currentStatusId: "type-task-ready_to_schedule", scheduleBy: "2026-09-02" }),
@@ -439,9 +440,36 @@ describe("GET /api/dashboard/action-queue", () => {
       })]);
       const result = await request(createApp()).get("/api/dashboard/action-queue");
       expect(result.body.items.find((item: any) => item.id === "dst").ageDays).toBe(2);
-    } finally {
-      vi.unstubAllEnvs();
+  });
+
+  it("keeps yesterday past schedule-by and only today's follow-ups at 8pm Colorado", async () => {
+    vi.setSystemTime(new Date("2026-10-09T20:00:00-06:00"));
+    schedulingFixtures([
+      schedulingTicket("yesterday", { currentStatusId: "type-task-ready_to_schedule", scheduleBy: "2026-10-08" }),
+      schedulingTicket("today", { currentStatusId: "type-task-ready_to_schedule", scheduleBy: "2026-10-09" }),
+      schedulingTicket("follow-today", { currentStatusId: "type-task-scheduled", followUpDate: "2026-10-09" }),
+      schedulingTicket("follow-tomorrow", { currentStatusId: "type-task-scheduled", followUpDate: "2026-10-10" }),
+    ]);
+    const { body } = await request(createApp()).get("/api/dashboard/action-queue");
+    expect(body.items.find((item: any) => item.id === "yesterday")).toMatchObject({ source: "past_schedule_by", ageDays: 1 });
+    expect(body.items.find((item: any) => item.id === "follow-today")).toMatchObject({ source: "followup_due", band: "today" });
+    expect(body.items.some((item: any) => item.id === "today" || item.id === "follow-tomorrow")).toBe(false);
+    expect(mocks.where.mock.calls.filter(([table]) => table === tickets)[1][1].params).toContain("2026-10-09");
+  });
+
+  it("distinguishes date-only values from Date and serialized-instant queue fixtures", async () => {
+    vi.setSystemTime(new Date("2026-10-09T20:00:00-06:00"));
+    schedulingFixtures([
+      schedulingTicket("date-only", { currentStatusId: "type-task-ready_to_schedule", scheduleBy: "2026-10-08" }),
+      schedulingTicket("instant", { currentStatusId: "type-task-ready_to_schedule", scheduleBy: "2026-10-09T02:00:00Z" }),
+      schedulingTicket("date-object", { currentStatusId: "type-task-ready_to_schedule", scheduleBy: new Date("2026-10-09T02:00:00Z") }),
+      schedulingTicket("follow-instant", { currentStatusId: "type-task-scheduled", followUpDate: "2026-10-10T02:00:00Z" }),
+    ]);
+    const { body } = await request(createApp()).get("/api/dashboard/action-queue");
+    for (const id of ["date-only", "instant", "date-object"]) {
+      expect(body.items.find((item: any) => item.id === id)).toMatchObject({ source: "past_schedule_by", ageDays: 1 });
     }
+    expect(body.items.find((item: any) => item.id === "follow-instant")).toMatchObject({ source: "followup_due", ageDays: 0 });
   });
 
   it("honors schedule-by and follow-up boundaries, all open metadata, final exclusion and deduplication", async () => {
@@ -575,6 +603,43 @@ describe("GET /api/dashboard/pulse", () => {
       renewals: [],
       crewsToday: [],
     });
+  });
+
+  it.each([
+    ["2026-10-09T20:00:00-06:00", "2026-10-09", "2026-10-09T06:00:00.000Z", "2026-10-10T06:00:00.000Z"],
+    ["2026-03-08T20:00:00-06:00", "2026-03-08", "2026-03-08T07:00:00.000Z", "2026-03-09T06:00:00.000Z"],
+    ["2026-11-01T20:00:00-07:00", "2026-11-01", "2026-11-01T06:00:00.000Z", "2026-11-02T07:00:00.000Z"],
+  ])("pulse at %s uses Colorado windows and projects instants, not calendar-only dates", async (instant, date, start, end) => {
+    vi.setSystemTime(new Date(instant));
+    installDbSequence([
+      [
+        { id: "calendar", name: "Calendar", startDate: date, endDate: date },
+        { id: "instant", name: "Instant", startDate: new Date(start), endDate: new Date(instant).toISOString() },
+      ],
+      [], [{ crewId: "crew", crewName: "Crew", stops: 1, complete: 0, flagged: 0 }],
+    ]);
+    const response = await request(createApp()).get("/api/dashboard/pulse");
+    expect(response.status).toBe(200);
+    expect(response.body.activeSeason).not.toBeNull();
+    const query = mocks.where.mock.calls.find(([table]) => table === tickets)![1];
+    expect(query.params).toContain(start);
+    expect(query.params).toContain(end);
+    expect(query.sql).toContain('"tickets"."due_date" >=');
+    expect(query.sql).toContain('"tickets"."due_date" <');
+    expect(response.body.crewsToday[0].stops).toBe(1);
+    // Test instant-only season separately so calendar-string row cannot mask it.
+    installDbSequence([
+      [{ id: "instant", name: "Instant", startDate: new Date(start), endDate: new Date(instant).toISOString() }], [], [],
+    ]);
+    const result = await request(createApp()).get("/api/dashboard/pulse");
+    expect(result.body.activeSeason.id).toBe("instant");
+  });
+
+  it("pulse revenue year remains Colorado's year on December 31 evening", async () => {
+    vi.setSystemTime(new Date("2026-12-31T20:00:00-07:00"));
+    const { body } = await request(createApp()).get("/api/dashboard/pulse");
+    expect(body.revenue.year).toBe(2026);
+    expect(body.revenue.priorYear).toBe(2025);
   });
 
   it("assembles billing, season, snow, renewal, and crew metrics with stable keys", async () => {

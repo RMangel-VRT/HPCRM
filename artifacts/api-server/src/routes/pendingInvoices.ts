@@ -8,16 +8,8 @@ import { findSeededStatus, findSeededTicketType } from "../shared/ticketCapabili
 import { localDateString } from "../lib/scheduleBy";
 
 export function invoiceAgeDays(base: Date, now = new Date()): number {
-  // Hosts can run in UTC. Project each instant onto Colorado's calendar before
-  // using the shared local-day formatter; UTC day numbers avoid DST-length days.
-  const dayNumber = (date: Date) => {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Denver", year: "numeric", month: "numeric", day: "numeric",
-    }).formatToParts(date);
-    const value = (name: string) => Number(parts.find(part => part.type === name)!.value);
-    const day = localDateString(new Date(value("year"), value("month") - 1, value("day"), 12));
-    return Date.parse(`${day}T00:00:00Z`) / 86_400_000;
-  };
+  // Project exactly once; UTC day numbers preserve calendar age across DST.
+  const dayNumber = (date: Date) => Date.parse(`${localDateString(date)}T00:00:00Z`) / 86_400_000;
   return dayNumber(now) - dayNumber(base);
 }
 

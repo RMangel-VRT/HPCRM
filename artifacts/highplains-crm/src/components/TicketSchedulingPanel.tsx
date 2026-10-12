@@ -18,9 +18,9 @@ import { DatePickerField } from "@/components/DatePickerField";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { extractApiErrorMessage, parseApiValidationError } from "@/lib/apiError";
-import { localDateString } from "@shared/scheduleBy";
 import {
   addDaysYmd,
+  calendarDateString,
   companyToday,
   invalidateTicketScheduling,
   isBeforeCompanyToday,
@@ -253,7 +253,7 @@ export function TicketSchedulingPanel({
             <Button variant="outline" onClick={() => setWaitOpen(false)}>{t("common.cancel")}</Button>
             <Button
               onClick={() => waitDate && followUpMutation.mutate({
-                followUpDate: localDateString(waitDate),
+                followUpDate: calendarDateString(waitDate),
                 followUpNote: waitNote.trim() || null,
               })}
               disabled={!waitDate || followUpMutation.isPending}
@@ -301,7 +301,7 @@ export function ScheduleByFact({ ticketId, customerId, scheduleBy, overdueEligib
         <DatePickerField
           compact
           value={scheduleBy ? parseCalendarDate(scheduleBy) : undefined}
-          onChange={(date) => { if (date && !mutation.isPending) mutation.mutate(localDateString(date)); }}
+          onChange={(date) => { if (date && !mutation.isPending) mutation.mutate(calendarDateString(date)); }}
           disabled={mutation.isPending}
           placeholder={t("tickets.scheduleByEdit")}
           data-testid="input-schedule-by"

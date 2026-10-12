@@ -2,6 +2,7 @@ import { pool } from "@workspace/db";
 import { checkSchemaDrift, formatDriftReport } from "@workspace/db/check-drift";
 import app from "./app";
 import { logger } from "./lib/logger";
+import { COMPANY_TIME_ZONE } from "./lib/companyDay";
 import { registerRoutes } from "./routes/routes";
 import { requeueInterruptedBackfills } from "./services/mailboxBackfillService";
 import { startPlantSyncScheduler } from "./lib/plantSync";
@@ -45,6 +46,7 @@ registerRoutes(app)
   .then((server) => {
     server.listen(port, () => {
       logger.info({ port }, "Server listening");
+      logger.info(`[companyDay] host timezone=${Intl.DateTimeFormat().resolvedOptions().timeZone} company=${COMPANY_TIME_ZONE}`);
       void warnIfSchemaDrift();
       void requeueInterruptedBackfills();
       startPlantSyncScheduler();

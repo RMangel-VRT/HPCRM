@@ -36,9 +36,9 @@ describe("schedule-by shared fixtures", () => {
     ["normal", "2026-10-30", "2026-11-06"],
   ];
   it.each(fixtures)("%s from %s gives %s in both copies", (priority, input, expected) => {
-    const [year, month, date] = input.split("-").map(Number);
-    // Late local evening would drift into tomorrow if formatted in UTC in Colorado.
-    const base = new Date(year, month - 1, date, 23, 45);
+    // Independent offset-bearing fixture: never derive the instant from host-local getters.
+    const offset = input >= "2026-03-08" && input < "2026-11-01" ? "-06:00" : "-07:00";
+    const base = new Date(`${input}T23:45:00${offset}`);
     const original = base.getTime();
     expect(localDateString(base)).toBe(input);
     expect(clientLocalDate(base)).toBe(input);
@@ -47,9 +47,20 @@ describe("schedule-by shared fixtures", () => {
     expect(base.getTime()).toBe(original);
   });
   it.each([null, undefined])("missing priority %s uses normal", priority => {
-    const base = new Date(2026, 9, 5);
+    const base = new Date("2026-10-05T00:00:00-06:00");
     expect(computeScheduleBy(priority, base)).toBe("2026-10-12");
     expect(clientCompute(priority, base)).toBe("2026-10-12");
+  });
+  it.each([
+    ["2026-10-09T19:00:00-06:00", "2026-10-12"],
+    ["2026-10-09T23:59:59-06:00", "2026-10-12"],
+    ["2026-03-08T01:59:59-07:00", "2026-03-09"],
+    ["2026-03-08T03:00:00-06:00", "2026-03-09"],
+    ["2026-11-01T01:30:00-06:00", "2026-11-02"],
+    ["2026-11-01T01:30:00-07:00", "2026-11-02"],
+  ])("urgent parity at %s", (instant, expected) => {
+    expect(computeScheduleBy("urgent", new Date(instant))).toBe(expected);
+    expect(clientCompute("urgent", new Date(instant))).toBe(expected);
   });
 });
 
