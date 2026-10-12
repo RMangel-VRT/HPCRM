@@ -43,7 +43,7 @@ beforeEach(() => {
 });
 
 describe("invoice summary SQL budget with real storage bulk methods", () => {
-  it.each([1, 2, 500])("performs exactly five SQL reads for %i linked tickets", async count => {
+  it.each([1, 2, 500, 1112])("performs exactly five SQL reads for %i linked tickets", async count => {
     ids = Array.from({ length: count }, (_, i) => `job${i}`);
     const summaries = await getInvoiceLinkSummaries("company", ids);
     expect(summaries.size).toBe(count);

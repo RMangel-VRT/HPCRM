@@ -1938,10 +1938,19 @@ export class PgStorage implements IStorage {
       conditions.push(eq(tickets.assignedToId, filters.assignedToId));
     }
     
-    return await db.select().from(tickets)
-      .where(and(...conditions))
+    // PERF: one bulk status-joined read keeps every matching open ticket (including
+    // missing statuses) plus only the newest 500 matching closed tickets.
+    // UNION ALL uses one snapshot, disjoint selections, and flat Ticket columns.
+    const openTickets = db.select(getTableColumns(tickets)).from(tickets)
+      .leftJoin(ticketTypeStatuses, eq(ticketTypeStatuses.id, tickets.currentStatusId))
+      .where(and(...conditions, or(eq(ticketTypeStatuses.isFinal, "false"), isNull(ticketTypeStatuses.id))));
+    const closedTickets = db.select(getTableColumns(tickets)).from(tickets)
+      .leftJoin(ticketTypeStatuses, eq(ticketTypeStatuses.id, tickets.currentStatusId))
+      .where(and(...conditions, eq(ticketTypeStatuses.isFinal, "true")))
       .orderBy(desc(tickets.createdAt))
-      .limit(500); // PERF: hard cap to prevent unbounded payload
+      .limit(500);
+    return await openTickets.unionAll(closedTickets)
+      .orderBy(desc(sql`"created_at"`));
   }
 
   async getTicketById(id: string, companyId: string): Promise<Ticket | undefined> {

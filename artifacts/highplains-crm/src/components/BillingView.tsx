@@ -94,7 +94,7 @@ export default function BillingView({ role, userId, companyId, users, onOpenTick
     <div className="space-y-3" data-testid="billing-view">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold" data-testid="text-billing-count">
-          {rows.length} charges waiting
+          {rows.length} {rows.length === 1 ? "charge" : "charges"} waiting
         </h2>
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <Checkbox
