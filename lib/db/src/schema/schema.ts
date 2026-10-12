@@ -571,6 +571,302 @@ export const insertContractBuilderVariableSchema = createInsertSchema(contractBu
 export type InsertContractBuilderVariable = z.infer<typeof insertContractBuilderVariableSchema>;
 export type ContractBuilderVariable = typeof contractBuilderVariables.$inferSelect;
 
+// Contract Center: additive, season-specific records; legacy contracts stay unchanged.
+export const AGREEMENT_LINES = ["landscape", "snow", "both"] as const;
+export const AGREEMENT_FORMS = ["ours", "theirs"] as const;
+export const TERM_STATUSES = ["draft", "sent", "signed", "active", "up_for_renewal", "renewed", "lost", "cancelled"] as const;
+export const BILLING_TYPES = ["equal_monthly", "monthly_variable", "seasonal", "time_and_materials"] as const;
+export const SCOPE_LINES = ["landscape", "irrigation", "snow"] as const;
+export const RATE_LINES = ["landscape", "irrigation", "snow", "general"] as const;
+export const TERM_DOCUMENT_KINDS = ["review", "clean", "signed", "their_form", "clarifications", "other"] as const;
+export type AgreementLine = typeof AGREEMENT_LINES[number];
+export type AgreementForm = typeof AGREEMENT_FORMS[number];
+export type TermStatus = typeof TERM_STATUSES[number];
+export type BillingType = typeof BILLING_TYPES[number];
+export type ScopeLine = typeof SCOPE_LINES[number];
+export type RateLine = typeof RATE_LINES[number];
+export type TermDocumentKind = typeof TERM_DOCUMENT_KINDS[number];
+
+const contractCalendarDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, "Invalid calendar date");
+const contractOptionalCents = z.number().int().min(0).nullable().optional();
+const contractMonthSpread = z.array(z.number().int().min(0)).length(12).nullable().optional();
+
+export const agreements = pgTable("agreements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  line: text("line").notNull().$type<AgreementLine>(),
+  form: text("form").notNull().default("ours").$type<AgreementForm>(),
+  propertyManagementCompanyId: varchar("property_management_company_id").references(() => propertyManagementCompanies.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  companyIdx: index("agreements_company_idx").on(t.companyId),
+  customerIdx: index("agreements_customer_idx").on(t.customerId),
+}));
+export const insertAgreementSchema = createInsertSchema(agreements).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  companyId: z.string(), customerId: z.string(),
+  line: z.enum(AGREEMENT_LINES), form: z.enum(AGREEMENT_FORMS).default("ours"),
+  propertyManagementCompanyId: z.string().nullable().optional(), notes: z.string().nullable().optional(),
+});
+export type Agreement = typeof agreements.$inferSelect;
+export type InsertAgreement = z.infer<typeof insertAgreementSchema>;
+
+export const contractMasters = pgTable("contract_masters", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  filename: text("filename").notNull(),
+  storageObjectPath: text("storage_object_path").notNull(),
+  notes: text("notes"),
+  isCurrent: boolean("is_current").notNull().default(false),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  companyVersionUnique: unique("contract_masters_company_version_unique").on(t.companyId, t.version),
+}));
+export const insertContractMasterSchema = createInsertSchema(contractMasters).omit({ id: true, createdAt: true }).extend({
+  companyId: z.string(), version: z.number().int(), filename: z.string(), storageObjectPath: z.string(),
+  notes: z.string().nullable().optional(), isCurrent: z.boolean().default(false),
+  uploadedBy: z.string().nullable().optional(),
+});
+export type ContractMaster = typeof contractMasters.$inferSelect;
+export type InsertContractMaster = z.infer<typeof insertContractMasterSchema>;
+
+export const agreementTerms = pgTable("agreement_terms", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  agreementId: varchar("agreement_id").notNull().references(() => agreements.id, { onDelete: "cascade" }),
+  seasonLabel: text("season_label").notNull(),
+  startDate: date("start_date", { mode: "string" }).notNull(),
+  endDate: date("end_date", { mode: "string" }).notNull(),
+  status: text("status").notNull().default("draft").$type<TermStatus>(),
+  billingType: text("billing_type").notNull().$type<BillingType>(),
+  annualPriceCents: integer("annual_price_cents"),
+  renewalIncreasePct: numeric("renewal_increase_pct", { precision: 5, scale: 2 }),
+  renewedFromTermId: varchar("renewed_from_term_id").references((): AnyPgColumn => agreementTerms.id, { onDelete: "set null" }),
+  legalName: text("legal_name"),
+  managingAgentName: text("managing_agent_name"),
+  projectContact: text("project_contact"),
+  contactPhone: text("contact_phone"),
+  contactEmail: text("contact_email"),
+  projectAddress: text("project_address"),
+  snowTriggers: text("snow_triggers"),
+  po: text("po"),
+  sentAt: timestamp("sent_at"),
+  signedAt: timestamp("signed_at"),
+  masterId: varchar("master_id").references(() => contractMasters.id, { onDelete: "set null" }),
+  needsReview: boolean("needs_review").notNull().default(false),
+  reviewNote: text("review_note"),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  companyIdx: index("agreement_terms_company_idx").on(t.companyId),
+  agreementIdx: index("agreement_terms_agreement_idx").on(t.agreementId),
+  companyStatusIdx: index("agreement_terms_company_status_idx").on(t.companyId, t.status),
+  companyEndIdx: index("agreement_terms_company_end_idx").on(t.companyId, t.endDate),
+}));
+export const insertAgreementTermSchema = createInsertSchema(agreementTerms).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  companyId: z.string(), agreementId: z.string(), seasonLabel: z.string(),
+  startDate: contractCalendarDate, endDate: contractCalendarDate,
+  status: z.enum(TERM_STATUSES).default("draft"), billingType: z.enum(BILLING_TYPES),
+  annualPriceCents: contractOptionalCents, renewalIncreasePct: z.string().nullable().optional(),
+  renewedFromTermId: z.string().nullable().optional(), legalName: z.string().nullable().optional(),
+  managingAgentName: z.string().nullable().optional(), projectContact: z.string().nullable().optional(),
+  contactPhone: z.string().nullable().optional(), contactEmail: z.string().nullable().optional(),
+  projectAddress: z.string().nullable().optional(), snowTriggers: z.string().nullable().optional(),
+  po: z.string().nullable().optional(), sentAt: z.date().nullable().optional(), signedAt: z.date().nullable().optional(),
+  masterId: z.string().nullable().optional(), needsReview: z.boolean().default(false),
+  reviewNote: z.string().nullable().optional(), notes: z.string().nullable().optional(),
+  createdBy: z.string().nullable().optional(),
+}).refine((v) => v.endDate >= v.startDate, { message: "End date must be on or after start date", path: ["endDate"] });
+export type AgreementTerm = typeof agreementTerms.$inferSelect;
+export type InsertAgreementTerm = z.infer<typeof insertAgreementTermSchema>;
+
+export const termScopeLines = pgTable("term_scope_lines", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  serviceKey: text("service_key").notNull(),
+  line: text("line").notNull().$type<ScopeLine>(),
+  included: boolean("included").notNull().default(true),
+  quantity: integer("quantity"),
+  unit: text("unit"),
+  monthSpread: integer("month_spread").array(),
+  details: jsonb("details").notNull().default(sql`'{}'::jsonb`),
+  priceCents: integer("price_cents"),
+  notes: text("notes"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ termIdx: index("term_scope_lines_term_idx").on(t.termId) }));
+export const insertTermScopeLineSchema = createInsertSchema(termScopeLines).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  companyId: z.string(), termId: z.string(), serviceKey: z.string(), line: z.enum(SCOPE_LINES),
+  included: z.boolean().default(true), quantity: z.number().int().nullable().optional(),
+  unit: z.string().nullable().optional(), monthSpread: contractMonthSpread,
+  details: z.record(z.string(), z.unknown()).default({}), priceCents: contractOptionalCents,
+  notes: z.string().nullable().optional(), sortOrder: z.number().int().default(0),
+});
+export type TermScopeLine = typeof termScopeLines.$inferSelect;
+export type InsertTermScopeLine = z.infer<typeof insertTermScopeLineSchema>;
+
+export const rateCardItems = pgTable("rate_card_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  rateKey: text("rate_key").notNull(),
+  line: text("line").notNull().$type<RateLine>(),
+  category: text("category").notNull(),
+  label: text("label").notNull(),
+  priceCents: integer("price_cents"),
+  priceText: text("price_text"),
+  unit: text("unit").notNull(),
+  minimum: text("minimum"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ companyKeyUnique: unique("rate_card_items_company_key_unique").on(t.companyId, t.rateKey) }));
+export const insertRateCardItemSchema = createInsertSchema(rateCardItems).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  companyId: z.string(), rateKey: z.string(), line: z.enum(RATE_LINES), category: z.string(), label: z.string(),
+  priceCents: contractOptionalCents, priceText: z.string().nullable().optional(), unit: z.string(),
+  minimum: z.string().nullable().optional(), sortOrder: z.number().int().default(0), active: z.boolean().default(true),
+});
+export type RateCardItem = typeof rateCardItems.$inferSelect;
+export type InsertRateCardItem = z.infer<typeof insertRateCardItemSchema>;
+
+export const termRates = pgTable("term_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  rateKey: text("rate_key").notNull(),
+  line: text("line").notNull().$type<RateLine>(),
+  category: text("category").notNull(),
+  label: text("label").notNull(),
+  priceCents: integer("price_cents"),
+  priceText: text("price_text"),
+  unit: text("unit").notNull(),
+  minimum: text("minimum"),
+  cardPriceCents: integer("card_price_cents"),
+  cardPriceText: text("card_price_text"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ termKeyUnique: unique("term_rates_term_key_unique").on(t.termId, t.rateKey) }));
+export const insertTermRateSchema = createInsertSchema(termRates).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  companyId: z.string(), termId: z.string(), rateKey: z.string(), line: z.enum(RATE_LINES),
+  category: z.string(), label: z.string(), priceCents: contractOptionalCents, priceText: z.string().nullable().optional(),
+  unit: z.string(), minimum: z.string().nullable().optional(), cardPriceCents: contractOptionalCents,
+  cardPriceText: z.string().nullable().optional(), sortOrder: z.number().int().default(0),
+});
+export type TermRate = typeof termRates.$inferSelect;
+export type InsertTermRate = z.infer<typeof insertTermRateSchema>;
+
+export const termBillingMonths = pgTable("term_billing_months", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  month: date("month", { mode: "string" }).notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ termMonthUnique: unique("term_billing_months_term_month_unique").on(t.termId, t.month) }));
+export const insertTermBillingMonthSchema = createInsertSchema(termBillingMonths).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  companyId: z.string(), termId: z.string(), month: contractCalendarDate, amountCents: z.number().int().min(0),
+});
+export type TermBillingMonth = typeof termBillingMonths.$inferSelect;
+export type InsertTermBillingMonth = z.infer<typeof insertTermBillingMonthSchema>;
+
+export const termDocuments = pgTable("term_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull().$type<TermDocumentKind>(),
+  version: integer("version").notNull().default(1),
+  filename: text("filename").notNull(),
+  storageObjectPath: text("storage_object_path").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSize: integer("file_size"),
+  masterId: varchar("master_id").references(() => contractMasters.id, { onDelete: "set null" }),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ termIdx: index("term_documents_term_idx").on(t.termId) }));
+export const insertTermDocumentSchema = createInsertSchema(termDocuments).omit({ id: true, createdAt: true }).extend({
+  companyId: z.string(), termId: z.string(), kind: z.enum(TERM_DOCUMENT_KINDS), version: z.number().int().default(1),
+  filename: z.string(), storageObjectPath: z.string(), mimeType: z.string(), fileSize: z.number().int().nullable().optional(),
+  masterId: z.string().nullable().optional(), uploadedBy: z.string().nullable().optional(),
+});
+export type TermDocument = typeof termDocuments.$inferSelect;
+export type InsertTermDocument = z.infer<typeof insertTermDocumentSchema>;
+
+export const termStatusHistory = pgTable("term_status_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  oldStatus: text("old_status").$type<TermStatus>(),
+  newStatus: text("new_status").notNull().$type<TermStatus>(),
+  changedBy: varchar("changed_by").references(() => users.id, { onDelete: "set null" }),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ termIdx: index("term_status_history_term_idx").on(t.termId) }));
+export const insertTermStatusHistorySchema = createInsertSchema(termStatusHistory).omit({ id: true, createdAt: true }).extend({
+  companyId: z.string(), termId: z.string(),
+  oldStatus: z.preprocess((v) => v === "" || v === null ? undefined : v, z.enum(TERM_STATUSES).optional()),
+  newStatus: z.enum(TERM_STATUSES), changedBy: z.string().nullable().optional(), note: z.string().nullable().optional(),
+});
+export type TermStatusHistory = typeof termStatusHistory.$inferSelect;
+export type InsertTermStatusHistory = z.infer<typeof insertTermStatusHistorySchema>;
+
+export const scopePresets = pgTable("scope_presets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  line: text("line").notNull().$type<AgreementLine>(),
+  active: boolean("active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export const insertScopePresetSchema = createInsertSchema(scopePresets).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  companyId: z.string(), name: z.string(), line: z.enum(AGREEMENT_LINES),
+  active: z.boolean().default(true), sortOrder: z.number().int().default(0),
+});
+export type ScopePreset = typeof scopePresets.$inferSelect;
+export type InsertScopePreset = z.infer<typeof insertScopePresetSchema>;
+
+export const scopePresetLines = pgTable("scope_preset_lines", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  presetId: varchar("preset_id").notNull().references(() => scopePresets.id, { onDelete: "cascade" }),
+  serviceKey: text("service_key").notNull(),
+  quantity: integer("quantity"),
+  monthSpread: integer("month_spread").array(),
+  details: jsonb("details").notNull().default(sql`'{}'::jsonb`),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+export const insertScopePresetLineSchema = createInsertSchema(scopePresetLines).omit({ id: true }).extend({
+  presetId: z.string(), serviceKey: z.string(), quantity: z.number().int().nullable().optional(),
+  monthSpread: contractMonthSpread, details: z.record(z.string(), z.unknown()).default({}),
+  sortOrder: z.number().int().default(0),
+});
+export type ScopePresetLine = typeof scopePresetLines.$inferSelect;
+export type InsertScopePresetLine = z.infer<typeof insertScopePresetLineSchema>;
+
+export const termLegacySources = pgTable("term_legacy_sources", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  // No legacy FK: the old contracts table can be retired independently.
+  legacyContractId: varchar("legacy_contract_id").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ legacyUnique: unique("term_legacy_sources_legacy_unique").on(t.legacyContractId) }));
+export const insertTermLegacySourceSchema = createInsertSchema(termLegacySources).omit({ id: true, createdAt: true }).extend({
+  companyId: z.string(), termId: z.string(), legacyContractId: z.string(),
+});
+export type TermLegacySource = typeof termLegacySources.$inferSelect;
+export type InsertTermLegacySource = z.infer<typeof insertTermLegacySourceSchema>;
+
 // Ticketing System Tables
 
 // Ticket Type Categories - classifies the nature of ticket types

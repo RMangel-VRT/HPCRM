@@ -8,3 +8,4 @@
 - [Cross-artifact query types](cross-artifact-query-types.md) — separate TanStack Query installs can make QueryClient types incompatible even when their public APIs match.
 - [Ticket consolidation scope](ticket-consolidation-scope.md) — preserve Invoice tickets/scheduling; billing sidebar is narrower than access; Dashboard queue counts stay independent.
 - [Colorado calendar days](colorado-calendar-days.md) — hosting may run in UTC; Colorado business-day calculations must not silently inherit the host timezone.
+- [Contract Center boundaries](contract-center-phase-boundaries.md) — renewals preserve prior seasons; foundation, rate-card and copy slices leave legacy behavior unchanged.
