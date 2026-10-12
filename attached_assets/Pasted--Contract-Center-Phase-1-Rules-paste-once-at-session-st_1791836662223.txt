@@ -1,0 +1,29 @@
+# Contract Center, Phase 1: Rules (paste once at session start)
+
+This pack is the first phase of the Contract Center rebuild. It adds the new contract tables, a company rate card in Settings, and an admin tool that copies existing contracts into the new tables. **No existing screen, endpoint or table changes behavior in this phase.** The old Contracts page, customer Contracts tab, Contract Builder and every report keep reading the old tables until Phase 4.
+
+Design doc for context: "Contract Center — Design & Impact Map". Everything you need is in these slices.
+
+## Order
+
+1. **CC1-1:** the new tables (SQL migration + Drizzle schema in both schema files) and the shared contract catalog.
+2. **CC1-2:** the rate card: API, a Settings › Contracts tab, and a "Load High Plains standard rates" button.
+3. **CC1-3:** the copy tool: an admin dry run that previews how existing contracts map into the new tables, then a run that copies them. Old rows are never changed.
+
+Merge each slice before starting the next one.
+
+## Rules for every slice
+
+1. **Line numbers are from GitHub commit `c4f4bd1` (Oct 12, 2026).** Find every site by its content, not by line number.
+2. **DDL goes only in a numbered SQL file** in `.migration-backup/migrations/`, with `IF NOT EXISTS` guards. Use the next free number (at `c4f4bd1` that is `0043`; if another branch has taken it, use the next one). The production schema changes only through Publish, which diffs the Drizzle schema. Read `replit.md` §"Production schema & extensions" and `.agents/memory/startup-migrations-not-wired.md`. Don't add anything to `runStartupMigrations()`; it is never called.
+3. **No startup data writes in this phase.** Rate card defaults and the contract copy run only when an admin clicks a button.
+4. **Two schema files, kept in sync by hand:** `lib/db/src/schema/schema.ts` (server, real) and `artifacts/highplains-crm/src/shared/schema.ts` (client, drizzle stub). Every table, enum list and insert schema added to one is mirrored in the other. Server code imports from `@workspace/db`, never from a local `./schema`.
+5. **Money is integer cents**, as everywhere else in this codebase (`mobilization_fee_amount`, `contract_monthly_amounts.amount`, `customer_rate_sheets`). Calendar dates are `date` columns in string mode, validated with `isCalendarDate` (see `tickets.schedule_by`).
+6. **Stable keys are never client-settable on update.** `rate_card_items.rate_key` and `term_scope_lines.service_key` are set on create (or by the seed/copy code) and ignored on PATCH. Same lesson as the ticket-type key write protection.
+7. **PATCH handlers use `pickProvided`** (`artifacts/api-server/src/lib/patchBody.ts`). Never write `result.data` from a `.partial()` parse; `.partial()` still injects `.default()` values.
+8. **Optional enum fields** in insert schemas get the `""`/`null` → `undefined` preprocess (`.agents/memory/optional-enum-select-empty-string.md`).
+9. **Roles: allow-list, not deny-list.** New contract endpoints allow `admin` and `office` (plus `isSuperAdminBool`); rate card writes and the copy tool are admin only. Note: the existing `POST /api/contracts` uses a deny-list that accidentally lets `crew_supervisor`, `shop_manager` and `mapping` create contracts. Don't copy that pattern, and don't change that route in this phase.
+10. **New routes go in a new file**, `artifacts/api-server/src/routes/contractCenter.ts`, exporting `registerContractCenterRoutes(app: Express)`, called from `registerRoutes()` next to `registerDashboardQueueRoutes(app)`. Static imports only.
+11. **New tables are named `agreements`, `agreement_terms`, and so on**, so they never collide with the old `contracts` table while both exist. On screen, they are still called contracts.
+12. **Tests use vitest** (`pnpm --filter api-server test`). Run the root `pnpm run typecheck` and `pnpm --filter @workspace/scripts run check-schema-drift` before finishing.
+13. **Report back:** every file changed, the migration file name, test results, typecheck and drift results, and any failures that existed before your change.
