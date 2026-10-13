@@ -1,0 +1,155 @@
+# FIX: Date picker (layout, opens on the right month, year selector, color)
+
+Small standalone fix. It doesn't depend on any Contract Center slice and can run alongside them.
+
+## The problem
+
+Every date picker in the app uses `DatePickerField`, which renders `src/components/ui/calendar.tsx`. That file is still the **shadcn calendar written for react-day-picker v8**, but the app has **react-day-picker v9.11** installed. v9 renamed nearly every `classNames` key (`head_row` → `weekdays`, `day_selected` → `selected`, `caption` → `month_caption`, and so on) and replaced the `IconLeft`/`IconRight` components with a single `Chevron`. As a result:
+- none of the v8 classNames apply, so the weekday header and the day grid don't line up
+- today and the selected day aren't styled
+- there's no `defaultMonth`, so the calendar opens on whatever month it last showed instead of the selected date (Edit Contract Details opened on May 2026 for a Dec 1, 2025 date)
+- there's no quick way to jump years
+
+## 1. Replace `artifacts/highplains-crm/src/components/ui/calendar.tsx`
+
+Rewrite it for the react-day-picker v9 API. Replace the whole file with:
+
+```tsx
+import * as React from "react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { DayPicker, getDefaultClassNames } from "react-day-picker";
+import { cn } from "@/lib/utils";
+import { buttonVariants } from "@/components/ui/button";
+
+export type CalendarProps = React.ComponentProps<typeof DayPicker>;
+
+function Calendar({
+  className,
+  classNames,
+  showOutsideDays = true,
+  captionLayout = "dropdown",
+  startMonth,
+  endMonth,
+  ...props
+}: CalendarProps) {
+  const defaults = getDefaultClassNames();
+  const thisYear = new Date().getFullYear();
+  const navButton = cn(
+    buttonVariants({ variant: "ghost" }),
+    "h-8 w-8 p-0 text-primary hover:bg-primary/10 hover:text-primary aria-disabled:opacity-40",
+  );
+
+  return (
+    <DayPicker
+      showOutsideDays={showOutsideDays}
+      captionLayout={captionLayout}
+      startMonth={startMonth ?? new Date(thisYear - 10, 0)}
+      endMonth={endMonth ?? new Date(thisYear + 10, 11)}
+      className={cn("p-3", className)}
+      classNames={{
+        root: cn(defaults.root, "w-fit"),
+        months: "relative flex flex-col gap-4 sm:flex-row",
+        month: "flex w-full flex-col gap-3",
+        nav: "absolute inset-x-0 top-0 flex w-full items-center justify-between",
+        button_previous: navButton,
+        button_next: navButton,
+        month_caption: "flex h-8 w-full items-center justify-center px-9",
+        dropdowns: "flex items-center gap-1.5 text-sm font-semibold",
+        dropdown_root:
+          "relative rounded-md border border-input bg-background px-2 py-1 shadow-sm hover:bg-primary/5 focus-within:ring-2 focus-within:ring-ring",
+        dropdown: "absolute inset-0 cursor-pointer opacity-0",
+        caption_label:
+          "flex items-center gap-1 text-sm font-semibold [&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:text-primary",
+        month_grid: "w-full border-collapse",
+        weekdays: "flex",
+        weekday:
+          "w-9 text-center text-[0.7rem] font-semibold uppercase tracking-wide text-primary/80",
+        week: "mt-1 flex w-full",
+        day: "relative h-9 w-9 p-0 text-center text-sm",
+        day_button: cn(
+          buttonVariants({ variant: "ghost" }),
+          "h-9 w-9 rounded-md p-0 font-normal hover:bg-primary/10",
+        ),
+        selected:
+          "[&>button]:bg-primary [&>button]:font-semibold [&>button]:text-primary-foreground [&>button]:hover:bg-primary [&>button]:hover:text-primary-foreground",
+        today:
+          "[&>button]:font-semibold [&>button]:text-primary [&>button]:ring-2 [&>button]:ring-inset [&>button]:ring-primary/50",
+        outside: "text-muted-foreground opacity-50",
+        disabled: "text-muted-foreground opacity-40",
+        hidden: "invisible",
+        ...classNames,
+      }}
+      components={{
+        Chevron: ({ orientation, className: chevronClass, ...rest }) => {
+          const cls = cn("h-4 w-4", chevronClass);
+          if (orientation === "left") return <ChevronLeft className={cls} {...rest} />;
+          if (orientation === "right") return <ChevronRight className={cls} {...rest} />;
+          return <ChevronDown className={cls} {...rest} />;
+        },
+      }}
+      {...props}
+    />
+  );
+}
+Calendar.displayName = "Calendar";
+
+export { Calendar };
+```
+
+Notes:
+- **Month and year dropdowns** (`captionLayout="dropdown"`) cover 10 years back to 10 years ahead. A caller can pass its own `startMonth` or `endMonth`. The prev/next arrows still work.
+- **Color** uses only the theme's `primary` token: the arrows, weekday header and dropdown chevrons in primary, the selected day filled with primary, today in a primary ring. No new hex values.
+- When today is also the selected day, the fill wins and the ring still shows.
+- Tailwind is 3.4, so use `focus-within`, not `has-focus`.
+- If `Chevron`'s props type complains, type the component as `(props: React.ComponentProps<"svg"> & { orientation?: "left" | "right" | "up" | "down" })`. Don't add a cast to `any`.
+
+## 2. Update `artifacts/highplains-crm/src/components/DatePickerField.tsx`
+
+Change only the `<Calendar>` element inside `PopoverContent`:
+
+```tsx
+<Calendar
+  mode="single"
+  selected={value}
+  onSelect={handleSelect}
+  defaultMonth={value ?? new Date()}
+  autoFocus
+/>
+```
+
+- `defaultMonth` opens the calendar on the selected date's month, or the current month when there's no value. The popover remounts the calendar each time it opens, so this applies on every open.
+- `initialFocus` is the v8 name; in v9 it's `autoFocus`.
+- Keep the Today and Clear footer, the inline clear button, `compact` and every `data-testid` exactly as they are.
+- **Don't change date semantics.** `onChange` still receives a local `Date`, and callers keep converting it the way they do now.
+
+## 3. Check for other users of Calendar or v8 props
+
+Search `artifacts/highplains-crm/src` for:
+- `@/components/ui/calendar` (expected: only `DatePickerField`)
+- `react-day-picker` (expected: only `calendar.tsx`)
+- `initialFocus`, `IconLeft`, `IconRight`, `fromYear`, `toYear`, `fromDate`, `toDate`
+
+Update any other hit to the v9 names (`autoFocus`, `startMonth`, `endMonth`, `Chevron`) and list each one in the report.
+
+## 4. Test: `src/components/DatePickerField.calendar.test.tsx`
+
+vitest + testing-library, following the existing client tests. Use fixed dates, not today's real date, except where noted:
+1. **Opens on the selected month:** with `value = new Date(2025, 11, 1)`, open the popover. The month dropdown shows December and the year dropdown shows 2025. The Dec 1 button has `aria-selected="true"` (or sits in the selected cell).
+2. **Opens on the current month when empty:** with `value = undefined`, the month and year dropdowns show the current month and year.
+3. **Year selector:** both a month and a year `<select>` are rendered. Changing the year to 2027 shows the same month in 2027.
+4. **Grid layout:** there are 7 weekday headers, and every week row has 7 day cells.
+5. **Picking a day:** clicking a day calls `onChange` with that date and closes the popover.
+6. **Today and Clear** still call `onChange` with a date and with `undefined`.
+
+## Verify (development)
+
+Open these and check that each popover shows aligned weekday columns, the month and year dropdowns, opens on the field's date (or this month when empty), and shows today in a ring and the selected day filled:
+1. Edit Contract Details on a customer (the screen in the bug report): a Dec 1, 2025 start opens on December 2025.
+2. A ticket's scheduling panel.
+3. The customer dashboard date filter.
+4. Pick a date, reopen: it opens on that date's month.
+5. Typecheck and tests pass.
+
+## Report back
+
+Every file changed, any extra call sites found in step 3, and the test and typecheck results, including failures that existed before this change.
