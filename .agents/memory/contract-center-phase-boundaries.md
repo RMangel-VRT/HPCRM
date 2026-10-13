@@ -44,3 +44,9 @@ Exercise signed-term editing and lifecycle verification in an isolated developme
 **Why:** Edits to signed contracts deliberately leave attributable history. Using real customer agreements for a browser check would alter their audit trail, and documented development credentials can differ from the accounts in a fork.
 
 **How to apply:** Seed only development fixtures, keep generated login details out of tracked files and logs, and remove the disposable company and users when verification ends. Never reset a real user's password to unblock a test.
+
+Payment preset rounding differs deliberately: twelve equal payments floor the first eleven shares; equal-over-selected-months rounds each ordinary share. Both reconcile the final paid month in start-month cycle order.
+
+**Why:** The authoritative examples require $10,000 to become $833.33 × 11 + $833.37, but $2,400 over March–September to become $342.86 × 6 + $342.84. A single shared division-rounding rule cannot satisfy both examples.
+
+**How to apply:** Preserve each preset's rounding convention and use calendar-indexed amounts; choose the final participating month from the term's cycle order, not the order of checkbox selection.

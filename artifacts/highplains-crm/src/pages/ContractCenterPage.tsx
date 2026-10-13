@@ -4,8 +4,8 @@ import { Link, useLocation } from "wouter";
 import { AlertTriangle, ArrowDown, ArrowUp, FileText, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { RenewDialog } from "@/components/contracts/RenewDialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
 import { LineBadge, RenewalChip, ReviewChip, StatusPill } from "@/components/contracts/ContractBadges";
 import { dateOnly, coloradoToday, money } from "@/components/contracts/contractFormat";
 import { boardColumns, priceLabel, renewalProgress, rowTerm, tableRows } from "@/components/contracts/boardLogic";
@@ -24,8 +24,8 @@ const COLUMNS: { key: ColumnKey; title: string; empty: string }[] = [
 ];
 export const COMING_SOON = { title: "Coming in the next update", description: "Creating and renewing contracts arrives with the next release." };
 
-export function ContractBoard({ items, board, q, today, onComingSoon }: {
-  items: ContractListItem[]; board: BoardLine; q: string; today: string; onComingSoon: () => void;
+export function ContractBoard({ items, board, q, today, onRenew }: {
+  items: ContractListItem[]; board: BoardLine; q: string; today: string; onComingSoon?: () => void; onRenew?: (item: ContractListItem) => void;
 }) {
   const cols = boardColumns(items, board, q, today);
   const prog = renewalProgress(items, board, q);
@@ -45,7 +45,7 @@ export function ContractBoard({ items, board, q, today, onComingSoon }: {
             <h2 className="text-sm font-semibold mb-2">{c.title} <span className="text-muted-foreground font-normal">({cols[c.key].length})</span></h2>
             <div className="space-y-2">
               {!cols[c.key].length && <p className="text-xs text-muted-foreground py-4 text-center">{c.empty}</p>}
-              {cols[c.key].map(card => <BoardCardView key={`${c.key}-${card.item.id}`} card={card} board={board} onComingSoon={onComingSoon} />)}
+              {cols[c.key].map(card => <BoardCardView key={`${c.key}-${card.item.id}`} card={card} board={board} onRenew={onRenew} />)}
             </div>
           </section>
         ))}
@@ -54,7 +54,7 @@ export function ContractBoard({ items, board, q, today, onComingSoon }: {
   );
 }
 
-function BoardCardView({ card, board, onComingSoon }: { card: BoardCard; board: BoardLine; onComingSoon: () => void }) {
+function BoardCardView({ card, board, onRenew }: { card: BoardCard; board: BoardLine; onRenew?: (item: ContractListItem) => void }) {
   const { item, term, column } = card;
   const href = `/dashboard/contracts/${item.id}${column === "renewal" ? "" : `#term-${term.id}`}`;
   return (
@@ -72,7 +72,7 @@ function BoardCardView({ card, board, onComingSoon }: { card: BoardCard; board: 
       <div className="text-sm tabular-nums">{priceLabel(item, term, money, board)}</div>
       <div className="flex justify-end">
         {column === "renewal"
-          ? <Button size="sm" onClick={onComingSoon} data-testid={`button-renew-${item.id}`}>Renew</Button>
+          ? <Button size="sm" onClick={() => onRenew?.(item)} data-testid={`button-renew-${item.id}`}>Renew</Button>
           : <Button size="sm" variant="outline" asChild><Link href={href} data-testid={`link-open-${column}-${item.id}`}>Open</Link></Button>}
       </div>
     </div>
@@ -150,10 +150,9 @@ export default function ContractCenterPage() {
   const [board, setBoardState] = useState<BoardLine>(readBoard);
   const [q, setQ] = useState("");
   const [, navigate] = useLocation();
-  const { toast } = useToast();
   const { data, isLoading, isError, refetch } = useQuery<ContractListItem[]>({ queryKey: ["/api/contract-center/contracts"], retry: false });
   const setBoard = (b: BoardLine) => { setBoardState(b); try { window.localStorage.setItem(STORAGE_KEY, b); } catch { /* storage unavailable */ } };
-  const soon = () => toast(COMING_SOON);
+  const [renewTarget, setRenewTarget] = useState<{ id: string; customerName: string } | null>(null);
   const today = data?.find(i => i.companyDay)?.companyDay ?? coloradoToday();
 
   return (
@@ -171,7 +170,7 @@ export default function ContractCenterPage() {
           <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
           <Input className="pl-8 w-56" placeholder="Search customer" aria-label="Search customer" value={q} onChange={e => setQ(e.target.value)} data-testid="input-search-contracts" />
         </div>
-        <Button onClick={soon} data-testid="button-new-contract"><Plus className="w-4 h-4 mr-1" />New contract</Button>
+        <Button onClick={() => navigate("/dashboard/contracts/new")} data-testid="button-new-contract"><Plus className="w-4 h-4 mr-1" />New contract</Button>
       </div>
       {isLoading ? (
         <div className="space-y-3" data-testid="loading-contracts"><Skeleton className="h-6 w-64" /><div className="flex gap-4">{[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-48 flex-1" />)}</div></div>
@@ -189,10 +188,11 @@ export default function ContractCenterPage() {
         </div>
       ) : (
         <>
-          <ContractBoard items={data} board={board} q={q} today={today} onComingSoon={soon} />
+          <ContractBoard items={data} board={board} q={q} today={today} onRenew={i => setRenewTarget({ id: i.id, customerName: i.customerName })} />
           <ContractTable items={data} board={board} q={q} onOpen={id => navigate(`/dashboard/contracts/${id}`)} />
         </>
       )}
+      <RenewDialog target={renewTarget} onClose={() => setRenewTarget(null)} />
       <p className="text-xs text-muted-foreground"><Link href="/dashboard/contracts/old" data-testid="link-old-page">Old contracts page</Link></p>
     </div>
   );

@@ -9,7 +9,7 @@
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "test:ticket-links": "vitest run --config vitest.config.ts src/shared/ticketLinks.test.ts src/components/TicketLinkDisplay.test.tsx src/components/TicketListView.ticketLinks.test.tsx",
     "test:billing": "vitest run --config vitest.config.ts src/lib/billing.test.ts src/components/BillingView.count.test.tsx src/components/BillingAccess.regression.test.tsx src/lib/ticketListReturn.test.ts src/lib/landing.regression.test.tsx src/pages/BillingHandoff.rendered.test.tsx",
-    "test:contract-center": "vitest run --config vitest.config.ts src/pages/ContractCenter.rendered.test.tsx src/lib/contractUpload.test.ts src/lib/unsavedGuard.test.ts src/lib/contractAccess.test.tsx src/components/contracts/contractSave.test.ts",
+    "test:contract-center": "vitest run --config vitest.config.ts src/pages/ContractCenter.rendered.test.tsx src/pages/NewContractPage.rendered.test.tsx src/pages/ContractBilling.rendered.test.tsx src/lib/contractUpload.test.ts src/lib/unsavedGuard.test.ts src/lib/contractAccess.test.tsx src/components/contracts/contractSave.test.ts src/components/contracts/paymentPresets.test.ts src/components/contracts/contractCreate.test.ts src/components/contracts/PaymentEditor.rendered.test.tsx src/components/contracts/RenewDialog.rendered.test.tsx",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

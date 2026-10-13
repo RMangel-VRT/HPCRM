@@ -18,7 +18,10 @@ import type { ScopeRow } from "@/components/contracts/ScopeEditor";
 import { centsToInput, parseDollarsToCents } from "@/components/contracts/rateCardUtils";
 import { buildFieldPatch, saveSections } from "@/components/contracts/contractSave";
 import type { FieldDraft } from "@/components/contracts/contractSave";
-import { COMING_SOON } from "@/pages/ContractCenterPage";
+import { PaymentEditor } from "@/components/contracts/PaymentEditor";
+import { RenewDialog } from "@/components/contracts/RenewDialog";
+import { SNOW_LINE, lineProblems, lineSum, linesFromBilling, paymentsFingerprint, paymentsPayload, startMonthOf } from "@/components/contracts/paymentDraft";
+import type { PaymentLine } from "@/components/contracts/paymentDraft";
 import { dateOnly, dateTime, errorStatus, errorText, monthName, money } from "@/components/contracts/contractFormat";
 import type { ContractDetail, DetailTerm } from "@/components/contracts/contractTypes";
 
@@ -55,6 +58,8 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const [fields, setFields] = useState<FieldDraft | null>(null);
   const [scope, setScope] = useState<ScopeRow[] | null>(null);
   const [rates, setRates] = useState<RateRow[] | null>(null);
+  const [payments, setPayments] = useState<PaymentLine[] | null>(null);
+  const [renewOpen, setRenewOpen] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -67,6 +72,9 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
 
   const scopeBase = useMemo(() => (term ? buildScopeRows(term.scope, detail.line) : []), [term, detail.line]);
   const ratesBase = useMemo(() => (term ? toRateRows(term.rates) : []), [term]);
+  const paymentsBase = useMemo(() => (term ? linesFromBilling(term.billingMonths) : []), [term]);
+  const paymentRows = payments ?? paymentsBase;
+  const paymentsDirty = !!payments && paymentsFingerprint(payments) !== paymentsFingerprint(paymentsBase);
   const scopeRows = scope ?? scopeBase;
   const rateRows = rates ?? ratesBase;
   const scopeDirty = !!scope && JSON.stringify(scope) !== JSON.stringify(scopeBase);
@@ -75,12 +83,12 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const fieldPatch = fieldBuild.patch;
   // Invalid raw input counts as a change so it can never be silently discarded.
   const fieldsDirty = Object.keys(fieldPatch).length > 0 || fieldBuild.problems.length > 0;
-  const dirty = editing && (scopeDirty || ratesDirty || fieldsDirty);
+  const dirty = editing && (scopeDirty || ratesDirty || fieldsDirty || paymentsDirty);
 
   const termKey = term?.id;
   useEffect(() => {
     // Any term change (including hash/back navigation) starts from a clean, read-only view.
-    setEditing(false); setFields(null); setScope(null); setRates(null); setErrors({});
+    setEditing(false); setFields(null); setScope(null); setRates(null); setPayments(null); setErrors({});
     setSignPrompt(false); setConfirmMove(null); setMenuOpen(false);
   }, [termKey]);
   useEffect(() => {
@@ -128,7 +136,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
     if (term && termHash(window.location.hash) !== term.id) history.replaceState(null, "", `#term-${term.id}`);
   }, [term]);
 
-  function resetEdits() { setEditing(false); setFields(null); setScope(null); setRates(null); setErrors({}); }
+  function resetEdits() { setEditing(false); setFields(null); setScope(null); setRates(null); setPayments(null); setErrors({}); }
   function selectTerm(id: string) {
     if (id === term?.id) return;
     if (dirty) return setPending({ kind: "term", id });
@@ -152,14 +160,22 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
     if (!term) return;
     const want = (n: string) => !only || only.includes(n);
     if (!dirty) return only ? undefined : resetEdits();
+    const effFlat = detail.line !== "landscape" && (fields?.snowPricing ?? term.snowPricing) === "flat_rate";
+    const savingBilling = want("payments") || (want("fields") && fieldsDirty);
     const problems = [...(want("fields") && fieldsDirty ? fieldBuild.problems : []), ...(want("scope") && scopeDirty ? scopeProblems(scopeRows) : []),
-      ...(want("rates") && ratesDirty ? rateProblems(rateRows) : [])];
+      ...(want("rates") && ratesDirty ? rateProblems(rateRows) : []), ...(savingBilling ? lineProblems(paymentRows, effFlat) : [])];
     if (problems.length) return setErrors({ validation: problems.join("; ") });
     setSaving(true); setErrors({});
     const base = `/api/contract-center/terms/${term.id}`;
+    // Flat snow price is always the Snow payment line's yearly total, saved with the payments.
+    const snowLineNow = paymentRows.find(l => l.name.trim() === SNOW_LINE);
+    const derivedPrice: Record<string, number> = savingBilling && effFlat && snowLineNow
+      && lineSum(snowLineNow) !== term.snowFlatPriceCents ? { snowFlatPriceCents: lineSum(snowLineNow) } : {};
     const sections = [
-      ...(want("fields") && fieldsDirty ? [{ name: "fields", run: () => api("PATCH", base, fieldPatch) }] : []),
+      ...(want("fields") && fieldsDirty ? [{ name: "fields", run: () => api("PATCH", base, { ...fieldPatch, ...derivedPrice }) }]
+        : Object.keys(derivedPrice).length ? [{ name: "snowprice", run: () => api("PATCH", base, derivedPrice) }] : []),
       ...(want("scope") && scopeDirty ? [{ name: "scope", run: () => api("PUT", `${base}/scope`, scopePayload(scopeRows)) }] : []),
+      ...(want("payments") && paymentsDirty ? [{ name: "payments", run: () => api("PUT", `${base}/payments`, paymentsPayload(paymentRows)) }] : []),
       ...(want("rates") && ratesDirty ? [{ name: "rates", run: () => api("PUT", `${base}/rates`, ratesPayload(rateRows)) }] : []),
     ];
     const { ok, failures } = await saveSections(sections);
@@ -167,6 +183,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
     if (ok.includes("fields")) setFields(null);
     if (ok.includes("scope")) setScope(null);
     if (ok.includes("rates")) setRates(null);
+    if (ok.includes("payments")) setPayments(null);
     setSaving(false);
     if (Object.keys(failures).length) {
       setErrors(failures);
@@ -229,7 +246,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
             </>}
             {showRenew && (
               <span title={detail.renewalDraftId ? "A renewal draft already exists" : undefined}>
-                <Button size="sm" variant="outline" disabled={!!detail.renewalDraftId} onClick={() => toast(COMING_SOON)} data-testid="button-renew-contract">
+                <Button size="sm" variant="outline" disabled={!!detail.renewalDraftId} onClick={() => setRenewOpen(true)} data-testid="button-renew-contract">
                   <RefreshCw className="w-4 h-4 mr-1" />Renew for next season
                 </Button>
               </span>
@@ -317,6 +334,8 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
         </section>
       )}
 
+      <RenewDialog target={renewOpen ? { id: detail.id, customerName: detail.customer.name } : null} onClose={() => setRenewOpen(false)}
+        onCreated={termId => { resetEdits(); setSignPrompt(false); setConfirmMove(null); setMenuOpen(false); history.replaceState(null, "", `#term-${termId}`); setSelectedId(termId); }} />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           {["scope", "rates", "billing", "documents", "history"].map(t => <TabsTrigger key={t} value={t} data-testid={`tab-${t}`}>{t[0].toUpperCase() + t.slice(1)}</TabsTrigger>)}
@@ -330,7 +349,13 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
           {editing && <div className="mb-3"><Button size="sm" disabled={saving || !ratesDirty} onClick={() => save(["rates"])} data-testid="button-save-rates">Save rates</Button></div>}
           <RatesEditor line={detail.line} rows={rateRows} editing={editing} onChange={setRates} />
         </TabsContent>
-        <TabsContent value="billing"><BillingTab term={term} snow={snow} /></TabsContent>
+        <TabsContent value="billing">
+          {editing && <div className="mb-3"><Button size="sm" disabled={saving || !(paymentsDirty || fieldsDirty)} onClick={() => save(["fields", "payments"])} data-testid="button-save-payments">Save payments</Button></div>}
+          {editing
+            ? <PaymentEditor lines={paymentRows} onChange={setPayments} startMonth={startMonthOf(term.startDate)} line={detail.line}
+                snowPricing={fields?.snowPricing ?? term.snowPricing} flatSnowAllowed={(fields?.snowPricing ?? term.snowPricing) === "flat_rate"} errors />
+            : <BillingTab term={term} snow={snow} />}
+        </TabsContent>
         <TabsContent value="documents">
           <section className="space-y-3" data-testid="tab-documents-body">
             {editable && (
@@ -394,8 +419,7 @@ function BillingTab({ term, snow }: { term: DetailTerm; snow: boolean }) {
   const schedule = [...term.billingMonths].sort((a, b) => a.month.localeCompare(b.month) || a.component.localeCompare(b.component));
   return (
     <section className="space-y-4" data-testid="tab-billing-body">
-      <p className="text-xs text-muted-foreground">Payment lines are read-only until the payment editor arrives in the next update.</p>
-      {snow && (
+            {snow && (
         <p className="text-sm" data-testid="text-snow-billing">
           {term.snowPricing === "flat_rate" ? `Flat rate ${money(term.snowFlatPriceCents)}, paid on the Snow line` : "Time and materials, invoiced monthly, net 30"}
         </p>
