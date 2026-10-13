@@ -91,7 +91,8 @@ export function DatePickerField({
           mode="single"
           selected={value}
           onSelect={handleSelect}
-          initialFocus
+          defaultMonth={value ?? new Date()}
+          autoFocus
         />
         <div className="border-t p-2 flex gap-2">
           <Button
