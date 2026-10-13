@@ -10,6 +10,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractApiErrorMessage } from "@/lib/apiError";
 import RateRow from "./RateRow";
 import AddRateForm from "./AddRateForm";
+import LegacyCopyCard from "./LegacyCopyCard";
 import { LINE_LABELS, groupRates, missingDefaultCount, rateCardQueryKey, type RateCardItem } from "./rateCardUtils";
 
 export default function ContractSettings() {
@@ -171,6 +172,8 @@ export default function ContractSettings() {
           <p className="text-sm text-muted-foreground" data-testid="text-coming-next">Word master and scope presets arrive with the Contract Center screens.</p>
         </CardContent>
       </Card>
+      <LegacyCopyCard key={companyId} ratesReady={!isLoading && !isError && rows.length > 0 && savingIds.size === 0 && !seedMutation.isPending && !createMutation.isPending}
+        ratesEmpty={!isLoading && !isError && rows.length === 0} rateRevision={JSON.stringify(rows)} />
     </div>
   );
 }

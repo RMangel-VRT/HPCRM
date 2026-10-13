@@ -1,11 +1,17 @@
 import type { Express, Request, Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod/v4";
-import { rateCardItems, insertRateCardItemSchema } from "@workspace/db";
+import {
+  rateCardItems, insertRateCardItemSchema, contracts, contractServices, contractMonthlyAmounts,
+  contractDocuments, contractStatusHistory, customerServicePlans, customerRateSheets,
+  customers, propertyManagementCompanies, termLegacySources,
+} from "@workspace/db";
 import { db } from "../db";
 import type { UserWithContext } from "../auth";
 import { pickProvided } from "../lib/patchBody";
 import { RATE_CARD_DEFAULTS } from "../shared/contractCatalog";
+import { planLegacyCopy } from "../lib/contractCenterCopy";
+import { executeLegacyCopy } from "../lib/contractCenterCopyExecution";
 
 function authorize(req: Request, res: Response, allowOffice: boolean): UserWithContext | null {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
@@ -50,6 +56,40 @@ const updateRateSchema = createRateSchema.omit({ rateKey: true, line: true }).ex
 }).partial();
 
 export function registerContractCenterRoutes(app: Express): void {
+  app.post("/api/admin/contract-center/copy-legacy", async (req, res) => {
+    const user = adminOnly(req, res);
+    if (!user) return;
+    const parsed = z.object({ dryRun: z.boolean().default(true) }).strict().safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ message: "Expected { dryRun?: boolean }" });
+      return;
+    }
+    const companyId = user.activeCompanyId;
+    const rateCard = await db.select().from(rateCardItems).where(eq(rateCardItems.companyId, companyId));
+    if (!rateCard.length) {
+      res.status(409).json({ message: "Load the standard rates first (Settings › Contracts)" });
+      return;
+    }
+    const [oldContracts, services, monthlyAmounts, documents, history, servicePlans, rateSheets, customerRows, managementCompanies, legacySources] = await Promise.all([
+      db.select().from(contracts).where(eq(contracts.companyId, companyId)),
+      db.select().from(contractServices).where(eq(contractServices.companyId, companyId)),
+      db.select().from(contractMonthlyAmounts).where(eq(contractMonthlyAmounts.companyId, companyId)),
+      db.select().from(contractDocuments).where(eq(contractDocuments.companyId, companyId)),
+      db.select({ history: contractStatusHistory }).from(contractStatusHistory)
+        .innerJoin(contracts, eq(contractStatusHistory.contractId, contracts.id))
+        .where(eq(contracts.companyId, companyId)),
+      db.select().from(customerServicePlans).where(eq(customerServicePlans.companyId, companyId)),
+      db.select().from(customerRateSheets).where(eq(customerRateSheets.companyId, companyId)),
+      db.select().from(customers).where(eq(customers.companyId, companyId)),
+      db.select().from(propertyManagementCompanies).where(eq(propertyManagementCompanies.companyId, companyId)),
+      db.select().from(termLegacySources).where(eq(termLegacySources.companyId, companyId)),
+    ]);
+    const plan = planLegacyCopy({ companyId, contracts: oldContracts, services, monthlyAmounts, documents,
+      history: history.map(row => row.history), servicePlans, rateSheets, customers: customerRows,
+      managementCompanies, legacySources, rateCard }, parsed.data.dryRun);
+    res.json(parsed.data.dryRun ? plan.report : await executeLegacyCopy(plan, companyId, user.id));
+  });
+
   app.get("/api/contract-center/rate-card", async (req, res) => {
     const user = adminOrOffice(req, res);
     if (!user) return;
