@@ -65,7 +65,8 @@ export default function RateRow({ row, onSave, onInvalid, saving }: Props) {
     } else {
       const cents = parseDollarsToCents(t);
       if (cents == null) { onInvalid("Enter a dollar amount like 145 or 1.45"); setPrice(priceServer); setEditingPrice(false); return; }
-      if (cents === row.priceCents) { setPrice(priceServer); return; }
+      if (cents === row.priceCents) { setPrice(priceServer); setEditingPrice(false); return; }
+      setPrice(centsToInput(cents));
       void commit({ priceCents: cents }, () => setPrice(priceServer));
     }
     setEditingPrice(false);

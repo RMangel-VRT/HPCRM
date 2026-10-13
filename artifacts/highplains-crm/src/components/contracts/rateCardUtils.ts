@@ -28,13 +28,12 @@ export const rateCardQueryKey = (companyId: string | undefined) =>
   ["/api/contract-center/rate-card", companyId ?? "none"] as const;
 
 export function formatDollars(cents: number): string {
-  const d = cents / 100;
-  return Number.isInteger(d) && d >= 100 ? `$${d.toLocaleString("en-US")}` : `$${d.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `$${centsToInput(cents)}`;
 }
 
 /** Input value: dollars with two decimals, no symbol. */
 export function centsToInput(cents: number): string {
-  return (cents / 100).toFixed(2);
+  return (cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** Returns cents, or null when the text is not a valid non-negative dollar amount. */

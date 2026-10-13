@@ -113,16 +113,16 @@ describe("Rate card reads and seeding", () => {
     expect(mocks.order).toHaveBeenCalledWith(rateCardItems.line, rateCardItems.sortOrder, rateCardItems.label);
   });
 
-  it("inserts exactly the 22 defaults, ordered by catalog index, ignoring company/key conflicts", async () => {
+  it("inserts exactly the 24 defaults, ordered by catalog index, ignoring company/key conflicts", async () => {
     mocks.returning.mockResolvedValue(RATE_CARD_DEFAULTS.map((_, index) => ({ id: `${index}` })));
     const response = await request(app()).post(`${URL}/seed-defaults`);
-    expect(response.body).toEqual({ inserted: 22, skipped: 0 });
+    expect(response.body).toEqual({ inserted: 24, skipped: 0 });
     expect(mocks.values).toHaveBeenCalledWith(RATE_CARD_DEFAULTS.map(({ key, ...rate }, sortOrder) => ({ ...rate, rateKey: key, companyId, sortOrder })));
     expect(mocks.values.mock.calls[0][0].map((rate: any) => rate.rateKey)).toEqual([
-      "rate_general_labor", "rate_emergency_general_labor", "disposal_rate", "native_broadleaf_rate",
+      "rate_general_labor", "rate_emergency_general_labor", "rate_operator_labor", "disposal_rate", "native_broadleaf_rate",
       "pet_station_rate", "winter_water_gallon_rate", "winter_water_hourly_rate", "rate_irrigation_labor",
       "rate_emergency_irrigation_labor", "backflow_rate", "irrigation_auto_limit", "irrigation_notify_cap",
-      "rate_service_truck", "rate_plow_truck", "rate_skid_loader", "rate_atv", "rate_hand_shovel",
+      "rate_service_truck", "rate_plow_truck", "rate_skid_loader", "rate_atv", "rate_snowblower", "rate_hand_shovel",
       "rate_ice_melt_application", "rate_holiday", "rate_ice_melt", "rate_sand_salt", "rate_snow_stakes",
     ]);
     expect(mocks.conflict).toHaveBeenCalledWith({ target: [rateCardItems.companyId, rateCardItems.rateKey] });
@@ -131,8 +131,28 @@ describe("Rate card reads and seeding", () => {
   it("reports only actually inserted rows, including a fully skipped repeat", async () => {
     mocks.returning.mockResolvedValueOnce([{ id: "new" }]).mockResolvedValueOnce([]);
     const agent = request(app());
-    expect((await agent.post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 1, skipped: 21 });
-    expect((await agent.post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 0, skipped: 22 });
+    expect((await agent.post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 1, skipped: 23 });
+    expect((await agent.post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 0, skipped: 24 });
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("adds only two missing keys to an edited/retired original card without relabeling ATV", async () => {
+    const original = RATE_CARD_DEFAULTS.filter(r => !["rate_operator_labor", "rate_snowblower"].includes(r.key))
+      .map(({ key, ...r }) => ({ ...r, rateKey: key, active: false, priceCents: 123, label: key === "rate_atv" ? "ATV / snowblower" : "Edited" }));
+    const stored = new Map(original.map(r => [r.rateKey, r]));
+    const before = JSON.stringify(original);
+    mocks.returning.mockImplementation(async () => {
+      const inserted = [];
+      for (const r of mocks.values.mock.lastCall![0]) {
+        if (stored.has(r.rateKey)) continue;
+        stored.set(r.rateKey, r);
+        inserted.push({ id: r.rateKey });
+      }
+      return inserted;
+    });
+    expect((await request(app()).post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 2, skipped: 22 });
+    expect(JSON.stringify(original.map(r => stored.get(r.rateKey)))).toBe(before);
+    expect((await request(app()).post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 0, skipped: 24 });
     expect(mocks.update).not.toHaveBeenCalled();
   });
 });

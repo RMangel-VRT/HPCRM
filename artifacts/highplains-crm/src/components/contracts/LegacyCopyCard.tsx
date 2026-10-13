@@ -14,7 +14,7 @@ interface Report {
   ignoredServicePlans: number;
   failures: { customerId: string; customerName: string; error: string }[];
   customers: { customerId: string; customerName: string; error?: string; agreements: {
-    line: string; terms: { legacyContractIds: string[]; seasonLabel: string; startDate: string;
+    line: "landscape" | "snow" | "both"; terms: { legacyContractIds: string[]; seasonLabel: string; startDate: string;
       endDate: string; status: string; billingType: string; annualPriceCents: number | null;
       scope: { serviceKey: string; quantity: number | null }[]; flags: string[] }[];
   }[] }[];
@@ -42,7 +42,8 @@ export default function LegacyCopyCard({ ratesReady, ratesEmpty, rateRevision }:
   });
   const contractCount = report?.customers.filter(c => !c.error).reduce((n, c) =>
     n + c.agreements.reduce((a, g) => a + g.terms.reduce((t, term) => t + term.legacyContractIds.length, 0), 0), 0) ?? 0;
-  const canCopy = ratesReady && report?.dryRun && previewRevision === rateRevision && contractCount > 0 && !mutation.isPending;
+  const validPreview = report?.dryRun && previewRevision === rateRevision;
+  const canCopy = ratesReady && validPreview && contractCount > 0 && !mutation.isPending;
   const runPreview = () => {
     setPreviewRevision(null);
     setConfirming(false);
@@ -60,7 +61,7 @@ export default function LegacyCopyCard({ ratesReady, ratesEmpty, rateRevision }:
         <Button variant="outline" onClick={runPreview} disabled={!ratesReady || mutation.isPending} data-testid="button-preview-copy">
           {mutation.isPending && mutation.variables?.dryRun === true ? "Previewing…" : "Preview"}
         </Button>
-        <Button onClick={() => setConfirming(true)} disabled={!canCopy} data-testid="button-copy-legacy">Copy {contractCount} contracts</Button>
+        <Button onClick={() => setConfirming(true)} disabled={!canCopy} data-testid="button-copy-legacy">{validPreview ? `Copy ${contractCount} contracts` : "Preview first"}</Button>
       </div>
       {confirming && canCopy && <div className="rounded-md border p-4 space-y-3" data-testid="copy-confirmation">
         <p className="text-sm">Copy {contractCount} legacy contracts into the new tables? Old records and stored files will not change. Each customer is copied in full or not at all. Review flags will be preserved.</p>
@@ -88,14 +89,17 @@ export default function LegacyCopyCard({ ratesReady, ratesEmpty, rateRevision }:
           <Switch checked={onlyFlags} onCheckedChange={setOnlyFlags} data-testid="toggle-copy-flags" />Show only rows with flags
         </label>
         <div className="overflow-x-auto rounded border">
-          <Table>
+          <Table className="min-w-[1000px]">
             <TableHeader><TableRow>{["Customer", "Line", "Season", "Dates", "Status", "Price", "Services", "Flags"].map(h => <TableHead key={h}>{h}</TableHead>)}</TableRow></TableHeader>
             <TableBody>
-              {report.customers.flatMap(c => c.agreements.flatMap(a => a.terms.filter(t => !onlyFlags || t.flags.length > 0).map(t =>
+              {report.customers.filter(c => c.agreements.some(a => a.terms.some(t => !onlyFlags || t.flags.length > 0))).map(c =>
+                <Fragment key={c.customerId}>
+                  <TableRow className="bg-muted/40"><TableCell colSpan={8} className="font-semibold">{c.customerName}</TableCell></TableRow>
+                  {c.agreements.flatMap(a => a.terms.filter(t => !onlyFlags || t.flags.length > 0).map(t =>
                 <Fragment key={`${c.customerId}:${a.line}:${t.legacyContractIds.join(",")}`}>
                   <TableRow className={t.flags.length ? "bg-amber-50/60 dark:bg-amber-950/20" : ""}>
                     <TableCell>{c.customerName}{c.error && <span className="block text-destructive">Not copied</span>}</TableCell>
-                    <TableCell className="capitalize">{a.line}</TableCell><TableCell>{t.seasonLabel}</TableCell>
+                    <TableCell className="whitespace-nowrap">{({ landscape: "Landscape", snow: "Snow", both: "Landscape + Snow" })[a.line]}</TableCell><TableCell>{t.seasonLabel}</TableCell>
                     <TableCell className="whitespace-nowrap">{t.startDate} – {t.endDate}</TableCell>
                     <TableCell>{t.status}<span className="block text-xs text-muted-foreground">{t.billingType}</span></TableCell>
                     <TableCell>{t.annualPriceCents === null ? "Not entered" : dollars(t.annualPriceCents)}</TableCell>
@@ -104,7 +108,8 @@ export default function LegacyCopyCard({ ratesReady, ratesEmpty, rateRevision }:
                   {t.flags.length > 0 && <TableRow className="bg-amber-50/60 dark:bg-amber-950/20"><TableCell colSpan={8} className="pt-0">
                     <ul className="list-disc pl-5 text-sm">{t.flags.map(flag => <li key={flag}>{flag}</li>)}</ul>
                   </TableCell></TableRow>}
-                </Fragment>)))}
+                </Fragment>))}
+                </Fragment>)}
               {report.summary.terms === 0 && report.failures.length === 0 && <TableRow><TableCell colSpan={8}>No contracts remain to copy.</TableCell></TableRow>}
             </TableBody>
           </Table>

@@ -169,4 +169,22 @@ describe("legacy copy endpoint safety", () => {
     expect(response.body.summary).toMatchObject({ customers: 0, agreements: 0, terms: 0, alreadyCopied: 1 });
     expect(mocks.transaction).toHaveBeenCalledTimes(1);
   });
+  it("executes a Both plan with every source link, landscape-only billing and earliest document metadata (mock DB only)", async () => {
+    rows.set(contracts, [oldContract("c1"), { ...oldContract("s1"), serviceType: "Snow" }]);
+    rows.set(contractMonthlyAmounts, [
+      { id: "a", companyId: COMPANY, contractId: "c1", month: 1, amount: 100 },
+      { id: "b", companyId: COMPANY, contractId: "s1", month: 1, amount: 900 },
+    ]);
+    rows.set(contractDocuments, ["c1", "s1"].map((contractId, i) => ({
+      id: `doc${i}`, companyId: COMPANY, contractId, version: 1, filename: "signed.pdf",
+      storageObjectPath: "/objects/shared", fileSize: 100, mimeType: "application/pdf",
+      uploadedBy: "actor", uploadedAt: new Date(i ? "2025-12-01Z" : "2026-01-01Z"),
+    })));
+    const response = await request(app()).post(URL).send({ dryRun: false });
+    expect(response.body.summary).toMatchObject({ agreements: 1, terms: 1, documents: 1, billingMonths: 1 });
+    expect(committed.find(c => c.table === agreements)!.values[0].line).toBe("both");
+    expect(committed.find(c => c.table === agreementTerms)!.values[0]).toMatchObject({ annualPriceCents: 100, billingType: "monthly_variable" });
+    expect(committed.find(c => c.table === termLegacySources)!.values.map(v => v.legacyContractId)).toEqual(["c1", "s1"]);
+    expect(committed.find(c => c.table === termDocuments)!.values[0].createdAt).toEqual(new Date("2025-12-01Z"));
+  });
 });

@@ -60,11 +60,6 @@ export const LEGACY_SERVICE_TO_SCOPE: Record<string, { key: string; review?: boo
   other: { key: "other", review: true },
 };
 
-/** Old contracts.billing_pattern → billing type (1:1, no guessing). */
-export const LEGACY_BILLING_TYPE: Record<string, string> = {
-  "12-of-12": "equal_monthly", monthly: "monthly_variable", seasonal: "seasonal",
-};
-
 export interface RateCardDefault {
   key: string; line: "landscape" | "irrigation" | "snow" | "general"; category: string; label: string;
   priceCents: number | null; priceText?: string; unit: string; minimum?: string;
@@ -75,6 +70,7 @@ export interface RateCardDefault {
 export const RATE_CARD_DEFAULTS: RateCardDefault[] = [
   { key: "rate_general_labor", line: "landscape", category: "Labor", label: "General labor", priceCents: null, unit: "per hour" },
   { key: "rate_emergency_general_labor", line: "landscape", category: "Labor", label: "Emergency general labor", priceCents: null, unit: "per hour" },
+  { key: "rate_operator_labor", line: "landscape", category: "Labor", label: "Operator labor", priceCents: null, unit: "per hour" },
   { key: "disposal_rate", line: "landscape", category: "Landscape", label: "Disposal", priceCents: 32500, unit: "per 7' x 14' dump trailer load" },
   { key: "native_broadleaf_rate", line: "landscape", category: "Landscape", label: "Native-area broadleaf control", priceCents: 4700, unit: "per gallon applied" },
   { key: "pet_station_rate", line: "landscape", category: "Landscape", label: "Pet waste bags", priceCents: 2500, unit: "per station per week" },
@@ -88,7 +84,8 @@ export const RATE_CARD_DEFAULTS: RateCardDefault[] = [
   { key: "rate_service_truck", line: "snow", category: "Snow equipment & labor", label: "Service truck", priceCents: 12000, unit: "per occurrence" },
   { key: "rate_plow_truck", line: "snow", category: "Snow equipment & labor", label: "Plow truck", priceCents: 14500, unit: "per hour", minimum: "3 hour minimum" },
   { key: "rate_skid_loader", line: "snow", category: "Snow equipment & labor", label: "Skid loader", priceCents: 24500, unit: "per hour", minimum: "3 hour minimum" },
-  { key: "rate_atv", line: "snow", category: "Snow equipment & labor", label: "ATV / snowblower", priceCents: 13500, unit: "per hour", minimum: "3 hour minimum" },
+  { key: "rate_atv", line: "snow", category: "Snow equipment & labor", label: "ATV", priceCents: 13500, unit: "per hour", minimum: "3 hour minimum" },
+  { key: "rate_snowblower", line: "snow", category: "Snow equipment & labor", label: "Snowblower", priceCents: 13500, unit: "per hour", minimum: "3 hour minimum" },
   { key: "rate_hand_shovel", line: "snow", category: "Snow equipment & labor", label: "Hand shovel", priceCents: 8000, unit: "per hour", minimum: "6 hour minimum" },
   { key: "rate_ice_melt_application", line: "snow", category: "Snow equipment & labor", label: "Ice melt application", priceCents: 7000, unit: "per hour" },
   { key: "rate_holiday", line: "snow", category: "Snow equipment & labor", label: "Holiday rate", priceCents: null, priceText: "1.5x Normal Rates", unit: "Thanksgiving, Christmas Eve and Day, New Year's Eve and Day" },

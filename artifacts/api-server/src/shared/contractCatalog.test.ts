@@ -2,13 +2,13 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   SCOPE_CATALOG, RATE_CARD_DEFAULTS, LEGACY_SERVICE_TO_SCOPE,
-  LEGACY_CONTRACT_LINE, LEGACY_BILLING_TYPE, scopeServiceByKey,
+  LEGACY_CONTRACT_LINE, scopeServiceByKey,
 } from "./contractCatalog";
 
 describe("Contract Center catalog", () => {
-  it("contains all 25 scope services and 22 distinct rate defaults", () => {
+  it("contains all 25 scope services and 24 distinct rate defaults", () => {
     expect(SCOPE_CATALOG).toHaveLength(25);
-    expect(RATE_CARD_DEFAULTS).toHaveLength(22);
+    expect(RATE_CARD_DEFAULTS).toHaveLength(24);
     for (const items of [SCOPE_CATALOG, RATE_CARD_DEFAULTS]) {
       expect(new Set(items.map((item) => item.key)).size).toBe(items.length);
     }
@@ -37,8 +37,9 @@ describe("Contract Center catalog", () => {
     expect(LEGACY_CONTRACT_LINE).toEqual({
       Maintenance: "landscape", Chemical: "landscape", Irrigation: "landscape", Other: "landscape", Snow: "snow",
     });
-    expect(LEGACY_BILLING_TYPE).toEqual({
-      "12-of-12": "equal_monthly", monthly: "monthly_variable", seasonal: "seasonal",
+    expect(RATE_CARD_DEFAULTS.find(r => r.key === "rate_operator_labor")).toMatchObject({ priceCents: null, line: "landscape" });
+    for (const key of ["rate_atv", "rate_snowblower"]) expect(RATE_CARD_DEFAULTS.find(r => r.key === key)).toMatchObject({
+      label: key === "rate_atv" ? "ATV" : "Snowblower", priceCents: 13500, unit: "per hour", minimum: "3 hour minimum",
     });
   });
 

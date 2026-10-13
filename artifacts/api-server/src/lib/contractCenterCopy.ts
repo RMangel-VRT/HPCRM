@@ -4,7 +4,7 @@ import type {
   TermLegacySource, Agreement, AgreementTerm, TermScopeLine, TermRate, TermBillingMonth,
   TermDocument, TermStatusHistory, BillingType, TermStatus,
 } from "@workspace/db";
-import { LEGACY_BILLING_TYPE, LEGACY_CONTRACT_LINE, LEGACY_SERVICE_TO_SCOPE, SCOPE_CATALOG } from "../shared/contractCatalog";
+import { LEGACY_CONTRACT_LINE, LEGACY_SERVICE_TO_SCOPE, SCOPE_CATALOG } from "../shared/contractCatalog";
 
 export interface CopyInput {
   companyId: string;
@@ -29,7 +29,7 @@ export interface TermReport {
 }
 export interface CustomerReport {
   customerId: string; customerName: string;
-  agreements: Array<{ line: "landscape" | "snow"; terms: TermReport[] }>;
+  agreements: Array<{ line: "landscape" | "snow" | "both"; terms: TermReport[] }>;
   // Failed customers remain visible but are never counted as copied.
   error?: string;
 }
@@ -93,7 +93,14 @@ const overrideKeys: Record<string, keyof CustomerRateSheet> = {
   rate_irrigation_labor: "irrigationLabor", rate_emergency_irrigation_labor: "emergencyIrrigationLabor",
   rate_hand_shovel: "handShovelLabor", rate_plow_truck: "plowTruck", rate_skid_loader: "skidSteer",
   rate_atv: "atv", rate_ice_melt: "iceMeltMaterial", rate_ice_melt_application: "iceMeltApplicationLabor",
+  rate_operator_labor: "operatorLabor", rate_snowblower: "snowBlower",
 };
+
+type DocumentIdentity = { storageObjectPath: string; filename: string; fileSize: number };
+const sameDocument = (a: DocumentIdentity, b: DocumentIdentity) =>
+  (!!a.storageObjectPath && a.storageObjectPath === b.storageObjectPath) ||
+  (a.filename === b.filename && a.fileSize === b.fileSize);
+const SNOW_AMOUNT_WARNING = "Snow contract had monthly amounts entered, but none of the current snow contracts are flat-rate. Check whether they belong on the landscape contract.";
 
 /** Company-scoped, read-only, deterministic planning. No UUID generation or database calls. */
 export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
@@ -133,19 +140,52 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
       const manager = customer.propertyManagementCompanyId ? managers.get(customer.propertyManagementCompanyId) : undefined;
       if (customer.propertyManagementCompanyId && !manager) throw new Error("Property management company is not in the active company");
       const customerPlan: CustomerPlan = { report: customerReport, agreements: [] };
-      const allLines = new Set(contracts.filter(c => c.customerId === customerId).map(c => LEGACY_CONTRACT_LINE[c.serviceType]));
-      for (const line of ["landscape", "snow"] as const) {
-        const lineContracts = oldContracts.filter(c => LEGACY_CONTRACT_LINE[c.serviceType] === line);
-        if (!lineContracts.length) continue;
-        const normalized = lineContracts.map(contract => {
+      const normalized = oldContracts.map(contract => {
           const flags: string[] = [];
           const start = normalizeDate(contract.startDate, "start", s => flags.push(s));
           const end = contract.endDate ? normalizeDate(contract.endDate, "end", s => flags.push(s)) : assumedEnd(start);
           if (!contract.endDate) flags.push("Had no end date; assumed 12 months");
           if (end < start) throw new Error(`End date precedes start date for contract ${contract.id}`);
           return { contract, start, end, flags };
-        });
-        const groups = [...indexBy(normalized, c => `${c.start}/${c.end}`)].sort(([a], [b]) => a.localeCompare(b));
+      });
+      // Determine legacy ended status before merging, then use the more active side.
+      const initial = (["landscape", "snow"] as const).flatMap(line => {
+        const groups = [...indexBy(normalized.filter(c => LEGACY_CONTRACT_LINE[c.contract.serviceType] === line),
+          c => `${c.start}/${c.end}`)].sort(([a], [b]) => a.localeCompare(b));
+        return groups.map(([, group], index) => ({
+          line: line as "landscape" | "snow" | "both", group,
+          status: (group.every(g => g.contract.status === "ended")
+            ? index < groups.length - 1 ? "renewed" : "lost" : "active") as TermStatus,
+        }));
+      });
+      const landscapes = initial.filter(g => g.line === "landscape");
+      const snows = initial.filter(g => g.line === "snow");
+      const merged = new Set<(typeof initial)[number]>();
+      const finalGroups = [...initial];
+      for (const landscape of landscapes) for (const snow of snows) {
+        const l = landscape.group[0], s = snow.group[0];
+        const identicalDates = l.start === s.start && l.end === s.end;
+        const docs = (g: typeof landscape) => g.group.flatMap(c => documents.get(c.contract.id) ?? []);
+        const shared = docs(landscape).some(a => docs(snow).some(b => sameDocument(a, b)));
+        if (shared && identicalDates) {
+          merged.add(landscape); merged.add(snow);
+          const priority: TermStatus[] = ["lost", "renewed", "active"];
+          finalGroups.push({ line: "both", group: [...landscape.group, ...snow.group].sort((a, b) => a.contract.id.localeCompare(b.contract.id)),
+            status: priority[Math.max(priority.indexOf(landscape.status), priority.indexOf(snow.status))] });
+        } else if (shared || identicalDates) {
+          for (const [self, other] of [[landscape, snow], [snow, landscape]]) {
+            const dates = other.group[0];
+            const warning = shared
+              ? `Shares a signed document with the ${other.line} contract but the dates differ (${dates.start} – ${dates.end}); check the dates.`
+              : `Same dates as the ${other.line} contract but a different or missing signed document; kept separate.`;
+            self.group[0].flags.push(warning);
+          }
+        }
+      }
+      for (const line of ["landscape", "snow", "both"] as const) {
+        const groups = finalGroups.filter(g => g.line === line && !merged.has(g))
+          .sort((a, b) => `${a.group[0].start}/${a.group[0].end}`.localeCompare(`${b.group[0].start}/${b.group[0].end}`));
+        if (!groups.length) continue;
         const agreementReport = { line, terms: [] as TermReport[] };
         customerReport.agreements.push(agreementReport);
         const agreementPlan = {
@@ -153,54 +193,52 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
           terms: [] as TermPlan[],
         };
         customerPlan.agreements.push(agreementPlan);
-        for (const [, group] of groups) {
+        for (const { group, status } of groups) {
           const { start, end } = group[0];
           const old = group.map(g => g.contract);
           const ids = old.map(c => c.id);
           const flags: string[] = [];
           const flag = (s: string) => { if (!flags.includes(s)) flags.push(s); };
           group.flatMap(g => g.flags).forEach(flag);
-          if (allLines.size > 1) flag("Has separate landscape and snow agreements; merge into one Both contract if they're signed as one");
-          let status: TermStatus = "active";
           if (!old.some(c => c.status === "active") && old.some(c => c.status === "paused")) flag("Was paused in the old system");
-          if (old.every(c => c.status === "ended")) {
-            status = agreementPlan.terms.length < groups.length - 1 ? "renewed" : "lost";
-            if (status === "lost") flag("Old status was ended; confirm whether it was lost or just expired");
-          }
+          if (status === "lost") flag("Old status was ended; confirm whether it was lost or just expired");
           const notes = old.map(c => c.notes).filter((n): n is string => !!n);
-          const termAmounts = ids.flatMap(id => amounts.get(id) ?? []);
+          const termAmounts = old.filter(c => LEGACY_CONTRACT_LINE[c.serviceType] === "landscape").flatMap(c => amounts.get(c.id) ?? []);
+          const snowAmounts = old.filter(c => LEGACY_CONTRACT_LINE[c.serviceType] === "snow").flatMap(c => amounts.get(c.id) ?? []);
           const patterns = [...new Set(old.map(c => c.billingPattern))];
-          const billingType = (line === "snow" && !termAmounts.length
-            ? "time_and_materials" : LEGACY_BILLING_TYPE[patterns[0]]) as BillingType;
-          if (line === "snow" && !termAmounts.length) notes.push(`Old billing pattern: ${patterns[0]}`);
-          if (line === "snow" && termAmounts.length) flag("Snow contract had monthly amounts; check whether it's a flat seasonal price");
+          patterns.forEach(pattern => notes.push(`Old billing pattern: ${pattern}`));
+          if (snowAmounts.length) flag(SNOW_AMOUNT_WARNING);
+          for (const a of snowAmounts) {
+            if (!Number.isInteger(a.month) || a.month < 1 || a.month > 12) flag(`Monthly amount with invalid month number ${a.month}`);
+            notes.push(`Old snow monthly amount, ${months[a.month - 1] ?? a.month}: $${(a.amount / 100).toFixed(2)}`);
+          }
           if (patterns.length > 1) flag(`Billing patterns differed: ${patterns.join(", ")}`);
           const totals = new Map<number, number>();
-          for (const a of termAmounts) totals.set(a.month, (totals.get(a.month) ?? 0) + a.amount);
+          for (const a of termAmounts) {
+            if (!Number.isInteger(a.month) || a.month < 1 || a.month > 12) { flag(`Monthly amount with invalid month number ${a.month}`); continue; }
+            totals.set(a.month, (totals.get(a.month) ?? 0) + a.amount);
+          }
+          const billingType: BillingType = line === "snow" ? "time_and_materials"
+            : !totals.size || (totals.size === 12 && new Set(totals.values()).size === 1) ? "equal_monthly" : "monthly_variable";
           const billingMonths: TermPlan["billingMonths"] = [];
-          const [sy] = start.split("-").map(Number);
-          const [ey] = end.split("-").map(Number);
-          for (const [month, amountCents] of [...totals].sort(([a], [b]) => a - b)) {
-            const candidates: string[] = [];
-            // Unsupported long windows are rejected without an unbounded iteration.
-            if (end <= assumedEnd(start) && month >= 1 && month <= 12) {
-              for (let year = sy; year <= ey; year++) {
-                const date = `${year}-${String(month).padStart(2, "0")}-01`;
-                 // A partial starting month still belongs to the term. Legacy
-                 // month numbers have no year, so inspect every overlapping
-                 // calendar month rather than dropping it at the day boundary.
-                 if (date.slice(0, 7) >= start.slice(0, 7) && date.slice(0, 7) <= end.slice(0, 7)) candidates.push(date);
-              }
-            }
-             if (candidates.length > 1) {
-               flag(`Monthly amount for ${months[month - 1]} has an ambiguous year (${candidates.map(date => date.slice(0, 4)).join(" or ")}); check it`);
-               notes.push(`Unplaced monthly amount for ${months[month - 1]}: $${(amountCents / 100).toFixed(2)} (possible billing months: ${candidates.join(", ")})`);
-             } else if (candidates.length === 0) flag(`Monthly amount for ${months[month - 1] ?? month} doesn't fit the term dates`);
-            else if (amountCents !== 0) billingMonths.push({ month: candidates[0], amountCents });
+          const [sy, sm] = start.split("-").map(Number);
+          const [ey, em] = end.split("-").map(Number);
+          const termMonths = (ey - sy) * 12 + em - sm + 1;
+          if (termMonths >= 12 && termMonths % 12 !== 0) flag(`Contract runs ${termMonths} months (not whole years); check the dates`);
+          for (let offset = 0; offset < Math.max(12, termMonths); offset++) {
+            const index = sy * 12 + sm - 1 + offset;
+            const month = index % 12 + 1;
+            const amountCents = totals.get(month);
+            if (amountCents !== undefined && amountCents !== 0) billingMonths.push({
+              month: `${String(Math.floor(index / 12)).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`, amountCents,
+            });
           }
           billingMonths.sort((a, b) => a.month.localeCompare(b.month));
-          const annualPriceCents = billingMonths.length ? billingMonths.reduce((sum, a) => sum + a.amountCents, 0) : null;
-          if (line === "landscape" && !termAmounts.length) flag("No monthly amounts entered");
+          const annualPriceCents = totals.size ? [...totals.values()].reduce((sum, a) => sum + a, 0) : null;
+          if (line !== "snow") {
+            if (!totals.size) flag("No monthly amounts entered");
+            else if (totals.size < 12) flag(`Only ${totals.size} of 12 monthly amounts entered`);
+          }
           for (const c of old.filter(c => c.hasMobilizationFee)) {
             notes.push(`Mobilization fee $${(c.mobilizationFeeAmount / 100).toFixed(2)}`);
             flag("Had a mobilization fee; decide where it belongs");
@@ -248,18 +286,20 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
             } else {
               const catalog = SCOPE_CATALOG.find(c => c.key === key)!;
               // A source-less snow plan is not evidence for landscape scope, or vice versa.
-              if ((line === "snow") !== (catalog.line === "snow") || scope.has(key)) continue;
+              if ((line !== "both" && (line === "snow") !== (catalog.line === "snow")) || scope.has(key)) continue;
               addScope(mapService(plan.serviceCategory), plan.expectedQuantity, null, {}, plan.notes);
               flag("Added from a service plan, not the contract");
             }
           }
           const sheet = sheets.get(customerId);
-          if (sheet?.snowBlower != null && sheet.atv != null && sheet.snowBlower !== sheet.atv)
-            flag("Rate sheet has separate ATV and snowblower rates; the new card has one");
-          if (sheet?.operatorLabor != null) flag("Rate sheet has an operator labor rate with no place on the new card");
-          const termRates = rates.filter(r => (line === "snow" ? ["snow", "general"] : ["landscape", "irrigation", "general"]).includes(r.line)).map(r => {
+          const applicableLines = line === "both" ? ["landscape", "irrigation", "snow", "general"] : line === "snow" ? ["snow", "general"] : ["landscape", "irrigation", "general"];
+          for (const [key, applicableLine] of [["rate_operator_labor", "landscape"], ["rate_snowblower", "snow"]]) {
+            if (applicableLines.includes(applicableLine) && sheet?.[overrideKeys[key]] != null && !rates.some(r => r.rateKey === key))
+              flag(`Rate sheet value for ${key} skipped; add the missing standard rates in Settings first`);
+          }
+          const termRates = rates.filter(r => applicableLines.includes(r.line)).map(r => {
             const override = sheet && overrideKeys[r.rateKey] ? sheet[overrideKeys[r.rateKey]] : null;
-            const price = r.rateKey === "rate_atv" ? sheet?.atv ?? sheet?.snowBlower : override;
+            const price = override;
             return { rateKey: r.rateKey, line: r.line, category: r.category, label: r.label,
               priceCents: typeof price === "number" ? price : r.priceCents, priceText: r.priceText,
               unit: r.unit, minimum: r.minimum, cardPriceCents: r.priceCents,
@@ -270,6 +310,10 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
             startDate: start, endDate: end, status, billingType, annualPriceCents,
             scope: scopeLines.map(s => ({ serviceKey: s.serviceKey, quantity: s.quantity })), flags };
           const mapStatus = (s: string): TermStatus => s === "ended" ? status : "active";
+          const uniqueDocuments: ContractDocument[] = [];
+          for (const d of ids.flatMap(id => documents.get(id) ?? []).sort((a, b) => new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime() || a.id.localeCompare(b.id))) {
+            if (!uniqueDocuments.some(previous => sameDocument(previous, d))) uniqueDocuments.push(d);
+          }
           const termPlan: TermPlan = {
             report: termReport, renewedFromIndex: agreementPlan.terms.length ? agreementPlan.terms.length - 1 : null,
             term: { seasonLabel: termReport.seasonLabel, startDate: start, endDate: end, status, billingType,
@@ -279,7 +323,7 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
               snowTriggers: null, po: old[0].po, sentAt: null, signedAt: null, masterId: null,
               needsReview: flags.length > 0, reviewNote: flags.length ? flags.join("; ") : null, notes: notes.join("\n") || null },
             scope: scopeLines, rates: termRates, billingMonths,
-            documents: ids.flatMap(id => documents.get(id) ?? []).map(d => ({
+            documents: uniqueDocuments.map(d => ({
               kind: "other", version: d.version, filename: d.filename, storageObjectPath: d.storageObjectPath,
               mimeType: d.mimeType, fileSize: d.fileSize, uploadedBy: d.uploadedBy, masterId: null, createdAt: new Date(d.uploadedAt),
             })),
