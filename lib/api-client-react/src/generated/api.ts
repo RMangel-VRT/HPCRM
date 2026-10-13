@@ -22,8 +22,10 @@ import type {
   CrewPatch,
   CrewWithSupervisor,
   EligibleSupervisor,
+  EnrichedVisit,
   ErrorResponse,
   HealthStatus,
+  ListVisitsParams,
   LoadTemplateRequest,
   MobileCompleteRequest,
   MobileLoginRequest,
@@ -58,6 +60,13 @@ import type {
   TicketWorkItem,
   TicketWorkItemInput,
   TicketWorkItemPatch,
+  VisitDaySummary,
+  VisitInput,
+  VisitMutation,
+  VisitReorderInput,
+  VisitReorderResult,
+  VisitSummaryParams,
+  VisitUpdate,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -68,6 +77,540 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+/**
+ * Admin, office and field_manager only. Ordered bounds must be at most 62 days apart.
+ * @summary Company-scoped enriched visits for an inclusive Colorado date range
+ */
+export const getListVisitsUrl = (params: ListVisitsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/visits?${stringifiedParams}`
+    : `/api/visits`;
+};
+
+export const listVisits = async (
+  params: ListVisitsParams,
+  options?: RequestInit,
+): Promise<EnrichedVisit[]> => {
+  return customFetch<EnrichedVisit[]>(getListVisitsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListVisitsQueryKey = (params?: ListVisitsParams) => {
+  return [`/api/visits`, ...(params ? [params] : [])] as const;
+};
+
+export const getListVisitsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listVisits>>,
+  TError = ErrorType<void>,
+>(
+  params: ListVisitsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listVisits>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListVisitsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listVisits>>> = ({
+    signal,
+  }) => listVisits(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listVisits>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListVisitsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listVisits>>
+>;
+export type ListVisitsQueryError = ErrorType<void>;
+
+/**
+ * @summary Company-scoped enriched visits for an inclusive Colorado date range
+ */
+
+export function useListVisits<
+  TData = Awaited<ReturnType<typeof listVisits>>,
+  TError = ErrorType<void>,
+>(
+  params: ListVisitsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listVisits>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListVisitsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Admin, office and field_manager only. Appends when routeOrder is omitted. Customer is copied from the scoped ticket.
+ * @summary Place a schedulable ticket or internal trip
+ */
+export const getCreateVisitUrl = () => {
+  return `/api/visits`;
+};
+
+export const createVisit = async (
+  visitInput: VisitInput,
+  options?: RequestInit,
+): Promise<VisitMutation> => {
+  return customFetch<VisitMutation>(getCreateVisitUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(visitInput),
+  });
+};
+
+export const getCreateVisitMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createVisit>>,
+    TError,
+    { data: BodyType<VisitInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createVisit>>,
+  TError,
+  { data: BodyType<VisitInput> },
+  TContext
+> => {
+  const mutationKey = ["createVisit"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createVisit>>,
+    { data: BodyType<VisitInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createVisit(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateVisitMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createVisit>>
+>;
+export type CreateVisitMutationBody = BodyType<VisitInput>;
+export type CreateVisitMutationError = ErrorType<void>;
+
+/**
+ * @summary Place a schedulable ticket or internal trip
+ */
+export const useCreateVisit = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createVisit>>,
+    TError,
+    { data: BodyType<VisitInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createVisit>>,
+  TError,
+  { data: BodyType<VisitInput> },
+  TContext
+> => {
+  return useMutation(getCreateVisitMutationOptions(options));
+};
+
+/**
+ * @summary Planned/in-progress counts and hours per crew and Colorado day
+ */
+export const getVisitSummaryUrl = (params: VisitSummaryParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/visits/summary?${stringifiedParams}`
+    : `/api/visits/summary`;
+};
+
+export const visitSummary = async (
+  params: VisitSummaryParams,
+  options?: RequestInit,
+): Promise<VisitDaySummary[]> => {
+  return customFetch<VisitDaySummary[]>(getVisitSummaryUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getVisitSummaryQueryKey = (params?: VisitSummaryParams) => {
+  return [`/api/visits/summary`, ...(params ? [params] : [])] as const;
+};
+
+export const getVisitSummaryQueryOptions = <
+  TData = Awaited<ReturnType<typeof visitSummary>>,
+  TError = ErrorType<void>,
+>(
+  params: VisitSummaryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof visitSummary>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getVisitSummaryQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof visitSummary>>> = ({
+    signal,
+  }) => visitSummary(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof visitSummary>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type VisitSummaryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof visitSummary>>
+>;
+export type VisitSummaryQueryError = ErrorType<void>;
+
+/**
+ * @summary Planned/in-progress counts and hours per crew and Colorado day
+ */
+
+export function useVisitSummary<
+  TData = Awaited<ReturnType<typeof visitSummary>>,
+  TError = ErrorType<void>,
+>(
+  params: VisitSummaryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof visitSummary>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getVisitSummaryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Atomically reorder exactly the open visits in a crew day
+ */
+export const getReorderVisitsUrl = () => {
+  return `/api/visits/reorder`;
+};
+
+export const reorderVisits = async (
+  visitReorderInput: VisitReorderInput,
+  options?: RequestInit,
+): Promise<VisitReorderResult> => {
+  return customFetch<VisitReorderResult>(getReorderVisitsUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(visitReorderInput),
+  });
+};
+
+export const getReorderVisitsMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reorderVisits>>,
+    TError,
+    { data: BodyType<VisitReorderInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reorderVisits>>,
+  TError,
+  { data: BodyType<VisitReorderInput> },
+  TContext
+> => {
+  const mutationKey = ["reorderVisits"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reorderVisits>>,
+    { data: BodyType<VisitReorderInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reorderVisits(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReorderVisitsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reorderVisits>>
+>;
+export type ReorderVisitsMutationBody = BodyType<VisitReorderInput>;
+export type ReorderVisitsMutationError = ErrorType<void>;
+
+/**
+ * @summary Atomically reorder exactly the open visits in a crew day
+ */
+export const useReorderVisits = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reorderVisits>>,
+    TError,
+    { data: BodyType<VisitReorderInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof reorderVisits>>,
+  TError,
+  { data: BodyType<VisitReorderInput> },
+  TContext
+> => {
+  return useMutation(getReorderVisitsMutationOptions(options));
+};
+
+/**
+ * Server-owned fields are ignored. Moving appends to the destination day unless routeOrder is supplied. Closed visits cannot move.
+ * @summary Sparse visit update and transactional ticket synchronization
+ */
+export const getUpdateVisitUrl = (id: string) => {
+  return `/api/visits/${id}`;
+};
+
+export const updateVisit = async (
+  id: string,
+  visitUpdate: VisitUpdate,
+  options?: RequestInit,
+): Promise<VisitMutation> => {
+  return customFetch<VisitMutation>(getUpdateVisitUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(visitUpdate),
+  });
+};
+
+export const getUpdateVisitMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateVisit>>,
+    TError,
+    { id: string; data: BodyType<VisitUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateVisit>>,
+  TError,
+  { id: string; data: BodyType<VisitUpdate> },
+  TContext
+> => {
+  const mutationKey = ["updateVisit"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateVisit>>,
+    { id: string; data: BodyType<VisitUpdate> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateVisit(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateVisitMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateVisit>>
+>;
+export type UpdateVisitMutationBody = BodyType<VisitUpdate>;
+export type UpdateVisitMutationError = ErrorType<void>;
+
+/**
+ * @summary Sparse visit update and transactional ticket synchronization
+ */
+export const useUpdateVisit = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateVisit>>,
+    TError,
+    { id: string; data: BodyType<VisitUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateVisit>>,
+  TError,
+  { id: string; data: BodyType<VisitUpdate> },
+  TContext
+> => {
+  return useMutation(getUpdateVisitMutationOptions(options));
+};
+
+/**
+ * @summary Delete a planned visit and recompute its ticket mirror
+ */
+export const getDeleteVisitUrl = (id: string) => {
+  return `/api/visits/${id}`;
+};
+
+export const deleteVisit = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteVisitUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteVisitMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteVisit>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteVisit>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteVisit"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteVisit>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteVisit(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteVisitMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteVisit>>
+>;
+
+export type DeleteVisitMutationError = ErrorType<void>;
+
+/**
+ * @summary Delete a planned visit and recompute its ticket mirror
+ */
+export const useDeleteVisit = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteVisit>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteVisit>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteVisitMutationOptions(options));
+};
 
 /**
  * Assignee, admin or office only. Atomically records acceptance, status history and a missing schedule-by date.

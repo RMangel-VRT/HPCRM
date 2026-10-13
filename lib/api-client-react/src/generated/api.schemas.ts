@@ -5,6 +5,209 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+/**
+ * ticketId is required for a ticket visit; otherwise a nonblank internal title is required.
+ */
+export interface VisitInput {
+  /** @minLength 1 */
+  ticketId?: string;
+  /** @minLength 1 */
+  crewId: string;
+  /**
+   * Colorado calendar date
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  visitDate: string;
+  /** @nullable */
+  routeOrder?: number | null;
+  /**
+   * @nullable
+   * @pattern ^([01]\d|2[0-3]):[0-5]\d$
+   */
+  startTime?: string | null;
+  /**
+   * @minimum 0
+   * @maximum 24
+   * @nullable
+   */
+  estimatedHours?: number | null;
+  /** @nullable */
+  notes?: string | null;
+  /**
+   * @minLength 1
+   * @nullable
+   */
+  title?: string | null;
+}
+
+export type VisitUpdateStatus =
+  (typeof VisitUpdateStatus)[keyof typeof VisitUpdateStatus];
+
+export const VisitUpdateStatus = {
+  planned: "planned",
+  in_progress: "in_progress",
+  done: "done",
+  skipped: "skipped",
+  cancelled: "cancelled",
+} as const;
+
+export interface VisitUpdate {
+  /** @minLength 1 */
+  crewId?: string;
+  /**
+   * Colorado calendar date
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  visitDate?: string;
+  /** @nullable */
+  routeOrder?: number | null;
+  /**
+   * @nullable
+   * @pattern ^([01]\d|2[0-3]):[0-5]\d$
+   */
+  startTime?: string | null;
+  /**
+   * @minimum 0
+   * @maximum 24
+   * @nullable
+   */
+  estimatedHours?: number | null;
+  /** @nullable */
+  notes?: string | null;
+  status?: VisitUpdateStatus;
+}
+
+export type VisitSourceType =
+  (typeof VisitSourceType)[keyof typeof VisitSourceType];
+
+export const VisitSourceType = {
+  ticket: "ticket",
+  internal: "internal",
+  maintenance: "maintenance",
+  campaign_item: "campaign_item",
+} as const;
+
+export type VisitStatus = (typeof VisitStatus)[keyof typeof VisitStatus];
+
+export const VisitStatus = {
+  planned: "planned",
+  in_progress: "in_progress",
+  done: "done",
+  skipped: "skipped",
+  cancelled: "cancelled",
+} as const;
+
+export interface Visit {
+  id: string;
+  companyId: string;
+  /** @nullable */
+  crewId: string | null;
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
+  visitDate: string;
+  sourceType: VisitSourceType;
+  /** @nullable */
+  ticketId: string | null;
+  /** @nullable */
+  customerId: string | null;
+  /** @nullable */
+  title: string | null;
+  /** @nullable */
+  routeOrder: number | null;
+  /** @nullable */
+  startTime: string | null;
+  /** @nullable */
+  estimatedHours: number | null;
+  status: VisitStatus;
+  /** @nullable */
+  actualStartAt: string | null;
+  /** @nullable */
+  actualEndAt: string | null;
+  /** @nullable */
+  notes: string | null;
+  /** @nullable */
+  createdById: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VisitTicketSync {
+  statusChanged: boolean;
+  /** @nullable */
+  newStatusKey: string | null;
+}
+
+export type VisitMutation = Visit & {
+  ticketSync: VisitTicketSync;
+};
+
+/**
+ * @nullable
+ */
+export type EnrichedVisitTicket = {
+  id: string;
+  title: string;
+  /** @nullable */
+  typeKey: string | null;
+  /** @nullable */
+  typeName: string | null;
+  /** @nullable */
+  statusKey: string | null;
+  /** @nullable */
+  statusName: string | null;
+  priority: string;
+  /** @nullable */
+  scheduleBy: string | null;
+} | null;
+
+/**
+ * @nullable
+ */
+export type EnrichedVisitCustomer = {
+  id: string;
+  name: string;
+} | null;
+
+/**
+ * @nullable
+ */
+export type EnrichedVisitCrew = {
+  id: string;
+  name: string;
+  /** @nullable */
+  color: string | null;
+} | null;
+
+export type EnrichedVisit = Visit & {
+  /** @nullable */
+  ticket: EnrichedVisitTicket;
+  /** @nullable */
+  customer: EnrichedVisitCustomer;
+  /** @nullable */
+  crew: EnrichedVisitCrew;
+};
+
+export interface VisitDaySummary {
+  /** @nullable */
+  crewId: string | null;
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
+  date: string;
+  visitCount: number;
+  plannedHours: number;
+  capacityHours: number;
+}
+
+export interface VisitReorderInput {
+  /** @minLength 1 */
+  crewId: string;
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
+  visitDate: string;
+  visitIds: string[];
+}
+
+export interface VisitReorderResult {
+  ok: boolean;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -559,6 +762,31 @@ export interface OwnerResponseTicket {
   followUpNote?: string | null;
   [key: string]: unknown;
 }
+
+export type ListVisitsParams = {
+  /**
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  from: string;
+  /**
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  to: string;
+  crewId?: string;
+  customerId?: string;
+  ticketId?: string;
+};
+
+export type VisitSummaryParams = {
+  /**
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  from: string;
+  /**
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  to: string;
+};
 
 export type MobileMeWeekParams = {
   /**

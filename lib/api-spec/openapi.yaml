@@ -23,6 +23,117 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /visits:
+    get:
+      operationId: listVisits
+      tags: [visits]
+      summary: Company-scoped enriched visits for an inclusive Colorado date range
+      description: Admin, office and field_manager only. Ordered bounds must be at most 62 days apart.
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
+        - { name: to, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
+        - { name: crewId, in: query, schema: { type: string } }
+        - { name: customerId, in: query, schema: { type: string } }
+        - { name: ticketId, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Bulk-enriched visits
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/EnrichedVisit" } }
+        "400": { description: Invalid Colorado date or range }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
+    post:
+      operationId: createVisit
+      tags: [visits]
+      summary: Place a schedulable ticket or internal trip
+      description: Admin, office and field_manager only. Appends when routeOrder is omitted. Customer is copied from the scoped ticket.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VisitInput" }
+      responses:
+        "201":
+          description: Created visit and ticket mirror outcome
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VisitMutation" }
+        "400": { description: Invalid input or inactive/foreign crew }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
+        "422": { description: NOT_SCHEDULABLE }
+  /visits/summary:
+    get:
+      operationId: visitSummary
+      tags: [visits]
+      summary: Planned/in-progress counts and hours per crew and Colorado day
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
+        - { name: to, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
+      responses:
+        "200":
+          description: Company rollup with eight-hour capacity fallback
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/VisitDaySummary" } }
+        "400": { description: Invalid Colorado date or range }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
+  /visits/reorder:
+    post:
+      operationId: reorderVisits
+      tags: [visits]
+      summary: Atomically reorder exactly the open visits in a crew day
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VisitReorderInput" }
+      responses:
+        "200":
+          description: Saved route orders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VisitReorderResult" }
+        "400": { description: Invalid crew/date or non-exact ID set }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
+  /visits/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: updateVisit
+      tags: [visits]
+      summary: Sparse visit update and transactional ticket synchronization
+      description: Server-owned fields are ignored. Moving appends to the destination day unless routeOrder is supplied. Closed visits cannot move.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VisitUpdate" }
+      responses:
+        "200":
+          description: Updated visit and ticket mirror outcome
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VisitMutation" }
+        "400": { description: Invalid input or crew }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
+        "404": { description: Visit not found in active company }
+        "409": { description: VISIT_CLOSED }
+    delete:
+      operationId: deleteVisit
+      tags: [visits]
+      summary: Delete a planned visit and recompute its ticket mirror
+      responses:
+        "204": { description: Deleted }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
+        "404": { description: Visit not found in active company }
+        "409": { description: VISIT_CLOSED — only planned visits can be deleted }
   /tickets/{id}/accept:
     post:
       operationId: acceptTicket
@@ -983,6 +1094,116 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    VisitInput:
+      type: object
+      required: [crewId, visitDate]
+      description: ticketId is required for a ticket visit; otherwise a nonblank internal title is required.
+      properties:
+        ticketId: { type: string, minLength: 1 }
+        crewId: { type: string, minLength: 1 }
+        visitDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$', description: Colorado calendar date, not a timestamp }
+        routeOrder: { type: [integer, "null"] }
+        startTime: { type: [string, "null"], pattern: '^([01]\d|2[0-3]):[0-5]\d$' }
+        estimatedHours: { type: [number, "null"], minimum: 0, maximum: 24 }
+        notes: { type: [string, "null"] }
+        title: { type: [string, "null"], minLength: 1 }
+    VisitUpdate:
+      type: object
+      properties:
+        crewId: { type: string, minLength: 1 }
+        visitDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$', description: Colorado calendar date, not a timestamp }
+        routeOrder: { type: [integer, "null"] }
+        startTime: { type: [string, "null"], pattern: '^([01]\d|2[0-3]):[0-5]\d$' }
+        estimatedHours: { type: [number, "null"], minimum: 0, maximum: 24 }
+        notes: { type: [string, "null"] }
+        status: { type: string, enum: [planned, in_progress, done, skipped, cancelled] }
+    Visit:
+      type: object
+      required: [id, companyId, crewId, visitDate, sourceType, ticketId, customerId, title, routeOrder, startTime, estimatedHours, status, actualStartAt, actualEndAt, notes, createdById, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        companyId: { type: string }
+        crewId: { type: [string, "null"] }
+        visitDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        sourceType: { type: string, enum: [ticket, internal, maintenance, campaign_item] }
+        ticketId: { type: [string, "null"] }
+        customerId: { type: [string, "null"] }
+        title: { type: [string, "null"] }
+        routeOrder: { type: [integer, "null"] }
+        startTime: { type: [string, "null"] }
+        estimatedHours: { type: [number, "null"] }
+        status: { type: string, enum: [planned, in_progress, done, skipped, cancelled] }
+        actualStartAt: { type: [string, "null"], format: date-time }
+        actualEndAt: { type: [string, "null"], format: date-time }
+        notes: { type: [string, "null"] }
+        createdById: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    VisitTicketSync:
+      type: object
+      required: [statusChanged, newStatusKey]
+      properties:
+        statusChanged: { type: boolean }
+        newStatusKey: { type: [string, "null"] }
+    VisitMutation:
+      allOf:
+        - { $ref: "#/components/schemas/Visit" }
+        - type: object
+          required: [ticketSync]
+          properties:
+            ticketSync: { $ref: "#/components/schemas/VisitTicketSync" }
+    EnrichedVisit:
+      allOf:
+        - { $ref: "#/components/schemas/Visit" }
+        - type: object
+          required: [ticket, customer, crew]
+          properties:
+            ticket:
+              type: [object, "null"]
+              required: [id, title, typeKey, typeName, statusKey, statusName, priority, scheduleBy]
+              properties:
+                id: { type: string }
+                title: { type: string }
+                typeKey: { type: [string, "null"] }
+                typeName: { type: [string, "null"] }
+                statusKey: { type: [string, "null"] }
+                statusName: { type: [string, "null"] }
+                priority: { type: string }
+                scheduleBy: { type: [string, "null"] }
+            customer:
+              type: [object, "null"]
+              required: [id, name]
+              properties:
+                id: { type: string }
+                name: { type: string }
+            crew:
+              type: [object, "null"]
+              required: [id, name, color]
+              properties:
+                id: { type: string }
+                name: { type: string }
+                color: { type: [string, "null"] }
+    VisitDaySummary:
+      type: object
+      required: [crewId, date, visitCount, plannedHours, capacityHours]
+      properties:
+        crewId: { type: [string, "null"] }
+        date: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        visitCount: { type: integer }
+        plannedHours: { type: number }
+        capacityHours: { type: number }
+    VisitReorderInput:
+      type: object
+      required: [crewId, visitDate, visitIds]
+      properties:
+        crewId: { type: string, minLength: 1 }
+        visitDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        visitIds: { type: array, items: { type: string, minLength: 1 } }
+    VisitReorderResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
     HealthStatus:
       type: object
       properties:

@@ -8,6 +8,255 @@
 import * as zod from "zod";
 
 /**
+ * Admin, office and field_manager only. Ordered bounds must be at most 62 days apart.
+ * @summary Company-scoped enriched visits for an inclusive Colorado date range
+ */
+export const listVisitsQueryFromRegExp = new RegExp("^\\d{4}-\\d{2}-\\d{2}$");
+export const listVisitsQueryToRegExp = new RegExp("^\\d{4}-\\d{2}-\\d{2}$");
+
+export const ListVisitsQueryParams = zod.object({
+  from: zod.coerce.string().regex(listVisitsQueryFromRegExp),
+  to: zod.coerce.string().regex(listVisitsQueryToRegExp),
+  crewId: zod.coerce.string().optional(),
+  customerId: zod.coerce.string().optional(),
+  ticketId: zod.coerce.string().optional(),
+});
+
+export const listVisitsResponseOneVisitDateRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ListVisitsResponseItem = zod
+  .object({
+    id: zod.string(),
+    companyId: zod.string(),
+    crewId: zod.string().nullable(),
+    visitDate: zod.string().regex(listVisitsResponseOneVisitDateRegExp),
+    sourceType: zod.enum([
+      "ticket",
+      "internal",
+      "maintenance",
+      "campaign_item",
+    ]),
+    ticketId: zod.string().nullable(),
+    customerId: zod.string().nullable(),
+    title: zod.string().nullable(),
+    routeOrder: zod.number().nullable(),
+    startTime: zod.string().nullable(),
+    estimatedHours: zod.number().nullable(),
+    status: zod.enum([
+      "planned",
+      "in_progress",
+      "done",
+      "skipped",
+      "cancelled",
+    ]),
+    actualStartAt: zod.coerce.date().nullable(),
+    actualEndAt: zod.coerce.date().nullable(),
+    notes: zod.string().nullable(),
+    createdById: zod.string().nullable(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      ticket: zod
+        .object({
+          id: zod.string(),
+          title: zod.string(),
+          typeKey: zod.string().nullable(),
+          typeName: zod.string().nullable(),
+          statusKey: zod.string().nullable(),
+          statusName: zod.string().nullable(),
+          priority: zod.string(),
+          scheduleBy: zod.string().nullable(),
+        })
+        .nullable(),
+      customer: zod
+        .object({
+          id: zod.string(),
+          name: zod.string(),
+        })
+        .nullable(),
+      crew: zod
+        .object({
+          id: zod.string(),
+          name: zod.string(),
+          color: zod.string().nullable(),
+        })
+        .nullable(),
+    }),
+  );
+export const ListVisitsResponse = zod.array(ListVisitsResponseItem);
+
+/**
+ * Admin, office and field_manager only. Appends when routeOrder is omitted. Customer is copied from the scoped ticket.
+ * @summary Place a schedulable ticket or internal trip
+ */
+
+export const createVisitBodyVisitDateRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+export const createVisitBodyStartTimeRegExp = new RegExp(
+  "^([01]\\d|2[0-3]):[0-5]\\d$",
+);
+export const createVisitBodyEstimatedHoursMin = 0;
+export const createVisitBodyEstimatedHoursMax = 24;
+
+export const CreateVisitBody = zod
+  .object({
+    ticketId: zod.string().min(1).optional(),
+    crewId: zod.string().min(1),
+    visitDate: zod
+      .string()
+      .regex(createVisitBodyVisitDateRegExp)
+      .describe("Colorado calendar date"),
+    routeOrder: zod.number().nullish(),
+    startTime: zod.string().regex(createVisitBodyStartTimeRegExp).nullish(),
+    estimatedHours: zod
+      .number()
+      .min(createVisitBodyEstimatedHoursMin)
+      .max(createVisitBodyEstimatedHoursMax)
+      .nullish(),
+    notes: zod.string().nullish(),
+    title: zod.string().min(1).nullish(),
+  })
+  .describe(
+    "ticketId is required for a ticket visit; otherwise a nonblank internal title is required.",
+  );
+
+/**
+ * @summary Planned/in-progress counts and hours per crew and Colorado day
+ */
+export const visitSummaryQueryFromRegExp = new RegExp("^\\d{4}-\\d{2}-\\d{2}$");
+export const visitSummaryQueryToRegExp = new RegExp("^\\d{4}-\\d{2}-\\d{2}$");
+
+export const VisitSummaryQueryParams = zod.object({
+  from: zod.coerce.string().regex(visitSummaryQueryFromRegExp),
+  to: zod.coerce.string().regex(visitSummaryQueryToRegExp),
+});
+
+export const visitSummaryResponseDateRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const VisitSummaryResponseItem = zod.object({
+  crewId: zod.string().nullable(),
+  date: zod.string().regex(visitSummaryResponseDateRegExp),
+  visitCount: zod.number(),
+  plannedHours: zod.number(),
+  capacityHours: zod.number(),
+});
+export const VisitSummaryResponse = zod.array(VisitSummaryResponseItem);
+
+/**
+ * @summary Atomically reorder exactly the open visits in a crew day
+ */
+
+export const reorderVisitsBodyVisitDateRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ReorderVisitsBody = zod.object({
+  crewId: zod.string().min(1),
+  visitDate: zod.string().regex(reorderVisitsBodyVisitDateRegExp),
+  visitIds: zod.array(zod.string().min(1)),
+});
+
+export const ReorderVisitsResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * Server-owned fields are ignored. Moving appends to the destination day unless routeOrder is supplied. Closed visits cannot move.
+ * @summary Sparse visit update and transactional ticket synchronization
+ */
+export const UpdateVisitParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateVisitBodyVisitDateRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+export const updateVisitBodyStartTimeRegExp = new RegExp(
+  "^([01]\\d|2[0-3]):[0-5]\\d$",
+);
+export const updateVisitBodyEstimatedHoursMin = 0;
+export const updateVisitBodyEstimatedHoursMax = 24;
+
+export const UpdateVisitBody = zod.object({
+  crewId: zod.string().min(1).optional(),
+  visitDate: zod
+    .string()
+    .regex(updateVisitBodyVisitDateRegExp)
+    .optional()
+    .describe("Colorado calendar date"),
+  routeOrder: zod.number().nullish(),
+  startTime: zod.string().regex(updateVisitBodyStartTimeRegExp).nullish(),
+  estimatedHours: zod
+    .number()
+    .min(updateVisitBodyEstimatedHoursMin)
+    .max(updateVisitBodyEstimatedHoursMax)
+    .nullish(),
+  notes: zod.string().nullish(),
+  status: zod
+    .enum(["planned", "in_progress", "done", "skipped", "cancelled"])
+    .optional(),
+});
+
+export const updateVisitResponseOneVisitDateRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const UpdateVisitResponse = zod
+  .object({
+    id: zod.string(),
+    companyId: zod.string(),
+    crewId: zod.string().nullable(),
+    visitDate: zod.string().regex(updateVisitResponseOneVisitDateRegExp),
+    sourceType: zod.enum([
+      "ticket",
+      "internal",
+      "maintenance",
+      "campaign_item",
+    ]),
+    ticketId: zod.string().nullable(),
+    customerId: zod.string().nullable(),
+    title: zod.string().nullable(),
+    routeOrder: zod.number().nullable(),
+    startTime: zod.string().nullable(),
+    estimatedHours: zod.number().nullable(),
+    status: zod.enum([
+      "planned",
+      "in_progress",
+      "done",
+      "skipped",
+      "cancelled",
+    ]),
+    actualStartAt: zod.coerce.date().nullable(),
+    actualEndAt: zod.coerce.date().nullable(),
+    notes: zod.string().nullable(),
+    createdById: zod.string().nullable(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      ticketSync: zod.object({
+        statusChanged: zod.boolean(),
+        newStatusKey: zod.string().nullable(),
+      }),
+    }),
+  );
+
+/**
+ * @summary Delete a planned visit and recompute its ticket mirror
+ */
+export const DeleteVisitParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
  * Assignee, admin or office only. Atomically records acceptance, status history and a missing schedule-by date.
  * @summary Accept a New Task or Project
  */

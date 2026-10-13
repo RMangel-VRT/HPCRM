@@ -46,8 +46,8 @@ export function isWeekend(date: string): boolean {
   return weekday === 0 || weekday === 6;
 }
 
-function companyMidnight(date: string): Date {
-  const wallTime = calendarInstant(date).getTime();
+function companyWallTime(date: string, hour = 0): Date {
+  const wallTime = calendarInstant(date).getTime() + hour * 3600000;
   let candidate = wallTime;
   // Resolve the offset at this midnight, not at noon or at the other boundary.
   // Colorado's DST changes never skip/repeat midnight.
@@ -66,5 +66,10 @@ function companyMidnight(date: string): Date {
 
 /** Inclusive start / exclusive end, independently resolved for DST-correct boundaries. */
 export function companyDayBounds(date: string): { start: Date; end: Date } {
-  return { start: companyMidnight(date), end: companyMidnight(addCalendarDays(date, 1)) };
+  return { start: companyWallTime(date), end: companyWallTime(addCalendarDays(date, 1)) };
+}
+
+/** Resolve noon at the day's own DST offset, never using host-local time. */
+export function companyNoon(date: string): Date {
+  return companyWallTime(date, 12);
 }

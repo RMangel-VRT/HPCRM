@@ -9,6 +9,55 @@ function isCalendarDate(value: string): boolean {
 }
 import { sql, pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, createInsertSchema } from "./drizzle-stub";
 
+export const visitFields = {
+  companyId: z.string().min(1),
+  crewId: z.string().min(1).nullable().optional(),
+  visitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, "Invalid calendar date"),
+  sourceType: z.enum(["ticket", "internal", "maintenance", "campaign_item"]).default("ticket"),
+  ticketId: z.string().min(1).nullable().optional(),
+  customerId: z.string().min(1).nullable().optional(),
+  title: z.string().trim().min(1).nullable().optional(),
+  routeOrder: z.number().int().nullable().optional(),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+  estimatedHours: z.number().min(0).max(24).nullable().optional(),
+  status: z.enum(["planned", "in_progress", "done", "skipped", "cancelled"]).default("planned"),
+  actualStartAt: z.date().nullable().optional(),
+  actualEndAt: z.date().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  createdById: z.string().nullable().optional(),
+};
+// Use a real object, not the stub's no-op superRefine.
+export const insertVisitSchema = z.object(visitFields).superRefine((value, ctx) => {
+  if (value.sourceType === "ticket" && !value.ticketId) ctx.addIssue({ code: "custom", path: ["ticketId"], message: "Ticket required" });
+  if (value.sourceType === "internal" && !value.title) ctx.addIssue({ code: "custom", path: ["title"], message: "Title required" });
+});
+export type InsertVisit = z.infer<typeof insertVisitSchema>;
+export const visits = pgTable("visits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  crewId: varchar("crew_id").references(() => crews.id, { onDelete: "set null" }),
+  visitDate: date("visit_date").notNull(),
+  sourceType: text("source_type").notNull().default("ticket"),
+  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  title: text("title"),
+  routeOrder: integer("route_order"),
+  startTime: text("start_time"),
+  estimatedHours: real("estimated_hours"),
+  status: text("status").notNull().default("planned"),
+  actualStartAt: timestamp("actual_start_at"),
+  actualEndAt: timestamp("actual_end_at"),
+  notes: text("notes"),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table: any) => ({
+  companyDateCrew: index("visits_company_date_crew_idx").on(table.companyId, table.visitDate, table.crewId),
+  ticket: index("visits_ticket_idx").on(table.ticketId),
+  companyCustomerDate: index("visits_company_customer_date_idx").on(table.companyId, table.customerId, table.visitDate),
+}));
+export type Visit = typeof visits.$inferSelect;
+
 export const standingCrewFormSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   supervisorUserId: z.string().min(1, "Supervisor is required"),

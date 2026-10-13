@@ -13,6 +13,7 @@ import { maybeAutoCreateInvoiceOnRfb } from "../lib/rfbInvoiceAutoCreate";
 import { canSeeBilling, isBillingInvoiceAction } from "../lib/billing";
 import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from "../lib/dueDateDismissal";
 import * as capabilities from "../shared/ticketCapabilities";
+import { applySchedulingTransition } from "../lib/schedulingTransition";
 
 const mockedStorage = vi.hoisted(() => ({}));
 vi.mock("../storage", () => ({ storage: mockedStorage }));
@@ -30,7 +31,8 @@ const mount = new Function("deps", `
   const { app, storage, ensureTaskTicketType, ensureInvoiceTicketType,
      insertTicketSchema, pickProvided, computeScheduleBy, maintainScheduleBy, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
     isSeededTicketType, isSeededStatus, findSeededStatus, canSeeBilling, isBillingInvoiceAction, propagateInvoiceCompletion, wasDueDateExtendedToFuture,
-    assertNotParentCustomer, sendPushToUser, APPROVED_BILLING_STATUS_KEYS } = deps;
+    assertNotParentCustomer, sendPushToUser, APPROVED_BILLING_STATUS_KEYS,
+    db, transactionalTicketPatch, applyVisitTicketEdit, applySchedulingTransition } = deps;
   ${transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code}
 `);
 const decisionStart = source.indexOf('  app.put("/api/tickets/:ticketId/field-values/:fieldId",');
@@ -113,6 +115,11 @@ beforeEach(() => {
   });
   mount({
      app, storage, ensureTaskTicketType, insertTicketSchema, pickProvided, computeScheduleBy, maintainScheduleBy, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
+    // Keep this existing mocked-storage suite focused on billing/status logic.
+    // The actual shared transition is used; visits.integration.test.ts covers
+    // compatibility and transaction rollback against real PostgreSQL.
+    db: {}, transactionalTicketPatch: (handler: unknown) => handler,
+    applyVisitTicketEdit: async () => {}, applySchedulingTransition,
     canSeeBilling, isBillingInvoiceAction, propagateInvoiceCompletion: invoicePropagation, wasDueDateExtendedToFuture,
     ...capabilities, assertNotParentCustomer: parentGuard, sendPushToUser: vi.fn(),
     ensureInvoiceTicketType: vi.fn().mockResolvedValue({ typeId: "invoice", pendingStatusId: "pending" }),

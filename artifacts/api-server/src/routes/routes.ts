@@ -52,6 +52,12 @@ import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks
 import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
 import { linkCrewsByName } from "../lib/linkCrews";
+import { registerVisitRoutes } from "./visits";
+import { backfillVisitsFromTickets } from "../lib/backfillVisits";
+import { applySchedulingTransition } from "../lib/schedulingTransition";
+import { applyVisitTicketEdit } from "../lib/visitTicketCompatibility";
+import { transactionalTicketPatch } from "../lib/ticketPatchTransaction";
+import type { VisitTransaction } from "../lib/visitSync";
 import { CrewLinkError, lockCrewCompany, validatePlannerOwner, recordCrewLinkChoice } from "../lib/crewLinks";
 import { maintenanceCrews, insertCampaignCrewSchema } from "@workspace/db";
 import { computeScheduleBy } from '../lib/scheduleBy';
@@ -2609,10 +2615,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await migrateSchedulingStatuses();
   await backfillScheduleBy();
   await linkCrewsByName();
+  await backfillVisitsFromTickets();
 
   setupAuth(app);
   registerTicketOwnerResponseRoutes(app);
   registerCrewsAndMobileRoutes(app);
+  registerVisitRoutes(app);
   registerFlagsRoutes(app);
   registerDashboardQueueRoutes(app);
   registerContractCenterRoutes(app);
@@ -6737,7 +6745,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  app.patch("/api/tickets/:id", async (req, res) => {
+  app.patch("/api/tickets/:id", transactionalTicketPatch(async (req, res) => {
     delete req.body?.acceptedAt;
     delete req.body?.acceptedById;
     if (!req.isAuthenticated()) {
@@ -6815,27 +6823,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.body.workType = billingBehavior === "invoice_required" ? "extra_work" : "contract";
     }
 
-    // Sparse crew/date edits use persisted values for omitted keys. Explicit status
-    // intent (including null or the current ID) must never be overridden.
-    if (!Object.hasOwn(req.body, "currentStatusId")
-      && !(Object.hasOwn(req.body, "followUpDate")
-        && !Object.hasOwn(req.body, "crewId") && !Object.hasOwn(req.body, "dueDate"))) {
-      const statuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
-      const current = statuses.find(s => s.id === existingTicket.currentStatusId);
-      const scheduled = findSeededStatus(statuses, "scheduled");
-      const ready = findSeededStatus(statuses, "ready_to_schedule");
-      const crew = Object.hasOwn(req.body, "crewId") ? req.body.crewId : existingTicket.crewId;
-      const date = Object.hasOwn(req.body, "dueDate") ? req.body.dueDate : existingTicket.dueDate;
-      if (scheduled && ready) {
-        if (isSeededStatus(current, "ready_to_schedule") && crew != null && date != null) {
-          req.body.currentStatusId = scheduled.id;
-          req.body.statusChangeNotes = "Crew and date set";
-        } else if (isSeededStatus(current, "scheduled") && (crew == null || date == null)) {
-          req.body.currentStatusId = ready.id;
-          req.body.statusChangeNotes = "Crew or date cleared";
-        }
-      }
-    }
+    const schedulingStatuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
+    const schedulingParsed = insertTicketSchema.partial().safeParse(req.body);
+    if (!schedulingParsed.success) return res.status(400).json({ message: "Invalid ticket update" });
+    Object.assign(req.body, pickProvided(schedulingParsed.data, req.body));
+    await applyVisitTicketEdit(db as unknown as VisitTransaction, req.body, existingTicket, schedulingStatuses, user.activeCompanyId, user.id);
+    applySchedulingTransition(req.body, existingTicket, schedulingStatuses);
 
     maintainScheduleBy(req.body, existingTicket, await storage.getTicketTypeStatuses(existingTicket.ticketTypeId));
 
@@ -7220,7 +7213,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     //   2. The new crew's supervisor (if `crewId` changed and is now set)
     //   3. The previous crew's supervisor (so they know a stop left their
     //      board and they can drop it from their plan for the day)
-    void (async () => {
+    res.once("finish", () => { if (res.statusCode >= 400) return; void (async () => {
       try {
         const customer = existingTicket.customerId
           ? await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId)
@@ -7266,10 +7259,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (err) {
         console.error("Failed to send push for reassignment:", err);
       }
-    })();
+    })(); });
 
     res.json(invoiceCompletion ? { ...ticket, invoiceCompletion } : ticket);
-  });
+  }));
 
   // Manual invoice ticket creation from an Estimate Request or Project ticket
   app.post("/api/tickets/:id/create-invoice", async (req, res) => {

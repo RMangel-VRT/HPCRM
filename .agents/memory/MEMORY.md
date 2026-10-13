@@ -12,3 +12,4 @@
 - [Crew table rollout](crew-table-rollout.md) — standing identity is canonical; retain planner/campaign behavior and preserve explicit None choices across restarts.
 - [Validation durability](validation-durability.md) — workspace restarts can lose temporary logs; persist long-running checks in ignored project output.
 - [Scoped dependency peer resolution](scoped-dependency-peers.md) — temporarily enabling automatic peer resolution can change unrelated workspace dependencies; preserve their baseline.
+- [Visit transaction order](visit-transaction-order.md) — company scheduling gate precedes sorted ticket locks; finer-grained gates need coordinated phantom/deadlock protection.
