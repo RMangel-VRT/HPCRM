@@ -1,0 +1,29 @@
+# Phase 3: Scheduling board (rules, paste once at session start)
+
+**Goal (Randy):** one company calendar. Every scheduling tool writes the same kind of record (a **visit**: one crew, one day, one trip), and the calendar, the board and the crew app only read visits. Phase 3 builds the foundation and the first producer, the Scheduling page, which turns jobs in Needs scheduling into visits.
+
+## Order
+
+| Slice | What | Publish after? |
+|---|---|---|
+| P3-1 | **One crew list.** `crews` becomes the standing crew list. The planner's crews and campaign crews link to it. | Yes (schema: additive columns) |
+| P3-2 | **Visits table** plus the server API. Placing a job writes a visit, and also writes the ticket's `crew_id` and `due_date` so the crew app's Today keeps working. | Yes |
+| P3-3 | **Scheduling page.** The Needs scheduling list, a crew × day board with drag to place, and the crew-day view. | Yes |
+
+Merge each slice before starting the next.
+
+## Rules
+
+1. **Line numbers are from GitHub `41fed61`** (C3 merged). Find code by its content.
+2. **Schema changes are additive only:** new tables, new nullable columns, new indexes.
+   - Never rename or drop a column, and never change an existing foreign key's target.
+   - Write the numbered SQL file in `.migration-backup/migrations/` (next is `0043`) using `IF NOT EXISTS`, and update `lib/db/src/schema/schema.ts` to match. Production changes through Replit Publish's schema diff.
+   - Any data step (backfill, linking) is DML only, idempotent and guarded. It is called from `registerRoutes()`, never from `runStartupMigrations()`, which is not wired up (see `.agents/memory/startup-migrations-not-wired.md`).
+3. **Client schema copy:** `artifacts/highplains-crm/src/shared/schema.ts` is hand-synced on a drizzle stub that strips unknown fields (see `.agents/memory/frontend-drizzle-stub-strips-fields.md`). Add every new column there, or the web client silently drops it.
+4. **Colorado calendar days:** every date in this phase is a Colorado date. Use `lib/companyDay.ts` (F2). Never call `setHours(0,0,0,0)` and never use `toISOString().slice(0,10)` for a day.
+5. **Stable identities:** use `typeKey` / `statusKey` and the `isSeeded*` / `findSeeded*` helpers. Never compare display names.
+6. **PATCH routes use `pickProvided`** (zod v4 `.partial()` injects defaults).
+7. **Company scoping:** every crew, visit and ticket lookup is filtered by `companyId`. A link to another company's row is treated as absent.
+8. **No per-row queries.** Bulk-load with `inArray`.
+9. **The crew app must not regress.** `GET /api/m/today`, the week view, flags and photos keep working throughout. Phase 4 changes the phone; Phase 3 doesn't.
+10. **Tests use vitest**, run under `TZ=UTC` and `TZ=America/Denver` wherever dates are involved. Report changed files, call sites, test results and baseline failures separately (7 API and 7 CRM known failures; verify them rather than assume). Report typecheck against the baseline of 739 API and 225 CRM diagnostics.

@@ -1,0 +1,123 @@
+# P3-1: One crew list
+
+> Assumes 00-RULES-P3.md. **Schema: additive columns only.** The risk here is breaking the Maintenance planner or the crew app while linking them. Nothing in this slice changes what either one does. It adds links and a place to manage them.
+
+## Facts (verified at 41fed61)
+
+There are three crew tables today, and each means something different:
+
+| Table | What it is | Who points at it |
+|---|---|---|
+| `crews` (schema ~L3291) | **Standing field crew** with a required supervisor (`supervisor_user_id`). Managed at Settings → Crews (`CrewsAdmin.tsx`, `/api/crews` in `crewsAndMobile.ts`). | `tickets.crew_id` (the crew app's Today), `flags.crew_id`, the mobile endpoints (via `supervisor_user_id`) |
+| `maintenance_crews` (~L1092) | **Planner column**: name, color, default hours per day. No people. Managed inside `WeeklySchedulerPage.tsx` via `/api/maintenance-crews` (routes.ts ~L8526). | `schedule_blocks.crew_id` (**on delete cascade**), `maintenance_visit_configs.preferred_crew_id` |
+| `campaign_crews` (~L2287) | **A per-campaign team**: a leader and members, unique per campaign. | `campaign_items.assigned_campaign_crew_id`, `campaign_crew_members`; billing uses its leader and members (`extraBillableBilling.ts`) |
+
+**Decision: `crews` is the one list.** It's the only table with a real person (the supervisor) and the one the phone and tickets already use. The other two keep existing and keep working. Each row gains a link to the standing crew it represents.
+
+We don't merge or move rows, and we don't change any foreign key's target. Repointing `schedule_blocks` would cascade-delete the planner if anything went wrong. Links are enough for visits (P3-2) and the board (P3-3). The planner (Phase 5) and campaigns translate through the link.
+
+## 1. Schema (migration `0043_crew_links.sql`)
+
+```sql
+ALTER TABLE crews ADD COLUMN IF NOT EXISTS color text;
+ALTER TABLE crews ADD COLUMN IF NOT EXISTS default_hours_per_day real;
+ALTER TABLE crews ADD COLUMN IF NOT EXISTS display_order integer;
+ALTER TABLE maintenance_crews ADD COLUMN IF NOT EXISTS crew_id varchar REFERENCES crews(id) ON DELETE SET NULL;
+ALTER TABLE campaign_crews ADD COLUMN IF NOT EXISTS crew_id varchar REFERENCES crews(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS maintenance_crews_crew_id_unique ON maintenance_crews (crew_id) WHERE crew_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS campaign_crews_crew_id_idx ON campaign_crews (crew_id);
+```
+
+- Mirror this in `schema.ts` and the client schema copy.
+- **Columns:** `color` and `default_hours_per_day` are nullable, so existing rows are untouched. Readers fall back to the color palette at ~L1080 and to 8 hours.
+- **Links:**
+  - A planner crew links to **at most one** standing crew, and vice versa (the partial unique index).
+  - Several campaign teams can link to the same standing crew, across campaigns.
+- **Company check:** a link must point to a crew in the **same company**. Enforce it on write (§3), since the database can't.
+
+## 2. Auto-link the obvious matches (one-time, guarded DML)
+
+New `lib/linkCrews.ts`, `linkCrewsByName(companyId?)`, called once from `registerRoutes()` after the existing boot fix-ups.
+
+- **Planner crews:**
+  - For each company, link a `maintenance_crews` row to a `crews` row only when the trimmed, case-insensitive names match **exactly one** active crew, **and** that crew isn't already linked.
+  - Never overwrite an existing link.
+  - Copy the planner crew's `color` and `default_hours_per_day` onto the standing crew **only where the standing crew's value is null**.
+- **Campaign crews:**
+  - Link only when the team's `leader_user_id` is the `supervisor_user_id` of **exactly one** active standing crew.
+  - Never overwrite an existing link.
+- **Logging:** log one line per company: `[linkCrews] company=… planner linked=X ambiguous=Y unmatched=Z campaign linked=A unmatched=B`. Leave ambiguous and unmatched rows null for Randy to set (§4).
+- **Idempotent:** a second run changes nothing.
+
+## 3. Server
+
+- **`GET /api/crews`:** add `color`, `defaultHoursPerDay`, `displayOrder`, plus `plannerCrew: { id, name } | null` and `campaignTeamCount` (active campaigns only), bulk-loaded. Order by `display_order` (nulls last), then name.
+- **`POST /api/crews`** and **`PATCH /api/crews/:id`:**
+  - accept `color` (hex), `defaultHoursPerDay` (0–24) and `displayOrder`;
+  - accept `plannerCrewId` (nullable) to set or clear the planner link from this side;
+  - use `pickProvided` on PATCH;
+  - reject a planner crew from another company with 400, and one already linked to a different crew with 409.
+- **`PATCH /api/maintenance-crews/:id`:**
+  - accept `crewId` (nullable), with the same company and 409 checks;
+  - switch this route to `pickProvided` if it isn't already. Today it passes `req.body` straight through (~L8578), so restrict it to the schema's fields.
+- **Campaign crew update route:** accept `crewId` (nullable), with the same company check. Find the route by content in `extraBillableBilling.ts` or `routes.ts` and report where it lives.
+- **New `GET /api/crews/board`:** active standing crews with `id`, `name`, `color` (falling back to the palette), `defaultHoursPerDay` (falling back to 8), `supervisorName` and `displayOrder`. Admin, office **and field_manager** can read it; P3-3's board uses it. No other crew endpoint changes its permissions.
+
+## 4. Client
+
+- **Settings → Crews (`CrewsAdmin.tsx`):**
+  - Each crew row shows a **color swatch**, **Hours/day** and its **Planner crew** link.
+  - The edit form adds a color picker (reuse the palette), hours per day, and a **Planner crew** select. The select lists unlinked planner crews plus the current one, with "None".
+  - Rows can be reordered with up/down buttons (saved to `display_order`). Use simple up/down buttons, not drag.
+  - **Banner:** when any active planner crew is unlinked, show: "N planner crews aren't linked to a crew yet. They won't appear on the Scheduling board." Link it to the first unlinked one.
+- **Maintenance planner (`WeeklySchedulerPage.tsx`), crew edit dialog:** add a read-only line, "Scheduling board crew: Crew 2" or "Not linked — set it in Settings → Crews". Don't add a second place to edit the link.
+- **Campaign crew form:** add an optional **Standing crew** select, defaulting to the auto-linked value. Find the form in `CampaignDetail.tsx` or `ExtraBillableCampaignView.tsx` and report which.
+
+## 5. Read-only production report (put it at the top)
+
+For each company, list every row of the three tables (names only, no customer data):
+
+- standing crews: name, supervisor name, active;
+- planner crews: name, active, linked crew name or `—`, and how many `schedule_blocks` use it;
+- campaign teams on **active** campaigns: name, campaign name, leader name, linked crew name or `—`.
+
+Then show what §2 **would** link, as a dry run against production data before publishing.
+
+**First line of the report:** "X planner crews and Y active campaign teams would stay unlinked." Randy will set those links by hand after publishing.
+
+## Tests
+
+- **Auto-link:**
+  - exact-name match links;
+  - two standing crews with the same name → ambiguous, nothing linked;
+  - an existing link is never overwritten;
+  - color and hours are copied only into null values;
+  - a campaign team links by leader = supervisor, and only for a single match;
+  - a second run makes zero changes;
+  - another company's crew is never linked.
+- **API:**
+  - a cross-company planner link gives 400;
+  - a second crew claiming the same planner crew gives 409;
+  - clearing a link with `null` works;
+  - PATCH on maintenance crews ignores fields not in its schema;
+  - `/api/crews/board` gives field_manager 200 and the field role 403, and applies the color and hours fallbacks.
+- **Regression:**
+  - deleting a standing crew clears the links and leaves `schedule_blocks` untouched;
+  - the crew app's `GET /api/m/today` and the planner's existing tests pass unchanged.
+
+## Done when
+
+- The migration and `schema.ts` match, and the client schema copy has the new fields.
+- The dry-run report is at the top of the report.
+- In dev:
+  - Settings → Crews shows colors, hours and planner links;
+  - setting a link from Crews shows up read-only in the planner;
+  - the planner's weekly grid and the crew app's Today look exactly as before.
+- Tests pass, and the typecheck shows no new diagnostics.
+
+## Out of scope
+
+- Visits (P3-2) and the board UI (P3-3).
+- Retiring `maintenance_crews` or `campaign_crews`.
+- Crew membership beyond the supervisor.
+- Any change to the phone app.
