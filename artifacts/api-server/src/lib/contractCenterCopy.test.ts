@@ -43,6 +43,22 @@ function document(contractId: string, overrides = {}) {
     version: 1, uploadedBy: "actor", uploadedAt: new Date("2026-01-01Z"), ...overrides } as CopyInput["documents"][number];
 }
 const twelve = (id = "c1", value = 100000) => Array.from({ length: 12 }, (_, i) => amount(id, i + 1, value));
+describe("copy date safety", () => {
+  it.each([
+    ["0205-11-01", "2026-10-31"],
+    ["2020-01-01", "2025-01-31"],
+  ])("skips unsafe billing expansion while preserving annual sum: %s", (start, end) => {
+    const term = first(fixture({ contracts: [contract("c1", { startDate: new Date(`${start}T00:00:00Z`), endDate: new Date(`${end}T00:00:00Z`) })] }));
+    expect(term.billingMonths).toEqual([]);
+    expect(term.term.annualPriceCents).toBe(1200);
+    expect(term.report.flags).toContain(`Contract dates look wrong (${start} – ${end}); fix them in the old system before copying`);
+  });
+  it("allows exactly 60 inclusive months", () => {
+    const term = first(fixture({ contracts: [contract("c1", { startDate: new Date("2020-01-01Z"), endDate: new Date("2024-12-31Z") })] }));
+    expect(term.billingMonths).toHaveLength(60);
+    expect(term.term.annualPriceCents).toBe(1200);
+  });
+});
 
 describe("production-preview copy rules", () => {
   it("repeats a two-year annual payment pattern without inflating annual price", () => {
@@ -89,7 +105,7 @@ describe("production-preview copy rules", () => {
     expect(t.term).toMatchObject({ annualPriceCents: 1200000, billingType: "equal_monthly" });
     expect(t.documents[0].createdAt).toEqual(new Date("2025-12-01Z"));
     expect(new Set(t.rates.map(r => r.line))).toEqual(new Set(["landscape", "irrigation", "snow", "general"]));
-    expect(t.rates).toHaveLength(25);
+    expect(t.rates).toHaveLength(44);
     expect(t.rates.some(r => r.rateKey === "retired_custom")).toBe(false);
     expect(t.scope.find(s => s.serviceKey === "mowing")?.quantity).toBe(4);
     expect(t.term.notes).toContain("Old snow monthly amount, Nov: $990.00");
@@ -295,7 +311,7 @@ describe("legacy copy planner", () => {
       contract("c2", { startDate: new Date("2025-11-15Z"), endDate: new Date("2026-11-14Z") })],
        monthlyAmounts: [amount("c1", 11, 100), amount("c2", 11, 200), amount("c1", 12, 400)] });
      const term = first(input);
-      expect(term.billingMonths).toEqual([{ month: "2025-11-01", amountCents: 300 }, { month: "2025-12-01", amountCents: 400 }, { month: "2026-11-01", amountCents: 300 }]);
+      expect(term.billingMonths).toEqual([{ component: "Contract", month: "2025-11-01", amountCents: 300 }, { component: "Contract", month: "2025-12-01", amountCents: 400 }, { component: "Contract", month: "2026-11-01", amountCents: 300 }]);
       expect(term.term.annualPriceCents).toBe(700);
       expect(term.report.flags).toContain("Contract runs 13 months (not whole years); check the dates");
      expect(term.term).toMatchObject({ needsReview: true, reviewNote: term.report.flags.join("; ") });
@@ -305,14 +321,14 @@ describe("legacy copy planner", () => {
      const input = fixture({ contracts: [contract("c1", { startDate: new Date("2025-11-15Z"), endDate: new Date("2026-10-14Z") })],
        monthlyAmounts: [amount("c1", 11, 100), amount("c1", 12, 200), amount("c1", 10, 300)] });
      const term = first(input);
-     expect(term.billingMonths).toEqual([{ month: "2025-11-01", amountCents: 100 }, { month: "2025-12-01", amountCents: 200 }, { month: "2026-10-01", amountCents: 300 }]);
+     expect(term.billingMonths).toEqual([{ component: "Contract", month: "2025-11-01", amountCents: 100 }, { component: "Contract", month: "2025-12-01", amountCents: 200 }, { component: "Contract", month: "2026-10-01", amountCents: 300 }]);
      expect(term.term.annualPriceCents).toBe(600);
       expect(term.report.flags).toEqual(["Only 3 of 12 monthly amounts entered"]);
    });
    it("includes partial months in same-year windows without inventing a later-year charge", () => {
      const term = first(fixture({ contracts: [contract("c1", { startDate: new Date("2026-01-15Z"), endDate: new Date("2026-02-14Z") })],
        monthlyAmounts: [amount("c1", 1, 100), amount("c1", 2, 200)] }));
-     expect(term.billingMonths).toEqual([{ month: "2026-01-01", amountCents: 100 }, { month: "2026-02-01", amountCents: 200 }]);
+     expect(term.billingMonths).toEqual([{ component: "Contract", month: "2026-01-01", amountCents: 100 }, { component: "Contract", month: "2026-02-01", amountCents: 200 }]);
      expect(term.term.annualPriceCents).toBe(300);
       expect(term.report.flags).toEqual(["Only 2 of 12 monthly amounts entered"]);
   });

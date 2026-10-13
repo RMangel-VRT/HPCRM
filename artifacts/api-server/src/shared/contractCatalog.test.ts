@@ -6,9 +6,9 @@ import {
 } from "./contractCatalog";
 
 describe("Contract Center catalog", () => {
-  it("contains all 25 scope services and 24 distinct rate defaults", () => {
+  it("contains all 25 scope services and 43 distinct rate defaults", () => {
     expect(SCOPE_CATALOG).toHaveLength(25);
-    expect(RATE_CARD_DEFAULTS).toHaveLength(24);
+    expect(RATE_CARD_DEFAULTS).toHaveLength(43);
     for (const items of [SCOPE_CATALOG, RATE_CARD_DEFAULTS]) {
       expect(new Set(items.map((item) => item.key)).size).toBe(items.length);
     }

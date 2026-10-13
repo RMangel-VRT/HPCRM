@@ -12,6 +12,7 @@ import { pickProvided } from "../lib/patchBody";
 import { RATE_CARD_DEFAULTS } from "../shared/contractCatalog";
 import { planLegacyCopy } from "../lib/contractCenterCopy";
 import { executeLegacyCopy } from "../lib/contractCenterCopyExecution";
+import { registerContractCenterLifecycle } from "./contractCenterLifecycle";
 
 function authorize(req: Request, res: Response, allowOffice: boolean): UserWithContext | null {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
@@ -56,6 +57,7 @@ const updateRateSchema = createRateSchema.omit({ rateKey: true, line: true }).ex
 }).partial();
 
 export function registerContractCenterRoutes(app: Express): void {
+  registerContractCenterLifecycle(app, adminOrOffice);
   app.post("/api/admin/contract-center/copy-legacy", async (req, res) => {
     const user = adminOnly(req, res);
     if (!user) return;

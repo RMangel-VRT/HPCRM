@@ -19,9 +19,26 @@ const tables = [
   agreements, contractMasters, agreementTerms, termScopeLines, rateCardItems, termRates,
   termBillingMonths, termDocuments, termStatusHistory, scopePresets, scopePresetLines, termLegacySources,
 ];
-const migration = readFileSync(new URL("../../../../.migration-backup/migrations/0043_contract_center_tables.sql", import.meta.url), "utf8");
+const originalMigration = readFileSync(new URL("../../../../.migration-backup/migrations/0043_contract_center_tables.sql", import.meta.url), "utf8");
+const extension = readFileSync(new URL("../../../../.migration-backup/migrations/0046_contract_center_payment_lines.sql", import.meta.url), "utf8");
+// Compare the foundation plus the additive extension, never rewrite historical SQL.
+const migration = originalMigration
+  .replace("  annual_price_cents integer,", "  annual_price_cents integer,\n  snow_pricing text,\n  snow_flat_price_cents integer,")
+  .replace("  month date NOT NULL,", "  component text NOT NULL DEFAULT 'Contract',\n  month date NOT NULL,")
+  .replace("term_billing_months_term_month_unique UNIQUE (term_id, month)", "term_billing_months_term_component_month_unique UNIQUE (term_id, component, month)");
 
 describe("Contract Center schema", () => {
+  it("extends payment lines and snow pricing with guarded SQL and normalized inserts", () => {
+    expect(extension).toContain("ADD COLUMN IF NOT EXISTS component text NOT NULL DEFAULT 'Contract'");
+    expect(extension).toContain("DROP CONSTRAINT IF EXISTS term_billing_months_term_month_unique");
+    expect(extension).toContain("conrelid = 'term_billing_months'::regclass");
+    expect(extension).toContain("UNIQUE (term_id, component, month)");
+    for (const snowPricing of ["", null, undefined]) expect(insertAgreementTermSchema.parse({ ...term, snowPricing }).snowPricing).toBeUndefined();
+    expect(insertAgreementTermSchema.parse({ ...term, snowPricing: "flat_rate", snowFlatPriceCents: 15000 }).snowPricing).toBe("flat_rate");
+    expect(insertAgreementTermSchema.safeParse({ ...term, snowPricing: "invalid" }).success).toBe(false);
+    expect(insertAgreementTermSchema.safeParse({ ...term, snowFlatPriceCents: 1.5 }).success).toBe(false);
+    expect(insertTermBillingMonthSchema.parse({ companyId: "c", termId: "t", month: "2026-01-01", amountCents: 5 }).component).toBe("Contract");
+  });
   it("validates all twelve minimal inserts with the specified defaults", () => {
     expect(insertAgreementSchema.parse({ companyId: "company", customerId: "customer", line: "both" }).form).toBe("ours");
     expect(insertContractMasterSchema.parse({ companyId: "company", version: 1, filename: "master", storageObjectPath: "/master" }).isCurrent).toBe(false);

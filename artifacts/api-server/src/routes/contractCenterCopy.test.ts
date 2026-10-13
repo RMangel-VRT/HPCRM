@@ -11,6 +11,9 @@ import {
 const mocks = vi.hoisted(() => ({ select: vi.fn(), insert: vi.fn(), transaction: vi.fn(), where: vi.fn() }));
 vi.mock("../db", () => ({ db: mocks }));
 import { registerContractCenterRoutes } from "./contractCenter";
+vi.mock("../objectStorage", () => ({ ObjectStorageService: vi.fn() }));
+vi.mock("../objectAcl", () => ({ ObjectAccessGroupType: { COMPANY_MEMBER: "company_member" }, ObjectPermission: { READ: "read" } }));
+vi.mock("../utils/parentGuard", () => ({ assertNotParentCustomer: vi.fn() }));
 
 const URL = "/api/admin/contract-center/copy-legacy";
 const COMPANY = "company";

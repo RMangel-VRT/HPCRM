@@ -224,13 +224,15 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
           const [sy, sm] = start.split("-").map(Number);
           const [ey, em] = end.split("-").map(Number);
           const termMonths = (ey - sy) * 12 + em - sm + 1;
+          const invalidDates = sy < 2000 || termMonths > 60;
+          if (invalidDates) flag(`Contract dates look wrong (${start} – ${end}); fix them in the old system before copying`);
           if (termMonths >= 12 && termMonths % 12 !== 0) flag(`Contract runs ${termMonths} months (not whole years); check the dates`);
-          for (let offset = 0; offset < Math.max(12, termMonths); offset++) {
+          for (let offset = 0; offset < (invalidDates ? 0 : Math.max(12, termMonths)); offset++) {
             const index = sy * 12 + sm - 1 + offset;
             const month = index % 12 + 1;
             const amountCents = totals.get(month);
             if (amountCents !== undefined && amountCents !== 0) billingMonths.push({
-              month: `${String(Math.floor(index / 12)).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`, amountCents,
+              component: "Contract", month: `${String(Math.floor(index / 12)).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`, amountCents,
             });
           }
           billingMonths.sort((a, b) => a.month.localeCompare(b.month));
@@ -317,6 +319,7 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
           const termPlan: TermPlan = {
             report: termReport, renewedFromIndex: agreementPlan.terms.length ? agreementPlan.terms.length - 1 : null,
             term: { seasonLabel: termReport.seasonLabel, startDate: start, endDate: end, status, billingType,
+              snowPricing: line === "landscape" ? null : "time_and_materials", snowFlatPriceCents: null,
               annualPriceCents, renewalIncreasePct: null, legalName: null, managingAgentName: manager?.name ?? customer.managementCompany ?? null,
               projectContact: null, contactPhone: null, contactEmail: null,
               projectAddress: `${customer.street}, ${customer.city}, ${customer.state} ${customer.zip}`,

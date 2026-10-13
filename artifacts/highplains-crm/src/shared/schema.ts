@@ -587,6 +587,8 @@ export type ContractBuilderVariable = typeof contractBuilderVariables.$inferSele
 
 // Contract Center: additive, season-specific records; legacy contracts stay unchanged.
 export const AGREEMENT_LINES = ["landscape", "snow", "both"] as const;
+export const SNOW_PRICING = ["time_and_materials", "flat_rate"] as const;
+export type SnowPricing = typeof SNOW_PRICING[number];
 export const AGREEMENT_FORMS = ["ours", "theirs"] as const;
 export const TERM_STATUSES = ["draft", "sent", "signed", "active", "up_for_renewal", "renewed", "lost", "cancelled"] as const;
 export const BILLING_TYPES = ["equal_monthly", "monthly_variable", "seasonal", "time_and_materials"] as const;
@@ -602,7 +604,7 @@ export type RateLine = typeof RATE_LINES[number];
 export type TermDocumentKind = typeof TERM_DOCUMENT_KINDS[number];
 
 const contractCalendarDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, "Invalid calendar date");
-const contractOptionalCents = z.number().int().min(0).nullable().optional();
+const contractOptionalCents = z.number().int().min(0).max(2147483647).nullable().optional();
 const contractMonthSpread = z.array(z.number().int().min(0)).length(12).nullable().optional();
 
 // Type only this block's enum builders; the shared runtime stub remains unchanged.
@@ -666,6 +668,8 @@ export const agreementTerms = pgTable("agreement_terms", {
   status: contractCenterText("status").notNull().default("draft").$type<TermStatus>(),
   billingType: contractCenterText("billing_type").notNull().$type<BillingType>(),
   annualPriceCents: integer("annual_price_cents"),
+  snowPricing: text("snow_pricing").$type<SnowPricing>(),
+  snowFlatPriceCents: integer("snow_flat_price_cents"),
   renewalIncreasePct: numeric("renewal_increase_pct", { precision: 5, scale: 2 }),
   renewedFromTermId: varchar("renewed_from_term_id").references((): AnyPgColumn => agreementTerms.id, { onDelete: "set null" }),
   legalName: text("legal_name"),
@@ -696,6 +700,8 @@ export const insertAgreementTermSchema = createInsertSchema(agreementTerms).omit
   startDate: contractCalendarDate, endDate: contractCalendarDate,
   status: z.enum(TERM_STATUSES).default("draft"), billingType: z.enum(BILLING_TYPES),
   annualPriceCents: contractOptionalCents, renewalIncreasePct: z.string().nullable().optional(),
+  snowPricing: z.preprocess(v => v === "" || v === null ? undefined : v, z.enum(SNOW_PRICING).optional()),
+  snowFlatPriceCents: contractOptionalCents,
   renewedFromTermId: z.string().nullable().optional(), legalName: z.string().nullable().optional(),
   managingAgentName: z.string().nullable().optional(), projectContact: z.string().nullable().optional(),
   contactPhone: z.string().nullable().optional(), contactEmail: z.string().nullable().optional(),
@@ -790,13 +796,15 @@ export const termBillingMonths = pgTable("term_billing_months", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  component: text("component").notNull().default("Contract"),
   month: date("month", { mode: "string" }).notNull(),
   amountCents: integer("amount_cents").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t: Record<string, any>) => ({ termMonthUnique: unique("term_billing_months_term_month_unique").on(t.termId, t.month) }));
+}, (t: Record<string, any>) => ({ termComponentMonthUnique: unique("term_billing_months_term_component_month_unique").on(t.termId, t.component, t.month) }));
 export const insertTermBillingMonthSchema = createInsertSchema(termBillingMonths).omit({ id: true, createdAt: true, updatedAt: true }).extend({
-  companyId: z.string(), termId: z.string(), month: contractCalendarDate, amountCents: z.number().int().min(0),
+  component: z.string().trim().min(1).default("Contract"),
+  companyId: z.string(), termId: z.string(), month: contractCalendarDate, amountCents: z.number().int().min(0).max(2147483647),
 });
 export type TermBillingMonth = typeof termBillingMonths.$inferSelect;
 export type InsertTermBillingMonth = z.infer<typeof insertTermBillingMonthSchema>;

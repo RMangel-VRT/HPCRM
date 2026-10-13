@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   conflict: vi.fn(), set: vi.fn(), where: vi.fn(), order: vi.fn(), returning: vi.fn(),
 }));
 vi.mock("../db", () => ({ db: { select: mocks.select, insert: mocks.insert, update: mocks.update } }));
+vi.mock("../objectStorage", () => ({ ObjectStorageService: vi.fn() }));
+vi.mock("../objectAcl", () => ({ ObjectAccessGroupType: { COMPANY_MEMBER: "company_member" }, ObjectPermission: { READ: "read" } }));
+vi.mock("../utils/parentGuard", () => ({ assertNotParentCustomer: vi.fn() }));
 import { registerContractCenterRoutes } from "./contractCenter";
 
 const URL = "/api/contract-center/rate-card";
@@ -113,10 +116,10 @@ describe("Rate card reads and seeding", () => {
     expect(mocks.order).toHaveBeenCalledWith(rateCardItems.line, rateCardItems.sortOrder, rateCardItems.label);
   });
 
-  it("inserts exactly the 24 defaults, ordered by catalog index, ignoring company/key conflicts", async () => {
+  it("inserts exactly the 43 defaults, ordered by catalog index, ignoring company/key conflicts", async () => {
     mocks.returning.mockResolvedValue(RATE_CARD_DEFAULTS.map((_, index) => ({ id: `${index}` })));
     const response = await request(app()).post(`${URL}/seed-defaults`);
-    expect(response.body).toEqual({ inserted: 24, skipped: 0 });
+    expect(response.body).toEqual({ inserted: 43, skipped: 0 });
     expect(mocks.values).toHaveBeenCalledWith(RATE_CARD_DEFAULTS.map(({ key, ...rate }, sortOrder) => ({ ...rate, rateKey: key, companyId, sortOrder })));
     expect(mocks.values.mock.calls[0][0].map((rate: any) => rate.rateKey)).toEqual([
       "rate_general_labor", "rate_emergency_general_labor", "rate_operator_labor", "disposal_rate", "native_broadleaf_rate",
@@ -124,6 +127,11 @@ describe("Rate card reads and seeding", () => {
       "rate_emergency_irrigation_labor", "backflow_rate", "irrigation_auto_limit", "irrigation_notify_cap",
       "rate_service_truck", "rate_plow_truck", "rate_skid_loader", "rate_atv", "rate_snowblower", "rate_hand_shovel",
       "rate_ice_melt_application", "rate_holiday", "rate_ice_melt", "rate_sand_salt", "rate_snow_stakes",
+      "rate_additional_mowing", "rate_additional_aeration", "rate_extra_weed_spray", "rate_native_overseed",
+      "rate_tree_guard", "rate_winter_water_sod", "rate_winter_water_trees", "rate_freeze_wrap",
+      "rate_backflow_2in", "rate_backflow_3in", "rate_backflow_4in", "rate_backflow_storage",
+      "rate_front_end_loader", "rate_dump_truck", "rate_sand_salt_application", "rate_ice_slicer",
+      "rate_ice_slicer_application", "rate_liquid_mag", "rate_liquid_mag_application",
     ]);
     expect(mocks.conflict).toHaveBeenCalledWith({ target: [rateCardItems.companyId, rateCardItems.rateKey] });
   });
@@ -131,8 +139,8 @@ describe("Rate card reads and seeding", () => {
   it("reports only actually inserted rows, including a fully skipped repeat", async () => {
     mocks.returning.mockResolvedValueOnce([{ id: "new" }]).mockResolvedValueOnce([]);
     const agent = request(app());
-    expect((await agent.post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 1, skipped: 23 });
-    expect((await agent.post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 0, skipped: 24 });
+    expect((await agent.post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 1, skipped: 42 });
+    expect((await agent.post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 0, skipped: 43 });
     expect(mocks.update).not.toHaveBeenCalled();
   });
 
@@ -150,9 +158,26 @@ describe("Rate card reads and seeding", () => {
       }
       return inserted;
     });
-    expect((await request(app()).post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 2, skipped: 22 });
+    expect((await request(app()).post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 2, skipped: 41 });
     expect(JSON.stringify(original.map(r => stored.get(r.rateKey)))).toBe(before);
-    expect((await request(app()).post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 0, skipped: 24 });
+    expect((await request(app()).post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 0, skipped: 43 });
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+  it("adds all 19 new defaults without changing any edited existing price, label or active flag", async () => {
+    const original = RATE_CARD_DEFAULTS.slice(0, 24).map(({ key, ...r }) => ({ ...r, rateKey: key, active: false, priceCents: 123,
+      label: key === "backflow_rate" ? "My existing backflow label" : "Edited label" }));
+    const stored = new Map(original.map(r => [r.rateKey, r]));
+    const before = JSON.stringify(original);
+    mocks.returning.mockImplementation(async () => {
+      const inserted = [];
+      for (const r of mocks.values.mock.lastCall![0]) {
+        if (stored.has(r.rateKey)) continue;
+        stored.set(r.rateKey, r); inserted.push({ id: r.rateKey });
+      }
+      return inserted;
+    });
+    expect((await request(app()).post(`${URL}/seed-defaults`)).body).toEqual({ inserted: 19, skipped: 24 });
+    expect(JSON.stringify(original.map(r => stored.get(r.rateKey)))).toBe(before);
     expect(mocks.update).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,12 @@ The foundation, rate-card and legacy-copy slices are additive only. Existing con
 
 **How to apply:** Keep new catalogs and new records independent of the legacy service catalog and contract definitions. In particular, the new standard cleanup quantities are intentionally supplied separately, not a request to revise the legacy defaults.
 
+The Phase 2 API, board/detail screens, create/renew flows, and legacy freeze must merge in that order. The legacy freeze must not merge until the owner confirms the old records are fixed.
+
+**Why:** The user explicitly made sequential merges and the data-fix confirmation conditions of the switch-over, not optional release suggestions.
+
+**How to apply:** Do not start a later slice against an unmerged predecessor, and do not treat successful API verification as permission to freeze legacy screens or run a production copy.
+
 Legacy contract date-picker timestamps represent UTC calendar dates, not Denver instants. Midnight UTC and 06:00/07:00 UTC must recover the same stored calendar day.
 
 **Why:** The user explicitly identified how the old date pickers stored dates; projecting midnight into Colorado would incorrectly move the contract date back one day.
