@@ -1,0 +1,140 @@
+# CC1-4: Copy tool fixes from the production preview
+
+## Why
+
+Running the CC1-3 preview against production data (Oct 13, 2026: 101 contracts, 50 customers) showed that three copy rules were built on wrong assumptions. Randy confirmed the real rules:
+
+1. **Multi-year contracts are common.** Some run 2–3 years, such as 2024-04-01 to 2026-03-31, or 2025-10-01 to 2028-09-30. The 12-month limit flagged every month on these contracts as "doesn't fit".
+2. **The payment schedule is a 12-month cycle that is independent of the service months.**
+   - High Plains contracts bill 12 equal payments. Most MSI contracts bill four payments of 5% and eight of 10%.
+   - A seasonal contract, for example Apr–Oct, still bills all 12 months.
+   - The monthly amounts already hold each contract's real pattern; the copy must place them, not reshape them.
+3. **None of the current snow contracts are flat-rate.** Every existing snow contract is time and materials, so monthly amounts on an old snow contract are a data-entry mistake. Flat-rate snow contracts are allowed and will be created in the Contract Center (Phase 2). This rule applies only to copying today's data; don't hard-code snow as T&M anywhere outside the copy tool.
+4. **Landscape and snow are one contract only when they share the same signed document.** Matching dates alone don't prove it.
+5. **Operator labor** belongs on the rate card. **ATV and snowblower are two separate rates.**
+
+Depends on CC1-1, CC1-2 and CC1-3. No new tables and no migration.
+
+## 1. Catalog (both copies of `contractCatalog.ts`, kept byte-identical)
+
+In `RATE_CARD_DEFAULTS`:
+- After `rate_emergency_general_labor`, add:
+  `{ key: "rate_operator_labor", line: "landscape", category: "Labor", label: "Operator labor", priceCents: null, unit: "per hour" }`
+- Change the `rate_atv` label from `"ATV / snowblower"` to `"ATV"`. Keep its price, unit and minimum.
+- After `rate_atv`, add:
+  `{ key: "rate_snowblower", line: "snow", category: "Snow equipment & labor", label: "Snowblower", priceCents: 13500, unit: "per hour", minimum: "3 hour minimum" }`
+
+There are now **24** defaults. Update the counts in `contractCatalog.test.ts` and `contractCenter.test.ts` (seed returns `inserted: 24`).
+
+Production already has the 22 seeded rows. The existing **Add missing standard rates** link adds the two new ones without touching edited rows. The existing ATV row keeps its old label "ATV / snowblower" because seeding never overwrites; Randy renames it in Settings. Don't write a data fix for it.
+
+Remove `LEGACY_BILLING_TYPE` from the catalog and its imports. The billing type is now derived from the amounts (rule 3 below).
+
+## 2. Copy rules that change (`artifacts/api-server/src/lib/contractCenterCopy.ts`)
+
+Everything else in CC1-3 stays as it is.
+
+### Rule A: billing months are a 12-month cycle
+
+Replace the current placement logic (the `candidates` loop, and the ambiguous-year and "doesn't fit" flags) with this:
+
+1. Ignore amounts whose month number isn't 1–12. If any exist, flag "Monthly amount with invalid month number <n>".
+2. `termMonths` = the number of calendar months from the start month to the end month, inclusive (Apr 2024 → Mar 2026 = 24).
+3. **If `termMonths >= 12`:** for every calendar month in that range, place that month number's amount on the first of the month. A 24-month contract gets each amount twice; a 16-month contract gets 16 entries.
+4. **If `termMonths < 12`:** place the 12 month numbers across the **12 months starting at the start month**, even past the service end. Example: Apr 1 – Oct 31, 2026 bills Apr 2026 through Mar 2027.
+5. Skip amounts of 0. No flags for placement.
+6. `annual_price_cents` = the sum of the amounts for the 12 month numbers (one year's price), or null if there are none. It is **not** the total over a multi-year term.
+7. If `termMonths >= 12` and `termMonths % 12 !== 0`, flag "Contract runs <n> months (not whole years); check the dates".
+8. Landscape terms with some, but not all, 12 month numbers entered: flag "Only <n> of 12 monthly amounts entered".
+
+Keep the existing "No monthly amounts entered" flag for landscape terms with none.
+
+### Rule B: billing type comes from the amounts
+
+- **Snow** (snow-only agreements, or the snow side of a merged Both): `time_and_materials` when copying, because no current snow contract is flat-rate.
+- **Landscape and Both:**
+  - All 12 month numbers present with equal amounts → `equal_monthly`.
+  - Any amounts present, but not all equal → `monthly_variable`.
+  - No amounts → `equal_monthly`, with the existing "No monthly amounts entered" flag.
+- Keep the old billing pattern in `notes` as "Old billing pattern: <x>".
+
+### Rule C: monthly amounts on snow contracts are never billed
+
+- For a snow-only term with amounts: write **no** billing months, set `annual_price_cents` to null, and add each amount to `notes` ("Old snow monthly amount, Nov: $X").
+- Flag: "Snow contract had monthly amounts entered, but none of the current snow contracts are flat-rate. Check whether they belong on the landscape contract."
+- Delete the old "check whether it's a flat seasonal price" flag.
+
+### Rule D: merge into Both only when the signed document is the same
+
+Group terms as now: by customer, then line, then identical dates. Then, for each customer, compare each landscape term with each snow term.
+
+1. **Two documents are the same** when they have the same `storage_object_path`, or the same `filename` **and** `file_size`.
+2. **Same document and identical start and end dates:** merge the two into **one agreement with `line: "both"`** and one term.
+   - The term's `legacyContractIds` lists all the old contracts.
+   - Scope lines: the union of both. Same-key lines combine as today.
+   - Rates: every active card line (`landscape`, `irrigation`, `snow`, `general`).
+   - Billing months and annual price: from the landscape contracts only. Snow amounts follow rule C (notes plus the flag).
+   - Billing type: from the landscape amounts (rule B).
+   - Documents are de-duplicated by the same-document test above. Keep the earliest `created_at` of each.
+   - History: both histories, in order.
+   - Status: the "more active" of the two (`active` beats `renewed` beats `lost`).
+   - `renewed_from` chains are built per agreement after merging.
+   - No merge flag on the result.
+3. **Same document but different dates:** don't merge. Flag both terms: "Shares a signed document with the <other line> contract but the dates differ (<dates>); check the dates."
+4. **Identical dates but no shared document** (different documents, or one or both have none): don't merge. Flag both terms: "Same dates as the <other line> contract but a different or missing signed document; kept separate."
+5. **Neither shared document nor identical dates:** don't merge and don't flag. These are genuinely separate contracts, like the 1st Bank sites.
+6. Delete the old "Has separate landscape and snow agreements…" flag.
+
+Report types: `CustomerReport.agreements[].line` and the agreement plan's `line` become `"landscape" | "snow" | "both"`.
+
+### Rule E: rate sheet mapping
+
+- Add `rate_operator_labor` ← `operatorLabor` and `rate_snowblower` ← `snowBlower` to the override map.
+- `rate_atv` ← `atv` only. Remove the snowblower fallback.
+- Delete the two flags "Rate sheet has separate ATV and snowblower rates…" and "Rate sheet has an operator labor rate…".
+- If the company's rate card doesn't have `rate_operator_labor` or `rate_snowblower` yet (the missing standard rates were never added), a customer with that rate-sheet value gets the flag "Rate sheet value for <key> skipped; add the missing standard rates in Settings first".
+
+## 3. UI (`LegacyCopyCard.tsx` and `ContractSettings.tsx`)
+
+- Show the line as **Landscape**, **Snow** or **Landscape + Snow**, not the raw key.
+- Before a preview has run, the copy button reads **Preview first** and is disabled. Don't show "Copy 0 contracts".
+- Group flags by customer in the table, so a customer's landscape and snow rows sit together.
+- In the rate card, format money with thousands separators: `$1,500.00`, not `$1500.00`.
+
+## 4. Tests (`contractCenterCopy.test.ts`)
+
+Replace the tests that asserted the removed behavior (ambiguous year, "doesn't fit", the snowblower fallback, the old flags). Add these:
+
+- **Two-year contract:** Apr 1, 2024 – Mar 31, 2026 with 12 equal amounts of 100000 gives 24 billing months, `annual_price_cents = 1200000`, `equal_monthly`, and no flags.
+- **Seasonal contract:** Apr 1 – Oct 31, 2026 with 12 amounts gives billing months Apr 2026 through Mar 2027, and the annual price is the full 12-month sum.
+- **MSI pattern:** four months at 5% and eight at 10% (for example, 50000 × 4 and 100000 × 8) gives `monthly_variable`, and the annual price is the sum.
+- **16-month contract:** Dec 1, 2024 – Mar 31, 2026 gives 16 billing months and the "runs 16 months" flag.
+- **Merge:** landscape and snow contracts with identical dates and one document with the same `storage_object_path` become one `both` agreement with one term. The term lists both legacy ids, has one document, rates from all four lines, billing from landscape only, and no merge flag.
+- **Same file by name and size:** two document rows with different paths but the same filename and size also merge.
+- **Same dates, different documents:** two agreements, each with the "different or missing signed document" flag.
+- **Shared document, different dates:** two agreements, each with the "dates differ" flag.
+- **Different dates, different documents:** two agreements with no merge-related flags.
+- **Snow-only with amounts:** no billing months, a null price, the amounts in notes, and the new snow flag.
+- **Rate sheet:** `operatorLabor: 7500` and `snowBlower: 14000` override `rate_operator_labor` and `rate_snowblower`. `atv: 13000` overrides only `rate_atv`.
+- **Missing card rows:** a card without `rate_snowblower` and a rate sheet with `snowBlower` set gives the "skipped" flag.
+
+## Verify
+
+1. On the development database, run **Add missing standard rates**: 2 inserted (Operator labor, Snowblower). Existing edits are untouched.
+2. Run Preview. Multi-year and seasonal contracts no longer show month flags, Vista West's price is its full 12-month sum, and merged customers show one "Landscape + Snow" row.
+3. Typecheck and tests pass, and the drift check shows no change.
+4. **Don't run Copy.** Randy runs it in production after fixing the data issues below.
+
+## Not in this slice
+
+Fixing the old records (Randy does that in the old Contracts screens), payment-pattern presets for new contracts (Phase 2), and the Word master's rate table (Phase 3).
+
+## Data to fix in the old system before copying (for Randy, not the agent)
+
+- **Twin Shores:** the landscape start year is 0205; it should be 2025.
+- **Hyland Village:** landscape starts Dec 1, 2025, but the signed contract says Nov 1.
+- **College Hills:** two overlapping active landscape contracts, and snow has landscape-style dates.
+- **Lexington Estates:** two overlapping active landscape contracts.
+- **Jewell Ridge:** landscape dates Dec–Mar don't match amounts entered Apr–Nov.
+- **Centennial Pavilion Lofts / Central Pavilion Lofts:** likely a duplicate customer.
+- **No end date:** Hunters Ridge, Prospect at Settler's Chase (snow), Wellman Creek (snow), Lexington Estates (2026).
