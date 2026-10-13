@@ -21,6 +21,12 @@ The Phase 2 API, board/detail screens, create/renew flows, and legacy freeze mus
 
 **How to apply:** Do not start a later slice against an unmerged predecessor, and do not treat successful API verification as permission to freeze legacy screens or run a production copy.
 
+After the customer switch-over, dashboard, revenue, reports, tickets, snow events and the crew app intentionally continue reading frozen legacy data until Phase 4. Newly created Contract Center contracts will not appear in those consumers yet.
+
+**Why:** The owner explicitly requires the switch-over and downstream repointing to be separate releases; mixing them changes the copied billing state and expands the release risk.
+
+**How to apply:** Keep those legacy consumers unchanged during the freeze. Production order is manual: repair old records, Preview and approve flags, obtain the owner's explicit confirmation, merge/publish, then immediately run Copy in Settings › Contracts. Do not automate the corrections, publication or Copy.
+
 Legacy contract date-picker timestamps represent UTC calendar dates, not Denver instants. Midnight UTC and 06:00/07:00 UTC must recover the same stored calendar day.
 
 **Why:** The user explicitly identified how the old date pickers stored dates; projecting midnight into Colorado would incorrectly move the contract date back one day.

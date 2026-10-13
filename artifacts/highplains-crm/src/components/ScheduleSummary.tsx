@@ -33,7 +33,7 @@ export default function ScheduleSummary({ contractId }: ScheduleSummaryProps) {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground text-center py-6">
-            No services configured yet. Add services to see the schedule.
+            No services configured yet.
           </p>
         </CardContent>
       </Card>

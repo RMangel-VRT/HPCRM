@@ -9,14 +9,6 @@ export default function ToolsPage() {
 
   const tools = [
     {
-      title: t("tools.contractBuilder"),
-      description: t("tools.contractBuilderDesc"),
-      icon: FileText,
-      href: "/dashboard/tools/contract-builder",
-      available: true,
-      testId: "card-contract-builder",
-    },
-    {
       title: t("tools.proposalMaker"),
       description: t("tools.proposalMakerDesc"),
       icon: ClipboardList,

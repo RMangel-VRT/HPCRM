@@ -198,7 +198,7 @@ export default function ContractsOverview() {
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-page-title">{t("contracts.contractsOverview")}</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {t("contracts.viewAllContracts")}
+            Old system (read-only). Use the Contract Center.
           </p>
         </div>
         <div className="flex items-center gap-2">

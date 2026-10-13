@@ -281,7 +281,7 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
         </div>
       )}
 
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+      {canEdit && <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingService ? "Edit Service" : "Add Service"}</DialogTitle>
@@ -492,7 +492,7 @@ export default function ContractServices({ contractId, canEdit }: ContractServic
             </form>
           </Form>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
     </div>
   );
 }

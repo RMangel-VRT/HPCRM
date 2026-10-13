@@ -14,6 +14,7 @@ import { registerCrewsAndMobileRoutes } from "./crewsAndMobile";
 import { registerFlagsRoutes } from "./flags";
 import { registerDashboardQueueRoutes } from "./dashboardQueue";
 import { registerContractCenterRoutes } from "./contractCenter";
+import { rejectLegacyContractWrite, hasFrozenLegacyRows } from "../lib/legacyContractFreeze";
 import { db } from "../db";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema, insertChemicalNotificationTemplateSchema } from "@workspace/db";
@@ -3101,6 +3102,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Before deleting, fetch the customer so we know its parentCustomerId
     const customerToDelete = await storage.getCustomerById(req.params.id, user.activeCompanyId);
+    if (!customerToDelete) return res.status(404).send("Customer not found");
+    if (await hasFrozenLegacyRows(user.activeCompanyId, customerToDelete.id)) {
+      return rejectLegacyContractWrite(res);
+    }
     await storage.deleteCustomer(req.params.id, user.activeCompanyId);
 
     // If the deleted customer had a parent, check if the parent has any remaining children
@@ -3469,6 +3474,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3522,6 +3528,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3574,6 +3581,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3643,6 +3651,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3659,6 +3668,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3685,6 +3695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3762,6 +3773,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3788,6 +3800,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3826,6 +3839,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3845,6 +3859,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3871,6 +3886,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -3926,6 +3942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
     
@@ -4070,6 +4087,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Forbidden");
     }
 
+    const company = await storage.getCompanyById(req.params.id);
+    if (!company) return res.status(404).send("Company not found");
+    if (await hasFrozenLegacyRows(company.id)) return rejectLegacyContractWrite(res);
     await storage.deleteCompany(req.params.id);
     res.status(200).send("Deleted");
   });
@@ -5354,6 +5374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
 
     const user = req.user as UserWithContext;
 
@@ -8895,6 +8916,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (rejectLegacyContractWrite(res)) return;
     const user = req.user as UserWithContext;
     
     // Must be admin role

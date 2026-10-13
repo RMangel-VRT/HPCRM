@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import {
   rateCardItems, insertRateCardItemSchema, contracts, contractServices, contractMonthlyAmounts,
@@ -58,6 +58,15 @@ const updateRateSchema = createRateSchema.omit({ rateKey: true, line: true }).ex
 
 export function registerContractCenterRoutes(app: Express): void {
   registerContractCenterLifecycle(app, adminOrOffice);
+  app.get("/api/contract-center/copy-status", async (req, res) => {
+    const user = adminOrOffice(req, res);
+    if (!user) return;
+    const [status] = await db.select({
+      firstCopiedAt: sql<string | null>`min(${termLegacySources.createdAt})`,
+      copiedContracts: sql<number>`count(distinct ${termLegacySources.legacyContractId})::integer`,
+    }).from(termLegacySources).where(eq(termLegacySources.companyId, user.activeCompanyId));
+    res.json({ firstCopiedAt: status?.firstCopiedAt ?? null, copiedContracts: status?.copiedContracts ?? 0 });
+  });
   app.post("/api/admin/contract-center/copy-legacy", async (req, res) => {
     const user = adminOnly(req, res);
     if (!user) return;

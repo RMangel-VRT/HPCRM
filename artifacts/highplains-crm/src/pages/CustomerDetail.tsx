@@ -5,8 +5,9 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation, Link } from "wouter";
 import { useTabParam } from "@/hooks/useTabParam";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContract, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact, ProposalWithDetails, CustomerServicePlan } from "@shared/schema";
-import { insertContractSchema, insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact, ProposalWithDetails, CustomerServicePlan } from "@shared/schema";
+import { insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
+import { CustomerContracts } from "@/components/contracts/CustomerContracts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -34,8 +35,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { uploadContractFile, validateContractFile } from "@/lib/contractUpload";
-import { ContractFileInput } from "@/components/contracts/ContractUploadButton";
 import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket as TicketIcon, Building, Building2, Check, Loader2, Copy, Mail, Clock, AlertCircle, CheckCircle2, GitBranch, Snowflake, ChevronDown, Settings, Wrench } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import StatusBadge from "@/components/StatusBadge";
@@ -73,15 +72,12 @@ import {
 interface ContractCardProps {
   contract: Contract;
   customerId: string;
-  canUploadDocuments: boolean;
-  onUploadClick: (contractId: string, isReplace: boolean) => void;
-  uploadingFile: boolean;
   formatFileSize: (bytes: number) => string;
   setShowVersionHistory: (contractId: string | null) => void;
   highlight?: boolean;
 }
 
-function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick, uploadingFile, formatFileSize, setShowVersionHistory, highlight }: ContractCardProps) {
+export function ContractCard({ contract, customerId, formatFileSize, setShowVersionHistory, highlight }: ContractCardProps) {
   const { t } = useTranslation();
   const { data: currentDocument, isLoading } = useQuery<ContractDocument>({
     queryKey: ["/api/contracts", contract.id, "documents", "current"],
@@ -91,71 +87,14 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
     queryKey: ["/api/customers", customerId, "rate-sheet"],
   });
   
-  const { toast } = useToast();
-  const { user } = useAuth();
-  
-  const canEditBilling = user?.activeRole === "admin" || user?.activeRole === "office";
-  const canEndContract = (user?.activeRole === "admin" || user?.activeRole === "office") && contract.status === "active";
-  const canDeleteContract = user?.activeRole === "admin";
-  
-  const [showEndConfirm, setShowEndConfirm] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isEditContractOpen, setIsEditContractOpen] = useState(false);
-  const [editContractData, setEditContractData] = useState({
-    serviceType: contract.serviceType,
-    billingPattern: contract.billingPattern,
-    startDate: format(new Date(contract.startDate), "yyyy-MM-dd"),
-    endDate: contract.endDate ? format(new Date(contract.endDate), "yyyy-MM-dd") : "",
-    po: contract.po || "",
-    notes: contract.notes || "",
-    hasMobilizationFee: contract.hasMobilizationFee || false,
-    mobilizationFeeAmount: contract.mobilizationFeeAmount ? (contract.mobilizationFeeAmount / 100).toFixed(2) : "0.00",
-  });
-  
-  // Reset edit form data when dialog opens to sync with latest contract data
-  useEffect(() => {
-    if (isEditContractOpen) {
-      setEditContractData({
-        serviceType: contract.serviceType,
-        billingPattern: contract.billingPattern,
-        startDate: format(new Date(contract.startDate), "yyyy-MM-dd"),
-        endDate: contract.endDate ? format(new Date(contract.endDate), "yyyy-MM-dd") : "",
-        po: contract.po || "",
-        notes: contract.notes || "",
-        hasMobilizationFee: contract.hasMobilizationFee || false,
-        mobilizationFeeAmount: contract.mobilizationFeeAmount ? (contract.mobilizationFeeAmount / 100).toFixed(2) : "0.00",
-      });
-    }
-  }, [isEditContractOpen, contract]);
-  
   const { data: monthlyAmounts = [], isLoading: isLoadingAmounts } = useQuery<ContractMonthlyAmount[]>({
     queryKey: ["/api/contracts", contract.id, "monthly-amounts"],
   });
   
-  const [localAmounts, setLocalAmounts] = useState<Record<number, string>>({});
-  const [hasChanges, setHasChanges] = useState(false);
-  const [isEditingAmounts, setIsEditingAmounts] = useState(false);
-  const [billingMode, setBillingMode] = useState<"variable" | "even">("variable");
-  const [evenMonthlyAmount, setEvenMonthlyAmount] = useState<string>("0.00");
-  
   const monthNames = [t("months.jan"), t("months.feb"), t("months.mar"), t("months.apr"), t("months.may"), t("months.jun"), t("months.jul"), t("months.aug"), t("months.sep"), t("months.oct"), t("months.nov"), t("months.dec")];
-  
-  // Detect billing mode from existing amounts - if all non-zero amounts are the same, it's "even"
-  useEffect(() => {
-    if (monthlyAmounts.length > 0) {
-      const nonZeroAmounts = monthlyAmounts.filter(a => a.amount > 0);
-      if (nonZeroAmounts.length > 0) {
-        const firstAmount = nonZeroAmounts[0].amount;
-        const allSame = nonZeroAmounts.every(a => a.amount === firstAmount);
-        if (allSame && nonZeroAmounts.length === 12) {
-          setBillingMode("even");
-          setEvenMonthlyAmount((firstAmount / 100).toFixed(2));
-        } else {
-          setBillingMode("variable");
-        }
-      }
-    }
-  }, [monthlyAmounts]);
+  const nonZeroAmounts = monthlyAmounts.filter(a => a.amount > 0);
+  const billingMode = nonZeroAmounts.length === 12 && nonZeroAmounts.every(a => a.amount === nonZeroAmounts[0].amount) ? "even" : "variable";
+  const evenMonthlyAmount = ((nonZeroAmounts[0]?.amount ?? 0) / 100).toFixed(2);
   
   const initializedAmounts = useMemo(() => {
     const amounts: Record<number, string> = {};
@@ -166,189 +105,17 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
     return amounts;
   }, [monthlyAmounts]);
   
-  useEffect(() => {
-    if (!hasChanges && monthlyAmounts.length > 0) {
-      setLocalAmounts(initializedAmounts);
-    }
-  }, [initializedAmounts, hasChanges, monthlyAmounts.length]);
-  
   const annualTotal = useMemo(() => {
     if (billingMode === "even") {
       const monthlyVal = parseFloat(evenMonthlyAmount) || 0;
       return monthlyVal * 12;
     }
-    const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
+    const amounts = initializedAmounts;
     return Object.values(amounts).reduce((sum, val) => {
       const num = parseFloat(val) || 0;
       return sum + num;
     }, 0);
-  }, [localAmounts, initializedAmounts, billingMode, evenMonthlyAmount]);
-  
-  const handleAmountChange = (month: number, value: string) => {
-    // Allow empty string during editing, or valid decimal numbers
-    if (value !== "" && !/^\d*\.?\d{0,2}$/.test(value)) return;
-    setLocalAmounts(prev => ({ ...prev, [month]: value }));
-    setHasChanges(true);
-  };
-  
-  const validateAmounts = () => {
-    const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
-    for (let i = 1; i <= 12; i++) {
-      const value = amounts[i] || "0.00";
-      const num = parseFloat(value);
-      if (isNaN(num) || num < 0) {
-        return false;
-      }
-    }
-    return true;
-  };
-
-  const handleEvenAmountChange = (value: string) => {
-    if (value !== "" && !/^\d*\.?\d{0,2}$/.test(value)) return;
-    setEvenMonthlyAmount(value);
-    setHasChanges(true);
-  };
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      if (billingMode === "even") {
-        const evenVal = parseFloat(evenMonthlyAmount);
-        if (isNaN(evenVal) || evenVal < 0) {
-          throw new Error("Monthly amount must be a non-negative number");
-        }
-        const amountCents = Math.round(evenVal * 100);
-        const data = Array.from({ length: 12 }, (_, i) => ({
-          month: i + 1,
-          amount: amountCents,
-        }));
-        return await apiRequest("PUT", `/api/contracts/${contract.id}/monthly-amounts`, data);
-      }
-      
-      if (!validateAmounts()) {
-        throw new Error("All monthly amounts must be non-negative numbers");
-      }
-      
-      const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
-      const data = Array.from({ length: 12 }, (_, i) => {
-        const month = i + 1;
-        const amountStr = amounts[month] || "0.00";
-        const amountCents = Math.round(parseFloat(amountStr) * 100);
-        return {
-          month,
-          amount: amountCents,
-        };
-      });
-      
-      return await apiRequest("PUT", `/api/contracts/${contract.id}/monthly-amounts`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contracts", contract.id, "monthly-amounts"] });
-      queryClient.invalidateQueries({
-        predicate: (query) => {
-          const key = query.queryKey[0];
-          return typeof key === "string" && (
-            key.startsWith("/api/revenue/contract-audit") ||
-            key.startsWith("/api/revenue/exceptions") ||
-            key.startsWith("/api/revenue/overview")
-          );
-        },
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "all-monthly-amounts"] });
-      setHasChanges(false);
-      setIsEditingAmounts(false);
-      toast({
-        title: t("common.success"),
-        description: t("contracts.billingAmountsSaved"),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t("common.error"),
-        description: extractApiErrorMessage(error) ?? error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const endContractMutation = useMutation({
-    mutationFn: async () => {
-      return await apiRequest("PATCH", `/api/contracts/${contract.id}`, { status: "ended" });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contracts"] });
-      setShowEndConfirm(false);
-      toast({
-        title: t("common.success"),
-        description: t("contracts.contractEnded"),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t("common.error"),
-        description: extractApiErrorMessage(error) ?? error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const deleteContractMutation = useMutation({
-    mutationFn: async () => {
-      return await apiRequest("DELETE", `/api/contracts/${contract.id}`, {});
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contracts"] });
-      setShowDeleteConfirm(false);
-      toast({
-        title: t("common.success"),
-        description: t("contracts.contractDeleted"),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t("common.error"),
-        description: extractApiErrorMessage(error) ?? error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const updateContractMutation = useMutation({
-    mutationFn: async () => {
-      const mobilizationCents = editContractData.hasMobilizationFee 
-        ? Math.round(parseFloat(editContractData.mobilizationFeeAmount || "0") * 100)
-        : 0;
-      
-      const payload = {
-        serviceType: editContractData.serviceType,
-        billingPattern: editContractData.billingPattern,
-        startDate: new Date(editContractData.startDate).toISOString(),
-        endDate: editContractData.endDate ? new Date(editContractData.endDate).toISOString() : null,
-        po: editContractData.po || null,
-        notes: editContractData.notes || null,
-        hasMobilizationFee: editContractData.hasMobilizationFee,
-        mobilizationFeeAmount: mobilizationCents,
-      };
-      
-      console.log("Saving contract with payload:", payload);
-      
-      return await apiRequest("PATCH", `/api/contracts/${contract.id}`, payload);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contracts"] });
-      setIsEditContractOpen(false);
-      toast({
-        title: t("common.success"),
-        description: t("contracts.contractUpdated"),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t("common.error"),
-        description: extractApiErrorMessage(error) ?? error.message,
-        variant: "destructive",
-      });
-    },
-  });
+  }, [initializedAmounts, billingMode, evenMonthlyAmount]);
 
   return (
     <Card
@@ -438,18 +205,6 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                   <Download className="w-3 h-3 mr-1" />
                   {t("common.download")}
                 </Button>
-                {canUploadDocuments && (
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => onUploadClick(contract.id, true)}
-                    disabled={uploadingFile}
-                    data-testid="button-replace-document"
-                  >
-                    <RefreshCw className="w-3 h-3 mr-1" />
-                    {t("customerDetail.replace")}
-                  </Button>
-                )}
                 <Button 
                   size="sm" 
                   variant="outline"
@@ -464,17 +219,6 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
           ) : (
             <div className="flex items-center justify-between p-3 border rounded-md">
               <p className="text-sm text-muted-foreground">{t("customerDetail.noAgreement")}</p>
-              {canUploadDocuments && (
-                <Button 
-                  size="sm"
-                  onClick={() => onUploadClick(contract.id, false)}
-                  disabled={uploadingFile}
-                  data-testid="button-upload-document"
-                >
-                  <Upload className="w-3 h-3 mr-1" />
-                  {t("common.upload")}
-                </Button>
-              )}
             </div>
           )}
         </div>
@@ -484,129 +228,16 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
         <div>
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium">{t("customerDetail.billingTabs.monthlySummary")}</p>
-            {!isEditingAmounts && canEditBilling && (
-              <Button 
-                size="sm" 
-                variant="outline"
-                onClick={() => setIsEditingAmounts(true)}
-                data-testid="button-edit-amounts"
-              >
-                {t("contracts.editAmounts")}
-              </Button>
-            )}
-            {isEditingAmounts && (
-              <div className="flex gap-2">
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => {
-                    setLocalAmounts(initializedAmounts);
-                    setHasChanges(false);
-                    setIsEditingAmounts(false);
-                    // Reset billing mode to detected state
-                    if (monthlyAmounts.length > 0) {
-                      const nonZeroAmounts = monthlyAmounts.filter(a => a.amount > 0);
-                      if (nonZeroAmounts.length === 12) {
-                        const firstAmount = nonZeroAmounts[0].amount;
-                        const allSame = nonZeroAmounts.every(a => a.amount === firstAmount);
-                        if (allSame) {
-                          setBillingMode("even");
-                          setEvenMonthlyAmount((firstAmount / 100).toFixed(2));
-                        } else {
-                          setBillingMode("variable");
-                        }
-                      } else {
-                        setBillingMode("variable");
-                      }
-                    }
-                  }}
-                  data-testid="button-cancel-amounts"
-                >
-                  {t("common.cancel")}
-                </Button>
-                <Button 
-                  size="sm" 
-                  onClick={() => {
-                    if (billingMode === "variable" && !validateAmounts()) {
-                      toast({
-                        title: t("contracts.invalidAmounts"),
-                        description: t("contracts.invalidAmountsMsg"),
-                        variant: "destructive",
-                      });
-                      return;
-                    }
-                    saveMutation.mutate();
-                  }}
-                  disabled={saveMutation.isPending}
-                  data-testid="button-save-amounts"
-                >
-                  {saveMutation.isPending ? t("common.saving") : t("contracts.saveChanges")}
-                </Button>
-              </div>
-            )}
           </div>
-          
-          {/* Billing Mode Toggle - only shown when editing */}
-          {isEditingAmounts && (
-            <div className="flex items-center gap-3 mb-3 p-2 bg-muted/30 rounded-md">
-              <span className={`text-sm ${billingMode === "variable" ? "font-medium" : "text-muted-foreground"}`}>
-                {t("contracts.variable")}
-              </span>
-              <Switch
-                checked={billingMode === "even"}
-                onCheckedChange={(checked) => {
-                  const newMode = checked ? "even" : "variable";
-                  setBillingMode(newMode);
-                  setHasChanges(true);
-                  // If switching to even, calculate from current amounts
-                  if (newMode === "even") {
-                    const currentTotal = Object.values(
-                      Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts
-                    ).reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
-                    setEvenMonthlyAmount((currentTotal / 12).toFixed(2));
-                  }
-                }}
-                data-testid="switch-billing-mode"
-              />
-              <span className={`text-sm ${billingMode === "even" ? "font-medium" : "text-muted-foreground"}`}>
-                {t("contracts.even")}
-              </span>
-            </div>
-          )}
           
           {isLoadingAmounts ? (
             <Skeleton className="h-32 w-full" />
           ) : (
             <div className="space-y-3">
-              {billingMode === "even" && isEditingAmounts ? (
-                /* Even mode - single input for all months */
-                <div className="p-3 border rounded-md">
-                  <label className="text-sm text-muted-foreground mb-2 block">
-                    {t("customerDetail.sameAmountAll12")}
-                  </label>
-                  <div className="relative max-w-xs">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                      $
-                    </span>
-                    <Input
-                      type="text"
-                      value={evenMonthlyAmount}
-                      onChange={(e) => handleEvenAmountChange(e.target.value)}
-                      className="pl-6 text-lg font-medium"
-                      placeholder="0.00"
-                      data-testid="input-even-amount"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {t("customerDetail.appliedToEach12")}
-                  </p>
-                </div>
-              ) : (
-                /* Variable mode - grid of 12 inputs */
                 <div className="grid grid-cols-3 gap-2">
                   {monthNames.map((monthName, index) => {
                     const month = index + 1;
-                    const amounts = Object.keys(localAmounts).length > 0 ? localAmounts : initializedAmounts;
+                    const amounts = initializedAmounts;
                     const value = amounts[month] || "0.00";
                     
                     return (
@@ -614,29 +245,13 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
                         <label className="text-xs text-muted-foreground mb-1 block">
                           {monthName}
                         </label>
-                        {isEditingAmounts ? (
-                          <div className="relative">
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                              $
-                            </span>
-                            <Input
-                              type="text"
-                              value={value}
-                              onChange={(e) => handleAmountChange(month, e.target.value)}
-                              className="pl-5 text-sm"
-                              data-testid={`input-month-${month}`}
-                            />
-                          </div>
-                        ) : (
                           <p className="text-sm font-medium" data-testid={`text-month-${month}`}>
                             ${value}
                           </p>
-                        )}
                       </div>
                     );
                   })}
                 </div>
-              )}
               <div className="flex items-center justify-between pt-2 border-t">
                 <p className="text-sm font-medium">{t("customerDetail.annualTotal")}</p>
                 <p className="text-lg font-semibold" data-testid="text-annual-total">
@@ -649,7 +264,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
 
         <Separator className="my-3" />
 
-        <ContractServices contractId={contract.id} canEdit={canEditBilling} />
+        <ContractServices contractId={contract.id} canEdit={false} />
 
         <Separator className="my-3" />
 
@@ -745,221 +360,7 @@ function ContractCard({ contract, customerId, canUploadDocuments, onUploadClick,
           </>
         )}
 
-        {(canEditBilling || canEndContract || canDeleteContract) && (
-          <>
-            <Separator className="my-3" />
-            <div className="flex gap-2 flex-wrap">
-              {canEditBilling && (
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => setIsEditContractOpen(true)}
-                  data-testid={`button-edit-contract-${contract.id}`}
-                >
-                  <Edit className="w-3 h-3 mr-1" />
-                  {t("common.edit")}
-                </Button>
-              )}
-              {canEndContract && (
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => setShowEndConfirm(true)}
-                  data-testid={`button-end-contract-${contract.id}`}
-                >
-                  {t("contracts.endContract")}
-                </Button>
-              )}
-              {canDeleteContract && (
-                <Button 
-                  size="sm" 
-                  variant="destructive"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  data-testid={`button-delete-contract-${contract.id}`}
-                >
-                  {t("contracts.deleteContract")}
-                </Button>
-              )}
-            </div>
-          </>
-        )}
       </CardContent>
-
-      <AlertDialog open={showEndConfirm} onOpenChange={setShowEndConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("contracts.endContract")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("contracts.endContractMsg")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={() => endContractMutation.mutate()}
-              disabled={endContractMutation.isPending}
-            >
-              {endContractMutation.isPending ? t("common.saving") : t("contracts.endContract")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("contracts.deleteContract")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("contracts.deleteContractMsg")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={() => deleteContractMutation.mutate()}
-              disabled={deleteContractMutation.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleteContractMutation.isPending ? t("common.deleting") : t("common.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Dialog open={isEditContractOpen} onOpenChange={setIsEditContractOpen}>
-        <DialogContent className="max-w-xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{t("customerDetail.editContractDetails")}</DialogTitle>
-            <DialogDescription>
-              {t("customerDetail.updateContractInfo")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>{t("contracts.serviceType")}</Label>
-                <Select 
-                  value={editContractData.serviceType} 
-                  onValueChange={(v) => setEditContractData({...editContractData, serviceType: v as any})}
-                >
-                  <SelectTrigger data-testid="edit-select-service-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Maintenance">{t("serviceTypes.maintenance")}</SelectItem>
-                    <SelectItem value="Chemical">{t("serviceTypes.chemical")}</SelectItem>
-                    <SelectItem value="Snow">{t("serviceTypes.snow")}</SelectItem>
-                    <SelectItem value="Irrigation">{t("serviceTypes.irrigation")}</SelectItem>
-                    <SelectItem value="Other">{t("serviceTypes.other")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>{t("contracts.billingSchedule")}</Label>
-                <Select 
-                  value={editContractData.billingPattern} 
-                  onValueChange={(v) => setEditContractData({...editContractData, billingPattern: v as any})}
-                >
-                  <SelectTrigger data-testid="edit-select-billing-pattern">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="monthly">{t("contracts.monthly")}</SelectItem>
-                    <SelectItem value="seasonal">{t("contracts.seasonal")}</SelectItem>
-                    <SelectItem value="12-of-12">{t("contracts.twelveOfTwelve")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>{t("contracts.startDate")}</Label>
-                <DatePickerField
-                  value={editContractData.startDate ? new Date(editContractData.startDate + 'T00:00:00') : undefined}
-                  onChange={(date) => setEditContractData({...editContractData, startDate: date ? format(date, 'yyyy-MM-dd') : ''})}
-                  data-testid="edit-input-start-date"
-                />
-              </div>
-              <div>
-                <Label>{t("contracts.endDate")}</Label>
-                <DatePickerField
-                  value={editContractData.endDate ? new Date(editContractData.endDate + 'T00:00:00') : undefined}
-                  onChange={(date) => setEditContractData({...editContractData, endDate: date ? format(date, 'yyyy-MM-dd') : ''})}
-                  data-testid="edit-input-end-date"
-                />
-              </div>
-            </div>
-            <div>
-              <Label>{t("contracts.poNumber")}</Label>
-              <Input
-                value={editContractData.po}
-                onChange={(e) => setEditContractData({...editContractData, po: e.target.value})}
-                placeholder={t("contracts.poNumber")}
-                data-testid="edit-input-po"
-              />
-            </div>
-            <div>
-              <Label>{t("common.notes")}</Label>
-              <Textarea
-                value={editContractData.notes}
-                onChange={(e) => setEditContractData({...editContractData, notes: e.target.value})}
-                placeholder={t("contracts.additionalNotes")}
-                data-testid="edit-input-notes"
-              />
-            </div>
-            
-            {editContractData.serviceType === "Maintenance" && (
-              <div className="space-y-3 pt-2 border-t">
-                <div className="flex items-center gap-2">
-                  <Checkbox 
-                    id="edit-has-mobilization"
-                    checked={editContractData.hasMobilizationFee}
-                    onCheckedChange={(checked) => setEditContractData({...editContractData, hasMobilizationFee: checked as boolean})}
-                    data-testid="edit-checkbox-mobilization"
-                  />
-                  <label htmlFor="edit-has-mobilization" className="text-sm font-medium cursor-pointer">
-                    {t("customerDetail.includesMobilizationFee")}
-                  </label>
-                </div>
-                {editContractData.hasMobilizationFee && (
-                  <div>
-                    <Label>{t("customerDetail.mobilizationFeeAmount")}</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                      <Input
-                        type="text"
-                        value={editContractData.mobilizationFeeAmount}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          if (value === "" || /^\d*\.?\d{0,2}$/.test(value)) {
-                            setEditContractData({...editContractData, mobilizationFeeAmount: value});
-                          }
-                        }}
-                        className="pl-7"
-                        placeholder="0.00"
-                        data-testid="edit-input-mobilization-amount"
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">{t("customerDetail.mobilizationFeeDesc")}</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          <DialogFooter className="pt-4">
-            <Button variant="outline" onClick={() => setIsEditContractOpen(false)} data-testid="edit-button-cancel">
-              {t("common.cancel")}
-            </Button>
-            <Button 
-              onClick={() => updateContractMutation.mutate()}
-              disabled={updateContractMutation.isPending}
-              data-testid="edit-button-save"
-            >
-              {updateContractMutation.isPending ? t("common.saving") : t("contracts.saveChanges")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </Card>
   );
 }
@@ -970,7 +371,7 @@ interface VersionHistoryDialogProps {
   formatFileSize: (bytes: number) => string;
 }
 
-function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHistoryDialogProps) {
+export function VersionHistoryDialog({ contractId, onClose, formatFileSize }: VersionHistoryDialogProps) {
   const { t } = useTranslation();
   const { data: documents = [], isLoading } = useQuery<ContractDocument[]>({
     queryKey: ["/api/contracts", contractId, "documents"],
@@ -1061,13 +462,8 @@ export default function CustomerDetail() {
   const [activeTab, setActiveTab] = useTabParam("overview");
   const [highlightContractId, setHighlightContractId] = useState<string | null>(null);
 
-  const [uploadingContractId, setUploadingContractId] = useState<string | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState<string | null>(null);
-  const [showReplaceConfirm, setShowReplaceConfirm] = useState<string | null>(null);
-  const [uploadingFile, setUploadingFile] = useState(false);
-  const [isAddContractDialogOpen, setIsAddContractDialogOpen] = useState(false);
   const [showEndedContracts, setShowEndedContracts] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -1146,8 +542,6 @@ export default function CustomerDetail() {
     .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
 
-  const canUploadDocuments = user?.activeRole === "admin" || user?.activeRole === "office";
-  const canEditContracts = user?.activeRole === "admin" || user?.activeRole === "office";
 
   const TAB_LABELS: Record<string, string> = {
     overview: t("customerDetail.tabs.overview"),
@@ -1198,65 +592,6 @@ export default function CustomerDetail() {
   ];
 
   useSetBreadcrumbs(breadcrumbItems, [customer?.name, customer?.id, activeTab, activeTabLabel, breadcrumbIsChild, breadcrumbParent?.id, breadcrumbParent?.name]);
-
-  const contractForm = useForm<Omit<InsertContract, "companyId" | "customerId">>({
-    resolver: zodResolver(
-      insertContractSchema
-        .omit({ companyId: true, customerId: true })
-        .refine(
-          (data) => {
-            if (!data.endDate) return true;
-            const start = new Date(data.startDate);
-            const end = new Date(data.endDate);
-            return end >= start;
-          },
-          {
-            message: "End date must be after or equal to start date",
-            path: ["endDate"],
-          }
-        )
-    ),
-    defaultValues: {
-      serviceType: "Maintenance",
-      billingPattern: "monthly",
-      status: "active",
-      startDate: new Date(),
-      endDate: undefined,
-      po: "",
-      notes: "",
-      hasMobilizationFee: false,
-      mobilizationFeeAmount: 0,
-      autoPopulateServicePlans: true,
-    },
-  });
-
-  const watchedServiceType = contractForm.watch("serviceType");
-
-  const createContractMutation = useMutation({
-    mutationFn: async (data: Omit<InsertContract, "companyId" | "customerId">) => {
-      return apiRequest("POST", `/api/customers/${id}/contracts`, {
-        ...data,
-        startDate: data.startDate instanceof Date ? data.startDate.toISOString() : data.startDate,
-        endDate: data.endDate ? (data.endDate instanceof Date ? data.endDate.toISOString() : data.endDate) : null,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contracts"] });
-      toast({
-        title: t("common.success"),
-        description: t("contracts.contractUpdated"),
-      });
-      setIsAddContractDialogOpen(false);
-      contractForm.reset();
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t("common.error"),
-        description: extractApiErrorMessage(error) ?? error.message,
-        variant: "destructive",
-      });
-    },
-  });
 
   // Customer edit management
   const [isEditCustomerDialogOpen, setIsEditCustomerDialogOpen] = useState(false);
@@ -1560,80 +895,6 @@ export default function CustomerDetail() {
     const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
-  };
-
-  const handleFileSelect = async (contractId: string, isReplace: boolean) => {
-    if (!fileInputRef.current) return;
-    
-    const file = fileInputRef.current.files?.[0];
-    if (!file) return;
-
-    const fileProblem = validateContractFile(file);
-    if (fileProblem === "type") {
-      toast({
-        title: t("common.error"),
-        description: t("customerDetail.invalidFileType"),
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (fileProblem === "size") {
-      toast({
-        title: t("common.error"),
-        description: t("customerDetail.fileTooLarge"),
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setUploadingFile(true);
-
-    try {
-      await uploadContractFile({
-        file,
-        uploadUrlPath: `/api/contracts/${contractId}/documents/upload-url`,
-        registerPath: `/api/contracts/${contractId}/documents`,
-      });
-
-      await queryClient.invalidateQueries({ queryKey: ["/api/contracts", contractId, "documents"] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contracts"] });
-
-      toast({
-        title: t("common.success"),
-        description: t("customerDetail.documentUploaded"),
-      });
-
-      setUploadingContractId(null);
-      setShowReplaceConfirm(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } catch (error) {
-      console.error("Upload error:", error);
-      toast({
-        title: t("common.error"),
-        description: t("customerDetail.uploadFailed"),
-        variant: "destructive",
-      });
-    } finally {
-      setUploadingFile(false);
-    }
-  };
-
-  const handleUploadClick = (contractId: string, isReplace: boolean) => {
-    if (isReplace) {
-      setShowReplaceConfirm(contractId);
-    } else {
-      setUploadingContractId(contractId);
-      setTimeout(() => fileInputRef.current?.click(), 0);
-    }
-  };
-
-  const confirmReplace = (contractId: string) => {
-    setShowReplaceConfirm(null);
-    setUploadingContractId(contractId);
-    setTimeout(() => fileInputRef.current?.click(), 0);
   };
 
   useEffect(() => {
@@ -2178,7 +1439,7 @@ export default function CustomerDetail() {
               <CustomerVisualScopesSection customerId={params?.id!} />
             </TabsContent>
             <TabsContent value="contracts" className="space-y-4">
-                <>
+                <CustomerContracts customerId={id!}>
                 <div className="flex justify-between items-center gap-4">
                   <div className="flex items-center gap-2">
                     <Checkbox 
@@ -2194,21 +1455,7 @@ export default function CustomerDetail() {
                       {t("customerDetail.showEnded")}
                     </label>
                   </div>
-                  {canEditContracts && (
-                    <Button size="sm" onClick={() => setIsAddContractDialogOpen(true)} data-testid="button-add-contract">
-                      <Plus className="w-4 h-4 mr-2" />
-                      {t("customerDetail.newContract")}
-                    </Button>
-                  )}
                 </div>
-              
-                <ContractFileInput
-                  ref={fileInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  className="hidden"
-                  onChange={() => uploadingContractId && handleFileSelect(uploadingContractId, showReplaceConfirm !== null)}
-                />
               
                 {isLoadingContracts ? (
                   <div className="space-y-3">
@@ -2239,9 +1486,6 @@ export default function CustomerDetail() {
                           key={contract.id} 
                           contract={contract}
                           customerId={params?.id!}
-                          canUploadDocuments={canUploadDocuments}
-                          onUploadClick={handleUploadClick}
-                          uploadingFile={uploadingFile}
                           formatFileSize={formatFileSize}
                           setShowVersionHistory={setShowVersionHistory}
                           highlight={highlightContractId === contract.id}
@@ -2251,29 +1495,12 @@ export default function CustomerDetail() {
                   );
                 })()}
 
-                <AlertDialog open={showReplaceConfirm !== null} onOpenChange={(open) => !open && setShowReplaceConfirm(null)}>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{t("customerDetail.replaceDocument")}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t("customerDetail.replaceDocumentMsg")}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => showReplaceConfirm && confirmReplace(showReplaceConfirm)}>
-                        {t("customerDetail.replaceBtn")}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-
                 <VersionHistoryDialog 
                   contractId={showVersionHistory}
                   onClose={() => setShowVersionHistory(null)}
                   formatFileSize={formatFileSize}
                 />
-                </>
+                </CustomerContracts>
               </TabsContent>
 
             <TabsContent value="rate-sheet" className="space-y-4">
@@ -2325,249 +1552,6 @@ export default function CustomerDetail() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={isAddContractDialogOpen} onOpenChange={setIsAddContractDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{t("customerDetail.addContractTitle")}</DialogTitle>
-            <DialogDescription>
-              {t("customerDetail.addContractDesc")}
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...contractForm}>
-            <form onSubmit={contractForm.handleSubmit((data) => createContractMutation.mutate(data))} className="flex flex-col flex-1 min-h-0">
-              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={contractForm.control}
-                  name="serviceType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("contracts.serviceType")} *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-service-type">
-                            <SelectValue placeholder={t("contracts.serviceType")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="Maintenance">{t("serviceTypes.maintenance")}</SelectItem>
-                          <SelectItem value="Chemical">{t("serviceTypes.chemical")}</SelectItem>
-                          <SelectItem value="Snow">{t("serviceTypes.snow")}</SelectItem>
-                          <SelectItem value="Irrigation">{t("serviceTypes.irrigation")}</SelectItem>
-                          <SelectItem value="Other">{t("serviceTypes.other")}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={contractForm.control}
-                  name="billingPattern"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("contracts.billingSchedule")} *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-billing-pattern">
-                            <SelectValue placeholder={t("contracts.billingSchedule")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="monthly">{t("contracts.monthly")}</SelectItem>
-                          <SelectItem value="seasonal">{t("contracts.seasonal")}</SelectItem>
-                          <SelectItem value="12-of-12">{t("contracts.twelveOfTwelve")}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={contractForm.control}
-                  name="startDate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("contracts.startDate")} *</FormLabel>
-                      <FormControl>
-                        <DatePickerField
-                          value={field.value instanceof Date && !isNaN(field.value.getTime()) ? field.value : undefined}
-                          onChange={(date) => field.onChange(date ?? undefined)}
-                          data-testid="input-start-date"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={contractForm.control}
-                  name="endDate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("contracts.endDate")}</FormLabel>
-                      <FormControl>
-                        <DatePickerField
-                          value={field.value instanceof Date && !isNaN(field.value.getTime()) ? field.value : undefined}
-                          onChange={(date) => field.onChange(date ?? undefined)}
-                          data-testid="input-end-date"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={contractForm.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("common.status")} *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-status">
-                          <SelectValue placeholder={t("common.status")} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="active">{t("statuses.active")}</SelectItem>
-                        <SelectItem value="paused">{t("statuses.paused")}</SelectItem>
-                        <SelectItem value="ended">{t("statuses.ended")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={contractForm.control}
-                name="po"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("contracts.poNumber")}</FormLabel>
-                    <FormControl>
-                      <Input placeholder={t("contracts.poNumber")} {...field} value={field.value || ""} data-testid="input-po" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={contractForm.control}
-                name="notes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("common.notes")}</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder={t("contracts.additionalNotes")}
-                        {...field}
-                        value={field.value || ""}
-                        data-testid="textarea-notes"
-                        rows={3}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              
-              {watchedServiceType === "Maintenance" && (
-                <div className="space-y-3 pt-2 border-t">
-                  <FormField
-                    control={contractForm.control}
-                    name="hasMobilizationFee"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center gap-2 space-y-0">
-                        <FormControl>
-                          <Checkbox 
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            data-testid="checkbox-has-mobilization"
-                          />
-                        </FormControl>
-                        <FormLabel className="font-medium cursor-pointer">
-                          {t("customerDetail.includesMobilizationFee")}
-                        </FormLabel>
-                      </FormItem>
-                    )}
-                  />
-                  {contractForm.watch("hasMobilizationFee") && (
-                    <FormField
-                      control={contractForm.control}
-                      name="mobilizationFeeAmount"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t("customerDetail.mobilizationFeeAmount")}</FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                className="pl-7"
-                                placeholder="0.00"
-                                value={(field.value || 0) / 100}
-                                onChange={(e) => {
-                                  const cents = Math.round(parseFloat(e.target.value || "0") * 100);
-                                  field.onChange(cents);
-                                }}
-                                data-testid="input-mobilization-amount"
-                              />
-                            </div>
-                          </FormControl>
-                          <FormDescription>{t("customerDetail.mobilizationFeeDesc")}</FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )}
-                </div>
-              )}
-              {watchedServiceType !== "Other" && (
-                <div className="pt-2 border-t">
-                  <FormField
-                    control={contractForm.control}
-                    name="autoPopulateServicePlans"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center gap-2 space-y-0">
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            data-testid="checkbox-auto-populate-service-plans"
-                          />
-                        </FormControl>
-                        <div>
-                          <FormLabel className="font-medium cursor-pointer">
-                            Auto-populate service plan
-                          </FormLabel>
-                          <p className="text-xs text-muted-foreground">
-                            Automatically create service plan entries for the contract's start year based on its services
-                          </p>
-                        </div>
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              )}
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsAddContractDialogOpen(false)} data-testid="button-cancel">
-                  {t("common.cancel")}
-                </Button>
-                <Button type="submit" disabled={createContractMutation.isPending} data-testid="button-save-contract">
-                  {createContractMutation.isPending ? t("common.creating") : t("common.create")}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={isAddContactDialogOpen || !!editingContact} onOpenChange={(open) => {
         if (!open) {
@@ -3601,27 +2585,16 @@ interface RateInputProps {
   field: string;
   unit: string;
   value: string;
-  onChange: (field: string, value: string) => void;
-  canEdit: boolean;
-  isPending: boolean;
 }
 
-function RateInput({ label, field, unit, value, onChange, canEdit, isPending }: RateInputProps) {
+function RateInput({ label, field, unit, value }: RateInputProps) {
   return (
     <div>
-      <Label htmlFor={field} className="text-sm font-medium">{label}</Label>
+      <p className="text-sm font-medium">{label}</p>
       <div className="flex items-center gap-2 mt-1">
         <div className="relative flex-1">
           <DollarSign className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            id={field}
-            data-testid={`input-rate-${field}`}
-            value={value}
-            onChange={(e) => onChange(field, e.target.value)}
-            placeholder={canEdit ? "Not set" : "—"}
-            disabled={!canEdit || isPending}
-            className="pl-8"
-          />
+          <p data-testid={`text-rate-${field}`} className="pl-8 py-2">{value || "—"}</p>
         </div>
         <span className="text-sm text-muted-foreground whitespace-nowrap">{unit}</span>
       </div>
@@ -3629,23 +2602,16 @@ function RateInput({ label, field, unit, value, onChange, canEdit, isPending }: 
   );
 }
 
-function RateSheetSection({ customerId }: { customerId: string }) {
+export function RateSheetSection({ customerId }: { customerId: string }) {
   const { t } = useTranslation();
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
 
   const { data: rateSheet, isLoading } = useQuery<CustomerRateSheet | null>({
     queryKey: ["/api/customers", customerId, "rate-sheet"],
   });
 
-  const [localRates, setLocalRates] = useState<Record<string, string>>({});
-  const [localNotes, setLocalNotes] = useState("");
-  const [hasChanges, setHasChanges] = useState(false);
-
-  useEffect(() => {
-    if (rateSheet && !hasChanges) {
+  const localRates = useMemo(() => {
       const rates: Record<string, string> = {};
+    if (rateSheet) {
       
       // Maintenance & Emergency Labor
       if (rateSheet.generalLabor !== null) rates.generalLabor = (rateSheet.generalLabor / 100).toFixed(2);
@@ -3663,70 +2629,9 @@ function RateSheetSection({ customerId }: { customerId: string }) {
       if (rateSheet.iceMeltMaterial !== null) rates.iceMeltMaterial = (rateSheet.iceMeltMaterial / 100).toFixed(2);
       if (rateSheet.iceMeltApplicationLabor !== null) rates.iceMeltApplicationLabor = (rateSheet.iceMeltApplicationLabor / 100).toFixed(2);
       
-      setLocalRates(rates);
-      setLocalNotes(rateSheet.notes || "");
     }
-  }, [rateSheet, hasChanges]);
-
-  const handleRateChange = (field: string, value: string) => {
-    // Only allow positive numbers with up to 2 decimal places or empty string
-    if (value !== "" && !/^\d*\.?\d{0,2}$/.test(value)) return;
-    
-    setLocalRates(prev => {
-      const updated = { ...prev };
-      if (value === "") {
-        delete updated[field];
-      } else {
-        updated[field] = value;
-      }
-      return updated;
-    });
-    setHasChanges(true);
-  };
-
-  const handleNotesChange = (value: string) => {
-    setLocalNotes(value);
-    setHasChanges(true);
-  };
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      const data: Record<string, number | null | string> = {};
-      
-      // Convert all rate fields to cents or null
-      const rateFields = [
-        'generalLabor', 'operatorLabor', 'irrigationLabor', 'emergencyGeneralLabor', 'emergencyIrrigationLabor',
-        'handShovelLabor', 'plowTruck', 'atv', 'skidSteer', 'snowBlower', 'iceMeltMaterial', 'iceMeltApplicationLabor'
-      ];
-      
-      for (const field of rateFields) {
-        if (localRates[field] && localRates[field] !== "") {
-          data[field] = Math.round(parseFloat(localRates[field]) * 100);
-        } else {
-          data[field] = null;
-        }
-      }
-      
-      data.notes = localNotes || null;
-      
-      return await apiRequest("PUT", `/api/customers/${customerId}/rate-sheet`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "rate-sheet"] });
-      setHasChanges(false);
-      toast({
-        title: t("common.success"),
-        description: t("customerDetail.rateSheetSaved"),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t("common.error"),
-        description: extractApiErrorMessage(error) ?? t("customerDetail.rateSheetError"),
-        variant: "destructive",
-      });
-    },
-  });
+    return rates;
+  }, [rateSheet]);
 
   if (isLoading) {
     return (
@@ -3748,11 +2653,11 @@ function RateSheetSection({ customerId }: { customerId: string }) {
             <Card>
               <CardContent className="pt-6 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <RateInput label={t("customerDetail.generalLabor")} field="generalLabor" unit={t("customerDetail.perHour")} value={localRates.generalLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label={t("customerDetail.operatorLabor")} field="operatorLabor" unit={t("customerDetail.perHour")} value={localRates.operatorLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label={t("customerDetail.irrigationLabor")} field="irrigationLabor" unit={t("customerDetail.perHour")} value={localRates.irrigationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label={t("customerDetail.emergencyGeneralLabor")} field="emergencyGeneralLabor" unit={t("customerDetail.perHour")} value={localRates.emergencyGeneralLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label={t("customerDetail.emergencyIrrigationLabor")} field="emergencyIrrigationLabor" unit={t("customerDetail.perHour")} value={localRates.emergencyIrrigationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.generalLabor")} field="generalLabor" unit={t("customerDetail.perHour")} value={localRates.generalLabor || ""} />
+                  <RateInput label={t("customerDetail.operatorLabor")} field="operatorLabor" unit={t("customerDetail.perHour")} value={localRates.operatorLabor || ""} />
+                  <RateInput label={t("customerDetail.irrigationLabor")} field="irrigationLabor" unit={t("customerDetail.perHour")} value={localRates.irrigationLabor || ""} />
+                  <RateInput label={t("customerDetail.emergencyGeneralLabor")} field="emergencyGeneralLabor" unit={t("customerDetail.perHour")} value={localRates.emergencyGeneralLabor || ""} />
+                  <RateInput label={t("customerDetail.emergencyIrrigationLabor")} field="emergencyIrrigationLabor" unit={t("customerDetail.perHour")} value={localRates.emergencyIrrigationLabor || ""} />
                 </div>
               </CardContent>
             </Card>
@@ -3767,13 +2672,13 @@ function RateSheetSection({ customerId }: { customerId: string }) {
             <Card>
               <CardContent className="pt-6 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <RateInput label={t("customerDetail.handShovel")} field="handShovelLabor" unit={t("customerDetail.perHour")} value={localRates.handShovelLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label={t("customerDetail.plowTruck")} field="plowTruck" unit={t("customerDetail.perHour")} value={localRates.plowTruck || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label={t("customerDetail.atv")} field="atv" unit={t("customerDetail.perHour")} value={localRates.atv || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label={t("customerDetail.skidSteer")} field="skidSteer" unit={t("customerDetail.perHour")} value={localRates.skidSteer || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label={t("customerDetail.snowBlower")} field="snowBlower" unit={t("customerDetail.perHour")} value={localRates.snowBlower || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label={t("customerDetail.iceMeltMaterial")} field="iceMeltMaterial" unit={t("customerDetail.perPound")} value={localRates.iceMeltMaterial || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
-                  <RateInput label={t("customerDetail.iceMeltApplicationLabor")} field="iceMeltApplicationLabor" unit={t("customerDetail.perHour")} value={localRates.iceMeltApplicationLabor || ""} onChange={handleRateChange} canEdit={canEdit} isPending={saveMutation.isPending} />
+                  <RateInput label={t("customerDetail.handShovel")} field="handShovelLabor" unit={t("customerDetail.perHour")} value={localRates.handShovelLabor || ""} />
+                  <RateInput label={t("customerDetail.plowTruck")} field="plowTruck" unit={t("customerDetail.perHour")} value={localRates.plowTruck || ""} />
+                  <RateInput label={t("customerDetail.atv")} field="atv" unit={t("customerDetail.perHour")} value={localRates.atv || ""} />
+                  <RateInput label={t("customerDetail.skidSteer")} field="skidSteer" unit={t("customerDetail.perHour")} value={localRates.skidSteer || ""} />
+                  <RateInput label={t("customerDetail.snowBlower")} field="snowBlower" unit={t("customerDetail.perHour")} value={localRates.snowBlower || ""} />
+                  <RateInput label={t("customerDetail.iceMeltMaterial")} field="iceMeltMaterial" unit={t("customerDetail.perPound")} value={localRates.iceMeltMaterial || ""} />
+                  <RateInput label={t("customerDetail.iceMeltApplicationLabor")} field="iceMeltApplicationLabor" unit={t("customerDetail.perHour")} value={localRates.iceMeltApplicationLabor || ""} />
                 </div>
               </CardContent>
             </Card>
@@ -3786,14 +2691,7 @@ function RateSheetSection({ customerId }: { customerId: string }) {
           <CardTitle className="text-lg">{t("customerDetail.rateNotes")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <Textarea
-            data-testid="textarea-rate-notes"
-            value={localNotes}
-            onChange={(e) => handleNotesChange(e.target.value)}
-            placeholder={canEdit ? t("customerDetail.rateNotesPlaceholder") : "—"}
-            disabled={!canEdit || saveMutation.isPending}
-            rows={3}
-          />
+          <p className="whitespace-pre-wrap" data-testid="text-rate-notes">{rateSheet?.notes || "—"}</p>
         </CardContent>
       </Card>
 
@@ -3803,23 +2701,9 @@ function RateSheetSection({ customerId }: { customerId: string }) {
         </div>
       )}
 
-      {canEdit && hasChanges && (
-        <div className="flex justify-end">
-          <Button
-            data-testid="button-save-rate-sheet"
-            onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending}
-          >
-            {saveMutation.isPending ? t("common.saving") : t("customerDetail.saveRates")}
-          </Button>
-        </div>
-      )}
-
-      {!canEdit && (
         <div className="text-sm text-muted-foreground text-center p-4 bg-muted/50 rounded-md">
-          {t("customerDetail.noPermission")}
+          Rates now live on each contract in the Contract Center.
         </div>
-      )}
     </div>
   );
 }
