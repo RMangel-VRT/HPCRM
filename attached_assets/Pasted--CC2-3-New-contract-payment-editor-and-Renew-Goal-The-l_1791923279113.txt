@@ -1,0 +1,105 @@
+# CC2-3: New contract, payment editor and Renew
+
+## Goal
+
+The last pieces of the Contract Center:
+- the New contract flow (Landscape, Snow, or Both)
+- the payment editor with presets
+- the Renew window
+
+All three are built on the CC2-1 API. Generating Word documents is Phase 3, so a "theirs" contract can upload the management company's form here, but "ours" contracts don't generate anything yet. The review step says "Contract document generation arrives in the next phase".
+
+## Payment editor (`components/contracts/PaymentEditor.tsx`)
+
+Used by the New contract flow, by the Billing tab in edit mode (saves with `PUT …/payments`), and read-only in the Renew window.
+
+- **A contract has one or more payment lines.** Each has a name (free text with suggestions: "Grounds maintenance", "Fertilization", "Irrigation", "Snow") and a yearly pattern of 12 month amounts.
+- **The months run from the term's start month.** An Oct–Sep contract lists Oct first.
+- **Presets** fill the 12 amounts from a yearly total. Odd cents always go on the **last** payment in cycle order.
+
+| Preset | Fills |
+| --- | --- |
+| **12 equal payments** | total ÷ 12 in every month |
+| **MSI: 4 × 5% + 8 × 10%** | 5% in Nov, Dec, Jan, Feb and 10% in the other eight months, by calendar month whatever the start month |
+| **Equal over chosen months** | pick months (checkboxes) and split the total equally; for example fertilization, 7 months Mar–Sep |
+| **Flat snow: 5 equal, Dec–Apr** | only offered for the "Snow" line on flat-rate snow |
+| **Custom** | type each month |
+
+- **After a preset, every month stays editable.** Editing a month switches the preset label to Custom.
+- **Each line shows its yearly total and the % of the total for each month**, so the MSI labels can be checked at a glance.
+- **Warning:** if the 12 months don't add up to the total the user typed, show an amber "Months add up to $X, not $Y".
+- **The contract's annual price** is the sum of all lines, shown at the bottom.
+- **Snow-only time-and-materials** contracts hide the editor and show "Billed time and materials, invoiced monthly, net 30".
+
+Pure functions in `components/contracts/paymentPresets.ts`: `equal12(totalCents)`, `msi(totalCents)`, `equalOver(totalCents, months)`, `flatSnow(totalCents)`. Each returns 12 amounts indexed by calendar month 1–12, plus the order the payments fall in, given the start month. Tests:
+- `msi(1175000)` → Nov to Feb 58750, the other months 117500, sum 1175000.
+- `equalOver(240000, [3..9])` → 34286 × 6 and 34284 in Sep.
+- `equal12(1000000)` → 83333 × 11 and 83337 in the last cycle month.
+- Odd cents land on the last month in cycle order for an Oct start (Sep) and for a Jan start (Dec).
+
+## New contract flow (`pages/NewContractPage.tsx`, route `/dashboard/contracts/new`)
+
+The flow opens from the board's New contract button. It also opens from the customer page (CC2-4) with `?customerId=` pre-filled.
+
+It's a stepper with Back and Next, and one screen per step. State lives in the page, mirrored to `sessionStorage` (inside try/catch) so a reload doesn't lose it. Nothing is saved to the server until **Create contract**.
+
+1. **Customer and type.**
+   - Customer search (`/api/customers`; parent customers can't be picked).
+   - Three cards: **Landscape**, **Snow**, **Both**.
+   - Two cards: **Our form** and **Their form**.
+   - When the type includes snow, a choice: **Time and materials** (default) or **Flat rate**.
+   - The managing agent is pre-filled from the customer's management company and can be edited.
+2. **Term and contacts.**
+   - **Start date** defaults to the 1st of next month.
+   - **End date** defaults to start + 12 months − 1 day; for snow-only it defaults to Oct 1 – Apr 30 of the coming season.
+   - Season label: worked out from the dates, editable.
+   - Contact fields: legal name, project contact, phone, email, address (pre-filled from the customer), PO, notes.
+   - Snow triggers (when snow is included), with the default text from CC2-2.
+3. **Scope.**
+   - The CC2-2 scope editor, starting from the catalog defaults for the chosen type.
+   - Preset buttons: **Full HOA landscape** (mowing, aeration, clean-ups, shrub trimming, chemical, winter visits, the four irrigation items), **Standard snow** (walks, drives, ice melt, stakes) and **Clear all**.
+4. **Rates.**
+   - The card snapshot for the type (`GET /api/contract-center/rate-card`, active rows only, filtered by line).
+   - Override any price; changed rows get the "Changed" chip.
+   - **Add custom rate** for a one-off rate.
+   - The "Set per contract" labor rows show an amber note when left blank: "No standard; enter this client's rate or leave blank."
+5. **Payments.**
+   - The payment editor.
+   - Landscape and Both start with one line, "Grounds maintenance", empty, with the preset picker open.
+   - Flat-rate snow adds a "Snow" line with the flat snow preset. The flat snow price is that line's total.
+6. **Review and create.**
+   - A summary table with: customer, type, form, dates, annual price (and monthly if equal), the snow pricing, services switched on, and changed or custom rates.
+   - **For "Their form":** an upload box for the management company's contract. It's uploaded right after the contract is created, as kind `their_form`.
+   - **Create contract** posts to `POST /api/contract-center/contracts`, uploads any file, clears sessionStorage, and opens the new contract page with the toast "Draft created".
+
+Validation runs on each step's Next, with inline messages:
+- a customer and type are chosen
+- the end date is on or after the start date
+- the flat price is above 0 when flat-rate snow is chosen
+- every payment line has a name
+
+## Renew window (`components/contracts/RenewDialog.tsx`)
+
+Opens from the board's Renew button and the contract page's "Renew for next season".
+
+- **Fields:** Increase % (default 3, editable) and Round to (Whole dollar / Divides evenly by 12).
+- **When either field changes**, call the renew endpoint with `dryRun: true` (debounced 300 ms) and show:
+  - **New season:** label and dates.
+  - **Payment lines:** each line's yearly total, old → new, with an expandable month-by-month view.
+  - **Flat snow price:** old → new, when present.
+  - **Rate changes:**
+    - rates that move because the card changed (old → new, labelled "Card changed")
+    - overrides kept from last season (labelled "Kept this client's rate")
+  - **A note:** "Scope is copied as is. Change services on the new draft before sending."
+- **Create <season> draft** calls the endpoint without `dryRun`, closes the window, opens the new term on the contract page, and shows the toast "<season> draft created".
+
+## Verify
+
+1. **MSI Pavilion Villas example**, created as a new landscape contract on their form, Oct 1, 2026 – Sep 30, 2027:
+   - grounds maintenance $11,750 on the MSI preset, plus fertilization $2,400 on equal-over-months Mar–Sep
+   - the review shows an annual price of $14,150
+   - Billing shows Nov–Feb at $587.50, the other months at $1,175, and fertilization at $342.86 × 6 + $342.84
+2. **Artisans I-style snow-only contract**, time and materials, Oct 1 – May 1: no payment editor, and the snow rates come from the card.
+3. **Flat-rate snow on a Both contract:** a "Snow" line of 5 payments Dec–Apr is included in the annual price.
+4. **Renew** Pavilion Villas at 3% rounded to whole dollars: the dry-run figures match what's created, and the new draft appears under "Renewal drafted / sent" on the board.
+5. Typecheck and tests pass.

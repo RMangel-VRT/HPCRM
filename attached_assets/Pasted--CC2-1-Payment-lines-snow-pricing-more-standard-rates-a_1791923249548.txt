@@ -1,0 +1,224 @@
+# CC2-1: Payment lines, snow pricing, more standard rates, and the Contract Center API
+
+## Goal
+
+The server side of the Contract Center:
+- one small migration
+- 19 more standard rates
+- every endpoint the screens in CC2-2 and CC2-3 need
+
+No UI. The old contract tables, routes and screens are untouched.
+
+## 1. Migration `.migration-backup/migrations/00NN_contract_center_payment_lines.sql`
+
+Use the next free number.
+
+```sql
+ALTER TABLE term_billing_months ADD COLUMN IF NOT EXISTS component text NOT NULL DEFAULT 'Contract';
+ALTER TABLE term_billing_months DROP CONSTRAINT IF EXISTS term_billing_months_term_month_unique;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'term_billing_months_term_component_month_unique') THEN
+    ALTER TABLE term_billing_months ADD CONSTRAINT term_billing_months_term_component_month_unique UNIQUE (term_id, component, month);
+  END IF;
+END $$;
+ALTER TABLE agreement_terms ADD COLUMN IF NOT EXISTS snow_pricing text;
+ALTER TABLE agreement_terms ADD COLUMN IF NOT EXISTS snow_flat_price_cents integer;
+```
+
+- **`component`** is the payment line name. Examples: "Grounds maintenance", "Fertilization", "Snow". Copied rows default to "Contract".
+- **`snow_pricing`** is `time_and_materials` or `flat_rate`. It's null on terms with no snow.
+- **`snow_flat_price_cents`** is the season's flat snow price when `snow_pricing = 'flat_rate'`.
+
+Mirror these in both schema files:
+- `component: text("component").notNull().default("Contract")`
+- the new unique constraint `term_billing_months_term_component_month_unique`, replacing the old one
+- `snowPricing` typed with `SNOW_PRICING = ["time_and_materials", "flat_rate"] as const`
+- `snowFlatPriceCents`
+
+Publish will show one dropped constraint and one added constraint on `term_billing_months`. That's expected; the table has no copied rows yet.
+
+`contractCenterCopy.ts`:
+- Billing rows it writes keep the default component.
+- **Add a length guard.** If a term runs more than 60 months, or its start year is before 2000, write no billing months and flag "Contract dates look wrong (<start> – <end>); fix them in the old system before copying". Its annual price stays the 12-month sum.
+
+  This stops a typo like Twin Shores' start year 0205 from creating about 21,000 billing rows. Add a test: a start date of 0205-11-01 and an end date of 2026-10-31 give 0 billing months and that flag.
+- **Apply the same guard in the Contract Center create and edit endpoints** (section 3): a term longer than 60 months, or starting before 2000, returns 400.
+`billing_type` on the term stays as a summary: `equal_monthly` when there is one payment line with 12 equal payments, `time_and_materials` for snow-only time-and-materials terms, and `monthly_variable` otherwise.
+
+## 2. More standard rates (both copies of `contractCatalog.ts`, byte-identical)
+
+Randy wants every rate that appears on a contract to have a standard. These come from the MSI Pavilion Villas contract (2026–27).
+- **Rates with a price** start with that price.
+- **Rates the MSI form leaves blank** go in as "set per contract" (`priceCents: null`).
+
+Append to `RATE_CARD_DEFAULTS`, grouped with their line:
+
+| key | line | category | label | priceCents | unit |
+| --- | --- | --- | --- | --- | --- |
+| `rate_additional_mowing` | landscape | Landscape extras | Additional mowing | 60000 | per occurrence |
+| `rate_additional_aeration` | landscape | Landscape extras | Additional aeration | 50000 | per aeration |
+| `rate_extra_weed_spray` | landscape | Landscape extras | Additional weed control (spot spraying) | 45000 | per application |
+| `rate_native_overseed` | landscape | Landscape extras | Native area over-seeding | null | per application |
+| `rate_tree_guard` | landscape | Landscape extras | Tree guards | null | per tree |
+| `rate_winter_water_sod` | landscape | Winter watering | Winter watering, sod | 12500 | per event |
+| `rate_winter_water_trees` | landscape | Winter watering | Winter watering, trees and shrubs | null | per event |
+| `rate_freeze_wrap` | irrigation | Irrigation | Freeze wrap of exposed lines | 12500 | per occurrence |
+| `rate_backflow_2in` | irrigation | Irrigation | Backflow test, 2-inch device | 17500 | per device |
+| `rate_backflow_3in` | irrigation | Irrigation | Backflow test, 3-inch device | null | per device |
+| `rate_backflow_4in` | irrigation | Irrigation | Backflow test, 4-inch device | null | per device |
+| `rate_backflow_storage` | irrigation | Irrigation | Backflow winter storage and reinstall | null | per device per season |
+| `rate_front_end_loader` | snow | Snow equipment & labor | Front end loader | null | per hour |
+| `rate_dump_truck` | snow | Snow equipment & labor | Dump truck | null | per hour |
+| `rate_sand_salt_application` | snow | Snow equipment & labor | Sand / salt application | null | per hour |
+| `rate_ice_slicer` | snow | Snow materials | Ice Slicer | 29500 | per ton |
+| `rate_ice_slicer_application` | snow | Snow equipment & labor | Ice Slicer application | 8000 | per hour |
+| `rate_liquid_mag` | snow | Snow materials | Liquid mag chloride | null | per gallon |
+| `rate_liquid_mag_application` | snow | Snow equipment & labor | Liquid mag chloride application | null | per hour |
+
+Also change the `backflow_rate` label to **"Backflow test, 1-inch device"**. The price stays $155.
+
+That makes **43** defaults. Update the catalog and seed test counts. The existing **Add missing standard rates** link adds the 19 without touching edited rows. Randy renames the existing backflow row by hand, the same way he renames ATV.
+
+## 3. API (`artifacts/api-server/src/routes/contractCenter.ts`)
+
+Every endpoint uses `adminOrOffice` and is scoped by `activeCompanyId`. Every id in a path or body (customer, agreement, term, management company) must belong to the company, or the response is 404.
+
+Put the business logic in `artifacts/api-server/src/lib/contractCenterService.ts` as plain functions, so it can be tested without HTTP.
+
+### Reading
+
+- **`GET /api/contract-center/contracts?line=landscape|snow&customerId=&q=`** returns a list. Each row has:
+  - the agreement, plus `customerName`
+  - `current`: the latest term by `start_date`, ignoring `cancelled`, as `{ id, seasonLabel, startDate, endDate, status, displayStatus, annualPriceCents, snowPricing, needsReview }`
+  - `renewalDraft`: the newest `draft` or `sent` term whose `renewed_from_term_id` is the current term's id, or null
+  - `renewalDue: boolean`
+
+  `line=snow` returns agreements with line `snow` or `both`; `line=landscape` returns `landscape` or `both`.
+- **`displayStatus`** is worked out from today's Colorado date, `companyToday()`:
+  - `signed` with `start_date <= today` → `active`
+  - `active` or `signed` with `end_date < today` and no signed renewal → `expired`
+  - otherwise the stored status
+- **`renewalDue`** is true when `displayStatus` is `active` and `end_date - 60 days <= today`.
+- **`GET /api/contract-center/contracts/:agreementId`** returns the agreement, the customer (id, name, address, management company), and **all** terms, oldest first. Each term includes its scope lines (by `sort_order`), rates (by `sort_order`), billing months (by component, then month), documents (newest first) and status history (newest first).
+- **`GET /api/contract-center/contracts/by-legacy/:legacyContractId`** returns `{ agreementId }` from `term_legacy_sources` (company-scoped), or 404. CC2-2 uses this to redirect old `/dashboard/contracts/:id` links, such as the revenue audit's "Open contract".
+
+### Creating
+
+**`POST /api/contract-center/contracts`** creates an agreement and its first term (`status: "draft"`) in **one transaction**. Body:
+
+```ts
+{
+  customerId, line: "landscape"|"snow"|"both", form: "ours"|"theirs",
+  term: { seasonLabel, startDate, endDate, legalName?, managingAgentName?, projectContact?, contactPhone?,
+          contactEmail?, projectAddress?, snowTriggers?, po?, notes?,
+          snowPricing?: "time_and_materials"|"flat_rate", snowFlatPriceCents? },
+  scope: Array<{ serviceKey, included, quantity?, unit?, monthSpread?, details?, priceCents?, notes? }>,
+  rates: Array<{ rateKey, priceCents?, priceText?, minimum?, label?, unit?, category?, line? }>,
+  payments: Array<{ component, months: Array<{ month: 1..12, amountCents }> }>
+}
+```
+
+Server rules:
+- **The customer** must exist in the company, and must not be a parent customer (`assertNotParentCustomer`).
+- **`snowPricing`** is required when the line is `snow` or `both`, and must be absent for `landscape`. `snowFlatPriceCents` is required only for `flat_rate`.
+- **Scope** keys must be in `SCOPE_CATALOG`, or start with `other:` for custom lines; custom lines need `details.label`. Each scope line's `line` comes from the catalog (custom lines use `landscape`, unless the agreement line is `snow`). No duplicate keys. `sortOrder` = catalog index; custom lines go after.
+- **Rates** are a full snapshot. For every active rate card row whose line applies (landscape: `landscape`, `irrigation`, `general`; snow: `snow`, `general`; both: all four), write a `term_rates` row with `card_price_cents`/`card_price_text` set from the card. Apply any body override by `rateKey`.
+  - A body rate whose key isn't on the card is a **custom rate**: it needs `label`, `unit`, `category` and `line`, and its card price is null.
+- **Payments** are the yearly pattern for each named payment line, as month numbers with amounts. Expand them onto the term with the CC1-4 placement rule:
+  - a term of 12 months or more gets every month in the term
+  - a shorter term gets the 12 months from the start month
+  - zero amounts are skipped
+- **`annual_price_cents`** = the sum of all payment lines' 12-month amounts. It's null when there are no payments; a snow-only time-and-materials term has none. For flat-rate snow, the "Snow" payment line counts in the total.
+- **`billing_type`** is the summary from section 1.
+- Write the first history row: `null → draft`, note "Created in the Contract Center".
+- Return the full agreement, in the same shape as the GET.
+
+### Editing a term
+
+- **`PATCH /api/contract-center/terms/:termId`** accepts the term fields from the create body, plus `startDate`/`endDate`. Use `pickProvided`.
+  - It's refused (409) for terms in `renewed`, `lost` or `cancelled`.
+  - If the dates change, re-expand the payment lines from their stored yearly pattern. To recover the pattern, take each component's amount for each month number from its first year.
+- **`PUT /api/contract-center/terms/:termId/scope`**, **`PUT …/rates`** and **`PUT …/payments`** replace that part of the term in full, with the same validation as create. Each PUT runs in a transaction and recomputes `annual_price_cents` and `billing_type` where they apply.
+- **Edits to a `signed` or `active` term** each add a history row (old status = new status), note "Edited after signing: <what changed>", with `changed_by` set.
+
+### Status
+
+**`POST /api/contract-center/terms/:termId/status`**, body `{ to, note? }`. Allowed moves:
+
+| From | To |
+| --- | --- |
+| draft | sent, cancelled |
+| sent | signed, draft, lost |
+| signed / active | lost (early termination), cancelled |
+| any renewal draft/sent | lost |
+
+- **Moving to `signed`** sets `signed_at = now()`. If the term was renewed from another term, set that earlier term to `renewed`, with its own history row ("Renewed by <season>").
+- **Moving to `sent`** sets `sent_at`.
+- **Moving to `lost` on a renewal** also writes a history row on the term it renewed from: "Renewal lost".
+- Every move writes history. Invalid moves return 409 with the allowed moves.
+- There's no `active` move: `active` is worked out from the dates (see Reading). Copied terms stored as `active` stay as they are.
+
+### Renewing
+
+**`POST /api/contract-center/contracts/:agreementId/renew`**, body `{ increasePct: number (−50…100, default 3), roundTo: "dollar"|"twelve", dryRun?: boolean }`.
+- With `dryRun: true`, it writes nothing. It returns the proposed term with its dates, season, payment lines (before and after amounts), flat snow price (before and after), and the rate changes (`{ rateKey, label, old, new, reason: "card changed" | "kept override" }`). CC2-3's Renew window shows this.
+- **When refused:** if the current term already has a `draft` or `sent` renewal (409), or if the current term isn't `active`, `signed` or `expired` (409).
+- **The new term** is `draft`, with `renewed_from_term_id` set to the current term.
+  - It starts the day after the current term ends and lasts the same number of months.
+  - The season label is worked out from the new dates (`2027` or `2026–27`; multi-year terms get `2026–28`).
+  - The contact snapshot fields are copied.
+- **Scope** is copied as is.
+- **Rates** are re-snapshotted from today's card. A rate the old term had overridden (its price differs from its own `card_price_cents`) keeps the old override. Custom rates are copied.
+- **Payments.** Each payment line's yearly amounts are multiplied by `1 + increasePct/100`, then rounded:
+  - `"dollar"`: each payment is rounded to whole dollars, and the line's yearly total is adjusted on its last month so it equals the rounded line total.
+  - `"twelve"`: the line's yearly total is rounded up to a multiple of 12 dollars, then split back in the same proportions as before, with odd cents on the last month.
+
+  Flat snow price increases by the same percent.
+- `renewal_increase_pct` is stored, and history gets "Renewed from <season> at +X%".
+
+### Documents
+
+Copy the existing contract-document pattern in `routes.ts` (`/api/contracts/:contractId/documents/upload-url` and `/documents`), including the company ACL:
+- **`POST /api/contract-center/terms/:termId/documents/upload-url`** returns `{ uploadURL }`.
+- **`POST /api/contract-center/terms/:termId/documents`**, body `{ uploadURL, filename, fileSize, mimeType, kind }`. `kind` is `signed`, `their_form` or `other` (`review`/`clean` are Phase 3). Version = the highest existing version of that kind on the term, plus 1. Write history only if the status changes (it doesn't here).
+- Downloads use the existing `/objects/*` route with the stored path.
+
+## 4. Tests
+
+Unit tests for `contractCenterService.ts` (plain objects or a mocked `db`):
+- **Placement:**
+  - An MSI line (Nov–Feb at 58750, the rest at 117500) on Oct 1, 2026 – Sep 30, 2027 places 12 months, with an annual of 1175000.
+  - Fertilization (7 × 34286, the last month 34284) on the same term adds Mar–Sep. The annual total becomes 1415000.
+- **Two-year term:** the same lines over 24 months repeat both patterns, and the annual stays 1415000.
+- **Seasonal:** Apr 1 – Oct 31 with 12 equal payments places Apr through Mar of the next year.
+- **Snow flat rate:** 5 equal payments Dec–Apr on an "Snow" line count in the annual total. Snow time-and-materials has no payments and a null annual price.
+- **Rates snapshot:**
+  - A Both contract gets every active card row.
+  - Overrides keep their card price for reference.
+  - A custom rate without a label is rejected.
+- **Renew:**
+  - +3% with dollar rounding gives totals equal to the rounded line totals, dates continue, and overridden rates are kept while others refresh from the card.
+  - A second renew returns 409.
+- **Status:**
+  - draft→signed is refused.
+  - sent→signed marks the renewed-from term `renewed`, with history on both.
+  - Invalid moves return the allowed list.
+- **displayStatus and renewalDue:** a signed term starting today is `active`; `renewalDue` turns on exactly 60 days before the end date.
+- **Edits after signing** write a history row.
+
+Route tests with `../db` mocked:
+- Field roles get 403.
+- Another company's term id gets 404.
+- PATCH `{}` returns 400.
+- PATCH never changes `status` (status only moves through `/status`).
+
+## Verify
+
+1. Migrate (twice: the second run changes nothing), drift check, typecheck, tests.
+2. In development, run **Add missing standard rates**. It inserts 19, or 21 if the CC1-4 rows haven't been added yet.
+3. With curl or a small script, create the Pavilion Villas example as a `theirs` landscape contract:
+   - Grounds maintenance on the MSI pattern, plus fertilization in 7 payments.
+   - Renew it at 3%.
+   - Move the renewal draft → sent → signed.
+   - Check the history on both terms.
+4. The old Contracts page and the customer Contracts tab are unchanged.

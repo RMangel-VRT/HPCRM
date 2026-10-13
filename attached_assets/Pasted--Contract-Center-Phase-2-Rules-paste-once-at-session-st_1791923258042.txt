@@ -1,0 +1,47 @@
+# Contract Center, Phase 2: Rules (paste once at session start)
+
+Phase 2 makes the Contract Center usable: the API, the board and contract pages, the create and renew flows, and then the switch-over that freezes the old contract screens. Contract documents (generating Word files) are Phase 3. Re-pointing the dashboard, revenue, tickets and the crew app to the new tables is Phase 4.
+
+**Start only after CC1-4 is merged.** CC1-4 edits the same route file and catalog.
+
+## Order
+
+1. **CC2-1:** one small migration (named payment lines and the snow pricing choice), then the server API.
+2. **CC2-2:** the Contract Center board, the all-contracts list, and the contract page with view and edit.
+3. **CC2-3:** the New contract flow and the Renew flow.
+4. **CC2-4:** switch-over. The customer Contracts tab shows the new contracts, and the old screens stop creating or editing contracts. **Merge this one only when Randy says the old data is fixed.** Run the Copy right after publishing it.
+
+Merge each slice before starting the next.
+
+## Decisions (Randy, Oct 12–13, 2026)
+
+- **Who can do what:** admin and office can create, edit and renew contracts. Everyone else can't see them; Phase 4 adds read-only views where needed.
+- **Up for renewal:** 60 days before a term's end date, for every contract.
+- **Snow on a Landscape + Snow contract** is covered for the whole term.
+- **Snow pricing** is usually time and materials; flat-rate snow is allowed.
+- **Payments are a 12-month cycle, independent of the service months.**
+  - High Plains contracts: 12 equal payments.
+  - MSI contracts: 5% in Nov, Dec, Jan and Feb, and 10% in the other eight months.
+  - A contract can have **more than one payment line**. Example: MSI Pavilion Villas pays $11,750 for grounds maintenance on the MSI pattern, plus $2,400 for fertilization in 7 equal payments, Mar–Sep.
+  - When a total doesn't split evenly, the odd cents go on the **last** payment.
+- **A term can run several years.** Each payment line's yearly pattern repeats every year of the term. "Annual price" means one year's total.
+- **Renewals pre-fill a 3% increase.** The number can be changed.
+- **Each contract can carry custom rates that aren't on the rate card**, such as Ice Slicer at $295 a ton.
+
+## Rules for every slice
+
+1. Every rule in the Phase 1 rules file still applies:
+   - DDL only in numbered SQL files with `IF NOT EXISTS`
+   - money in cents
+   - calendar dates as strings
+   - `pickProvided` on every PATCH
+   - static imports only
+   - server tables imported from `@workspace/db`
+   - both schema files kept in sync
+   - allow-list roles
+   - vitest tests
+2. **Line numbers are from GitHub commit `744d51a`.** Find every site by its content.
+3. **The old `contracts` tables stay untouched in CC2-1 to CC2-3.** Only CC2-4 changes old behavior, and only to block creating and editing.
+4. **Every write to a term goes through one server function that also writes `term_status_history`** when the status changes. Edits to a signed or active term are allowed, but each one adds a history row with the note "Edited after signing: <fields>".
+5. **No background jobs.** "Up for renewal" and "Active" are worked out when the data is read, from today's Colorado date (`companyToday()` in `lib/companyDay.ts`). Don't write them on a schedule.
+6. **Report back:** every file changed, the migration name, test results, typecheck and drift results, and any failures that existed before your change.
