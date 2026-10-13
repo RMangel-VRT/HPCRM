@@ -3,10 +3,11 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   agreements, agreementTerms, customers, propertyManagementCompanies, termScopeLines,
   termRates, termBillingMonths, termDocuments, termStatusHistory, rateCardItems,
-  type AgreementTerm, type TermStatus,
+  users, type AgreementTerm, type TermStatus,
 } from "@workspace/db";
 import { db } from "../db";
-import { ContractCenterError, displayStatus, selectCurrent, renewalDue } from "./contractCenterService";
+import { ContractCenterError, displayStatus, selectCurrent, renewalDue, allowedMoves } from "./contractCenterService";
+import { addCalendarDays, companyToday } from "./companyDay";
 
 export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type Reader = Pick<typeof db, "select">;
@@ -65,6 +66,8 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
     .where(and(eq(propertyManagementCompanies.id, managementId), eq(propertyManagementCompanies.companyId, companyId))) : [];
   const terms = await reader.select().from(agreementTerms).where(and(eq(agreementTerms.agreementId, agreementId), eq(agreementTerms.companyId, companyId)))
     .orderBy(asc(agreementTerms.startDate), asc(agreementTerms.createdAt));
+  const summary = listSummary(terms);
+  const editableIds = new Set([summary.current?.id, summary.renewalDraft?.id].filter(Boolean));
   const nested = await Promise.all(terms.map(async term => {
     const [scope, rates, billingMonths, documents, history] = await Promise.all([
       reader.select().from(termScopeLines).where(termWhere(termScopeLines, companyId, term.id)).orderBy(asc(termScopeLines.sortOrder), asc(termScopeLines.serviceKey)),
@@ -73,20 +76,48 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
       reader.select().from(termDocuments).where(termWhere(termDocuments, companyId, term.id)).orderBy(desc(termDocuments.createdAt), desc(termDocuments.version)),
       reader.select().from(termStatusHistory).where(termWhere(termStatusHistory, companyId, term.id)).orderBy(desc(termStatusHistory.createdAt), desc(termStatusHistory.id)),
     ]);
-    return { ...term, displayStatus: displayStatus(term, terms), scope, rates, billingMonths, documents, history };
+    const actorIds = [...new Set([...documents.map(d => d.uploadedBy), ...history.map(h => h.changedBy)]
+      .filter((id): id is string => id !== null))];
+    // Resolve only actors referenced by this company-scoped term, not a user directory.
+    const actors = await Promise.all(actorIds.map(async id => {
+      const [actor] = await reader.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, id));
+      return [id, actor?.name ?? id] as const;
+    }));
+    const names = new Map(actors);
+    const editable = editableIds.has(term.id) && !["renewed", "lost", "cancelled"].includes(term.status);
+    return { ...term, displayStatus: displayStatus(term, terms), editable,
+      allowedMoves: editable ? allowedMoves(term.status, !!term.renewedFromTermId) : [],
+      scope, rates, billingMonths,
+      documents: documents.map(d => ({ ...d, uploadedByName: d.uploadedBy ? names.get(d.uploadedBy) ?? d.uploadedBy : "System" })),
+      history: history.map(h => ({ ...h, changedByName: h.changedBy ? names.get(h.changedBy) ?? h.changedBy : "System" })) };
   }));
   return { ...agreement, customer: { id: customer.id, name: customer.name,
     address: `${customer.street}, ${customer.city}, ${customer.state} ${customer.zip}`,
     street: customer.street, city: customer.city, state: customer.state, zip: customer.zip,
-    managementCompany: managementCompany ?? customer.managementCompany }, terms: nested };
+    managementCompany: managementCompany ?? customer.managementCompany }, terms: nested,
+    currentTermId: summary.current?.id ?? null, renewalDraftId: summary.renewalDraft?.id ?? null,
+    renewalDue: summary.renewalDue };
 }
-export function listSummary(terms: AgreementTerm[]) {
+export function listSummary(terms: AgreementTerm[], today = companyToday()) {
   const current = selectCurrent(terms);
   const summarize = (t: AgreementTerm) => ({ id: t.id, seasonLabel: t.seasonLabel,
-    startDate: t.startDate, endDate: t.endDate, status: t.status, displayStatus: displayStatus(t, terms),
-    annualPriceCents: t.annualPriceCents, snowPricing: t.snowPricing, needsReview: t.needsReview });
+    startDate: t.startDate, endDate: t.endDate, status: t.status, displayStatus: displayStatus(t, terms, today),
+    annualPriceCents: t.annualPriceCents, snowPricing: t.snowPricing, needsReview: t.needsReview,
+    signedAt: t.signedAt, snowFlatPriceCents: t.snowFlatPriceCents,
+    managingAgentName: t.managingAgentName, billingType: t.billingType });
   const renewal = current && [...terms].filter(t => t.renewedFromTermId === current.id && ["draft", "sent"].includes(t.status))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id))[0];
+  const latest = [...terms].sort((a, b) => b.startDate.localeCompare(a.startDate) || b.id.localeCompare(a.id))[0];
+  const recentSigned = [...terms].filter(t => t.signedAt && ["signed", "active", "renewed"].includes(t.status))
+    .sort((a, b) => b.signedAt!.getTime() - a.signedAt!.getTime() || b.id.localeCompare(a.id))[0];
+  // Count agreements once even when more than one historical season qualifies.
+  // Include sources renewed in this window, which selectCurrent deliberately no longer selects.
+  const dueSources = terms.filter(t => ["signed", "active", "renewed"].includes(t.status)
+    && t.endDate >= addCalendarDays(today, -60) && addCalendarDays(t.endDate, -60) <= today);
   return { current: current ? summarize(current) : null, renewalDraft: renewal ? summarize(renewal) : null,
-    renewalDue: current ? renewalDue(current, terms) : false };
+    latest: latest ? summarize(latest) : null, recentSigned: recentSigned ? summarize(recentSigned) : null,
+    renewalDue: current ? renewalDue(current, terms, today) : false,
+    renewalProgress: { due: dueSources.length > 0, signed: dueSources.some(source =>
+      terms.some(t => t.renewedFromTermId === source.id && ["signed", "active", "renewed"].includes(t.status))) },
+    companyDay: today };
 }

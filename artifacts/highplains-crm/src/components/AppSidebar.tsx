@@ -1,3 +1,4 @@
+import { guardLinkClick } from "@/lib/unsavedGuard";
 import {
   Sidebar,
   SidebarContent,
@@ -383,7 +384,7 @@ export default function AppSidebar({
         </div>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent onClickCapture={guardLinkClick as never}>
         {superAdminItems.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>{t("nav.platformAdmin")}</SidebarGroupLabel>

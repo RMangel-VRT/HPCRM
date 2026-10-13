@@ -38,3 +38,9 @@ Merge legacy landscape and snow only with identical normalized dates and shared 
 **Why:** Randy confirmed that landscape and snow belong to one contract only when they share the same signed document.
 
 **How to apply:** Match object path or filename plus size. Keep different-date or different/missing-document terms separate with two-sided review warnings as specified.
+
+Exercise signed-term editing and lifecycle verification in an isolated development company with disposable users, customers and agreements.
+
+**Why:** Edits to signed contracts deliberately leave attributable history. Using real customer agreements for a browser check would alter their audit trail, and documented development credentials can differ from the accounts in a fork.
+
+**How to apply:** Seed only development fixtures, keep generated login details out of tracked files and logs, and remove the disposable company and users when verification ends. Never reset a real user's password to unblock a test.

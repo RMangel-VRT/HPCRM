@@ -50,6 +50,8 @@ const EquipmentList = lazy(() => import("@/pages/EquipmentList"));
 const EquipmentDetail = lazy(() => import("@/pages/EquipmentDetail"));
 const NewEquipment = lazy(() => import("@/pages/NewEquipment"));
 const EquipmentTicketDetail = lazy(() => import("@/pages/EquipmentTicketDetail"));
+const ContractCenterPage = lazy(() => import("@/pages/ContractCenterPage"));
+const ContractPage = lazy(() => import("@/pages/ContractPage"));
 const ContractsOverview = lazy(() => import("@/pages/ContractsOverview"));
 const SnowEventsList = lazy(() => import("@/pages/SnowEventsList"));
 const SnowEventDetail = lazy(() => import("@/pages/SnowEventDetail"));
@@ -301,7 +303,9 @@ function Router() {
           component={SnowEventsList}
           allowedRoles={["admin", "office", "field_manager"]}
         />
-        <ProtectedRoute path="/dashboard/contracts" component={ContractsOverview} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/contracts/old" component={ContractsOverview} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/contracts/:id" component={ContractPage} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/contracts" component={ContractCenterPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/notifications" component={NotificationsPage} allowedRoles={["admin", "office", ...allFieldRoles]} />
         <ProtectedRoute path="/dashboard/flags/:id" component={FlagDetailPage} allowedRoles={["admin", "office"]} />

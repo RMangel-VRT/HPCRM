@@ -19,6 +19,7 @@ export const termFieldsSchema = z.object({
   snowPricing: z.preprocess(v => v === "" || v === null ? undefined : v,
     z.enum(["time_and_materials", "flat_rate"]).optional()),
   snowFlatPriceCents: cents.nullable().optional(),
+  needsReview: z.boolean().optional(),
 });
 export const scopeSchema = z.array(z.object({
   serviceKey: z.string().min(1), included: z.boolean(),

@@ -34,6 +34,8 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { uploadContractFile, validateContractFile } from "@/lib/contractUpload";
+import { ContractFileInput } from "@/components/contracts/ContractUploadButton";
 import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket as TicketIcon, Building, Building2, Check, Loader2, Copy, Mail, Clock, AlertCircle, CheckCircle2, GitBranch, Snowflake, ChevronDown, Settings, Wrench } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import StatusBadge from "@/components/StatusBadge";
@@ -1566,7 +1568,8 @@ export default function CustomerDetail() {
     const file = fileInputRef.current.files?.[0];
     if (!file) return;
 
-    if (file.type !== "application/pdf") {
+    const fileProblem = validateContractFile(file);
+    if (fileProblem === "type") {
       toast({
         title: t("common.error"),
         description: t("customerDetail.invalidFileType"),
@@ -1575,8 +1578,7 @@ export default function CustomerDetail() {
       return;
     }
 
-    const maxSize = 20 * 1024 * 1024;
-    if (file.size > maxSize) {
+    if (fileProblem === "size") {
       toast({
         title: t("common.error"),
         description: t("customerDetail.fileTooLarge"),
@@ -1588,26 +1590,10 @@ export default function CustomerDetail() {
     setUploadingFile(true);
 
     try {
-      const urlResponse = await apiRequest("POST", `/api/contracts/${contractId}/documents/upload-url`);
-      const { uploadURL } = await urlResponse.json();
-
-      const uploadResponse = await fetch(uploadURL, {
-        method: "PUT",
-        body: file,
-        headers: {
-          "Content-Type": "application/pdf",
-        },
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error("Upload failed");
-      }
-
-      await apiRequest("POST", `/api/contracts/${contractId}/documents`, {
-        uploadURL: uploadURL,
-        filename: file.name,
-        fileSize: file.size,
-        mimeType: file.type,
+      await uploadContractFile({
+        file,
+        uploadUrlPath: `/api/contracts/${contractId}/documents/upload-url`,
+        registerPath: `/api/contracts/${contractId}/documents`,
       });
 
       await queryClient.invalidateQueries({ queryKey: ["/api/contracts", contractId, "documents"] });
@@ -2216,7 +2202,7 @@ export default function CustomerDetail() {
                   )}
                 </div>
               
-                <input
+                <ContractFileInput
                   ref={fileInputRef}
                   type="file"
                   accept="application/pdf"

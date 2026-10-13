@@ -155,6 +155,19 @@ describe("Contract Center lifecycle routes", () => {
     expect((await agent.patch(`${base}/terms/${termId}`).send({ endDate: "2031-09-30" })).status).toBe(400);
     expect(tables).toEqual(before); expect(writes).toBe(oldWrites);
   });
+  it("marks reviewed without clearing the review note and exposes server-owned edit eligibility", async () => {
+    const agent = request(app()), { termId, agreementId } = await create(agent);
+    Object.assign(rows("agreement_terms")[0], { needsReview: true, reviewNote: "Check copied scope" });
+    const before = await agent.get(`${base}/contracts/${agreementId}`);
+    expect(before.body).toMatchObject({ currentTermId: termId, renewalDraftId: null });
+    expect(before.body.terms[0]).toMatchObject({ editable: true, allowedMoves: ["sent", "cancelled"] });
+    const reviewed = await agent.patch(`${base}/terms/${termId}`).send({ needsReview: false });
+    expect(reviewed.status).toBe(200);
+    expect(reviewed.body).toMatchObject({ needsReview: false, reviewNote: "Check copied scope" });
+    rows("agreement_terms")[0].status = "cancelled";
+    const after = await agent.get(`${base}/contracts/${agreementId}`);
+    expect(after.body.terms[0]).toMatchObject({ editable: false, allowedMoves: [] });
+  });
   it("atomically replaces multi-component payments, scope and full rate snapshots", async () => {
     const agent = request(app()), { termId } = await create(agent);
     expect((await agent.put(`${base}/terms/${termId}/payments`).send({ payments: [payments[1]] })).body.annualPriceCents).toBe(240000);
