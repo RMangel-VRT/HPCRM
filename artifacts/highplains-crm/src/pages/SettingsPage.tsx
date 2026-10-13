@@ -28,6 +28,7 @@ import ServicePlanTemplatesAdmin from "@/components/ServicePlanTemplatesAdmin";
 import ChemicalProductsAdmin from "@/components/ChemicalProductsAdmin";
 import CrewsAdmin from "@/pages/CrewsAdmin";
 import WorkItemTemplatesAdmin from "@/components/WorkItemTemplatesAdmin";
+import ContractSettings from "@/components/contracts/ContractSettings";
 import MigrationsAdmin from "@/components/MigrationsAdmin";
 import { qboConnectMutationFn } from "@/pages/qboApi";
 
@@ -91,7 +92,7 @@ export default function SettingsPage() {
     'company', 'seasons', 'benchmarks', 'property-management', 'features',
     'email-templates', 'billing', 'service-plans', 'chemical-products', 'notification-templates',
     'crews', 'work-item-templates', 'shared-mailboxes',
-    ...(isAdmin ? ['database'] : []),
+    ...(isAdmin ? ['database', 'contracts'] : []),
   ];
   const getDefaultTab = () => {
     const pathSegments = location.split('?')[0].split('/').filter(Boolean);
@@ -99,7 +100,9 @@ export default function SettingsPage() {
     if (lastSegment && validTabs.includes(lastSegment)) return lastSegment;
     return isAdmin ? "company" : "property-management";
   };
-  const [activeTab, setActiveTab] = useState(getDefaultTab);
+  const [activeTabState, setActiveTab] = useState(getDefaultTab);
+  // Contracts is admin-only: guard direct URLs and role changes.
+  const activeTab = activeTabState === "contracts" && !isAdmin ? getDefaultTab() : activeTabState;
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     navigate(`/dashboard/settings/${tab}`, { replace: true });
@@ -630,6 +633,9 @@ export default function SettingsPage() {
           )}
           {isAdmin && (
             <TabsTrigger value="service-plans" data-testid="tab-service-plans">Service Plans</TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="contracts" data-testid="tab-contracts">Contracts</TabsTrigger>
           )}
           {isAdmin && (
             <TabsTrigger value="shared-mailboxes" data-testid="tab-shared-mailboxes">{t("nav.sharedMailboxes")}</TabsTrigger>
@@ -1361,6 +1367,12 @@ export default function SettingsPage() {
         <TabsContent value="service-plans" className="space-y-6">
           <ServicePlanTemplatesAdmin />
         </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="contracts" className="space-y-6">
+            <ContractSettings key={currentUser?.activeCompanyId} />
+          </TabsContent>
+        )}
 
         <TabsContent value="chemical-products" className="space-y-6">
           <ChemicalProductsAdmin />
