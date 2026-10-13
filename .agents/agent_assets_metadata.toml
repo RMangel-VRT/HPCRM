@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "aKgaLrG0bVx287mosUs9M"
+uri = "file://generated-artifacts/p3-1-release-report.html"
+type = "html"
+title = "P3-1 final release report"
+description = "Updated production inventory and dry-run, one-time linking and clear/restart regression evidence, 30 API and 8 CRM passing additions, baseline comparison and review-before-publish gate."
+logical_id = "baf79ab6-4b03-46c7-8970-02abb5e266bb"
+content_hash = "sha256:805c9ca8b30e74cdfa85af610f8b096021f6a890b60b3f5a67061b7bb939f30b"
+size = 16096
+mtime_ms = 1791845647098
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/baf79ab6-4b03-46c7-8970-02abb5e266bb/56aad189-d480-40f4-baae-eae0f6109804"
+storage_version_token = "1791845676688362"
+content_type = "text/html"

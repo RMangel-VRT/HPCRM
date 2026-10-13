@@ -18,8 +18,16 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { CREW_COLORS } from "@shared/schema";
+import { standingCrewFormSchema } from "@shared/schema";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Crew = {
+  color: string | null;
+  defaultHoursPerDay: number | null;
+  displayOrder: number | null;
+  plannerCrew: { id: string; name: string } | null;
+  campaignTeamCount: number;
   id: string;
   companyId: string;
   name: string;
@@ -39,11 +47,8 @@ type EligibleSupervisor = {
   role: string;
 };
 
-const crewSchema = z.object({
-  name: z.string().min(1, "Name is required").max(120),
-  supervisorUserId: z.string().min(1, "Supervisor is required"),
-  isActive: z.boolean().default(true),
-});
+const crewSchema = standingCrewFormSchema;
+type PlannerCrew = { id: string; name: string; crewId: string | null; isActive: boolean };
 
 type CrewFormValues = z.infer<typeof crewSchema>;
 
@@ -71,19 +76,37 @@ export default function CrewsAdmin() {
 
   const { data: crews = [], isLoading } = useQuery<Crew[]>({
     queryKey: ["/api/crews"],
+    staleTime: 30_000, refetchOnWindowFocus: true,
   });
   const { data: supervisors = [] } = useQuery<EligibleSupervisor[]>({
     queryKey: ["/api/crews/eligible-supervisors"],
   });
+  const { data: plannerCrews = [] } = useQuery<PlannerCrew[]>({ queryKey: ["/api/maintenance-crews"], staleTime: 30_000, refetchOnWindowFocus: true });
+  const unmatched = plannerCrews.filter(p => p.isActive && !p.crewId);
+  const refreshCrews = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/crews"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+  };
+  const reorderMutation = useMutation({
+    mutationFn: async (ids: string[]) => apiRequest("POST", "/api/crews/order", { ids }),
+    onSuccess: refreshCrews,
+    onError: (err) => { refreshCrews(); toast({ title: "Order could not be saved", description: extractErrorMessage(err, "Refresh and try again"), variant: "destructive" }); },
+  });
+  const moveCrew = (index: number, delta: number) => {
+    const ids = crews.map(c => c.id);
+    [ids[index], ids[index + delta]] = [ids[index + delta], ids[index]];
+    reorderMutation.mutate(ids);
+  };
 
   const form = useForm<CrewFormValues>({
     resolver: zodResolver(crewSchema),
-    defaultValues: { name: "", supervisorUserId: "", isActive: true },
+    defaultValues: { name: "", supervisorUserId: "", isActive: true, color: CREW_COLORS[0], defaultHoursPerDay: 8, plannerCrewId: null },
   });
 
   const openCreate = () => {
     setEditing(null);
-    form.reset({ name: "", supervisorUserId: "", isActive: true });
+    form.reset({ name: "", supervisorUserId: "", isActive: true, color: CREW_COLORS[0], defaultHoursPerDay: 8, plannerCrewId: null });
     setDialogOpen(true);
   };
 
@@ -93,6 +116,9 @@ export default function CrewsAdmin() {
       name: crew.name,
       supervisorUserId: crew.supervisorUserId,
       isActive: crew.isActive,
+      color: crew.color ?? CREW_COLORS[crews.indexOf(crew) % CREW_COLORS.length],
+      defaultHoursPerDay: crew.defaultHoursPerDay ?? 8,
+      plannerCrewId: crew.plannerCrew?.id ?? null,
     });
     setDialogOpen(true);
   };
@@ -105,7 +131,7 @@ export default function CrewsAdmin() {
       return await apiRequest("POST", "/api/crews", values);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crews"] });
+      refreshCrews();
       setDialogOpen(false);
       toast({ title: editing ? "Crew updated" : "Crew created" });
     },
@@ -123,7 +149,7 @@ export default function CrewsAdmin() {
       return await apiRequest("PATCH", `/api/crews/${vars.id}`, { isActive: vars.isActive });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crews"] });
+      refreshCrews();
     },
   });
 
@@ -132,7 +158,7 @@ export default function CrewsAdmin() {
       return await apiRequest("DELETE", `/api/crews/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crews"] });
+      refreshCrews();
       toast({ title: "Crew deleted" });
     },
     onError: () => {
@@ -148,6 +174,19 @@ export default function CrewsAdmin() {
 
   return (
     <div className="space-y-6">
+      {unmatched.length > 0 && (
+        <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+          <button type="button" className="text-left underline" onClick={() => {
+            const planner = unmatched[0];
+            const standing = crews.find(c => c.isActive && !c.plannerCrew && c.name.trim().toLowerCase() === planner.name.trim().toLowerCase());
+            if (standing) openEdit(standing); else openCreate();
+            if (!standing) form.setValue("name", planner.name);
+            form.setValue("plannerCrewId", planner.id);
+          }}>
+            {unmatched.length} planner crews aren't linked to a crew yet. They won't appear on the Scheduling board.
+          </button>
+        </div>
+      )}
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
@@ -176,15 +215,19 @@ export default function CrewsAdmin() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
+                  <TableHead>Hours/day</TableHead>
+                  <TableHead>Planner crew</TableHead>
                   <TableHead>Supervisor</TableHead>
                   <TableHead>Active</TableHead>
                   <TableHead className="w-[120px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {crews.map((crew) => (
+                {crews.map((crew, index) => (
                   <TableRow key={crew.id} data-testid={`row-crew-${crew.id}`}>
-                    <TableCell className="font-medium">{crew.name}</TableCell>
+                    <TableCell className="font-medium"><span className="mr-2 inline-block h-3 w-3 rounded-full" style={{ backgroundColor: crew.color ?? CREW_COLORS[index % CREW_COLORS.length] }} />{crew.name}</TableCell>
+                    <TableCell>{crew.defaultHoursPerDay ?? 8}</TableCell>
+                    <TableCell>{crew.plannerCrew?.name ?? "None"}</TableCell>
                     <TableCell>
                       {crew.supervisorName ?? "—"}
                       {crew.supervisorEmail ? (
@@ -209,6 +252,8 @@ export default function CrewsAdmin() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" aria-label={`Move ${crew.name} up`} disabled={index === 0 || reorderMutation.isPending} onClick={() => moveCrew(index, -1)}>Up</Button>
+                        <Button variant="ghost" size="sm" aria-label={`Move ${crew.name} down`} disabled={index === crews.length - 1 || reorderMutation.isPending} onClick={() => moveCrew(index, 1)}>Down</Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -249,6 +294,19 @@ export default function CrewsAdmin() {
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField control={form.control} name="color" render={({ field }) => (
+                <FormItem><FormLabel>Color</FormLabel><FormControl><Input type="color" value={field.value ?? CREW_COLORS[0]} onChange={field.onChange} /></FormControl>
+                  <div className="flex gap-1">{CREW_COLORS.map(color => <button key={color} type="button" aria-label={`Use ${color}`} className="h-5 w-5 rounded border" style={{ backgroundColor: color }} onClick={() => field.onChange(color)} />)}</div><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="defaultHoursPerDay" render={({ field }) => (
+                <FormItem><FormLabel>Hours/day</FormLabel><FormControl><Input type="number" min={0} max={24} step="0.5" value={field.value ?? ""} onChange={e => field.onChange(e.target.value === "" ? null : Number(e.target.value))} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="plannerCrewId" render={({ field }) => (
+                <FormItem><FormLabel>Planner crew</FormLabel><Select value={field.value ?? "none"} onValueChange={v => field.onChange(v === "none" ? null : v)}>
+                  <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                  <SelectContent><SelectItem value="none">None</SelectItem>{plannerCrews.filter(p => !p.crewId || p.id === editing?.plannerCrew?.id).map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                </Select><FormMessage /></FormItem>
+              )} />
               <FormField
                 control={form.control}
                 name="name"

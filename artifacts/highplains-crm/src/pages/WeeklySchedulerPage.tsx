@@ -268,6 +268,7 @@ export default function WeeklySchedulerPage() {
 
   const { data: crews = [], isLoading: crewsLoading } = useQuery<MaintenanceCrew[]>({
     queryKey: ["/api/maintenance-crews"],
+    staleTime: 30_000, refetchOnWindowFocus: true,
   });
 
   const { data: templates = [], isLoading: templatesLoading } = useQuery<WeeklyScheduleTemplate[]>({
@@ -688,6 +689,7 @@ export default function WeeklySchedulerPage() {
             <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               <div className="space-y-3 border rounded-md p-3">
                 <div className="text-sm font-medium">{editingCrew ? t("common.edit") : t("schedule.addCrew")}</div>
+                {editingCrew && <p className="text-xs text-muted-foreground">{editingCrew.standingCrew ? `Scheduling board crew: ${editingCrew.standingCrew.name}` : "Not linked — set it in Settings → Crews"}</p>}
                 <div className="grid grid-cols-[1fr,100px] gap-2">
                   <Input
                     placeholder={t("schedule.crewName")}
@@ -1323,6 +1325,7 @@ export default function WeeklySchedulerPage() {
           <div className="overflow-y-auto flex-1 space-y-4 pr-1">
             <div className="space-y-3 border rounded-md p-3">
               <div className="text-sm font-medium">{editingCrew ? t("common.edit") : t("schedule.addCrew")}</div>
+              {editingCrew && <p className="text-xs text-muted-foreground">{editingCrew.standingCrew ? `Scheduling board crew: ${editingCrew.standingCrew.name}` : "Not linked — set it in Settings → Crews"}</p>}
               <div className="grid grid-cols-[1fr,100px] gap-2">
                 <Input
                   placeholder={t("schedule.crewName")}

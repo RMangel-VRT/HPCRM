@@ -529,6 +529,11 @@ function CrewDialog({
   const [name, setName] = useState(crew?.name || "");
   const [color, setColor] = useState(crew?.color || COLOR_PRESETS[0]);
   const [leaderUserId, setLeaderUserId] = useState(crew?.leaderUserId || "");
+  const [standingCrewId, setStandingCrewId] = useState<string | null>(crew?.crewId ?? null);
+  const { data: standingCrews = [] } = useQuery<Array<{ id: string; name: string; isActive: boolean }>>({
+    queryKey: ["/api/crews"],
+    staleTime: 30_000, refetchOnWindowFocus: true,
+  });
   const [memberIds, setMemberIds] = useState<Set<string>>(
     new Set<string>(crew?.members.map((m: { userId: string }) => m.userId) ?? []),
   );
@@ -545,7 +550,7 @@ function CrewDialog({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const body = { name, color, leaderUserId };
+      const body = { name, color, leaderUserId, crewId: standingCrewId };
       const res = crew
         ? await apiRequest("PATCH", `/api/campaigns/${campaignId}/crews/${crew.id}`, body)
         : await apiRequest("POST", `/api/campaigns/${campaignId}/crews`, body);
@@ -569,6 +574,7 @@ function CrewDialog({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "crews"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/crews"] });
       toast({ title: t("campaigns.extraBillableCrewSaved") });
       onOpenChange(false);
     },
@@ -582,6 +588,13 @@ function CrewDialog({
           <DialogTitle>{crew ? t("campaigns.extraBillableEditCrew") : t("campaigns.extraBillableAddCrew")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
+          <div className="space-y-1">
+            <Label>Standing crew</Label>
+            <Select value={standingCrewId ?? "none"} onValueChange={v => setStandingCrewId(v === "none" ? null : v)}>
+              <SelectTrigger data-testid="select-standing-crew"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="none">None</SelectItem>{standingCrews.filter(c => c.isActive || c.id === standingCrewId).map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
           <div className="space-y-1">
             <Label>{t("campaigns.extraBillableCrewName")}</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} data-testid="input-crew-name" />

@@ -13,12 +13,14 @@ export const companies = pgTable("companies", {
   billingEmail: text("billing_email"),
   phone: text("phone"),
   pesticideLicenseNumber: text("pesticide_license_number"),
+  crewLinksInitializedAt: timestamp("crew_links_initialized_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
+  crewLinksInitializedAt: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
@@ -1386,6 +1388,7 @@ export const CREW_COLORS = [
 ] as const;
 
 export const maintenanceCrews = pgTable("maintenance_crews", {
+  crewId: varchar("crew_id").references((): AnyPgColumn => crews.id, { onDelete: "set null" }),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
@@ -1393,12 +1396,15 @@ export const maintenanceCrews = pgTable("maintenance_crews", {
   defaultHoursPerDay: real("default_hours_per_day").default(8),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  standingCrewUnique: uniqueIndex("maintenance_crews_crew_id_unique").on(table.crewId).where(sql`${table.crewId} IS NOT NULL`),
+}));
 
 export const insertMaintenanceCrewSchema = createInsertSchema(maintenanceCrews).omit({
   id: true,
   createdAt: true,
 }).extend({
+  crewId: z.string().min(1).nullable().optional(),
   color: z.string().default("#2563eb"),
   defaultHoursPerDay: z.number().min(0).max(24).default(8),
   isActive: z.boolean().default(true),
@@ -2581,6 +2587,7 @@ export type CampaignChecklistAuditLogWithUser = CampaignChecklistAuditLog & {
 
 // Extra Billable Campaign Crews (Slice 1)
 export const campaignCrews = pgTable("campaign_crews", {
+  crewId: varchar("crew_id").references((): AnyPgColumn => crews.id, { onDelete: "set null" }),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
@@ -2593,6 +2600,7 @@ export const campaignCrews = pgTable("campaign_crews", {
 }, (table) => ({
   campaignCrewsCampaignIdx: index("campaign_crews_campaign_id_idx").on(table.campaignId),
   campaignCrewsCompanyIdx: index("campaign_crews_company_id_idx").on(table.companyId),
+  standingCrewIdx: index("campaign_crews_crew_id_idx").on(table.crewId),
   campaignCrewsCampaignNameUnique: uniqueIndex("campaign_crews_campaign_name_unique").on(table.campaignId, table.name),
 }));
 
@@ -2601,6 +2609,7 @@ export const insertCampaignCrewSchema = createInsertSchema(campaignCrews).omit({
   createdAt: true,
   updatedAt: true,
 }).extend({
+  crewId: z.string().min(1).nullable().optional(),
   name: z.string().min(1, "Crew name is required"),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a hex code").default("#2563eb"),
   leaderUserId: z.string().min(1, "Leader is required"),
@@ -3585,6 +3594,9 @@ export type MailboxBackfillRun = typeof mailboxBackfillRuns.$inferSelect;
 // Mobile v1 Slice 0: Crews — represents a field crew owned by a supervisor user.
 // Distinct from `maintenance_crews` which is the schedule-board crew concept.
 export const crews = pgTable("crews", {
+  color: text("color"),
+  defaultHoursPerDay: real("default_hours_per_day"),
+  displayOrder: integer("display_order"),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
@@ -3602,6 +3614,9 @@ export const insertCrewSchema = createInsertSchema(crews).omit({
   createdAt: true,
   updatedAt: true,
 }).extend({
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
+  defaultHoursPerDay: z.number().min(0).max(24).nullable().optional(),
+  displayOrder: z.number().int().nullable().optional(),
   name: z.string().min(1).max(120),
   isActive: z.boolean().default(true),
 });

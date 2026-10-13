@@ -4,6 +4,10 @@ import { and, asc, desc, eq, gte, ilike, inArray, lt, or, sql } from "drizzle-or
 import { db } from "../db";
 import {
   crews,
+  maintenanceCrews,
+  campaignCrews,
+  campaigns,
+  CREW_COLORS,
   users,
   companyUsers,
   customers,
@@ -37,6 +41,7 @@ import {
 import type { UserWithContext } from "../auth";
 import { addPushSubscription, removePushSubscription } from "../services/pushNotifications";
 import { pickProvided } from "../lib/patchBody";
+import { CrewLinkError, lockCrewCompany, replacePlannerLink, recordCrewLinkChoice } from "../lib/crewLinks";
 import { addCalendarDays, companyDateString, companyDayBounds, companyToday } from "../lib/companyDay";
 
 // Query values are calendar dates, not instants. Invalid values retain the
@@ -64,7 +69,9 @@ const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   flagResponse: true,
 };
 
-const crewBodySchema = insertCrewSchema.omit({ companyId: true });
+const crewBodySchema = insertCrewSchema.omit({ companyId: true }).extend({
+  plannerCrewId: z.string().min(1).nullable().optional(),
+});
 const crewPatchSchema = crewBodySchema.partial();
 
 // Postgres unique-constraint violation; surfaced via the `code` field on the
@@ -107,15 +114,57 @@ async function listCrewsWithSupervisor(companyId: string) {
     .from(crews)
     .leftJoin(users, eq(crews.supervisorUserId, users.id))
     .where(eq(crews.companyId, companyId))
-    .orderBy(asc(crews.name));
+    .orderBy(sql`${crews.displayOrder} ASC NULLS LAST`, asc(crews.name));
+  const [planners, teams] = await Promise.all([
+    db.select({ id: maintenanceCrews.id, name: maintenanceCrews.name, crewId: maintenanceCrews.crewId }).from(maintenanceCrews).where(eq(maintenanceCrews.companyId, companyId)),
+    db.select({ crewId: campaignCrews.crewId }).from(campaignCrews)
+      .innerJoin(campaigns, and(eq(campaigns.id, campaignCrews.campaignId), eq(campaigns.companyId, companyId), eq(campaigns.status, "active")))
+      .where(eq(campaignCrews.companyId, companyId)),
+  ]);
+  const plannerByCrew = new Map(planners.filter(p => p.crewId).map(p => [p.crewId, { id: p.id, name: p.name }]));
+  const counts = new Map<string, number>();
+  for (const t of teams) if (t.crewId) counts.set(t.crewId, (counts.get(t.crewId) ?? 0) + 1);
   return rows.map((r) => ({
     ...r.crew,
     supervisorName: r.supervisorName ?? null,
     supervisorEmail: r.supervisorEmail ?? null,
+    plannerCrew: plannerByCrew.get(r.crew.id) ?? null,
+    campaignTeamCount: counts.get(r.crew.id) ?? 0,
   }));
 }
 
 export function registerCrewsAndMobileRoutes(app: Express): void {
+  app.post("/api/crews/order", async (req, res) => {
+    const u = adminOrOffice(req, res);
+    if (!u) return;
+    const parsed = z.object({ ids: z.array(z.string().min(1)).max(1000) }).safeParse(req.body);
+    if (!parsed.success || new Set(parsed.data.ids).size !== parsed.data.ids.length) return void res.status(400).json({ message: "Invalid crew order" });
+    try {
+      await db.transaction(async tx => {
+        await lockCrewCompany(tx, u.activeCompanyId);
+        const current = await tx.select({ id: crews.id }).from(crews).where(eq(crews.companyId, u.activeCompanyId));
+        const ids = new Set(current.map(c => c.id));
+        if (current.length !== parsed.data.ids.length || parsed.data.ids.some(id => !ids.has(id))) throw new CrewLinkError(409, "Crew list changed; refresh and try again");
+        for (const [displayOrder, id] of parsed.data.ids.entries()) {
+          await tx.update(crews).set({ displayOrder, updatedAt: new Date() }).where(and(eq(crews.id, id), eq(crews.companyId, u.activeCompanyId)));
+        }
+      });
+      res.sendStatus(204);
+    } catch (e) {
+      if (e instanceof CrewLinkError) return void res.status(e.status).json({ message: e.message });
+      throw e;
+    }
+  });
+  app.get("/api/crews/board", async (req, res) => {
+    if (!req.isAuthenticated?.()) return void res.status(401).json({ message: "Not authenticated" });
+    const u = req.user as UserWithContext;
+    if (!["admin", "office", "field_manager"].includes(u.activeRole) && !u.isSuperAdminBool) return void res.status(403).json({ message: "Forbidden" });
+    const rows = await db.select({ id: crews.id, name: crews.name, color: crews.color, defaultHoursPerDay: crews.defaultHoursPerDay, supervisorName: users.name, displayOrder: crews.displayOrder })
+      .from(crews).leftJoin(users, eq(users.id, crews.supervisorUserId))
+      .where(and(eq(crews.companyId, u.activeCompanyId), eq(crews.isActive, true)))
+      .orderBy(sql`${crews.displayOrder} ASC NULLS LAST`, asc(crews.name));
+    res.json(rows.map((c, i) => ({ ...c, color: c.color ?? CREW_COLORS[i % CREW_COLORS.length], defaultHoursPerDay: c.defaultHoursPerDay ?? 8 })));
+  });
   // ---------- Web admin: /api/crews ----------
   app.get("/api/crews", async (req, res) => {
     const u = adminOrOffice(req, res);
@@ -155,12 +204,16 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     }
 
     try {
-      const [created] = await db
-        .insert(crews)
-        .values({ ...parsed.data, companyId: u.activeCompanyId })
-        .returning();
+      const { plannerCrewId, ...values } = parsed.data;
+      const created = await db.transaction(async tx => {
+        await lockCrewCompany(tx, u.activeCompanyId);
+        const [row] = await tx.insert(crews).values({ ...values, companyId: u.activeCompanyId }).returning();
+        if (plannerCrewId !== undefined) await replacePlannerLink(tx, u.activeCompanyId, row.id, plannerCrewId);
+        return row;
+      });
       res.status(201).json(created);
     } catch (e: unknown) {
+      if (e instanceof CrewLinkError) return void res.status(e.status).json({ message: e.message });
       if (isUniqueViolation(e)) {
         res.status(409).json({ message: "A crew with this name already exists" });
         return;
@@ -193,17 +246,21 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       }
     }
     try {
-      const [updated] = await db
-        .update(crews)
-        .set({ ...updates, updatedAt: new Date() })
-        .where(and(eq(crews.id, req.params.id), eq(crews.companyId, u.activeCompanyId)))
-        .returning();
+      const { plannerCrewId, ...values } = updates;
+      const updated = await db.transaction(async tx => {
+        await lockCrewCompany(tx, u.activeCompanyId);
+        const [row] = await tx.update(crews).set({ ...values, updatedAt: new Date() })
+          .where(and(eq(crews.id, req.params.id), eq(crews.companyId, u.activeCompanyId))).returning();
+        if (row && plannerCrewId !== undefined) await replacePlannerLink(tx, u.activeCompanyId, row.id, plannerCrewId);
+        return row;
+      });
       if (!updated) {
         res.status(404).json({ message: "Not found" });
         return;
       }
       res.json(updated);
     } catch (e: unknown) {
+      if (e instanceof CrewLinkError) return void res.status(e.status).json({ message: e.message });
       if (isUniqueViolation(e)) {
         res.status(409).json({ message: "A crew with this name already exists" });
         return;
@@ -215,10 +272,12 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
   app.delete("/api/crews/:id", async (req, res) => {
     const u = adminOrOffice(req, res);
     if (!u) return;
-    const result = await db
-      .delete(crews)
-      .where(and(eq(crews.id, req.params.id), eq(crews.companyId, u.activeCompanyId)))
-      .returning();
+    const result = await db.transaction(async tx => {
+      await lockCrewCompany(tx, u.activeCompanyId);
+      const rows = await tx.delete(crews).where(and(eq(crews.id, req.params.id), eq(crews.companyId, u.activeCompanyId))).returning();
+      if (rows.length) await recordCrewLinkChoice(tx, u.activeCompanyId);
+      return rows;
+    });
     if (result.length === 0) {
       res.status(404).json({ message: "Not found" });
       return;
@@ -230,14 +289,14 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
   app.get("/api/crews/eligible-supervisors", async (req, res) => {
     const u = adminOrOffice(req, res);
     if (!u) return;
-    const allowed = Array.from(MOBILE_ALLOWED_ROLES);
+    const allowed = Array.from(MOBILE_ALLOWED_ROLES) as Array<(typeof companyUsers.$inferSelect)["role"]>;
     const memberships = await db
       .select({ userId: companyUsers.userId, role: companyUsers.role })
       .from(companyUsers)
       .where(and(
         eq(companyUsers.companyId, u.activeCompanyId),
         eq(companyUsers.status, "active"),
-        sql`${companyUsers.role} = ANY(${allowed})`,
+        inArray(companyUsers.role, allowed),
       ));
     if (memberships.length === 0) {
       res.json([]);

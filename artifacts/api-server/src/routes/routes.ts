@@ -50,6 +50,9 @@ import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes
 import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks';
 import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
+import { linkCrewsByName } from "../lib/linkCrews";
+import { CrewLinkError, lockCrewCompany, validatePlannerOwner, recordCrewLinkChoice } from "../lib/crewLinks";
+import { maintenanceCrews, insertCampaignCrewSchema } from "@workspace/db";
 import { computeScheduleBy } from '../lib/scheduleBy';
 import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from '../lib/dueDateDismissal';
 import { migrateSchedulingStatuses } from '../lib/schedulingStatuses';
@@ -2604,6 +2607,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   await migrateSchedulingStatuses();
   await backfillScheduleBy();
+  await linkCrewsByName();
 
   setupAuth(app);
   registerTicketOwnerResponseRoutes(app);
@@ -8561,8 +8565,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
-    const crew = await storage.createMaintenanceCrew(result.data);
-    res.json(crew);
+    try {
+      const crew = await db.transaction(async tx => {
+        await lockCrewCompany(tx, user.activeCompanyId);
+        if (result.data.crewId !== undefined) await validatePlannerOwner(tx, user.activeCompanyId, "", result.data.crewId);
+        if (result.data.crewId !== undefined) await recordCrewLinkChoice(tx, user.activeCompanyId);
+        const [row] = await tx.insert(maintenanceCrews).values(result.data).returning();
+        return row;
+      });
+      res.json(crew);
+    } catch (e) {
+      if (e instanceof CrewLinkError) return res.status(e.status).json({ message: e.message });
+      throw e;
+    }
+    return;
   });
 
   app.patch("/api/maintenance-crews/:id", async (req, res) => {
@@ -8574,11 +8590,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
-    const crew = await storage.updateMaintenanceCrew(req.params.id, user.activeCompanyId, req.body);
+    const parsed = insertMaintenanceCrewSchema.omit({ companyId: true }).partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid planner crew", errors: parsed.error.flatten() });
+    const updates = pickProvided(parsed.data, req.body);
+    let crew;
+    try {
+      crew = await db.transaction(async tx => {
+        await lockCrewCompany(tx, user.activeCompanyId);
+        const [current] = await tx.select().from(maintenanceCrews).where(and(eq(maintenanceCrews.id, req.params.id), eq(maintenanceCrews.companyId, user.activeCompanyId)));
+        if (!current) return undefined;
+        if (updates.crewId !== undefined) await validatePlannerOwner(tx, user.activeCompanyId, current.id, updates.crewId);
+        if (updates.crewId !== undefined) await recordCrewLinkChoice(tx, user.activeCompanyId);
+        if (!Object.keys(updates).length) return current;
+        const [row] = await tx.update(maintenanceCrews).set(updates).where(and(eq(maintenanceCrews.id, current.id), eq(maintenanceCrews.companyId, user.activeCompanyId))).returning();
+        return row;
+      });
+    } catch (e) {
+      if (e instanceof CrewLinkError) return res.status(e.status).json({ message: e.message });
+      throw e;
+    }
     if (!crew) {
       return res.status(404).send("Crew not found");
     }
     res.json(crew);
+    return;
   });
 
   app.delete("/api/maintenance-crews/:id", async (req, res) => {
@@ -14710,20 +14745,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (campaign.category !== "extra_billable") {
       return res.status(400).json({ error: "Crews are only supported on extra-billable campaigns" });
     }
-    const { name, color, leaderUserId } = req.body as { name?: string; color?: string; leaderUserId?: string };
+    const parsed = insertCampaignCrewSchema.omit({ companyId: true, campaignId: true }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid campaign team", errors: parsed.error.flatten() });
+    const { name, color, leaderUserId } = parsed.data;
     if (!name || !leaderUserId) return res.status(400).json({ error: "name and leaderUserId required" });
     const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
     if (!companyUsers.some(cu => cu.userId === leaderUserId)) {
       return res.status(400).json({ error: "Leader must be a member of this company" });
     }
-    const crew = await storage.createCampaignCrew({
-      companyId: user.activeCompanyId,
-      campaignId: req.params.id,
-      name,
-      color: color || "#2563eb",
-      leaderUserId,
-    });
-    res.json(crew);
+    try {
+      const crew = await storage.createCampaignCrew({
+        ...parsed.data,
+        companyId: user.activeCompanyId,
+        campaignId: req.params.id,
+        name,
+        color: color || "#2563eb",
+        leaderUserId,
+      });
+      res.json(crew);
+    } catch (e) {
+      if (e instanceof CrewLinkError) return res.status(e.status).json({ error: e.message });
+      throw e;
+    }
+    return;
   });
 
   app.patch("/api/campaigns/:id/crews/:crewId", async (req, res) => {
@@ -14734,10 +14778,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const crew = await storage.getCampaignCrewById(req.params.crewId, user.activeCompanyId);
     if (!crew || crew.campaignId !== req.params.id) return res.status(404).json({ error: "Crew not found" });
-    const { name, color, leaderUserId } = req.body as { name?: string; color?: string; leaderUserId?: string };
-    const updates: Partial<{ name: string; color: string; leaderUserId: string }> = {};
-    if (name !== undefined) updates.name = name;
-    if (color !== undefined) updates.color = color;
+    const parsed = insertCampaignCrewSchema.omit({ companyId: true, campaignId: true }).partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid campaign team", errors: parsed.error.flatten() });
+    const updates = pickProvided(parsed.data, req.body);
+    const { leaderUserId } = updates;
     if (leaderUserId !== undefined) {
       const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
       if (!companyUsers.some(cu => cu.userId === leaderUserId)) {
@@ -14745,8 +14789,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       updates.leaderUserId = leaderUserId;
     }
-    const updated = await storage.updateCampaignCrew(req.params.crewId, user.activeCompanyId, updates);
-    res.json(updated);
+    try {
+      const updated = await storage.updateCampaignCrew(req.params.crewId, user.activeCompanyId, updates);
+      res.json(updated);
+    } catch (e) {
+      if (e instanceof CrewLinkError) return res.status(e.status).json({ error: e.message });
+      throw e;
+    }
+    return;
   });
 
   app.delete("/api/campaigns/:id/crews/:crewId", async (req, res) => {

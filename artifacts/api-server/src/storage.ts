@@ -20,6 +20,8 @@ export interface MyExtraBillableBatch {
 }
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct, type ChemicalNotificationTemplate, type InsertChemicalNotificationTemplate, type MailboxBackfillRun, type InsertMailboxBackfillRun } from "@workspace/db";
 import { db } from "./db";
+import { lockCrewCompany, validateStandingCrew, recordCrewLinkChoice } from "./lib/crewLinks";
+import { crews } from "@workspace/db";
 import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, proposalPlantItems, visualScopeSheets, plantPalettes, plantPaletteItems, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, mailboxAccounts, unsortedEmails, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns, crewWorksheets, crewWorksheetPhotos, crewWorksheetVersions, crewWorksheetNumberCounters, qboConnections, qboCustomerCache } from "@workspace/db";
 import type { QboConnection, InsertQboConnection, QboCustomerCache } from "@workspace/db";
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@workspace/db";
@@ -2173,9 +2175,13 @@ export class PgStorage implements IStorage {
 
   // Maintenance Scheduling
   async getMaintenanceCrews(companyId: string): Promise<MaintenanceCrew[]> {
-    return await db.select().from(maintenanceCrews)
+    const rows = await db.select().from(maintenanceCrews)
       .where(eq(maintenanceCrews.companyId, companyId))
       .orderBy(maintenanceCrews.name);
+    const ids = rows.flatMap(r => r.crewId ? [r.crewId] : []);
+    const linked = ids.length ? await db.select({ id: crews.id, name: crews.name }).from(crews).where(and(eq(crews.companyId, companyId), inArray(crews.id, ids))) : [];
+    const byId = new Map(linked.map(c => [c.id, c]));
+    return rows.map(r => ({ ...r, standingCrew: r.crewId ? byId.get(r.crewId) ?? null : null }));
   }
 
   async getMaintenanceCrewById(id: string, companyId: string): Promise<MaintenanceCrew | undefined> {
@@ -3989,6 +3995,9 @@ export class PgStorage implements IStorage {
 
   async createCampaignCrew(crew: InsertCampaignCrew): Promise<CampaignCrew> {
     return db.transaction(async (tx) => {
+      await lockCrewCompany(tx, crew.companyId);
+      if (crew.crewId !== undefined) await validateStandingCrew(tx, crew.companyId, crew.crewId);
+      if (crew.crewId !== undefined) await recordCrewLinkChoice(tx, crew.companyId);
       const [row] = await tx.insert(campaignCrews).values(crew as typeof campaignCrews.$inferInsert).returning();
       await tx.insert(campaignCrewMembers).values({
         campaignCrewId: row.id,
@@ -4000,10 +4009,13 @@ export class PgStorage implements IStorage {
 
   async updateCampaignCrew(crewId: string, companyId: string, updates: Partial<InsertCampaignCrew>): Promise<CampaignCrew | undefined> {
     return db.transaction(async (tx) => {
+      await lockCrewCompany(tx, companyId);
+      if (updates.crewId !== undefined) await validateStandingCrew(tx, companyId, updates.crewId);
       const [row] = await tx.update(campaignCrews)
         .set({ ...updates, updatedAt: new Date() } as Partial<typeof campaignCrews.$inferInsert>)
         .where(and(eq(campaignCrews.id, crewId), eq(campaignCrews.companyId, companyId)))
         .returning();
+      if (row && updates.crewId !== undefined) await recordCrewLinkChoice(tx, companyId);
       if (row && updates.leaderUserId) {
         await tx.insert(campaignCrewMembers).values({
           campaignCrewId: row.id,
