@@ -15,17 +15,24 @@ The foundation, rate-card and legacy-copy slices are additive only. Existing con
 
 **How to apply:** Keep new catalogs and new records independent of the legacy service catalog and contract definitions. In particular, the new standard cleanup quantities are intentionally supplied separately, not a request to revise the legacy defaults.
 
-The Phase 2 API, board/detail screens, create/renew flows, and legacy freeze must merge in that order. The legacy freeze must not merge until the owner confirms the old records are fixed.
+The Phase 2 API, board/detail screens, create/renew flows, legacy freeze and audit import must merge in that order. The revised audit-import rules supersede the old data-fix-before-freeze and immediate-Copy gates.
 
-**Why:** The user explicitly made sequential merges and the data-fix confirmation conditions of the switch-over, not optional release suggestions.
+**Why:** The revised authoritative requirements require frozen legacy records throughout the document audit, rather than repairing mutable records before freezing them.
 
-**How to apply:** Do not start a later slice against an unmerged predecessor, and do not treat successful API verification as permission to freeze legacy screens or run a production copy.
+**How to apply:** Do not start a later slice against an unmerged predecessor. Merge freeze before audit import, publish both together with owner approval, then export/audit/review/import. Never run Copy as the migration step.
+
+An agreement's import reference does not imply that all its seasons or documents
+belong to the audited upload. Post-audit renewals can share an imported agreement.
+**Why:** Cascading replacement of that agreement would otherwise delete additions
+that the auditor deliberately skipped.
+**How to apply:** Protect non-imported seasons and direct document attachments
+before replacing an imported agreement, including after acquiring write locks.
 
 After the customer switch-over, dashboard, revenue, reports, tickets, snow events and the crew app intentionally continue reading frozen legacy data until Phase 4. Newly created Contract Center contracts will not appear in those consumers yet.
 
 **Why:** The owner explicitly requires the switch-over and downstream repointing to be separate releases; mixing them changes the copied billing state and expands the release risk.
 
-**How to apply:** Keep those legacy consumers unchanged during the freeze. Production order is manual: repair old records, Preview and approve flags, obtain the owner's explicit confirmation, merge/publish, then immediately run Copy in Settings › Contracts. Do not automate the corrections, publication or Copy.
+**How to apply:** Keep those legacy consumers unchanged during the freeze. Production publication, signed-document auditing and imports are manual. Contracts created or renewed in Contract Center during the audit are skipped by the auditor and left untouched by imports.
 
 Legacy contract date-picker timestamps represent UTC calendar dates, not Denver instants. Midnight UTC and 06:00/07:00 UTC must recover the same stored calendar day.
 

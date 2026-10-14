@@ -21,13 +21,25 @@ const tables = [
 ];
 const originalMigration = readFileSync(new URL("../../../../.migration-backup/migrations/0043_contract_center_tables.sql", import.meta.url), "utf8");
 const extension = readFileSync(new URL("../../../../.migration-backup/migrations/0046_contract_center_payment_lines.sql", import.meta.url), "utf8");
+const auditExtension = readFileSync(new URL("../../../../.migration-backup/migrations/0048_agreement_import_ref.sql", import.meta.url), "utf8");
 // Compare the foundation plus the additive extension, never rewrite historical SQL.
 const migration = originalMigration
+  .replace("CREATE TABLE IF NOT EXISTS agreements (\n", "CREATE TABLE IF NOT EXISTS agreements (\n  import_ref text,\n")
+  .replace("CREATE TABLE IF NOT EXISTS agreements (\n  import_ref text,", "CREATE TABLE IF NOT EXISTS agreements (\n  CONSTRAINT agreements_company_import_ref_unique UNIQUE (company_id, import_ref),\n  import_ref text,")
   .replace("  annual_price_cents integer,", "  annual_price_cents integer,\n  snow_pricing text,\n  snow_flat_price_cents integer,")
   .replace("  month date NOT NULL,", "  component text NOT NULL DEFAULT 'Contract',\n  month date NOT NULL,")
   .replace("term_billing_months_term_month_unique UNIQUE (term_id, month)", "term_billing_months_term_component_month_unique UNIQUE (term_id, component, month)");
 
 describe("Contract Center schema", () => {
+  it("guards the nullable company import reference without changing non-import inserts", () => {
+    expect(auditExtension).toContain("ADD COLUMN IF NOT EXISTS import_ref text");
+    expect(auditExtension).toContain("conrelid = 'agreements'::regclass");
+    expect(auditExtension).toContain("ADD CONSTRAINT agreements_company_import_ref_unique UNIQUE (company_id, import_ref)");
+    const base = { companyId: "company", customerId: "customer", line: "both" };
+    expect(insertAgreementSchema.parse(base).importRef).toBeUndefined();
+    expect(insertAgreementSchema.parse({ ...base, importRef: null }).importRef).toBeNull();
+    expect(insertAgreementSchema.parse({ ...base, importRef: "audited" }).importRef).toBe("audited");
+  });
   it("extends payment lines and snow pricing with guarded SQL and normalized inserts", () => {
     expect(extension).toContain("ADD COLUMN IF NOT EXISTS component text NOT NULL DEFAULT 'Contract'");
     expect(extension).toContain("DROP CONSTRAINT IF EXISTS term_billing_months_term_month_unique");

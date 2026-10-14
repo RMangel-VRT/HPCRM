@@ -115,3 +115,4 @@ If the Connect button shows a 503 toast in production, the deployment is missing
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Contract Center manual freeze/import release order and Phase 7 shared-object retention: `docs/contract-center-audit-rollout.md`.

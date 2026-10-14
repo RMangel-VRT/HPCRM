@@ -60,7 +60,7 @@ export function CustomerContracts({ customerId, children }: { customerId: string
         {permitted && (copy.isLoading ? <p role="status">Loading copy status…</p>
           : copy.isError ? <p role="alert">Could not load copy status. <Button variant="outline" onClick={() => copy.refetch()}>Retry</Button></p>
           : <p className="text-sm text-muted-foreground">
-            These records were copied into the Contract Center on {copy.data?.firstCopiedAt ? dateTime(copy.data.firstCopiedAt) : "not yet copied"}.
+            These records were moved into the Contract Center on {copy.data?.firstCopiedAt ? dateTime(copy.data.firstCopiedAt) : "not yet moved"}.
           </p>)}
         {children}
       </div>

@@ -11,8 +11,8 @@ import type { UserWithContext } from "../auth";
 import { pickProvided } from "../lib/patchBody";
 import { RATE_CARD_DEFAULTS } from "../shared/contractCatalog";
 import { planLegacyCopy } from "../lib/contractCenterCopy";
-import { executeLegacyCopy } from "../lib/contractCenterCopyExecution";
 import { registerContractCenterLifecycle } from "./contractCenterLifecycle";
+import { registerContractAudit } from "./contractAudit";
 
 function authorize(req: Request, res: Response, allowOffice: boolean): UserWithContext | null {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
@@ -58,6 +58,7 @@ const updateRateSchema = createRateSchema.omit({ rateKey: true, line: true }).ex
 
 export function registerContractCenterRoutes(app: Express): void {
   registerContractCenterLifecycle(app, adminOrOffice);
+  registerContractAudit(app, adminOnly);
   app.get("/api/contract-center/copy-status", async (req, res) => {
     const user = adminOrOffice(req, res);
     if (!user) return;
@@ -73,6 +74,10 @@ export function registerContractCenterRoutes(app: Express): void {
     const parsed = z.object({ dryRun: z.boolean().default(true) }).strict().safeParse(req.body ?? {});
     if (!parsed.success) {
       res.status(400).json({ message: "Expected { dryRun?: boolean }" });
+      return;
+    }
+    if (!parsed.data.dryRun) {
+      res.status(409).json({ message: "Contracts now come in through the audit import." });
       return;
     }
     const companyId = user.activeCompanyId;
@@ -98,7 +103,7 @@ export function registerContractCenterRoutes(app: Express): void {
     const plan = planLegacyCopy({ companyId, contracts: oldContracts, services, monthlyAmounts, documents,
       history: history.map(row => row.history), servicePlans, rateSheets, customers: customerRows,
       managementCompanies, legacySources, rateCard }, parsed.data.dryRun);
-    res.json(parsed.data.dryRun ? plan.report : await executeLegacyCopy(plan, companyId, user.id));
+    res.json(plan.report);
   });
 
   app.get("/api/contract-center/rate-card", async (req, res) => {

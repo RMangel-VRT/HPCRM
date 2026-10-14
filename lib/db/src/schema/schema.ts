@@ -645,6 +645,7 @@ const contractOptionalCents = z.number().int().min(0).max(2147483647).nullable()
 const contractMonthSpread = z.array(z.number().int().min(0)).length(12).nullable().optional();
 
 export const agreements = pgTable("agreements", {
+  importRef: text("import_ref"),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
@@ -656,9 +657,11 @@ export const agreements = pgTable("agreements", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
   companyIdx: index("agreements_company_idx").on(t.companyId),
+  companyImportRefUnique: unique("agreements_company_import_ref_unique").on(t.companyId, t.importRef),
   customerIdx: index("agreements_customer_idx").on(t.customerId),
 }));
 export const insertAgreementSchema = createInsertSchema(agreements).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  importRef: z.string().nullable().optional(),
   companyId: z.string(), customerId: z.string(),
   line: z.enum(AGREEMENT_LINES), form: z.enum(AGREEMENT_FORMS).default("ours"),
   propertyManagementCompanyId: z.string().nullable().optional(), notes: z.string().nullable().optional(),

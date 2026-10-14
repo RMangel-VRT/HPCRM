@@ -11,6 +11,8 @@ import {
 const mocks = vi.hoisted(() => ({ select: vi.fn(), insert: vi.fn(), transaction: vi.fn(), where: vi.fn() }));
 vi.mock("../db", () => ({ db: mocks }));
 import { registerContractCenterRoutes } from "./contractCenter";
+import { planLegacyCopy } from "../lib/contractCenterCopy";
+import { executeLegacyCopy } from "../lib/contractCenterCopyExecution";
 vi.mock("../objectStorage", () => ({ ObjectStorageService: vi.fn() }));
 vi.mock("../objectAcl", () => ({ ObjectAccessGroupType: { COMPANY_MEMBER: "company_member" }, ObjectPermission: { READ: "read" } }));
 vi.mock("../utils/parentGuard", () => ({ assertNotParentCustomer: vi.fn() }));
@@ -40,6 +42,18 @@ let rows: Map<unknown, unknown[]>;
 let committed: Array<{ table: unknown; values: any[] }>;
 let failCustomer: string | null;
 let existingLinks: Set<string>;
+
+// The historical executor remains covered as a library; it is deliberately no
+// longer reachable through the admin endpoint after the audit-import freeze.
+async function executeHistoricalCopy() {
+  const get = (table: unknown) => rows.get(table) ?? [];
+  const plan = planLegacyCopy({ companyId: COMPANY, rateCard: get(rateCardItems), contracts: get(contracts),
+    customers: get(customers), services: get(contractServices), monthlyAmounts: get(contractMonthlyAmounts),
+    documents: get(contractDocuments), history: get(contractStatusHistory).map((h: any) => h.history),
+    servicePlans: get(customerServicePlans), rateSheets: get(customerRateSheets),
+    managementCompanies: get(propertyManagementCompanies), legacySources: get(termLegacySources) } as any, false);
+  return { body: await executeLegacyCopy(plan, COMPANY, "admin") };
+}
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -94,12 +108,19 @@ describe("legacy copy endpoint safety", () => {
     expect(mocks.insert).not.toHaveBeenCalled();
     expect(committed).toEqual([]);
   });
-  it.each([true, false])("rejects an empty card in mode %s with exact guidance", async dryRun => {
+  it("rejects an empty card in Preview with exact guidance", async () => {
     rows.set(rateCardItems, []);
-    const response = await request(app()).post(URL).send({ dryRun });
+    const response = await request(app()).post(URL).send({ dryRun: true });
     expect(response.status).toBe(409);
     expect(response.body.message).toBe("Load the standard rates first (Settings › Contracts)");
     expect(mocks.select).toHaveBeenCalledTimes(1);
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+  it("disables Copy before all database reads or writes", async () => {
+    const response = await request(app()).post(URL).send({ dryRun: false });
+    expect(response.status).toBe(409);
+    expect(response.body.message).toBe("Contracts now come in through the audit import.");
+    expect(mocks.select).not.toHaveBeenCalled();
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
   it.each([{ dryRun: "false" }, { dryRun: null }, { customerId: "b" }, []])("rejects invalid body %j", async body => {
@@ -119,7 +140,7 @@ describe("legacy copy endpoint safety", () => {
   it("does not admit foreign source rows or relationships into the write plan", async () => {
     rows.set(contracts, [oldContract("c1"), { ...oldContract("foreign"), companyId: "other" }]);
     rows.set(contractServices, [{ id: "foreign-service", companyId: "other", contractId: "c1", serviceType: "mowing", annualCount: 100 }]);
-    const response = await request(app()).post(URL).send({ dryRun: false });
+    const response = await executeHistoricalCopy();
     expect(response.body.summary).toMatchObject({ customers: 1, terms: 1, scopeLines: 0 });
     expect(committed.filter(c => c.table === termLegacySources).flatMap(c => c.values).map(c => c.legacyContractId)).toEqual(["c1"]);
   });
@@ -127,7 +148,7 @@ describe("legacy copy endpoint safety", () => {
     rows.set(contracts, [oldContract("bad", "a"), oldContract("good", "b")]);
     rows.set(customers, [customer("a"), customer("b")]);
     failCustomer = "a";
-    const response = await request(app()).post(URL).send({ dryRun: false });
+    const response = await executeHistoricalCopy();
     expect(response.body.dryRun).toBe(false);
     expect(response.body.summary).toMatchObject({ customers: 1, agreements: 1, terms: 1 });
     expect(response.body.failures).toEqual([{ customerId: "a", customerName: "a", error: "Customer insert failed" }]);
@@ -140,7 +161,7 @@ describe("legacy copy endpoint safety", () => {
     rows.set(contracts, [oldContract("duplicate", "a"), oldContract("good", "b")]);
     rows.set(customers, [customer("a"), customer("b")]);
     existingLinks.add("duplicate"); // concurrent copier after this run's source reads
-    const response = await request(app()).post(URL).send({ dryRun: false });
+    const response = await executeHistoricalCopy();
     expect(response.body.failures[0].error).toBe("duplicate legacy link");
     expect(response.body.summary.terms).toBe(1);
     expect(committed.filter(c => c.table === agreements).flatMap(c => c.values).map(c => c.customerId)).toEqual(["b"]);
@@ -152,7 +173,7 @@ describe("legacy copy endpoint safety", () => {
     rows.set(contractDocuments, [{ id: "doc", companyId: COMPANY, contractId: "c1", version: 4, filename: "signed.pdf",
       storageObjectPath: "/objects/old", mimeType: "application/pdf", fileSize: 222, uploadedBy: "actor", uploadedAt: date }]);
     rows.set(contractStatusHistory, [{ history: { id: "h", contractId: "c1", oldStatus: "paused", newStatus: "active", changedBy: "actor", createdAt: date } }]);
-    const response = await request(app()).post(URL).send({ dryRun: false });
+    const response = await executeHistoricalCopy();
     expect(response.body.summary.documents).toBe(1);
     const terms = committed.filter(c => c.table === agreementTerms).flatMap(c => c.values);
     expect(terms[0]).toMatchObject({ createdBy: "admin", status: "renewed", renewedFromTermId: null });
@@ -166,7 +187,7 @@ describe("legacy copy endpoint safety", () => {
     expect(committed.some(c => legacy.includes(c.table as any))).toBe(false);
   });
   it("repeat previews skip copied IDs and do not start another transaction", async () => {
-    await request(app()).post(URL).send({ dryRun: false });
+    await executeHistoricalCopy();
     rows.set(termLegacySources, [...existingLinks].map(legacyContractId => ({ id: legacyContractId, companyId: COMPANY, legacyContractId })));
     const response = await request(app()).post(URL);
     expect(response.body.summary).toMatchObject({ customers: 0, agreements: 0, terms: 0, alreadyCopied: 1 });
@@ -183,7 +204,7 @@ describe("legacy copy endpoint safety", () => {
       storageObjectPath: "/objects/shared", fileSize: 100, mimeType: "application/pdf",
       uploadedBy: "actor", uploadedAt: new Date(i ? "2025-12-01Z" : "2026-01-01Z"),
     })));
-    const response = await request(app()).post(URL).send({ dryRun: false });
+    const response = await executeHistoricalCopy();
     expect(response.body.summary).toMatchObject({ agreements: 1, terms: 1, documents: 1, billingMonths: 1 });
     expect(committed.find(c => c.table === agreements)!.values[0].line).toBe("both");
     expect(committed.find(c => c.table === agreementTerms)!.values[0]).toMatchObject({ annualPriceCents: 100, billingType: "monthly_variable" });

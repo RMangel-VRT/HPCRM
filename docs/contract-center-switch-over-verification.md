@@ -1,19 +1,27 @@
 # Contract Center customer switch-over and legacy freeze
 
-## Release hold — manual production gate
+## Release hold — revised manual production gate
 
 **Implementation is verified in development, not permission to merge or publish.**
-The merged starting tree includes the preceding create/renew slice. Randy has **not**
-confirmed the old-record repairs and Preview flags in this session. No production
-corrections, production Copy, merge or publication have been performed.
+The merged starting tree includes the preceding create/renew slice. The revised
+audit-import attachment supersedes the former pre-freeze repair and immediate-Copy
+instructions. No production corrections, imports or publication are authorized by
+this development verification.
 
 Required production order:
 
-1. Randy fixes the old records described in the Phase 1 audit.
-2. Run Preview in Settings › Contracts and approve the flags.
-3. Only after Randy explicitly confirms those repairs/flags, merge and publish this slice.
-4. Immediately run Copy in Settings › Contracts, manually.
-5. Thereafter create, edit and renew only in Contract Center.
+1. Merge the legacy freeze before the audit-import slice starts.
+2. Publish freeze and audit import together, manually with owner approval.
+3. Export/audit production batches only afterward, while legacy data is read-only.
+4. Review signed documents and Excel corrections, then Preview and explicitly
+   confirm each audit import. Never run Copy as the migration step.
+5. Create, edit and renew only in Contract Center. Skip those null-import-reference
+   seasons in the audit CSVs; imports leave them alone and warn.
+
+See [Audit rollout and Phase 7 shared-object retention](contract-center-audit-rollout.md)
+for the current authoritative release order and storage cleanup rule. Historical
+Copy verification below describes the freeze slice's development baseline, not a
+currently available production migration action.
 
 Dashboard, revenue, reports, tickets, snow events and the crew app deliberately still
 read the frozen legacy tables. **Contracts created after switch-over will not appear
@@ -101,8 +109,9 @@ Existing startup schema/backfill machinery was not modified. No new legacy SQL
 corrections or migrations were added.
 
 Contract Center lifecycle/rate-card writes target new agreement/term/catalog tables,
-not these five targets. Preview reads old records; Copy reads old records and writes
-new agreements/terms/source links. Both remain operational. Builder draft editing
+not these five targets. Preview reads old records and remains operational. Copy is
+now disabled; validated audit import writes new agreements/terms/source links.
+Builder draft editing
 targets `contract_builder_*`, not legacy contracts; the hidden direct builder route
 is retained, but its publish-and-create handler is frozen.
 
@@ -130,7 +139,8 @@ is retained, but its publish-and-create handler is frozen.
   authorization and active-company requirement as Contract Center. Its persisted
   source-link aggregation is `min(created_at)` and
   `count(distinct legacy_contract_id)`, **not** agreement/term/run counts.
-  The legacy section displays the first-copy sentence, or `not yet copied` only
+  The legacy section displays “These records were moved into the Contract Center
+  on <date>”, or `not yet moved` only
   after a successful null result. Loading/errors are distinct.
 
 ## Verification

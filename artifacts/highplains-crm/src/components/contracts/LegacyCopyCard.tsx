@@ -43,7 +43,7 @@ export default function LegacyCopyCard({ ratesReady, ratesEmpty, rateRevision }:
   const contractCount = report?.customers.filter(c => !c.error).reduce((n, c) =>
     n + c.agreements.reduce((a, g) => a + g.terms.reduce((t, term) => t + term.legacyContractIds.length, 0), 0), 0) ?? 0;
   const validPreview = report?.dryRun && previewRevision === rateRevision;
-  const canCopy = ratesReady && validPreview && contractCount > 0 && !mutation.isPending;
+  const canCopy = false; // Copy is disabled: contracts now come in through the audit import.
   const runPreview = () => {
     setPreviewRevision(null);
     setConfirming(false);
@@ -61,8 +61,9 @@ export default function LegacyCopyCard({ ratesReady, ratesEmpty, rateRevision }:
         <Button variant="outline" onClick={runPreview} disabled={!ratesReady || mutation.isPending} data-testid="button-preview-copy">
           {mutation.isPending && mutation.variables?.dryRun === true ? "Previewing…" : "Preview"}
         </Button>
-        <Button onClick={() => setConfirming(true)} disabled={!canCopy} data-testid="button-copy-legacy">{validPreview ? `Copy ${contractCount} contracts` : "Preview first"}</Button>
+        <Button onClick={() => setConfirming(true)} disabled={!canCopy} data-testid="button-copy-legacy">Copy contracts</Button>
       </div>
+      <p className="text-sm text-muted-foreground" data-testid="text-copy-disabled">Contracts now come in through the audit import.</p>
       {confirming && canCopy && <div className="rounded-md border p-4 space-y-3" data-testid="copy-confirmation">
         <p className="text-sm">Copy {contractCount} legacy contracts into the new tables? Old records and stored files will not change. Each customer is copied in full or not at all. Review flags will be preserved.</p>
         <div className="flex gap-2">

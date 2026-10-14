@@ -59,7 +59,7 @@ describe("customer Contract Center switch-over", () => {
     expect(html.match(/<details[^>]*>/)?.[0]).not.toMatch(/\sopen[=\s>]/);
     for (const text of ["Landscape + Snow", "Their form", "Active", "2026–27", "$1,500", "Up for renewal", ">Open<", "New contract"]) expect(html).toContain(text);
     expect(html).toContain('href="/dashboard/contracts/new?customerId=customer"');
-    expect(html).toContain("These records were copied into the Contract Center on ");
+    expect(html).toContain("These records were moved into the Contract Center on ");
     expect(html).not.toContain("not yet copied");
     expect(html).toContain("$125.00");
   });
@@ -68,7 +68,7 @@ describe("customer Contract Center switch-over", () => {
     const html = tab();
     expect(html).not.toContain("center-contract-new");
     expect(html).not.toContain("button-new-center-contract");
-    expect(html).not.toContain("These records were copied");
+    expect(html).not.toContain("These records were moved");
     expect(fx.queries.filter(q => q.queryKey[0].startsWith("/api/contract-center")).every(q => q.enabled === false)).toBe(true);
   });
   it("uses company/customer scoped keys and filtered API", async () => {
@@ -90,7 +90,7 @@ describe("customer Contract Center switch-over", () => {
   it("shows not yet copied only for a successful null provenance", () => {
     const key = "/api/contract-center/copy-status|company";
     fx.responses[key] = { data: { firstCopiedAt: null, copiedContracts: 0 } };
-    expect(tab()).toContain("These records were copied into the Contract Center on not yet copied.");
+    expect(tab()).toContain("These records were moved into the Contract Center on not yet moved.");
     fx.responses[key] = { isError: true };
     expect(tab()).toContain("Could not load copy status."); expect(tab()).not.toContain("not yet copied");
   });
