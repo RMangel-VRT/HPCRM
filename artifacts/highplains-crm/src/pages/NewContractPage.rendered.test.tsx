@@ -58,8 +58,8 @@ describe("New contract flow", () => {
     expect(screen.getByTestId("errors-step").textContent).toContain("Choose a customer");
     expect(screen.getByTestId("step-body-1")).toBeTruthy();
   });
-  it("rejects parent and foreign prefilled customers", async () => {
-    for (const [id, body] of [["p1", customer({ id: "p1", isParent: "true" })], ["x9", customer({ id: "x9", companyId: "co2" })]] as const) {
+  it("rejects foreign prefilled customers", async () => {
+    for (const [id, body] of [["x9", customer({ id: "x9", companyId: "co2" })]] as const) {
       window.history.replaceState(null, "", `/dashboard/contracts/new?customerId=${id}`);
       routes({ [`/api/customers/${id}`]: body });
       const m = mount();
@@ -68,6 +68,33 @@ describe("New contract flow", () => {
       expect(screen.getByTestId("errors-step")).toBeTruthy();
       m.unmount(); window.sessionStorage.clear();
     }
+  });
+  it("accepts a parent from URL preselection and verifies a saved parent draft before creating", async () => {
+    const parent = customer({ id: "p1", name: "Parent Co", isParent: "true" });
+    routes({ "/api/customers/p1": parent, "/api/customers/p1/contacts": [] });
+    window.history.replaceState(null, "", "/dashboard/contracts/new?customerId=p1");
+    const first = mount(); await settle();
+    expect(screen.getByTestId("text-selected-customer").textContent).toBe("Parent Co");
+    first.unmount(); window.sessionStorage.clear();
+    store("u1", "co1", draft({ customerId: "p1", customerName: "Stale saved name" }));
+    window.history.replaceState(null, "", "/dashboard/contracts/new");
+    mount(); await settle();
+    await userEvent.click(screen.getByTestId("button-create-contract"));
+    await settle();
+    expect(posts).toBe(1);
+    expect(fx.api).toHaveBeenCalledWith("GET", "/api/customers/p1");
+    expect(fx.api).toHaveBeenCalledWith("POST", "/api/contract-center/contracts", expect.objectContaining({ customerId: "p1" }));
+  });
+  it("makes parents selectable in search without exposing foreign customers", async () => {
+    routes({ "/api/customers/p1": customer({ id: "p1", name: "Parent Co", isParent: "true" }), "/api/customers/p1/contacts": [] });
+    mount(); await settle();
+    const search = screen.getByPlaceholderText(/Search customers/i);
+    await userEvent.type(search, "Parent"); await settle();
+    const option = await screen.findByText("Parent Co");
+    expect((option.closest("button") as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(option); await settle();
+    expect(screen.getByTestId("text-selected-customer").textContent).toBe("Parent Co");
+    expect(screen.queryByText("Foreign")).toBeNull();
   });
   it("prefills a valid customer with street and primary contact", async () => {
     window.history.replaceState(null, "", "/dashboard/contracts/new?customerId=c1");

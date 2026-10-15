@@ -15,7 +15,7 @@ vi.mock("@tanstack/react-query", async importOriginal => ({
     return { data: undefined, isLoading: false, isError: false, error: null, refetch: () => {}, ...r };
   },
 }));
-import { ContractBoard } from "@/pages/ContractCenterPage";
+import { ContractBoard, ContractTable } from "@/pages/ContractCenterPage";
 import ContractPage from "@/pages/ContractPage";
 import { money } from "@/components/contracts/contractFormat";
 import { placements, tableRows } from "@/components/contracts/boardLogic";
@@ -28,6 +28,17 @@ const board = (items: any[], b: "landscape" | "snow") =>
   renderToStaticMarkup(<Router ssrPath="/"><ContractBoard items={items} board={b} q="" today="2026-10-12" defaultOpen onComingSoon={() => {}} /></Router>);
 
 describe("board placement", () => {
+  it("keeps parent agreements under their actual customer with locations on board and list", () => {
+    const parent = item("parent", "landscape", { customerName: "Bank", locationCount: 2, renewalDue: true });
+    const child = item("child", "landscape", { customerName: "Branch", renewalDue: true });
+    const html = board([parent, child], "landscape");
+    expect(html).toContain("Bank · 2 locations"); expect(html).toContain("Branch");
+    expect(html.match(/>Bank · 2 locations</g)).toHaveLength(1);
+    expect(html).toContain('title="Bank · 2 locations"');
+    const list = renderToStaticMarkup(<Router><ContractTable items={[parent, child]} board="landscape" q="" /></Router>);
+    expect(list).toContain("Bank · 2 locations");
+    expect(list.match(/Bank · 2 locations/g)).toHaveLength(1);
+  });
   it("shows a Both contract on both boards", () => {
     const items = [item("1", "both", { renewalDue: true })];
     expect(board(items, "landscape")).toContain("card-renewal-1");

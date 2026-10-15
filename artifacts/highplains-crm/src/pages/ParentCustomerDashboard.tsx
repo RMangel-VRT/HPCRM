@@ -16,6 +16,8 @@ import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import CustomerSearchInput from "@/components/CustomerSearchInput";
+import { CustomerContracts } from "@/components/contracts/CustomerContracts";
+import { useAuth } from "@/hooks/use-auth";
 import type { Customer } from "@shared/schema";
 
 interface ParentRollupData {
@@ -69,9 +71,12 @@ interface Props {
 }
 
 export default function ParentCustomerDashboard({ customer }: Props) {
+  const { user } = useAuth();
+  const canViewContracts = !!user && (user.isSuperAdminBool || user.activeRole === "admin" || user.activeRole === "office");
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("children");
+  const [activeTab, setActiveTab] = useState(() =>
+    canViewContracts && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "contracts" ? "contracts" : "children");
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(customer.name);
   const [linkCandidates, setLinkCandidates] = useState<{ id: string; name: string; parentCustomerId?: string | null }[]>([]);
@@ -313,11 +318,17 @@ export default function ParentCustomerDashboard({ customer }: Props) {
                 <Activity className="w-4 h-4 mr-1.5" />
                 Recent Activity
               </TabsTrigger>
+              {canViewContracts && <TabsTrigger value="contracts" data-testid="tab-parent-contracts">
+                <FileText className="w-4 h-4 mr-1.5" />Contracts
+              </TabsTrigger>}
               <TabsTrigger value="settings" data-testid="tab-settings">
                 <Settings className="w-4 h-4 mr-1.5" />
                 Settings
               </TabsTrigger>
             </TabsList>
+            {canViewContracts && <TabsContent value="contracts" className="mt-4">
+              <CustomerContracts customerId={customer.id}>{null}</CustomerContracts>
+            </TabsContent>}
 
             <TabsContent value="children" className="mt-4">
               {rollup.children.length === 0 ? (

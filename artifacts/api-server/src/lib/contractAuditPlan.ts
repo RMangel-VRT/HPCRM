@@ -1,6 +1,7 @@
 import type { AgreementLine, AgreementForm, TermStatus, ContractDocument } from "@workspace/db";
 import { dollarCents, MONTHS, type CsvRow, type Diagnostic, type AuditFiles } from "./contractAuditFiles";
 import type { AuditData } from "./contractAuditData";
+import { auditOwnsCustomer, destructiveAgreementIssues } from "./contractAuditEligibility";
 import { validateDates, validateSnow, validatePayments, paymentSummary, expandPayments, buildScope, snapshotRates,
   termFieldsSchema, ratesSchema, scopeSchema, type Payments } from "./contractCenterService";
 
@@ -16,7 +17,8 @@ export type ImportTerm = {
 };
 export type ImportAgreement = { ref: string; line: AgreementLine; form: AgreementForm; replaceId?: string; terms: ImportTerm[] };
 export type ImportCustomer = { id: string; name: string; managementId: string | null; agreements: ImportAgreement[] };
-export type ImportPlan = { errors: Diagnostic[]; warnings: Diagnostic[]; customers: ImportCustomer[] };
+export type ImportRemoval = { ref: string; id: string; customerId: string; customerName: string; seasons: number };
+export type ImportPlan = { errors: Diagnostic[]; warnings: Diagnostic[]; customers: ImportCustomer[]; removals: ImportRemoval[] };
 
 /** Interpret a calendar signed day as noon Denver, including winter/summer offset. */
 export function signedNoon(day: string): Date {
@@ -32,7 +34,7 @@ function message(error: unknown) {
   return error instanceof Error ? error.message : "Invalid value";
 }
 export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan {
-  const plan: ImportPlan = { errors: [...files.errors], warnings: [], customers: [] };
+  const plan: ImportPlan = { errors: [...files.errors], warnings: [], customers: [], removals: [] };
   const diagnostic = (row: CsvRow, msg: string, column?: string, warning = false) =>
     (warning ? plan.warnings : plan.errors).push({ file: row.file, row: row.row, column, contractRef: row.values.contract_ref, message: msg });
   const required = (row: CsvRow, column: string) => {
@@ -74,16 +76,32 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
     else agreementOwners.set(agreementRef, row);
   }
   const replacements = new Set<string>();
+  const removalRefs = new Set<string>();
+  for (const row of files.tables["remove_agreements.csv"] ?? []) {
+    const ref = required(row, "agreement_ref");
+    if (removalRefs.has(ref)) diagnostic(row, "Duplicate agreement_ref", "agreement_ref");
+    removalRefs.add(ref);
+    if (agreementOwners.has(ref)) diagnostic(row, "An agreement reference cannot appear in both remove_agreements.csv and contracts.csv.", "agreement_ref");
+    const existing = data.agreements.find(a => a.importRef === ref);
+    const customer = existing && data.customers.find(c => c.id === existing.customerId);
+    if (!existing || !customer) { diagnostic(row, "No imported contract with this reference.", "agreement_ref"); continue; }
+    const issues = destructiveAgreementIssues(data, existing.id);
+    issues.errors.forEach(msg => diagnostic(row, msg, "agreement_ref"));
+    issues.warnings.forEach(msg => diagnostic(row, msg, undefined, true));
+    plan.removals.push({ ref, id: existing.id, customerId: customer.id, customerName: customer.name,
+      seasons: data.terms.filter(t => t.agreementId === existing.id).length });
+    if (!issues.errors.length) replacements.add(existing.id);
+  }
   for (const [ref, row] of agreementOwners) {
     const existing = data.agreements.find(a => a.importRef === ref);
     if (existing) {
       if (existing.customerId !== row.values.customer_id) diagnostic(row, "Import reference belongs to another customer", "agreement_ref");
-      else replacements.add(existing.id);
+      else if (!destructiveAgreementIssues(data, existing.id).errors.length) replacements.add(existing.id);
     }
   }
   const usedLegacy = new Set<string>(), usedDocuments = new Set<string>();
   for (const [file, childRows] of Object.entries(files.tables)) {
-    if (file === "contracts.csv") continue;
+    if (file === "contracts.csv" || file === "remove_agreements.csv") continue;
     for (const row of childRows) {
       const ref = required(row, "contract_ref");
       if (!byRef.has(ref)) diagnostic(row, "Unknown contract_ref", "contract_ref");
@@ -93,7 +111,6 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
     const v = row.values;
     const customer = data.customers.find(c => c.id === v.customer_id);
     if (!customer) diagnostic(row, "Unknown customer in active company", "customer_id");
-    else if (customer.isParent === "true") diagnostic(row, "Parent customers cannot have agreements", "customer_id");
     if (customer && v.customer_name && v.customer_name.toLowerCase() !== customer.name.toLowerCase())
       diagnostic(row, `Customer name does not match ${customer.name}`, "customer_name", true);
     const line = v.line as AgreementLine, form = v.form as AgreementForm;
@@ -163,7 +180,7 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
     const legacyIds = v.legacy_contract_ids ? v.legacy_contract_ids.split(";").map(id => id.trim()) : [];
     for (const id of legacyIds) {
       const old = data.contracts.find(c => c.id === id);
-      if (!old || old.customerId !== v.customer_id) diagnostic(row, "Unknown or cross-customer legacy contract ID", "legacy_contract_ids");
+      if (!old || !auditOwnsCustomer(data, v.customer_id, old.customerId)) diagnostic(row, "Unknown or cross-customer legacy contract ID", "legacy_contract_ids");
       if (usedLegacy.has(id)) diagnostic(row, "Legacy contract used on more than one season", "legacy_contract_ids");
       usedLegacy.add(id);
       const link = data.links.find(l => l.legacyContractId === id);
@@ -177,7 +194,7 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
       const id = required(r, "document_id"), kind = required(r, "kind");
       const doc = data.documents.find(d => d.id === id);
       const old = doc && data.contracts.find(c => c.id === doc.contractId);
-      if (!doc || !old || old.customerId !== v.customer_id) diagnostic(r, "Unknown or cross-customer document ID", "document_id");
+      if (!doc || !old || !auditOwnsCustomer(data, v.customer_id, old.customerId)) diagnostic(r, "Unknown or cross-customer document ID", "document_id");
       if (usedDocuments.has(id)) diagnostic(r, "Document used on more than one season", "document_id");
       usedDocuments.add(id);
       if (!["signed", "their_form", "other"].includes(kind)) diagnostic(r, "Unknown document kind", "kind");
@@ -199,7 +216,7 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
     const row = customer.agreements[0].terms[0].source;
     if (data.agreements.some(a => a.customerId === customer.id && a.importRef === null))
       diagnostic(row, "Customer has Contract Center agreements with no import_ref; they are left untouched. Skip those seasons in the audit CSVs.", undefined, true);
-    for (const old of data.contracts.filter(c => c.customerId === customer.id && !usedLegacy.has(c.id)))
+    for (const old of data.contracts.filter(c => auditOwnsCustomer(data, customer.id, c.customerId) && !usedLegacy.has(c.id)))
       diagnostic(row, `Old contract ${old.id} (${old.serviceType}, ${old.startDate.toISOString().slice(0, 10)} – ${old.endDate?.toISOString().slice(0, 10) ?? ""}) isn't covered by this import`, undefined, true);
     for (const agreement of customer.agreements) {
       agreement.terms.sort((a, b) => a.values.startDate.localeCompare(b.values.startDate));
@@ -207,25 +224,10 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
         if (![term, other].some(t => ["renewed", "lost", "cancelled"].includes(t.values.status)) &&
           term.values.startDate <= other.values.endDate && other.values.startDate <= term.values.endDate)
           diagnostic(other.source, `Live seasons overlap with ${term.contractRef}`, "start_date", true);
-      for (const old of data.terms.filter(t => t.agreementId === agreement.replaceId)) {
-        const lastImport = data.history.filter(h => h.termId === old.id && h.note?.startsWith("Imported from audit ("))
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-        // Renew creates a term on the existing agreement, so its agreement may
-        // still have an import_ref. Never cascade-delete post-audit additions.
-        const importedCreation = data.history.some(h => h.termId === old.id && h.oldStatus === null && h.note?.startsWith("Imported from audit ("));
-        if (!importedCreation)
-          diagnostic(row, `Season ${old.seasonLabel} (${old.id}) was created in Contract Center, not by audit import. This agreement cannot be replaced; its season and documents are left untouched.`, "agreement_ref");
-        for (const doc of data.termDocs.filter(d => d.termId === old.id)) {
-          const importedSource = data.documents.some(source =>
-            source.storageObjectPath === doc.storageObjectPath && source.filename === doc.filename &&
-            source.mimeType === doc.mimeType && source.fileSize === doc.fileSize &&
-            source.uploadedBy === doc.uploadedBy && source.version === doc.version &&
-            source.uploadedAt.getTime() === doc.createdAt.getTime());
-          if (!importedCreation || !importedSource)
-            diagnostic(row, `Document ${doc.filename} (${doc.id}) on season ${old.seasonLabel} was attached in Contract Center. This agreement cannot be replaced; the document is left untouched.`, "agreement_ref");
-        }
-        if (lastImport && old.updatedAt > lastImport.createdAt)
-          diagnostic(row, `Season ${old.seasonLabel}: Was edited after the last import; importing replaces those edits`, undefined, true);
+      if (agreement.replaceId) {
+        const issues = destructiveAgreementIssues(data, agreement.replaceId);
+        issues.errors.forEach(msg => diagnostic(agreement.terms[0].source, msg, "agreement_ref"));
+        issues.warnings.forEach(msg => diagnostic(agreement.terms[0].source, msg, undefined, true));
       }
     }
   }
@@ -239,8 +241,8 @@ export function auditReport(plan: ImportPlan, dryRun: boolean) {
         endDate: t.values.endDate, status: t.values.status, annualPrice: t.values.annualPriceCents, paymentLines: t.paymentCount,
         rates: t.rates.length, scope: t.scope.length, documents: t.documents.length, needsReview: t.values.needsReview ?? false })) })) }));
   const agreements = plan.customers.flatMap(c => c.agreements), terms = agreements.flatMap(a => a.terms);
-  return { mode: "audit" as const, dryRun, errors: plan.errors, warnings: plan.warnings, customers,
+  return { mode: "audit" as const, dryRun, errors: plan.errors, warnings: plan.warnings, customers, removals: plan.removals,
     summary: { customers: customers.length, agreements: agreements.length, terms: terms.length,
-      replaced: agreements.filter(a => a.replaceId).length, documents: terms.reduce((n, t) => n + t.documents.length, 0),
+      replaced: agreements.filter(a => a.replaceId).length, removed: plan.removals.length, documents: terms.reduce((n, t) => n + t.documents.length, 0),
       warnings: plan.warnings.length, errors: plan.errors.length } };
 }

@@ -176,11 +176,12 @@ describe("renewal preview validation and carry-forward", () => {
     expect(renewalReport(p, true).summary.terms).toBe(0);
     d.history[0].note = "Created normally"; expect(planRenewalImport(await input(), d).errors.length).toBeGreaterThan(0);
   });
-  it("rejects parent customers and duplicate refs/source IDs", async () => {
+  it("accepts parent seasons while rejecting duplicate refs/source IDs", async () => {
     const f = await input(), d = data(); d.customers[0].isParent = "true";
     const duplicate = structuredClone(f.tables["renewals.csv"][0]); duplicate.row = 3; f.tables["renewals.csv"].push(duplicate);
     const errors = planRenewalImport(f, d).errors;
-    for (const message of ["Parent", "Duplicate contract_ref", "Two rows"])
+    expect(errors.some(e => e.message.includes("Parent"))).toBe(false);
+    for (const message of ["Duplicate contract_ref", "Two rows"])
       expect(errors.some(e => e.file === "renewals.csv" && e.row && e.message.includes(message))).toBe(true);
   });
   it("warns for gap/overlap, name mismatch and missing signed attachment with source context", async () => {

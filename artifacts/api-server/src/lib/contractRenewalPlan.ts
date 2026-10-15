@@ -39,7 +39,6 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
     const agreement = source && data.agreements.find(a => a.id === source.agreementId);
     const customer = agreement && data.customers.find(c => c.id === agreement.customerId);
     if (!source || !agreement || !customer) { diag(row, "Unknown renewal source in active company", "renews_term_id"); continue; }
-    if (customer.isParent === "true") diag(row, "Parent customers cannot have agreements", "renews_term_id");
     const renewals = data.terms.filter(t => t.renewedFromTermId === source.id);
     const skipped = renewals.some(t => t.startDate === v.start_date &&
       data.history.some(h => h.termId === t.id && h.note?.startsWith("Imported signed renewal (")));

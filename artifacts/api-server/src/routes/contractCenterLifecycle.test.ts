@@ -129,10 +129,33 @@ describe("Contract Center lifecycle routes", () => {
     expect((await agent.post(`${base}/contracts`).send({ ...body, propertyManagementCompanyId: "foreign" })).status).toBe(404);
     expect(writes).toBe(0);
   });
-  it("rejects parent customers using the shared guard", async () => {
-    mock.parent.mockImplementation(async (_id, _company, res) => { res.status(400).json({ error: "PARENT_CUSTOMER_NOT_ALLOWED" }); return true; });
+  it("allows parent customers without invoking operational guards", async () => {
+    tables.customers[0].isParent = "true";
     const response = await request(app()).post(`${base}/contracts`).send(body);
-    expect(response.status).toBe(400); expect(writes).toBe(0);
+    expect(response.status).toBe(201); expect(mock.parent).not.toHaveBeenCalled();
+  });
+  it("lists own contracts by default and direct-parent contracts only on opt-in, with tenant-safe counts/payments", async () => {
+    const agent = request(app());
+    await create(agent);
+    tables.customers.push({ ...tables.customers[0], id: "parent", name: "Bank", isParent: "true" },
+      { ...tables.customers[0], id: "sibling", parentCustomerId: "parent" },
+      { ...tables.customers[0], id: "foreign-child", companyId: "other", parentCustomerId: "parent" },
+      { ...tables.customers[0], id: "foreign-parent", companyId: "other" });
+    Object.assign(tables.customers[0], { parentCustomerId: "parent", customerNumber: "FB01" });
+    const parent = await agent.post(`${base}/contracts`).send({ ...body, customerId: "parent" });
+    expect(parent.status).toBe(201);
+    expect((await agent.get(`${base}/contracts?customerId=customer`)).body).toHaveLength(1);
+    const included = await agent.get(`${base}/contracts?customerId=customer&includeParent=true`);
+    expect(included.status).toBe(200); expect(included.body).toHaveLength(2);
+    expect(included.body.find((c: any) => c.viaParent)).toMatchObject({
+      id: parent.body.id, customerId: "parent", customerName: "Bank", locationCount: 2,
+      branch: { billingCode: "FB01" }, payments: expect.arrayContaining([{ component: "Fertilization", months: expect.any(Array) }]),
+    });
+    expect((await agent.get(`${base}/contracts?customerId=parent&includeParent=true`)).body).toMatchObject([{ id: parent.body.id, locationCount: 2 }]);
+    expect((await agent.get(`${base}/contracts?customerId=foreign-child&includeParent=true`)).status).toBe(404);
+    tables.customers[0].parentCustomerId = "foreign-parent";
+    expect((await agent.get(`${base}/contracts?customerId=customer&includeParent=true`)).body).toHaveLength(1);
+    expect((await agent.get(`${base}/contracts?includeParent=invalid`)).status).toBe(400);
   });
   it.each([{}, { status: "signed" }, { id: "injected", companyId: "other", annualPriceCents: 1 }])("rejects empty/server-owned PATCH %j", async update => {
     expect((await request(app()).patch(`${base}/terms/id`).send(update)).status).toBe(400);

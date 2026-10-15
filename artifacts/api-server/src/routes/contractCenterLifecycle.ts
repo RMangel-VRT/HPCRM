@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { and, eq, ilike, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod/v4";
 import {
   agreements, agreementTerms, customers, propertyManagementCompanies, termLegacySources,
@@ -20,7 +20,6 @@ import {
 } from "../lib/contractCenterPersistence";
 import { ObjectStorageService } from "../objectStorage";
 import { ObjectAccessGroupType, ObjectPermission } from "../objectAcl";
-import { assertNotParentCustomer } from "../utils/parentGuard";
 import type { Session } from "express-session";
 
 type Authorize = (req: Request, res: Response) => UserWithContext | null;
@@ -45,20 +44,32 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       }
     };
   app.get("/api/contract-center/contracts", handle(async (req, res, user) => {
-    const filter = z.object({ line: z.enum(["landscape", "snow"]).optional(), customerId: z.string().min(1).optional(), q: z.string().max(200).optional() }).parse(req.query);
+    const filter = z.object({ line: z.enum(["landscape", "snow"]).optional(), customerId: z.string().min(1).optional(),
+      includeParent: z.enum(["true", "false"]).optional(), q: z.string().max(200).optional() }).parse(req.query);
     const companyId = user.activeCompanyId;
-    if (filter.customerId) {
-      const [customer] = await db.select().from(customers).where(and(eq(customers.id, filter.customerId), eq(customers.companyId, companyId)));
-      if (!customer) throw new ContractCenterError(404, "Customer not found");
-    }
-    const rows = await db.select({ agreement: agreements, customerName: customers.name }).from(agreements)
-      .innerJoin(customers, and(eq(customers.id, agreements.customerId), eq(customers.companyId, companyId)))
-      .where(and(eq(agreements.companyId, companyId),
-        filter.line ? inArray(agreements.line, [filter.line, "both"]) : undefined,
-        filter.customerId ? eq(agreements.customerId, filter.customerId) : undefined,
-        filter.q ? ilike(customers.name, `%${filter.q}%`) : undefined));
+    const companyCustomers = await db.select().from(customers).where(eq(customers.companyId, companyId));
+    const customer = filter.customerId ? companyCustomers.find(c => c.id === filter.customerId) : undefined;
+    if (filter.customerId && !customer) throw new ContractCenterError(404, "Customer not found");
+    const parent = filter.includeParent === "true" && customer?.parentCustomerId
+      ? companyCustomers.find(c => c.id === customer.parentCustomerId) : undefined;
+    const rows = await db.select().from(agreements).where(eq(agreements.companyId, companyId));
     const terms = await db.select().from(agreementTerms).where(eq(agreementTerms.companyId, companyId));
-    res.json(rows.map(({ agreement, customerName }) => ({ ...agreement, customerName, ...listSummary(terms.filter(t => t.agreementId === agreement.id)) })));
+    const selected = rows.filter(a => companyCustomers.some(c => c.id === a.customerId &&
+      (!filter.q || c.name.toLowerCase().includes(filter.q.toLowerCase()))) &&
+      (!filter.line || a.line === filter.line || a.line === "both") &&
+      (!filter.customerId || a.customerId === filter.customerId || a.customerId === parent?.id));
+    const billing = parent ? await db.select().from(termBillingMonths).where(eq(termBillingMonths.companyId, companyId)) : [];
+    res.json(selected.map(agreement => {
+      const owner = companyCustomers.find(c => c.id === agreement.customerId)!;
+      const summary = listSummary(terms.filter(t => t.agreementId === agreement.id));
+      const viaParent = !!parent && agreement.customerId === parent.id;
+      const term = summary.current ?? summary.renewalDraft ?? summary.latest;
+      return { ...agreement, customerName: owner.name, ...summary,
+        locationCount: owner.isParent === "true" ? companyCustomers.filter(c => c.parentCustomerId === owner.id).length : 0,
+        ...(viaParent ? { viaParent: true, parentName: owner.name,
+          branch: { name: customer!.name, billingCode: customer!.customerNumber },
+          payments: term ? recoverPayments(billing.filter(b => b.termId === term.id)) : [] } : {}) };
+    }));
   }));
   app.get("/api/contract-center/contracts/by-legacy/:legacyContractId", handle(async (req, res, user) => {
     const [row] = await db.select({ agreementId: agreementTerms.agreementId }).from(termLegacySources)
@@ -75,7 +86,6 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     const body = createContractSchema.parse(req.body), companyId = user.activeCompanyId;
     const [customer] = await db.select().from(customers).where(and(eq(customers.id, body.customerId), eq(customers.companyId, companyId)));
     if (!customer) throw new ContractCenterError(404, "Customer not found");
-    if (await assertNotParentCustomer(body.customerId, companyId, res)) return;
     validateDates(body.term.startDate, body.term.endDate); validateSnow(body.line, body.term);
     const detail = await db.transaction(async tx => {
       const managementId = body.propertyManagementCompanyId ?? customer.propertyManagementCompanyId;

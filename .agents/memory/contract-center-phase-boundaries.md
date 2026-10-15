@@ -9,6 +9,12 @@ An agreement represents one customer and one contract line; each season has a se
 
 **How to apply:** Later renewal and editing work must target the intended term, creating a new term for a new season instead of mutating past-season data.
 
+Parent-owned Contract Center agreements may cover direct branches while both parent and branch retain their own agreements. This exception does not relax operational parent restrictions.
+
+**Why:** The owner has one signed bank agreement covering multiple branches, but those branches must remain separate operational customers for tickets, crews and scheduling.
+
+**How to apply:** Keep the agreement on its actual owner. Show inherited coverage on direct branch pages only. Payment-line prefix matches against branch names or customer numbers are display hints, never billing ownership or allocation rules.
+
 The foundation, rate-card and legacy-copy slices are additive only. Existing contract screens, endpoints, builder and reports continue to use legacy records until the planned later switch-over.
 
 **Why:** The user specified a staged rollout, with each foundation slice merged before the next begins; introducing shared behavior changes early would invalidate that separation.

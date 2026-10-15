@@ -19,7 +19,9 @@ export interface ImportReport {
   mode?: "audit" | "renewal"; dryRun: boolean; errors: ImportError[]; warnings: ImportWarning[];
   customers: { customerId: string; customerName: string; agreements: { agreementRef: string; line: string; form: string;
     action: "create" | "replace" | "add renewal"; terms: Term[] }[] }[];
-  summary: { customers: number; agreements: number; terms: number; replaced: number; documents: number; warnings: number; errors: number };
+  removals?: { ref: string; id: string; customerName: string; seasons: number }[];
+  removed?: { ref: string; id: string; customerName: string; seasons: number }[];
+  summary: { customers: number; agreements: number; terms: number; replaced: number; removed?: number; documents: number; warnings: number; errors: number };
   successes?: { customerId: string; customerName: string; agreements: number; terms: number;
     seasons?: { agreementId: string; termId: string; season: string }[] }[];
   failures?: { customerId: string; customerName: string; error: string }[];
@@ -165,7 +167,7 @@ export default function AuditImportCard() {
           className={`flex cursor-pointer flex-col items-center gap-1 rounded-md border-2 border-dashed px-4 py-5 text-center transition-colors ${drag ? "border-primary bg-primary/10" : "bg-muted/30 hover:bg-muted/50"}`} data-testid="dropzone-import">
           <Upload className="h-5 w-5 text-muted-foreground" />
           <p className="text-sm font-medium">Drop a ZIP, or several CSVs (manifest.json optional)</p>
-          <p className="text-xs text-muted-foreground">Audit: contracts.csv + four child CSVs · 10 MB uploaded, 30 MB expanded, 20 ZIP entries. Renewal: renewals.csv + optional child CSVs · 40 MB uploaded, 60 MB expanded, 60 entries; PDFs under files/, up to 15 MB each.</p>
+          <p className="text-xs text-muted-foreground">Audit: contracts.csv + four child CSVs, optional remove_agreements.csv · 10 MB uploaded, 30 MB expanded, 20 ZIP entries. Renewal: renewals.csv + optional child CSVs · 40 MB uploaded, 60 MB expanded, 60 entries; PDFs under files/, up to 15 MB each. Removals are audit-only.</p>
           <input ref={input} type="file" multiple accept=".zip,.csv,.json,application/zip,text/csv,application/json" className="hidden"
             onChange={e => { pick(e.target.files); e.target.value = ""; }} data-testid="input-import-files" />
         </div>
@@ -181,7 +183,10 @@ export default function AuditImportCard() {
         </div>
         {confirming && canImport && <div className="space-y-3 rounded-md border border-primary/40 bg-primary/5 p-4" data-testid="import-confirmation">
           <p className="text-sm">Import {report!.summary.terms} seasons across {report!.summary.agreements} agreements for {report!.summary.customers} customers?
-            {report!.summary.replaced > 0 && ` ${report!.summary.replaced} existing imported agreements will be replaced.`} Each customer is written in full or not at all. Old records and files are not changed.</p>
+            {report!.summary.replaced > 0 && ` ${report!.summary.replaced} existing imported agreements will be replaced.`}
+            {(report!.summary.removed ?? 0) > 0
+              ? ` ${report!.summary.removed} imported agreements and their seasons will be removed. The entire upload succeeds or rolls back together.`
+              : " Each customer is written in full or not at all."} Old records and stored files are not changed.</p>
           <div className="flex gap-2">
             <Button onClick={() => submit(false)} data-testid="button-confirm-import">Confirm import</Button>
             <Button variant="outline" onClick={() => setConfirming(false)} data-testid="button-cancel-import">Cancel</Button>
@@ -196,15 +201,19 @@ export default function AuditImportCard() {
             {report.errors.length > 0 ? <span className="rounded bg-[var(--ts-lost)]/15 px-1.5 py-0.5 text-xs font-medium text-[var(--ts-lost)]">Blocked</span>
               : dry ? <span className="rounded bg-[var(--ts-done)]/15 px-1.5 py-0.5 text-xs font-medium text-[var(--ts-done)]">Ready to import</span> : null}
           </div>
-          <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-7" data-testid="import-summary">
-            {(["customers", "agreements", "terms", "replaced", "documents", "warnings", "errors"] as const).map(k => {
-              const v = report.summary[k]; const tone = k === "errors" && v > 0 ? "text-[var(--ts-lost)]" : k === "warnings" && v > 0 ? "text-[var(--ts-waiting)]" : "";
+          <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-8" data-testid="import-summary">
+            {(["customers", "agreements", "terms", "replaced", "removed", "documents", "warnings", "errors"] as const).map(k => {
+              const v = report.summary[k] ?? 0; const tone = k === "errors" && v > 0 ? "text-[var(--ts-lost)]" : k === "warnings" && v > 0 ? "text-[var(--ts-waiting)]" : "";
               return <div key={k} className="bg-card px-2.5 py-2"><dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{k}</dt>
                 <dd className={`text-lg font-semibold tabular-nums ${tone}`} data-testid={`summary-${k}`}>{v}</dd></div>;
             })}
           </dl>
+          {dry && !!report.removals?.length && <ul aria-label="Planned removals" className="space-y-1 rounded-md border p-3 text-sm">
+            {report.removals.map(r => <li key={r.id}>Remove {r.ref} ({r.customerName}): {r.seasons} seasons</li>)}
+          </ul>}
 
           {!dry && <div className="space-y-2" data-testid="import-result">
+            {!!report.removed?.length && <p className="text-sm">Removed {report.removed.length} imported agreements: {report.removed.map(r => r.ref).join(", ")}</p>}
             {(report.successes ?? []).length > 0 && <div className="rounded-md border border-[var(--ts-done)]/40 bg-[var(--ts-done)]/10 p-3 text-sm">
               <p className="flex items-center gap-1.5 font-medium"><CheckCircle2 className="h-4 w-4 text-[var(--ts-done)]" />Imported {report.successes!.length} customers</p>
               <ul className="mt-1 text-xs text-muted-foreground">{report.successes!.map(s => <li key={s.customerId}>{s.customerName}: {s.agreements} agreements, {s.terms} seasons

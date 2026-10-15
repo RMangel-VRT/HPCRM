@@ -21,6 +21,11 @@ export interface ContractListItem {
   id: string;
   customerId: string;
   customerName: string;
+  viaParent?: boolean;
+  parentName?: string;
+  locationCount?: number;
+  branch?: { name: string; billingCode: string | null };
+  payments?: { component: string; months: { month: number; amountCents: number }[] }[];
   line: AgreementLine;
   form: "ours" | "theirs";
   current: TermSummary | null;

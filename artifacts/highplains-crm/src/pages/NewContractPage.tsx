@@ -31,7 +31,6 @@ interface CustomerLite {
   managementCompany?: string | null; propertyManagementCompanyId?: string | null;
 }
 interface ContactLite { name: string; phones?: string[] | null; emails?: string[] | null; isPrimary?: string | boolean | null }
-const isParentCustomer = (c: CustomerLite) => c.isParent === "true" || c.isParent === true;
 const pick = (on: boolean) => `rounded-md border p-4 text-left transition-colors ${on ? "border-primary bg-primary/10" : "hover:bg-muted/50"}`;
 
 function Field(props: { label: string; value: string; onChange: (v: string) => void; id: string; type?: string }) {
@@ -94,7 +93,7 @@ function NewContractBody({ companyId, userId, storageKey }: { companyId: string;
   // A customer id from the draft is never trusted; it is re-read from the server.
   const customerQ = useQuery<CustomerLite>({ queryKey: [...scoped, "contract-verify", d.customerId], enabled: !!d.customerId && !d.created, retry: false,
     queryFn: () => fetchJson(`/api/customers/${d.customerId}`) });
-  const customerOk = (c: CustomerLite | undefined): c is CustomerLite => !!c && c.companyId === companyId && !isParentCustomer(c);
+  const customerOk = (c: CustomerLite | undefined): c is CustomerLite => !!c && c.companyId === companyId;
   const verified = customerOk(customerQ.data) && customerQ.data.id === d.customerId ? customerQ.data : null;
   const contactsQ = useQuery<ContactLite[]>({ queryKey: [...scoped, d.customerId, "contacts"], enabled: !!verified && !d.created, retry: false,
     queryFn: () => fetchJson(`/api/customers/${d.customerId}/contacts`) });
@@ -102,7 +101,7 @@ function NewContractBody({ companyId, userId, storageKey }: { companyId: string;
   const patch = (p: Partial<NewContractDraft>) => setD(cur => ({ ...cur, ...p }));
   const applied = useRef<{ contacts: string | null; agent: string | null }>({ contacts: null, agent: null });
   function chooseCustomer(c: CustomerLite) {
-    if (!customerOk(c)) { setErrors([isParentCustomer(c) ? "Parent customers can't be picked. Choose one of its child customers." : "That customer isn't in this company."]); return; }
+    if (!customerOk(c)) { setErrors(["That customer isn't in this company."]); return; }
     const address = [c.street, [c.city, c.state].filter(Boolean).join(", "), c.zip].filter(Boolean).join(" ").trim();
     applied.current = { contacts: null, agent: null };
     setErrors([]); setSearch("");
@@ -127,7 +126,7 @@ function NewContractBody({ companyId, userId, storageKey }: { companyId: string;
   }, [verified, pms.data]);
   useEffect(() => {
     if (customerQ.data && !customerOk(customerQ.data)) {
-      setErrors([isParentCustomer(customerQ.data) ? "Parent customers can't be picked. Choose one of its child customers." : "That customer isn't in this company."]);
+      setErrors(["That customer isn't in this company."]);
       setD(cur => ({ ...cur, customerId: "", customerName: "" }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -277,9 +276,9 @@ function NewContractBody({ companyId, userId, storageKey }: { companyId: string;
                     {results.data.customers.filter(c => c.companyId === companyId).length === 0 && <li className="p-3 text-sm text-muted-foreground" data-testid="empty-customers">No customers match.</li>}
                     {results.data.customers.filter(c => c.companyId === companyId).map(c => (
                       <li key={c.id}>
-                        <button type="button" className="w-full text-left p-2 text-sm hover:bg-muted/50 disabled:opacity-50" disabled={isParentCustomer(c)}
+                        <button type="button" className="w-full text-left p-2 text-sm hover:bg-muted/50"
                           onClick={() => chooseCustomer(c)} data-testid={`option-customer-${c.id}`}>
-                          {c.name}{isParentCustomer(c) && <span className="text-xs text-muted-foreground"> (parent, pick a child)</span>}
+                          {c.name}
                         </button>
                       </li>
                     ))}

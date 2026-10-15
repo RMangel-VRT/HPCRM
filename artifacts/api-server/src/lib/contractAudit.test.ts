@@ -132,7 +132,7 @@ describe("audit planner canonical rules", () => {
     const errors = planAuditImport(files, data()).errors;
     expect(errors.some(e => e.file === file && e.row && e.message.toLowerCase().includes(expected.toLowerCase()))).toBe(true);
   });
-  it("checks duplicate refs, inconsistent agreements, parent customers and cycles", async () => {
+  it("checks duplicate refs and inconsistent agreements without rejecting parents", async () => {
     const { files } = await fixture();
     change(files, "contracts.csv", "contract_ref", "college-hills-2025-26", 1);
     change(files, "contracts.csv", "form", "ours", 1);
@@ -140,7 +140,7 @@ describe("audit planner canonical rules", () => {
     const messages = planAuditImport(files, d).errors.map(e => e.message);
     expect(messages.some(m => m.includes("Duplicate"))).toBe(true);
     expect(messages.some(m => m.includes("agree"))).toBe(true);
-    expect(messages.some(m => m.includes("Parent"))).toBe(true);
+    expect(messages.some(m => m.includes("Parent"))).toBe(false);
   });
   it("rejects zero-valued payment rows for snow T&M and invalid child refs", async () => {
     const { files } = await fixture();

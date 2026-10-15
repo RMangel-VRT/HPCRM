@@ -54,7 +54,8 @@ paths, symlinks, encrypted entries and duplicate tables are rejected.
 Signed dates are noon America/Denver; old timestamp dates export using UTC
 components with the original ISO timestamp alongside them. Money is parsed
 directly into bounded integer cents. Each customer's import is atomic, while
-other customers can succeed independently. Reimport replaces only the matching
+other customers can succeed independently, except for removal-bearing audit
+uploads, which are atomic across the entire upload (see below). Reimport replaces only the matching
 company-owned import reference and adds new attributable import history.
 
 Editable CSV text beginning with a spreadsheet formula marker (including leading
@@ -99,3 +100,43 @@ cleanup failure is reported explicitly, not presented as a successful import.
 Production renewal preparation, signed-document review and imports remain
 explicit manual work. This implementation did not publish or import production
 data. See [renewal verification](contract-center-renewal-verification.md).
+
+## Parent-owned agreements and guarded removals
+
+Contract Center Create, audit import and renewal import accept parent customers.
+Parent and branch agreements can coexist. A branch's Contracts tab shows its own
+agreements first, then read-only inherited cards through its direct parent, then
+the frozen old-system section. The parent's Contracts tab is available on its
+separate parent dashboard. Board/list contracts stay under the actual owner with
+the active company's child count; they are never duplicated into branch groups.
+Branch payment-line prefix matches against customer number or name are only
+display hints, not billing relationships.
+
+An audit upload may include `remove_agreements.csv`, with required
+`agreement_ref` values identifying existing active-company import references.
+Renewal mode rejects this file. Unknown, duplicate and blank references, or a
+reference also present in `contracts.csv`, block Import. The five audit tables
+remain required; the manifest remains optional. Multi-file uploads now allow the
+six CSVs plus a manifest (seven files); byte and ZIP limits are unchanged.
+
+Removal and replacement share the same provenance guard. A manually created or
+renewed season, a renewal-imported season, or a direct Contract Center attachment
+blocks destruction with the named season/document diagnostic. Having an
+`import_ref` does not make all later history replaceable.
+
+With any removals, the entire upload is one transaction. After the established
+company import gate, deterministic company-scoped customer/hierarchy, agreement,
+season/document, legacy-contract/document and source-link locks are acquired.
+The entire upload is replanned against fresh data before deletion. Safely
+removed/replaced agreements release their links before additions are written.
+Any failure rolls back every removal and addition; there is no partial success.
+Audit uploads without removals and renewal uploads retain per-customer behavior.
+
+A parent may take legacy IDs and document metadata from itself or direct
+children in the active company only. Uncovered-record warnings include those
+children. Every new season records both normal import history and
+`Replaces imported contracts: <refs>`. Committed removals are logged only after
+commit, with identities, importing administrator and time. No stored object is
+copied or deleted, and no frozen legacy row is modified.
+
+See [parent/removal development verification](contract-center-parent-verification.md).

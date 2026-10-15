@@ -76,7 +76,7 @@ describe("customer Contract Center switch-over", () => {
     const query = fx.queries.find(q => q.queryKey[0] === "/api/contract-center/contracts");
     expect(query.queryKey).toEqual(["/api/contract-center/contracts", "company", "customer"]);
     await query.queryFn();
-    expect(fx.api).toHaveBeenCalledWith("GET", "/api/contract-center/contracts?customerId=customer");
+    expect(fx.api).toHaveBeenCalledWith("GET", "/api/contract-center/contracts?customerId=customer&includeParent=true");
     fx.user.activeCompanyId = "other"; fx.queries = [];
     expect(tab()).not.toContain("center-contract-new");
     expect(fx.queries[0].queryKey).toContain("other");
@@ -86,6 +86,24 @@ describe("customer Contract Center switch-over", () => {
     fx.responses[key] = { data: [] }; expect(tab()).toContain("No contracts yet.");
     fx.responses[key] = { isLoading: true }; expect(tab()).toContain("Loading contracts"); expect(tab()).not.toContain("No contracts yet.");
     fx.responses[key] = { isError: true }; expect(tab()).toContain("Could not load contracts."); expect(tab()).not.toContain("No contracts yet.");
+  });
+  it("separates own and inherited cards above legacy with a display-only branch hint", () => {
+    const inherited = { ...center, id: "parent-contract", customerId: "parent", customerName: "Parent",
+      viaParent: true, parentName: "Parent", branch: { name: "Federal", billingCode: "FB01" },
+      payments: [{ component: "FB01 – Federal", months: [{ month: 1, amountCents: 69000 }] }] };
+    fx.responses["/api/contract-center/contracts|company|customer"] = { data: [inherited, center] };
+    const html = tab();
+    expect(html).toContain("Through Parent");
+    expect(html).toContain("Your branch: FB01 – Federal, $690.00/month");
+    expect(html.indexOf("center-contract-new")).toBeLessThan(html.indexOf("Through Parent"));
+    expect(html.indexOf("center-contract-parent-contract")).toBeLessThan(html.indexOf("old-system-contracts"));
+    expect(html).toContain('/dashboard/contracts/parent-contract');
+    inherited.payments[0].component = "Unrelated branch";
+    expect(tab()).not.toContain("Your branch:");
+    inherited.payments[0].component = "Federal – site";
+    expect(tab()).toContain("Your branch: Federal – site, $690.00/month");
+    fx.responses["/api/contract-center/contracts|company|customer"] = { data: [center] };
+    expect(tab()).not.toContain("Through Parent");
   });
   it("shows not yet copied only for a successful null provenance", () => {
     const key = "/api/contract-center/copy-status|company";

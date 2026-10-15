@@ -6,6 +6,7 @@ import yauzl from "yauzl";
 
 export const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 export const IMPORT_HEADERS: Record<string, string[]> = {
+  "remove_agreements.csv": ["agreement_ref"],
   "renewals.csv": "contract_ref renews_term_id customer_name season_label start_date end_date status signed_date snow_pricing snow_flat_price legal_name managing_agent_name project_contact contact_phone contact_email project_address po snow_triggers notes renewal_increase_pct needs_review review_note".split(" "),
   "contracts.csv": "contract_ref agreement_ref customer_id customer_name line form season_label start_date end_date status signed_date renews_ref snow_pricing snow_flat_price managing_agent_name legal_name project_contact contact_phone contact_email project_address po snow_triggers legacy_contract_ids needs_review review_note notes".split(" "),
   "payments.csv": ["contract_ref", "payment_line", ...MONTHS],
@@ -40,7 +41,9 @@ export function receiveAuditUpload(req: Request, detectMode = false): Promise<Up
   return new Promise((resolve, reject) => {
     let bus: ReturnType<typeof Busboy>;
     const limit = detectMode ? RENEWAL_LIMIT : LIMIT;
-    try { bus = Busboy({ headers: req.headers, limits: { fileSize: limit, files: 6, fields: 0, parts: 6 } }); }
+    // Five audit tables, optional removals and optional manifest. Busboy's
+    // partsLimit fires on reaching the bound, so reserve one sentinel part.
+    try { bus = Busboy({ headers: req.headers, limits: { fileSize: limit, files: 7, fields: 0, parts: 8 } }); }
     catch { reject(new Error("Expected multipart files")); return; }
     const files: UploadFile[] = [];
     let total = 0, failure = "";
@@ -151,6 +154,9 @@ export async function parseAuditFiles(upload: UploadFile[]): Promise<AuditFiles>
     if (paths.has(file.name)) { error(file.name, "Duplicate data file"); continue; }
     paths.add(file.name);
     const name = file.name.split("/").pop()!;
+    if (name === "remove_agreements.csv" && result.mode === "renewal") {
+      error(name, "remove_agreements.csv is only allowed in audit imports"); continue;
+    }
     if (result.mode === "renewal" && /\.pdf$/i.test(name)) {
       if (!zipped || !file.name.startsWith("files/")) error(file.name, "PDFs must be inside the ZIP under files/");
       else if (file.data.length > PDF_LIMIT) error(file.name, "PDF exceeds 15 MB");
@@ -178,7 +184,8 @@ export async function parseAuditFiles(upload: UploadFile[]): Promise<AuditFiles>
       if (!headers.length || new Set(headers).size !== headers.length) { error(name, "Missing or duplicate column headers"); continue; }
       const allowed = name === "documents.csv" && result.mode === "renewal" ? ["contract_ref", "file", "kind"] : IMPORT_HEADERS[name];
       headers.forEach(h => { if (!allowed.includes(h)) error(name, `Unknown column: ${h}`, 1, h); });
-      const required = name === "renewals.csv" ? ["contract_ref", "renews_term_id", "start_date", "end_date", "status"]
+      const required = name === "remove_agreements.csv" ? ["agreement_ref"]
+        : name === "renewals.csv" ? ["contract_ref", "renews_term_id", "start_date", "end_date", "status"]
         : name === "contracts.csv" ? ["contract_ref", "agreement_ref", "customer_id", "line", "form", "start_date", "end_date", "status"]
         : name === "payments.csv" ? ["contract_ref", "payment_line"] : name === "rates.csv" ? ["contract_ref", "rate_key"]
         : name === "scope.csv" ? ["contract_ref", "service_key", "included"] : ["contract_ref", result.mode === "renewal" ? "file" : "document_id", "kind"];
@@ -191,7 +198,7 @@ export async function parseAuditFiles(upload: UploadFile[]): Promise<AuditFiles>
     }
   }
   const main = result.mode === "renewal" ? "renewals.csv" : "contracts.csv";
-  (result.mode === "renewal" ? [main] : Object.keys(IMPORT_HEADERS).filter(n => n !== "renewals.csv"))
+  (result.mode === "renewal" ? [main] : Object.keys(IMPORT_HEADERS).filter(n => !["renewals.csv", "remove_agreements.csv"].includes(n)))
     .forEach(name => { if (!seen.has(name)) error(name, "Missing import table"); });
   if (!result.tables[main]?.length) error(main, "At least one season is required");
   return result;

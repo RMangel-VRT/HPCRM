@@ -12,6 +12,7 @@ import { dateOnly, coloradoToday, money } from "@/components/contracts/contractF
 import { boardColumns, priceLabel, renewalProgress, rowTerm, tableRows } from "@/components/contracts/boardLogic";
 import type { BoardCard, ColumnKey, FilterChip, SortKey } from "@/components/contracts/boardLogic";
 import type { BoardLine, ContractListItem } from "@/components/contracts/contractTypes";
+import { contractCustomerLabel } from "@/components/contracts/parentContract";
 
 const STORAGE_KEY = "hp-contract-center-board";
 const OPEN_STORAGE_KEY = "hp-contract-center-board-open";
@@ -90,7 +91,7 @@ function BoardCardView({ card, board, onRenew }: { card: BoardCard; board: Board
   return (
     <div className="rounded-md border border-border hover:border-foreground/20 bg-background dark:bg-card shadow-sm dark:shadow-none px-3 py-2 space-y-1.5" data-testid={`card-${column}-${item.id}`}>
       <div className="flex items-center gap-2">
-        <div className="font-medium text-sm truncate flex-1 min-w-0" title={item.customerName} data-testid={`text-card-customer-${column}-${item.id}`}>{item.customerName}</div>
+        <div className="font-medium text-sm truncate flex-1 min-w-0" title={contractCustomerLabel(item)} data-testid={`text-card-customer-${column}-${item.id}`}>{contractCustomerLabel(item)}</div>
         <div className="text-sm tabular-nums whitespace-nowrap">{priceLabel(item, term, money, board)}</div>
         {column === "renewal"
           ? <Button size="sm" className="h-7 min-h-0 shrink-0 px-2.5 text-xs" onClick={() => onRenew?.(item)} data-testid={`button-renew-${item.id}`}>Renew</Button>
@@ -163,7 +164,7 @@ export function ContractTable({ items, board, q, onOpen, chips: controlledChips,
               return (
                 <tr key={i.id} className="border-t cursor-pointer hover:bg-muted/40" tabIndex={0} data-testid={`row-contract-${i.id}`}
                   onClick={() => onOpen?.(i.id)} onKeyDown={e => { if (e.key === "Enter") onOpen?.(i.id); }}>
-                  <td className="p-2 font-medium">{i.customerName}</td>
+                  <td className="p-2 font-medium">{contractCustomerLabel(i)}</td>
                   <td className="p-2"><LineBadge line={i.line} /></td>
                   <td className="p-2">{i.form === "ours" ? "Our form" : "Their form"}</td>
                   <td className="p-2">{t?.seasonLabel ?? "\u2014"}</td>
