@@ -33,6 +33,11 @@ export async function lockTerm(tx: Transaction, companyId: string, id: string) {
 }
 export const termWhere = (table: { termId: AnyPgColumn; companyId: AnyPgColumn }, companyId: string, termId: string) =>
   and(eq(table.termId, termId), eq(table.companyId, companyId));
+export async function replaceRows(tx: Transaction, companyId: string, termId: string,
+  table: typeof termScopeLines | typeof termRates | typeof termBillingMonths, rows: object[]) {
+  await tx.delete(table).where(termWhere(table, companyId, termId));
+  if (rows.length) await tx.insert(table).values(rows.map(row => ({ ...row, companyId, termId })) as never);
+}
 
 /** All lifecycle term writes use this function, including attributable history. */
 export async function writeTerm(tx: Transaction, companyId: string, userId: string,

@@ -254,6 +254,15 @@ export class ObjectStorageService {
     const [data] = await bucket.file(objectName).download();
     return data as Buffer;
   }
+
+  /** Only for newly allocated private paths whose owner is rolling back a write. */
+  async deletePrivatePath(relativePath: string): Promise<void> {
+    if (!relativePath || relativePath.startsWith("/") || relativePath.split("/").some(p => !p || p === "." || p === ".."))
+      throw new Error("Invalid private path");
+    const fullPath = `${this.getPrivateObjectDir().replace(/\/$/, "")}/${relativePath}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    await objectStorageClient.bucket(bucketName).file(objectName).delete({ ignoreNotFound: true });
+  }
 }
 
 function parseObjectPath(path: string): {

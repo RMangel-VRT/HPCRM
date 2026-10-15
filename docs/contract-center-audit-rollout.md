@@ -41,7 +41,7 @@ The “Contract Center — Design & Impact Map” was not supplied. This discove
 rollout note is the retention-rule reference until that document is available;
 carry this rule into its Phase 7 section when it is supplied.
 
-## Template and limits
+## Audit template and limits
 
 The authoritative reusable worked template is
 `attached_assets/contract-import-template_1791932139984.zip`:
@@ -60,3 +60,42 @@ company-owned import reference and adds new attributable import history.
 Editable CSV text beginning with a spreadsheet formula marker (including leading
 whitespace) is prefixed with an apostrophe so Excel treats it as text, not an
 executable formula. Ordinary IDs and decimal amounts are unchanged.
+
+## Externally signed renewal imports
+
+Settings › Contracts also offers **Download current contracts**, an admin-only,
+active-company export of every Contract Center season, payment pattern, rate
+difference/custom rate and the rate card. The audit batch export uses the same
+season columns, without changing its legacy customer batching or documents.
+
+A renewal upload has `renewals.csv`, not `contracts.csv`. Never include both.
+Each row's `renews_term_id` comes from the current export's `term_id`.
+Optional `payments.csv`, `rates.csv`, `scope.csv` and `documents.csv` use
+`contract_ref` to link to the main row. Payments are required except for
+snow-only time-and-materials. Renewal documents use `contract_ref,file,kind`,
+where `file` is a PDF path under `files/` inside the ZIP; legacy `document_id`
+references are not accepted.
+
+Renewals allow **40 MB uploaded, 60 MB expanded and 60 ZIP entries**, including
+directories and README entries. Each PDF is at most **15 MB**. CSV-only audit
+uploads retain their **10 MB / 30 MB / 20-entry** limits and cannot upload PDFs.
+No migration or package installation is needed.
+
+Blank optional season/snow fields keep the source values; dates determine the
+default season label. Supplied payments are a complete new yearly pattern,
+not an increase applied to old payments. `renewal_increase_pct` is information
+only. No scope rows copies the original scope; any scope rows replace it.
+Rates carry forward exactly as Renew, with only supplied cells overridden.
+
+Preview writes nothing. Real Import reads the upload again and rechecks current
+data under agreement locks, one transaction per customer. Signed imports set
+only the source's status to Renewed; draft/sent imports leave it alone. Existing
+draft/sent renewals must be cancelled first; replacement is not implemented.
+An already-imported same-start season is skipped, including on repeated Import.
+New PDF paths are private and unique; rollback removes only that customer's new
+objects, never historical files or earlier customers' committed objects. A
+cleanup failure is reported explicitly, not presented as a successful import.
+
+Production renewal preparation, signed-document review and imports remain
+explicit manual work. This implementation did not publish or import production
+data. See [renewal verification](contract-center-renewal-verification.md).

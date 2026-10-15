@@ -4,7 +4,9 @@ import { receiveAuditUpload, parseAuditFiles } from "../lib/contractAuditFiles";
 import { loadAuditData } from "../lib/contractAuditData";
 import { planAuditImport, auditReport } from "../lib/contractAuditPlan";
 import { executeAuditImport } from "../lib/contractAuditExecution";
-import { auditBatches, streamAuditExport } from "../lib/contractAuditExport";
+import { auditBatches, streamAuditExport, streamCurrentExport } from "../lib/contractAuditExport";
+import { planRenewalImport, renewalReport } from "../lib/contractRenewalPlan";
+import { executeRenewalImport } from "../lib/contractRenewalExecution";
 
 export function auditSize(value: unknown) {
   const text = value === undefined ? "10" : value;
@@ -13,6 +15,10 @@ export function auditSize(value: unknown) {
   return Number(text);
 }
 export function registerContractAudit(app: Express, authorize: (req: Request, res: Response) => UserWithContext | null) {
+  app.get("/api/admin/contract-center/current-export", async (req, res) => {
+    const user = authorize(req, res); if (!user) return;
+    await streamCurrentExport(res, await loadAuditData(user.activeCompanyId));
+  });
   app.get("/api/admin/contract-center/audit-export/batches", async (req, res) => {
     const user = authorize(req, res); if (!user) return;
     let size: number;
@@ -43,9 +49,14 @@ export function registerContractAudit(app: Express, authorize: (req: Request, re
     }
     const dryRun = req.query.dryRun !== "false";
     let files;
-    try { files = await parseAuditFiles(await receiveAuditUpload(req)); }
+    try { files = await parseAuditFiles(await receiveAuditUpload(req, true)); }
     catch (e) { res.status(400).json({ message: (e as Error).message }); return; }
     // Parsing errors are returned in the same structured Preview envelope.
+    if (files.mode === "renewal") {
+      const plan = planRenewalImport(files, await loadAuditData(user.activeCompanyId));
+      if (dryRun || plan.errors.length) { res.json(renewalReport(plan, dryRun)); return; }
+      res.json(await executeRenewalImport(files, user.activeCompanyId, user.id)); return;
+    }
     const plan = planAuditImport(files, await loadAuditData(user.activeCompanyId));
     if (dryRun || plan.errors.length) { res.json(auditReport(plan, dryRun)); return; }
     res.json(await executeAuditImport(files, user.activeCompanyId, user.id));

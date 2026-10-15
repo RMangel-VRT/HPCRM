@@ -239,7 +239,7 @@ export function auditReport(plan: ImportPlan, dryRun: boolean) {
         endDate: t.values.endDate, status: t.values.status, annualPrice: t.values.annualPriceCents, paymentLines: t.paymentCount,
         rates: t.rates.length, scope: t.scope.length, documents: t.documents.length, needsReview: t.values.needsReview ?? false })) })) }));
   const agreements = plan.customers.flatMap(c => c.agreements), terms = agreements.flatMap(a => a.terms);
-  return { dryRun, errors: plan.errors, warnings: plan.warnings, customers,
+  return { mode: "audit" as const, dryRun, errors: plan.errors, warnings: plan.warnings, customers,
     summary: { customers: customers.length, agreements: agreements.length, terms: terms.length,
       replaced: agreements.filter(a => a.replaceId).length, documents: terms.reduce((n, t) => n + t.documents.length, 0),
       warnings: plan.warnings.length, errors: plan.errors.length } };

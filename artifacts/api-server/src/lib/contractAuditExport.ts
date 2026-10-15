@@ -5,6 +5,7 @@ import type { AuditData } from "./contractAuditData";
 import { MONTHS } from "./contractAuditFiles";
 import { ObjectStorageService } from "../objectStorage";
 import { companyToday } from "./companyDay";
+import { displayStatus, recoverPayments } from "./contractCenterService";
 
 export function csv(headers: string[], rows: unknown[][]): string {
   const quote = (v: unknown) => {
@@ -41,6 +42,67 @@ export function auditBatches(data: AuditData, size: number) {
 const RATE_COLUMNS = ["generalLabor", "operatorLabor", "irrigationLabor", "emergencyGeneralLabor", "emergencyIrrigationLabor",
   "handShovelLabor", "plowTruck", "atv", "skidSteer", "snowBlower", "iceMeltMaterial", "iceMeltApplicationLabor"] as const;
 const snake = (key: string) => key.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
+export const SEASON_COLUMNS = "customer_id customer_name parent_customer_name agreement_id import_ref line form term_id season start end status display_status renewed_from_term_id signed_at annual_price payment_lines documents".split(" ");
+function sortedSeasons(data: AuditData, customerIds: string[]) {
+  const ids = new Set(customerIds);
+  return data.terms.flatMap(t => {
+    const a = data.agreements.find(a => a.id === t.agreementId);
+    const c = a && data.customers.find(c => c.id === a.customerId);
+    return a && c && ids.has(c.id) ? [{ t, a, c }] : [];
+  }).sort((a, b) => a.c.name.toLowerCase().localeCompare(b.c.name.toLowerCase(), "en") ||
+    a.t.startDate.localeCompare(b.t.startDate) || a.t.id.localeCompare(b.t.id));
+}
+export function seasonCsv(data: AuditData, customerIds: string[]) {
+  const today = companyToday();
+  return csv(SEASON_COLUMNS, sortedSeasons(data, customerIds).map(({ t, a, c }) => [
+    c.id, c.name, data.customers.find(p => p.id === c.parentCustomerId)?.name, a.id, a.importRef, a.line, a.form,
+    t.id, t.seasonLabel, t.startDate, t.endDate, t.status, displayStatus(t, data.terms, today), t.renewedFromTermId,
+    iso(t.signedAt), dollars(t.annualPriceCents),
+    recoverPayments((data.billing ?? []).filter(b => b.termId === t.id)).map(p => {
+      const amounts = new Set(p.months.map(m => m.amountCents));
+      return `${p.component}: ${amounts.size === 1 ? `${p.months.length} x ${dollars(p.months[0].amountCents)} (${p.months.map(m => MONTHS[m.month - 1]).join(", ")})`
+        : p.months.map(m => `${MONTHS[m.month - 1]} ${dollars(m.amountCents)}`).join(", ")}`;
+    }).join("; "), data.termDocs.filter(d => d.termId === t.id).length,
+  ]));
+}
+export function currentCsvTables(data: AuditData) {
+  const ids = data.customers.map(c => c.id), seasons = sortedSeasons(data, ids);
+  return {
+    "contract_center.csv": seasonCsv(data, ids),
+    "term_payments.csv": csv(["term_id", "payment_line", ...MONTHS], seasons.flatMap(({ t }) =>
+      recoverPayments((data.billing ?? []).filter(b => b.termId === t.id)).map(p =>
+        [t.id, p.component, ...MONTHS.map((_, i) => dollars(p.months.find(m => m.month === i + 1)?.amountCents ?? 0))]))),
+    "term_rates.csv": csv("term_id rate_key label price price_text unit minimum card_price".split(" "),
+      seasons.flatMap(({ t }) => (data.rates ?? []).filter(r => r.termId === t.id &&
+        (!data.card.some(c => c.rateKey === r.rateKey) || r.rateKey.startsWith("custom_") ||
+          r.priceCents !== r.cardPriceCents || r.priceText !== r.cardPriceText ||
+          data.card.some(c => c.rateKey === r.rateKey && (r.unit !== c.unit || r.minimum !== c.minimum || r.label !== c.label))))
+        .map(r => [t.id, r.rateKey, r.label, dollars(r.priceCents), r.priceText, r.unit, r.minimum, dollars(r.cardPriceCents)]))),
+    "rate_card.csv": rateCardCsv(data),
+  };
+}
+function rateCardCsv(data: AuditData) {
+  return csv("rate_key line category label price price_text unit minimum active".split(" "),
+    data.card.map(r => [r.rateKey, r.line, r.category, r.label, dollars(r.priceCents), r.priceText, r.unit, r.minimum, r.active]));
+}
+export async function streamCurrentExport(res: Response, data: AuditData) {
+  const archive = archiver("zip", { zlib: { level: 6 } });
+  const close = () => { if (!res.writableFinished) archive.abort(); };
+  const finished = new Promise<void>(resolve => {
+    res.once("finish", resolve); res.once("close", resolve); res.once("error", resolve);
+  });
+  res.once("close", close);
+  archive.on("error", () => { archive.abort(); res.destroy(); });
+  archive.on("warning", () => { archive.abort(); res.destroy(); });
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename="current-contracts-${companyToday()}.zip"`);
+  archive.pipe(res);
+  try {
+    for (const [name, text] of Object.entries(currentCsvTables(data))) archive.append(text, { name });
+    await archive.finalize(); await finished;
+  } catch { archive.abort(); res.destroy(); }
+  finally { res.off("close", close); }
+}
 export function auditCsvTables(data: AuditData, customerIds: string[]) {
   const ids = new Set(customerIds), customers = data.customers.filter(c => ids.has(c.id));
   const old = data.contracts.filter(c => ids.has(c.customerId)), contractIds = new Set(old.map(c => c.id));
@@ -50,7 +112,6 @@ export function auditCsvTables(data: AuditData, customerIds: string[]) {
     const name = customers.find(c => c.id === customerId)!.name;
     return `documents/${safeArchiveName(name)}/${safeArchiveName(d.id)}__${safeArchiveName(d.filename)}`;
   };
-  const agreements = data.agreements.filter(a => ids.has(a.customerId)), agreementIds = new Set(agreements.map(a => a.id));
   const tables: Record<string, string> = {
     "customers.csv": csv(["customer_id", "name", "parent_customer_id", "is_parent", "management_company", "address", "city", "state", "zip", "primary_contact_name", "primary_contact_phone", "primary_contact_email"],
       customers.map(c => { const contact = data.contacts.find(p => p.customerId === c.id && p.isPrimary === "true");
@@ -67,11 +128,8 @@ export function auditCsvTables(data: AuditData, customerIds: string[]) {
       data.sheets.filter(r => ids.has(r.customerId)).map(r => [r.customerId, ...RATE_COLUMNS.map(k => dollars(r[k]))])),
     "old_documents.csv": csv("document_id contract_id customer_id version filename mime_type file_size uploaded_at zip_path".split(" "),
       documents.map(d => [d.id, d.contractId, old.find(c => c.id === d.contractId)!.customerId, d.version, d.filename, d.mimeType, d.fileSize, iso(d.uploadedAt), documentPath(d)])),
-    "contract_center.csv": csv("agreement_id import_ref term_id line form season start end status annual_price".split(" "),
-      data.terms.filter(t => agreementIds.has(t.agreementId)).map(t => { const a = agreements.find(a => a.id === t.agreementId)!;
-        return [a.id, a.importRef, t.id, a.line, a.form, t.seasonLabel, t.startDate, t.endDate, t.status, dollars(t.annualPriceCents)]; })),
-    "rate_card.csv": csv("rate_key line category label price price_text unit minimum active".split(" "),
-      data.card.map(r => [r.rateKey, r.line, r.category, r.label, dollars(r.priceCents), r.priceText, r.unit, r.minimum, r.active])),
+    "contract_center.csv": seasonCsv(data, customerIds),
+    "rate_card.csv": rateCardCsv(data),
   };
   return { tables, documents: documents.map(d => ({ document: d, path: documentPath(d) })) };
 }

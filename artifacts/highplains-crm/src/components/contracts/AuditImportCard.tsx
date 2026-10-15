@@ -7,19 +7,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractApiErrorMessage } from "@/lib/apiError";
 import { useAuth } from "@/hooks/use-auth";
+import { Link } from "wouter";
 
 export interface Batch { batch: number; firstName: string; lastName: string; customers: number; documents: number; bytes: number }
-interface Term { contractRef: string; season: string; startDate: string; endDate: string; status: string;
+interface Term { contractRef: string; season: string; description?: string; action?: string; startDate: string; endDate: string; status: string;
   annualPrice: number | null; paymentLines: number; rates: number; scope: number;
   documents: number | { signed?: number; their_form?: number; other?: number; total?: number }; needsReview: boolean }
 interface ImportError { file: string; row: number; column?: string; message: string }
 interface ImportWarning { file: string; row?: number; contractRef?: string; message: string }
 export interface ImportReport {
-  dryRun: boolean; errors: ImportError[]; warnings: ImportWarning[];
+  mode?: "audit" | "renewal"; dryRun: boolean; errors: ImportError[]; warnings: ImportWarning[];
   customers: { customerId: string; customerName: string; agreements: { agreementRef: string; line: string; form: string;
-    action: "create" | "replace"; terms: Term[] }[] }[];
+    action: "create" | "replace" | "add renewal"; terms: Term[] }[] }[];
   summary: { customers: number; agreements: number; terms: number; replaced: number; documents: number; warnings: number; errors: number };
-  successes?: { customerId: string; customerName: string; agreements: number; terms: number }[];
+  successes?: { customerId: string; customerName: string; agreements: number; terms: number;
+    seasons?: { agreementId: string; termId: string; season: string }[] }[];
   failures?: { customerId: string; customerName: string; error: string }[];
 }
 
@@ -148,10 +150,12 @@ export default function AuditImportCard() {
   return <Card data-testid="audit-import-card">
     <CardHeader>
       <CardTitle>Audit export and import</CardTitle>
-      <CardDescription>Export a batch of customers with their old records and contract documents, fill in the import CSVs, then preview and import them. Preview lists every problem; nothing is written until you confirm.</CardDescription>
+      <CardDescription>Export old records for an audit, or download current contracts to prepare signed renewals. Preview either import before confirming. Renewals add seasons to existing contracts; earlier seasons are preserved.</CardDescription>
     </CardHeader>
     <CardContent className="space-y-6">
-      <section className="space-y-2"><h3 className="text-sm font-semibold tracking-tight">1 · Audit export</h3><AuditExportPanel key={String(companyId)} companyId={companyId} /></section>
+      <section className="space-y-2"><h3 className="text-sm font-semibold tracking-tight">1 · Audit export</h3><AuditExportPanel key={String(companyId)} companyId={companyId} />
+        <Button variant="outline" asChild><a href="/api/admin/contract-center/current-export" download data-testid="button-current-contracts"><Download className="mr-2 h-4 w-4" />Download current contracts</a></Button>
+      </section>
 
       <section className="space-y-3" data-testid="import-section">
         <h3 className="text-sm font-semibold tracking-tight">2 · Import</h3>
@@ -161,7 +165,7 @@ export default function AuditImportCard() {
           className={`flex cursor-pointer flex-col items-center gap-1 rounded-md border-2 border-dashed px-4 py-5 text-center transition-colors ${drag ? "border-primary bg-primary/10" : "bg-muted/30 hover:bg-muted/50"}`} data-testid="dropzone-import">
           <Upload className="h-5 w-5 text-muted-foreground" />
           <p className="text-sm font-medium">Drop a ZIP, or several CSVs (manifest.json optional)</p>
-          <p className="text-xs text-muted-foreground">or click to browse · 10 MB limit</p>
+          <p className="text-xs text-muted-foreground">Audit: contracts.csv + four child CSVs · 10 MB uploaded, 30 MB expanded, 20 ZIP entries. Renewal: renewals.csv + optional child CSVs · 40 MB uploaded, 60 MB expanded, 60 entries; PDFs under files/, up to 15 MB each.</p>
           <input ref={input} type="file" multiple accept=".zip,.csv,.json,application/zip,text/csv,application/json" className="hidden"
             onChange={e => { pick(e.target.files); e.target.value = ""; }} data-testid="input-import-files" />
         </div>
@@ -188,7 +192,7 @@ export default function AuditImportCard() {
 
         {report && <div className="space-y-4" aria-live="polite" data-testid="import-report">
           <div className="flex items-center gap-2">
-            <h4 className="text-sm font-semibold">{dry ? "Preview" : "Import"} results</h4>
+            <h4 className="text-sm font-semibold">{report.mode === "renewal" ? "Renewal import" : "Audit import"} · {dry ? "Preview" : "Import"} results</h4>
             {report.errors.length > 0 ? <span className="rounded bg-[var(--ts-lost)]/15 px-1.5 py-0.5 text-xs font-medium text-[var(--ts-lost)]">Blocked</span>
               : dry ? <span className="rounded bg-[var(--ts-done)]/15 px-1.5 py-0.5 text-xs font-medium text-[var(--ts-done)]">Ready to import</span> : null}
           </div>
@@ -203,7 +207,9 @@ export default function AuditImportCard() {
           {!dry && <div className="space-y-2" data-testid="import-result">
             {(report.successes ?? []).length > 0 && <div className="rounded-md border border-[var(--ts-done)]/40 bg-[var(--ts-done)]/10 p-3 text-sm">
               <p className="flex items-center gap-1.5 font-medium"><CheckCircle2 className="h-4 w-4 text-[var(--ts-done)]" />Imported {report.successes!.length} customers</p>
-              <ul className="mt-1 text-xs text-muted-foreground">{report.successes!.map(s => <li key={s.customerId}>{s.customerName}: {s.agreements} agreements, {s.terms} seasons</li>)}</ul></div>}
+              <ul className="mt-1 text-xs text-muted-foreground">{report.successes!.map(s => <li key={s.customerId}>{s.customerName}: {s.agreements} agreements, {s.terms} seasons
+                {s.seasons?.map(t => <Link key={t.termId} href={`/dashboard/contracts/${t.agreementId}#term-${t.termId}`} className="ml-2 underline">{t.season}</Link>)}
+              </li>)}</ul></div>}
             {(report.failures ?? []).length > 0 && <div role="alert" className="rounded-md border border-[var(--ts-lost)]/50 bg-[var(--ts-lost)]/10 p-3 text-sm" data-testid="import-failures">
               <p className="flex items-center gap-1.5 font-medium"><XCircle className="h-4 w-4 text-[var(--ts-lost)]" />These customers were not imported:</p>
               <ul className="mt-1 list-disc pl-5">{report.failures!.map(f => <li key={f.customerId}>{f.customerName}: {f.error}</li>)}</ul></div>}
@@ -240,7 +246,7 @@ export default function AuditImportCard() {
                       <td className="px-3 py-1 text-right"><span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase ${a.action === "replace" ? "bg-[var(--ts-waiting)]/15 text-[var(--warning)]" : "bg-primary/15"}`} data-testid={`action-${a.agreementRef}`}>{a.action}</span></td>
                     </tr>
                     {a.terms.map(t => <tr key={t.contractRef} className={`border-t ${t.needsReview ? "bg-[var(--ts-waiting)]/5" : ""}`} data-testid={`term-${t.contractRef}`}>
-                      <td className="py-1 pl-8 pr-3"><span className="font-medium">{t.season}</span><span className="ml-2 font-mono text-[11px] text-muted-foreground">{t.contractRef}</span></td>
+                      <td className="py-1 pl-8 pr-3"><span className="font-medium">{t.description ?? t.season}</span><span className="ml-2 font-mono text-[11px] text-muted-foreground">{t.contractRef}</span></td>
                       <td className="whitespace-nowrap px-3 py-1 tabular-nums">{t.startDate} – {t.endDate}</td>
                       <td className="px-3 py-1"><span className={`rounded px-1.5 py-0.5 text-xs capitalize ${STATUS_TONE[t.status] ?? "bg-muted"}`}>{t.status}</span>
                         {t.needsReview && <span className="ml-1 text-[11px] font-medium text-[var(--warning)]">review</span>}</td>

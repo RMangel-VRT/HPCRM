@@ -16,7 +16,7 @@ import {
 } from "../lib/contractCenterService";
 import {
   fullDetail, getTerm, getAgreement, lockAgreement, lockTerm, writeTerm, addHistory,
-  activeCard, termWhere, listSummary, type Transaction,
+  activeCard, termWhere, listSummary, replaceRows,
 } from "../lib/contractCenterPersistence";
 import { ObjectStorageService } from "../objectStorage";
 import { ObjectAccessGroupType, ObjectPermission } from "../objectAcl";
@@ -32,14 +32,6 @@ const documentsSchema = z.object({
 });
 function context(req: Request, user: UserWithContext) {
   return { companyId: user.activeCompanyId, userId: user.id, id: String(req.params.termId ?? req.params.agreementId) };
-}
-async function replaceRows(tx: Transaction, companyId: string, termId: string,
-  table: typeof termScopeLines | typeof termRates | typeof termBillingMonths, rows: object[]) {
-  await tx.delete(table).where(termWhere(table, companyId, termId));
-  if (rows.length) {
-    // Each call is made with a validated service output for its table.
-    await tx.insert(table).values(rows.map(row => ({ ...row, companyId, termId })) as never);
-  }
 }
 export function registerContractCenterLifecycle(app: Express, authorize: Authorize) {
   const handle = (fn: (req: Request, res: Response, user: UserWithContext) => Promise<void>) =>
