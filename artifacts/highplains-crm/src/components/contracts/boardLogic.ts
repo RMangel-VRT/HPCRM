@@ -1,4 +1,4 @@
-import { addDays, addMonths } from "./contractFormat";
+import { addDays } from "./contractFormat";
 import { coloradoDay } from "./contractFormat";
 import type { BoardLine, ContractListItem, TermSummary } from "./contractTypes";
 
@@ -21,7 +21,7 @@ export function placements(item: ContractListItem, today: string): BoardCard[] {
   if (signed?.signedAt && coloradoDay(signed.signedAt) >= addDays(today, -60)
     && coloradoDay(signed.signedAt) <= today) out.push({ item, term: signed, column: "signed" });
   const latest = item.latest;
-  if (latest && latest.status === "lost" && latest.endDate >= addMonths(today, -12)
+  if (latest && latest.status === "lost" && latest.endDate >= addDays(today, -90)
     && latest.endDate <= today) out.push({ item, term: latest, column: "lost" });
   return out;
 }
@@ -50,7 +50,7 @@ export function renewalProgress(items: ContractListItem[], board: BoardLine, q: 
 }
 
 export type SortKey = "customer" | "type" | "form" | "season" | "status" | "price" | "agent" | "ends";
-export type FilterChip = "review" | "renewal" | "expired";
+export type FilterChip = "review" | "renewal" | "expired" | "lost";
 
 export const rowTerm = (item: ContractListItem) => item.current ?? item.latest ?? null;
 
@@ -82,7 +82,8 @@ export function tableRows(items: ContractListItem[], board: BoardLine, q: string
     const t = rowTerm(i);
     return (chips.includes("review") && !!t?.needsReview)
       || (chips.includes("renewal") && i.renewalDue)
-      || (chips.includes("expired") && t?.displayStatus === "expired");
+      || (chips.includes("expired") && t?.displayStatus === "expired")
+      || (chips.includes("lost") && t?.displayStatus === "lost");
   });
   const sign = dir === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {

@@ -25,7 +25,7 @@ const term = (o: any = {}) => ({ id: "t", seasonLabel: "2026–27", startDate: "
 const item = (id: string, line: string, o: any = {}) => ({ id, customerId: "c" + id, customerName: "Cust " + id, line, form: "ours",
   current: term(), renewalDraft: null, renewalDue: false, companyDay: "2026-10-12", ...o });
 const board = (items: any[], b: "landscape" | "snow") =>
-  renderToStaticMarkup(<Router ssrPath="/"><ContractBoard items={items} board={b} q="" today="2026-10-12" onComingSoon={() => {}} /></Router>);
+  renderToStaticMarkup(<Router ssrPath="/"><ContractBoard items={items} board={b} q="" today="2026-10-12" defaultOpen onComingSoon={() => {}} /></Router>);
 
 describe("board placement", () => {
   it("shows a Both contract on both boards", () => {
