@@ -1,0 +1,82 @@
+# CC2-7: Contracts on parent customers, and removing imported contracts
+
+## Goal
+
+PNC/First Bank is **one** signed contract covering 10 branches: one term, one renewal, and Exhibit A listing each branch's monthly price. The CRM models it as a parent customer ("1st Bank") with one child customer per branch. The branches have to stay separate for tickets, crews and scheduling. Today a contract can't sit on a parent customer, so the audit imported PNC as 19 per-branch contracts. That means 10 renewals and 10 copies of the same PDF.
+
+This slice:
+1. **Allows contracts on parent customers.** The branches show the parent's contracts.
+2. **Adds `remove_agreements.csv` to the import,** so the per-branch PNC contracts can be removed and replaced by one parent contract in a single Preview → Import.
+3. **Lets a parent's import attach old records and documents that belong to its branches.**
+
+Assumes CC2-5 and **CC2-6 (renewal import)** are merged. **Line numbers are from GitHub `b551d41` plus CC2-6**; find code by its content. **No migration.** Every Phase 1 and Phase 2 rule applies.
+
+**PNC's per-branch pricing** goes on payment lines named by branch, e.g. `FB01 – 104th and Federal`. The billing slice will link payment lines to branches properly later, so nothing in this slice depends on the name.
+
+## 1. Allow contracts on parent customers
+
+- **Remove the "parent customers can't have contracts" rule everywhere it's enforced.** Search for `assertNotParentCustomer`, `isParent`, "Parent customers cannot" and `parent` in:
+  - `routes/contractCenterLifecycle.ts` (Create)
+  - `lib/contractAuditPlan.ts` (audit import)
+  - the CC2-6 renewal-import plan
+  - the New contract flow's customer search (`NewContractPage.tsx` / `newContractDraft.ts`): parents become selectable
+  - Keep any parent rule that has nothing to do with contracts, such as ticketing. Report every site you change and every one you keep.
+- **Both a parent and its child can hold contracts.** Nothing prevents it. The board shows each contract under its own customer.
+
+## 2. Branch pages show the parent's contracts
+
+On a child customer's **Contracts tab** (`CustomerContracts.tsx`), above the old read-only section:
+- **The child's own contracts,** as now.
+- **A new section, "Through <parent name>",** listing the parent's contracts as the same cards (line, form, status, season, dates, annual price, Open), read-only from this page. Each card shows the payment line whose name starts with this child's billing code or name, when one matches. For example, on 104th and Federal: "Your branch: FB01 – 104th and Federal, $690.00/month". If none matches, it shows nothing extra.
+- **On the parent's own page,** its contracts show as normal.
+- **Board and list:** a parent's contract shows the parent's name followed by "· 10 locations" (the count of its child customers).
+- **API:** `GET /api/contract-center/contracts?customerId=<child>` gains `includeParent=true`. It returns the parent's agreements too, marked `viaParent: true`.
+
+## 3. Import: `remove_agreements.csv`
+
+An optional file in an **audit import** (not allowed in the renewal mode):
+
+| Column | Required | Notes |
+|---|---|---|
+| `agreement_ref` | yes | the `import_ref` of an existing agreement in the active company |
+
+**Rules (errors in Preview):**
+- **Unknown reference:** "No imported contract with this reference."
+- **Removal guard:** the same guard used when an import replaces a contract. Removal is blocked if any season was created in the Contract Center (Renew or Create, not by import), or if any document was attached in the Contract Center. Show the same message, with the season or file named.
+- **Not also in `contracts.csv`:** a reference can't be both removed and imported in the same file. (Replacing is still done by just re-importing it.)
+
+**Preview** lists removals at the top: "Remove fb-104-federal-landscape (1st Bank – 104th and Federal): 2 seasons". The summary gains a **Removed** count.
+
+**Import:**
+- **When a file includes removals, the whole import runs in one transaction,** not one per customer. Moving contracts between a parent and its branches has to be all or nothing.
+- **Order:** delete the removed agreements first, then create the new ones. The cascade frees their old-record links, so the new parent contract can take the same old contract IDs in the same transaction.
+- **History:** the deleted seasons are gone, so write a `term_status_history` row on each new season: "Replaces imported contracts: <refs>". Also log the removals with the admin and time, using whatever audit/log mechanism the import already has.
+- **Files:** never delete stored files. Document rows point at shared storage objects (the Phase 7 rule).
+
+## 4. Import: old records and documents from a parent's branches
+
+When a `contracts.csv` row's customer is a **parent**:
+- **`legacy_contract_ids`** may belong to the parent **or any of its child customers**. Anything else is still an error.
+- **`documents.csv`** document IDs follow the same rule.
+- **The "old contract … isn't covered by this import" warning** counts the parent's children's old contracts too. That way, a parent import that covers every branch's old records raises no false warnings.
+
+**The renewal import (CC2-6)** accepts parent seasons as `renews_term_id`.
+
+## 5. Tests
+
+- **Create:** creating a contract on a parent customer through the API and the New contract flow works.
+- **Branch view:** a child's Contracts tab shows "Through <parent>" with the matching branch line, and its own contracts separately.
+- **Removal:**
+  - an import with `remove_agreements.csv` (two per-branch agreements) plus a parent `contracts.csv` that takes over their legacy IDs and documents succeeds in one transaction
+  - afterwards the old agreements are gone, the new one holds the links, and `by-legacy` redirects to it
+  - a failure anywhere rolls back everything, including the removals
+- **Each error in section 3,** including blocking removal when a season was renewed in the Contract Center or a document was uploaded there.
+- **Old records:** an old record from a different customer (not a child) is still an error.
+- **Renewal import:** renewing a parent season works.
+
+## Verify (development)
+
+1. Create a parent with two children, each with an imported per-branch contract.
+2. Import a zip that removes both and creates one parent contract with two payment lines named `<code> – <name>`, taking over both children's old records.
+3. Each child's Contracts tab shows the parent's contract with its own line, and the old-contract links redirect to the parent's contract.
+4. Typecheck, tests and schema drift pass. Report every changed file and every parent rule you kept.

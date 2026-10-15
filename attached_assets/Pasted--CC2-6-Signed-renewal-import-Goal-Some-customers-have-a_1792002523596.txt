@@ -1,0 +1,131 @@
+# CC2-6: Signed-renewal import
+
+## Goal
+
+Some customers have already signed next season's contract outside the system. Today the only way in is Renew → edit → Sent → Signed → upload the PDF, by hand, one contract at a time. This slice adds a **renewal import**: a file that says "this new season renews that existing season", with its payments, rate changes and the signed PDF. The import **adds** the season to the existing contract and marks the old one renewed. Nothing gets replaced.
+
+Claude reads the signed renewals and prepares these files; the admin runs Preview and Import in Settings › Contracts, the same as the audit batches. Going forward, new renewals are made in the Contract Center's Renew window; this is for renewals signed outside it.
+
+Assumes CC2-5 is merged. **Line numbers are from GitHub `b551d41`**; find code by its content. Every Phase 1 and Phase 2 rule applies. **No migration.**
+
+## 1. "Current contracts" export
+
+Claude needs the existing season IDs to point a renewal at.
+
+- **`GET /api/admin/contract-center/current-export`** (admin, active company): a zip, streamed like the audit export.
+- **`contract_center.csv`**, covering **every** Contract Center season in the company, sorted by customer name then start date. Columns:
+  - customer_id, customer_name, parent_customer_name
+  - agreement_id, import_ref, line, form
+  - term_id, season, start, end, status, display_status (expired, active and so on, worked out the same way as the board)
+  - renewed_from_term_id, signed_at, annual_price
+  - payment_lines (e.g. `Grounds maintenance: 12 x 1,095.00; Chemical: Mar-Sep 1,645.00`)
+  - documents (count)
+- **`term_payments.csv`**: term_id, payment_line, jan…dec in dollars, taken from each term's first year (`recoverPayments`).
+- **`term_rates.csv`**: term_id, rate_key, label, price, price_text, unit, minimum, card_price. Only rows that differ from the card, plus custom rates.
+- **`rate_card.csv`**: the same as the audit export.
+- **Button:** in the Audit export card, add **Download current contracts**.
+- **The audit export's `contract_center.csv`** also gets the new columns (customer_id, customer_name, renewed_from_term_id, signed_at, display_status), so both exports match.
+
+## 2. Renewal import format
+
+A renewal import is a zip or set of CSVs whose main file is **`renewals.csv`** instead of `contracts.csv`. Uploading both in one import is an error: "Import either contracts.csv or renewals.csv, not both."
+
+### `renewals.csv`: one row per new season
+
+| Column | Required | Notes |
+|---|---|---|
+| `contract_ref` | yes | unique in the file; links the other CSVs to this row |
+| `renews_term_id` | yes | an existing `agreement_terms.id` in the active company; this is the season being renewed |
+| `customer_name` | no | check only; a mismatch is a warning |
+| `season_label` | no | default: worked out from the dates, as in the audit import |
+| `start_date`, `end_date` | yes | `validateDates` |
+| `status` | yes | `signed`, `sent` or `draft` |
+| `signed_date` | when status is signed | stored in `signed_at` at noon Colorado time (reuse `signedNoon`) |
+| `snow_pricing`, `snow_flat_price` | as for the line | `validateSnow`; blank keeps the source season's values |
+| `legal_name`, `managing_agent_name`, `project_contact`, `contact_phone`, `contact_email`, `project_address`, `po`, `snow_triggers`, `notes` | no | **blank keeps the source season's value** |
+| `renewal_increase_pct` | no | stored in `renewal_increase_pct`, for information only |
+| `needs_review`, `review_note` | no | as in the audit import |
+
+**Other files, keyed by `contract_ref`:**
+- **`payments.csv`:** the same format as the audit import. Required unless the season is snow-only time and materials. **The payments replace the source season's payments entirely.**
+- **`rates.csv`:** the same format. The season's rates start from `renewalRates(sourceRates, card, line)`, exactly like Renew; each row here then overrides one rate. Blank cells keep that rate's existing values. No file means "carry forward as Renew would."
+- **`scope.csv`:** the same format. **No rows for a contract_ref means the source season's scope is copied unchanged**, as Renew does. Any rows replace it entirely.
+- **`documents.csv`:** `contract_ref, file, kind`. `file` is the path of a PDF **inside the uploaded zip** (for example `files/Ute Creek 2026-27 signed.pdf`). `kind` is `signed`, `their_form` or `other`. Old `document_id` references aren't accepted in this mode.
+
+### Upload limits for this mode
+
+- Zip up to **40 MB** uploaded and **60 MB** expanded, with at most **60 entries**. PDFs only under `files/`, each up to 15 MB.
+- Every other existing protection stays: no path traversal, symlinks, encryption or duplicate tables.
+- The CSV-only audit mode keeps its current limits.
+
+## 3. Validation (Preview)
+
+Run everything before writing, and return the same report shape as the audit import, with `action: "add renewal"` per row.
+
+**Errors:**
+- an unknown `renews_term_id`, or one from another company
+- the source's customer is a parent customer
+- the source season is `lost` or `cancelled`
+- **the source season already has a renewal** whose status is `signed`, `active` or `renewed`
+- a `draft` or `sent` renewal already exists for the source: "A draft or sent renewal already exists; cancel it in the Contract Center first, or import this as its replacement next time"
+- the new start date isn't after the source's start date
+- two rows renew the same source
+- a `documents.csv` file that's missing from the zip, isn't a PDF, or is too large
+- anything the shared functions reject: `validateDates`, `validateSnow`, `validatePayments`, `paymentSummary`, `buildScope`, `snapshotRates`
+
+**Warnings:**
+- the new start isn't the day after the source's end ("Gap or overlap with <season>: <dates>")
+- `customer_name` doesn't match
+- a scope spread doesn't add up to its quantity
+- **a signed row with no signed document attached**
+
+**Already imported:** if the source already has a renewal with the **same start date** that was created by a renewal import (history note starting `Imported signed renewal (`), skip the row with the warning "Already imported; skipped". Re-uploading the same file then changes nothing.
+
+## 4. Writing (Import)
+
+One transaction **per customer**, like `executeAuditImport`. A failure rolls back that customer only and is reported.
+
+For each row:
+1. Lock the agreement (`lockAgreement`), then re-check the rules in section 3 inside the transaction.
+2. Upload each attached PDF to private object storage, using the existing helper the documents upload uses (`saveBufferToPrivatePath` or equivalent). Collect the paths first, then write the rows. If the transaction fails, delete any objects uploaded for that customer.
+3. Insert the term with `writeTerm`:
+   - `renewedFromTermId` = the source
+   - status, dates and fields as in section 2
+   - `paymentSummary` for the annual price and billing type
+   - history note `Imported signed renewal (<upload filename>)`
+4. Write its scope, rates and billing months with `replaceRows`. Billing months come from `expandPayments`.
+5. Insert `term_documents` rows: version 1 per kind, `uploaded_by` the admin.
+6. **When the new status is `signed`:** set the source to `renewed` through `writeTerm`, with the note `Renewed by <season> (imported)`. This matches what the status endpoint does when a renewal is marked signed.
+
+Never touch the old legacy contract tables, and never change `import_ref`.
+
+## 5. Settings › Contracts screen
+
+- **The Import card** accepts either kind of file. After Preview, show which kind it is above the table: "Audit import" or "Renewal import".
+- **Rows say what will happen**, e.g. "Add 2026–27 to 18 at Ute Creek (renews 2025–26)".
+- **The result shows** each season created, linked to its contract page.
+
+## 6. Tests
+
+- **Parsing:** a renewals-only zip with `files/` PDFs is accepted. A zip containing both `contracts.csv` and `renewals.csv` is an error. A traversal path under `files/` is rejected.
+- **Every error and warning** in section 3, each with its file and row.
+- **Carry-forward:**
+  - with no scope rows, the source season's scope is copied
+  - with no rates file, the result equals `renewalRates`
+  - an override row changes only that rate
+- **Writing:**
+  - a signed renewal creates the season, sets the source to `renewed`, attaches the PDF and writes history
+  - a sent renewal leaves the source alone
+  - importing the same file twice skips the second time
+  - a failure in customer B leaves customer A's renewal in place and removes B's uploaded objects
+- **The board:** after a signed renewal of an expired season, the contract leaves "Up for renewal" and shows under Signed.
+- **Current export:** every term appears with the new columns, and payments reproduce the first-year pattern.
+- **Non-admins** get 403 on both new endpoints.
+
+## Verify (development)
+
+1. Download current contracts and find a season that ended in the past.
+2. Build a renewals zip for it: one row, a payment line, one rate override, and a PDF under `files/`. Preview shows the "add renewal" row with no errors.
+3. Import it. On the contract page, the new season is Signed with the PDF under Documents, the old season shows Renewed, and History shows both entries.
+4. Import the same zip again: it's skipped with "Already imported".
+5. Typecheck, tests and schema drift pass. Report every changed file, the new limits, and any packages added (there shouldn't be any).
