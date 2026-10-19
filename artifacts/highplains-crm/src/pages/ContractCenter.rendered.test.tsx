@@ -88,6 +88,29 @@ const page = (hash: string) => renderToStaticMarkup(
   <QueryClientProvider client={new QueryClient()}><Router ssrPath="/dashboard/contracts/a1"><Route path="/dashboard/contracts/:id"><ContractPage initialHash={hash} /></Route></Router></QueryClientProvider>);
 
 describe("contract page", () => {
+  it("shows a final-season renewal draft on the board, keeps it editable, and disables another Renew while year 1 is current", () => {
+    const seasons = Array.from({ length: 5 }, (_, i) => ({
+      ...detail().terms[0], ...term({ id: `y${i + 1}`, seasonLabel: String(2026 + i),
+        startDate: `${2026 + i}-01-01`, endDate: `${2026 + i}-12-31`,
+        status: i === 4 ? "signed" : "renewed", displayStatus: i === 0 ? "active" : i === 4 ? "signed" : "renewed" }),
+      editable: false, allowedMoves: [],
+    }));
+    const draft = { ...detail().terms[1], ...term({ id: "y6", seasonLabel: "2031", startDate: "2031-01-01", endDate: "2031-12-31",
+      status: "draft", displayStatus: "draft", renewedFromTermId: "y5" }), editable: true, allowedMoves: ["sent", "cancelled", "lost"] };
+    const html = board([item("a1", "landscape", { current: seasons[0], renewalDraft: draft })], "landscape");
+    expect(html).toContain("card-drafted-a1");
+    expect(html).toContain("#term-y6");
+    expect(html).not.toContain("card-renewal-a1");
+    fx.q = { "/api/contract-center/contracts/a1": { data: detail({
+      currentTermId: "y1", renewalDraftId: "y6", terms: [...seasons, draft],
+    }) } };
+    const current = page("");
+    expect(current.match(/<button\b[^>]*data-testid="button-renew-contract"[^>]*>/)?.[0]).toContain("disabled");
+    expect(current).not.toContain("button-edit-contract");
+    const pending = page("#term-y6");
+    expect(pending).toContain("button-edit-contract");
+    expect(pending).toContain("button-status-menu");
+  });
   it("shows no Edit button on a past term", () => {
     fx.q = { "/api/contract-center/contracts/a1": { data: detail() } };
     const past = page("#term-t1");

@@ -147,15 +147,23 @@ type StatusTerm = Pick<AgreementTerm, "id" | "status" | "startDate" | "endDate" 
 export function displayStatus(term: StatusTerm, terms: StatusTerm[] = [], today = companyToday()) {
   const signedRenewal = terms.some(t => t.renewedFromTermId === term.id && ["signed", "active", "renewed"].includes(t.status));
   if (["signed", "active"].includes(term.status) && term.endDate < today && !signedRenewal) return "expired";
+  if (["signed", "renewed"].includes(term.status) && term.startDate <= today && today <= term.endDate) return "active";
   if (term.status === "signed" && term.startDate <= today) return "active";
   return term.status;
 }
-export function selectCurrent<T extends StatusTerm>(terms: T[]): T | undefined {
+export function selectRenewalSource<T extends StatusTerm>(terms: T[]): T | undefined {
   // Pending renewals are shown separately, never replacing their source on the board.
   return [...terms].filter(t => t.status !== "cancelled" && !(t.renewedFromTermId && ["draft", "sent", "lost"].includes(t.status)))
     .sort((a, b) => b.startDate.localeCompare(a.startDate) || b.id.localeCompare(a.id))[0];
 }
+/** Display the in-effect season, independently of the final season used by Renew. */
+export function selectCurrent<T extends StatusTerm>(terms: T[], today = companyToday()): T | undefined {
+  const inEffect = terms.filter(t => ["signed", "active", "renewed"].includes(t.status)
+    && t.startDate <= today && today <= t.endDate);
+  return selectRenewalSource(inEffect) ?? selectRenewalSource(terms);
+}
 export function renewalDue(term: StatusTerm, terms: StatusTerm[] = [], today = companyToday()) {
+  if (terms.some(t => t.renewedFromTermId === term.id && ["signed", "active", "renewed"].includes(t.status))) return false;
   return displayStatus(term, terms, today) === "active" && addCalendarDays(term.endDate, -60) <= today;
 }
 export function allowedMoves(status: string, renewal: boolean) {

@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AgreementTerm, RateCardItem, TermRate } from "@workspace/db";
 import {
   expandPayments, recoverPayments, paymentSummary, validateDates, validatePayments,
   validateSnow, buildScope, snapshotRates, increasedPayments, renewalDates, renewalRates,
-  assertMove, allowedMoves, displayStatus, renewalDue, selectCurrent,
+  assertMove, allowedMoves, displayStatus, renewalDue, selectCurrent, selectRenewalSource,
 } from "./contractCenterService";
 import { RATE_CARD_DEFAULTS } from "../shared/contractCatalog";
 
@@ -130,8 +130,94 @@ describe("renewal, status and Colorado display", () => {
     expect(renewalDue(t, [], "2026-10-31")).toBe(false);
     expect(renewalDue(t, [], "2026-11-01")).toBe(true);
     const renewal = term({ id: "new", startDate: "2027-01-01", endDate: "2027-12-31", renewedFromTermId: t.id, status: "draft" });
-    expect(selectCurrent([t, renewal])?.id).toBe(t.id);
-    expect(selectCurrent([t, { ...renewal, status: "signed" }])?.id).toBe("new");
+    expect(selectCurrent([t, renewal], "2026-12-01")?.id).toBe(t.id);
+    expect(selectCurrent([t, { ...renewal, status: "signed" }], "2026-12-01")?.id).toBe(t.id);
+    expect(selectCurrent([t, { ...renewal, status: "signed" }], "2027-01-01")?.id).toBe("new");
     expect(displayStatus(t, [t, { ...renewal, status: "signed" }], "2027-01-01")).toBe("active");
+  });
+});
+
+describe("in-effect display versus final-season renewal source", () => {
+  const chain = () => Array.from({ length: 5 }, (_, i) => term({
+    id: `year-${i + 1}`, startDate: `${2026 + i}-01-01`, endDate: `${2026 + i}-12-31`,
+    status: i === 4 ? "signed" : "renewed", renewedFromTermId: i ? `year-${i}` : null,
+  }));
+  it("defaults to the Colorado day rather than the host UTC day", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2027-01-01T06:30:00Z")); // Still December 31 in Colorado.
+      const terms = chain();
+      expect(selectCurrent(terms)).toBe(terms[0]);
+      expect(displayStatus(terms[0], terms)).toBe("active");
+      expect(renewalDue(terms[0], terms)).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
+  it.each([["2026-11-15", 0], ["2028-06-15", 2]] as const)(
+    "selects the in-effect renewed season on %s without mutating the imported chain", (today, index) => {
+      const terms = chain(), before = structuredClone(terms);
+      const current = selectCurrent(terms, today)!;
+      expect(current).toBe(terms[index]);
+      expect(displayStatus(current, terms, today)).toBe("active");
+      expect(renewalDue(current, terms, today)).toBe(false);
+      expect(selectRenewalSource(terms)).toBe(terms[4]);
+      terms.forEach((t, i) => expect(displayStatus(t, terms, today)).toBe(
+        i === index ? "active" : i === 4 ? "signed" : "renewed"));
+      expect(terms).toEqual(before);
+    });
+  it("falls back to the expired final season after the chain ends", () => {
+    const terms = chain(), today = "2031-01-01";
+    expect(selectCurrent(terms, today)).toBe(terms[4]);
+    expect(displayStatus(terms[4], terms, today)).toBe("expired");
+    expect(displayStatus(terms[0], terms, today)).toBe("renewed");
+  });
+  it.each(["signed", "renewed"] as const)("includes both date boundaries for %s", status => {
+    const source = term({ status }), next = term({ id: "next", startDate: "2028-01-01", endDate: "2028-12-31" });
+    for (const today of [source.startDate, source.endDate]) {
+      expect(selectCurrent([source, next], today)).toBe(source);
+      expect(displayStatus(source, [source, next], today)).toBe("active");
+    }
+  });
+  it("keeps an early-signed renewal future until it starts", () => {
+    const source = term({ status: "renewed" }), next = term({ id: "next", renewedFromTermId: source.id,
+      startDate: "2027-10-01", endDate: "2028-09-30" }), terms = [source, next];
+    expect(selectCurrent(terms, "2027-09-30")).toBe(source);
+    expect(displayStatus(source, terms, "2027-09-30")).toBe("active");
+    expect(displayStatus(next, terms, "2027-09-30")).toBe("signed");
+    expect(displayStatus(source, terms, "2027-10-01")).toBe("renewed");
+    expect(selectCurrent(terms, "2027-10-01")).toBe(next);
+  });
+  it.each(["signed", "active", "renewed"] as const)("suppresses due for a direct %s successor inside 60 days", status => {
+    const source = term(), next = term({ id: "next", status, renewedFromTermId: source.id,
+      startDate: "2027-10-01", endDate: "2028-09-30" });
+    expect(renewalDue(source, [source], "2027-09-01")).toBe(true);
+    expect(renewalDue(source, [source, next], "2027-09-01")).toBe(false);
+    expect(renewalDue(source, [source, { ...next, renewedFromTermId: "unrelated" }], "2027-09-01")).toBe(true);
+  });
+  it.each(["draft", "sent", "lost", "cancelled"] as const)("excludes linked %s renewals from both selectors", status => {
+    const source = term(), pending = term({ id: "next", status, renewedFromTermId: source.id,
+      startDate: "2027-10-01", endDate: "2028-09-30" });
+    expect(selectCurrent([source, pending], "2028-01-01")).toBe(source);
+    expect(selectRenewalSource([source, pending])).toBe(source);
+    expect(renewalDue(source, [source, pending], "2027-09-01")).toBe(true);
+  });
+  it("uses latest start in gaps, before all terms, and for eligible unlinked draft/sent/lost terms", () => {
+    const source = term(), next = term({ id: "next", startDate: "2028-01-01", endDate: "2028-12-31" });
+    for (const today of ["2025-01-01", "2027-11-01"]) expect(selectCurrent([source, next], today)).toBe(next);
+    for (const status of ["draft", "sent", "lost"] as const) {
+      const unlinked = { ...next, status };
+      expect(selectCurrent([source, unlinked], "2027-11-01")).toBe(unlinked);
+      expect(selectRenewalSource([source, unlinked])).toBe(unlinked);
+    }
+    expect(selectCurrent([], "2026-01-01")).toBeUndefined();
+    expect(selectRenewalSource([])).toBeUndefined();
+    expect(selectCurrent([term({ status: "cancelled" })], "2026-11-01")).toBeUndefined();
+  });
+  it("breaks overlaps by latest start then descending id, without sorting the input", () => {
+    const a = term({ id: "a", startDate: "2027-01-01" }), z = { ...a, id: "z", status: "active" as const };
+    const terms = [z, term(), a], before = [...terms];
+    expect(selectCurrent(terms, "2027-06-01")).toBe(z);
+    expect(selectRenewalSource(terms)).toBe(z);
+    expect(selectCurrent(terms, "2028-06-01")).toBe(z);
+    expect(terms).toEqual(before);
   });
 });

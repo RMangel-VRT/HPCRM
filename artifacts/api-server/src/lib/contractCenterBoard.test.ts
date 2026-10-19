@@ -13,6 +13,25 @@ const term = (id: string, overrides: Partial<AgreementTerm> = {}): AgreementTerm
 } as AgreementTerm);
 
 describe("Contract Center board response contract", () => {
+  it("passes its explicit day to display selection while associating pending drafts with the final renewal source", () => {
+    const terms = Array.from({ length: 5 }, (_, i) => term(`year-${i + 1}`, {
+      status: i === 4 ? "signed" : "renewed", startDate: `${2026 + i}-01-01`, endDate: `${2026 + i}-12-31`,
+      renewedFromTermId: i ? `year-${i}` : null, annualPriceCents: (460000 + i * 9500) * 12,
+      signedAt: new Date(`2025-09-${10 + i}T18:00:00Z`),
+    }));
+    const draft = term("draft", { status: "draft", startDate: "2031-01-01", endDate: "2031-12-31",
+      renewedFromTermId: terms[4].id, signedAt: null });
+    const before = structuredClone(terms);
+    const summary = listSummary([...terms, draft], "2026-11-15");
+    expect(summary).toMatchObject({
+      current: { id: "year-1", annualPriceCents: 5520000, status: "renewed", displayStatus: "active" },
+      latest: { id: "draft" }, recentSigned: { id: "year-5" }, renewalDraft: { id: "draft", status: "draft" },
+      renewalDue: false, renewalProgress: { due: true, signed: true }, companyDay: "2026-11-15",
+    });
+    expect(listSummary(terms, "2028-06-01").current).toMatchObject({ id: "year-3", displayStatus: "active", annualPriceCents: 5748000 });
+    expect(listSummary(terms, "2031-01-01").current).toMatchObject({ id: "year-5", displayStatus: "expired" });
+    expect(terms).toEqual(before);
+  });
   it("preserves expired current selection, exposes flat snow and review figures", () => {
     const summary = listSummary([term("source")], today);
     expect(summary.current).toMatchObject({ id: "source", snowFlatPriceCents: 50000,

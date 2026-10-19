@@ -69,3 +69,16 @@ Payment preset rounding differs deliberately: twelve equal payments floor the fi
 **Why:** The authoritative examples require $10,000 to become $833.33 × 11 + $833.37, but $2,400 over March–September to become $342.86 × 6 + $342.84. A single shared division-rounding rule cannot satisfy both examples.
 
 **How to apply:** Preserve each preset's rounding convention and use calendar-indexed amounts; choose the final participating month from the term's cycle order, not the order of checkbox selection.
+
+Imported multi-year agreements can be signed once for several stepped-price
+seasons; all predecessors, including future predecessors, may already be stored
+as renewed. Do not normalize those future seasons to signed for display tests.
+
+**Why:** The current-season specification's simplified example says future years
+are signed, but its explicit status rules and the owner's clarified acceptance
+criteria require preserving realistic imported statuses and historical guards.
+
+**How to apply:** Verify display behavior with renewed predecessors and a signed
+final season. In-effect display does not confer editing permission on an
+underlying renewed season. Keep display selection separate from renewal intent;
+an explicit import source must not be replaced by whichever season is current.

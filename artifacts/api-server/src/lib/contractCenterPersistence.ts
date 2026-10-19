@@ -6,7 +6,7 @@ import {
   users, type AgreementTerm, type TermStatus,
 } from "@workspace/db";
 import { db } from "../db";
-import { ContractCenterError, displayStatus, selectCurrent, renewalDue, allowedMoves } from "./contractCenterService";
+import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves } from "./contractCenterService";
 import { addCalendarDays, companyToday } from "./companyDay";
 
 export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -104,19 +104,21 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
     renewalDue: summary.renewalDue };
 }
 export function listSummary(terms: AgreementTerm[], today = companyToday()) {
-  const current = selectCurrent(terms);
+  const current = selectCurrent(terms, today);
   const summarize = (t: AgreementTerm) => ({ id: t.id, seasonLabel: t.seasonLabel,
     startDate: t.startDate, endDate: t.endDate, status: t.status, displayStatus: displayStatus(t, terms, today),
     annualPriceCents: t.annualPriceCents, snowPricing: t.snowPricing, needsReview: t.needsReview,
     signedAt: t.signedAt, snowFlatPriceCents: t.snowFlatPriceCents,
     managingAgentName: t.managingAgentName, billingType: t.billingType });
-  const renewal = current && [...terms].filter(t => t.renewedFromTermId === current.id && ["draft", "sent"].includes(t.status))
+  // Pending drafts belong to the final renewal source, not necessarily today's displayed season.
+  const renewalSource = selectRenewalSource(terms);
+  const renewal = renewalSource && [...terms].filter(t => t.renewedFromTermId === renewalSource.id && ["draft", "sent"].includes(t.status))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id))[0];
   const latest = [...terms].sort((a, b) => b.startDate.localeCompare(a.startDate) || b.id.localeCompare(a.id))[0];
   const recentSigned = [...terms].filter(t => t.signedAt && ["signed", "active", "renewed"].includes(t.status))
     .sort((a, b) => b.signedAt!.getTime() - a.signedAt!.getTime() || b.id.localeCompare(a.id))[0];
   // Count agreements once even when more than one historical season qualifies.
-  // Include sources renewed in this window, which selectCurrent deliberately no longer selects.
+  // Include every source renewed in this window, independently of the displayed season.
   const dueSources = terms.filter(t => ["signed", "active", "renewed"].includes(t.status)
     && t.endDate >= addCalendarDays(today, -60) && addCalendarDays(t.endDate, -60) <= today);
   return { current: current ? summarize(current) : null, renewalDraft: renewal ? summarize(renewal) : null,

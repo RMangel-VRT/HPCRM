@@ -11,7 +11,7 @@ import { pickProvided } from "../lib/patchBody";
 import {
   ContractCenterError, createContractSchema, termFieldsSchema, scopeSchema, ratesSchema, paymentsSchema,
   renewSchema, validateDates, validateSnow, expandPayments, recoverPayments, paymentSummary,
-  buildScope, snapshotRates, assertEditable, assertMove, selectCurrent, displayStatus,
+  buildScope, snapshotRates, assertEditable, assertMove, selectRenewalSource, displayStatus,
   increasedPayments, renewalDates, renewalRates, cents,
 } from "../lib/contractCenterService";
 import {
@@ -165,7 +165,7 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     const result = await db.transaction(async tx => {
       const agreement = body.dryRun ? await getAgreement(tx, companyId, id) : await lockAgreement(tx, companyId, id);
       const terms = await tx.select().from(agreementTerms).where(and(eq(agreementTerms.agreementId, id), eq(agreementTerms.companyId, companyId)));
-      const source = selectCurrent(terms);
+      const source = selectRenewalSource(terms);
       if (!source || !["active", "signed", "expired"].includes(displayStatus(source, terms))) throw new ContractCenterError(409, "Current term cannot be renewed");
       if (terms.some(t => t.renewedFromTermId === source.id && ["draft", "sent"].includes(t.status))) throw new ContractCenterError(409, "A draft or sent renewal already exists");
       const scope = await tx.select().from(termScopeLines).where(termWhere(termScopeLines, companyId, source.id));
