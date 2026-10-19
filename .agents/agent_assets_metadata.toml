@@ -14,3 +14,17 @@ mtime_ms = 1791845647098
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/baf79ab6-4b03-46c7-8970-02abb5e266bb/56aad189-d480-40f4-baae-eae0f6109804"
 storage_version_token = "1791845676688362"
 content_type = "text/html"
+
+[[outputs]]
+id = "6QXMiWuAJRptNoTwC04VZ"
+uri = "file://docs/data-ownership-audit.md"
+type = "text"
+title = "A1 — Data ownership audit"
+description = "Read-only audit covering all 113 schema tables, production counts, source references, copied-field drift and retirement risks."
+logical_id = "e767da94-eb81-4472-9532-9d097420f335"
+content_hash = "sha256:e40f0ad30fce4702188cf36d798f2e39d9f9dc1287b79c8f25e18e521b9ca439"
+size = 481188
+mtime_ms = 1792444455877
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/e767da94-eb81-4472-9532-9d097420f335/dcf2d940-e87c-4a21-a1c7-acd6621523ff"
+storage_version_token = "1792444505975680"
+content_type = "text/markdown"
