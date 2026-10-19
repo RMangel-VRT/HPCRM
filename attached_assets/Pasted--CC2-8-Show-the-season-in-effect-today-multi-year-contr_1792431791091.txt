@@ -1,0 +1,72 @@
+# CC2-8: Show the season in effect today (multi-year contracts signed ahead)
+
+Small backend fix. **CC2-7 §5 was not implemented** when CC2-7 merged (`2f2f6df`): `contractCenterService.ts` is unchanged since `145d77c`. This slice delivers that section on its own. **No migration, no UI changes.** Find code by its content; line numbers are from GitHub `2f2f6df`.
+
+## The problem
+
+The audit imported several contracts that were signed once for several years at stepped prices. Each year is its own season, linked as renewals: earlier years are `renewed` and the last is `signed`.
+
+| Contract | Seasons |
+|---|---|
+| Huntington Trails | 2026 → 2030, $4,600 → $4,980/mo |
+| Summerfield North | 2026–27 renewed, 2027–28 signed |
+| Fallbrook Farms 2 | 2025–26 → 2027–28 |
+| Third Villa West | 2024–25 → 2026–27 |
+
+`selectCurrent()` (`contractCenterService.ts` ~L153) picks the season with the **latest start date**. So today:
+- **Huntington's "current" season is the 2030 year.** Its price is $4,980 instead of $4,600, and its status shows "Signed" instead of "Active", because it hasn't started.
+- **Summerfield shows 2027–28** at $14,175 instead of 2026–27 at $13,500.
+
+`displayStatus()` also shows a `renewed` season as "Renewed" even while it's the one in effect. And `renewalDue()` would flag year 1 as up for renewal even though year 2 is already signed.
+
+## 1. `contractCenterService.ts`
+
+**`selectCurrent(terms, today = companyToday())`:** the season shown as current on the board, the list and the contract page.
+1. Start from the same eligible set as now: drop `cancelled` terms, and drop pending or lost renewals (`renewedFromTermId` set and status `draft`, `sent` or `lost`).
+2. **In effect today:** if any eligible term has status `signed`, `active` or `renewed` and `startDate <= today <= endDate`, return the one with the latest `startDate` (tie-break by `id`, as now).
+3. Otherwise, fall back to the current rule: the latest `startDate`.
+
+**Add `selectRenewalSource(terms)`** with exactly today's `selectCurrent` logic (the latest start, the same eligible set). **Renew must keep renewing the last season in a chain, not the one in effect.** In `routes/contractCenterLifecycle.ts`, the `/renew` handler (~L168, `const source = selectCurrent(terms)`) switches to `selectRenewalSource(terms)`.
+
+Check every other call site and report what each one uses:
+- `listSummary` (persistence ~L107) → `selectCurrent(terms, today)`, passing its `today`.
+- the agreement detail summary (persistence ~L74, `listSummary(terms)`) → unchanged; it goes through `listSummary`.
+- the contracts list route (~L64) → unchanged; it goes through `listSummary`.
+- the CC2-6 renewal import (`contractRenewalPlan.ts`): `renews_term_id` is explicit, so it shouldn't call either function. Confirm it doesn't.
+- `grep -rn "selectCurrent" artifacts/` to catch anything else.
+
+**`displayStatus(term, terms, today)`:**
+- A term with status **`signed` or `renewed`** that's in effect today (`startDate <= today <= endDate`) displays **`active`**.
+- Everything else stays as it is now:
+  - `signed`/`active` past its end with no signed renewal → `expired`
+  - `renewed` after it ends → `renewed`
+  - a future `signed` term → `signed`
+
+**`renewalDue(term, terms, today)`:** return `false` when any term with `renewedFromTermId === term.id` has status `signed`, `active` or `renewed`, because the next year is already signed. Otherwise keep the current rule.
+
+## 2. Check the client
+
+- `grep -rn "\"renewed\"" artifacts/highplains-crm/src` for anything that treats a `renewed` display status as "not current", such as the season timeline styling or the board's `placements()`. The board reads `displayStatus` and `renewalDue` from the server, so it should need no change. Report any client spot that needs one.
+- The season timeline on the contract page still lists every year in the chain, and the year in effect is the one highlighted as current (`currentTermId`).
+
+## 3. Tests (`contractCenterService.test.ts` and the persistence or list tests)
+
+1. **5-year chain, today in year 1:**
+   - `selectCurrent` returns year 1 and its `displayStatus` is `active`
+   - `renewalDue(year1)` is false, even within 60 days of its end
+   - years 2–5 display `signed`
+2. **The same chain with today in year 3:** year 3 is current and `active`, years 1–2 are `renewed`, and years 4–5 are `signed`.
+3. **The same chain after year 5 ends:** year 5 is current and `expired`.
+4. **Renew on a chain:** `selectRenewalSource` returns year 5, and a dry-run renew creates the draft from year 5's dates and prices.
+5. **Single season, renewal signed early:** the source is `renewed` and in effect until its end, so it displays `active`. The new season displays `signed` until it starts.
+6. **A pending renewal (draft or sent)** never becomes current. This is the existing behavior; keep its test.
+7. **Gap:** today is between two seasons; the fallback returns the latest start.
+8. **Every existing Contract Center test** passes unchanged, or is updated only where it encoded the latest-start behavior for display. List every test you changed and why.
+
+## Verify (development, with production-like data)
+
+1. Huntington Trails: the board and the list show the 2026 year at $4,600/mo, Active. The contract page timeline lists 2026 → 2030 with 2026 highlighted.
+2. Summerfield North shows 2026–27 at $13,500, Active, not up for renewal.
+3. Third Villa West shows 2026–27 at $34,950, Active.
+4. Renew on Huntington offers a draft starting after the 2030 year ends.
+5. Typecheck, tests and schema drift pass. Report every file changed.

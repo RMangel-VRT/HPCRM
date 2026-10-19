@@ -1,9 +1,10 @@
 # Scheduling reference materials
 
-Place the rules and design sheet for the scheduling section in this folder. Keep the original files here so they can be referenced during implementation.
+Reference documents for the scheduling section:
 
-Suggested names:
-- `rules.md` (or the original rules file)
-- `design.md` (or the original design sheet)
+- [Master schedule design](Master-schedule-design.md) — agreed master plan dated October 19, 2026; visits, demand source, design rules, build order and open question.
+- [Design sheet](Design.md)
+- [Rules](Rules.md)
+- [Phase 2 rules](Rules-P2.md)
 
-PDFs and images can also be placed here. This README only keeps the folder visible until the reference materials are added.
+Keep source documents here so they can be referenced during planning and implementation. The dated master design is preserved as supplied; its implementation-status statements are a snapshot, not a live status report.
