@@ -22,7 +22,7 @@ export async function applyVisitTicketEdit(
     if (allVisits.length) throw new VisitError(409, "VISIT_ROUTE_ORDER", "Change route order on the schedule.");
     return;
   }
-  if (rows.length > 1) throw new VisitError(409, "MULTIPLE_VISITS", "This job has several visits. Change them on the schedule.");
+  if (rows.length > 1) throw new VisitError(409, "MULTIPLE_VISITS", "This job has several visits. Change them in Visits below.");
   const crewId = Object.hasOwn(body, "crewId") ? body.crewId : ticket.crewId;
   const dueDate = Object.hasOwn(body, "dueDate") ? body.dueDate : ticket.dueDate;
   if (!crewId || !dueDate) {
@@ -52,6 +52,7 @@ export async function applyVisitTicketEdit(
     await tx.insert(visits).values({
       companyId, crewId: crewId as string, visitDate, routeOrder, ticketId: ticket.id,
       customerId: customer?.id ?? null, createdById: userId, sourceType: "ticket", status: "planned",
+      serviceKey: Object.hasOwn(body, "serviceType") ? body.serviceType as Ticket["serviceType"] : ticket.serviceType,
     });
   }
   Object.assign(body, await visitMirrorUpdates(tx, ticket, companyId));

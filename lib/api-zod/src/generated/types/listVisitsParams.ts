@@ -18,4 +18,8 @@ export type ListVisitsParams = {
   crewId?: string;
   customerId?: string;
   ticketId?: string;
+  /**
+   * @minLength 1
+   */
+  service?: string;
 };

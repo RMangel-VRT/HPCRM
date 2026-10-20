@@ -20,6 +20,7 @@ export const ListVisitsQueryParams = zod.object({
   crewId: zod.coerce.string().optional(),
   customerId: zod.coerce.string().optional(),
   ticketId: zod.coerce.string().optional(),
+  service: zod.coerce.string().min(1).optional(),
 });
 
 export const listVisitsResponseOneVisitDateRegExp = new RegExp(
@@ -38,6 +39,7 @@ export const ListVisitsResponseItem = zod
       "maintenance",
       "campaign_item",
     ]),
+    serviceKey: zod.string().nullable(),
     ticketId: zod.string().nullable(),
     customerId: zod.string().nullable(),
     title: zod.string().nullable(),
@@ -76,6 +78,10 @@ export const ListVisitsResponseItem = zod
         .object({
           id: zod.string(),
           name: zod.string(),
+          street: zod.string(),
+          city: zod.string(),
+          state: zod.string(),
+          zip: zod.string(),
         })
         .nullable(),
       crew: zod
@@ -120,6 +126,7 @@ export const CreateVisitBody = zod
       .nullish(),
     notes: zod.string().nullish(),
     title: zod.string().min(1).nullish(),
+    serviceKey: zod.string().nullish(),
   })
   .describe(
     "ticketId is required for a ticket visit; otherwise a nonblank internal title is required.",
@@ -134,6 +141,7 @@ export const visitSummaryQueryToRegExp = new RegExp("^\\d{4}-\\d{2}-\\d{2}$");
 export const VisitSummaryQueryParams = zod.object({
   from: zod.coerce.string().regex(visitSummaryQueryFromRegExp),
   to: zod.coerce.string().regex(visitSummaryQueryToRegExp),
+  service: zod.coerce.string().min(1).optional(),
 });
 
 export const visitSummaryResponseDateRegExp = new RegExp(
@@ -202,6 +210,7 @@ export const UpdateVisitBody = zod.object({
   status: zod
     .enum(["planned", "in_progress", "done", "skipped", "cancelled"])
     .optional(),
+  serviceKey: zod.string().nullish(),
 });
 
 export const updateVisitResponseOneVisitDateRegExp = new RegExp(
@@ -220,6 +229,7 @@ export const UpdateVisitResponse = zod
       "maintenance",
       "campaign_item",
     ]),
+    serviceKey: zod.string().nullable(),
     ticketId: zod.string().nullable(),
     customerId: zod.string().nullable(),
     title: zod.string().nullable(),
@@ -254,6 +264,156 @@ export const UpdateVisitResponse = zod
  */
 export const DeleteVisitParams = zod.object({
   id: zod.coerce.string(),
+});
+
+export const DeleteVisitResponse = zod.object({
+  ticketSync: zod.object({
+    statusChanged: zod.boolean(),
+    newStatusKey: zod.string().nullable(),
+  }),
+});
+
+/**
+ * Admin, office and field_manager only. Does not change the board list range limit.
+ * @summary Complete company-scoped ticket visit history, all dates and statuses
+ */
+export const TicketVisitsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ticketVisitsResponseOneVisitDateRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const TicketVisitsResponseItem = zod
+  .object({
+    id: zod.string(),
+    companyId: zod.string(),
+    crewId: zod.string().nullable(),
+    visitDate: zod.string().regex(ticketVisitsResponseOneVisitDateRegExp),
+    sourceType: zod.enum([
+      "ticket",
+      "internal",
+      "maintenance",
+      "campaign_item",
+    ]),
+    serviceKey: zod.string().nullable(),
+    ticketId: zod.string().nullable(),
+    customerId: zod.string().nullable(),
+    title: zod.string().nullable(),
+    routeOrder: zod.number().nullable(),
+    startTime: zod.string().nullable(),
+    estimatedHours: zod.number().nullable(),
+    status: zod.enum([
+      "planned",
+      "in_progress",
+      "done",
+      "skipped",
+      "cancelled",
+    ]),
+    actualStartAt: zod.coerce.date().nullable(),
+    actualEndAt: zod.coerce.date().nullable(),
+    notes: zod.string().nullable(),
+    createdById: zod.string().nullable(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      ticket: zod
+        .object({
+          id: zod.string(),
+          title: zod.string(),
+          typeKey: zod.string().nullable(),
+          typeName: zod.string().nullable(),
+          statusKey: zod.string().nullable(),
+          statusName: zod.string().nullable(),
+          priority: zod.string(),
+          scheduleBy: zod.string().nullable(),
+        })
+        .nullable(),
+      customer: zod
+        .object({
+          id: zod.string(),
+          name: zod.string(),
+          street: zod.string(),
+          city: zod.string(),
+          state: zod.string(),
+          zip: zod.string(),
+        })
+        .nullable(),
+      crew: zod
+        .object({
+          id: zod.string(),
+          name: zod.string(),
+          color: zod.string().nullable(),
+        })
+        .nullable(),
+    }),
+  );
+export const TicketVisitsResponse = zod.array(TicketVisitsResponseItem);
+
+/**
+ * Admin, office and field_manager only. Stable workflow identities and Colorado calendar days.
+ * @summary Uncapped Needs scheduling and Slipped queues for the active company
+ */
+export const SchedulingQueueResponse = zod.object({
+  needsScheduling: zod.array(
+    zod.object({
+      id: zod.string(),
+      title: zod.string(),
+      typeKey: zod.string().nullable(),
+      typeName: zod.string(),
+      priority: zod.string(),
+      scheduleBy: zod.string().nullable(),
+      serviceType: zod.string().nullable(),
+      followUpDate: zod.string().nullable(),
+      createdAt: zod.coerce.date(),
+      customer: zod
+        .object({
+          id: zod.string(),
+          name: zod.string(),
+          city: zod.string(),
+        })
+        .nullable(),
+      visit: zod
+        .object({
+          id: zod.string(),
+          visitDate: zod.string(),
+          crewId: zod.string().nullable(),
+          crewName: zod.string().nullable(),
+        })
+        .optional(),
+    }),
+  ),
+  slipped: zod.array(
+    zod.object({
+      id: zod.string(),
+      title: zod.string(),
+      typeKey: zod.string().nullable(),
+      typeName: zod.string(),
+      priority: zod.string(),
+      scheduleBy: zod.string().nullable(),
+      serviceType: zod.string().nullable(),
+      followUpDate: zod.string().nullable(),
+      createdAt: zod.coerce.date(),
+      customer: zod
+        .object({
+          id: zod.string(),
+          name: zod.string(),
+          city: zod.string(),
+        })
+        .nullable(),
+      visit: zod
+        .object({
+          id: zod.string(),
+          visitDate: zod.string(),
+          crewId: zod.string().nullable(),
+          crewName: zod.string().nullable(),
+        })
+        .optional(),
+    }),
+  ),
 });
 
 /**

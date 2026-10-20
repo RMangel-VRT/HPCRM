@@ -12,6 +12,7 @@ export const visitFields = {
   ticketId: z.string().min(1).nullable().optional(),
   customerId: z.string().min(1).nullable().optional(),
   title: z.string().trim().min(1).nullable().optional(),
+  serviceKey: z.string().nullable().optional(),
   routeOrder: z.number().int().nullable().optional(),
   startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
   estimatedHours: z.number().min(0).max(24).nullable().optional(),
@@ -36,6 +37,7 @@ export const visits = pgTable("visits", {
   ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
   title: text("title"),
+  serviceKey: text("service_key"),
   routeOrder: integer("route_order"),
   startTime: text("start_time"),
   estimatedHours: real("estimated_hours"),
@@ -50,6 +52,7 @@ export const visits = pgTable("visits", {
   companyDateCrew: index("visits_company_date_crew_idx").on(table.companyId, table.visitDate, table.crewId),
   ticket: index("visits_ticket_idx").on(table.ticketId),
   companyCustomerDate: index("visits_company_customer_date_idx").on(table.companyId, table.customerId, table.visitDate),
+  companyServiceDate: index("visits_company_service_date_idx").on(table.companyId, table.serviceKey, table.visitDate),
 }));
 export type Visit = typeof visits.$inferSelect;
 

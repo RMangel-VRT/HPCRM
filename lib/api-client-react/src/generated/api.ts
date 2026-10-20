@@ -54,6 +54,7 @@ import type {
   MobileWeekResponse,
   MobileWorkItemPatch,
   OwnerResponseTicket,
+  SchedulingQueueResult,
   ServiceTypeTemplate,
   ServiceTypeTemplateInput,
   TicketSendBackInput,
@@ -63,6 +64,7 @@ import type {
   VisitDaySummary,
   VisitInput,
   VisitMutation,
+  VisitRemoval,
   VisitReorderInput,
   VisitReorderResult,
   VisitSummaryParams,
@@ -538,8 +540,8 @@ export const getDeleteVisitUrl = (id: string) => {
 export const deleteVisit = async (
   id: string,
   options?: RequestInit,
-): Promise<void> => {
-  return customFetch<void>(getDeleteVisitUrl(id), {
+): Promise<VisitRemoval> => {
+  return customFetch<VisitRemoval>(getDeleteVisitUrl(id), {
     ...options,
     method: "DELETE",
   });
@@ -611,6 +613,170 @@ export const useDeleteVisit = <
 > => {
   return useMutation(getDeleteVisitMutationOptions(options));
 };
+
+/**
+ * Admin, office and field_manager only. Does not change the board list range limit.
+ * @summary Complete company-scoped ticket visit history, all dates and statuses
+ */
+export const getTicketVisitsUrl = (id: string) => {
+  return `/api/tickets/${id}/visits`;
+};
+
+export const ticketVisits = async (
+  id: string,
+  options?: RequestInit,
+): Promise<EnrichedVisit[]> => {
+  return customFetch<EnrichedVisit[]>(getTicketVisitsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getTicketVisitsQueryKey = (id: string) => {
+  return [`/api/tickets/${id}/visits`] as const;
+};
+
+export const getTicketVisitsQueryOptions = <
+  TData = Awaited<ReturnType<typeof ticketVisits>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof ticketVisits>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getTicketVisitsQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof ticketVisits>>> = ({
+    signal,
+  }) => ticketVisits(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof ticketVisits>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type TicketVisitsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof ticketVisits>>
+>;
+export type TicketVisitsQueryError = ErrorType<void>;
+
+/**
+ * @summary Complete company-scoped ticket visit history, all dates and statuses
+ */
+
+export function useTicketVisits<
+  TData = Awaited<ReturnType<typeof ticketVisits>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof ticketVisits>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getTicketVisitsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Admin, office and field_manager only. Stable workflow identities and Colorado calendar days.
+ * @summary Uncapped Needs scheduling and Slipped queues for the active company
+ */
+export const getSchedulingQueueUrl = () => {
+  return `/api/scheduling/queue`;
+};
+
+export const schedulingQueue = async (
+  options?: RequestInit,
+): Promise<SchedulingQueueResult> => {
+  return customFetch<SchedulingQueueResult>(getSchedulingQueueUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getSchedulingQueueQueryKey = () => {
+  return [`/api/scheduling/queue`] as const;
+};
+
+export const getSchedulingQueueQueryOptions = <
+  TData = Awaited<ReturnType<typeof schedulingQueue>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof schedulingQueue>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getSchedulingQueueQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof schedulingQueue>>> = ({
+    signal,
+  }) => schedulingQueue({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof schedulingQueue>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type SchedulingQueueQueryResult = NonNullable<
+  Awaited<ReturnType<typeof schedulingQueue>>
+>;
+export type SchedulingQueueQueryError = ErrorType<void>;
+
+/**
+ * @summary Uncapped Needs scheduling and Slipped queues for the active company
+ */
+
+export function useSchedulingQueue<
+  TData = Awaited<ReturnType<typeof schedulingQueue>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof schedulingQueue>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getSchedulingQueueQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * Assignee, admin or office only. Atomically records acceptance, status history and a missing schedule-by date.

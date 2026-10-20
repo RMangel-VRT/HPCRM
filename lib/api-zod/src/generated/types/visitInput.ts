@@ -39,4 +39,6 @@ export interface VisitInput {
    * @nullable
    */
   title?: string | null;
+  /** @nullable */
+  serviceKey?: string | null;
 }

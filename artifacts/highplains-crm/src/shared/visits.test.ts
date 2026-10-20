@@ -6,7 +6,7 @@ describe("hand-synced visits client contract", () => {
   it("contains every SQL column and preserves nullable form fields", () => {
     expect(Object.keys(visits).filter(key => !key.startsWith("$")).sort()).toEqual([
       "id", "companyId", "crewId", "visitDate", "sourceType", "ticketId", "customerId", "title", "routeOrder",
-      "startTime", "estimatedHours", "status", "actualStartAt", "actualEndAt", "notes", "createdById", "createdAt", "updatedAt",
+      "startTime", "estimatedHours", "status", "actualStartAt", "actualEndAt", "notes", "serviceKey", "createdById", "createdAt", "updatedAt",
     ].sort());
     expect(insertVisitSchema.parse({ ...base, ticketId: "ticket", crewId: "crew", customerId: "customer", routeOrder: null, notes: null, estimatedHours: null })).toMatchObject({
       crewId: "crew", customerId: "customer", routeOrder: null, notes: null, estimatedHours: null, sourceType: "ticket", status: "planned",

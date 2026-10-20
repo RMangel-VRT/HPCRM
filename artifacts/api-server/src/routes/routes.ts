@@ -55,6 +55,7 @@ import { pickProvided } from '../lib/patchBody';
 import { linkCrewsByName } from "../lib/linkCrews";
 import { registerVisitRoutes } from "./visits";
 import { backfillVisitsFromTickets } from "../lib/backfillVisits";
+import { backfillVisitServices } from "../lib/backfillVisitServices";
 import { applySchedulingTransition } from "../lib/schedulingTransition";
 import { applyVisitTicketEdit } from "../lib/visitTicketCompatibility";
 import { transactionalTicketPatch } from "../lib/ticketPatchTransaction";
@@ -2617,6 +2618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await backfillScheduleBy();
   await linkCrewsByName();
   await backfillVisitsFromTickets();
+  await backfillVisitServices();
 
   setupAuth(app);
   registerTicketOwnerResponseRoutes(app);

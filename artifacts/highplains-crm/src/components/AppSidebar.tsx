@@ -53,6 +53,7 @@ import { Link, useLocation } from "wouter";
 import logoImage from "@assets/LOGO_-_SPREAD-06_1773353516653.png";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
+import { useSchedulingQueue } from "@/hooks/use-scheduling";
 import { Badge } from "@/components/ui/badge";
 import type { Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -156,6 +157,10 @@ export default function AppSidebar({
   });
   const billingBadgeCount = Array.isArray(billingBadgeRows) ? billingBadgeRows.length : 0;
 
+  const canSchedule = !isSuperAdmin && (userRole === "admin" || userRole === "office" || userRole === "field_manager");
+  const { data: schedulingQueue } = useSchedulingQueue(companyId, canSchedule, { badge: true });
+  const schedulingBadgeCount = schedulingQueue ? schedulingQueue.needsScheduling.length + schedulingQueue.slipped.length : 0;
+
   const getDashboardItems = (): NavItem[] => {
     if (isSuperAdmin) return showBillingEntry ? [
       { title: t("nav.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
@@ -178,6 +183,10 @@ export default function AppSidebar({
 
     if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
       items.push({ title: t("nav.dashboard"), url: "/dashboard", icon: LayoutDashboard });
+    }
+
+    if (canSchedule) {
+      items.push({ title: t("nav.scheduling"), url: "/dashboard/scheduling", icon: CalendarDays });
     }
 
     if (userRole === "admin" || userRole === "office") {
@@ -413,6 +422,11 @@ export default function AppSidebar({
                     <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
+                      {item.url === "/dashboard/scheduling" && schedulingBadgeCount > 0 && (
+                        <Badge className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-scheduling-sidebar">
+                          {schedulingBadgeCount > 99 ? "99+" : schedulingBadgeCount}
+                        </Badge>
+                      )}
                       {item.url === "/dashboard/billing" && billingBadgeCount > 0 && (
                         <Badge className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-billing-sidebar">
                           {billingBadgeCount > 99 ? "99+" : billingBadgeCount}

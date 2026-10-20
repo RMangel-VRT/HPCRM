@@ -305,6 +305,17 @@ function QueueRow({
             <Link href={item.href}>{item.verb}</Link>
           </Button>
         )}
+        {item.source === "past_schedule_by" && (
+          <Button
+            asChild
+            size="sm"
+            variant="ghost"
+            className="h-8 shrink-0 px-2.5 transition-colors"
+            data-testid={`needs-you-schedule-${item.id}`}
+          >
+            <Link href="/dashboard/scheduling">Schedule</Link>
+          </Button>
+        )}
       </div>
     </div>
   );

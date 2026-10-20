@@ -26,19 +26,11 @@ describe("standing crew settings and form payloads", () => {
     expect(html).toContain('aria-label="Move North down"');
     expect(html).toContain("<td");
   });
-  it("counts only active unlinked planner crews with the exact actionable warning", () => {
-    fixtures.planners = [
-      { id: "p", name: "First", isActive: true, crewId: null },
-      { id: "p2", name: "Second", isActive: true, crewId: null },
-      { id: "p3", name: "Inactive", isActive: false, crewId: null },
-      { id: "p4", name: "Linked", isActive: true, crewId: "s" },
-    ];
-    expect(render()).toContain("2 planner crews aren&#x27;t linked to a crew yet. They won&#x27;t appear on the Scheduling board.");
-    expect(render()).toContain('role="alert"');
-  });
-  it("does not show the warning when all active planners are linked", () => {
-    fixtures.planners = [{ id: "p", name: "Linked", isActive: true, crewId: "s" }];
-    expect(render()).not.toContain('role="alert"');
+  it("no longer nags about unlinked planner crews but keeps the planner field", () => {
+    fixtures.planners = [{ id: "p", name: "First", isActive: true, crewId: null }];
+    const html = render();
+    expect(html).not.toContain("planner crews aren");
+    expect(html).not.toContain('role="alert"');
   });
   it("preserves new standing fields, including zero hours and explicit clearing", () => {
     const body = { name: "North", supervisorUserId: "u", isActive: true, color: "#123456", defaultHoursPerDay: 0, displayOrder: 2, plannerCrewId: null };

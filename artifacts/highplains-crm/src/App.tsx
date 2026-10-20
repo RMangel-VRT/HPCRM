@@ -45,6 +45,7 @@ const MyTickets = lazy(() => import("@/pages/MyTickets"));
 const UsersPage = lazy(() => import("@/pages/UsersPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const PropertyMapsPage = lazy(() => import("@/pages/PropertyMapsPage"));
+const SchedulingPage = lazy(() => import("@/pages/SchedulingPage"));
 const SchedulePage = lazy(() => import("@/pages/SchedulePage"));
 const EquipmentList = lazy(() => import("@/pages/EquipmentList"));
 const EquipmentDetail = lazy(() => import("@/pages/EquipmentDetail"));
@@ -258,6 +259,11 @@ function Router() {
           path="/dashboard/maps"
           component={PropertyMapsPage}
           allowedRoles={["admin", "office", "mapping", "field", "field_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor"]}
+        />
+        <ProtectedRoute
+          path="/dashboard/scheduling"
+          component={SchedulingPage}
+          allowedRoles={["admin", "office", "field_manager"]}
         />
         <Route path="/dashboard/scheduler">
           <Redirect to="/dashboard/schedule" />

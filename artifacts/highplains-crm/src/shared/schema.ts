@@ -24,6 +24,7 @@ export const visitFields = {
   actualStartAt: z.date().nullable().optional(),
   actualEndAt: z.date().nullable().optional(),
   notes: z.string().nullable().optional(),
+  serviceKey: z.string().nullable().optional(),
   createdById: z.string().nullable().optional(),
 };
 // Use a real object, not the stub's no-op superRefine.
@@ -48,10 +49,12 @@ export const visits = pgTable("visits", {
   actualStartAt: timestamp("actual_start_at"),
   actualEndAt: timestamp("actual_end_at"),
   notes: text("notes"),
+  serviceKey: text("service_key"),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table: any) => ({
+  companyServiceDate: index("visits_company_service_date_idx").on(table.companyId, table.serviceKey, table.visitDate),
   companyDateCrew: index("visits_company_date_crew_idx").on(table.companyId, table.visitDate, table.crewId),
   ticket: index("visits_ticket_idx").on(table.ticketId),
   companyCustomerDate: index("visits_company_customer_date_idx").on(table.companyId, table.customerId, table.visitDate),

@@ -558,3 +558,15 @@
     display: none !important;
   }
 }
+
+/* Crew-day sheet: print only the sheet */
+@media print {
+  body.print-crew-day > *:not([data-crew-day-print]):not(:has([data-crew-day-print])) { display: none !important; }
+  body.print-crew-day div.fixed.inset-0:not([data-crew-day-print]) { display: none !important; }
+  body.print-crew-day [data-crew-day-print] {
+    display: block !important;
+    position: static !important; inset: auto !important; width: 100% !important; max-width: none !important;
+    height: auto !important; transform: none !important; border: 0 !important; box-shadow: none !important; overflow: visible !important;
+  }
+  body.print-crew-day [data-crew-day-print] button { display: none !important; }
+}

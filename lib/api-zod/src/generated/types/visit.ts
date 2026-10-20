@@ -17,6 +17,8 @@ export interface Visit {
   visitDate: string;
   sourceType: VisitSourceType;
   /** @nullable */
+  serviceKey: string | null;
+  /** @nullable */
   ticketId: string | null;
   /** @nullable */
   customerId: string | null;

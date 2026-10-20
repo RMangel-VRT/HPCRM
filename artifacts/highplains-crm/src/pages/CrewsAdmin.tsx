@@ -82,7 +82,6 @@ export default function CrewsAdmin() {
     queryKey: ["/api/crews/eligible-supervisors"],
   });
   const { data: plannerCrews = [] } = useQuery<PlannerCrew[]>({ queryKey: ["/api/maintenance-crews"], staleTime: 30_000, refetchOnWindowFocus: true });
-  const unmatched = plannerCrews.filter(p => p.isActive && !p.crewId);
   const refreshCrews = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/crews"] });
     queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
@@ -174,19 +173,6 @@ export default function CrewsAdmin() {
 
   return (
     <div className="space-y-6">
-      {unmatched.length > 0 && (
-        <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
-          <button type="button" className="text-left underline" onClick={() => {
-            const planner = unmatched[0];
-            const standing = crews.find(c => c.isActive && !c.plannerCrew && c.name.trim().toLowerCase() === planner.name.trim().toLowerCase());
-            if (standing) openEdit(standing); else openCreate();
-            if (!standing) form.setValue("name", planner.name);
-            form.setValue("plannerCrewId", planner.id);
-          }}>
-            {unmatched.length} planner crews aren't linked to a crew yet. They won't appear on the Scheduling board.
-          </button>
-        </div>
-      )}
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>

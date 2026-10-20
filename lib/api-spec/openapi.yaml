@@ -35,6 +35,7 @@ paths:
         - { name: crewId, in: query, schema: { type: string } }
         - { name: customerId, in: query, schema: { type: string } }
         - { name: ticketId, in: query, schema: { type: string } }
+        - { name: service, in: query, schema: { type: string, minLength: 1 } }
       responses:
         "200":
           description: Bulk-enriched visits
@@ -72,6 +73,7 @@ paths:
       parameters:
         - { name: from, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
         - { name: to, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
+        - { name: service, in: query, schema: { type: string, minLength: 1 } }
       responses:
         "200":
           description: Company rollup with eight-hour capacity fallback
@@ -129,11 +131,46 @@ paths:
       tags: [visits]
       summary: Delete a planned visit and recompute its ticket mirror
       responses:
-        "204": { description: Deleted }
+        "200":
+          description: Deleted with the actual transactional ticket synchronization result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VisitRemoval" }
         "401": { description: Not authenticated }
         "403": { description: Role not allowed }
         "404": { description: Visit not found in active company }
         "409": { description: VISIT_CLOSED — only planned visits can be deleted }
+  /tickets/{id}/visits:
+    get:
+      operationId: ticketVisits
+      tags: [visits]
+      summary: Complete company-scoped ticket visit history, all dates and statuses
+      description: Admin, office and field_manager only. Does not change the board list range limit.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Ordered enriched ticket history
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/EnrichedVisit" } }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
+        "404": { description: Ticket not found in active company }
+  /scheduling/queue:
+    get:
+      operationId: schedulingQueue
+      tags: [visits]
+      summary: Uncapped Needs scheduling and Slipped queues for the active company
+      description: Admin, office and field_manager only. Stable workflow identities and Colorado calendar days.
+      responses:
+        "200":
+          description: Bulk enriched queues
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SchedulingQueueResult" }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
   /tickets/{id}/accept:
     post:
       operationId: acceptTicket
@@ -1107,6 +1144,7 @@ components:
         estimatedHours: { type: [number, "null"], minimum: 0, maximum: 24 }
         notes: { type: [string, "null"] }
         title: { type: [string, "null"], minLength: 1 }
+        serviceKey: { type: [string, "null"] }
     VisitUpdate:
       type: object
       properties:
@@ -1117,15 +1155,17 @@ components:
         estimatedHours: { type: [number, "null"], minimum: 0, maximum: 24 }
         notes: { type: [string, "null"] }
         status: { type: string, enum: [planned, in_progress, done, skipped, cancelled] }
+        serviceKey: { type: [string, "null"] }
     Visit:
       type: object
-      required: [id, companyId, crewId, visitDate, sourceType, ticketId, customerId, title, routeOrder, startTime, estimatedHours, status, actualStartAt, actualEndAt, notes, createdById, createdAt, updatedAt]
+      required: [id, companyId, crewId, visitDate, sourceType, ticketId, customerId, title, serviceKey, routeOrder, startTime, estimatedHours, status, actualStartAt, actualEndAt, notes, createdById, createdAt, updatedAt]
       properties:
         id: { type: string }
         companyId: { type: string }
         crewId: { type: [string, "null"] }
         visitDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
         sourceType: { type: string, enum: [ticket, internal, maintenance, campaign_item] }
+        serviceKey: { type: [string, "null"] }
         ticketId: { type: [string, "null"] }
         customerId: { type: [string, "null"] }
         title: { type: [string, "null"] }
@@ -1145,6 +1185,49 @@ components:
       properties:
         statusChanged: { type: boolean }
         newStatusKey: { type: [string, "null"] }
+    VisitRemoval:
+      type: object
+      required: [ticketSync]
+      properties:
+        ticketSync: { $ref: "#/components/schemas/VisitTicketSync" }
+    SchedulingQueueResult:
+      type: object
+      required: [needsScheduling, slipped]
+      properties:
+        needsScheduling:
+          type: array
+          items: { $ref: "#/components/schemas/SchedulingQueueItem" }
+        slipped:
+          type: array
+          items: { $ref: "#/components/schemas/SchedulingQueueItem" }
+    SchedulingQueueItem:
+      type: object
+      required: [id, title, typeKey, typeName, priority, scheduleBy, serviceType, customer, followUpDate, createdAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        typeKey: { type: [string, "null"] }
+        typeName: { type: string }
+        priority: { type: string }
+        scheduleBy: { type: [string, "null"] }
+        serviceType: { type: [string, "null"] }
+        followUpDate: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        customer:
+          type: [object, "null"]
+          required: [id, name, city]
+          properties:
+            id: { type: string }
+            name: { type: string }
+            city: { type: string }
+        visit:
+          type: object
+          required: [id, visitDate, crewId, crewName]
+          properties:
+            id: { type: string }
+            visitDate: { type: string }
+            crewId: { type: [string, "null"] }
+            crewName: { type: [string, "null"] }
     VisitMutation:
       allOf:
         - { $ref: "#/components/schemas/Visit" }
@@ -1172,10 +1255,14 @@ components:
                 scheduleBy: { type: [string, "null"] }
             customer:
               type: [object, "null"]
-              required: [id, name]
+              required: [id, name, street, city, state, zip]
               properties:
                 id: { type: string }
                 name: { type: string }
+                street: { type: string }
+                city: { type: string }
+                state: { type: string }
+                zip: { type: string }
             crew:
               type: [object, "null"]
               required: [id, name, color]

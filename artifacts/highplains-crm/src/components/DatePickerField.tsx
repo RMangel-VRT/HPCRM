@@ -16,6 +16,8 @@ interface DatePickerFieldProps {
   placeholder?: string;
   disabled?: boolean;
   compact?: boolean;
+  /** Forms can keep Clear in the popover without nesting an interactive clear control in the trigger. */
+  inlineClear?: boolean;
   "data-testid"?: string;
 }
 
@@ -25,6 +27,7 @@ export function DatePickerField({
   placeholder = "Pick a date",
   disabled,
   compact,
+  inlineClear = true,
   "data-testid": testId,
 }: DatePickerFieldProps) {
   const [open, setOpen] = useState(false);
@@ -62,7 +65,7 @@ export function DatePickerField({
           <span className="flex-1">
             {value ? format(value, "MMM d, yyyy") : placeholder}
           </span>
-          {value && (
+          {value && inlineClear && (
             <span
               role="button"
               tabIndex={0}

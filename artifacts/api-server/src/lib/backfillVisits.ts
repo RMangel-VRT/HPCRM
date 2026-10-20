@@ -35,6 +35,7 @@ export async function backfillVisitsFromTickets(companyId?: string) {
       const inserted = await tx.insert(visits).values(current.map(({ ticket, customerId }) => ({
         companyId: company.id, crewId: ticket.crewId, ticketId: ticket.id, customerId,
         visitDate: companyDateString(ticket.dueDate!), routeOrder: ticket.routeOrder, sourceType: "ticket" as const, status: "planned" as const,
+        serviceKey: ticket.serviceType,
       }))).returning({ id: visits.id });
       return inserted.length;
     });

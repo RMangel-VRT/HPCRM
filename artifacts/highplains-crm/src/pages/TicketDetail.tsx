@@ -87,6 +87,10 @@ import "leaflet/dist/leaflet.css";
 import LayerMapViewer from "@/components/LayerMapViewer";
 import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType, isSeededStatus, taskWorkflowStatuses } from "@shared/ticketVisuals";
 import { ticketHue, TaskBillingBadge } from "@/components/TicketIdentity";
+import { TicketVisitsCard } from "@/components/scheduling/TicketVisitsCard";
+import { useTicketOpenVisitGuard } from "@/hooks/use-scheduling";
+import { handleMultipleVisits } from "@/lib/multipleVisits";
+import { focusVisitsCard, fetchTicketVisits, isOpenVisit } from "@/lib/scheduling";
 import { TicketSchedulingPanel, ScheduleByFact } from "@/components/TicketSchedulingPanel";
 import { invalidateTicketScheduling } from "@/lib/schedulingStatus";
 
@@ -297,6 +301,15 @@ export default function TicketDetail() {
     enabled: !!ticketId,
   });
 
+  // Scheduled-capable by stable status identity (never display name or current status).
+  const scheduledCapable = !!details?.statuses?.some(s => s.statusKey === "scheduled");
+  // Visits endpoints are admin/office/field_manager only; other roles never query them.
+  const canViewVisits = ["admin", "office", "field_manager"].includes(currentUser?.activeRole ?? "");
+  const visitGuard = useTicketOpenVisitGuard(currentUser?.activeCompanyId, ticketId, scheduledCapable && canViewVisits);
+  // Unknown (loading/failed) is never treated as "no open visits".
+  const lockSchedule = scheduledCapable && (!canViewVisits || !visitGuard || visitGuard.state === "unknown" || visitGuard.hasOpen);
+
+
   // Fetch customer rate sheet for Invoice tickets
   const { data: rateSheet } = useQuery<CustomerRateSheet | null>({
     queryKey: ["/api/customers", details?.customer?.id, "rate-sheet"],
@@ -377,6 +390,7 @@ export default function TicketDetail() {
       toast({ title: t('ticketDetail.reassigned') });
     },
     onError: (error: Error) => {
+      if (handleMultipleVisits(error, toast)) return;
       toast({ title: t('ticketDetail.reassignFailed'), description: error.message, variant: "destructive" });
     },
   });
@@ -396,6 +410,7 @@ export default function TicketDetail() {
       toast({ title: t('ticketDetail.delegated') });
     },
     onError: (error: Error) => {
+      if (handleMultipleVisits(error, toast)) return;
       toast({ title: t('ticketDetail.reassignFailed'), description: error.message, variant: "destructive" });
     },
   });
@@ -458,6 +473,7 @@ export default function TicketDetail() {
       toast({ title: t('ticketDetail.updated') });
     },
     onError: (error: Error) => {
+      if (handleMultipleVisits(error, toast, { close: () => setShowEditDialog(false) })) return;
       toast({ title: t('tickets.unexpectedError'), description: error.message, variant: "destructive" });
     },
   });
@@ -1049,18 +1065,25 @@ export default function TicketDetail() {
   };
 
   // Save ticket edits
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     const updates: any = {
       title: editForm.title,
       description: editForm.description || null,
       priority: editForm.priority,
-      dueDate: editForm.dueDate ? new Date(editForm.dueDate.getFullYear(), editForm.dueDate.getMonth(), editForm.dueDate.getDate(), 12, 0, 0) : null,
       workCompletedDate: editForm.workCompletedDate ? new Date(editForm.workCompletedDate.getFullYear(), editForm.workCompletedDate.getMonth(), editForm.workCompletedDate.getDate(), 12, 0, 0) : null,
       invoiceCategory: editForm.invoiceCategory,
-      crewId: editForm.crewId,
-      routeOrder:
-        editForm.routeOrder.trim() === "" ? null : Number.parseInt(editForm.routeOrder, 10),
     };
+    // Recheck against fresh history at save time; failure is never treated as "no open visits".
+    let lockNow = false;
+    if (scheduledCapable && ticketId) {
+      if (!canViewVisits) lockNow = true;
+      else try { lockNow = (await fetchTicketVisits(ticketId)).some(isOpenVisit); } catch { lockNow = true; }
+    }
+    if (!lockNow) {
+      updates.routeOrder = editForm.routeOrder.trim() === "" ? null : Number.parseInt(editForm.routeOrder, 10);
+      updates.dueDate = editForm.dueDate ? new Date(editForm.dueDate.getFullYear(), editForm.dueDate.getMonth(), editForm.dueDate.getDate(), 12, 0, 0) : null;
+      updates.crewId = editForm.crewId;
+    }
     editTicketMutation.mutate(updates);
   };
 
@@ -3373,6 +3396,8 @@ export default function TicketDetail() {
       </AlertDialog>
 
       {/* Edit Ticket Dialog */}
+      {scheduledCapable && canViewVisits && <TicketVisitsCard ticketId={ticket.id} ticketTitle={ticket.title} />}
+
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -3429,11 +3454,17 @@ export default function TicketDetail() {
               
               <div className="space-y-2">
                 <Label>{t('ticketDetail.dueDate')}</Label>
-                <DatePickerField
-                  value={editForm.dueDate}
-                  onChange={(date) => setEditForm(prev => ({ ...prev, dueDate: date }))}
-                  data-testid="input-edit-dueDate"
-                />
+                {lockSchedule ? (
+                  <div className="flex h-9 items-center rounded-md border bg-muted/50 px-3 text-sm text-muted-foreground" data-testid="text-edit-dueDate-readonly">
+                    {editForm.dueDate ? format(editForm.dueDate, "MMM d, yyyy") : t('common.none')}
+                  </div>
+                ) : (
+                  <DatePickerField
+                    value={editForm.dueDate}
+                    onChange={(date) => setEditForm(prev => ({ ...prev, dueDate: date }))}
+                    data-testid="input-edit-dueDate"
+                  />
+                )}
               </div>
             </div>
             
@@ -3449,12 +3480,18 @@ export default function TicketDetail() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-crew">Field crew</Label>
-                <CrewSelect
-                  value={editForm.crewId}
-                  onChange={(v) => setEditForm((prev) => ({ ...prev, crewId: v }))}
-                  crews={crewsList}
-                  testId="select-edit-crew"
-                />
+                {lockSchedule ? (
+                  <div className="flex h-9 items-center rounded-md border bg-muted/50 px-3 text-sm text-muted-foreground" data-testid="text-edit-crew-readonly">
+                    {crewsList.find(c => c.id === editForm.crewId)?.name ?? t('common.none')}
+                  </div>
+                ) : (
+                  <CrewSelect
+                    value={editForm.crewId}
+                    onChange={(v) => setEditForm((prev) => ({ ...prev, crewId: v }))}
+                    crews={crewsList}
+                    testId="select-edit-crew"
+                  />
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-routeOrder">Route order</Label>
@@ -3464,15 +3501,36 @@ export default function TicketDetail() {
                   inputMode="numeric"
                   min={0}
                   value={editForm.routeOrder}
+                  disabled={lockSchedule}
                   onChange={(e) => setEditForm((prev) => ({ ...prev, routeOrder: e.target.value }))}
                   placeholder="e.g. 1"
                   data-testid="input-edit-route-order"
                 />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground" data-testid="text-edit-schedule-hint">
-              {t('tickets.crewDateHint')}
-            </p>
+            {lockSchedule && visitGuard?.state === "ready" ? (
+              <button
+                type="button"
+                className="text-left text-xs text-primary underline underline-offset-2"
+                data-testid="link-edit-visits-hint"
+                onClick={() => { setShowEditDialog(false); focusVisitsCard(150); }}
+              >
+                Change in Visits below
+              </button>
+            ) : lockSchedule && !canViewVisits ? (
+              <p className="text-xs text-muted-foreground" data-testid="text-edit-visits-managed">Scheduled by the office in Visits.</p>
+            ) : lockSchedule && visitGuard?.state === "unknown" ? (
+              <p className="text-xs text-muted-foreground" data-testid="text-edit-visits-checking">
+                {visitGuard.reason === "error" ? "Couldn't check visits. " : "Checking visits… "}
+                {visitGuard.reason === "error" && (
+                  <button type="button" className="underline" onClick={visitGuard.retry} data-testid="button-edit-visits-retry">Retry</button>
+                )}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground" data-testid="text-edit-schedule-hint">
+                {t('tickets.crewDateHint')}
+              </p>
+            )}
 
             {ticketType?.name === "Invoice" && (
               <div className="space-y-2">

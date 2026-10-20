@@ -27,6 +27,8 @@ import {
   parseCalendarDate,
 } from "@/lib/schedulingStatus";
 
+import { handleMultipleVisits } from "@/lib/multipleVisits";
+
 function formatYmd(ymd: string): string {
   return format(parseCalendarDate(ymd), "EEE MMM d");
 }
@@ -37,12 +39,14 @@ function useSchedulingMutation(ticketId: string, customerId: string | null | und
   return {
     toast,
     t,
-    onError: (error: Error) =>
+    onError: (error: Error) => {
+      if (handleMultipleVisits(error, toast)) return;
       toast({
         title: t("tickets.schedActionFailed"),
         description: parseApiValidationError(error).message ?? extractApiErrorMessage(error) ?? error.message,
         variant: "destructive" as const,
-      }),
+      });
+    },
     refresh: () => invalidateTicketScheduling(queryClient, ticketId, customerId),
   };
 }

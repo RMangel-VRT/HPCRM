@@ -6,35 +6,39 @@ import { db } from "../db";
 import type { UserWithContext } from "../auth";
 import { pickProvided } from "../lib/patchBody";
 import { addCalendarDays } from "../lib/companyDay";
+import { loadEnrichedVisits } from "../lib/visitQueries";
+import { registerSchedulingQueue } from "./schedulingQueue";
 import {
   VisitError, lockVisitCompany, lockVisitTickets, validateVisitCrew, schedulableTicket,
   appendVisitOrder, syncTicketFromVisits, openVisitStatuses, type VisitTransaction,
 } from "../lib/visitSync";
 import { logger } from "../lib/logger";
-import { CreateVisitBody, UpdateVisitBody, ReorderVisitsBody, ListVisitsResponse, VisitSummaryResponse, UpdateVisitResponse } from "@workspace/api-zod";
+import { CreateVisitBody, UpdateVisitBody, ReorderVisitsBody, ListVisitsResponse, VisitSummaryResponse, UpdateVisitResponse, DeleteVisitResponse } from "@workspace/api-zod";
 
 export const visitCreateBody = z.object({
   ticketId: z.string().min(1).optional(), crewId: z.string().min(1), visitDate: visitFields.visitDate,
   routeOrder: visitFields.routeOrder, startTime: visitFields.startTime,
   estimatedHours: visitFields.estimatedHours, notes: visitFields.notes, title: visitFields.title,
+  serviceKey: visitFields.serviceKey,
 }).refine(v => v.ticketId || v.title, "Ticket or internal title required");
 export const visitUpdateBody = z.object({
   crewId: z.string().min(1).optional(), visitDate: visitFields.visitDate.optional(),
   routeOrder: visitFields.routeOrder, startTime: visitFields.startTime,
   estimatedHours: visitFields.estimatedHours, notes: visitFields.notes, status: visitFields.status.optional(),
+  serviceKey: visitFields.serviceKey,
 });
 const rangeBody = z.object({ from: visitFields.visitDate, to: visitFields.visitDate }).refine(
   v => visitFields.visitDate.safeParse(v.from).success && v.from <= v.to && v.to <= addCalendarDays(v.from, 62), "Ordered range must be at most 62 days apart",
 );
 const reorderBody = z.object({ crewId: z.string().min(1), visitDate: visitFields.visitDate, visitIds: z.array(z.string().min(1)) });
 
-function authorize(req: Request, res: Response): UserWithContext | undefined {
+export function authorize(req: Request, res: Response): UserWithContext | undefined {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
   const user = req.user as UserWithContext;
   if (!["admin", "office", "field_manager"].includes(user.activeRole)) { res.status(403).json({ error: "Insufficient permissions" }); return; }
   return user;
 }
-function failure(res: Response, error: unknown) {
+export function failure(res: Response, error: unknown) {
   if (error instanceof VisitError) res.status(error.status).json({ error: error.code, message: error.message });
   else if (error instanceof z.ZodError) res.status(400).json({ error: "INVALID_VISIT", message: error.message });
   else { logger.error({ err: error }, "Visit operation failed"); res.status(500).json({ error: "Visit operation failed" }); }
@@ -44,46 +48,44 @@ async function write<T>(companyId: string, fn: (tx: VisitTransaction) => Promise
 }
 
 export function registerVisitRoutes(app: Express) {
+  registerSchedulingQueue(app, authorize, failure);
+  app.get("/api/tickets/:id/visits", async (req, res): Promise<void> => {
+    const user = authorize(req, res); if (!user) return;
+    try {
+      const id = z.string().parse(req.params.id);
+      const [ticket] = await db.select({ id: tickets.id }).from(tickets)
+        .where(and(eq(tickets.id, id), eq(tickets.companyId, user.activeCompanyId)));
+      if (!ticket) throw new VisitError(404, "NOT_FOUND", "Ticket not found");
+      res.json(ListVisitsResponse.parse(await loadEnrichedVisits(user.activeCompanyId, [eq(visits.ticketId, id)])));
+    } catch (error) { failure(res, error); }
+  });
   app.get("/api/visits", async (req, res): Promise<void> => {
     const user = authorize(req, res); if (!user) return;
     try {
       const range = rangeBody.parse(req.query);
-      const filters = z.object({ crewId: z.string().min(1).optional(), customerId: z.string().min(1).optional(), ticketId: z.string().min(1).optional() }).parse(req.query);
+      const filters = z.object({ crewId: z.string().min(1).optional(), customerId: z.string().min(1).optional(), ticketId: z.string().min(1).optional(), service: z.string().min(1).optional() }).parse(req.query);
       const companyId = user.activeCompanyId;
-      // Scoped joins are bulk enrichment in one query; no foreign counterpart can leak.
-      const rows = await db.select({
-        visit: visits,
-        ticket: { id: tickets.id, title: tickets.title, typeKey: ticketTypes.typeKey, typeName: ticketTypes.name,
-          statusKey: ticketTypeStatuses.statusKey, statusName: ticketTypeStatuses.name, priority: tickets.priority, scheduleBy: tickets.scheduleBy },
-        customer: { id: customers.id, name: customers.name },
-        crew: { id: crews.id, name: crews.name, color: crews.color },
-      }).from(visits)
-        .leftJoin(tickets, and(eq(tickets.id, visits.ticketId), eq(tickets.companyId, companyId)))
-        .leftJoin(ticketTypes, and(eq(ticketTypes.id, tickets.ticketTypeId), eq(ticketTypes.companyId, companyId)))
-        .leftJoin(ticketTypeStatuses, and(eq(ticketTypeStatuses.id, tickets.currentStatusId), eq(ticketTypeStatuses.ticketTypeId, ticketTypes.id)))
-        .leftJoin(customers, and(eq(customers.id, visits.customerId), eq(customers.companyId, companyId)))
-        .leftJoin(crews, and(eq(crews.id, visits.crewId), eq(crews.companyId, companyId)))
-        .where(and(eq(visits.companyId, companyId), gte(visits.visitDate, range.from), lte(visits.visitDate, range.to),
+      const rows = await loadEnrichedVisits(companyId, [gte(visits.visitDate, range.from), lte(visits.visitDate, range.to),
           filters.crewId ? eq(visits.crewId, filters.crewId) : undefined,
           filters.customerId ? eq(visits.customerId, filters.customerId) : undefined,
-          filters.ticketId ? eq(visits.ticketId, filters.ticketId) : undefined))
-        .orderBy(asc(visits.visitDate), sql`${crews.displayOrder} NULLS LAST`,
-          sql`${visits.routeOrder} NULLS LAST`, sql`${visits.startTime} NULLS LAST`, asc(visits.id));
-      res.json(ListVisitsResponse.parse(rows.map(row => ({ ...row.visit, ticket: row.ticket?.id ? row.ticket : null,
-        customer: row.customer?.id ? row.customer : null, crew: row.crew?.id ? row.crew : null }))));
+          filters.ticketId ? eq(visits.ticketId, filters.ticketId) : undefined,
+          filters.service ? eq(visits.serviceKey, filters.service) : undefined]);
+      res.json(ListVisitsResponse.parse(rows));
     } catch (error) { failure(res, error); }
   });
   app.get("/api/visits/summary", async (req, res): Promise<void> => {
     const user = authorize(req, res); if (!user) return;
     try {
       const range = rangeBody.parse(req.query);
+      const { service } = z.object({ service: z.string().min(1).optional() }).parse(req.query);
       const rows = await db.select({
         crewId: crews.id, date: visits.visitDate,
         visitCount: sql<number>`count(*)::int`,
         plannedHours: sql<number>`coalesce(sum(${visits.estimatedHours}), 0)::real`,
         capacityHours: sql<number>`coalesce(${crews.defaultHoursPerDay}, 8)::real`,
       }).from(visits).leftJoin(crews, and(eq(crews.id, visits.crewId), eq(crews.companyId, user.activeCompanyId)))
-        .where(and(eq(visits.companyId, user.activeCompanyId), gte(visits.visitDate, range.from), lte(visits.visitDate, range.to), inArray(visits.status, [...openVisitStatuses])))
+        .where(and(eq(visits.companyId, user.activeCompanyId), gte(visits.visitDate, range.from), lte(visits.visitDate, range.to), inArray(visits.status, [...openVisitStatuses]),
+          service ? eq(visits.serviceKey, service) : undefined))
         .groupBy(crews.id, visits.visitDate, crews.defaultHoursPerDay).orderBy(asc(visits.visitDate), asc(crews.id));
       res.json(VisitSummaryResponse.parse(rows));
     } catch (error) { failure(res, error); }
@@ -102,6 +104,7 @@ export function registerVisitRoutes(app: Express) {
           .where(and(eq(customers.id, ticket.customerId), eq(customers.companyId, user.activeCompanyId))) : [];
         const [visit] = await tx.insert(visits).values({
           ...body, companyId: user.activeCompanyId, sourceType: ticket ? "ticket" : "internal",
+          serviceKey: ticket ? ticket.serviceType : body.serviceKey,
           customerId: customer?.id ?? null, createdById: user.id, status: "planned",
           routeOrder: Object.hasOwn(body, "routeOrder") ? body.routeOrder : await appendVisitOrder(tx, user.activeCompanyId, body.crewId, body.visitDate),
         }).returning();
@@ -172,16 +175,17 @@ export function registerVisitRoutes(app: Express) {
     const user = authorize(req, res); if (!user) return;
     try {
       const id = z.string().parse(req.params.id);
-      await write(user.activeCompanyId, async tx => {
+      const result = await write(user.activeCompanyId, async tx => {
         const [identity] = await tx.select({ ticketId: visits.ticketId }).from(visits).where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId)));
         if (!identity) throw new VisitError(404, "NOT_FOUND");
         if (identity.ticketId) await lockVisitTickets(tx, user.activeCompanyId, [identity.ticketId]);
         const [existing] = await tx.select().from(visits).where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId)));
         if (existing.status !== "planned") throw new VisitError(409, "VISIT_CLOSED", "Only planned visits can be deleted; cancel instead");
         await tx.delete(visits).where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId)));
-        if (existing.ticketId) await syncTicketFromVisits(existing.ticketId, user.activeCompanyId, user.id, tx);
+        const ticketSync = existing.ticketId ? await syncTicketFromVisits(existing.ticketId, user.activeCompanyId, user.id, tx) : { statusChanged: false, newStatusKey: null };
+        return DeleteVisitResponse.parse({ ticketSync });
       });
-      res.status(204).end();
+      res.json(result);
     } catch (error) { failure(res, error); }
   });
 }

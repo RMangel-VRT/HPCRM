@@ -31,4 +31,6 @@ export interface VisitUpdate {
   /** @nullable */
   notes?: string | null;
   status?: VisitUpdateStatus;
+  /** @nullable */
+  serviceKey?: string | null;
 }

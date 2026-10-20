@@ -38,6 +38,8 @@ export interface VisitInput {
    * @nullable
    */
   title?: string | null;
+  /** @nullable */
+  serviceKey?: string | null;
 }
 
 export type VisitUpdateStatus =
@@ -75,6 +77,8 @@ export interface VisitUpdate {
   /** @nullable */
   notes?: string | null;
   status?: VisitUpdateStatus;
+  /** @nullable */
+  serviceKey?: string | null;
 }
 
 export type VisitSourceType =
@@ -106,6 +110,8 @@ export interface Visit {
   visitDate: string;
   sourceType: VisitSourceType;
   /** @nullable */
+  serviceKey: string | null;
+  /** @nullable */
   ticketId: string | null;
   /** @nullable */
   customerId: string | null;
@@ -134,6 +140,52 @@ export interface VisitTicketSync {
   statusChanged: boolean;
   /** @nullable */
   newStatusKey: string | null;
+}
+
+export interface VisitRemoval {
+  ticketSync: VisitTicketSync;
+}
+
+/**
+ * @nullable
+ */
+export type SchedulingQueueItemCustomer = {
+  id: string;
+  name: string;
+  city: string;
+} | null;
+
+export type SchedulingQueueItemVisit = {
+  id: string;
+  visitDate: string;
+  /** @nullable */
+  crewId: string | null;
+  /** @nullable */
+  crewName: string | null;
+};
+
+export interface SchedulingQueueItem {
+  id: string;
+  title: string;
+  /** @nullable */
+  typeKey: string | null;
+  typeName: string;
+  priority: string;
+  /** @nullable */
+  scheduleBy: string | null;
+  /** @nullable */
+  serviceType: string | null;
+  /** @nullable */
+  followUpDate: string | null;
+  createdAt: string;
+  /** @nullable */
+  customer: SchedulingQueueItemCustomer;
+  visit?: SchedulingQueueItemVisit;
+}
+
+export interface SchedulingQueueResult {
+  needsScheduling: SchedulingQueueItem[];
+  slipped: SchedulingQueueItem[];
 }
 
 export type VisitMutation = Visit & {
@@ -165,6 +217,10 @@ export type EnrichedVisitTicket = {
 export type EnrichedVisitCustomer = {
   id: string;
   name: string;
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
 } | null;
 
 /**
@@ -775,6 +831,10 @@ export type ListVisitsParams = {
   crewId?: string;
   customerId?: string;
   ticketId?: string;
+  /**
+   * @minLength 1
+   */
+  service?: string;
 };
 
 export type VisitSummaryParams = {
@@ -786,6 +846,10 @@ export type VisitSummaryParams = {
    * @pattern ^\d{4}-\d{2}-\d{2}$
    */
   to: string;
+  /**
+   * @minLength 1
+   */
+  service?: string;
 };
 
 export type MobileMeWeekParams = {

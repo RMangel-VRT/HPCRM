@@ -20,6 +20,7 @@ import { pickProvided } from "../lib/patchBody";
 import { maintainScheduleBy } from "../lib/scheduleByMaintenance";
 import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from "../lib/dueDateDismissal";
 import { backfillVisitsFromTickets } from "../lib/backfillVisits";
+import { backfillVisitServices } from "../lib/backfillVisitServices";
 import { syncTicketFromVisits, lockVisitCompany } from "../lib/visitSync";
 import { companyDateString, companyNoon, companyToday } from "../lib/companyDay";
 import { findSeededStatus, isSeededStatus, isSeededTicketType } from "../shared/ticketCapabilities";
@@ -128,6 +129,115 @@ afterAll(async () => {
 }, 30_000);
 
 describe("real PostgreSQL visits API and ticket workflow", () => {
+  it("returns complete scoped ticket history without relaxing board range limits", async () => {
+    await post({ visitDate: "2020-01-01" });
+    const other = await post({ visitDate: "2030-01-01" });
+    await request(app()).patch(`/api/visits/${other.body.id}`).send({ status: "cancelled" });
+    const history = await request(app()).get(`/api/tickets/${ticketId}/visits`);
+    expect(history.status).toBe(200);
+    expect(history.body.map((v: { visitDate: string }) => v.visitDate)).toEqual(["2020-01-01", "2030-01-01"]);
+    expect(history.body[0].customer).toMatchObject({ street: "Test", city: "Test", state: "CO", zip: "00000" });
+    expect((await request(app("admin", true, foreignCompanyId)).get(`/api/tickets/${ticketId}/visits`)).status).toBe(404);
+    expect((await request(app()).get("/api/visits?from=2020-01-01&to=2030-01-01")).status).toBe(400);
+  });
+  it.each(["field", "crew_supervisor", "chemical_manager"])("denies %s the queue and ticket history", async role => {
+    expect((await request(app(role)).get("/api/scheduling/queue")).status).toBe(403);
+    expect((await request(app(role)).get(`/api/tickets/${ticketId}/visits`)).status).toBe(403);
+  });
+  it.each(["admin", "office", "field_manager"])("permits %s queue and ticket history", async role => {
+    expect((await request(app(role)).get("/api/scheduling/queue")).status).toBe(200);
+    expect((await request(app(role)).get(`/api/tickets/${ticketId}/visits`)).status).toBe(200);
+  });
+  it("queue is uncapped, stable-name-independent, sorted and company-scoped in two bulk queries", async () => {
+    const oldest = await newTicket({ title: "Oldest ready", createdAt: new Date("2000-01-01"), scheduleBy: "2026-01-01", priority: "urgent" });
+    await db.insert(tickets).values(Array.from({ length: 605 }, (_, i) => ({
+      companyId, ticketTypeId: taskTypeId, currentStatusId: finalId, title: `Newer closed ${i}`, createdById: userId,
+    })));
+    const high = await newTicket({ scheduleBy: "2026-01-01", priority: "high" });
+    const later = await newTicket({ scheduleBy: "2026-01-02", priority: "urgent" });
+    const project = (await db.insert(ticketTypes).values({ companyId, typeKey: "project", name: "Renamed Project" }).returning())[0];
+    const states = await db.insert(ticketTypeStatuses).values([
+      { ticketTypeId: project.id, statusKey: "ready_to_schedule", name: "Renamed ready", displayOrder: 0 },
+      { ticketTypeId: project.id, statusKey: "scheduled", name: "Renamed scheduled", displayOrder: 1 },
+    ]).returning();
+    const acrossType = await newTicket({ ticketTypeId: project.id, currentStatusId: states[0].id });
+    const alien = await newTicket({ companyId: foreignCompanyId, ticketTypeId: foreignTypeId, currentStatusId: foreignStatusId });
+    const todo = await newTicket({ ticketTypeId: todoTypeId, currentStatusId: todoStatusId });
+    const invoice = await newTicket({ ticketTypeId: invoiceTypeId, currentStatusId: invoiceStatusId });
+    const spy = vi.spyOn(pool, "query");
+    const result = await request(app()).get("/api/scheduling/queue");
+    const count = spy.mock.calls.length; spy.mockRestore();
+    expect(result.status).toBe(200); expect(count).toBe(2);
+    const ids = result.body.needsScheduling.map((t: { id: string }) => t.id);
+    expect(ids).toContain(oldest.id); expect(ids).toContain(acrossType.id);
+    expect(ids.indexOf(oldest.id)).toBeLessThan(ids.indexOf(high.id));
+    expect(ids.indexOf(high.id)).toBeLessThan(ids.indexOf(later.id));
+    for (const id of [alien.id, todo.id, invoice.id]) expect(ids).not.toContain(id);
+  });
+  it("uses the exact winning open visit at 8 pm Colorado, excluding today/future/in-progress alternatives", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-13T20:00:00-06:00"));
+    try {
+      const slipped = await post({ visitDate: "2026-10-12" });
+      const today = await newTicket(); await post({ visitDate: "2026-10-13" }, today.id);
+      const future = await newTicket(); await post({ visitDate: "2026-10-11" }, future.id); await post({ visitDate: "2026-10-14" }, future.id);
+      const progress = await newTicket();
+      await post({ visitDate: "2026-10-10" }, progress.id);
+      const active = await post({ visitDate: "2026-10-12" }, progress.id);
+      await request(app()).patch(`/api/visits/${active.body.id}`).send({ status: "in_progress" });
+      const r = await request(app()).get("/api/scheduling/queue");
+      expect(r.status).toBe(200);
+      expect(r.body.slipped.find((t: { id: string }) => t.id === ticketId)).toMatchObject({ visit: { id: slipped.body.id, visitDate: "2026-10-12", crewId, crewName: "First" } });
+      for (const id of [today.id, future.id, progress.id]) expect(r.body.slipped.some((t: { id: string }) => t.id === id)).toBe(false);
+      expect(companyToday()).toBe("2026-10-13");
+    } finally { vi.useRealTimers(); }
+  });
+  it("copies service snapshots through all producers, fills nulls only and filters open summaries", async () => {
+    await db.update(tickets).set({ serviceType: "aeration" }).where(eq(tickets.id, ticketId));
+    const created = await post({ serviceKey: "chemical", visitDate: "2026-10-13" });
+    expect(created.body.serviceKey).toBe("aeration");
+    await db.update(tickets).set({ serviceType: "mowing" }).where(eq(tickets.id, ticketId));
+    expect(await backfillVisitServices(companyId)).toBe(0);
+    expect((await visitRows())[0].serviceKey).toBe("aeration");
+    const patch = await request(app()).patch(`/api/visits/${created.body.id}`).send({ serviceKey: "chemical", estimatedHours: 3 });
+    expect(patch.body.serviceKey).toBe("chemical");
+    const nullVisit = await post({ visitDate: "2026-10-13" });
+    await request(app()).patch(`/api/visits/${nullVisit.body.id}`).send({ serviceKey: null, status: "done" });
+    expect(await backfillVisitServices(companyId)).toBe(1);
+    expect(await backfillVisitServices(companyId)).toBe(0);
+    const filtered = await request(app()).get("/api/visits?from=2026-10-13&to=2026-10-13&service=chemical");
+    expect(filtered.body.map((v: { id: string }) => v.id)).toEqual([created.body.id]);
+    const summary = await request(app()).get("/api/visits/summary?from=2026-10-13&to=2026-10-13&service=chemical");
+    expect(summary.body).toEqual([{ crewId, date: "2026-10-13", visitCount: 1, plannedHours: 3, capacityHours: 8 }]);
+    const legacy = await newTicket({ serviceType: "cleanups" });
+    const edited = await request(app()).patch(`/api/tickets/${legacy.id}`).send({ crewId, dueDate: companyNoon("2026-10-14").toISOString() });
+    expect(edited.status).toBe(200);
+    expect((await visitRows(legacy.id))[0].serviceKey).toBe("cleanups");
+    const backfilled = await newTicket({ serviceType: "tree_pruning", crewId, dueDate: companyNoon("2026-10-15") });
+    await backfillVisitsFromTickets(companyId);
+    expect((await visitRows(backfilled.id))[0].serviceKey).toBe("tree_pruning");
+  });
+  it("removal reports only the actual transactional status transition", async () => {
+    const first = await post();
+    const second = await post();
+    const a = await request(app()).delete(`/api/visits/${first.body.id}`);
+    expect(a.body).toEqual({ ticketSync: { statusChanged: false, newStatusKey: "scheduled" } });
+    const b = await request(app()).delete(`/api/visits/${second.body.id}`);
+    expect(b.body).toEqual({ ticketSync: { statusChanged: true, newStatusKey: "ready_to_schedule" } });
+  });
+  it("ordinary ticket edits with open visits save without submitting scheduling mirrors", async () => {
+    const created = await post({ visitDate: "2026-10-20" });
+    const before = await ticketRow();
+    const edited = await request(app()).patch(`/api/tickets/${ticketId}`).send({ title: "Unrelated title edit", priority: "urgent" });
+    expect(edited.status).toBe(200);
+    const after = await ticketRow();
+    expect(after).toMatchObject({ title: "Unrelated title edit", priority: "urgent", crewId: before.crewId, dueDate: before.dueDate, routeOrder: before.routeOrder });
+    expect((await visitRows())[0]).toMatchObject({ id: created.body.id, visitDate: "2026-10-20", crewId });
+  });
+  it("queue and complete history require authentication", async () => {
+    expect((await request(app("admin", false)).get("/api/scheduling/queue")).status).toBe(401);
+    expect((await request(app("admin", false)).get(`/api/tickets/${ticketId}/visits`)).status).toBe(401);
+  });
   it.each(["admin", "office", "field_manager"])("permits %s across company crews", async role => {
     const r = await request(app(role)).post("/api/visits").send({ crewId: secondCrewId, visitDate: companyToday(), title: "Internal" });
     expect(r.status).toBe(201);
@@ -158,7 +268,7 @@ describe("real PostgreSQL visits API and ticket workflow", () => {
     expect(r.body).toMatchObject({ customerId, status: "planned", companyId, ticketSync: { statusChanged: true, newStatusKey: "scheduled" } });
     expect(await ticketRow()).toMatchObject({ currentStatusId: scheduledId, crewId, routeOrder: 7, dueDate: companyNoon(companyToday()) });
     expect((await snapshot()).history[0]).toMatchObject({ notes: "Crew and date set", fromStatusId: readyId, toStatusId: scheduledId });
-    expect((await request(app()).delete(`/api/visits/${r.body.id}`)).status).toBe(204);
+    expect((await request(app()).delete(`/api/visits/${r.body.id}`)).status).toBe(200);
     expect(await ticketRow()).toMatchObject({ currentStatusId: readyId, crewId: null, routeOrder: null, dueDate: companyNoon(companyToday()) });
     expect((await snapshot()).history.map(h => h.notes).sort()).toEqual(["Crew and date set", "Crew or date cleared"].sort());
     expect((await ticketRow()).scheduleBy).not.toBeNull();
@@ -305,7 +415,7 @@ describe("real PostgreSQL visits API and ticket workflow", () => {
     const before = await snapshot();
     const conflict = await request(app()).patch(`/api/tickets/${ticketId}`).send({ dueDate: null, title: "No side effects" });
     expect(conflict.status).toBe(409);
-    expect(conflict.body).toEqual({ error: "MULTIPLE_VISITS", message: "This job has several visits. Change them on the schedule." });
+    expect(conflict.body).toEqual({ error: "MULTIPLE_VISITS", message: "This job has several visits. Change them in Visits below." });
     expect(await snapshot()).toEqual(before);
   });
   it.each([{ crewId: null }, { dueDate: null }, { crewId: null, dueDate: null }])("planned visit is removed for incomplete pair %j", async body => {
@@ -456,7 +566,7 @@ describe("real PostgreSQL visits API and ticket workflow", () => {
       expect((await request(a).get("/api/m/me/week").auth(token.rawToken, { type: "bearer" })).status).toBe(200);
       expect((await request(a).get(`/api/m/tickets/${ticketId}/photos`).auth(token.rawToken, { type: "bearer" })).status).toBe(200);
       expect((await request(a).get(`/api/m/tickets/${ticketId}/notes`).auth(token.rawToken, { type: "bearer" })).status).toBe(200);
-      expect((await request(app()).delete(`/api/visits/${r.body.id}`)).status).toBe(204);
+      expect((await request(app()).delete(`/api/visits/${r.body.id}`)).status).toBe(200);
       const removed = await request(a).get("/api/m/today").auth(token.rawToken, { type: "bearer" });
       expect(removed.body.stops.some((s: { id?: string; ticketId?: string }) => s.id === ticketId || s.ticketId === ticketId)).toBe(false);
     } finally { vi.useRealTimers(); }

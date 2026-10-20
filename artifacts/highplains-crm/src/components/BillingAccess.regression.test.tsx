@@ -6,7 +6,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const fixtures = vi.hoisted(() => ({ user: null as any }));
 vi.mock("@tanstack/react-query", async importOriginal => ({
   ...await importOriginal<typeof import("@tanstack/react-query")>(),
-  useQuery: () => ({ data: [{ id: "a" }, { id: "b" }, { id: "c" }], isLoading: false, isError: false }),
+  useQuery: (options: { queryKey: readonly unknown[] }) => ({
+    data: options.queryKey[0] === "/api/scheduling/queue"
+      ? { needsScheduling: [], slipped: [] }
+      : [{ id: "a" }, { id: "b" }, { id: "c" }],
+    isLoading: false, isError: false,
+  }),
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: fixtures.user, isLoading: false }) }));
 vi.mock("@assets/LOGO_-_SPREAD-06_1773353516653.png", () => ({ default: "logo.png" }));

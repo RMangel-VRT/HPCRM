@@ -15,4 +15,8 @@ export type VisitSummaryParams = {
    * @pattern ^\d{4}-\d{2}-\d{2}$
    */
   to: string;
+  /**
+   * @minLength 1
+   */
+  service?: string;
 };
