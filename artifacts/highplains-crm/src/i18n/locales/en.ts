@@ -198,7 +198,6 @@ const en = {
     myWork: "My Work",
     planner: "Maintenance planner",
     serviceChecklists: "Service checklists",
-    seasonRecords: "Season records →",
   },
   topbar: {
     tools: "Tools",
@@ -963,6 +962,25 @@ const en = {
     spanish: "Spanish",
   },
   settings: {
+    rail: {
+      ariaLabel: "Settings sections",
+      serviceMonths: "Service months",
+      seasonRecords: "Season records",
+      newSeason: "New Season",
+      sections: {
+        company: "Company", services: "Services & catalog", communication: "Communication",
+        integrations: "Integrations", system: "System",
+      },
+      items: {
+        company: "Company profile", seasons: "Seasons", benchmarks: "Benchmarks", crews: "Crews",
+        "property-management": "Property managers", "service-plans": "Service plans",
+        "work-item-templates": "Work item templates", "chemical-products": "Chemical products",
+        contracts: "Contract defaults", "email-templates": "Email templates",
+        "notification-templates": "Notification templates", "shared-mailboxes": "Shared mailboxes",
+        billing: "QuickBooks billing", "qbo-customers": "QuickBooks customer mapping",
+        features: "Feature flags", database: "Database",
+      },
+    },
     title: "Settings",
     manage: "Manage company settings and feature flags",
     companyInfo: "Company Information",

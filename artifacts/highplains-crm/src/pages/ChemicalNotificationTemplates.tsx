@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useTranslation } from "react-i18next";
+import { SettingsRailLayout } from "@/components/nav/SettingsRailLayout";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -161,6 +162,10 @@ type PreviewWithDataState = {
 };
 
 export default function ChemicalNotificationTemplates() {
+  return <SettingsRailLayout activeKey="notification-templates"><ChemicalNotificationTemplatesContent /></SettingsRailLayout>;
+}
+
+function ChemicalNotificationTemplatesContent() {
   const { toast } = useToast();
   const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);

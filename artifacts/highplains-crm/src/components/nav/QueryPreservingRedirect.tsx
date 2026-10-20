@@ -11,3 +11,7 @@ export function QueryPreservingRedirect({ to }: { to: string }) {
 export function OperationsRedirect() {
   return <QueryPreservingRedirect to="/dashboard/campaigns" />;
 }
+
+export function SeasonsRedirect() {
+  return <QueryPreservingRedirect to="/dashboard/settings/seasons" />;
+}

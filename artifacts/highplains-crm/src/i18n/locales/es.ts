@@ -201,7 +201,6 @@ const es = {
     myWork: "Mi trabajo",
     planner: "Planificador de mantenimiento",
     serviceChecklists: "Listas de servicio",
-    seasonRecords: "Registros de temporadas →",
   },
   topbar: {
     tools: "Herramientas",
@@ -870,6 +869,25 @@ const es = {
     spanish: "Espanol",
   },
   settings: {
+    rail: {
+      ariaLabel: "Secciones de configuración",
+      serviceMonths: "Meses de servicio",
+      seasonRecords: "Registros de temporadas",
+      newSeason: "Nueva temporada",
+      sections: {
+        company: "Empresa", services: "Servicios y catálogo", communication: "Comunicación",
+        integrations: "Integraciones", system: "Sistema",
+      },
+      items: {
+        company: "Perfil de la empresa", seasons: "Temporadas", benchmarks: "Referencias", crews: "Cuadrillas",
+        "property-management": "Administradores de propiedades", "service-plans": "Planes de servicio",
+        "work-item-templates": "Plantillas de trabajo", "chemical-products": "Productos químicos",
+        contracts: "Valores de contrato", "email-templates": "Plantillas de correo",
+        "notification-templates": "Plantillas de notificación", "shared-mailboxes": "Buzones compartidos",
+        billing: "Facturación de QuickBooks", "qbo-customers": "Vinculación de clientes de QuickBooks",
+        features: "Funciones", database: "Base de datos",
+      },
+    },
     title: "Configuracion",
     manage: "Administre la configuracion de la empresa y las opciones de funciones",
     companyInfo: "Informacion de la Empresa",

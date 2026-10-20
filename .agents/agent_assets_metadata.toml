@@ -42,3 +42,17 @@ mtime_ms = 1792520434019
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/ac52a50f-6e88-4525-8fc4-4182b9c4a06a/341fd5de-8e79-43a6-aeb0-3d48777e05ad"
 storage_version_token = "1792520492884328"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "tp7n-HwANIlrXF1sDAiJL"
+uri = "file://generated-artifacts/n2/verification-report.html"
+type = "html"
+title = "Settings rail verification report"
+description = "Seven authenticated screenshots, role and mobile navigation results, final rail colors and contrast ratios, and baseline-relative validation."
+logical_id = "0922444d-e7f7-4ff7-b3ec-53b122c399cc"
+content_hash = "sha256:7f9e3fb995187a4178450c3957914a322f9b4653330eb7e9b6d821ae202841f0"
+size = 2029932
+mtime_ms = 1792524512404
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/0922444d-e7f7-4ff7-b3ec-53b122c399cc/7908a8e5-46c0-424a-9cff-f287c47b2c74"
+storage_version_token = "1792524513534040"
+content_type = "text/html"

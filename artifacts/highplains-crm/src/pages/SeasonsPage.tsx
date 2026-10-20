@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -29,7 +30,9 @@ import {
 } from "lucide-react";
 import type { Season } from "@shared/schema";
 
-export default function SeasonsPage() {
+/** Season records remain independent of the company's service-month settings. */
+export function SeasonRecords() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -110,19 +113,10 @@ export default function SeasonsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-seasons-title">
-            <Leaf className="w-6 h-6" />
-            Seasons
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Organize campaigns into named seasons for aggregated reporting
-          </p>
-        </div>
         {canManage && (
           <Button onClick={() => setDialogOpen(true)} data-testid="button-create-season">
             <Plus className="w-4 h-4 mr-1" />
-            New Season
+            {t("settings.rail.newSeason")}
           </Button>
         )}
       </div>
@@ -139,7 +133,8 @@ export default function SeasonsPage() {
               <div className="flex items-center gap-3">
                 <Leaf className="w-5 h-5 text-green-600 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium" data-testid={`text-season-name-${season.id}`}>{season.name}</div>
+                  <Link href={`/dashboard/seasons/${season.id}`} onClick={event => event.stopPropagation()}
+                    className="font-medium" data-testid={`text-season-name-${season.id}`}>{season.name}</Link>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                     {season.description && <span>{season.description}</span>}
                     {(season.startDate || season.endDate) && (

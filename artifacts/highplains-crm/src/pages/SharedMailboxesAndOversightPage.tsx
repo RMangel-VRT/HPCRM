@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { SettingsRailLayout } from "@/components/nav/SettingsRailLayout";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -1211,6 +1212,10 @@ function CompanyMailSettingsForm() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SharedMailboxesAndOversightPage() {
+  return <SettingsRailLayout activeKey="shared-mailboxes"><SharedMailboxesAndOversightContent /></SettingsRailLayout>;
+}
+
+function SharedMailboxesAndOversightContent() {
   return (
     <div className="flex flex-col h-full">
       <div className="border-b px-6 py-4">

@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useTranslation } from "react-i18next";
+import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,6 +53,7 @@ function windDirectionLabel(deg: number | null | undefined): string {
 }
 
 export default function SeasonDetail() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
 
@@ -62,6 +65,12 @@ export default function SeasonDetail() {
       return res.json();
     },
   });
+
+  useSetBreadcrumbs([
+    { label: t("settings.title"), href: "/dashboard/settings" },
+    { label: t("settings.rail.items.seasons"), href: "/dashboard/settings/seasons" },
+    { label: report?.season?.name ?? t("settings.rail.seasonRecords") },
+  ], [t, report?.season?.name]);
 
   useEffect(() => {
     const seasonName = report?.season?.name;
@@ -180,7 +189,7 @@ export default function SeasonDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard/seasons")} data-testid="button-back-seasons">
+        <Button variant="ghost" size="icon" aria-label={t("settings.rail.items.seasons")} onClick={() => navigate("/dashboard/settings/seasons")} data-testid="button-back-seasons">
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex-1 min-w-0">

@@ -11,7 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { SettingsRailLayout } from "@/components/nav/SettingsRailLayout";
+import { settingsSectionFor } from "@/components/nav/settingsNav";
+import { SeasonRecords } from "@/pages/SeasonsPage";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -88,25 +91,10 @@ export default function SettingsPage() {
   
   // Check if user is admin (can see all tabs) vs office (can only see Property Management)
   const isAdmin = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
-  const validTabs = [
-    'company', 'seasons', 'benchmarks', 'property-management', 'features',
-    'email-templates', 'billing', 'service-plans', 'chemical-products', 'notification-templates',
-    'crews', 'work-item-templates', 'shared-mailboxes',
-    ...(isAdmin ? ['database', 'contracts'] : []),
-  ];
-  const getDefaultTab = () => {
-    const pathSegments = location.split('?')[0].split('/').filter(Boolean);
-    const lastSegment = pathSegments[pathSegments.length - 1];
-    if (lastSegment && validTabs.includes(lastSegment)) return lastSegment;
-    return isAdmin ? "company" : "property-management";
-  };
-  const [activeTabState, setActiveTab] = useState(getDefaultTab);
+  const getDefaultTab = () => settingsSectionFor(location, currentUser);
+  const activeTabState = getDefaultTab();
   // Contracts is admin-only: guard direct URLs and role changes.
   const activeTab = activeTabState === "contracts" && !isAdmin ? getDefaultTab() : activeTabState;
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-    navigate(`/dashboard/settings/${tab}`, { replace: true });
-  };
 
   useSetBreadcrumbs([
     { label: t("settings.title") },
@@ -590,16 +578,19 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
+      <SettingsRailLayout activeKey={activeTab}>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">{t("settings.title")}</h1>
           <p className="text-sm text-muted-foreground mt-1">{t("common.loading")}</p>
         </div>
       </div>
+      </SettingsRailLayout>
     );
   }
 
   return (
+    <SettingsRailLayout activeKey={activeTab}>
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-page-title">
@@ -610,50 +601,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="flex-wrap h-auto gap-1">
-          {isAdmin && (
-            <>
-              <TabsTrigger value="company" data-testid="tab-company">{t("settings.tabs.company")}</TabsTrigger>
-              <TabsTrigger value="seasons" data-testid="tab-seasons">{t("settings.tabs.seasons")}</TabsTrigger>
-              <TabsTrigger value="benchmarks" data-testid="tab-benchmarks">{t("settings.tabs.benchmarks")}</TabsTrigger>
-            </>
-          )}
-          {canAccessPropertyManagement && (
-            <TabsTrigger value="property-management" data-testid="tab-property-management">{t("settings.tabs.propertyMgmt")}</TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="features" data-testid="tab-features">{t("settings.tabs.featureFlags")}</TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="email-templates" data-testid="tab-email-templates">{t("settings.tabs.emailTemplates")}</TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="billing" data-testid="tab-billing">{t("settings.tabs.billing")}</TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="service-plans" data-testid="tab-service-plans">Service Plans</TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="contracts" data-testid="tab-contracts">Contracts</TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="shared-mailboxes" data-testid="tab-shared-mailboxes">{t("nav.sharedMailboxes")}</TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="chemical-products" data-testid="tab-chemical-products">{t("chemicalProducts.title")}</TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="notification-templates" data-testid="tab-notification-templates">Notification Templates</TabsTrigger>
-          )}
-          {isAdmin && (
-            <>
-              <TabsTrigger value="crews" data-testid="tab-crews">Crews</TabsTrigger>
-              <TabsTrigger value="work-item-templates" data-testid="tab-work-item-templates">Work Item Templates</TabsTrigger>
-              <TabsTrigger value="database" data-testid="tab-database">{t("migrations.tabLabel")}</TabsTrigger>
-            </>
-          )}
-        </TabsList>
+      <Tabs value={activeTab}>
 
         <TabsContent value="company" className="space-y-6">
           <Card>
@@ -712,10 +660,7 @@ export default function SettingsPage() {
         <TabsContent value="seasons" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>{t("settings.serviceSeasons")}</CardTitle>
-              <Button variant="ghost" asChild className="self-start">
-                <Link href="/dashboard/seasons" data-testid="link-season-records">{t("nav.seasonRecords")}</Link>
-              </Button>
+              <CardTitle>{t("settings.rail.serviceMonths")}</CardTitle>
               <CardDescription>
                 {t("settings.seasonDesc")}
               </CardDescription>
@@ -780,6 +725,10 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+          <section aria-labelledby="season-records-heading" className="space-y-4">
+            <h2 id="season-records-heading" className="text-xl font-semibold">{t("settings.rail.seasonRecords")}</h2>
+            <SeasonRecords />
+          </section>
         </TabsContent>
 
         <TabsContent value="benchmarks" className="space-y-6">
@@ -1395,28 +1344,6 @@ export default function SettingsPage() {
           </TabsContent>
         )}
 
-        <TabsContent value="notification-templates" className="space-y-6" data-testid="content-notification-templates">
-          <Card>
-            <CardHeader>
-              <CardTitle>Chemical Notification Templates</CardTitle>
-              <CardDescription>
-                Pre-visit and post-visit emails sent for chemical campaigns. Templates include per-template product details
-                (product name, active ingredient, EPA reg #, re-entry interval, watering / mowing instructions, post-application
-                expectation) that are merged into rendered emails as defaults.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Link
-                href="/dashboard/settings/notification-templates"
-                className="inline-flex items-center gap-1 text-sm font-medium text-primary underline"
-                data-testid="link-open-notification-templates"
-              >
-                Open Notification Templates
-              </Link>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
       </Tabs>
 
       {/* Edit Email Template Dialog */}
@@ -1820,6 +1747,7 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </SettingsRailLayout>
   );
 }
 

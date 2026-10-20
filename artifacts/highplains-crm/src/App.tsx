@@ -19,7 +19,8 @@ import "@/i18n";
 import AppSidebar from "@/components/AppSidebar";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import TopbarMenus from "@/components/nav/TopbarMenus";
-import { OperationsRedirect, QueryPreservingRedirect } from "@/components/nav/QueryPreservingRedirect";
+import { OperationsRedirect, QueryPreservingRedirect, SeasonsRedirect } from "@/components/nav/QueryPreservingRedirect";
+import { isSettingsRailPage } from "@/components/nav/settingsNav";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import AppBreadcrumb from "@/components/AppBreadcrumb";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
@@ -75,7 +76,6 @@ const CampaignsList = lazy(() => import("@/pages/CampaignsList"));
 const MyBatchesPage = lazy(() => import("@/pages/MyBatchesPage"));
 const CampaignDetail = lazy(() => import("@/pages/CampaignDetail"));
 const CampaignItemDetail = lazy(() => import("@/pages/CampaignItemDetail"));
-const SeasonsPage = lazy(() => import("@/pages/SeasonsPage"));
 const SeasonDetail = lazy(() => import("@/pages/SeasonDetail"));
 const CommunicationsCenter = lazy(() => import("@/pages/CommunicationsCenter"));
 const ServiceChecklistsPage = lazy(() => import("@/pages/ServiceChecklistsPage"));
@@ -150,6 +150,7 @@ function Router() {
   const { i18n } = useTranslation();
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [location] = useLocation();
+  const isRailPage = isSettingsRailPage(location);
   const isVisualScopeDraft = /^\/dashboard\/tools\/visual-scope\/[^/]+/.test(location);
   const isCustomerDetail =
     /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
@@ -344,7 +345,7 @@ function Router() {
         />
         <ProtectedRoute
           path="/dashboard/seasons"
-          component={SeasonsPage}
+          component={SeasonsRedirect}
           allowedRoles={["admin", "office"]}
         />
         <ProtectedRoute
@@ -408,7 +409,7 @@ function Router() {
                 </div>
               </header>
               <AppBreadcrumb />
-              <main className={`flex-1 overflow-y-auto relative ${isVisualScopeDraft || isCustomerDetail ? "" : "p-6 md:p-8"}`}>
+              <main className={`flex-1 overflow-y-auto relative ${isVisualScopeDraft || isCustomerDetail || isRailPage ? "" : "p-6 md:p-8"}`}>
                 {phantomRailVisible && (
                   <div
                     aria-hidden="true"

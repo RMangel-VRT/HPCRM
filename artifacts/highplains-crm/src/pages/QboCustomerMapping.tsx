@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { SettingsRailLayout } from "@/components/nav/SettingsRailLayout";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -1074,6 +1075,10 @@ function CrmCustomerMatching({ connectionStatus }: { connectionStatus: QboConnec
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function QboCustomerMapping() {
+  return <SettingsRailLayout activeKey="qbo-customers"><QboCustomerMappingContent /></SettingsRailLayout>;
+}
+
+function QboCustomerMappingContent() {
   const { t } = useTranslation();
 
   useSetBreadcrumbs([
