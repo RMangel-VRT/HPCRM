@@ -14,3 +14,4 @@
 - [Scoped dependency peer resolution](scoped-dependency-peers.md) — temporarily enabling automatic peer resolution can change unrelated workspace dependencies; preserve their baseline.
 - [Visit transaction order](visit-transaction-order.md) — company scheduling gate precedes sorted ticket locks; finer-grained gates need coordinated phantom/deadlock protection.
 - [Master scheduling direction](master-scheduling-direction.md) — read the agreed October 19 master design for visits-based scheduling, demand source and build order.
+- [Navigation direction](navigation-direction.md) — approved all-role desktop/mobile scope; web navigation and mobile access changes are separate projects.
