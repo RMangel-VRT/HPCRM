@@ -3,7 +3,7 @@
 **Status (Oct 20, 2026):**
 - Randy approved the layout in the model.
 - **Every role gets the desktop sidebar web app, and every role gets the phone app.**
-- Replit slices are not written yet, and two decisions are still open (below).
+- All the decisions the web slices need are made. Replit slices are not written yet.
 
 **Model:** "High Plains Navigation Model" artifact, https://claude.ai/artifact/MpyogPM9ZPFGFcPfbS8PMY. It has a clickable proposed nav with a role switcher covering all 10 roles, plus a "today" reference board.
 **Code checked against:** GitHub `a77f060`.
@@ -17,7 +17,7 @@
 
 **The decision:**
 - **Every role gets `AppSidebar` on a computer.** `FieldAppLayout` and its `isFieldAppRole` branch in `App.tsx` retire, and the AppSidebar role branches are rebuilt from the table below.
-- **Every role gets the native app** (Randy, Oct 20). This is the next project: building the app for the app stores (see "Mobile implications" below).
+- **Every role gets the native app.** This is the next project: building the app for the app stores (see "Mobile implications" below).
 - The web sidebar already collapses to a slide-out sheet on phones, which covers anyone who opens the web app on a phone in the meantime.
 
 **Sidebar per role.** These are built from each role's current field menu, its route permissions, and the scheduling design.
@@ -39,7 +39,7 @@
 - **Dashboards:** at first, field roles get their current home content (`FieldHomeDashboard`, `ShopManagerDashboard`) at desktop width. A role-specific "Needs you" queue can follow later.
 - **Customers:** field roles see a filtered view of the one Customers page. `/dashboard/field-customers` redirects to it.
 - **My Batches** becomes a section of Tickets for the roles the route allows today: admin, office, field, field_manager and landscape_supervisor.
-- **Only admin and office** get Inbox, Contracts, Business, Settings, the Tools menu and the New button.
+- **Only admin and office** get Inbox, Flags, Contracts, Business, Settings, the Tools menu and the New button.
 
 ## Mobile implications of "everyone gets the app" (checked at a77f060)
 
@@ -70,7 +70,7 @@
 
 ## Approved layout (admin view)
 
-- **Top:** Dashboard, Inbox (Email, Unsorted, Sent, Flags; still open, see below)
+- **Top:** Dashboard, Inbox (Inbox, Unsorted, Sent, All communications), **Flags** (its own item, red unread badge)
 - **Work:** Tickets (Mine / Batches / All), Scheduling, Calendar, Campaigns (with Checklists), Equipment, Snow. Snow moves to the top of Work in winter.
 - **Customers:** Customers, Contracts, Maps (Property maps + Route map)
 - **Business:** Estimates, Invoicing, Revenue, Reports
@@ -83,7 +83,7 @@
 ## Decisions (Randy)
 
 - The main sidebar stays **dark green**.
-- Any page with sub-sections uses the **light-green secondary rail** from Settings, not tabs across the top. This applies to the customer page (its existing CustomerSubNav sections), Settings, Inbox, Tickets, Scheduling, Calendar, Campaigns, Maps, Invoicing and Plant Library. Every section gets its own URL.
+- Any page with sub-sections uses the **light-green secondary rail** from Settings, not tabs across the top. This applies to the customer page (its existing CustomerSubNav sections), Settings, Inbox, Flags, Tickets, Scheduling, Calendar, Campaigns, Maps, Invoicing and Plant Library. Every section gets its own URL.
 - **Visual Scope, Plant Library, Proposal Maker and Crew Worksheets are tools, not nav items.** The Proposal Maker opens from an Estimate Request ticket (Estimating → Create Proposal). Crew worksheets are generated from a proposal (`POST /api/proposals/:id/crew-worksheets`) and show on the ticket.
 - **The New menu is fixed at three choices,** not learned from usage:
   - **Task**, which expands to Contract work, Billable work, or To-Do
@@ -95,7 +95,10 @@
 - **Contracts stays under Customers.**
 - **Sales and Money merge into Business:** Estimates, Invoicing, Revenue, Reports.
 - **Estimates** is a stage board of open Estimate Request and RFP tickets: a filtered view of existing tickets, not a new list.
-- **Billing is renamed Invoicing.** The customer page's Financial › Billing and the QuickBooks billing settings should follow. The "Ready for billing" status label is unchanged unless Randy decides otherwise; its key `ready_for_billing` stays either way.
+- **Billing is renamed Invoicing.** The customer page's Financial › Billing and the QuickBooks billing settings follow.
+- **The status label "Ready for billing" becomes "Ready to invoice."** Only the label changes: the key `ready_for_billing` stays, and `STATUS_KEY_BACKFILL` gets the new display name as an alias. `extraBillableBilling.ts` looks the status up by name, so it must be switched to the key in the same slice.
+- **Flags keep their own spot in the sidebar**, with the red unread badge, even after flags start creating tickets. They don't merge into Inbox. Flags are photo field reports from the phone app (tag, note of up to 280 characters, property or ticket), with statuses New → Acknowledged → In progress → Resolved / Dismissed.
+- **Inbox is email only:** Inbox, Unsorted, Sent, All communications.
 - **Every role gets the phone app** (see Mobile implications).
 
 ## Settings sections
@@ -103,7 +106,7 @@
 - **Company:** profile, Seasons (season records + service months on one page), benchmarks, Crews, property managers (office sees only this page)
 - **Services & catalog:** service plans, work item templates, chemical products, contract defaults
 - **Communication:** email templates, notification templates, shared mailboxes
-- **Integrations:** QuickBooks (billing settings + customer mapping)
+- **Integrations:** QuickBooks (invoicing settings + customer mapping)
 - **System:** feature flags, database (admin only)
 
 ## Rules for the slices
@@ -125,16 +128,14 @@
 
 ## Proposed slice order
 
-1. Regroup the sidebar and top bar: groups, Tools menu, New menu, profile menu. **Rebuild the role branches for all 10 roles from the table above, and route every role through `AppSidebar`** (retire `FieldAppLayout`). Add redirects and i18n.
+1. Regroup the sidebar and top bar: groups (Flags stays its own top item), Tools menu, New menu, profile menu. **Rebuild the role branches for all 10 roles from the table above, and route every role through `AppSidebar`** (retire `FieldAppLayout`). Add redirects and i18n.
 2. Break up Operations into its standalone pages and delete the hub.
 3. Build the secondary-rail component. Regroup Settings into sections with URLs, and remove the duplicate sidebar items.
-4. Apply the rail to the customer page and the other pages with sections. Merge Tickets / My Tickets / My Batches, Maps, and the Plant pages. Fold field-customers into Customers. Rename Billing to Invoicing.
-5. Estimates board (a new page).
-6. Inbox, if approved.
+4. Apply the rail to the customer page and the other pages with sections. Merge Tickets / My Tickets / My Batches, Maps, and the Plant pages. Fold field-customers into Customers.
+5. Rename Billing to Invoicing, and "Ready for billing" to "Ready to invoice" (label and alias only; switch the name lookups to the key).
+6. Estimates board (a new page).
 
-## Still open
+## Still open (not blocking)
 
-- **Inbox:** should Flags move into the Communications page, or stay its own item?
-- Rename "Ready for billing" to "Ready to invoice"?
-- Should the Settings service months be derived from the season records? This is a data-ownership question.
+- Should the Settings service months be derived from the season records? This is a data-ownership question, and it can be decided in slice 3.
 - Should `/dashboard/contracts/old` be retired?

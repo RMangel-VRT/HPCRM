@@ -8,3 +8,15 @@ Read `docs/navigation/Navigation-design.md` before planning or implementing navi
 **Why:** The October 20, 2026 design establishes that every role should have desktop sidebar access and native-app access, but explicitly separates the web navigation rollout from the later mobile project.
 
 **How to apply:** Follow the role matrix, redirect and translation requirements, and proposed slice boundaries. Web navigation work must not widen mobile login or crew-supervisor eligibility. Preserve unresolved choices as questions rather than treating the model or proposed slice order as approval to implement them.
+
+The latest supplied October 20 design resolves Flags as a separate sidebar item, Inbox as email-only, and the display label change to “Ready to invoice” without changing the status key.
+
+**Why:** These replace options that were still open in the earlier navigation sheet.
+
+**How to apply:** Do not re-open those decisions by default. Only service-month ownership and retiring the old Contracts route remain open; both are non-blocking in the revised design.
+
+The user supplied a local clickable model for the upcoming navigation slices: `attached_assets/High_Plains_Navigation_Model_–_Proposed_navigation_(clickable_1792516149954.html`.
+
+**Why:** The user explicitly designated this upload as the reference to use for those slices, alongside the approved written navigation design.
+
+**How to apply:** Inspect the model for layout, role switching, secondary rails and menu interactions when scoping each slice. Use the revised written design for implementation constraints and settled decisions; the model's short URLs are illustrative and do not replace required `/dashboard/` routes.
