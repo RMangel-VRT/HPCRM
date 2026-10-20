@@ -1,4 +1,14 @@
 const en = {
+  workRail: {
+    mine: "Mine", batches: "Batches", all: "All",
+    library: "Library", matches: "Matches", palettes: "Palettes",
+  },
+  comms: {
+    inbox: "Inbox", unsorted: "Unsorted", sent: "Sent", all: "All communications",
+  },
+  flags: {
+    status: { new: "New", acknowledged: "Acknowledged", in_progress: "In progress", resolved: "Resolved", dismissed: "Dismissed", all: "All" },
+  },
   common: {
     save: "Save",
     cancel: "Cancel",
@@ -171,6 +181,7 @@ const en = {
     customerMaps: "Customer Maps",
     customers: "Customers",
     routeMap: "Route map",
+    maps: "Maps",
     contracts: "Contracts",
     propertyMaps: "Property maps",
     schedule: "Schedule",

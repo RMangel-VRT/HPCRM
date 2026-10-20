@@ -160,7 +160,7 @@ export function CustomerSubNav({
 
   return (
     <div
-      className={`flex-shrink-0 bg-sidebar-accent text-sidebar-foreground border border-sidebar-border flex flex-col overflow-hidden ${
+      className={`flex-shrink-0 bg-rail text-rail-foreground border border-rail-border flex flex-col overflow-hidden ${
         isCollapsed
           ? "rounded-lg border-l"
           : "border-l-0 rounded-r-lg"
@@ -173,20 +173,20 @@ export function CustomerSubNav({
       data-testid="customer-sub-nav"
     >
       {!isCollapsed && (
-        <div className="p-3 border-b border-sidebar-border">
+        <div className="p-3 border-b border-rail-border">
           {customers.length > 1 ? (
             <Select
               value={customerId}
               onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}
             >
               <SelectTrigger
-                className="w-full border-0 bg-transparent p-0 h-auto shadow-none focus:ring-0 [&>svg]:hidden gap-1 text-sidebar-foreground hover:text-sidebar-foreground"
+                className="w-full border-0 bg-transparent p-0 h-auto shadow-none focus:ring-0 [&>svg]:hidden gap-1 text-rail-foreground hover:text-rail-active-foreground"
                 data-testid="select-subnav-customer-switcher"
               >
                 <span className="font-semibold text-sm leading-snug truncate" data-testid="text-subnav-customer-name">
                   {customerName}
                 </span>
-                <ChevronDown className="w-3.5 h-3.5 text-sidebar-foreground/60 flex-shrink-0" />
+                <ChevronDown className="w-3.5 h-3.5 text-rail-muted flex-shrink-0" />
               </SelectTrigger>
               <SelectContent>
                 {customers.map((c) => (
@@ -231,9 +231,9 @@ export function CustomerSubNav({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className={`text-sidebar-foreground hover:text-sidebar-foreground relative${
+                      className={`text-rail-foreground hover:bg-rail-hover hover:text-rail-active-foreground relative${
                         isActive
-                          ? " bg-sidebar text-sidebar-foreground font-medium"
+                          ? " bg-rail-active text-rail-active-foreground font-medium"
                           : " font-normal"
                       }`}
                       onClick={() => onTabChange(item.tabValue)}
@@ -245,7 +245,7 @@ export function CustomerSubNav({
                       <Icon className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
                       {item.badgeCount !== undefined && item.badgeCount > 0 && (
                         <span
-                          className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] rounded-full bg-sidebar-primary/20 text-sidebar-foreground text-[9px] font-semibold flex items-center justify-center px-0.5"
+                          className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] rounded-full bg-rail-hover text-rail-foreground text-[9px] font-semibold flex items-center justify-center px-0.5"
                           data-testid={`badge-count-${item.key}`}
                         >
                           {item.badgeCount}
@@ -264,7 +264,7 @@ export function CustomerSubNav({
           sections.map((section) => (
             <div key={section.heading} className="mb-3" role="group" aria-label={section.heading}>
               <p
-                className="px-3 mb-1 text-[11px] uppercase tracking-wider text-sidebar-foreground/60 font-medium"
+                className="px-3 mb-1 text-[11px] uppercase tracking-wider text-rail-muted font-medium"
                 aria-hidden="true"
               >
                 {section.heading}
@@ -279,9 +279,9 @@ export function CustomerSubNav({
                   <Button
                     key={item.key}
                     variant="ghost"
-                    className={`w-full justify-start h-8 px-3 text-sm rounded-none text-sidebar-foreground hover:text-sidebar-foreground${
+                    className={`w-full justify-start h-8 px-3 text-sm rounded-none text-rail-foreground hover:bg-rail-hover hover:text-rail-active-foreground${
                       isActive
-                        ? " bg-sidebar text-sidebar-foreground font-medium border-l-[3px] border-l-sidebar-primary pl-[calc(0.75rem-3px)]"
+                        ? " bg-rail-active text-rail-active-foreground font-medium border-l-[3px] border-l-rail-active-icon pl-[calc(0.75rem-3px)]"
                         : " font-normal"
                     }`}
                     onClick={() => onTabChange(item.tabValue)}
@@ -293,7 +293,7 @@ export function CustomerSubNav({
                     <span className="truncate flex-1">{item.label}</span>
                     {item.badgeCount !== undefined && item.badgeCount > 0 && (
                       <span
-                        className="ml-1.5 min-w-[18px] h-[18px] rounded-full bg-sidebar-primary/20 text-sidebar-foreground text-[10px] font-semibold flex items-center justify-center px-1 flex-shrink-0"
+                        className="ml-1.5 min-w-[18px] h-[18px] rounded-full bg-rail-hover text-rail-foreground text-[10px] font-semibold flex items-center justify-center px-1 flex-shrink-0"
                         data-testid={`badge-count-${item.key}`}
                       >
                         {item.badgeCount}
@@ -308,8 +308,8 @@ export function CustomerSubNav({
       </nav>
 
       {!isCollapsed && (
-        <div className="p-3 border-t border-sidebar-border flex justify-center">
-          <CustomersViewSwitcher active="detail" className="bg-sidebar-accent border-sidebar-border" />
+        <div className="p-3 border-t border-rail-border flex justify-center">
+          <CustomersViewSwitcher active="detail" className="bg-rail border-rail-border" />
         </div>
       )}
     </div>

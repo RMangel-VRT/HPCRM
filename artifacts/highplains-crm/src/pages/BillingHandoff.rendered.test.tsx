@@ -40,6 +40,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import "@/i18n";
 import MyTickets from "./MyTickets";
 import TicketsList from "./TicketsList";
+import { WorkPageLayout } from "@/components/nav/WorkPageLayout";
 
 const render = (el: any, path: string, search = "") =>
   renderToStaticMarkup(
@@ -53,6 +54,19 @@ const as = (role: string, tags: string[] = []) => {
 const my = (search = "") => render(<MyTickets />, "/dashboard/tickets/my", search);
 
 describe("MyTickets billing handoff", () => {
+  it("the rail shell preserves the explicit My Tickets invoice landing and internal tabs", () => {
+    as("office", ["billing"]); fx.mine = [{ id: "a" }, { id: "b" }];
+    const html = render(
+      <WorkPageLayout path="/dashboard/tickets/my"><MyTickets /></WorkPageLayout>,
+      "/dashboard/tickets/my", "tab=invoice",
+    );
+    expect(html).toContain('data-testid="rail-mine"');
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain("To invoice (2)");
+    expect(html).toContain("Other tickets (1)");
+    expect(html).toContain('data-testid="billing-view"');
+    expect(html).not.toContain("Title work1");
+  });
   it("billing person defaults to To invoice with the mine-query count", () => {
     as("office", ["billing"]); fx.mine = [{ id: "a" }, { id: "b" }];
     const html = my();

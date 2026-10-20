@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -145,13 +145,6 @@ export default function CampaignsList() {
           <p className="text-muted-foreground">{t("campaigns.description")}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-        {user && ["admin", "office", "field_manager", "chemical_manager"].includes(user.activeRole) && (
-          <Button variant="outline" asChild>
-            <Link href="/dashboard/campaigns/checklists" data-testid="link-service-checklists">
-              {t("nav.serviceChecklists")}
-            </Link>
-          </Button>
-        )}
         {canManage && (
           <Button onClick={() => setShowCreate(true)} data-testid="button-create-campaign">
             <Plus className="w-4 h-4 mr-2" />

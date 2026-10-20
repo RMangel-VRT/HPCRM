@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { getNavForUser, type NavRole, type NavUser } from "./navConfig";
+import { getNavForUser, navItemIsActive, type NavRole, type NavUser } from "./navConfig";
 import { defaultRedirectPath, loginLandingPath } from "@/lib/landing";
 
 const summer = new Date("2026-07-01T12:00:00Z");
 const keys = (user: NavUser, now = summer) => getNavForUser(user, now).flatMap(g => g.items.map(i => i.key));
 const roleRows: [NavRole, string[]][] = [
-  ["admin", ["dashboard", "inbox", "flags", "tickets", "myTickets", "scheduling", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "propertyMaps", "routeMap", "billing", "revenue", "reports", "settings", "team"]],
-  ["office", ["dashboard", "inbox", "flags", "tickets", "myTickets", "scheduling", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "propertyMaps", "billing", "revenue", "reports", "settings"]],
-  ["field_manager", ["dashboard", "myTickets", "myBatches", "scheduling", "campaigns", "snow", "customers", "propertyMaps", "routeMap"]],
-  ["chemical_manager", ["dashboard", "myTickets", "campaigns", "customers", "propertyMaps", "routeMap"]],
-  ["irrigation_manager", ["dashboard", "myTickets", "planner", "campaigns", "customers", "propertyMaps", "routeMap"]],
-  ["shop_manager", ["dashboard", "myTickets", "equipment", "routeMap"]],
-  ["landscape_supervisor", ["dashboard", "myTickets", "myBatches", "customers", "propertyMaps", "routeMap"]],
-  ["crew_supervisor", ["myTickets"]],
-  ["field", ["dashboard", "myTickets", "myBatches", "propertyMaps"]],
-  ["mapping", ["propertyMaps"]],
+  ["admin", ["dashboard", "inbox", "flags", "tickets", "scheduling", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "billing", "revenue", "reports", "settings", "team"]],
+  ["office", ["dashboard", "inbox", "flags", "tickets", "scheduling", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "billing", "revenue", "reports", "settings"]],
+  ["field_manager", ["dashboard", "tickets", "scheduling", "campaigns", "snow", "customers", "maps"]],
+  ["chemical_manager", ["dashboard", "tickets", "campaigns", "customers", "maps"]],
+  ["irrigation_manager", ["dashboard", "tickets", "planner", "campaigns", "customers", "maps"]],
+  ["shop_manager", ["dashboard", "tickets", "equipment", "maps"]],
+  ["landscape_supervisor", ["dashboard", "tickets", "customers", "maps"]],
+  ["crew_supervisor", ["tickets"]],
+  ["field", ["dashboard", "tickets", "maps"]],
+  ["mapping", ["maps"]],
 ];
 const matrixRows = [
   ...roleRows.map(([activeRole, expected]) => ({ name: activeRole, user: { activeRole } as NavUser, expected })),
@@ -54,7 +54,9 @@ describe("approved ordered sidebar matrix", () => {
     expect(keys(user)).toEqual(expected);
     for (const item of getNavForUser(user, summer).flatMap(g => g.items)) {
       if (user.isSuperAdminBool && item.path === "/admin") continue;
-      expect(routeRoles[item.path], item.key).toContain(user.activeRole);
+      const route = Object.keys(routeRoles).sort((a, b) => b.length - a.length)
+        .find(path => item.path === path || item.path.startsWith(path + "/"))!;
+      expect(routeRoles[route], item.key).toContain(user.activeRole);
     }
   });
   it.each([
@@ -82,7 +84,7 @@ describe("approved ordered sidebar matrix", () => {
     const items = getNavForUser({ activeRole: "admin", lastCommsTab: "sent" }).flatMap(g => g.items);
     expect(items.find(i => i.key === "inbox")).toMatchObject({ href: "/dashboard/communications/sent", badge: "unsorted" });
     expect(items.filter(i => i.badge).map(i => i.badge).sort()).toEqual(["billing", "flags", "scheduling", "unsorted"]);
-    expect(getNavForUser({ activeRole: "landscape_supervisor" }).flatMap(g => g.items).find(i => i.key === "myTickets")?.labelKey).toBe("nav.myWork");
+    expect(getNavForUser({ activeRole: "landscape_supervisor" }).flatMap(g => g.items).find(i => i.key === "tickets")?.labelKey).toBe("nav.myWork");
     expect(getNavForUser({ activeRole: "mapping" })[0].items[0].labelKey).toBe("nav.customerMaps");
   });
   it.each(roleRows)("login and default landing for %s are permitted", (activeRole) => {
@@ -91,5 +93,32 @@ describe("approved ordered sidebar matrix", () => {
   });
   it("crew supervisor has a working My Tickets landing", () => {
     expect(defaultRedirectPath({ activeRole: "crew_supervisor" })).toBe("/dashboard/tickets/my");
+  });
+  it("billing-tagged mapping can reach Mine without broadening ordinary mapping access", () => {
+    expect(keys({ activeRole: "mapping", activeTags: ["billing"] })).toEqual(["tickets", "maps"]);
+    expect(keys({ activeRole: "mapping" })).toEqual(["maps"]);
+  });
+  it.each([
+    ["/dashboard/tickets/my", "tickets"], ["/dashboard/my-batches", "tickets"],
+    ["/dashboard/tickets", "tickets"], ["/dashboard/tickets/ticket-id", "tickets"],
+    ["/dashboard/maps", "maps"], ["/dashboard/customers/map", "maps"],
+    ["/dashboard/customers/customer-id", "customers"],
+  ])("%s activates only %s", (path, key) => {
+    const active = getNavForUser({ activeRole: "admin" }, summer).flatMap(group => group.items)
+      .filter(item => navItemIsActive(item, path)).map(item => item.key);
+    expect(active).toEqual([key]);
+  });
+  it.each(roleRows)("Tickets and Maps have role-safe destinations and shared active matches for %s", activeRole => {
+    const items = getNavForUser({ activeRole }, summer).flatMap(group => group.items);
+    const tickets = items.find(item => item.key === "tickets");
+    if (tickets) {
+      expect(tickets.href).toBe("/dashboard/tickets/my");
+      expect(tickets.activeMatch).toEqual(["/dashboard/tickets", "/dashboard/my-batches"]);
+    }
+    const maps = items.find(item => item.key === "maps");
+    if (maps) {
+      expect(maps.href).toBe(activeRole === "shop_manager" ? "/dashboard/customers/map" : "/dashboard/maps");
+      expect(maps.activeMatch).toEqual(["/dashboard/maps", "/dashboard/customers/map"]);
+    }
   });
 });

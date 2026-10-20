@@ -1,4 +1,14 @@
 const es = {
+  workRail: {
+    mine: "Míos", batches: "Lotes", all: "Todos",
+    library: "Biblioteca", matches: "Coincidencias", palettes: "Paletas",
+  },
+  comms: {
+    inbox: "Bandeja de entrada", unsorted: "Sin clasificar", sent: "Enviados", all: "Todas las comunicaciones",
+  },
+  flags: {
+    status: { new: "Nuevas", acknowledged: "Reconocidas", in_progress: "En curso", resolved: "Resueltas", dismissed: "Descartadas", all: "Todas" },
+  },
   common: {
     save: "Guardar",
     cancel: "Cancelar",
@@ -171,6 +181,7 @@ const es = {
     customerMaps: "Mapas de Clientes",
     customers: "Clientes",
     routeMap: "Mapa de rutas",
+    maps: "Mapas",
     contracts: "Contratos",
     propertyMaps: "Mapas de propiedades",
     schedule: "Horario",

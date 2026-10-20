@@ -21,6 +21,8 @@ import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import TopbarMenus from "@/components/nav/TopbarMenus";
 import { OperationsRedirect, QueryPreservingRedirect, SeasonsRedirect } from "@/components/nav/QueryPreservingRedirect";
 import { isSettingsRailPage } from "@/components/nav/settingsNav";
+import { workPage } from "@/components/nav/workNav";
+import { WorkPageLayout } from "@/components/nav/WorkPageLayout";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import AppBreadcrumb from "@/components/AppBreadcrumb";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
@@ -150,7 +152,7 @@ function Router() {
   const { i18n } = useTranslation();
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [location] = useLocation();
-  const isRailPage = isSettingsRailPage(location);
+  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags";
   const isVisualScopeDraft = /^\/dashboard\/tools\/visual-scope\/[^/]+/.test(location);
   const isCustomerDetail =
     /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
@@ -409,11 +411,11 @@ function Router() {
                 </div>
               </header>
               <AppBreadcrumb />
-              <main className={`flex-1 overflow-y-auto relative ${isVisualScopeDraft || isCustomerDetail || isRailPage ? "" : "p-6 md:p-8"}`}>
+              <main className={`flex-1 min-h-0 overflow-y-auto relative ${isVisualScopeDraft || isCustomerDetail || isRailPage ? "" : "p-6 md:p-8"}`}>
                 {phantomRailVisible && (
                   <div
                     aria-hidden="true"
-                    className="absolute inset-y-0 left-0 bg-sidebar border-r border-sidebar-border z-10 pointer-events-none"
+                    className="absolute inset-y-0 left-0 bg-rail border-r border-rail-border z-10 pointer-events-none"
                     style={{
                       width: phantomRailCollapsed ? 0 : 200,
                       opacity: phantomRailCollapsed ? 0 : 1,
@@ -422,7 +424,7 @@ function Router() {
                   />
                 )}
                 <Suspense fallback={<LoadingScreen visible={true} />}>
-                  {renderRouteSwitch()}
+                  <WorkPageLayout path={location}>{renderRouteSwitch()}</WorkPageLayout>
                 </Suspense>
               </main>
             </div>

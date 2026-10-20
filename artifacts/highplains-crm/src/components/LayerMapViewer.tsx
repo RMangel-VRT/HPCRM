@@ -50,6 +50,7 @@ interface LayerData {
 }
 
 interface LayerMapViewerProps {
+  contained?: boolean;
   customerId: string;
   initialCenter?: [number, number];
   initialZoom?: number;
@@ -163,6 +164,7 @@ function LocateMeControl({ active }: { active: boolean }) {
 }
 
 export default function LayerMapViewer({
+  contained = false,
   customerId,
   initialCenter = [39.8283, -98.5795],
   initialZoom = 4,
@@ -275,7 +277,7 @@ export default function LayerMapViewer({
 
   if (loadingLayers) {
     return (
-      <div className={fullScreen ? "fixed inset-0 bg-background z-50" : "absolute inset-0"}>
+      <div className={fullScreen && !contained ? "fixed inset-0 bg-background z-50" : "absolute inset-0"}>
         <Skeleton className="w-full h-full" />
       </div>
     );
@@ -283,7 +285,7 @@ export default function LayerMapViewer({
 
   if (mapLayers.length === 0) {
     return (
-      <div className={fullScreen ? "fixed inset-0 bg-background z-50 flex items-center justify-center" : "absolute inset-0 flex items-center justify-center border rounded-md"}>
+      <div className={fullScreen && !contained ? "fixed inset-0 bg-background z-50 flex items-center justify-center" : "absolute inset-0 flex items-center justify-center border rounded-md"}>
         {fullScreen && onClose && (
           <div className="absolute top-4 right-4 z-[1000]">
             <Button variant="outline" size="icon" onClick={onClose} data-testid="button-close-map-viewer">
@@ -305,7 +307,7 @@ export default function LayerMapViewer({
   }
 
   return (
-    <div className={fullScreen ? "fixed inset-0 bg-background z-50" : "absolute inset-0"}>
+    <div className={fullScreen && !contained ? "fixed inset-0 bg-background z-50" : "absolute inset-0"}>
       {/* Top toolbar - compact horizontal strip */}
       <div className="absolute top-3 left-3 right-3 z-[1000] flex items-center justify-between pointer-events-none">
         {/* Left controls - layers and map type */}

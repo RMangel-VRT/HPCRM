@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
+import { useTranslation } from "react-i18next";
+import { SectionRail, SectionRailLayout } from "@/components/nav/SectionRail";
+import { flagStatusFromSearch, flagStatusHref } from "@/lib/flag-navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,7 +60,13 @@ function fmtDateTime(iso: string) {
 
 export default function FlagsInboxPage() {
   const { tags: FLAG_TAGS, statuses: FLAG_STATUSES } = useFlagTaxonomy();
-  const [statusFilter, setStatusFilter] = useState<"all" | FlagStatus>("new");
+  const { t } = useTranslation();
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const statusFilter = flagStatusFromSearch(search);
+  const { data: unread } = useQuery<{ count: number }>({
+    queryKey: ["/api/flags/unread-count"], refetchInterval: 30_000,
+  });
   const [tagFilter, setTagFilter] = useState<"all" | FlagTag>("all");
   const [crewFilter, setCrewFilter] = useState<"all" | string>("all");
   const [property, setProperty] = useState<{ id: string; name: string } | null>(null);
@@ -94,7 +103,7 @@ export default function FlagsInboxPage() {
   const newCount = items.filter((i) => i.status === "new").length;
 
   const clearFilters = () => {
-    setStatusFilter("new");
+    navigate(flagStatusHref(search, "new"));
     setTagFilter("all");
     setCrewFilter("all");
     setProperty(null);
@@ -104,6 +113,12 @@ export default function FlagsInboxPage() {
   };
 
   return (
+    <SectionRailLayout rail={<SectionRail title={t("nav.flags")} ariaLabel={t("nav.flags")}
+      activeKey={`flags-${statusFilter}`} sections={[{ items: [...FLAG_STATUSES, "all" as const].map(status => ({
+        key: `flags-${status}`, label: t(`flags.status.${status}`),
+        href: flagStatusHref(search, status),
+        badge: status === "new" ? unread?.count : undefined,
+      })) }]} />}>
     <div className="space-y-6" data-testid="page-flags-inbox">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -121,20 +136,6 @@ export default function FlagsInboxPage() {
       <Card>
         <CardContent className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Status</label>
-              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-                <SelectTrigger data-testid="select-flag-status-filter">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  {FLAG_STATUSES.map((s) => (
-                    <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Tag</label>
               <Select value={tagFilter} onValueChange={(v) => setTagFilter(v as typeof tagFilter)}>
@@ -303,7 +304,7 @@ export default function FlagsInboxPage() {
                       </TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{fmtDateTime(f.createdAt)}</TableCell>
                       <TableCell>
-                        <Badge variant={statusVariant(f.status)}>{f.status.replace(/_/g, " ")}</Badge>
+                        <Badge variant={statusVariant(f.status)}>{t(`flags.status.${f.status}`)}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button asChild size="sm" variant="outline" data-testid={`button-open-flag-${f.id}`}>
@@ -319,5 +320,6 @@ export default function FlagsInboxPage() {
         </Card>
       )}
     </div>
+    </SectionRailLayout>
   );
 }

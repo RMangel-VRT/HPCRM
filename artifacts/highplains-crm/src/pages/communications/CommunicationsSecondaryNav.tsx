@@ -1,95 +1,32 @@
-import { useLocation, useParams } from "wouter";
+import { useParams } from "wouter";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
+import { SectionRail } from "@/components/nav/SectionRail";
 import { useCommunicationsShell } from "./CommunicationsPageShell";
-import { cn } from "@/lib/utils";
 
-const VALID_TABS = ["inbox", "sent", "unsorted", "all"] as const;
-type Tab = typeof VALID_TABS[number];
+export const COMMS_VIEWS = ["inbox", "unsorted", "sent", "all"] as const;
+export type CommsView = typeof COMMS_VIEWS[number];
 
-interface TabDef {
-  id: Tab;
-  label: string;
-  adminOnly?: boolean;
+export function communicationsHref(tab: CommsView, filters: {
+  search: string; fromDate: string; toDate: string; viewAs: string;
+}) {
+  const p = new URLSearchParams();
+  if (filters.search) p.set("q", filters.search);
+  if (filters.fromDate) p.set("from", filters.fromDate);
+  if (filters.toDate) p.set("to", filters.toDate);
+  if (filters.viewAs) p.set("viewAs", filters.viewAs);
+  return `/dashboard/communications/${tab}${p.size ? `?${p}` : ""}`;
 }
 
-const TABS: TabDef[] = [
-  { id: "inbox", label: "Inbox" },
-  { id: "sent", label: "Sent" },
-  { id: "unsorted", label: "Unsorted" },
-  { id: "all", label: "All Communications", adminOnly: true },
-];
-
-interface CountBadgeProps {
-  count?: number;
-  active?: boolean;
-}
-
-function CountBadge({ count, active }: CountBadgeProps) {
-  if (count === undefined) return null;
-  return (
-    <span
-      className={cn(
-        "ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-medium",
-        active
-          ? "bg-primary-foreground/20 text-primary-foreground"
-          : "bg-muted text-muted-foreground"
-      )}
-    >
-      {count}
-    </span>
-  );
-}
-
-interface CommunicationsSecondaryNavProps {
-  counts?: Partial<Record<Tab, number>>;
-}
-
-export function CommunicationsSecondaryNav({ counts = {} }: CommunicationsSecondaryNavProps) {
+export function CommunicationsSecondaryNav({ counts = {} }: { counts?: Partial<Record<CommsView, number>> }) {
   const { user } = useAuth();
-  const [, navigate] = useLocation();
-  const { search, fromDate, toDate, viewAs } = useCommunicationsShell();
+  const { t } = useTranslation();
+  const filters = useCommunicationsShell();
   const params = useParams<{ tab?: string }>();
-  const activeTab = (VALID_TABS.includes(params.tab as Tab) ? params.tab : "inbox") as Tab;
-
-  const isAdminOrOffice = user?.activeRole === "admin" || user?.activeRole === "office";
-
-  function buildUrl(tab: Tab): string {
-    const p = new URLSearchParams();
-    if (search) p.set("q", search);
-    if (fromDate) p.set("from", fromDate);
-    if (toDate) p.set("to", toDate);
-    if (viewAs) p.set("viewAs", viewAs);
-    const qs = p.toString();
-    return `/dashboard/communications/${tab}${qs ? `?${qs}` : ""}`;
-  }
-
-  const visibleTabs = TABS.filter((t) => {
-    if (t.adminOnly && !isAdminOrOffice) return false;
-    return true;
-  });
-
-  return (
-    <div className="flex items-center gap-0 border-b bg-background shrink-0 px-4 overflow-x-auto no-scrollbar">
-      {visibleTabs.map((tab) => {
-        const isActive = activeTab === tab.id;
-        return (
-          <button
-            key={tab.id}
-            onClick={() => navigate(buildUrl(tab.id))}
-            data-testid={`tab-comms-${tab.id}`}
-            aria-current={isActive ? "page" : undefined}
-            className={cn(
-              "relative flex items-center px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors",
-              isActive
-                ? "text-primary after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-primary"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-            )}
-          >
-            {tab.label}
-            <CountBadge count={counts[tab.id]} active={isActive} />
-          </button>
-        );
-      })}
-    </div>
-  );
+  const activeTab = COMMS_VIEWS.includes(params.tab as CommsView) ? params.tab! : "inbox";
+  const items = COMMS_VIEWS.filter(tab => tab !== "all" || ["admin", "office"].includes(user?.activeRole ?? ""))
+    .map(tab => ({ key: `comms-${tab}`, label: t(`comms.${tab}`),
+      href: communicationsHref(tab, filters), badge: counts[tab] }));
+  return <SectionRail title={t("nav.inbox")} ariaLabel={t("nav.inbox")}
+    activeKey={`comms-${activeTab}`} sections={[{ items }]} />;
 }

@@ -56,3 +56,17 @@ mtime_ms = 1792524512404
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/0922444d-e7f7-4ff7-b3ec-53b122c399cc/7908a8e5-46c0-424a-9cff-f287c47b2c74"
 storage_version_token = "1792524513534040"
 content_type = "text/html"
+
+[[outputs]]
+id = "AMewhm3fA-sufrxqjiytM"
+uri = "file://docs/navigation/N3-implementation-report.md"
+type = "text"
+title = "N3 — Section rails implementation report"
+description = "Changed files, baseline-relative checks, complete screenshot inventory, customer before/after comparisons, map measurements, and verification limitations."
+logical_id = "ef2ae918-f8e1-4366-ab92-69d9aacca741"
+content_hash = "sha256:14069da7feec50039e25d2b9142b1a959adfec5ca0d6140bcb98d86b54486d91"
+size = 13201
+mtime_ms = 1792530703944
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/ef2ae918-f8e1-4366-ab92-69d9aacca741/0e46df6b-7161-485c-8ab3-799d4ff6ed3e"
+storage_version_token = "1792530791540816"
+content_type = "text/markdown"

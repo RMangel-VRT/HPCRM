@@ -107,11 +107,11 @@ export function SectionRail(props: { title: string; sections: RailSection[]; act
   );
 }
 
-export function SectionRailLayout(props: { rail: ReactNode; children: ReactNode }): JSX.Element {
+export function SectionRailLayout(props: { rail: ReactNode; children: ReactNode; fullHeight?: boolean }): JSX.Element {
   return (
-    <div className="flex min-h-full flex-col md:flex-row">
+    <div className={cn("flex flex-col md:flex-row", props.fullHeight ? "h-full min-h-0 overflow-hidden" : "min-h-full")}>
       {props.rail}
-      <div className="min-w-0 flex-1 p-6 md:p-8">{props.children}</div>
+      <div className={cn("min-w-0 flex-1 p-6 md:p-8", props.fullHeight && "relative min-h-0 overflow-y-auto")} data-testid={props.fullHeight ? "rail-full-height-content" : undefined}>{props.children}</div>
     </div>
   );
 }

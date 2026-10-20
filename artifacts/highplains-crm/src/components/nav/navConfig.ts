@@ -1,12 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard, Building2, Settings, Shield, DollarSign, ClipboardList, UserCheck,
-  Map, CalendarDays, FileText, FileBarChart, MapPin, MessagesSquare, Flag, Receipt,
-  Users, Snowflake, Megaphone, Boxes, Wrench, CalendarClock,
+  Map, CalendarDays, FileText, FileBarChart, MessagesSquare, Flag, Receipt,
+  Users, Snowflake, Megaphone, Wrench, CalendarClock,
 } from "lucide-react";
 import { showBillingSidebar } from "@/lib/billing";
 import { commsTabHref, type CommsTab } from "@/lib/last-comms-tab";
 import { localDateString } from "@/shared/scheduleBy";
+import { firstMapHref, workViewsFor } from "./workNav";
 
 export type NavRole =
   | "admin" | "office" | "field_manager" | "chemical_manager" | "field"
@@ -53,6 +54,14 @@ export interface ResolvedNavGroup {
   items: ResolvedNavItem[];
 }
 
+export function navItemIsActive(item: Pick<ResolvedNavItem, "key" | "activeMatch">, location: string) {
+  // Route map belongs to Maps, not the customer-directory/detail family.
+  if (item.key === "customers" && /^\/dashboard\/customers\/map(?:\/|$)/.test(location)) return false;
+  return item.activeMatch.some(path => path === "/dashboard"
+    ? location === path
+    : location === path || location.startsWith(path + "/"));
+}
+
 const is = (...roles: NavRole[]) => (u: NavUser) => roles.includes(u.activeRole);
 const AO: NavRole[] = ["admin", "office"];
 
@@ -73,12 +82,11 @@ export const NAV_GROUPS: NavGroupDef[] = [
     key: "work",
     labelKey: "nav.work",
     items: [
-      { key: "tickets", labelKey: "nav.tickets", icon: ClipboardList, href: "/dashboard/tickets", visible: is(...AO) },
-      { key: "myTickets",
-        labelKey: (u) => (u.activeRole === "landscape_supervisor" ? "nav.myWork" : "nav.myTickets"),
-        icon: UserCheck, href: "/dashboard/tickets/my", visible: (u) => u.activeRole !== "mapping" },
-      { key: "myBatches", labelKey: "nav.myBatches", icon: Boxes, href: "/dashboard/my-batches",
-        visible: is("field", "field_manager", "landscape_supervisor") },
+      { key: "tickets",
+        labelKey: (u) => (u.activeRole === "landscape_supervisor" ? "nav.myWork" : "nav.tickets"),
+        icon: ClipboardList, href: "/dashboard/tickets/my",
+        activeMatch: ["/dashboard/tickets", "/dashboard/my-batches"],
+        visible: (u) => workViewsFor("tickets", u.activeRole).some(item => item.key === "mine") || !!u.activeTags?.includes("billing") },
       { key: "scheduling", labelKey: "nav.scheduling", icon: CalendarDays, href: "/dashboard/scheduling",
         badge: "scheduling", visible: is("admin", "office", "field_manager") },
       { key: "planner", labelKey: "nav.planner", icon: CalendarClock, href: "/dashboard/schedule",
@@ -99,12 +107,11 @@ export const NAV_GROUPS: NavGroupDef[] = [
         href: (u) => (is("admin", "office", "field_manager")(u) ? "/dashboard/customers" : "/dashboard/field-customers"),
         visible: is("admin", "office", "field_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor") },
       { key: "contracts", labelKey: "nav.contracts", icon: FileText, href: "/dashboard/contracts", visible: is(...AO) },
-      { key: "propertyMaps",
-        labelKey: (u) => (u.activeRole === "mapping" ? "nav.customerMaps" : "nav.propertyMaps"),
-        icon: Map, href: "/dashboard/maps",
-        visible: is("admin", "office", "mapping", "field", "field_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor") },
-      { key: "routeMap", labelKey: "nav.routeMap", icon: MapPin, href: "/dashboard/customers/map",
-        visible: is("admin", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor") },
+      { key: "maps",
+        labelKey: (u) => (u.activeRole === "mapping" ? "nav.customerMaps" : "nav.maps"),
+        icon: Map, href: (u) => firstMapHref(u.activeRole)!,
+        activeMatch: ["/dashboard/maps", "/dashboard/customers/map"],
+        visible: (u) => !!firstMapHref(u.activeRole) },
     ],
   },
   {
@@ -156,7 +163,7 @@ function resolve(def: NavItemDef, user: NavUser): ResolvedNavItem {
     labelKey: typeof def.labelKey === "function" ? def.labelKey(user) : def.labelKey,
     icon: def.icon,
     href,
-    path: activeMatch[0],
+    path: href.split("?")[0],
     badge: def.badge,
     activeMatch,
   };

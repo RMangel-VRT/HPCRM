@@ -9,9 +9,6 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { LogOut, HelpCircle, Mail, Phone, MessageSquare, Bell, Languages, ChevronsUpDown } from "lucide-react";
@@ -36,9 +33,9 @@ import type { Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { pendingInvoicesKey, showBillingSidebar, type PendingInvoice } from "@/lib/billing";
 import { resolveCustomersRouteAsync, resolveCustomersRouteSync } from "@/lib/last-viewed-customer";
-import { commsTabHref, getLastCommsTab, isValidCommsTab, type CommsTab } from "@/lib/last-comms-tab";
+import { getLastCommsTab, isValidCommsTab, type CommsTab } from "@/lib/last-comms-tab";
 import { useEffect, useMemo, useState } from "react";
-import { getNavForUser, type NavUser } from "@/components/nav/navConfig";
+import { getNavForUser, navItemIsActive, type NavUser } from "@/components/nav/navConfig";
 
 const CUSTOMERS_LIST_PATH = "/dashboard/customers";
 // Mirrors the notifications route allowedRoles in App.tsx (crew_supervisor and mapping excluded).
@@ -113,13 +110,6 @@ export default function AppSidebar({
   const { data: schedulingQueue } = useSchedulingQueue(companyId, canSchedule, { badge: true });
   const schedulingBadgeCount = schedulingQueue ? schedulingQueue.needsScheduling.length + schedulingQueue.slipped.length : 0;
 
-  const isActive = (matches: string[]) =>
-    matches.some((url) => {
-      if (url === "/dashboard") return location === "/dashboard";
-      if (url === "/dashboard/communications") return location.startsWith("/dashboard/communications");
-      return location === url || location.startsWith(url + "/");
-    });
-
   const [lastCommsTab, setLastCommsTabState] = useState<CommsTab>(() => getLastCommsTab());
   useEffect(() => {
     const onChange = (e: Event) => {
@@ -143,19 +133,7 @@ export default function AppSidebar({
   );
   const groups = getNavForUser(navUser);
 
-  const onCommsRoute = location.startsWith("/dashboard/communications");
-  const currentCommsTab: CommsTab | null = (() => {
-    const m = location.match(/^\/dashboard\/communications\/([^/?#]+)/);
-    return m && isValidCommsTab(m[1]) ? m[1] : null;
-  })();
-  const commsSubTabs: { id: CommsTab; label: string; adminOnly?: boolean }[] = [
-    { id: "inbox", label: "Inbox" },
-    { id: "sent", label: "Sent" },
-    { id: "unsorted", label: "Unsorted" },
-    { id: "all", label: "All Communications", adminOnly: true },
-  ];
   const isAdminOrOffice = userRole === "admin" || userRole === "office";
-  const visibleCommsSubTabs = commsSubTabs.filter((s) => !s.adminOnly || isAdminOrOffice);
 
   const { data: flagUnreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/flags/unread-count"],
@@ -205,7 +183,7 @@ export default function AppSidebar({
       data-testid="app-sidebar"
       className={
         isCustomerDetail && sidebarExpanded
-          ? "md:pr-0 [&_[data-slot=sidebar-inner]]:rounded-r-none [&_[data-slot=sidebar-inner]]:border-r-0 [&_[data-slot=sidebar-inner]]:shadow-none"
+          ? "md:pr-0 [&_[data-slot=sidebar-inner]]:rounded-r-none [&_[data-slot=sidebar-inner]]:shadow-none"
           : undefined
       }
     >
@@ -227,13 +205,12 @@ export default function AppSidebar({
               {group.items.map((item) => {
                 const isCustomers = item.key === "customers" && item.href === CUSTOMERS_LIST_PATH;
                 const isCustomersAnchor = isCustomerDetail && isCustomers;
-                const isComms = item.key === "inbox";
                 const label = t(item.labelKey);
                 return (
                   <SidebarMenuItem key={item.key}>
                     <SidebarMenuButton
                       asChild
-                      isActive={isActive(item.activeMatch)}
+                      isActive={navItemIsActive(item, location)}
                       className={
                         isCustomersAnchor
                           ? "relative data-[active=true]:after:absolute data-[active=true]:after:right-0 data-[active=true]:after:top-0 data-[active=true]:after:bottom-0 data-[active=true]:after:w-[3px] data-[active=true]:after:bg-sidebar-primary"
@@ -250,23 +227,6 @@ export default function AppSidebar({
                         {badgeNode(item.badge)}
                       </Link>
                     </SidebarMenuButton>
-                    {isComms && onCommsRoute && (
-                      <SidebarMenuSub data-testid="sidebar-comms-subnav">
-                        {visibleCommsSubTabs.map((sub) => (
-                          <SidebarMenuSubItem key={sub.id}>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={currentCommsTab === sub.id}
-                              data-testid={`sidebar-link-comms-${sub.id}`}
-                            >
-                              <Link href={commsTabHref(sub.id)}>
-                                <span>{sub.label}</span>
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        ))}
-                      </SidebarMenuSub>
-                    )}
                   </SidebarMenuItem>
                 );
               })}

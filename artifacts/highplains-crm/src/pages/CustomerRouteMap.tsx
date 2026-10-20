@@ -185,8 +185,11 @@ export default function CustomerRouteMap() {
     });
 
     mapRef.current = map;
+    const observer = new ResizeObserver(() => map.resize());
+    observer.observe(mapContainerRef.current!);
 
     return () => {
+      observer.disconnect();
       if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
       map.remove();
       mapRef.current = null;
