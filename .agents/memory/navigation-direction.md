@@ -20,3 +20,9 @@ The user supplied a local clickable model for the upcoming navigation slices: `a
 **Why:** The user explicitly designated this upload as the reference to use for those slices, alongside the approved written navigation design.
 
 **How to apply:** Inspect the model for layout, role switching, secondary rails and menu interactions when scoping each slice. Use the revised written design for implementation constraints and settled decisions; the model's short URLs are illustrative and do not replace required `/dashboard/` routes.
+
+The subsequently supplied implementation rules are in `attached_assets/00-RULES-N_1792516880939.md`; read the applicable uploaded navigation slice as well. Their explicit scope exceptions override broader earlier design wording.
+
+**Why:** The detailed invoicing slice deliberately leaves the customer's Financial › Billing label unchanged because it opens contracts, although the earlier navigation narrative proposed renaming it.
+
+**How to apply:** Follow the supplied slice boundaries rather than expanding a task to match every illustrative model feature. Keep the customer Financial label and revenue billing-frequency wording unchanged unless separately approved.
