@@ -144,12 +144,21 @@ export default function CampaignsList() {
           <h1 className="text-2xl font-bold" data-testid="text-campaigns-title">{t("campaigns.title")}</h1>
           <p className="text-muted-foreground">{t("campaigns.description")}</p>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+        {user && ["admin", "office", "field_manager", "chemical_manager"].includes(user.activeRole) && (
+          <Button variant="outline" asChild>
+            <Link href="/dashboard/campaigns/checklists" data-testid="link-service-checklists">
+              {t("nav.serviceChecklists")}
+            </Link>
+          </Button>
+        )}
         {canManage && (
           <Button onClick={() => setShowCreate(true)} data-testid="button-create-campaign">
             <Plus className="w-4 h-4 mr-2" />
             {t("campaigns.newCampaign")}
           </Button>
         )}
+        </div>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">

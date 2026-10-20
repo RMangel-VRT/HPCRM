@@ -44,7 +44,7 @@ function route(role: any, tags: string[]) {
 describe("billing sidebar and access", () => {
   it("office + billing-tagged: no entry or badge, lands on To invoice, keeps direct URL", () => {
     const html = sidebar("office", ["billing"]);
-    expect(html).not.toContain('data-testid="link-billing"');
+    expect(html).not.toContain('data-testid="nav-billing"');
     expect(html).not.toContain("badge-billing-sidebar");
     expect(isBillingPerson({ activeRole: "office", activeTags: ["billing"] })).toBe(true);
     expect(BILLING_LANDING).toBe("/dashboard/tickets/my?tab=invoice");
@@ -53,19 +53,19 @@ describe("billing sidebar and access", () => {
   it("untagged office and admins (tagged or not) keep entry and badge", () => {
     for (const [role, tags] of [["office", []], ["admin", []], ["admin", ["billing"]]] as const) {
       const html = sidebar(role, [...tags]);
-      expect(html).toContain('data-testid="link-billing"');
+      expect(html).toContain('data-testid="nav-billing"');
       expect(html).toContain('data-testid="badge-billing-sidebar"');
     }
   });
   it("active admins keep Billing in the platform-admin layout too", () => {
     const html = sidebar("admin", ["billing"], true);
-    expect(html).toContain('data-testid="link-billing"');
+    expect(html).toContain('data-testid="nav-billing"');
     expect(html).toContain('data-testid="badge-billing-sidebar"');
   });
   it("field users: untagged denied, tagged allowed route but no sidebar rule", () => {
     expect(route("field_manager", [])).toBe(false);
     expect(route("field_manager", ["billing"])).toBe(true);
     expect(showBillingSidebar({ activeRole: "field_manager", activeTags: ["billing"] })).toBe(false);
-    expect(sidebar("field_manager", ["billing"])).not.toContain("link-billing");
+    expect(sidebar("field_manager", ["billing"])).not.toContain("nav-billing");
   });
 });

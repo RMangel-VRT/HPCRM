@@ -20,3 +20,9 @@ Keep the Dashboard Billing action-queue count, items and actions independent of 
 **Why:** The user explicitly clarified that count agreement means equivalent charge populations, not forced equality with an independent action queue.
 
 **How to apply:** Explain legitimate mine/all assignment differences and Dashboard workload differences; never change queue aggregation to make counts match.
+
+Crew-supervisor web ticket access is assigned-only, even with a billing tag. Billing-page authorization does not authorize another owner's ticket details or linked invoice/parent identity.
+
+**Why:** The desktop-shell scope adds access to assigned work, not company-wide operational ticket permissions. Linked titles and IDs are record data too; hiding the full detail endpoint alone is insufficient.
+
+**How to apply:** Check both records' authorization when changing ticket relationships or list summaries. Administrative link creation/deletion and comment deletion remain unavailable to crew supervisors. Preserve other roles' existing billing exceptions.

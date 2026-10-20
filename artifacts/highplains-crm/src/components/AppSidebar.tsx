@@ -9,43 +9,20 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { LogOut, HelpCircle, Mail, Phone, MessageSquare, Bell, Languages, ChevronsUpDown } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  LayoutDashboard,
-  Building2,
-  Users,
-  Settings,
-  LogOut,
-  Shield,
-  DollarSign,
-  Wrench,
-  ClipboardList,
-  UserCheck,
-  Map,
-  CalendarDays,
-  HelpCircle,
-  Mail,
-  Phone,
-  MessageSquare,
-  FileText,
-  FileBarChart,
-  MapPin,
-  Leaf,
-  MessagesSquare,
-  Activity,
-  Flag,
-  Receipt,
-} from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import RoleBadge from "./RoleBadge";
 import ThemeToggle from "./ThemeToggle";
@@ -58,24 +35,14 @@ import { Badge } from "@/components/ui/badge";
 import type { Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { pendingInvoicesKey, showBillingSidebar, type PendingInvoice } from "@/lib/billing";
-import {
-  resolveCustomersRouteAsync,
-  resolveCustomersRouteSync,
-} from "@/lib/last-viewed-customer";
-import {
-  commsTabHref,
-  getLastCommsTab,
-  isValidCommsTab,
-  type CommsTab,
-} from "@/lib/last-comms-tab";
-import { useEffect, useState } from "react";
-import {
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
-} from "@/components/ui/sidebar";
+import { resolveCustomersRouteAsync, resolveCustomersRouteSync } from "@/lib/last-viewed-customer";
+import { commsTabHref, getLastCommsTab, isValidCommsTab, type CommsTab } from "@/lib/last-comms-tab";
+import { useEffect, useMemo, useState } from "react";
+import { getNavForUser, type NavUser } from "@/components/nav/navConfig";
 
 const CUSTOMERS_LIST_PATH = "/dashboard/customers";
+// Mirrors the notifications route allowedRoles in App.tsx (crew_supervisor and mapping excluded).
+const NOTIFICATION_ROLES = ["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "landscape_supervisor"];
 
 interface AppSidebarProps {
   userRole?: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
@@ -102,25 +69,19 @@ export default function AppSidebar({
   const { t, i18n } = useTranslation();
   const { state: sidebarState } = useSidebar();
   const sidebarExpanded = sidebarState === "expanded";
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const canSeeRegularCustomers =
-    !isSuperAdmin &&
-    (userRole === "admin" || userRole === "office" || userRole === "field_manager");
+    !isSuperAdmin && (userRole === "admin" || userRole === "office" || userRole === "field_manager");
 
-  // Prefetch the customers list so the sync resolver can use the cache for
-  // the link's href. We don't read the data here; it just warms the cache.
   useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers?page=1&limit=200"],
     enabled: canSeeRegularCustomers,
   });
 
-  const customersHref = canSeeRegularCustomers
-    ? resolveCustomersRouteSync(queryClient)
-    : CUSTOMERS_LIST_PATH;
+  const customersHref = canSeeRegularCustomers ? resolveCustomersRouteSync(queryClient) : CUSTOMERS_LIST_PATH;
 
-  const handleCustomersClick = async (
-    e: React.MouseEvent<HTMLAnchorElement>
-  ) => {
+  const handleCustomersClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
     const target = await resolveCustomersRouteAsync(queryClient);
@@ -138,15 +99,6 @@ export default function AppSidebar({
     }
   };
 
-  const superAdminItems = isSuperAdmin
-    ? [
-        { title: t("nav.adminHome"), url: "/admin", icon: Shield },
-      ]
-    : [];
-
-  type NavItem = { title: string; url: string; icon: typeof LayoutDashboard };
-
-  // Sidebar visibility is deliberately narrower than canViewBilling.
   const showBillingEntry = showBillingSidebar({ activeRole: userRole, activeTags });
   const { data: billingBadgeRows } = useQuery<PendingInvoice[]>({
     queryKey: pendingInvoicesKey(companyId, userId, "all", "waiting"),
@@ -161,158 +113,12 @@ export default function AppSidebar({
   const { data: schedulingQueue } = useSchedulingQueue(companyId, canSchedule, { badge: true });
   const schedulingBadgeCount = schedulingQueue ? schedulingQueue.needsScheduling.length + schedulingQueue.slipped.length : 0;
 
-  const getDashboardItems = (): NavItem[] => {
-    if (isSuperAdmin) return showBillingEntry ? [
-      { title: t("nav.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
-      { title: t("nav.billing"), url: "/dashboard/billing", icon: Receipt },
-    ] : [];
-    const items: NavItem[] = [];
-
-    if (userRole === "landscape_supervisor") {
-      items.push({ title: "My Work", url: "/dashboard/tickets/my", icon: UserCheck });
-      return items;
-    }
-
-    if (userRole === "shop_manager") {
-      items.push({ title: t("nav.dashboard"), url: "/dashboard", icon: LayoutDashboard });
-      items.push({ title: t("nav.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck });
-      return items;
-    }
-
-    if (userRole === "mapping") return [];
-
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
-      items.push({ title: t("nav.dashboard"), url: "/dashboard", icon: LayoutDashboard });
-    }
-
-    if (canSchedule) {
-      items.push({ title: t("nav.scheduling"), url: "/dashboard/scheduling", icon: CalendarDays });
-    }
-
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: t("nav.tickets"), url: "/dashboard/tickets", icon: ClipboardList });
-    }
-
-    items.push({ title: t("nav.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck });
-
-    if (showBillingEntry) {
-      items.push({ title: t("nav.billing"), url: "/dashboard/billing", icon: Receipt });
-    }
-
-    return items;
-  };
-
-  const getCrmItems = (): NavItem[] => {
-    if (isSuperAdmin) return [];
-    const items: NavItem[] = [];
-
-    if (userRole === "landscape_supervisor") {
-      items.push({ title: t("nav.propertyMaps"), url: "/dashboard/maps", icon: Map });
-      items.push({ title: t("nav.routeMap"), url: "/dashboard/customers/map", icon: MapPin });
-      return items;
-    }
-
-    if (userRole === "shop_manager") return [];
-
-    if (userRole === "mapping") {
-      items.push({ title: t("nav.customerMaps"), url: "/dashboard/maps", icon: Map });
-      return items;
-    }
-
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager") {
-      items.push({ title: t("nav.customers"), url: "/dashboard/customers", icon: Building2 });
-    }
-
-    if (userRole === "chemical_manager") {
-      items.push({ title: t("nav.customers"), url: "/dashboard/field-customers", icon: Building2 });
-    }
-
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: t("nav.contracts"), url: "/dashboard/contracts", icon: FileText });
-    }
-
-    if (userRole === "irrigation_manager") {
-      items.push({ title: t("nav.propertyMaps"), url: "/dashboard/maps", icon: Map });
-    }
-
-    if (userRole === "irrigation_manager") {
-      items.push({ title: t("nav.schedule"), url: "/dashboard/schedule", icon: CalendarDays });
-    }
-
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: t("nav.revenue"), url: "/dashboard/revenue", icon: DollarSign });
-    }
-
-    return items;
-  };
-
-  const getManagementItems = (): NavItem[] => {
-    if (isSuperAdmin) return [];
-    const items: NavItem[] = [];
-
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: "Seasons", url: "/dashboard/seasons", icon: Leaf });
-    }
-
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: t("nav.tools"), url: "/dashboard/tools", icon: Wrench });
-    }
-
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: t("emailTracking.communicationsTitle"), url: "/dashboard/communications", icon: MessagesSquare });
-    }
-
-    if (userRole === "admin" || userRole === "office" || userRole === "field_manager" || userRole === "chemical_manager") {
-      items.push({ title: t("nav.operations"), url: "/dashboard/operations", icon: Activity });
-    }
-
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: "Flags", url: "/dashboard/flags", icon: Flag });
-    }
-
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: t("nav.reports"), url: "/dashboard/reports", icon: FileBarChart });
-    }
-
-    return items;
-  };
-
-  const dashboardItems = getDashboardItems();
-  const crmItems = getCrmItems();
-  const managementItems = getManagementItems();
-
-  const getMyAccountItems = (): NavItem[] => {
-    return [
-      { title: "My Mailbox", url: "/dashboard/settings/my-mailbox", icon: Mail },
-    ];
-  };
-
-  const getAdminItems = (): NavItem[] => {
-    if (isSuperAdmin) return [];
-    const items: NavItem[] = [];
-    if (userRole === "admin" || userRole === "office") {
-      items.push({ title: t("nav.settings"), url: "/dashboard/settings", icon: Settings });
-    }
-    if (userRole === "admin") {
-      items.push({ title: t("nav.sharedMailboxes"), url: "/dashboard/settings/shared-mailboxes", icon: Mail });
-      items.push({ title: "Notification Templates", url: "/dashboard/settings/notification-templates", icon: FileText });
-      items.push({ title: "Crews", url: "/dashboard/settings/crews", icon: Users });
-    }
-    if (userRole === "admin") {
-      items.push({ title: t("nav.team"), url: "/dashboard/users", icon: Users });
-    }
-    return items;
-  };
-
-  const myAccountItems = getMyAccountItems();
-
-  const adminItems = getAdminItems();
-
-  const isActive = (url: string) => {
-    if (url === "/dashboard") return location === "/dashboard";
-    if (url === "/dashboard/communications") return location.startsWith("/dashboard/communications");
-    return location === url || location.startsWith(url + "/");
-  };
+  const isActive = (matches: string[]) =>
+    matches.some((url) => {
+      if (url === "/dashboard") return location === "/dashboard";
+      if (url === "/dashboard/communications") return location.startsWith("/dashboard/communications");
+      return location === url || location.startsWith(url + "/");
+    });
 
   const [lastCommsTab, setLastCommsTabState] = useState<CommsTab>(() => getLastCommsTab());
   useEffect(() => {
@@ -321,9 +127,7 @@ export default function AppSidebar({
       if (isValidCommsTab(detail)) setLastCommsTabState(detail);
     };
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "communications:lastTab" && isValidCommsTab(e.newValue)) {
-        setLastCommsTabState(e.newValue);
-      }
+      if (e.key === "communications:lastTab" && isValidCommsTab(e.newValue)) setLastCommsTabState(e.newValue);
     };
     window.addEventListener("communications:lastTab-changed", onChange);
     window.addEventListener("storage", onStorage);
@@ -332,6 +136,12 @@ export default function AppSidebar({
       window.removeEventListener("storage", onStorage);
     };
   }, []);
+
+  const navUser: NavUser = useMemo(
+    () => ({ activeRole: userRole, activeTags, isSuperAdminBool: isSuperAdmin, lastCommsTab }),
+    [userRole, activeTags, isSuperAdmin, lastCommsTab],
+  );
+  const groups = getNavForUser(navUser);
 
   const onCommsRoute = location.startsWith("/dashboard/communications");
   const currentCommsTab: CommsTab | null = (() => {
@@ -345,7 +155,7 @@ export default function AppSidebar({
     { id: "all", label: "All Communications", adminOnly: true },
   ];
   const isAdminOrOffice = userRole === "admin" || userRole === "office";
-  const visibleCommsSubTabs = commsSubTabs.filter((t) => !t.adminOnly || isAdminOrOffice);
+  const visibleCommsSubTabs = commsSubTabs.filter((s) => !s.adminOnly || isAdminOrOffice);
 
   const { data: flagUnreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/flags/unread-count"],
@@ -354,7 +164,7 @@ export default function AppSidebar({
       if (!res.ok) return { count: 0 };
       return res.json();
     },
-    enabled: userRole === "admin" || userRole === "office",
+    enabled: isAdminOrOffice,
     refetchInterval: 30_000,
     staleTime: 25_000,
   });
@@ -367,11 +177,27 @@ export default function AppSidebar({
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: userRole === "admin" || userRole === "office",
+    enabled: isAdminOrOffice,
     refetchInterval: 60_000,
     staleTime: 50_000,
   });
   const pendingUnsortedCount = Array.isArray(pendingUnsortedData) ? pendingUnsortedData.length : 0;
+
+  const badgeNode = (kind: string | undefined) => {
+    const cap = (n: number) => (n > 99 ? "99+" : n);
+    const cls = "ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate";
+    if (kind === "scheduling" && schedulingBadgeCount > 0)
+      return <Badge className={cls} data-testid="badge-scheduling-sidebar">{cap(schedulingBadgeCount)}</Badge>;
+    if (kind === "billing" && billingBadgeCount > 0)
+      return <Badge className={cls} data-testid="badge-billing-sidebar">{cap(billingBadgeCount)}</Badge>;
+    if (kind === "unsorted" && pendingUnsortedCount > 0)
+      return <Badge className={cls} data-testid="badge-pending-unsorted-sidebar">{cap(pendingUnsortedCount)}</Badge>;
+    if (kind === "flags" && flagUnreadCount > 0)
+      return <Badge variant="destructive" className={cls} data-testid="badge-flags-unread-sidebar">{cap(flagUnreadCount)}</Badge>;
+    return null;
+  };
+
+  const canSeeNotifications = isSuperAdmin || NOTIFICATION_ROLES.includes(userRole);
 
   return (
     <Sidebar
@@ -394,64 +220,20 @@ export default function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent onClickCapture={guardLinkClick as never}>
-        {superAdminItems.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel>{t("nav.platformAdmin")}</SidebarGroupLabel>
+        {groups.map((group) => (
+          <SidebarGroup key={group.key} className={group.key === "footer" ? "mt-auto" : undefined}>
+            {group.labelKey && <SidebarGroupLabel>{t(group.labelKey)}</SidebarGroupLabel>}
             <SidebarMenu>
-              {superAdminItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
-
-        {dashboardItems.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel>{t("nav.dashboard")}</SidebarGroupLabel>
-            <SidebarMenu>
-              {dashboardItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                      {item.url === "/dashboard/scheduling" && schedulingBadgeCount > 0 && (
-                        <Badge className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-scheduling-sidebar">
-                          {schedulingBadgeCount > 99 ? "99+" : schedulingBadgeCount}
-                        </Badge>
-                      )}
-                      {item.url === "/dashboard/billing" && billingBadgeCount > 0 && (
-                        <Badge className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-billing-sidebar">
-                          {billingBadgeCount > 99 ? "99+" : billingBadgeCount}
-                        </Badge>
-                      )}
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
-
-        {crmItems.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel>{t("sidebar.highPlainsCRM")}</SidebarGroupLabel>
-            <SidebarMenu>
-              {crmItems.map((item) => {
-                const isCustomers = item.url === CUSTOMERS_LIST_PATH;
+              {group.items.map((item) => {
+                const isCustomers = item.key === "customers" && item.href === CUSTOMERS_LIST_PATH;
                 const isCustomersAnchor = isCustomerDetail && isCustomers;
+                const isComms = item.key === "inbox";
+                const label = t(item.labelKey);
                 return (
-                  <SidebarMenuItem key={item.title}>
+                  <SidebarMenuItem key={item.key}>
                     <SidebarMenuButton
                       asChild
-                      isActive={isActive(item.url)}
+                      isActive={isActive(item.activeMatch)}
                       className={
                         isCustomersAnchor
                           ? "relative data-[active=true]:after:absolute data-[active=true]:after:right-0 data-[active=true]:after:top-0 data-[active=true]:after:bottom-0 data-[active=true]:after:w-[3px] data-[active=true]:after:bg-sidebar-primary"
@@ -459,65 +241,30 @@ export default function AppSidebar({
                       }
                     >
                       <Link
-                        href={isCustomers ? customersHref : item.url}
+                        href={isCustomers ? customersHref : item.href}
                         onClick={isCustomers ? handleCustomersClick : undefined}
-                        data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
+                        data-testid={`nav-${item.key}`}
                       >
                         <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
-
-        {managementItems.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel>{t("nav.management")}</SidebarGroupLabel>
-            <SidebarMenu>
-              {managementItems.map((item) => {
-                const isComms = item.url === "/dashboard/communications";
-                const isFlags = item.url === "/dashboard/flags";
-                const commsHref = isComms ? commsTabHref(lastCommsTab) : item.url;
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                      <Link href={isComms ? commsHref : item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                        {isComms && pendingUnsortedCount > 0 && (
-                          <Badge className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-pending-unsorted-sidebar">
-                            {pendingUnsortedCount > 99 ? "99+" : pendingUnsortedCount}
-                          </Badge>
-                        )}
-                        {isFlags && flagUnreadCount > 0 && (
-                          <Badge variant="destructive" className="ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate" data-testid="badge-flags-unread-sidebar">
-                            {flagUnreadCount > 99 ? "99+" : flagUnreadCount}
-                          </Badge>
-                        )}
+                        <span>{label}</span>
+                        {badgeNode(item.badge)}
                       </Link>
                     </SidebarMenuButton>
                     {isComms && onCommsRoute && (
                       <SidebarMenuSub data-testid="sidebar-comms-subnav">
-                        {visibleCommsSubTabs.map((sub) => {
-                          const subActive = currentCommsTab === sub.id;
-                          return (
-                            <SidebarMenuSubItem key={sub.id}>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={subActive}
-                                data-testid={`sidebar-link-comms-${sub.id}`}
-                              >
-                                <Link href={commsTabHref(sub.id)}>
-                                  <span>{sub.label}</span>
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          );
-                        })}
+                        {visibleCommsSubTabs.map((sub) => (
+                          <SidebarMenuSubItem key={sub.id}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={currentCommsTab === sub.id}
+                              data-testid={`sidebar-link-comms-${sub.id}`}
+                            >
+                              <Link href={commsTabHref(sub.id)}>
+                                <span>{sub.label}</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
                       </SidebarMenuSub>
                     )}
                   </SidebarMenuItem>
@@ -525,141 +272,124 @@ export default function AppSidebar({
               })}
             </SidebarMenu>
           </SidebarGroup>
-        )}
-
-        {myAccountItems.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel>My Account</SidebarGroupLabel>
-            <SidebarMenu>
-              {myAccountItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
-
-        {adminItems.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel>{t("roles.admin")}</SidebarGroupLabel>
-            <SidebarMenu>
-              {adminItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
+        ))}
       </SidebarContent>
 
-      <SidebarFooter className="p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <Avatar className="w-9 h-9">
-            <AvatarFallback className="text-xs">
-              {userName.split(" ").map((n) => n[0]).join("")}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{userName}</p>
-            <RoleBadge role={userRole} isSuperAdmin={isSuperAdmin} />
-          </div>
-        </div>
-        <SidebarMenuButton
-          onClick={onLogout}
-          data-testid="button-logout"
-        >
-          <LogOut className="w-4 h-4" />
-          <span>{t("nav.logOut")}</span>
-        </SidebarMenuButton>
-        <div className="flex items-center justify-between gap-2 pt-1 border-t border-sidebar-border">
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button size="icon" variant="ghost" data-testid="button-help">
-                <HelpCircle className="w-4 h-4" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>{t("sidebar.helpSupport")}</DialogTitle>
-                <DialogDescription>
-                  {t("sidebar.helpDescription")}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium">{t("sidebar.contactSupport")}</h4>
-                  <div className="space-y-2">
-                    <a 
-                      href="mailto:support@highplainsprop.com"
-                      className="flex items-center gap-3 p-3 rounded-md bg-muted/50 hover-elevate transition-colors"
-                      data-testid="link-support-email"
-                    >
-                      <Mail className="w-4 h-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">{t("sidebar.emailSupport")}</p>
-                        <p className="text-xs text-muted-foreground">support@highplainsprop.com</p>
-                      </div>
-                    </a>
-                    <a 
-                      href="tel:+18005551234"
-                      className="flex items-center gap-3 p-3 rounded-md bg-muted/50 hover-elevate transition-colors"
-                      data-testid="link-support-phone"
-                    >
-                      <Phone className="w-4 h-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">{t("sidebar.phoneSupport")}</p>
-                        <p className="text-xs text-muted-foreground">1-800-555-1234</p>
-                      </div>
-                    </a>
+      <SidebarFooter className="p-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuButton size="lg" className="h-auto py-2" data-testid="button-profile-menu">
+              <Avatar className="w-9 h-9">
+                <AvatarFallback className="text-xs">
+                  {userName.split(" ").map((n) => n[0]).join("")}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-medium truncate">{userName}</p>
+                <RoleBadge role={userRole} isSuperAdmin={isSuperAdmin} />
+              </div>
+              <ChevronsUpDown className="w-4 h-4 opacity-60 shrink-0" />
+            </SidebarMenuButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" className="w-64" onClickCapture={guardLinkClick as never}>
+            <DropdownMenuItem asChild data-testid="menu-profile-mailbox">
+              <Link href="/dashboard/settings/my-mailbox" className="cursor-pointer">
+                <Mail className="w-4 h-4 mr-2" />
+                {t("profile.myMailbox")}
+              </Link>
+            </DropdownMenuItem>
+            {canSeeNotifications && (
+              <DropdownMenuItem asChild data-testid="menu-profile-notifications">
+                <Link href="/dashboard/notifications" className="cursor-pointer">
+                  <Bell className="w-4 h-4 mr-2" />
+                  {t("profile.notifications")}
+                </Link>
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={(e) => { e.preventDefault(); toggleLanguage(); }}
+              data-testid="button-language-toggle"
+              className="cursor-pointer justify-between"
+            >
+              <span className="flex items-center"><Languages className="w-4 h-4 mr-2" />{t("profile.language")}</span>
+              <span className="text-xs font-medium">
+                <span className={i18n.language === "en" ? "font-bold" : "text-muted-foreground"}>EN</span>
+                <span className="text-muted-foreground"> / </span>
+                <span className={i18n.language === "es" ? "font-bold" : "text-muted-foreground"}>ES</span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="justify-between" data-testid="menu-profile-theme">
+              <span>{t("profile.theme")}</span>
+              <ThemeToggle />
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setHelpOpen(true)} className="cursor-pointer" data-testid="button-help">
+              <HelpCircle className="w-4 h-4 mr-2" />
+              {t("profile.help")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => onLogout?.()} className="cursor-pointer" data-testid="button-logout">
+              <LogOut className="w-4 h-4 mr-2" />
+              {t("profile.logOut")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("sidebar.helpSupport")}</DialogTitle>
+            <DialogDescription>
+              {t("sidebar.helpDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium">{t("sidebar.contactSupport")}</h4>
+              <div className="space-y-2">
+                <a
+                  href="mailto:support@highplainsprop.com"
+                  className="flex items-center gap-3 p-3 rounded-md bg-muted/50 hover-elevate transition-colors"
+                  data-testid="link-support-email"
+                >
+                  <Mail className="w-4 h-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">{t("sidebar.emailSupport")}</p>
+                    <p className="text-xs text-muted-foreground">support@highplainsprop.com</p>
                   </div>
+                </a>
+                <a
+                  href="tel:+18005551234"
+                  className="flex items-center gap-3 p-3 rounded-md bg-muted/50 hover-elevate transition-colors"
+                  data-testid="link-support-phone"
+                >
+                  <Phone className="w-4 h-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">{t("sidebar.phoneSupport")}</p>
+                    <p className="text-xs text-muted-foreground">1-800-555-1234</p>
+                  </div>
+                </a>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium">{t("sidebar.quickTips")}</h4>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <div className="flex items-start gap-2">
+                  <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
+                  <p>{t("sidebar.tipSearch")}</p>
                 </div>
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium">{t("sidebar.quickTips")}</h4>
-                  <div className="space-y-2 text-sm text-muted-foreground">
-                    <div className="flex items-start gap-2">
-                      <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
-                      <p>{t("sidebar.tipSearch")}</p>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
-                      <p>{t("sidebar.tipTickets")}</p>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
-                      <p>{t("sidebar.tipNotifications")}</p>
-                    </div>
-                  </div>
+                <div className="flex items-start gap-2">
+                  <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
+                  <p>{t("sidebar.tipTickets")}</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
+                  <p>{t("sidebar.tipNotifications")}</p>
                 </div>
               </div>
-            </DialogContent>
-          </Dialog>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleLanguage}
-              data-testid="button-language-toggle"
-              className="gap-1 px-2 text-xs font-medium"
-            >
-              <span className={i18n.language === "en" ? "font-bold" : "text-sidebar-foreground/50"}>EN</span>
-              <span className="text-sidebar-foreground/50">/</span>
-              <span className={i18n.language === "es" ? "font-bold" : "text-sidebar-foreground/50"}>ES</span>
-            </Button>
-            <ThemeToggle />
+            </div>
           </div>
-        </div>
+        </DialogContent>
+        </Dialog>
       </SidebarFooter>
     </Sidebar>
   );

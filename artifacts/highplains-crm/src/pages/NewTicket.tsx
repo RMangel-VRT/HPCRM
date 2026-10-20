@@ -110,6 +110,8 @@ export default function NewTicket() {
   // Check for pre-selected customer from URL query param
   const urlParams = new URLSearchParams(window.location.search);
   const preselectedCustomerId = urlParams.get("customerId");
+  const preselectedWorkType = urlParams.get("workType");
+  const appliedWorkType = useRef(false);
   
   const [step, setStep] = useState<"workType" | "customer" | "details">("workType");
   const [selectedWorkType, setSelectedWorkType] = useState<WorkType | null>(null);
@@ -157,7 +159,7 @@ export default function NewTicket() {
   // Shop to-do specific state
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null);
 
-  const { data: ticketTypes = [] } = useQuery<TicketType[]>({
+  const { data: ticketTypes = [], isSuccess: ticketTypesLoaded } = useQuery<TicketType[]>({
     queryKey: ["/api/ticket-types"],
   });
   
@@ -173,7 +175,7 @@ export default function NewTicket() {
     enabled: selectedWorkType === "shop_todo",
   });
 
-  const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
+  const { data: customersResp, isSuccess: customersLoaded } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
   });
 
@@ -418,6 +420,19 @@ export default function NewTicket() {
       setStep(isPreselectedCustomerValid ? "details" : "customer");
     }
   };
+
+  useEffect(() => {
+    const supported = ["contract", "extra_work", "admin", "estimate_request", "shop_todo"];
+    if (appliedWorkType.current || !ticketTypesLoaded ||
+        (preselectedCustomerId && !customersLoaded) ||
+        !preselectedWorkType || !supported.includes(preselectedWorkType)) return;
+    // Claim before invoking the async selection path: re-fetches and StrictMode
+    // must not reset a form the user has already started editing.
+    appliedWorkType.current = true;
+    void handleSelectWorkType(preselectedWorkType as WorkType).catch((error: Error) => {
+      toast({ title: t("newTicket.createFailed"), description: error.message, variant: "destructive" });
+    });
+  }, [ticketTypesLoaded, customersLoaded, preselectedWorkType, preselectedCustomerId]);
   
   const handleSelectRFPRequest = async () => {
     // Initialize RFP Request ticket type if not exists

@@ -1,55 +1,17 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import {
-  Search,
-  CheckCircle2,
-  Clock,
-  ClipboardList,
-  Megaphone,
-  Calendar,
-  Map,
-  Navigation,
-  Snowflake,
-  Wrench,
-  Radio,
-  X,
-  Building2,
-  Home,
-} from "lucide-react";
+import { Search, CheckCircle2, Clock, ClipboardList, X, Building2, Home } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import CampaignsList from "@/pages/CampaignsList";
-import EquipmentList from "@/pages/EquipmentList";
-import SchedulePage from "@/pages/SchedulePage";
-import SnowEventsList from "@/pages/SnowEventsList";
-import PropertyMapsPage from "@/pages/PropertyMapsPage";
-import CustomerRouteMap from "@/pages/CustomerRouteMap";
-import type { ChecklistItemWithCampaign } from "@/components/ChecklistItemDetailPanel";
-
-type UserRole =
-  | "admin"
-  | "office"
-  | "field_manager"
-  | "chemical_manager"
-  | "field"
-  | "irrigation_manager"
-  | "shop_manager"
-  | "mapping"
-  | "landscape_supervisor";
 
 interface CustomerServiceSummary {
   customerId: string;
@@ -390,174 +352,16 @@ function ServiceChecklistsTab() {
   );
 }
 
-interface TabDef {
-  value: string;
-  label: string;
-  icon: React.ElementType;
-  roles: UserRole[];
-}
-
-const ALL_TABS: TabDef[] = [
-  {
-    value: "campaigns",
-    label: "Campaigns",
-    icon: Megaphone,
-    roles: ["admin", "office", "field_manager", "chemical_manager"],
-  },
-  {
-    value: "checklists",
-    label: "Service Checklists",
-    icon: ClipboardList,
-    roles: ["admin", "office", "field_manager", "chemical_manager"],
-  },
-  {
-    value: "schedule",
-    label: "Schedule",
-    icon: Calendar,
-    roles: ["admin", "office"],
-  },
-  {
-    value: "maps",
-    label: "Property Maps",
-    icon: Map,
-    roles: ["admin", "office", "field_manager", "chemical_manager"],
-  },
-  {
-    value: "routemap",
-    label: "Route Map",
-    icon: Navigation,
-    roles: ["admin", "field_manager", "chemical_manager"],
-  },
-  {
-    value: "snow",
-    label: "Snow",
-    icon: Snowflake,
-    roles: ["admin", "office", "field_manager"],
-  },
-  {
-    value: "equipment",
-    label: "Equipment",
-    icon: Wrench,
-    roles: ["admin", "office"],
-  },
-];
-
-function CommandCenterHeader() {
-  const { data: checklistItems = [], isLoading: checklistsLoading } = useQuery<ChecklistItemWithCampaign[]>({
-    queryKey: ["/api/operations/items"],
-  });
-
-  type Campaign = { id: number; status: string; title: string };
-  const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
-    queryKey: ["/api/campaigns"],
-  });
-
-  const activeCampaigns = useMemo(
-    () => campaigns.filter((c) => c.status === "active").length,
-    [campaigns]
-  );
-  const pendingChecklists = useMemo(
-    () => checklistItems.filter((i) => i.status === "pending").length,
-    [checklistItems]
-  );
-
-  const isLoading = checklistsLoading || campaignsLoading;
-
+export default function ServiceChecklistsPage() {
+  const { t } = useTranslation();
+  useSetBreadcrumbs([
+    { label: t("nav.campaigns"), href: "/dashboard/campaigns" },
+    { label: t("nav.serviceChecklists") },
+  ], []);
   return (
-    <div className="flex items-center gap-4 px-6 py-4 border-b shrink-0">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold leading-tight tracking-tight" data-testid="header-title">
-          Operations Command Center
-        </h1>
-        <div className="flex items-center flex-wrap gap-2" data-testid="header-status-line">
-          {isLoading ? (
-            <>
-              <Skeleton className="h-5 w-36 rounded-full" />
-              <Skeleton className="h-5 w-40 rounded-full" />
-            </>
-          ) : (
-            <>
-              <Badge variant="secondary" data-testid="badge-active-campaigns">
-                {activeCampaigns} Active Campaign{activeCampaigns !== 1 ? "s" : ""}
-              </Badge>
-              <Badge variant="secondary" data-testid="badge-pending-checklists">
-                {pendingChecklists} Pending Checklist{pendingChecklists !== 1 ? "s" : ""}
-              </Badge>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function GlobalOperationsPage() {
-  const { user } = useAuth();
-  const role = (user?.activeRole ?? "admin") as UserRole;
-
-  const visibleTabs = ALL_TABS.filter((tab) => tab.roles.includes(role));
-  const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.value ?? "campaigns");
-
-  useSetBreadcrumbs([{ label: "Operations" }]);
-
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <CommandCenterHeader />
-
-      <div className="px-4 pt-3 border-b shrink-0">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="flex-wrap h-auto gap-1" data-testid="tabs-operations">
-            {visibleTabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <TabsTrigger
-                  key={tab.value}
-                  value={tab.value}
-                  data-testid={`tab-${tab.value}`}
-                  className="flex items-center gap-1.5 py-2 px-3"
-                >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span>{tab.label}</span>
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        </Tabs>
-      </div>
-
-      <div className="flex-1 overflow-hidden">
-        {activeTab === "checklists" && <ServiceChecklistsTab />}
-        {activeTab === "campaigns" && (
-          <div className="h-full overflow-y-auto">
-            <CampaignsList />
-          </div>
-        )}
-        {activeTab === "equipment" && (
-          <div className="h-full overflow-y-auto">
-            <EquipmentList />
-          </div>
-        )}
-        {activeTab === "schedule" && (
-          <div className="h-full overflow-y-auto">
-            <SchedulePage />
-          </div>
-        )}
-        {activeTab === "snow" && (
-          <div className="h-full overflow-y-auto">
-            <SnowEventsList />
-          </div>
-        )}
-        {activeTab === "maps" && (
-          <div className="h-full overflow-hidden">
-            <PropertyMapsPage />
-          </div>
-        )}
-        {activeTab === "routemap" && (
-          <div className="h-full overflow-hidden">
-            <CustomerRouteMap />
-          </div>
-        )}
-      </div>
+    <div className="h-full flex flex-col gap-4">
+      <h1 className="text-2xl font-bold">{t("nav.serviceChecklists")}</h1>
+      <div className="min-h-0 flex-1"><ServiceChecklistsTab /></div>
     </div>
   );
 }

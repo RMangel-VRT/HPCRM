@@ -154,6 +154,25 @@ describe("C3 status-only Invoice PATCH", () => {
     expect((await request(app).patch("/api/tickets/job").send({ currentStatusId: "final" })).status).toBe(403);
     expect(storage.updateTicket).not.toHaveBeenCalled();
   });
+  it.each([[], ["billing"]].map(tags => ({ tags })))("crew supervisor cannot update another owner's ticket, tags=$tags", async ({ tags }) => {
+    role = "crew_supervisor";
+    activeTags = tags;
+    expect((await request(app).patch("/api/tickets/job").send({ currentStatusId: "final" })).status).toBe(403);
+    expect(storage.updateTicket).not.toHaveBeenCalled();
+  });
+  it("crew supervisor can update their own assigned ticket", async () => {
+    role = "crew_supervisor";
+    ticket.assignedToId = "actor";
+    const res = await request(app).patch("/api/tickets/job").send({ title: "Assigned update" });
+    expect(res.status).toBe(200);
+    expect(storage.updateTicket).toHaveBeenCalledWith("job", "company", { title: "Assigned update" });
+  });
+  it("crew supervisor cannot update a foreign-company ticket", async () => {
+    role = "crew_supervisor";
+    Object.assign(ticket, { companyId: "foreign", assignedToId: "actor" });
+    expect((await request(app).patch("/api/tickets/job").send({ title: "No" })).status).toBe(404);
+    expect(storage.updateTicket).not.toHaveBeenCalled();
+  });
   it("billing access does not authorize ordinary edits to somebody else's ticket", async () => {
     role = "field_manager"; activeTags = ["billing"];
     expect((await request(app).patch("/api/tickets/job").send({ title: "changed" })).status).toBe(403);

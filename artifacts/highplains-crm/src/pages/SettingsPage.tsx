@@ -713,6 +713,9 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>{t("settings.serviceSeasons")}</CardTitle>
+              <Button variant="ghost" asChild className="self-start">
+                <Link href="/dashboard/seasons" data-testid="link-season-records">{t("nav.seasonRecords")}</Link>
+              </Button>
               <CardDescription>
                 {t("settings.seasonDesc")}
               </CardDescription>

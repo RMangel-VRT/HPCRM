@@ -42,6 +42,23 @@ beforeEach(() => {
   mount({ app, storage, canSeeBilling, isStrandedEligible, findSeededTicketType, isSeededStatus, isSeededTicketType });
 });
 describe("billing-authorized ticket detail", () => {
+  it("crew supervisor can open their assigned ticket", async () => {
+    Object.assign(viewer, { activeRole: "crew_supervisor", activeTags: [] });
+    Object.assign(ticket, { assignedToId: "viewer", ticketTypeId: "task" });
+    expect((await request(app).get("/api/tickets/job")).status).toBe(200);
+    expect(storage.getTicketById).toHaveBeenCalledWith("job", "company");
+  });
+  it.each([{ tags: [] }, { tags: ["billing"] }])("crew supervisor cannot open another person's ticket, tags=$tags", async ({ tags }) => {
+    Object.assign(viewer, { activeRole: "crew_supervisor", activeTags: tags });
+    ticket.assignedToId = "other";
+    expect((await request(app).get("/api/tickets/job")).status).toBe(403);
+    expect(storage.getTicketTypeById).not.toHaveBeenCalled();
+  });
+  it("crew supervisor cannot cross the tenant boundary even for an assigned ticket", async () => {
+    Object.assign(viewer, { activeRole: "crew_supervisor", activeTags: [] });
+    Object.assign(ticket, { companyId: "foreign", assignedToId: "viewer" });
+    expect((await request(app).get("/api/tickets/job")).status).toBe(404);
+  });
   it.each(["field_manager", "chemical_manager", "irrigation_manager"])("%s can open an unassigned charge", async role => {
     viewer.activeRole = role;
     expect((await request(app).get("/api/tickets/job")).status).toBe(200);

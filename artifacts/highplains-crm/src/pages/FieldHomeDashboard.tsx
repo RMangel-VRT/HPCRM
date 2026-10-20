@@ -1,16 +1,11 @@
 import { Card, CardContent } from "@/components/ui/card";
 import {
   ClipboardList,
-  MapPin,
-  Map,
-  Building2,
   ClipboardCheck,
-  CalendarDays,
   Wrench,
   UserCheck,
   AlertCircle,
   ArrowRight,
-  ListChecks,
 } from "lucide-react";
 import NeedsYouQueue from "@/components/dashboard/NeedsYouQueue";
 import MyExtraBillableBatchesWidget from "@/components/MyExtraBillableBatchesWidget";
@@ -58,64 +53,6 @@ type FieldRole =
 
 const CAMPAIGN_PANEL_ROLES: FieldRole[] = ["field_manager", "chemical_manager", "landscape_supervisor"];
 const BATCH_WIDGET_ROLES: FieldRole[] = ["field", "field_manager", "landscape_supervisor"];
-
-interface NavButton {
-  title: string;
-  url: string;
-  icon: typeof ClipboardList;
-}
-
-function getNavButtons(role: FieldRole, t: (key: string) => string): NavButton[] {
-  switch (role) {
-    case "field_manager":
-      return [
-        { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
-        { title: t("fieldLayout.myBatches"), url: "/dashboard/my-batches", icon: ListChecks },
-        { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
-        { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
-        { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
-      ];
-    case "chemical_manager":
-      return [
-        { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
-        { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
-        { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
-        { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
-      ];
-    case "irrigation_manager":
-      return [
-        { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
-        { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
-        { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
-        { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
-        { title: t("fieldLayout.schedule"), url: "/dashboard/schedule", icon: CalendarDays },
-        { title: t("fieldLayout.campaigns"), url: "/dashboard/campaigns", icon: ClipboardCheck },
-      ];
-    case "shop_manager":
-      return [
-        { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
-        { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
-        { title: t("fieldLayout.equipment"), url: "/dashboard/equipment", icon: Wrench },
-      ];
-    case "landscape_supervisor":
-      return [
-        { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
-        { title: t("fieldLayout.myBatches"), url: "/dashboard/my-batches", icon: ListChecks },
-        { title: t("fieldLayout.customers"), url: "/dashboard/field-customers", icon: Building2 },
-        { title: t("fieldLayout.propertyMaps"), url: "/dashboard/maps", icon: Map },
-        { title: t("fieldLayout.routeMap"), url: "/dashboard/customers/map", icon: MapPin },
-      ];
-    case "field":
-      return [
-        { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
-        { title: t("fieldLayout.myBatches"), url: "/dashboard/my-batches", icon: ListChecks },
-      ];
-    default:
-      return [
-        { title: t("fieldLayout.myTickets"), url: "/dashboard/tickets/my", icon: UserCheck },
-      ];
-  }
-}
 
 export default function FieldHomeDashboard() {
   const { t } = useTranslation();
@@ -168,10 +105,9 @@ export default function FieldHomeDashboard() {
   const urgentTickets = activeTickets.filter((tk) => tk.priority === "urgent");
   const activeCampaignCount = campaigns.filter((c) => c.status === "active").length;
 
-  const navButtons = role ? getNavButtons(role, t) : [];
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">
           {t("fieldDashboard.myWork")}
@@ -270,26 +206,6 @@ export default function FieldHomeDashboard() {
         </div>
       )}
 
-      <div>
-        <h2 className="text-base font-medium mb-3">
-          {t("fieldLayout.navigation")}
-        </h2>
-        <div className="grid grid-cols-2 gap-3">
-          {navButtons.map((btn) => (
-            <Link key={btn.url} href={btn.url}>
-              <Card
-                className="hover-elevate active-elevate-2 cursor-pointer"
-                data-testid={`button-nav-${btn.title.toLowerCase().replace(/\s+/g, "-")}`}
-              >
-                <CardContent className="flex flex-col items-center justify-center gap-3 py-6">
-                  <btn.icon className="w-7 h-7 text-primary" />
-                  <span className="text-sm font-medium text-center leading-tight">{btn.title}</span>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

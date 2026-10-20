@@ -34,6 +34,42 @@ beforeEach(() => {
 });
 
 describe("bulk invoice link summaries", () => {
+  it.each(["other", null, undefined])("omits another owner's invoice and parent summaries (assignee=%s)", async assignedToId => {
+    mocks.where.mockResolvedValue([link("job", "bill")]);
+    mocks.getTicketsByIds.mockResolvedValue([
+      { ...ticket("job", "task"), assignedToId },
+      { ...ticket("bill"), assignedToId },
+    ]);
+    const summaries = await getInvoiceLinkSummaries(companyId, ["job", "bill"], "owner");
+    expect(summaries.get("job")).toEqual({ invoices: [], parent: null });
+    expect(summaries.get("bill")).toEqual({ invoices: [], parent: null });
+  });
+  it("keeps both invoice/parent directions when both counterparts are assigned to self", async () => {
+    mocks.where.mockResolvedValue([link("job", "bill")]);
+    mocks.getTicketsByIds.mockResolvedValue([
+      { ...ticket("job", "task"), assignedToId: "owner" },
+      { ...ticket("bill"), assignedToId: "owner" },
+    ]);
+    const summaries = await getInvoiceLinkSummaries(companyId, ["job", "bill"], "owner");
+    expect(summaries.get("job")!.invoices[0].id).toBe("bill");
+    expect(summaries.get("bill")!.parent!.id).toBe("job");
+  });
+  it("does not disclose a foreign-company counterpart with the same assignee", async () => {
+    mocks.where.mockResolvedValue([link("job", "bill")]);
+    mocks.getTicketsByIds.mockResolvedValue([{ ...ticket("bill", "invoice", "pending", "foreign"), assignedToId: "owner" }]);
+    expect((await getInvoiceLinkSummaries(companyId, ["job"], "owner")).get("job")!.invoices).toEqual([]);
+  });
+  it("filters root list rows as well as counterpart metadata when scoped", async () => {
+    mocks.where.mockResolvedValue([link("job", "bill")]);
+    mocks.getTicketsByIds.mockResolvedValue([{ ...ticket("bill"), assignedToId: "other" }]);
+    const rows = await withInvoiceLinkSummaries(companyId, [
+      { ...ticket("job", "task"), assignedToId: "owner" },
+      { ...ticket("other"), assignedToId: "other" },
+    ], "owner");
+    expect(rows.map(t => t.id)).toEqual(["job"]);
+    expect(rows[0].linkSummary).toEqual({ invoices: [], parent: null });
+    expect(JSON.stringify(rows)).not.toContain("Title bill");
+  });
   it("summarizes one invoice and its parent in both directions with stable keys", async () => {
     mocks.where.mockResolvedValue([link("job", "bill")]);
     mocks.getTicketsByIds.mockResolvedValue([ticket("job", "task"), ticket("bill")]);

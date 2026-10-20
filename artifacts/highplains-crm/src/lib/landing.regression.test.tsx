@@ -36,6 +36,13 @@ describe("login and default landing (rendered redirect components)", () => {
     expect(target(renderToStaticMarkup(<DefaultRedirect user={u("mapping", ["billing"])} />))).toBe("/dashboard/tickets/my?tab=invoice");
     expect(target(renderToStaticMarkup(<DefaultRedirect user={u("admin", ["billing"], { isSuperAdminBool: true })} />))).toBe("/dashboard/tickets/my?tab=invoice");
   });
+  it("crew supervisors land on My Tickets at login and at the default route", () => {
+    fx.user = u("crew_supervisor");
+    expect(target(renderToStaticMarkup(<LoginPage />))).toBe("/dashboard/tickets/my");
+    expect(target(renderToStaticMarkup(<DefaultRedirect user={fx.user} />))).toBe("/dashboard/tickets/my");
+    fx.user = u("crew_supervisor", ["billing"]);
+    expect(target(renderToStaticMarkup(<LoginPage />))).toBe("/dashboard/tickets/my?tab=invoice");
+  });
   it("signed-out login page renders the form, not a redirect", () => {
     fx.user = null;
     expect(renderToStaticMarkup(<LoginPage />)).not.toContain("data-redirect");

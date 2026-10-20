@@ -28,3 +28,17 @@ mtime_ms = 1792444455877
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/e767da94-eb81-4472-9532-9d097420f335/dcf2d940-e87c-4a21-a1c7-acd6621523ff"
 storage_version_token = "1792444505975680"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "MgbMZ95c_gkZwck4CZyfL"
+uri = "file://docs/navigation/N1-implementation-report.md"
+type = "text"
+title = "N1 navigation — completed implementation and verification report"
+description = "Requested authenticated role/menu/mobile screenshot manifest, baseline-relative checks, and all reported ticket authorization corrections."
+logical_id = "ac52a50f-6e88-4525-8fc4-4182b9c4a06a"
+content_hash = "sha256:9e91c0441742fa313a19ddc7935d71eb64da3d48273eba890a645fd9f87b2a5e"
+size = 15082
+mtime_ms = 1792520434019
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/ac52a50f-6e88-4525-8fc4-4182b9c4a06a/341fd5de-8e79-43a6-aeb0-3d48777e05ad"
+storage_version_token = "1792520492884328"
+content_type = "text/markdown"

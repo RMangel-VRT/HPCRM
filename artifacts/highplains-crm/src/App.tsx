@@ -18,7 +18,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import "@/i18n";
 import AppSidebar from "@/components/AppSidebar";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
-import FieldAppLayout from "@/components/FieldAppLayout";
+import TopbarMenus from "@/components/nav/TopbarMenus";
+import { OperationsRedirect, QueryPreservingRedirect } from "@/components/nav/QueryPreservingRedirect";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import AppBreadcrumb from "@/components/AppBreadcrumb";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
@@ -77,7 +78,7 @@ const CampaignItemDetail = lazy(() => import("@/pages/CampaignItemDetail"));
 const SeasonsPage = lazy(() => import("@/pages/SeasonsPage"));
 const SeasonDetail = lazy(() => import("@/pages/SeasonDetail"));
 const CommunicationsCenter = lazy(() => import("@/pages/CommunicationsCenter"));
-const GlobalOperationsPage = lazy(() => import("@/pages/GlobalOperationsPage"));
+const ServiceChecklistsPage = lazy(() => import("@/pages/ServiceChecklistsPage"));
 const PropertyDetail = lazy(() => import("@/pages/PropertyDetail"));
 const MailboxAccountsSettingsPage = lazy(() => import("@/pages/MailboxAccountsSettingsPage"));
 const MyMailboxPage = lazy(() => import("@/pages/MyMailboxPage"));
@@ -202,13 +203,6 @@ function Router() {
   if (location === "/legal/eula") return <EulaPage />;
   if (location === "/legal/privacy") return <PrivacyPolicyPage />;
 
-  const FIELD_APP_ROLES = ["field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"] as const;
-  type FieldAppRole = typeof FIELD_APP_ROLES[number];
-
-  function isFieldAppRole(role: string): role is FieldAppRole {
-    return FIELD_APP_ROLES.includes(role as FieldAppRole);
-  }
-
   const allFieldRoles = ["field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "landscape_supervisor"] as const;
 
   function renderRouteSwitch() {
@@ -247,12 +241,12 @@ function Router() {
         <ProtectedRoute
           path="/dashboard/tickets/my"
           component={MyTickets}
-          access={(viewer) => canViewBilling(viewer) || allFieldRoles.includes(viewer.activeRole as typeof allFieldRoles[number])}
+          access={(viewer) => canViewBilling(viewer) || viewer.activeRole === "crew_supervisor" || allFieldRoles.includes(viewer.activeRole as typeof allFieldRoles[number])}
         />
         <ProtectedRoute
           path="/dashboard/tickets/:id"
           component={TicketDetail}
-          access={(viewer) => canViewBilling(viewer) || allFieldRoles.includes(viewer.activeRole as typeof allFieldRoles[number])}
+          access={(viewer) => canViewBilling(viewer) || viewer.activeRole === "crew_supervisor" || allFieldRoles.includes(viewer.activeRole as typeof allFieldRoles[number])}
         />
         <ProtectedRoute path="/dashboard/tickets" component={TicketsList} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
@@ -266,7 +260,7 @@ function Router() {
           allowedRoles={["admin", "office", "field_manager"]}
         />
         <Route path="/dashboard/scheduler">
-          <Redirect to="/dashboard/schedule" />
+          <QueryPreservingRedirect to="/dashboard/schedule" />
         </Route>
         <ProtectedRoute
           path="/dashboard/schedule"
@@ -319,6 +313,11 @@ function Router() {
         <ProtectedRoute path="/dashboard/flags/:id" component={FlagDetailPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/flags" component={FlagsInboxPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
+          path="/dashboard/campaigns/checklists"
+          component={ServiceChecklistsPage}
+          allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
+        />
+        <ProtectedRoute
           path="/dashboard/campaigns/:id/items/:itemId"
           component={CampaignItemDetail}
           allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor"]}
@@ -350,7 +349,7 @@ function Router() {
         />
         <ProtectedRoute
           path="/dashboard/operations"
-          component={GlobalOperationsPage}
+          component={OperationsRedirect}
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
         />
         <ProtectedRoute
@@ -361,7 +360,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/communications/:tab?" component={CommunicationsCenter} allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]} />
         <ProtectedRoute path="/dashboard/settings/shared-mailboxes" component={SharedMailboxesAndOversightPage} allowedRoles={["admin", "office"]} />
         <Route path="/dashboard/settings/mailbox-accounts">
-          <Redirect to="/dashboard/settings/shared-mailboxes" />
+          <QueryPreservingRedirect to="/dashboard/settings/shared-mailboxes" />
         </Route>
         <ProtectedRoute path="/dashboard/settings/my-mailbox" component={MyMailboxPage} />
         <ProtectedRoute path="/dashboard/settings/notification-templates" component={ChemicalNotificationTemplates} allowedRoles={["admin"]} />
@@ -385,19 +384,6 @@ function Router() {
   function renderAuthenticatedApp() {
     if (!user) return null;
 
-    if (!user.isSuperAdminBool && isFieldAppRole(user.activeRole)) {
-      return (
-        <FieldAppLayout
-          user={user}
-          onLogout={() => logoutMutation.mutate()}
-        >
-          <Suspense fallback={<LoadingScreen visible={true} />}>
-            {renderRouteSwitch()}
-          </Suspense>
-        </FieldAppLayout>
-      );
-    }
-
     const sidebarStyle = { "--sidebar-width": "16rem" };
     return (
       <BreadcrumbsProvider>
@@ -413,10 +399,11 @@ function Router() {
               onLogout={() => logoutMutation.mutate()}
               isCustomerDetail={isCustomerDetail}
             />
-            <div className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex min-w-0 flex-col flex-1 overflow-hidden">
               <header className="flex items-center justify-between p-4 border-b bg-background">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 <div className="flex items-center gap-1">
+                  <TopbarMenus />
                   <NotificationsDropdown />
                 </div>
               </header>

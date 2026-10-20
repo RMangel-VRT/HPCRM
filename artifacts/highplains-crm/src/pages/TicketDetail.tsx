@@ -288,7 +288,7 @@ export default function TicketDetail() {
   
   const canEdit = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
   const isAdminOrOffice = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
-  const rolesWithoutCustomerAccess = ["field", "irrigation_manager", "shop_manager", "landscape_supervisor"];
+  const rolesWithoutCustomerAccess = ["field", "irrigation_manager", "shop_manager", "landscape_supervisor", "crew_supervisor"];
   const canViewCustomer = !rolesWithoutCustomerAccess.includes(currentUser?.activeRole || "");
 
   const { data: details, isLoading } = useQuery<TicketDetails>({
@@ -318,7 +318,7 @@ export default function TicketDetail() {
 
   const fieldRoles = ["field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"];
   const isFieldRole = fieldRoles.includes(currentUser?.activeRole || "");
-  const ticketsBreadcrumbHref = isFieldRole ? "/dashboard/tickets/my" : "/dashboard/tickets";
+  const ticketsBreadcrumbHref = isFieldRole || currentUser?.activeRole === "crew_supervisor" ? "/dashboard/tickets/my" : "/dashboard/tickets";
 
   useSetBreadcrumbs([
     { label: t('ticketDetail.breadcrumb'), href: ticketsBreadcrumbHref },

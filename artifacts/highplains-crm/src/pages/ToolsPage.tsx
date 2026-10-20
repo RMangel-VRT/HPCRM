@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Camera, Calculator, ClipboardList, Map, HardHat, Leaf, CheckSquare, Layers } from "lucide-react";
+import { FileText, ClipboardList, Map, HardHat, Leaf, CheckSquare, Layers } from "lucide-react";
 import { Link } from "wouter";
 
 export default function ToolsPage() {
@@ -33,22 +33,6 @@ export default function ToolsPage() {
       href: "/dashboard/tools/visual-scope",
       available: true,
       testId: "card-visual-scope",
-    },
-    {
-      title: t("tools.snowDamage"),
-      description: t("tools.snowDamageDesc"),
-      icon: Camera,
-      href: "/dashboard/tools/snow-damage",
-      available: false,
-      testId: "card-snow-damage",
-    },
-    {
-      title: t("tools.estimateBuilder"),
-      description: t("tools.estimateBuilderDesc"),
-      icon: Calculator,
-      href: "/dashboard/tools/estimate-builder",
-      available: false,
-      testId: "card-estimate-builder",
     },
     {
       title: t("tools.plantLibrary"),

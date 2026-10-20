@@ -17,7 +17,7 @@ export interface TicketLinkSummary {
  * Links have no company scope.
  */
 export async function getInvoiceLinkSummaries(
-  companyId: string, ticketIds: string[],
+  companyId: string, ticketIds: string[], assignedToId?: string,
 ): Promise<Map<string, TicketLinkSummary>> {
   const summaries = new Map<string, TicketLinkSummary>(
     ticketIds.map(id => [id, { invoices: [], parent: null }]),
@@ -40,7 +40,9 @@ export async function getInvoiceLinkSummaries(
     storage.getTicketTypes(companyId),
   ]);
   // Defense in depth: never expose a foreign ticket even if a storage adapter regresses.
-  const ticketMap = new Map(counterparts.filter(t => t.companyId === companyId).map(t => [t.id, t]));
+  const ticketMap = new Map(counterparts.filter(t =>
+    t.companyId === companyId && (assignedToId === undefined || t.assignedToId === assignedToId),
+  ).map(t => [t.id, t]));
   const statusMap = new Map(statuses.map(s => [s.id, s]));
   const typeMap = new Map(types.map(t => [t.id, t]));
   for (const link of links) {
@@ -68,9 +70,10 @@ export async function getInvoiceLinkSummaries(
   return summaries;
 }
 
-export async function withInvoiceLinkSummaries<T extends { id: string }>(
-  companyId: string, tickets: T[],
+export async function withInvoiceLinkSummaries<T extends { id: string; assignedToId?: string | null }>(
+  companyId: string, tickets: T[], assignedToId?: string,
 ): Promise<Array<T & { linkSummary: TicketLinkSummary }>> {
-  const summaries = await getInvoiceLinkSummaries(companyId, tickets.map(t => t.id));
-  return tickets.map(ticket => ({ ...ticket, linkSummary: summaries.get(ticket.id)! }));
+  const visible = assignedToId === undefined ? tickets : tickets.filter(t => t.assignedToId === assignedToId);
+  const summaries = await getInvoiceLinkSummaries(companyId, visible.map(t => t.id), assignedToId);
+  return visible.map(ticket => ({ ...ticket, linkSummary: summaries.get(ticket.id)! }));
 }

@@ -1,6 +1,7 @@
 import { withInvoiceLinkSummaries } from "../lib/ticketLinkSummary";
 import express from "express";
 import type { Express } from "express";
+import { registerCrewSupervisorTicketGuard } from "../lib/crewSupervisorTicketAccess";
 import { createServer, type Server } from "http";
 import path from "path";
 import { promises as fs } from "fs";
@@ -2621,6 +2622,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await backfillVisitServices();
 
   setupAuth(app);
+  // Must precede every ticket sub-router (comments, photos, work items, etc.).
+  registerCrewSupervisorTicketGuard(app, storage);
   registerTicketOwnerResponseRoutes(app);
   registerCrewsAndMobileRoutes(app);
   registerVisitRoutes(app);
@@ -6222,7 +6225,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
     });
 
-    res.json(await withInvoiceLinkSummaries(user.activeCompanyId, enrichedTickets));
+    res.json(await withInvoiceLinkSummaries(user.activeCompanyId, enrichedTickets,
+      user.activeRole === "crew_supervisor" ? user.id : undefined));
   });
 
   app.get("/api/tickets", async (req, res) => {
@@ -6241,12 +6245,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can only see their assigned tickets
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") {
+    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager" || user.activeRole === "crew_supervisor") {
       filters.assignedToId = user.id;
     }
 
     const tickets = await storage.getTickets(user.activeCompanyId, filters);
-    res.json(await withInvoiceLinkSummaries(user.activeCompanyId, tickets));
+    res.json(await withInvoiceLinkSummaries(user.activeCompanyId, tickets,
+      user.activeRole === "crew_supervisor" ? user.id : undefined));
   });
 
   app.get("/api/tickets/:id", async (req, res) => {
@@ -6261,7 +6266,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Ops users can only view their assigned tickets
-    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
+    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager" || user.activeRole === "crew_supervisor") && ticket.assignedToId !== user.id) {
+      // Crew supervisors get assigned-ticket web access, not company-wide
+      // invoice detail access. Existing billing exceptions for managers stay.
+      if (user.activeRole === "crew_supervisor") return res.status(403).send("Access denied - not assigned to this ticket");
       let billingRead = false;
       if (canSeeBilling(user)) {
         const type = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
@@ -6290,7 +6298,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     const tickets = await storage.getTicketsByCustomerId(req.params.customerId, user.activeCompanyId);
-    res.json(await withInvoiceLinkSummaries(user.activeCompanyId, tickets));
+    res.json(await withInvoiceLinkSummaries(user.activeCompanyId, tickets,
+      user.activeRole === "crew_supervisor" ? user.id : undefined));
   });
 
   app.get("/api/contracts/:contractId/tickets", async (req, res) => {
@@ -6778,8 +6787,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     const existingTicket = await storage.getTicketById(req.params.id, user.activeCompanyId);
     
-    if (!existingTicket) {
+    if (!existingTicket || existingTicket.companyId !== user.activeCompanyId) {
       return res.status(404).send("Ticket not found");
+    }
+
+    // Recheck inside the ticket transaction, including billing-tagged callers:
+    // a concurrent assignment change must not permit another owner's edit.
+    if (user.activeRole === "crew_supervisor" && existingTicket.assignedToId !== user.id) {
+      return res.status(403).send("Access denied - not assigned to this ticket");
     }
     
     // Billing-tagged field roles can perform the shared status-only billing action,
@@ -7784,6 +7799,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    // Crew supervisors have assigned-ticket access, not administrative deletion.
+    if (user.activeRole === "crew_supervisor") return res.status(403).send("Insufficient permissions");
     
     // Only admin/office can delete comments
     if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
@@ -7803,8 +7820,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     const ticket = await storage.getTicketById(req.params.ticketId, user.activeCompanyId);
     
-    if (!ticket) {
+    if (!ticket || ticket.companyId !== user.activeCompanyId) {
       return res.status(404).send("Ticket not found");
+    }
+    if (user.activeRole === "crew_supervisor" && ticket.assignedToId !== user.id) {
+      return res.status(403).send("Access denied - not assigned to this ticket");
     }
 
     const links = await storage.getTicketLinks(req.params.ticketId);
@@ -7816,6 +7836,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? link.targetTicketId 
           : link.sourceTicketId;
         const linkedTicket = await storage.getTicketById(linkedId, user.activeCompanyId);
+        // Do not expose even the counterpart identity/title to a crew supervisor
+        // who cannot open that ticket. Drop the link, not just its nested record.
+        if (user.activeRole === "crew_supervisor" &&
+            (!linkedTicket || linkedTicket.companyId !== user.activeCompanyId || linkedTicket.assignedToId !== user.id)) {
+          return null;
+        }
         const ticketType = linkedTicket 
           ? await storage.getTicketTypeById(linkedTicket.ticketTypeId, user.activeCompanyId)
           : null;
@@ -7833,7 +7859,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
     );
 
-    res.json(linkedTickets);
+    res.json(linkedTickets.filter(link => link !== null));
   });
 
   app.post("/api/tickets/:ticketId/links", async (req, res) => {
@@ -7842,6 +7868,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    // Link creation is an administrative action. Reject before accepting either
+    // caller-supplied endpoint, including URLs naming an assigned parent.
+    if (user.activeRole === "crew_supervisor") return res.status(403).send("Insufficient permissions");
     
     // Only admin/office can create ticket links
     if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
@@ -7863,6 +7892,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    if (user.activeRole === "crew_supervisor") return res.status(403).send("Insufficient permissions");
     
     // Only admin/office can delete ticket links
     if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
@@ -8223,12 +8253,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     const ticket = await storage.getTicketById(req.params.id, user.activeCompanyId);
     
-    if (!ticket) {
+    if (!ticket || ticket.companyId !== user.activeCompanyId) {
       return res.status(404).send("Ticket not found");
     }
     
     // Ops users can only view their assigned tickets
-    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager") && ticket.assignedToId !== user.id) {
+    if ((user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "irrigation_manager" || user.activeRole === "crew_supervisor") && ticket.assignedToId !== user.id) {
       return res.status(403).send("Access denied");
     }
 
@@ -8320,7 +8350,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       assignedUser: assignedUser ? { id: assignedUser.id, email: assignedUser.email } : null,
       delegatedByUser: delegatedByUser ? { id: delegatedByUser.id, email: delegatedByUser.email } : null,
       createdByUser: createdByUser ? { id: createdByUser.id, name: createdByUser.name } : null,
-      linkedTickets,
+      linkedTickets: user.activeRole === "crew_supervisor"
+        ? linkedTickets.filter(link => link.ticket?.companyId === user.activeCompanyId && link.ticket.assignedToId === user.id)
+        : linkedTickets,
     });
   });
 

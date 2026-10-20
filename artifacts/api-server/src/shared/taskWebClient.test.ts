@@ -90,9 +90,10 @@ describe("office ticket-creation entry points", () => {
       expect(app.split("\n").find(line => line.includes(`path="${path}"`)))
         .toContain('allowedRoles={["admin", "office"]}');
     }
-    expect(source("components/AppSidebar.tsx")).toContain(
-      'if (userRole === "admin" || userRole === "office") {\n      items.push({ title: t("nav.tickets")',
-    );
+    const config = source("components/nav/navConfig.ts");
+    expect(config).toContain('const AO: NavRole[] = ["admin", "office"];');
+    expect(config).toMatch(/key: "tickets"[\s\S]*?href: "\/dashboard\/tickets", visible: is\(\.\.\.AO\)/);
+    expect(source("components/AppSidebar.tsx")).toContain("getNavForUser(navUser)");
   });
   it("keeps selection and batch deletion admin-only while opening create buttons", () => {
     for (const path of ["pages/TicketsList.tsx", "components/TicketListView.tsx"]) {
