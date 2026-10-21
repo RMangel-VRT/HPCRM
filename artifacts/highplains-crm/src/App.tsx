@@ -239,7 +239,10 @@ function Router() {
           component={CustomersList}
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
         />
-        <ProtectedRoute path="/dashboard/billing" component={BillingPage} access={canViewBilling} />
+        <ProtectedRoute path="/dashboard/invoicing" component={BillingPage} access={canViewBilling} />
+        <Route path="/dashboard/billing">
+          <QueryPreservingRedirect to="/dashboard/invoicing" />
+        </Route>
         <ProtectedRoute path="/dashboard/tickets/new" component={NewTicket} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
           path="/dashboard/tickets/my"

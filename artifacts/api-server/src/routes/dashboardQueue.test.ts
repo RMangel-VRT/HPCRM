@@ -171,7 +171,7 @@ describe("GET /api/dashboard/action-queue", () => {
       ]],
       ["type-project", []],
       ["type-task", [
-        { id: "status-rfb", name: "Ready for Billing", statusKey: "ready_for_billing", actionType: "needs_action", isFinal: "false" },
+        { id: "status-rfb", name: "Ready to invoice", statusKey: "ready_for_billing", actionType: "needs_action", isFinal: "false" },
       ]],
       ["type-rfp", [
         { id: "status-maps", name: "Maps Requested", statusKey: "maps_requested", actionType: "waiting", isFinal: "false" },

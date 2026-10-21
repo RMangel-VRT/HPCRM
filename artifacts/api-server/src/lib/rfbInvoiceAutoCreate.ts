@@ -124,7 +124,7 @@ export async function maybeAutoCreateInvoiceOnRfb(
   // Prefer the stable status key; fall back to the display name for unkeyed custom statuses.
   const isRfbStatus = newStatusKey != null
     ? newStatusKey === "ready_for_billing"
-    : newStatusName === "Ready for Billing";
+    : newStatusName === "Ready for Billing" || newStatusName === "Ready to invoice";
   if (!isRfbStatus) return null;
 
   const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, ticket.companyId);

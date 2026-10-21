@@ -95,7 +95,7 @@ export default function TicketsList() {
   // Redirect before mounting the operational list: its URL-normalization
   // effects otherwise erase the legacy view parameter in the same commit.
   if (new URLSearchParams(search).get("view") === "billing") {
-    return <Redirect to="/dashboard/billing" replace />;
+    return <Redirect to="/dashboard/invoicing" replace />;
   }
   return <OperationalTicketsList />;
 }

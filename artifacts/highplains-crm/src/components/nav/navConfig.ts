@@ -118,7 +118,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
     key: "business",
     labelKey: "nav.business",
     items: [
-      { key: "billing", labelKey: "nav.billing", icon: Receipt, href: "/dashboard/billing", badge: "billing",
+      { key: "billing", labelKey: "nav.invoicing", icon: Receipt, href: "/dashboard/invoicing", badge: "billing",
         visible: (u) => showBillingSidebar(u) },
       { key: "revenue", labelKey: "nav.revenue", icon: DollarSign, href: "/dashboard/revenue", visible: is(...AO) },
       { key: "reports", labelKey: "nav.reports", icon: FileBarChart, href: "/dashboard/reports", visible: is(...AO) },
@@ -145,7 +145,7 @@ const SUPER_ADMIN_GROUPS: NavGroupDef[] = [
     labelKey: "nav.dashboard",
     items: [
       { key: "myTickets", labelKey: "nav.myTickets", icon: UserCheck, href: "/dashboard/tickets/my", visible: (u) => showBillingSidebar(u) },
-      { key: "billing", labelKey: "nav.billing", icon: Receipt, href: "/dashboard/billing", badge: "billing", visible: (u) => showBillingSidebar(u) },
+      { key: "billing", labelKey: "nav.invoicing", icon: Receipt, href: "/dashboard/invoicing", badge: "billing", visible: (u) => showBillingSidebar(u) },
     ],
   },
 ];

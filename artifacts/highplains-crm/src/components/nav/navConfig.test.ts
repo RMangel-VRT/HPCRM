@@ -42,7 +42,7 @@ const routeRoles: Record<string, NavRole[]> = {
   "/dashboard/contracts": AO,
   "/dashboard/maps": [...AO, "mapping", "field", "field_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor"],
   "/dashboard/customers/map": ["admin", "field_manager", "landscape_supervisor", "chemical_manager", "irrigation_manager", "shop_manager"],
-  "/dashboard/billing": AO,
+  "/dashboard/invoicing": AO,
   "/dashboard/revenue": AO,
   "/dashboard/reports": AO,
   "/dashboard/settings": AO,
@@ -99,6 +99,7 @@ describe("approved ordered sidebar matrix", () => {
     expect(keys({ activeRole: "mapping" })).toEqual(["maps"]);
   });
   it.each([
+    ["/dashboard/invoicing", "billing"],
     ["/dashboard/tickets/my", "tickets"], ["/dashboard/my-batches", "tickets"],
     ["/dashboard/tickets", "tickets"], ["/dashboard/tickets/ticket-id", "tickets"],
     ["/dashboard/maps", "maps"], ["/dashboard/customers/map", "maps"],

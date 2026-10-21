@@ -18,6 +18,7 @@ import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/Ticke
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { BILLING_LANDING, canViewBilling, isBillingPerson } from "@/lib/billing";
+import { useTranslation } from "react-i18next";
 import { queryClient } from "@/lib/queryClient";
 import { isSeededTicketType } from "@shared/ticketVisuals";
 
@@ -383,6 +384,7 @@ function QueueBandSection({
  * their own scheduling signals, so the office-only filter chips are hidden.
  */
 export default function NeedsYouQueue({ scope = "office" }: { scope?: "office" | "owner" } = {}) {
+  const { t } = useTranslation();
   const { user: authUser } = useAuth();
   const [activeFilter, setActiveFilter] = useState<QueueFilter>("all");
   const [weekExpanded, setWeekExpanded] = useState(false);
@@ -594,7 +596,7 @@ export default function NeedsYouQueue({ scope = "office" }: { scope?: "office" |
             className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${activeFilter === filter.key ? "border-foreground bg-foreground text-background" : "border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"}`}
             data-testid={`needs-you-filter-${filter.key}`}
           >
-            {filter.label}
+            {filter.key === "billing" ? t("nav.invoicing") : filter.label}
             <span className="font-mono text-[10px] opacity-75">{counts[filter.key]}</span>
           </button>
         ))}
@@ -602,11 +604,11 @@ export default function NeedsYouQueue({ scope = "office" }: { scope?: "office" |
       )}
       {canViewBilling(authUser) && ((scope === "office" && activeFilter === "billing") || (scope === "owner" && isBillingPerson(authUser))) && (
         <Link
-          href={isBillingPerson(authUser) ? BILLING_LANDING : "/dashboard/billing"}
+          href={isBillingPerson(authUser) ? BILLING_LANDING : "/dashboard/invoicing"}
           className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline"
           data-testid="needs-you-billing-link"
         >
-          {isBillingPerson(authUser) ? "Open To invoice" : "Open Billing"}
+          {isBillingPerson(authUser) ? "Open To invoice" : t("invoicing.openPage")}
           <ChevronRight className="h-3.5 w-3.5" />
         </Link>
       )}

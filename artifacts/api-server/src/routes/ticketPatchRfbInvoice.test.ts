@@ -70,7 +70,7 @@ function makeParams(
   const storage = makeStorage(storageOverrides);
   const base: MaybeAutoCreateInvoiceParams = {
     ticket: makeTicket(),
-    newStatusName: "Ready for Billing",
+    newStatusName: "Ready to invoice",
     pendingBillingBehavior: null,
     actingUserId: "user-1",
     storage,
@@ -103,6 +103,28 @@ describe("isInvoiceEligibleType", () => {
   });
   it("returns false for undefined", () => {
     expect(isInvoiceEligibleType(undefined)).toBe(false);
+  });
+});
+
+describe("Ready to invoice compatibility", () => {
+  it("auto-creates for a keyed Task landing at the renamed status", async () => {
+    const params = makeParams({
+      ticket: makeTicket({ billingBehavior: "invoice_required" }),
+      newStatusName: "Ready to invoice", newStatusKey: "ready_for_billing",
+    });
+    expect(await maybeAutoCreateInvoiceOnRfb(params)).not.toBeNull();
+    expect(params.storage.createTicket).toHaveBeenCalledOnce();
+  });
+  it.each(["Ready for Billing", "Ready to invoice"])("accepts unkeyed %s", async name => {
+    const params = makeParams({
+      ticket: makeTicket({ billingBehavior: "invoice_required" }), newStatusName: name, newStatusKey: null,
+    });
+    expect(await maybeAutoCreateInvoiceOnRfb(params)).not.toBeNull();
+  });
+  it("never treats a conflicting stable key as invoice-ready based on the label", async () => {
+    const params = makeParams({ newStatusKey: "work_completed", newStatusName: "Ready to invoice" });
+    expect(await maybeAutoCreateInvoiceOnRfb(params)).toBeNull();
+    expect(params.storage.createTicket).not.toHaveBeenCalled();
   });
 });
 

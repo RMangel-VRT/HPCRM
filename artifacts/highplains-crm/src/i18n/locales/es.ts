@@ -1,4 +1,11 @@
 const es = {
+  invoicing: {
+    openPage: "Abrir Facturación",
+    stranded: "Listo para facturar, aún sin factura",
+    mineHelp: "La misma lista que la página de Facturación, filtrada para ti, más cualquier trabajo detenido en Ready to invoice.",
+    allHelp: "Todos los cargos de la empresa, más cualquier trabajo detenido en Ready to invoice sin factura.",
+    stepBackWarning: 'El ticket de factura "{{title}}" ya se completó. Retroceder más allá de Ready to invoice eliminará permanentemente este ticket de factura y todos sus datos.',
+  },
   workRail: {
     mine: "Míos", batches: "Lotes", all: "Todos",
     library: "Biblioteca", matches: "Coincidencias", palettes: "Paletas",
@@ -177,6 +184,7 @@ const es = {
     scheduling: "Programación",
     myTickets: "Mis tickets",
     billing: "Facturación",
+    invoicing: "Facturación",
     tickets: "Tickets",
     customerMaps: "Mapas de Clientes",
     customers: "Clientes",
@@ -2028,7 +2036,7 @@ const es = {
     billingGenerateAll: "Generar todos ({{count}})", // TODO: human-review translation
     billingGenerateAllConfirm: "Generar tickets", // TODO: human-review translation
     billingConfirmAllTitle: "¿Generar tickets facturables?", // TODO: human-review translation
-    billingConfirmAllDesc: "Esto creará {{count}} Tareas Facturables en estado 'Listo para Facturar'. ¿Continuar?", // TODO: human-review translation
+    billingConfirmAllDesc: "Esto creará {{count}} Tareas Facturables en estado 'Listo para facturar'. ¿Continuar?",
     billingGenerateAllResultTitle: "Generación masiva completa", // TODO: human-review translation
     billingGenerateAllResultDesc: "Generados {{generated}} · Omitidos {{skipped}} · Fallidos {{failed}}", // TODO: human-review translation
     billingGenerateAllFailed: "Error al generar tickets", // TODO: human-review translation

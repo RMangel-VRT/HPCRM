@@ -24,7 +24,7 @@ describe("membership-based billing and recovery boundaries", () => {
     expect(canManuallyInvoice({}, type("project"), undefined)).toBe(true);
     expect(canManuallyInvoice({}, type("estimate_request"), undefined)).toBe(true);
     expect(canManuallyInvoice({ billingBehavior: "invoice_required" }, type("task"), ready)).toBe(true);
-    expect(canManuallyInvoice({ billingBehavior: "invoice_required" }, type("task"), { statusKey: "work_completed", name: "Ready for Billing" })).toBe(false);
+    expect(canManuallyInvoice({ billingBehavior: "invoice_required" }, type("task"), { statusKey: "work_completed", name: "Ready to invoice" })).toBe(false);
     expect(canManuallyInvoice({ billingBehavior: "no_invoice" }, type("task"), ready)).toBe(false);
     expect(canManuallyInvoice({ billingBehavior: "invoice_required" }, type("invoice"), ready)).toBe(false);
   });

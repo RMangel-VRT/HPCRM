@@ -14,7 +14,7 @@ const types = [
 ];
 const statuses = [
   { id: "s-prog", ticketTypeId: "tt-task", name: "In progress", statusKey: "in_progress", displayOrder: 1 },
-  { id: "s-rfb", ticketTypeId: "tt-task", name: "Ready for billing", statusKey: "ready_for_billing", displayOrder: 2 },
+  { id: "s-rfb", ticketTypeId: "tt-task", name: "Ready to invoice", statusKey: "ready_for_billing", displayOrder: 2 },
   { id: "s-pend", ticketTypeId: "tt-inv", name: "Pending invoice", statusKey: "pending_invoice", displayOrder: 1 },
 ];
 const tk = (id: string, ticketTypeId: string, currentStatusId: string) => ({
@@ -111,7 +111,7 @@ describe("TicketsList billing filtering", () => {
   it("legacy billing URLs redirect before mounting URL-normalizing operational content", () => {
     as("office", ["billing"]);
     const html = render(<TicketsList />, "/dashboard/tickets", "view=billing");
-    expect(html).toContain('data-redirect="/dashboard/billing"');
+    expect(html).toContain('data-redirect="/dashboard/invoicing"');
     expect(html).not.toContain("checkbox-show-billing-items");
   });
   it("hides billing items by default and omits the Invoice board column", () => {

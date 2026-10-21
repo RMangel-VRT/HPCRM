@@ -144,6 +144,7 @@ export const STATUS_KEY_BACKFILL: Record<string, Record<string, string>> = {
     "Scheduled": "scheduled",
     "Work Completed": "work_completed",
     "Ready for Billing": "ready_for_billing",
+    "Ready to invoice": "ready_for_billing",
     "Invoicing": "invoicing",
     "Closed - Lost": "closed_lost",
   },
@@ -155,6 +156,7 @@ export const STATUS_KEY_BACKFILL: Record<string, Record<string, string>> = {
     "In Progress": "in_progress",
     "Work Completed": "work_completed",
     "Ready for Billing": "ready_for_billing",
+    "Ready to invoice": "ready_for_billing",
     "Done": "closed_won",
   },
   "Project": {
@@ -164,6 +166,7 @@ export const STATUS_KEY_BACKFILL: Record<string, Record<string, string>> = {
     "Scheduled": "scheduled",
     "Work Completed": "work_completed",
     "Ready for Billing": "ready_for_billing",
+    "Ready to invoice": "ready_for_billing",
     "Invoicing": "invoicing",
     "Closed - Lost": "closed_lost",
   },

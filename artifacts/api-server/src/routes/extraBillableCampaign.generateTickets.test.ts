@@ -208,7 +208,7 @@ describe("POST /api/campaigns/:campaignId/items/:itemId/generate-ticket", () => 
     expect(res.body.reason).toBe("crew_has_no_leader");
   });
 
-  it("returns 500 when 'Ready for Billing' status is missing", async () => {
+  it("returns 500 when 'Ready to invoice' status is missing", async () => {
     const world = makeWorld({ items: [makeItem()], ensureReturns: { typeId: "tt-1", statuses: new Map() } });
     const { app } = buildApp(world, "admin");
     const res = await request(app).post("/api/campaigns/camp-1/items/i1/generate-ticket").send({});

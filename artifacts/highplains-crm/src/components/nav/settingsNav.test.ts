@@ -14,7 +14,7 @@ const labels = [
   "Company profile", "Seasons", "Benchmarks", "Crews", "Property managers",
   "Service plans", "Work item templates", "Chemical products", "Contract defaults",
   "Email templates", "Notification templates", "Shared mailboxes",
-  "QuickBooks billing", "QuickBooks customer mapping", "Feature flags", "Database",
+  "QuickBooks invoicing", "QuickBooks customer mapping", "Feature flags", "Database",
 ];
 const spanish = [
   "Perfil de la empresa", "Temporadas", "Referencias", "Cuadrillas", "Administradores de propiedades",

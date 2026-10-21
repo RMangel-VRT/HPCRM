@@ -14,6 +14,17 @@ const app = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
 const getRoute = (path: string) => app.match(new RegExp(`<ProtectedRoute\\s+path="${path}"[\\s\\S]*?\\/>`))?.[0] ?? "";
 
 describe("shell routes and permission boundaries", () => {
+  it("protects Invoicing with unchanged billing access and redirects the old route with its query", () => {
+    expect(getRoute("/dashboard/invoicing")).toContain("component={BillingPage} access={canViewBilling}");
+    expect(app).toContain('<Route path="/dashboard/billing">');
+    expect(app).toContain('<QueryPreservingRedirect to="/dashboard/invoicing" />');
+    const html = renderToStaticMarkup(
+      <Router ssrPath="/dashboard/billing" ssrSearch="x=1&encoded=a%26b">
+        <QueryPreservingRedirect to="/dashboard/invoicing" />
+      </Router>,
+    );
+    expect(html).toContain('data-redirect="/dashboard/invoicing?x=1&amp;encoded=a%26b"');
+  });
   it("crew supervisor ticket breadcrumbs return to the permitted My Tickets route", () => {
     const detail = readFileSync(new URL("../../pages/TicketDetail.tsx", import.meta.url), "utf8");
     expect(detail).toContain('isFieldRole || currentUser?.activeRole === "crew_supervisor" ? "/dashboard/tickets/my"');

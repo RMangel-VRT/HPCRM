@@ -21,7 +21,7 @@ describe("rendered Billing header", () => {
     }));
     const html = renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
-        <Router ssrPath="/dashboard/billing">
+        <Router ssrPath="/dashboard/invoicing">
           <BillingView role="office" companyId="company" userId="viewer" users={new Map()} />
         </Router>
       </QueryClientProvider>,

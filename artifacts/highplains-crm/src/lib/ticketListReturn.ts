@@ -33,7 +33,7 @@ const LIST_KEYS = [
 export function isSafeOriginUrl(url: URL, siteOrigin: string): boolean {
   if (url.origin !== siteOrigin) return false;
   const keys = [...url.searchParams.keys()];
-  if (url.pathname === "/dashboard/billing") return keys.length === 0;
+  if (url.pathname === "/dashboard/billing" || url.pathname === "/dashboard/invoicing") return keys.length === 0;
   if (url.pathname === "/dashboard/tickets/my") {
     const tab = url.searchParams.get("tab");
     return keys.length === 1 && url.searchParams.getAll("tab").length === 1 && (tab === "invoice" || tab === "other");

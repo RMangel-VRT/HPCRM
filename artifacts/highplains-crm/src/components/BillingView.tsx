@@ -1,6 +1,7 @@
 import { useMemo, useState, Fragment } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
+import { useTranslation } from "react-i18next";
 import { Loader2, AlertCircle, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -61,6 +62,7 @@ export default function BillingView(props: Props) {
 function BillingViewInner({
   role, activeTags, userId, companyId, users, scope = "all", showAssignee = false, onOpenTicket,
 }: Props) {
+  const { t } = useTranslation();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const allowed = canViewBilling({ activeRole: role, activeTags });
@@ -191,7 +193,7 @@ function BillingViewInner({
           <Link href={ticketDetailHref(r.id)} onClick={() => openTicket(r.id)} className="hover:underline text-primary" data-testid={`link-billing-${r.id}`}>
             {r.title}
           </Link>
-          {stranded && <div className="text-xs text-muted-foreground" data-testid={`text-stranded-${r.id}`}>Ready for billing, no invoice yet</div>}
+          {stranded && <div className="text-xs text-muted-foreground" data-testid={`text-stranded-${r.id}`}>{t("invoicing.stranded")}</div>}
         </td>
         <td className="px-3 py-2">
           {src ? (
@@ -297,8 +299,8 @@ function BillingViewInner({
             ? "Final invoices assigned to you or unassigned, invoiced in the last 30 Colorado calendar days."
             : "Every final invoice in the company invoiced in the last 30 Colorado calendar days."
           : scope === "mine"
-            ? "Same list as the Billing page, filtered to you, plus any job stuck at Ready for billing."
-            : "Every charge in the company, plus any job stuck at Ready for billing with no invoice."}
+            ? t("invoicing.mineHelp")
+            : t("invoicing.allHelp")}
       </p>
       <AlertDialog open={invoiceTarget !== null} onOpenChange={(open) => { if (!open) setInvoiceTarget(null); }}>
         <AlertDialogContent>

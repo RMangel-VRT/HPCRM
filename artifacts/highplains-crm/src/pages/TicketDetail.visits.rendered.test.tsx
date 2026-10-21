@@ -74,6 +74,30 @@ async function openEdit() {
 }
 
 describe("TicketDetail edit form with visits", () => {
+  it.each([
+    ["estimate_request", "ready_for_billing", "Ready to invoice", "false", false],
+    ["project", "ready_for_billing", "Custom invoice label", "false", false],
+    ["task", "ready_for_billing", "Ready to invoice", "false", false],
+    ["estimate_request", null, "Ready for Billing", "false", false],
+    ["estimate_request", null, "Ready to invoice", "false", false],
+    ["estimate_request", "work_completed", "Ready to invoice", "false", true],
+    ["estimate_request", "ready_for_billing", "Ready to invoice", "true", true],
+  ])("pending-invoice advance guard: type=%s key=%s label=%s final=%s", async (typeKey, key, name, final, canAdvance) => {
+    details = detailsFor(false, "Estimate Request");
+    details.ticketType.typeKey = typeKey;
+    details.statuses = [status("s1", key, name, 1), status("s2", "invoicing", "Invoicing", 2)];
+    details.linkedTickets = [{
+      link: { id: "link", linkType: "invoice_for", sourceTicketId: "t1", targetTicketId: "inv1" },
+      relationship: "target",
+      ticket: { id: "inv1", title: "Linked invoice", ticketTypeId: "inv", currentStatusId: "pending" },
+      ticketType: { id: "inv", name: "Invoice", typeKey: "invoice" },
+      currentStatus: { name: "Pending invoice", isFinal: final },
+    }];
+    history = () => ({ json: [] });
+    mount();
+    await screen.findByTestId("button-edit-ticket");
+    expect(!!screen.queryByTestId("button-advance-status")).toBe(canAdvance);
+  });
   it.each(["planned", "in_progress"])("open %s visit: Crew/Due readonly, hint scrolls to Visits, keys omitted on save", async st => {
     details = detailsFor(true);
     history = () => ({ json: [visit("v1", st), visit("v2", "done")] });

@@ -1,4 +1,11 @@
 const en = {
+  invoicing: {
+    openPage: "Open Invoicing",
+    stranded: "Ready to invoice, no invoice yet",
+    mineHelp: "Same list as the Invoicing page, filtered to you, plus any job stuck at Ready to invoice.",
+    allHelp: "Every charge in the company, plus any job stuck at Ready to invoice with no invoice.",
+    stepBackWarning: 'Invoice ticket "{{title}}" has already been completed. Stepping back past Ready to invoice will permanently delete this invoice ticket and all its data.',
+  },
   workRail: {
     mine: "Mine", batches: "Batches", all: "All",
     library: "Library", matches: "Matches", palettes: "Palettes",
@@ -177,6 +184,7 @@ const en = {
     scheduling: "Scheduling",
     myTickets: "My Tickets",
     billing: "Billing",
+    invoicing: "Invoicing",
     tickets: "Tickets",
     customerMaps: "Customer Maps",
     customers: "Customers",
@@ -988,7 +996,7 @@ const en = {
         "work-item-templates": "Work item templates", "chemical-products": "Chemical products",
         contracts: "Contract defaults", "email-templates": "Email templates",
         "notification-templates": "Notification templates", "shared-mailboxes": "Shared mailboxes",
-        billing: "QuickBooks billing", "qbo-customers": "QuickBooks customer mapping",
+        billing: "QuickBooks invoicing", "qbo-customers": "QuickBooks customer mapping",
         features: "Feature flags", database: "Database",
       },
     },
@@ -2126,7 +2134,7 @@ const en = {
     billingGenerateAll: "Generate All ({{count}})",
     billingGenerateAllConfirm: "Generate Tickets",
     billingConfirmAllTitle: "Generate billable tickets?",
-    billingConfirmAllDesc: "This will create {{count}} Billable Tasks at status 'Ready for Billing'. Continue?",
+    billingConfirmAllDesc: "This will create {{count}} Billable Tasks at status 'Ready to invoice'. Continue?",
     billingGenerateAllResultTitle: "Bulk generation complete",
     billingGenerateAllResultDesc: "Generated {{generated}} · Skipped {{skipped}} · Failed {{failed}}",
     billingGenerateAllFailed: "Failed to generate tickets",

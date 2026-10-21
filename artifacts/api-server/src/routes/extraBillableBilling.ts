@@ -301,7 +301,7 @@ export function registerExtraBillableBillingRoutes(app: Express, deps: BillingDe
 
     const ticketTypeInfo = await resolveTicketTypeInfo(deps, user.activeCompanyId);
     if (!ticketTypeInfo) {
-      return res.status(500).json({ error: "Task ticket type or 'Ready for Billing' status not configured" });
+      return res.status(500).json({ error: "Task ticket type or 'Ready to invoice' status not configured" });
     }
 
     let generated = 0;
@@ -360,7 +360,7 @@ export function registerExtraBillableBillingRoutes(app: Express, deps: BillingDe
     }
     const ticketTypeInfo = await resolveTicketTypeInfo(deps, user.activeCompanyId);
     if (!ticketTypeInfo) {
-      return res.status(500).json({ error: "Task ticket type or 'Ready for Billing' status not configured" });
+      return res.status(500).json({ error: "Task ticket type or 'Ready to invoice' status not configured" });
     }
     try {
       const out = await generateExtraBillableTicketForItem(deps, item, campaign, user, ticketTypeInfo);

@@ -35,8 +35,8 @@ function route(role: any, tags: string[]) {
   fixtures.user = { id: "u", activeRole: role, activeTags: tags, isSuperAdminBool: false };
   const Page = () => <div data-testid="billing-page-marker" />;
   return renderToStaticMarkup(
-    <Router ssrPath="/dashboard/billing">
-      <ProtectedRoute path="/dashboard/billing" component={Page} access={canViewBilling} />
+    <Router ssrPath="/dashboard/invoicing">
+      <ProtectedRoute path="/dashboard/invoicing" component={Page} access={canViewBilling} />
     </Router>,
   ).includes("billing-page-marker");
 }

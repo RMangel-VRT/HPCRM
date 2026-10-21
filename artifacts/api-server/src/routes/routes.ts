@@ -17,6 +17,7 @@ import { registerDashboardQueueRoutes } from "./dashboardQueue";
 import { registerContractCenterRoutes } from "./contractCenter";
 import { rejectLegacyContractWrite, hasFrozenLegacyRows } from "../lib/legacyContractFreeze";
 import { db } from "../db";
+import { logger } from "../lib/logger";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema, insertChemicalNotificationTemplateSchema } from "@workspace/db";
 import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, InsertTicketType, InsertTicketTypeStatus, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct, InsertVisualScopeSheet } from "@workspace/db";
@@ -619,7 +620,7 @@ export async function ensureEstimateRequestTicketType(companyId: string): Promis
     { name: "Needs scheduling", description: "Accepted. Waiting for a crew and date.", color: "#f472b6", order: 5, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Scheduled", description: "On the calendar with a crew and date", color: "#3b82f6", order: 6, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Work Completed", description: "Execution task completed - ready for billing review", color: "#10b981", order: 7, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 8, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready to invoice", description: "Work verified complete - create invoice", color: "#06b6d4", order: 8, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 9, isFinal: "true" as const, actionType: "needs_action" as const },
     { name: "Closed - Lost", description: "Project declined or cancelled", color: "#ef4444", order: 10, isFinal: "true" as const, actionType: "needs_action" as const },
   ];
@@ -627,6 +628,7 @@ export async function ensureEstimateRequestTicketType(companyId: string): Promis
   // Get existing statuses
   let existingStatuses = await storage.getTicketTypeStatuses(projectType.id);
   const statusMap = new Map<string, string>();
+  const statusIdsByKey = new Map<string, string>();
   
   // Create missing statuses (preserves existing ones to not break current tickets)
   for (const statusDef of estimateRequestStatuses) {
@@ -648,6 +650,7 @@ export async function ensureEstimateRequestTicketType(companyId: string): Promis
       console.log(`Created status "${statusDef.name}" for Estimate Request type`);
     }
     statusMap.set(statusDef.name, status.id);
+    statusIdsByKey.set(statusKey, status.id);
   }
   
   // Get existing fields to avoid duplicates
@@ -688,7 +691,7 @@ export async function ensureEstimateRequestTicketType(companyId: string): Promis
       ]
     },
     {
-      statusName: "Ready for Billing",
+      statusName: "Ready to invoice",
       fields: [
         { fieldKey: "billing_confirmed", fieldLabel: "Work Complete & Ready for Invoice?", fieldType: "select", isRequired: "true", options: ["Yes", "No"] },
       ]
@@ -708,7 +711,7 @@ export async function ensureEstimateRequestTicketType(companyId: string): Promis
   
   // Create fields for each status
   for (const statusFields of fieldDefinitions) {
-    const statusId = statusMap.get(statusFields.statusName);
+    const statusId = statusIdsByKey.get(STATUS_KEY_BACKFILL["Estimate Request"][statusFields.statusName]);
     if (!statusId) continue;
     
     for (let i = 0; i < statusFields.fields.length; i++) {
@@ -832,7 +835,7 @@ export async function ensureTaskTicketType(companyId: string): Promise<{
     { name: "Scheduled", description: "On the calendar with a crew and date", color: "#3b82f6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "In Progress", description: "Work is underway", color: "#3b82f6", order: 3, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Work Completed", description: "Field work finished - pending billing", color: "#10b981", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 5, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready to invoice", description: "Work verified complete - create invoice", color: "#06b6d4", order: 5, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Done", description: "Invoice created - ticket closed", color: "#22c55e", order: 6, isFinal: "true" as const, actionType: "needs_action" as const },
   ];
   
@@ -922,13 +925,14 @@ export async function ensureProjectTicketType(companyId: string): Promise<{
     { name: "Needs scheduling", description: "Accepted. Waiting for a crew and date.", color: "#f472b6", order: 1, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Scheduled", description: "Scheduled with crew", color: "#3b82f6", order: 2, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Work Completed", description: "Field work finished - pending billing review", color: "#10b981", order: 3, isFinal: "false" as const, actionType: "needs_action" as const },
-    { name: "Ready for Billing", description: "Work verified complete - create invoice", color: "#06b6d4", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
+    { name: "Ready to invoice", description: "Work verified complete - create invoice", color: "#06b6d4", order: 4, isFinal: "false" as const, actionType: "needs_action" as const },
     { name: "Invoicing", description: "Invoice created in QuickBooks", color: "#22c55e", order: 5, isFinal: "true" as const, actionType: "needs_action" as const },
     { name: "Closed - Lost", description: "Project cancelled or closed without billing", color: "#ef4444", order: 6, isFinal: "true" as const, actionType: "needs_action" as const },
   ];
 
   let existingStatuses = await storage.getTicketTypeStatuses(pneType.id);
   const statusMap = new Map<string, string>();
+  const statusIdsByKey = new Map<string, string>();
 
   for (const statusDef of projectStatuses) {
     const statusKey = STATUS_KEY_BACKFILL["Project"]?.[statusDef.name];
@@ -949,6 +953,7 @@ export async function ensureProjectTicketType(companyId: string): Promise<{
       console.log(`Created status "${statusDef.name}" for Project type`);
     }
     statusMap.set(statusDef.name, status.id);
+    statusIdsByKey.set(statusKey, status.id);
   }
 
   const existingFields = await storage.getTicketTypeFields(pneType.id);
@@ -964,7 +969,7 @@ export async function ensureProjectTicketType(companyId: string): Promise<{
       ],
     },
     {
-      statusName: "Ready for Billing",
+      statusName: "Ready to invoice",
       fields: [
         { fieldKey: "pne_billing_confirmed", fieldLabel: "Work Complete & Ready for Invoice?", fieldType: "select", isRequired: "true", displayOrder: 0, options: ["Yes", "No"] },
       ],
@@ -979,7 +984,7 @@ export async function ensureProjectTicketType(companyId: string): Promise<{
   ];
 
   for (const statusFields of fieldDefinitions) {
-    const statusId = statusMap.get(statusFields.statusName);
+    const statusId = statusIdsByKey.get(STATUS_KEY_BACKFILL["Project"][statusFields.statusName]);
     if (!statusId) continue;
     for (const fieldDef of statusFields.fields) {
       if (existingFieldKeys.has(fieldDef.fieldKey)) continue;
@@ -1208,6 +1213,7 @@ export async function fixProjectDisplayOrders(): Promise<void> {
       "Ready to Schedule": 5,
       "Work Completed": 6,
       "Ready for Billing": 7,
+      "Ready to invoice": 7,
       "Invoicing": 8,
       "Closed - Lost": 9,
     };
@@ -2606,6 +2612,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Must run first — renames "Project" → "Estimate Request" and
   // "Project (No Estimate)" → "Project" before any ensure*/seed* calls look them up by name.
   await migrateTicketTypeRename();
+  await renameReadyForBillingStatusLabel();
 
   // DML only: convert the existing row and its tickets once, before key/capability backfill.
   await convertExtraBillableToTask();
@@ -6894,7 +6901,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!links.some(l => l.linkType === "invoice_for" && l.sourceTicketId === existingTicket.id)) {
             return res.status(422).json({
               error: "BILLABLE_MUST_BILL",
-              message: "Billable work goes to Ready for billing before it closes.",
+              message: "Billable work goes to Ready to invoice before it closes.",
             });
           }
         }
@@ -7318,7 +7325,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
     const currentStatus = (await storage.getTicketTypeStatuses(ticket.ticketTypeId)).find(s => s.id === ticket.currentStatusId);
     if (!canManuallyInvoice(ticket, ticketType, currentStatus)) {
-      return res.status(400).send("Invoice creation requires an Estimate Request, Project, or billable job at Ready for billing");
+      return res.status(400).send("Invoice creation requires an Estimate Request, Project, or billable job at Ready to invoice");
     }
 
     const existingLinks = await storage.getTicketLinks(ticket.id);
@@ -8036,7 +8043,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const links = await storage.getTicketLinks(t.id);
           const hasInvoice = links.some(l => l.linkType === "invoice_for" && l.sourceTicketId === t.id);
           if (!hasInvoice) {
-            ticketsToMigrate.push({ ticket: t, ticketTypeName: tt.name, currentStatusName: "Ready for Billing", reason: "At Ready for Billing without linked Invoice" });
+            ticketsToMigrate.push({ ticket: t, ticketTypeName: tt.name, currentStatusName: readyForBillingStatus.name, reason: "At Ready to invoice without linked Invoice" });
           }
         }
       }
@@ -19777,6 +19784,26 @@ async function reconcileIsParentFlags(): Promise<void> {
   } catch (error) {
     console.error("Error reconciling isParent flags:", error);
   }
+}
+
+/** DML only. Preserve custom labels and skip older schemas without status_key. */
+export async function renameReadyForBillingStatusLabel(executor: Pick<typeof db, "execute"> = db): Promise<number> {
+  const guard = await executor.execute(sql`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'ticket_type_statuses' AND column_name = 'status_key'
+  `);
+  if (guard.rows.length === 0) {
+    logger.info({ changedCount: 0 }, "Ready to invoice status label update skipped: status_key is absent");
+    return 0;
+  }
+  const result = await executor.execute(sql`
+    UPDATE ticket_type_statuses SET name = 'Ready to invoice'
+    WHERE status_key = 'ready_for_billing' AND name = 'Ready for Billing'
+  `);
+  const changedCount = result.rowCount ?? 0;
+  logger.info({ changedCount }, "Ready to invoice status label update complete");
+  return changedCount;
 }
 
 /**

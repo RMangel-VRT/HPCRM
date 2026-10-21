@@ -840,10 +840,8 @@ export default function TicketDetail() {
     );
     if (!linkedInvoice) return false;
     const invoiceComplete = linkedInvoice.currentStatus?.isFinal === "true";
-    // Block advancement if at "Ready for Billing" with a pending invoice (any ticket type)
-    const isAtBillingStatus = isTask
-      ? currentStatus?.statusKey === "ready_for_billing"
-      : currentStatus?.name === "Ready for Billing";
+    // Stable identity for every type; either legacy label only for unkeyed rows.
+    const isAtBillingStatus = isSeededStatus(currentStatus, "ready_for_billing");
     return isAtBillingStatus && !invoiceComplete;
   })();
 
@@ -3205,8 +3203,7 @@ export default function TicketDetail() {
                   <span className="text-sm font-medium">{t('ticketDetail.deleteTicket')}</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Invoice ticket "{stepBackInvoiceWarning.invoiceTicketTitle}" has already been completed. 
-                  Stepping back past "Ready for Billing" will permanently delete this invoice ticket and all its data.
+                  {t("invoicing.stepBackWarning", { title: stepBackInvoiceWarning.invoiceTicketTitle })}
                 </p>
                 <p className="text-sm font-medium text-destructive">This action cannot be undone.</p>
               </div>

@@ -13,11 +13,13 @@ describe("safe ticket return origins", () => {
   });
   it("accepts Billing and My Tickets invoice/other tabs only", () => {
     expect(ok("/dashboard/billing")).toBe(true);
+    expect(ok("/dashboard/invoicing")).toBe(true);
     expect(ok("/dashboard/tickets/my?tab=invoice")).toBe(true);
     expect(ok("/dashboard/tickets/my?tab=other")).toBe(true);
   });
   it("rejects unsafe or unknown variants", () => {
     expect(ok("/dashboard/billing?x=1")).toBe(false);
+    expect(ok("/dashboard/invoicing?x=1")).toBe(false);
     expect(ok("/dashboard/tickets/my")).toBe(false);
     expect(ok("/dashboard/tickets/my?tab=evil")).toBe(false);
     expect(ok("/dashboard/tickets/my?tab=invoice&q=1")).toBe(false);

@@ -8,7 +8,7 @@ export default function BillingPage() {
   if (!user) return null;
   return (
     <div className="space-y-4" data-testid="page-billing">
-      <h1 className="text-2xl font-semibold" data-testid="text-billing-title">{t("nav.billing")}</h1>
+      <h1 className="text-2xl font-semibold" data-testid="text-billing-title">{t("nav.invoicing")}</h1>
       <BillingView
         key={`${user.activeCompanyId}:${user.id}`}
         scope="all"
