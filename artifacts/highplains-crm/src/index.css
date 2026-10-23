@@ -588,3 +588,6 @@
   }
   body.print-crew-day [data-crew-day-print] button { display: none !important; }
 }
+
+:root { --est-warn: 43 95% 27%; --est-warn-bg: 43 90% 90%; }
+.dark { --est-warn: 45 85% 60%; --est-warn-bg: 45 60% 20%; }

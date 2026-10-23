@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard, Building2, Settings, Shield, DollarSign, ClipboardList, UserCheck,
   Map, CalendarDays, FileText, FileBarChart, MessagesSquare, Flag, Receipt,
-  Users, Snowflake, Megaphone, Wrench, CalendarClock,
+  Users, Snowflake, Megaphone, Wrench, CalendarClock, Calculator,
 } from "lucide-react";
 import { showBillingSidebar } from "@/lib/billing";
 import { commsTabHref, type CommsTab } from "@/lib/last-comms-tab";
@@ -118,6 +118,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
     key: "business",
     labelKey: "nav.business",
     items: [
+      { key: "estimates", labelKey: "nav.estimates", icon: Calculator, href: "/dashboard/estimates", visible: is(...AO) },
       { key: "billing", labelKey: "nav.invoicing", icon: Receipt, href: "/dashboard/invoicing", badge: "billing",
         visible: (u) => showBillingSidebar(u) },
       { key: "revenue", labelKey: "nav.revenue", icon: DollarSign, href: "/dashboard/revenue", visible: is(...AO) },

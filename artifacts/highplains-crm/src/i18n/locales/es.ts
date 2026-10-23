@@ -178,7 +178,14 @@ const es = {
     sat: "Sab",
     sun: "Dom",
   },
+  estimates: {
+    type: { estimate_request: "Solicitud de estimado", rfp_request: "Solicitud de RFP" },
+    stage: { new: "Nuevo", estimating: "Estimando", proposal: "Propuesta", sent: "Enviado", decision: "Decisión" },
+    title: "Estimados", all: "Todas las ofertas", requests: "Solicitudes de estimado", rfps: "RFP",
+    days: "{{count}} días", empty: "No hay ofertas abiertas.", loading: "Cargando ofertas", error: "No se pudieron cargar las ofertas.", retry: "Reintentar", priority: "Prioridad", unassigned: "Sin asignar", railLabel: "Filtros de estimados",
+  },
   nav: {
+    estimates: "Estimados",
     adminHome: "Inicio Admin",
     dashboard: "Panel",
     scheduling: "Programación",

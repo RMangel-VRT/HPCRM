@@ -14,6 +14,7 @@ import { registerExtraBillableBillingRoutes, makeBucketCopyPhotoFn } from "./ext
 import { registerCrewsAndMobileRoutes } from "./crewsAndMobile";
 import { registerFlagsRoutes } from "./flags";
 import { registerDashboardQueueRoutes } from "./dashboardQueue";
+import { registerEstimatesBoardRoutes } from "./estimatesBoard";
 import { registerContractCenterRoutes } from "./contractCenter";
 import { rejectLegacyContractWrite, hasFrozenLegacyRows } from "../lib/legacyContractFreeze";
 import { db } from "../db";
@@ -2636,6 +2637,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerVisitRoutes(app);
   registerFlagsRoutes(app);
   registerDashboardQueueRoutes(app);
+  registerEstimatesBoardRoutes(app);
   registerContractCenterRoutes(app);
 
   // ── Communication Center permission constants & helpers ──────────────────────
