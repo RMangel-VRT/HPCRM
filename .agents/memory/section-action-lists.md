@@ -20,3 +20,5 @@ The user clarified the dashboard design: seven live section tiles, plus a visibl
 **Why:** The user resolved the mismatch between the mockup and the Slice 01 wording and explicitly deferred both capabilities.
 
 **How to apply:** Use the clarification alongside `attached_assets/Pasted--Slice-01-Dissolve-the-queue-make-the-dashboard-a-route_1793055434946.txt`. Do not implement Campaigns counts or flow now. Completed, not-yet-invoiced campaign work potentially belonging to Invoicing is a future design consideration, not a settled ownership rule.
+
+The subsequently uploaded October 26 bids update assigns the future reserved router cell to RFP Center, not Campaigns, when that dedicated Contract Center work lands. Initial dashboard slices remain unchanged. See [Estimate and RFP boundaries](estimate-rfp-boundaries.md) for the newer lifecycle and rollout decisions.
