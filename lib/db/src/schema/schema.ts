@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { isCalendarDate } from "./calendarDate";
@@ -82,6 +82,50 @@ export const insertCompanySchema = createInsertSchema(companies).omit({
 
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type Company = typeof companies.$inferSelect;
+
+export const hardscapeCatalogItems = pgTable("hardscape_catalog_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  sku: text("sku"),
+  category: text("category").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  unit: text("unit").notNull().default("ea"),
+  wholesaleCostCents: integer("wholesale_cost_cents"),
+  retailPriceCents: integer("retail_price_cents"),
+  umbrellaKey: text("umbrella_key").notNull().default("landscape_materials"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => ({
+  company: index("hardscape_catalog_items_company_id_idx").on(table.companyId),
+  category: index("hardscape_catalog_items_category_idx").on(table.companyId, table.category),
+  sku: uniqueIndex("hardscape_catalog_items_company_sku_idx").on(table.companyId, table.sku).where(sql`sku IS NOT NULL`),
+  name: index("hardscape_catalog_items_name_trgm_idx").using("gin", sql`lower(name) gin_trgm_ops`),
+  nonnegativeCost: check("hardscape_catalog_items_wholesale_cost_cents_check", sql`${table.wholesaleCostCents} >= 0`),
+  nonnegativePrice: check("hardscape_catalog_items_retail_price_cents_check", sql`${table.retailPriceCents} >= 0`),
+  fixedUmbrella: check("hardscape_catalog_items_umbrella_key_check", sql`${table.umbrellaKey} = 'landscape_materials'`),
+}));
+
+// Explicit editable fields: no server-owned company/umbrella/timestamps in HTTP bodies.
+export const hardscapeCatalogFields = {
+  sku: z.string().trim().transform(value => value || null).nullable().optional(),
+  category: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  description: z.string().transform(value => value === "" ? null : value).nullable().optional(),
+  unit: z.string().trim().min(1),
+  wholesaleCostCents: z.number().int().min(0).max(2147483647).nullable().optional(),
+  retailPriceCents: z.number().int().min(0).max(2147483647).nullable().optional(),
+  isActive: z.boolean(),
+};
+export const insertHardscapeCatalogItemSchema = z.object({
+  ...hardscapeCatalogFields,
+  companyId: z.string().min(1),
+  unit: hardscapeCatalogFields.unit.default("ea"),
+  isActive: hardscapeCatalogFields.isActive.default(true),
+});
+export type InsertHardscapeCatalogItem = z.infer<typeof insertHardscapeCatalogItemSchema>;
+export type HardscapeCatalogItem = typeof hardscapeCatalogItems.$inferSelect;
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

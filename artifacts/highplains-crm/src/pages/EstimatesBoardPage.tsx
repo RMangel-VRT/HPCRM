@@ -3,7 +3,8 @@ import { Link, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
-import { SectionRail, SectionRailLayout } from "@/components/nav/SectionRail";
+import { SectionRailLayout } from "@/components/nav/SectionRail";
+import { EstimatesRail } from "@/components/nav/estimatesRail";
 import { TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -72,19 +73,7 @@ export default function EstimatesBoardPage() {
     refetchOnWindowFocus: true,
   });
 
-  const base = "/dashboard/estimates";
-  const rail = (
-    <SectionRail
-      title={t("estimates.title")}
-      ariaLabel={t("estimates.railLabel")}
-      activeKey={type ?? "all"}
-      sections={[{ items: [
-        { key: "all", label: t("estimates.all"), href: base },
-        { key: "estimate_request", label: t("estimates.requests"), href: `${base}?type=estimate_request` },
-        { key: "rfp_request", label: t("estimates.rfps"), href: `${base}?type=rfp_request` },
-      ] }]}
-    />
-  );
+  const rail = <EstimatesRail activeKey={type ?? "all"} />;
 
   return (
     <SectionRailLayout rail={rail}>

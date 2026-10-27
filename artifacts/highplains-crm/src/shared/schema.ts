@@ -1,5 +1,39 @@
 import { z } from "zod";
 
+// Real zod object, independent of the frontend's non-inferencing drizzle stub.
+export const hardscapeCatalogFields = {
+  sku: z.string().trim().transform(value => value || null).nullable().optional(),
+  category: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  description: z.string().transform(value => value === "" ? null : value).nullable().optional(),
+  unit: z.string().trim().min(1),
+  wholesaleCostCents: z.number().int().min(0).max(2147483647).nullable().optional(),
+  retailPriceCents: z.number().int().min(0).max(2147483647).nullable().optional(),
+  isActive: z.boolean(),
+};
+export const insertHardscapeCatalogItemSchema = z.object({
+  ...hardscapeCatalogFields,
+  companyId: z.string().min(1),
+  unit: hardscapeCatalogFields.unit.default("ea"),
+  isActive: hardscapeCatalogFields.isActive.default(true),
+});
+export type InsertHardscapeCatalogItem = z.infer<typeof insertHardscapeCatalogItemSchema>;
+export interface HardscapeCatalogItem {
+  id: string;
+  companyId: string;
+  sku: string | null;
+  category: string;
+  name: string;
+  description: string | null;
+  unit: string;
+  wholesaleCostCents: number | null;
+  retailPriceCents: number | null;
+  umbrellaKey: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Calendar validation mirrors the server without timestamp/time-zone conversion. */
 function isCalendarDate(value: string): boolean {
   const [year, month, day] = value.split("-").map(Number);

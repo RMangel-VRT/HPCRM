@@ -21,6 +21,7 @@ import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import TopbarMenus from "@/components/nav/TopbarMenus";
 import { OperationsRedirect, QueryPreservingRedirect, SeasonsRedirect } from "@/components/nav/QueryPreservingRedirect";
 import { isSettingsRailPage } from "@/components/nav/settingsNav";
+import { isEstimatesHubPage } from "@/components/nav/estimatesRail";
 import { workPage } from "@/components/nav/workNav";
 import { WorkPageLayout } from "@/components/nav/WorkPageLayout";
 import { LoadingScreen } from "@/components/LoadingScreen";
@@ -93,6 +94,7 @@ const PlantMatches = lazy(() => import("@/pages/PlantMatches"));
 const PlantPalettes = lazy(() => import("@/pages/PlantPalettes"));
 const PlantPaletteDraft = lazy(() => import("@/pages/PlantPaletteDraft"));
 const EstimatesBoardPage = lazy(() => import("@/pages/EstimatesBoardPage"));
+const HardscapeCatalog = lazy(() => import("@/pages/HardscapeCatalog"));
 const QboCustomerMapping = lazy(() => import("@/pages/QboCustomerMapping"));
 
 interface ErrorBoundaryProps {
@@ -153,7 +155,7 @@ function Router() {
   const { i18n } = useTranslation();
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [location] = useLocation();
-  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags" || location === "/dashboard/estimates";
+  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags" || location === "/dashboard/estimates" || isEstimatesHubPage(location);
   const isVisualScopeDraft = /^\/dashboard\/tools\/visual-scope\/[^/]+/.test(location);
   const isCustomerDetail =
     /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
@@ -240,6 +242,7 @@ function Router() {
           component={CustomersList}
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
         />
+        <ProtectedRoute path="/dashboard/estimates/catalogs/hardscape" component={HardscapeCatalog} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates" component={EstimatesBoardPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/invoicing" component={BillingPage} access={canViewBilling} />
         <Route path="/dashboard/billing">

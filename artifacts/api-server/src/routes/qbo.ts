@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import multer from "multer";
+import { parseCsvLine } from "../lib/csv";
 import type { UserWithContext } from "../auth";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
@@ -833,44 +834,6 @@ router.post("/customers/promote", async (req, res) => {
 
 /** Minimal RFC 4180-style CSV field splitter.
  *  Handles quoted fields containing literal commas and "" as an escaped quote. */
-function parseCsvLine(line: string): string[] {
-  const fields: string[] = [];
-  let i = 0;
-  while (i <= line.length) {
-    if (i === line.length) {
-      fields.push("");
-      break;
-    }
-    if (line[i] === '"') {
-      i++; // skip opening quote
-      let field = "";
-      while (i < line.length) {
-        if (line[i] === '"') {
-          if (i + 1 < line.length && line[i + 1] === '"') {
-            field += '"';
-            i += 2;
-          } else {
-            i++; // skip closing quote
-            break;
-          }
-        } else {
-          field += line[i++];
-        }
-      }
-      fields.push(field);
-      if (i < line.length && line[i] === ',') i++; // skip delimiter
-    } else {
-      let field = "";
-      while (i < line.length && line[i] !== ',') {
-        field += line[i++];
-      }
-      fields.push(field.trim());
-      if (i < line.length) i++; // skip delimiter
-    }
-  }
-  return fields;
-}
-
 /** Parse CSV text into {customer_name, quickbooks_id} rows */
 function parseSeedCsv(
   text: string,

@@ -12,12 +12,18 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
+  options?: { headers?: Record<string, string>; signal?: AbortSignal },
 ): Promise<Response> {
+  const multipart = typeof FormData !== "undefined" && data instanceof FormData;
+  const headers: Record<string, string> = { ...(data && !multipart ? { "Content-Type": "application/json" } : {}), ...(options?.headers ?? {}) };
+  // Never let callers force a Content-Type on multipart; the browser must set the boundary.
+  if (multipart) for (const k of Object.keys(headers)) if (k.toLowerCase() === "content-type") delete headers[k];
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
+    headers,
+    body: multipart ? data : data ? JSON.stringify(data) : undefined,
     credentials: "include",
+    ...(options?.signal ? { signal: options.signal } : {}),
   });
 
   await throwIfResNotOk(res);

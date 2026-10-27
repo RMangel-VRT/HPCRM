@@ -1,4 +1,5 @@
 import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrewWithMembers } from "@workspace/db";
+import { hardscapeStorage } from "./lib/hardscapeStorage";
 
 export interface MyExtraBillableBatch {
   campaignId: string;
@@ -35,6 +36,10 @@ import { pool } from "./db";
 const PostgresSessionStore = connectPg(session);
 
 export interface IStorage {
+  getHardscapeCatalog: typeof hardscapeStorage.getHardscapeCatalog;
+  createHardscapeCatalogItem: typeof hardscapeStorage.createHardscapeCatalogItem;
+  updateHardscapeCatalogItem: typeof hardscapeStorage.updateHardscapeCatalogItem;
+  upsertHardscapeCatalogItem: typeof hardscapeStorage.upsertHardscapeCatalogItem;
   getUserById(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByPhone(phone: string): Promise<User | undefined>;
@@ -617,6 +622,10 @@ export interface RevenueException {
 }
 
 export class PgStorage implements IStorage {
+  getHardscapeCatalog = hardscapeStorage.getHardscapeCatalog;
+  createHardscapeCatalogItem = hardscapeStorage.createHardscapeCatalogItem;
+  updateHardscapeCatalogItem = hardscapeStorage.updateHardscapeCatalogItem;
+  upsertHardscapeCatalogItem = hardscapeStorage.upsertHardscapeCatalogItem;
   sessionStore: session.Store;
 
   constructor() {

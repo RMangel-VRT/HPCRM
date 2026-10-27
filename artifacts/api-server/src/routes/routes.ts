@@ -80,6 +80,8 @@ import { canSeeBilling, canManuallyInvoice, isBillingInvoiceAction, isStrandedEl
 import { convertExtraBillableToTask } from '../lib/convertExtraBillableToTask';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
+import { registerCatalogRoutes } from "./catalog";
+
 /**
  * Signed URL TTL for chemical product label attachments (in seconds).
  * Currently set to 1 hour (3600 s) due to platform signing constraints.
@@ -2640,6 +2642,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerDashboardQueueRoutes(app);
   registerEstimatesBoardRoutes(app);
   registerDashboardSectionsRoutes(app);
+  registerCatalogRoutes(app);
   registerContractCenterRoutes(app);
 
   // ── Communication Center permission constants & helpers ──────────────────────
@@ -8583,9 +8586,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ============================================
+  // --------------------------------------------
   // MAINTENANCE SCHEDULING ROUTES
-  // ============================================
+  // --------------------------------------------
 
   // Maintenance Crews routes
   app.get("/api/maintenance-crews", async (req, res) => {
@@ -8909,9 +8912,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).send("Deleted");
   });
 
-  // =====================
+  // ---------------------
   // Ticket Notifications
-  // =====================
+  // ---------------------
   
   // Get all notifications for current user
   app.get("/api/notifications", async (req, res) => {
@@ -9061,9 +9064,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // =====================
+  // ---------------------
   // Property Management Companies
-  // =====================
+  // ---------------------
   
   // Get all property management companies
   app.get("/api/property-management-companies", async (req, res) => {
@@ -9139,9 +9142,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
-  // =====================
+  // ---------------------
   // Property Managers
-  // =====================
+  // ---------------------
   
   // Get all property managers
   app.get("/api/property-managers", async (req, res) => {
@@ -9427,9 +9430,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ emails: createdEmails, phones: createdPhones });
   });
 
-  // =============================================================================
+  // -----------------------------------------------------------------------------
   // EQUIPMENT MANAGEMENT ROUTES
-  // =============================================================================
+  // -----------------------------------------------------------------------------
   
   // Helper function to check equipment access permissions
   const canAccessEquipment = (role: string) => ["admin", "shop_manager", "office"].includes(role);
@@ -11229,7 +11232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ==================== PROPOSAL MAKER ROUTES ====================
+  // -------------------- PROPOSAL MAKER ROUTES --------------------
 
   const canAccessProposals = (role: string) => role === "admin" || role === "office";
 
@@ -16094,7 +16097,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ==================== WEATHER API ====================
+  // -------------------- WEATHER API --------------------
 
   app.get("/api/weather", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
@@ -16424,7 +16427,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ==================== SEASONS API ====================
+  // -------------------- SEASONS API --------------------
 
   const seasonManagerRoles = ["admin", "office", "chemical_manager"];
 
