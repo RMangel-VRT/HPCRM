@@ -9,34 +9,45 @@ import { TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LinkedContractRow, type LinkedContract } from "@/components/contracts/RfpContracts";
+import { resolveDisplayTypeKey, resolveDisplayTypeName } from "@shared/ticketVisuals";
 
 export interface BoardTicket {
   contracts?: LinkedContract[];
   id: string; title: string; typeKey: string; statusKey: string; statusName: string;
   customer: { id: string; name: string } | null;
   assignee: { id: string; name: string } | null;
+  owner: { sectionKey: "scheduling" | "invoicing"; label: string; href: string } | null;
   priority: string; estimateNumber: string | null; daysInStage: number;
 }
 export interface BoardResponse { stages: { key: string; tickets: BoardTicket[] }[] }
 
-function OpportunityCard({ ticket, labels }: { ticket: BoardTicket; labels: string }) {
+function OpportunityCard({ ticket, labels, readOnly }: { ticket: BoardTicket; labels: string; readOnly: boolean }) {
   const { t } = useTranslation();
-  // Both Estimates and Bids stop at decision_received: their populations are
-  // pre-approval by definition, so keep raw type badges and rails on both boards.
-  const type = { name: t(`${labels}.typeLabel`), typeKey: ticket.typeKey };
+  // Display resolvers project approved estimates as Projects without changing stored
+  // identity; pre-approval estimates and RFPs keep their original badge and rail.
+  const type = {
+    name: resolveDisplayTypeName(ticket.typeKey, ticket.statusKey, t(`${labels}.typeLabel`)),
+    typeKey: resolveDisplayTypeKey(ticket.typeKey, ticket.statusKey),
+  };
   const stale = ticket.daysInStage >= 7;
   return (
     <div className="space-y-1">
-    <Link href={`/dashboard/tickets/${encodeURIComponent(ticket.id)}`}
+    <Link href={readOnly && ticket.owner ? ticket.owner.href : `/dashboard/tickets/${encodeURIComponent(ticket.id)}`}
       data-testid={`card-bid-${ticket.id}`}
-      className="block rounded-md border bg-card p-3 border-l-4 hover-elevate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={`block bg-card p-3 border-l-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${readOnly
+        ? "border-b border-border" : "rounded-md border hover-elevate"}`}
       style={{ borderLeftColor: ticketHue(type) }}>
       <div className="text-sm font-semibold leading-snug" data-testid={`text-bid-title-${ticket.id}`}>{ticket.title}</div>
       <div className="mt-0.5 truncate text-[13px] text-muted-foreground">{ticket.customer?.name ?? ""}</div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <TicketTypeBadge type={type} />
-        {ticket.estimateNumber && <span className="text-xs font-medium tabular-nums">{ticket.estimateNumber}</span>}
+        {!readOnly && ticket.estimateNumber && <span className="text-xs font-medium tabular-nums">{ticket.estimateNumber}</span>}
       </div>
+      {readOnly ? (
+        <div className="mt-2 text-xs text-muted-foreground" data-testid={`owner-${ticket.id}`}>
+          {ticket.owner && t(`estimates.owner.${ticket.owner.sectionKey}`, { defaultValue: ticket.owner.label })}
+        </div>
+      ) : <>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <span className="truncate">{ticket.assignee?.name ?? t(`${labels}.unassigned`)}</span>
         <span className="capitalize">{t(`${labels}.priority`)}: {t(`priorities.${ticket.priority}`, { defaultValue: ticket.priority })}</span>
@@ -49,6 +60,7 @@ function OpportunityCard({ ticket, labels }: { ticket: BoardTicket; labels: stri
           {t(`${labels}.days`, { count: ticket.daysInStage })}
         </span>
       </div>
+      </>}
     </Link>
     {labels === "bids" && <div className="space-y-1 px-1">
       {ticket.contracts?.map(c => <LinkedContractRow key={c.termId} contract={c} />)}
@@ -80,21 +92,22 @@ export function OpportunityBoard({ board, stages, rail }: {
     <div className="flex min-w-0 gap-4 overflow-x-auto pb-4 focus-visible:ring-2 focus-visible:ring-ring"
       tabIndex={0} role="region" aria-label={t(`${board}.title`)} data-testid={`${board}-board`} aria-busy={isLoading}>
       {stages.map(key => {
+        const readOnly = key === "won";
         const tickets = data?.stages.find(s => s.key === key)?.tickets ?? [];
         return (
-          <section key={key} className="w-[280px] shrink-0" data-testid={`column-${key}`} aria-label={t(`${board}.stage.${key}`)}>
-            <h3 className="mb-2 flex items-center justify-between px-1 text-sm font-semibold">
+          <section key={key} className={`w-[280px] shrink-0 ${readOnly ? "opportunity-won" : ""}`} data-testid={`column-${key}`} aria-label={t(`${board}.stage.${key}`)}>
+            <h3 className={`mb-2 flex items-center justify-between px-1 text-sm font-semibold ${readOnly ? "border-b border-dashed border-border pb-2 text-muted-foreground" : ""}`}>
               <span>{t(`${board}.stage.${key}`)}</span>
               <span className="rounded-full bg-muted px-2 text-xs tabular-nums" data-testid={`count-${key}`}>{isLoading ? "–" : tickets.length}</span>
             </h3>
-            <div className="space-y-2 rounded-md bg-muted/40 p-2 min-h-[120px]">
+            <div className={readOnly ? "space-y-2" : "space-y-2 rounded-md bg-muted/40 p-2 min-h-[120px]"}>
               {isLoading ? (
                 <div role="status" aria-label={t(`${board}.loading`)} className="space-y-2">
                   <Skeleton className="h-24 w-full" /><Skeleton className="h-24 w-full" />
                 </div>
               ) : tickets.length === 0 ? (
-                <p className="px-1 py-3 text-xs text-muted-foreground" data-testid={`empty-${key}`}>{t(`${board}.empty`)}</p>
-              ) : tickets.map(ticket => <OpportunityCard key={ticket.id} ticket={ticket} labels={board} />)}
+                <p className="px-1 py-3 text-xs text-muted-foreground" data-testid={`empty-${key}`}>{t(readOnly ? `${board}.emptyWon` : `${board}.empty`)}</p>
+              ) : tickets.map(ticket => <OpportunityCard key={ticket.id} ticket={ticket} labels={board} readOnly={readOnly} />)}
             </div>
           </section>
         );

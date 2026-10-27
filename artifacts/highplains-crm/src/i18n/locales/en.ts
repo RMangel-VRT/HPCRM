@@ -283,7 +283,9 @@ const en = {
   },
   estimates: {
     typeLabel: "Estimate Request",
-    stage: { new: "New", estimating: "Estimating", proposal: "Proposal", sent: "Sent", decision: "Decision" },
+    stage: { new: "New", estimating: "Estimating", proposal: "Proposal", sent: "Sent", decision: "Decision", won: "Won — in flight" },
+    owner: { scheduling: "in Scheduling", invoicing: "in Invoicing" },
+    emptyWon: "No won work in flight.",
     title: "Estimates", all: "All estimates",
     days: "{{count}} days", empty: "No open estimates.", loading: "Loading estimates", error: "Could not load estimates.", retry: "Retry", priority: "Priority", unassigned: "Unassigned", railLabel: "Estimates navigation",
     catalogs: "Catalogs", settings: "Settings", hardscapeCatalog: "Hardscape Catalog", irrigationCatalog: "Irrigation Catalog", plantLibrary: "Plant Library",

@@ -11,11 +11,11 @@ Estimate Requests continue as the same ticket into project delivery and never cr
 
 **How to apply:** Do not add estimate-to-contract conversion or generalize RFP linking for symmetry. Read the uploaded update before planning either pipeline.
 
-Approved estimates intentionally override the otherwise lifetime-stable type appearance: the same stored Estimate Request displays as a teal Project only at the five explicitly enumerated post-approval stages. Unknown or missing keys must never be inferred from names or stage order. Both opportunity boards retain raw identity.
+Approved estimates intentionally override the otherwise lifetime-stable type appearance: the same stored Estimate Request displays as a Project only at the five explicitly enumerated post-approval stages. Unknown or missing keys must never be inferred from names or stage order. The newer Won-in-flight slice supersedes the earlier raw-identity exception for approved estimate board rows; active Estimates and all Bids retain raw identity.
 
 **Why:** The user explicitly said estimates are projects once approved, while retaining the same ticket and requiring badge/rail agreement. This is a deliberate visual-system exception, not a conversion.
 
-**How to apply:** Follow `attached_assets/Pasted--Slice-02-An-approved-estimate-displays-as-a-Project-As_1793126555657.txt` for display-only work; do not extend the exception to RFPs, custom statuses, behavioral filters, or stored type changes.
+**How to apply:** Follow `attached_assets/Pasted--Slice-02-An-approved-estimate-displays-as-a-Project-As_1793126555657.txt` for display-only work together with `attached_assets/Pasted--Slice-03-Won-in-flight-column-on-the-Estimates-board-A_1793134641287.txt` for the approved board tail. Do not extend the exception to RFPs, custom statuses, behavioral filters, or stored type changes. Won explicitly requires teal; preserve the broader visual system's Project palette outside that handoff surface rather than globally recoloring it.
 
 The October 27 brief supersedes October 26 navigation/board placement: RFPs belong to a standalone Bids board immediately after Estimates, never to any Estimates surface or count. Keep Campaigns as the ninth reserved dashboard slot after eight live slots; do not replace it with Bids or activate it.
 

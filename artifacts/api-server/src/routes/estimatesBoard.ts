@@ -14,6 +14,7 @@ export const ESTIMATE_STAGES = [
   { key: "proposal", statusKeys: ["proposal_draft"] },
   { key: "sent", statusKeys: ["proposal_sent"] },
   { key: "decision", statusKeys: ["decision_received"] },
+  { key: "won", statusKeys: ["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing"] },
 ] as const;
 
 interface BoardTicket {
@@ -21,6 +22,7 @@ interface BoardTicket {
   id: string; title: string; typeKey: string; statusKey: string; statusName: string;
   customer: { id: string; name: string } | null;
   assignee: { id: string; name: string } | null;
+  owner: { sectionKey: "scheduling" | "invoicing"; label: string; href: string } | null;
   priority: string; estimateNumber: string | null; daysInStage: number;
 }
 
@@ -50,6 +52,7 @@ export async function loadOpportunityBoard<T extends Parameters<typeof findSeede
   const type = findSeededTicketType(types, typeKey);
   if (!type) return { stages };
   for (const status of await storage.getTicketTypeStatuses(type.id)) {
+    if (status.isFinal === "true") continue;
     const stage = definitions.find(stage => stage.statusKeys.includes(status.statusKey ?? ""));
     if (stage) statusMap.set(status.id, {
       typeId: type.id, typeKey, stageKey: stage.key, statusKey: status.statusKey!, statusName: status.name,
@@ -95,6 +98,11 @@ export async function loadOpportunityBoard<T extends Parameters<typeof findSeede
       statusName: status.statusName, customer: customer ? { id: customer.id, name: customer.name } : null,
       assignee: row.assignedToId ? assigneesById.get(row.assignedToId) ?? null : null,
       priority: row.priority, estimateNumber: row.estimateNumber,
+      owner: typeKey === "estimate_request" && status.stageKey === "won"
+        ? (status.statusKey === "ready_to_schedule" || status.statusKey === "scheduled"
+          ? { sectionKey: "scheduling", label: "in Scheduling", href: "/dashboard/scheduling" }
+          : { sectionKey: "invoicing", label: "in Invoicing", href: "/dashboard/invoicing" })
+        : null,
       daysInStage: estimateDaysInStage(enteredById.get(row.id) ?? row.createdAt, now),
       ...(linked ? { contracts: linked.filter(c => c.bidTicketId === row.id) } : {}),
     });

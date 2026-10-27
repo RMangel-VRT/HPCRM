@@ -14,7 +14,7 @@ vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u1", activeC
 vi.mock("@/lib/queryClient", () => ({ apiRequest: vi.fn() }));
 const configs = [
   { name: "bids", Page: BidsBoardPage, keys: ["new", "reviewing", "walk", "proposal", "submitted", "decision"], type: "rfp_request" },
-  { name: "estimates", Page: EstimatesBoardPage, keys: ["new", "estimating", "proposal", "sent", "decision"], type: "estimate_request" },
+  { name: "estimates", Page: EstimatesBoardPage, keys: ["new", "estimating", "proposal", "sent", "decision", "won"], type: "estimate_request" },
 ];
 afterEach(async () => { cleanup(); vi.resetAllMocks(); document.documentElement.className = ""; await i18n.changeLanguage("en"); });
 
@@ -24,7 +24,7 @@ describe.each(configs)("$name shared rendering", ({ name, Page, keys, type }) =>
       <Router hook={memoryLocation({ path: `/dashboard/${name}` }).hook}><Page /></Router>
     </QueryClientProvider>);
   }
-  it.each(["light", "dark"])("keeps raw board badges and matching rails in %s even for an unexpected approved key", async theme => {
+  it.each(["light", "dark"])("resolves approved display identity with matching rails in %s", async theme => {
     document.documentElement.className = theme === "dark" ? "dark" : "";
     vi.mocked(apiRequest).mockResolvedValue({ json: async () => ({ stages: [{
       key: "decision", tickets: [{
@@ -34,11 +34,14 @@ describe.each(configs)("$name shared rendering", ({ name, Page, keys, type }) =>
     }] }) } as Response);
     mount();
     const card = await screen.findByTestId("card-bid-raw");
-    const token = type === "estimate_request" ? "--tt-estimate" : "--tt-rfp";
+    const token = type === "estimate_request" ? "--tt-project" : "--tt-rfp";
     expect(card.innerHTML).toContain(token);
     expect(card.getAttribute("style")).toContain(token);
-    expect(card.textContent).toContain(i18n.t(`${name}.typeLabel`));
-    expect(card.innerHTML).not.toContain("--tt-project");
+    expect(card.textContent).toContain(type === "estimate_request" ? "Project" : i18n.t(`${name}.typeLabel`));
+    if (name === "bids") {
+      expect(card.innerHTML).not.toContain("--tt-project");
+      expect(screen.queryByTestId("column-won")).toBeNull();
+    }
   });
   it.each(["en", "es"])("uses independent %s labels and shared identity, warnings and links", async lang => {
     await i18n.changeLanguage(lang);
@@ -64,7 +67,8 @@ describe.each(configs)("$name shared rendering", ({ name, Page, keys, type }) =>
     mount();
     expect(screen.getAllByRole("status")).toHaveLength(keys.length);
     release({ json: async () => ({ stages: [] }) } as Response);
-    await waitFor(() => expect(screen.getAllByText(i18n.t(`${name}.empty`))).toHaveLength(keys.length));
+    await waitFor(() => expect(screen.getAllByText(i18n.t(`${name}.empty`))).toHaveLength(name === "estimates" ? 5 : 6));
+    if (name === "estimates") expect(screen.getByTestId("empty-won").textContent).toBe(i18n.t("estimates.emptyWon"));
   });
   it("retries a failed board and recovers without fabricated zeros", async () => {
     vi.mocked(apiRequest).mockRejectedValueOnce(new Error("Unavailable"))

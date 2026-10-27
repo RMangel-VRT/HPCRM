@@ -283,7 +283,9 @@ const es = {
   },
   estimates: {
     typeLabel: "Solicitud de estimado",
-    stage: { new: "Nuevo", estimating: "Estimando", proposal: "Propuesta", sent: "Enviado", decision: "Decisión" },
+    stage: { new: "Nuevo", estimating: "Estimando", proposal: "Propuesta", sent: "Enviado", decision: "Decisión", won: "Ganado — en curso" },
+    owner: { scheduling: "en Programación", invoicing: "en Facturación" },
+    emptyWon: "No hay trabajos ganados en curso.",
     title: "Estimados", all: "Todos los estimados",
     days: "{{count}} días", empty: "No hay estimados abiertos.", loading: "Cargando estimados", error: "No se pudieron cargar los estimados.", retry: "Reintentar", priority: "Prioridad", unassigned: "Sin asignar", railLabel: "Navegación de estimados",
     catalogs: "Catálogos", settings: "Configuración", hardscapeCatalog: "Catálogo de materiales", irrigationCatalog: "Catálogo de riego", plantLibrary: "Biblioteca de plantas",

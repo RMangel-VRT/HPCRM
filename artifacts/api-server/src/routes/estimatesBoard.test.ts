@@ -21,8 +21,8 @@ let histories: any[];
 let linked: any[];
 const typeRows = ["estimate_request", "rfp_request"].map(typeKey => ({ id: typeKey, typeKey, name: "Renamed type" }));
 const statuses = (typeKey: "estimate_request" | "rfp_request") =>
-  [...new Set([...(typeKey === "estimate_request" ? ESTIMATE_STAGES : BID_STAGES).flatMap(stage => [...stage.statusKeys]), "ready_to_schedule", "awarded", "closed_lost", "scheduled", "completed"])]
-    .map(statusKey => ({ id: `${typeKey}:${statusKey}`, statusKey, name: `Renamed ${statusKey}` }));
+  [...new Set([...(typeKey === "estimate_request" ? ESTIMATE_STAGES : BID_STAGES).flatMap(stage => [...stage.statusKeys]), "ready_to_schedule", "awarded", "closed_lost", "scheduled", "completed", "invoicing"])]
+    .map(statusKey => ({ id: `${typeKey}:${statusKey}`, statusKey, name: `Renamed ${statusKey}`, isFinal: statusKey === "invoicing" ? "true" : "false" }));
 const ticket = (type = "estimate_request", status = "new", id = `${type}:${status}`) => ({
   id, companyId: "company-a", title: `Bid ${id}`, ticketTypeId: type,
   currentStatusId: `${type}:${status}`, customerId: "customer-a", assignedToId: "user-a",
@@ -93,9 +93,54 @@ it("enriches only Bids with exact linked seasons, while Estimates has no contrac
     bidTicketId: bid.id, agreementId: "agreement", termId: "old-season", customerName: "Direct branch", line: "both",
     form: "theirs", seasonLabel: "2026", displayStatus: "expired", annualPriceCents: 3200000, snowPricing: "time_and_materials",
   }]);
+  expect(board.stages.flatMap(s => s.tickets)[0].owner).toBeNull();
   rows = [ticket()];
   const estimates = await loadEstimatesBoard("company-a", now);
   expect(estimates.stages.flatMap(s => s.tickets)[0]).not.toHaveProperty("contracts");
+});
+
+describe("Won ownership", () => {
+  it.each([
+    ["ready_to_schedule", "scheduling", "in Scheduling"],
+    ["scheduled", "scheduling", "in Scheduling"],
+    ["work_completed", "invoicing", "in Invoicing"],
+    ["ready_for_billing", "invoicing", "in Invoicing"],
+  ])("places renamed %s only in Won with its destination", async (status, sectionKey, label) => {
+    rows = [ticket("estimate_request", status)];
+    const board = await loadEstimatesBoard("company-a", now);
+    expect(board.stages.slice(0, 5).flatMap(s => s.tickets)).toEqual([]);
+    expect(board.stages[5].tickets).toMatchObject([{
+      statusKey: status, statusName: `Renamed ${status}`,
+      owner: { sectionKey, label, href: `/dashboard/${sectionKey}` },
+    }]);
+  });
+  it.each(ESTIMATE_STAGES.flatMap(s => [...s.statusKeys]))("excludes a matching final status %s before querying tickets", async statusKey => {
+    mocks.getTicketTypeStatuses.mockResolvedValue(statuses("estimate_request")
+      .map(s => ({ ...s, isFinal: s.statusKey === statusKey ? "true" : s.isFinal })));
+    rows = [ticket("estimate_request", statusKey)];
+    expect((await loadEstimatesBoard("company-a", now)).stages.flatMap(s => s.tickets)).toEqual([]);
+    expect(queries[0].params).not.toContain(`estimate_request:${statusKey}`);
+  });
+  it("keeps oldest-first sorting in Won across owners", async () => {
+    rows = [ticket("estimate_request", "scheduled", "recent"), ticket("estimate_request", "ready_for_billing", "old")];
+    histories = [{ ticketId: "recent", enteredAt: now }];
+    expect((await loadEstimatesBoard("company-a", now)).stages[5].tickets.map(t => t.id)).toEqual(["old", "recent"]);
+  });
+  it("drops ready-for-billing work on the next successful HTTP refresh after invoicing", async () => {
+    const app = express();
+    app.use((req, _res, next) => {
+      (req as any).isAuthenticated = () => true;
+      (req as any).user = { activeRole: "office", activeCompanyId: "company-a" };
+      next();
+    });
+    registerEstimatesBoardRoutes(app);
+    rows = [ticket("estimate_request", "ready_for_billing", "handoff")];
+    expect((await request(app).get("/api/estimates/board")).body.stages[5].tickets).toHaveLength(1);
+    rows[0].currentStatusId = "estimate_request:invoicing";
+    const refreshed = await request(app).get("/api/estimates/board");
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body.stages.flatMap((s: any) => s.tickets)).toEqual([]);
+  });
 });
 
 describe.each([
@@ -109,6 +154,7 @@ describe.each([
       { key: "proposal", statusKeys: ["proposal_draft"] },
       { key: "sent", statusKeys: ["proposal_sent"] },
       { key: "decision", statusKeys: ["decision_received"] },
+      { key: "won", statusKeys: ["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing"] },
     ]);
     expect(BID_STAGES).toEqual([
       { key: "new", statusKeys: ["new"] }, { key: "reviewing", statusKeys: ["reviewing", "waiting_info"] },
@@ -131,11 +177,16 @@ describe.each([
   it.each(stages.flatMap(stage => stage.statusKeys.map(status => ({ key: stage.key, status }))))
     ("places every status $status in $key", async ({ key, status }) => {
       rows = [ticket(type, status)];
-      expect((await load("company-a", now)).stages.find(s => s.key === key)!.tickets).toHaveLength(1);
+      const result = (await load("company-a", now)).stages.find(s => s.key === key)!.tickets;
+      expect(result).toHaveLength(1);
+      if (key !== "won") expect(result[0].owner).toBeNull();
     });
-  it("excludes later statuses, unrelated types and other companies in SQL", async () => {
+  it("excludes out-of-range statuses, unrelated types and other companies in SQL", async () => {
+    const excluded = type === "estimate_request"
+      ? ["awarded", "closed_lost", "completed", "invoicing"]
+      : ["ready_to_schedule", "awarded", "closed_lost", "scheduled", "completed", "invoicing"];
     rows = [
-      ticket(type), ...["ready_to_schedule", "awarded", "closed_lost", "scheduled", "completed"].flatMap(status =>
+      ticket(type), ...excluded.flatMap(status =>
         [ticket("estimate_request", status), ticket("rfp_request", status)]),
       { ...ticket(), id: "foreign", companyId: "company-b" },
       { ...ticket(), id: "wrong-type", ticketTypeId: "custom" },
@@ -161,14 +212,17 @@ describe.each([
     const all = (await load("company-a", now)).stages[0].tickets;
     expect(all.map(t => [t.id, t.daysInStage])).toEqual([["a", 20], ["b", 20], ["recent", 1]]);
     expect(all[2]).toMatchObject({ customer: null, assignee: null, estimateNumber: null });
+    expect(all.every(t => t.owner === null)).toBe(true);
   });
-  it("query count is constant for 1 and 1001 tickets, without truncation", async () => {
+  it.each(type === "estimate_request"
+    ? ["new", "ready_to_schedule", "scheduled", "work_completed", "ready_for_billing"] : ["new"])
+  ("query count is constant for 1 and 1001 %s tickets, without truncation", async status => {
     const counts = [];
     for (const count of [1, 1001]) {
       vi.clearAllMocks(); queries = [];
-      rows = Array.from({ length: count }, (_, i) => ticket(type, "new", String(i)));
+      rows = Array.from({ length: count }, (_, i) => ticket(type, status, String(i)));
       const board = await load("company-a", now);
-      expect(board.stages[0].tickets).toHaveLength(count);
+      expect(board.stages.flatMap(s => s.tickets)).toHaveLength(count);
       // Two metadata queries, tickets, customers, assignees, grouped history = six (<= seven).
       counts.push(queries.length + mocks.getTicketTypes.mock.calls.length +
         mocks.getTicketTypeStatuses.mock.calls.length + mocks.getCustomersByIds.mock.calls.length);
@@ -190,7 +244,7 @@ describe.each([
 });
 
 describe.each([
-  { path: "/api/estimates/board", register: registerEstimatesBoardRoutes, type: "estimate_request", count: 5 },
+  { path: "/api/estimates/board", register: registerEstimatesBoardRoutes, type: "estimate_request", count: 6 },
   { path: "/api/bids/board", register: registerBidsBoardRoutes, type: "rfp_request", count: 6 },
 ])("$path authorization", ({ path, register, type, count }) => {
   function app(role: string, authenticated = true, activeCompanyId: string | null = "company-a") {

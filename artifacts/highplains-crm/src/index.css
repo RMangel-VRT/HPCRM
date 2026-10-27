@@ -593,3 +593,8 @@
 
 :root { --est-warn: 43 95% 27%; --est-warn-bg: 43 90% 90%; }
 .dark { --est-warn: 45 85% 60%; --est-warn-bg: 45 60% 20%; }
+
+/* Won's read-only handoff uses teal through the same Project token for badge and
+   rail. Scope it here rather than recoloring Projects on other work surfaces. */
+.opportunity-won { --tt-project: #0f766e; }
+.dark .opportunity-won { --tt-project: #5eead4; }
