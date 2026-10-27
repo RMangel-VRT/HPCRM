@@ -2078,7 +2078,11 @@ export default function AllCommunicationsTab() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [customerFilter, setCustomerFilter] = useState<string>("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const focusId = new URLSearchParams(searchString).get("focusId");
+  const [selectedId, setSelectedId] = useState<string | null>(focusId);
+  useEffect(() => {
+    setSelectedId(focusId);
+  }, [focusId]);
 
   const [viewMode, setViewMode] = useState<"communications" | "automations">("communications");
   const [customerIdFilter, setCustomerIdFilter] = useState<string>("");

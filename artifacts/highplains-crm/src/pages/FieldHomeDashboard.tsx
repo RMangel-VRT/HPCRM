@@ -7,7 +7,7 @@ import {
   AlertCircle,
   ArrowRight,
 } from "lucide-react";
-import NeedsYouQueue from "@/components/dashboard/NeedsYouQueue";
+import SectionRouter from "@/components/dashboard/SectionRouter";
 import MyExtraBillableBatchesWidget from "@/components/MyExtraBillableBatchesWidget";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -162,7 +162,7 @@ export default function FieldHomeDashboard() {
         )}
       </div>
 
-      {role === "field_manager" && <NeedsYouQueue scope="owner" />}
+      {role === "field_manager" && <SectionRouter />}
 
       {showBatchWidget && <MyExtraBillableBatchesWidget />}
 

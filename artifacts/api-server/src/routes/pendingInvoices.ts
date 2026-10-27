@@ -39,15 +39,22 @@ export function registerPendingInvoicesRoute(app: Express): void {
     }
     const mine = req.query.scope === "mine";
     const recent = req.query.view === "recent";
-    const now = new Date();
+    res.json(await loadPendingInvoices(user, { mine, recent }));
+  });
+}
+
+/** Shared destination business logic, including linked-invoice suppression of stranded jobs. */
+export async function loadPendingInvoices(
+  user: Pick<UserWithContext, "activeCompanyId" | "id">,
+  { mine = false, recent = false, now = new Date() } = {},
+) {
     const ticketTypes = await storage.getTicketTypes(user.activeCompanyId);
     const invoiceType = findSeededTicketType(ticketTypes, "invoice");
     const statuses = await storage.getTicketTypeStatusesByTypeIds(ticketTypes.map(type => type.id));
     const invoiceStatuses = statuses.filter(status => status.ticketTypeId === invoiceType?.id);
     const pendingStatus = findSeededStatus(invoiceStatuses, "pending_invoice");
     if (!ticketTypes.length) {
-      res.json([]);
-      return;
+      return [];
     }
     const bounds = recentInvoiceBounds(now);
     const finalIds = invoiceStatuses.filter(status => status.isFinal === "true").map(status => status.id);
@@ -117,6 +124,5 @@ export function registerPendingInvoicesRoute(app: Express): void {
       };
     });
     if (recent) rows.sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime() || a.id.localeCompare(b.id));
-    res.json(rows);
-  });
+    return rows;
 }

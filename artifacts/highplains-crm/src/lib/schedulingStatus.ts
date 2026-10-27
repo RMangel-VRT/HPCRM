@@ -83,7 +83,7 @@ export function invalidateTicketScheduling(
   if (ticketId) client.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
   client.invalidateQueries({ queryKey: ["/api/tickets"] });
   client.invalidateQueries({ queryKey: ["/api/tickets/my"] });
-  client.invalidateQueries({ queryKey: ["/api/dashboard/action-queue"] });
+  client.invalidateQueries({ queryKey: ["/api/dashboard/sections"] });
   client.invalidateQueries({ queryKey: ["/api/dashboard/pulse"] });
   client.invalidateQueries({ queryKey: ["/api/scheduling-status"] });
   client.invalidateQueries({ queryKey: ["/api/pending-invoices"] });

@@ -12,8 +12,14 @@ export function registerSchedulingQueue(app: Express,
   app.get("/api/scheduling/queue", async (req, res): Promise<void> => {
     const user = authorize(req, res); if (!user) return;
     try {
-      const companyId = user.activeCompanyId;
-      const today = companyToday();
+      res.json(SchedulingQueueResponse.parse(await loadSchedulingQueue(user.activeCompanyId)));
+    } catch (error) { failure(res, error); }
+  });
+}
+
+/** Shared, uncapped destination population; one winning visit per scheduled ticket. */
+export async function loadSchedulingQueue(companyId: string, now = new Date()) {
+      const today = companyToday(now);
       const fields = {
         id: tickets.id, title: tickets.title, typeKey: ticketTypes.typeKey, typeName: ticketTypes.name,
         priority: tickets.priority, scheduleBy: tickets.scheduleBy, serviceType: tickets.serviceType,
@@ -53,7 +59,5 @@ export function registerSchedulingQueue(app: Express,
         .leftJoin(crews, and(eq(crews.id, visits.crewId), eq(crews.companyId, companyId)))
         .where(and(scope, eq(ticketTypeStatuses.statusKey, "scheduled"), eq(visits.status, "planned"), sql`${visits.visitDate} < ${today}::date`))
         .orderBy(asc(visits.visitDate), asc(tickets.id));
-      res.json(SchedulingQueueResponse.parse({ needsScheduling, slipped }));
-    } catch (error) { failure(res, error); }
-  });
+      return { needsScheduling, slipped };
 }

@@ -130,9 +130,8 @@ describe("scheduling web entry points", () => {
     expect(source("pages/NewTicket.tsx")).toContain("t('tickets.scheduleByPreview')");
   });
   it("shows the scoped manager queue without changing the restricted Pulse path", () => {
-    expect(source("pages/FieldHomeDashboard.tsx")).toContain('<NeedsYouQueue scope="owner" />');
+    expect(source("pages/FieldHomeDashboard.tsx")).toContain('<SectionRouter />');
     expect(source("pages/FieldHomeDashboard.tsx")).not.toContain("/api/dashboard/pulse");
     expect(source("pages/Dashboard.tsx")).toContain("return <FieldHomeDashboard />;");
-    expect(source("components/dashboard/NeedsYouQueue.tsx")).toContain('{scope === "office" && (');
   });
 });

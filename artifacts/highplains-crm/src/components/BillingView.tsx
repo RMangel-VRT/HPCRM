@@ -112,7 +112,7 @@ function BillingViewInner({
   }, [typesData, statusesData]);
 
   const refreshAll = () => {
-    for (const key of ["/api/pending-invoices", "/api/tickets/my", "/api/tickets", "/api/dashboard/action-queue"]) {
+    for (const key of ["/api/pending-invoices", "/api/tickets/my", "/api/tickets", "/api/dashboard/sections"]) {
       queryClient.invalidateQueries({ queryKey: [key] });
     }
   };

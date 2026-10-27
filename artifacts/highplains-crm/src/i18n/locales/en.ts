@@ -399,6 +399,18 @@ const en = {
     details: "It might have been moved or deleted, or you may have mistyped the URL.",
     returnToDashboard: "Return to Dashboard",
   },
+  sectionRouter: {
+    title: "Sections",
+    overdue: "{{count}} overdue",
+    noneOverdue: "none overdue",
+    nothingWaiting: "Nothing waiting",
+    oldest: "Oldest",
+    proposalValue: "Proposal value",
+    reserved: "Coming later",
+    loadError: "Section counts could not be loaded.",
+    retry: "Retry",
+    open: "Open {{name}}: {{total}} waiting, {{overdue}}",
+  },
   dashboard: {
     title: "Dashboard",
     activeCustomers: "Active Customers",

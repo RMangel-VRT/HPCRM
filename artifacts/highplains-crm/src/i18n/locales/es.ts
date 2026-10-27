@@ -402,6 +402,18 @@ const es = {
     details: "Puede que haya sido movida o eliminada, o puede que haya escrito mal la URL.",
     returnToDashboard: "Volver al Panel",
   },
+  sectionRouter: {
+    title: "Secciones",
+    overdue: "{{count}} vencidos",
+    noneOverdue: "ninguno vencido",
+    nothingWaiting: "Nada pendiente",
+    oldest: "Más antiguo",
+    proposalValue: "Valor de propuestas",
+    reserved: "Próximamente",
+    loadError: "No se pudieron cargar los conteos de secciones.",
+    retry: "Reintentar",
+    open: "Abrir {{name}}: {{total}} pendientes, {{overdue}}",
+  },
   dashboard: {
     title: "Panel",
     activeCustomers: "Clientes Activos",

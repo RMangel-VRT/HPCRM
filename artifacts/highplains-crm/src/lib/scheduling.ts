@@ -198,7 +198,7 @@ export function invalidateSchedulingEverywhere(client: QueryClient, opts: { tick
     ["/api/scheduling/queue"],
     ["/api/tickets"],
     ["/api/tickets/my"],
-    ["/api/dashboard/action-queue"],
+    ["/api/dashboard/sections"],
     ["/api/dashboard/pulse"],
     ["/api/scheduling-status"],
   ];

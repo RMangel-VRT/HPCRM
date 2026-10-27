@@ -43,7 +43,7 @@ describe("scheduling release client contracts", () => {
     invalidateTicketScheduling(client, "job", "property");
     for (const queryKey of [
       ["/api/tickets", "job", "details"], ["/api/tickets"], ["/api/tickets/my"],
-      ["/api/dashboard/action-queue"], ["/api/scheduling-status"],
+      ["/api/dashboard/sections"], ["/api/scheduling-status"],
       ["/api/customers", "property", "tickets"],
     ]) expect(invalidate).toHaveBeenCalledWith({ queryKey });
   });

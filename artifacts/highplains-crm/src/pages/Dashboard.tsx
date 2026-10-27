@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/components/ui/skeleton";
 import SchedulePreview from "@/components/SchedulePreview";
-import NeedsYouQueue from "@/components/dashboard/NeedsYouQueue";
+import SectionRouter from "@/components/dashboard/SectionRouter";
 import CommandBand from "@/components/dashboard/CommandBand";
 import PulseRail, { type PulseResponse } from "@/components/dashboard/PulseRail";
 import { useAuth } from "@/hooks/use-auth";
@@ -97,7 +97,7 @@ function AdminOfficeDashboard() {
       <CommandBand pulse={pulse} />
 
       <div className="grid grid-cols-1 gap-11 min-[1040px]:grid-cols-[minmax(0,1.85fr)_minmax(0,1fr)]">
-        <NeedsYouQueue />
+        <SectionRouter />
         <PulseRail pulse={pulse} isLoading={isLoading} />
       </div>
 

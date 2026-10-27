@@ -487,7 +487,7 @@ export default function TicketDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my"] });
       queryClient.invalidateQueries({ queryKey: ["/api/pending-invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/action-queue"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/sections"] });
       if (details?.ticket.customerId) {
         queryClient.invalidateQueries({ queryKey: ["/api/customers", details.ticket.customerId, "tickets"] });
       }
