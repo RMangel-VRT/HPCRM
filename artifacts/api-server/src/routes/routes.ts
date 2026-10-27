@@ -7723,10 +7723,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ticketId: req.params.ticketId,
       authorId: user.id,
       body: req.body.body,
-      parentCommentId: req.body.parentCommentId || null,
+      parentCommentId: req.body.parentCommentId ?? null,
     });
     if (!result.success) {
       return res.status(400).send(result.error.message);
+    }
+
+    if (result.data.parentCommentId !== null && result.data.parentCommentId !== undefined) {
+      const comments = await storage.getTicketComments(ticket.id);
+      const byId = new Map(comments.filter(c => c.ticketId === ticket.id).map(c => [c.id, c]));
+      let ancestor = byId.get(result.data.parentCommentId);
+      if (!ancestor) {
+        return res.status(400).send("Parent comment must belong to this ticket");
+      }
+
+      // Existing data may contain deeper or broken chains. A missing later
+      // ancestor keeps the last valid parent; only exhausting the cap falls
+      // back to a top-level post, so the user's comment is never lost.
+      let hops = 0;
+      result.data.parentCommentId = ancestor.id;
+      while (ancestor.parentCommentId !== null && ancestor.parentCommentId !== undefined) {
+        if (hops === 10) {
+          result.data.parentCommentId = null;
+          req.log.warn(
+            { ticketId: ticket.id, parentCommentId: req.body.parentCommentId, hops },
+            "Ticket comment ancestor hop limit reached; posting as top-level",
+          );
+          break;
+        }
+        const next = byId.get(ancestor.parentCommentId);
+        if (!next) break;
+        ancestor = next;
+        result.data.parentCommentId = ancestor.id;
+        hops++;
+      }
     }
 
     const comment = await storage.createTicketComment(result.data);

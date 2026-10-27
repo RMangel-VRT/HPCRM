@@ -68,6 +68,40 @@ function mount() {
 }
 const patchBody = () => calls.filter(c => c.method === "PATCH" && c.url === "/api/tickets/t1").at(-1)?.body;
 
+describe("TicketDetail conversation locations", () => {
+  it("always offers the Overview Conversation card and opens the focused tab when empty", async () => {
+    details = detailsFor(false);
+    history = () => ({ json: [] });
+    mount();
+    const card = await screen.findByTestId("card-recent-comments");
+    expect(card.textContent).toContain("Conversation");
+    expect(card.querySelector('[data-testid="input-comment"]')).toBeTruthy();
+    expect(screen.getByTestId("tab-comments").textContent).toContain("Conversation (0)");
+    fireEvent.click(screen.getByTestId("button-view-all-comments"));
+    expect(screen.queryByTestId("card-recent-comments")).toBeNull();
+    expect(screen.getByTestId("ticket-conversation").className).toContain("min-h-[60vh]");
+    expect(screen.getByTestId("input-comment")).toBeTruthy();
+  });
+  it("uses the same count and threads on Overview and the focused Conversation tab", async () => {
+    details = detailsFor(false);
+    history = () => ({ json: [] });
+    details.comments = ["a", "b", "c", "d"].map((id, i) => ({
+      id, parentCommentId: null, body: `Complete ${id}`, authorName: `Author ${id}`, createdAt: `2026-10-0${i + 1}T12:00:00Z`,
+    }));
+    details.comments.push({ id: "reply", parentCommentId: "b", body: "Reply body", authorName: "Reply author", createdAt: "2026-10-05T12:00:00Z" });
+    mount();
+    await screen.findByTestId("card-recent-comments");
+    expect(screen.queryByTestId("comment-a")).toBeNull();
+    expect(screen.getByTestId("comment-reply")).toBeTruthy();
+    expect(screen.getByTestId("button-view-all-comments").textContent).toBe("View all 5");
+    expect(screen.getByTestId("tab-comments").textContent).toContain("Conversation (5)");
+    fireEvent.click(screen.getByTestId("button-view-all-comments"));
+    expect(screen.getByTestId("comment-a")).toBeTruthy();
+    expect(screen.getAllByTestId(/^comment-/)).toHaveLength(5);
+    expect(screen.getByTestId("comment-reply").closest("[id^=replies-]")?.id).toBe("replies-b");
+  });
+});
+
 async function openEdit() {
   fireEvent.click(await screen.findByTestId("button-edit-ticket"));
   await screen.findByTestId("input-edit-title");

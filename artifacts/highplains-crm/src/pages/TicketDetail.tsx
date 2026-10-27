@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { MentionTextarea, renderMentionedText } from "@/components/MentionTextarea";
+import { TicketConversation, type ConversationComment } from "@/components/TicketConversation";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -78,7 +78,7 @@ import { consumeTicketOrigin, RETURN_MARKER, RETURN_SCROLL_KEY } from "@/lib/tic
 import { DatePickerField } from "@/components/DatePickerField";
 import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import { TicketWorkItemsCard } from "@/components/TicketWorkItemsCard";
-import type { Ticket, TicketFieldValue, TicketComment, TicketCommentWithAuthor, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
+import type { Ticket, TicketFieldValue, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
 import { RfpContracts } from "@/components/contracts/RfpContracts";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
@@ -148,7 +148,7 @@ interface TicketDetails {
   }[];
   fieldValues: TicketFieldValue[];
   statusHistory: TicketStatusHistory[];
-  comments: TicketCommentWithAuthor[];
+  comments: ConversationComment[];
   customer: Customer;
   contract: Contract | null;
   contractServices: ContractService[];
@@ -195,7 +195,6 @@ export default function TicketDetail() {
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
   
-  const [newComment, setNewComment] = useState("");
   const [showStatusDialog, setShowStatusDialog] = useState(false);
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
   const [fieldInputs, setFieldInputs] = useState<Record<string, string>>({});
@@ -585,17 +584,6 @@ export default function TicketDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
-    },
-  });
-
-  const addCommentMutation = useMutation({
-    mutationFn: async (body: string) => {
-      return apiRequest("POST", `/api/tickets/${ticketId}/comments`, { body });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
-      setNewComment("");
-      toast({ title: t('ticketDetail.commentAdded') });
     },
   });
 
@@ -1050,12 +1038,6 @@ export default function TicketDetail() {
     return fieldValues.find(fv => fv.fieldId === fieldId)?.value || "";
   };
 
-  const handleAddComment = () => {
-    if (newComment.trim()) {
-      addCommentMutation.mutate(newComment.trim());
-    }
-  };
-
   // Open edit dialog and populate form with current values
   const handleOpenEdit = () => {
     if (!details) return;
@@ -1505,7 +1487,7 @@ export default function TicketDetail() {
           data-testid="tab-comments"
         >
           <MessageSquare className="w-4 h-4" />
-          {comments.length > 0 && <span className="text-xs">({comments.length})</span>}
+          Conversation <span className="text-xs">({comments.length})</span>
         </button>
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
@@ -1740,31 +1722,17 @@ export default function TicketDetail() {
 
           <MobilePhotosNotesCard ticketId={ticketId} />
 
-          {comments.length > 0 && (
             <Card data-testid="card-recent-comments">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+              <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <MessageSquare className="w-4 h-4" />
-                  {t('ticketDetail.tabs.comments')}
+                  Conversation
                 </CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => setActiveTab("comments")} data-testid="button-view-all-comments">
-                  {t('common.view')}
-                </Button>
               </CardHeader>
               <CardContent className="pt-0">
-                <div className="space-y-2">
-                  {comments.slice(0, 2).map((comment) => (
-                    <div key={comment.id} className="text-sm border-l-2 pl-3 py-1">
-                      <p className="line-clamp-2">{comment.body}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+                <TicketConversation key={ticket.id} ticketId={ticket.id} comments={comments} compact onViewAll={() => setActiveTab("comments")} />
               </CardContent>
             </Card>
-          )}
           </div>
 
           <div className="min-w-0 space-y-4">
@@ -2671,82 +2639,11 @@ export default function TicketDetail() {
       )}
 
       {activeTab === "comments" && (
-        <div className="space-y-4">
-          {comments.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center">
-                <MessageSquare className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">{t('tickets.noTicketsFound')}</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {comments.map((comment) => (
-                <Card key={comment.id} data-testid={`comment-${comment.id}`}>
-                  <CardContent className="p-4">
-                    <div className="flex gap-3">
-                      <Avatar className="w-8 h-8 shrink-0">
-                        <AvatarFallback className="text-xs">
-                          {comment.authorName
-                            ? comment.authorName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-                            : "?"}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-semibold" data-testid={`text-comment-author-${comment.id}`}>{comment.authorName}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(comment.createdAt).toLocaleDateString()} at{" "}
-                            {new Date(comment.createdAt).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                        </div>
-                        <p className="text-sm whitespace-pre-wrap">{renderMentionedText(comment.body)}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          <Card>
-            <CardContent className="p-3">
-              <MentionTextarea
-                placeholder="Add a comment... Type @ to mention someone"
-                value={newComment}
-                onChange={setNewComment}
-                rows={2}
-                className="resize-none border-0 focus-visible:ring-0"
-                data-testid="input-comment"
-              />
-              <div className="flex items-center justify-between mt-2">
-                {currentUser?.name && (
-                  <span className="text-xs text-muted-foreground" data-testid="text-commenting-as">
-                    Commenting as <span className="font-medium">{currentUser.name}</span>
-                  </span>
-                )}
-                <Button 
-                  size="sm" 
-                  onClick={handleAddComment}
-                  disabled={!newComment.trim() || addCommentMutation.isPending}
-                  data-testid="button-add-comment"
-                >
-                  {addCommentMutation.isPending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4 mr-1" />
-                      {t('ticketDetail.sendComment')}
-                    </>
-                  )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        <Card>
+          <CardContent className="p-4">
+            <TicketConversation key={ticket.id} ticketId={ticket.id} comments={comments} />
+          </CardContent>
+        </Card>
       )}
 
       {activeTab === "history" && (
