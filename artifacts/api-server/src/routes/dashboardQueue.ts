@@ -7,6 +7,7 @@ import type { UserWithContext } from "../auth";
 import { contracts, crews, seasons, ticketLinks, ticketTypes, tickets, type TicketTypeKey } from "@workspace/db";
 import { findSeededStatus, findSeededTicketType } from "../shared/ticketCapabilities";
 import { companyDateString, companyDayBounds, companyToday } from "../lib/companyDay";
+import { loadRenewalsDue, type RenewalDueRow } from "../lib/contractCenterPersistence";
 
 export interface PulseResponse {
   stats: {
@@ -38,14 +39,7 @@ export interface PulseResponse {
     activeSnowContracts: number;
     expiringBeforeSeasonStart: number;
   };
-  renewals: Array<{
-    contractId: string;
-    customerId: string;
-    customerName: string;
-    serviceType: string;
-    endDate: string;
-    daysUntilExpiry: number;
-  }>;
+  renewals: RenewalDueRow[];
   crewsToday: Array<{
     crewId: string;
     crewName: string;
@@ -190,7 +184,7 @@ export function registerDashboardQueueRoutes(app: Express): void {
         storage.getDashboardStats(companyId, month, year),
         storage.getMonthlyRevenueData(companyId, year),
         storage.getMonthlyRevenueData(companyId, year - 1),
-        storage.getUpcomingRenewals(companyId, 60),
+        loadRenewalsDue(db, companyId, companyToday(now)),
         db
           .select({
             id: seasons.id,
@@ -331,14 +325,7 @@ export function registerDashboardQueueRoutes(app: Express): void {
             return endDate != null && endDate < snowRenewalCutoff;
           }).length,
         },
-        renewals: renewals.map((renewal) => ({
-          contractId: renewal.contractId,
-          customerId: renewal.customerId,
-          customerName: renewal.customerName,
-          serviceType: renewal.serviceType,
-          endDate: renewal.endDate.toISOString(),
-          daysUntilExpiry: renewal.daysUntilExpiry,
-        })),
+        renewals,
         crewsToday: crewRows.map((crew) => ({
           crewId: crew.crewId!,
           crewName: crew.crewName,

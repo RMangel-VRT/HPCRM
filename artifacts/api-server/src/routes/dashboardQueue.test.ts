@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   select: vi.fn(),
   getDashboardStats: vi.fn(),
   getMonthlyRevenueData: vi.fn(),
-  getUpcomingRenewals: vi.fn(),
+  renewals: vi.fn(),
   getTicketTypes: vi.fn(),
   getTicketTypeStatuses: vi.fn(),
   where: vi.fn(),
@@ -31,11 +31,11 @@ vi.mock("../storage", () => ({
   storage: {
     getDashboardStats: mocks.getDashboardStats,
     getMonthlyRevenueData: mocks.getMonthlyRevenueData,
-    getUpcomingRenewals: mocks.getUpcomingRenewals,
     getTicketTypes: mocks.getTicketTypes,
     getTicketTypeStatuses: mocks.getTicketTypeStatuses,
   },
 }));
+vi.mock("../lib/contractCenterPersistence", () => ({ loadRenewalsDue: mocks.renewals }));
 
 import { registerDashboardQueueRoutes } from "./dashboardQueue";
 
@@ -92,7 +92,7 @@ describe("GET /api/dashboard/pulse", () => {
       ytdRevenue: 0,
     });
     mocks.getMonthlyRevenueData.mockResolvedValue([]);
-    mocks.getUpcomingRenewals.mockResolvedValue([]);
+    mocks.renewals.mockResolvedValue([]);
     mocks.getTicketTypes.mockResolvedValue([]);
     mocks.getTicketTypeStatuses.mockResolvedValue([]);
     installDbSequence([[], [], []]);
@@ -198,13 +198,16 @@ describe("GET /api/dashboard/pulse", () => {
         { month: "2", revenue: 200 },
         { month: "Dec", revenue: 1200 },
       ]);
-    mocks.getUpcomingRenewals.mockResolvedValue([{
-      contractId: "contract-renewal",
+    mocks.renewals.mockResolvedValue([{
+      agreementId: "agreement-renewal",
       customerId: "customer-renewal",
       customerName: "Renewal HOA",
-      serviceType: "Maintenance",
-      endDate: new Date("2026-10-01T00:00:00.000Z"),
-      daysUntilExpiry: 29,
+      line: "both",
+      termId: "season",
+      seasonLabel: "2026",
+      renewalDraftStatus: "sent",
+      endDate: "2026-10-01",
+      daysLeft: 29,
     }]);
     mocks.getTicketTypes.mockResolvedValue([
       { id: "type-project", name: "Renamed project", typeKey: "project" },
@@ -263,12 +266,15 @@ describe("GET /api/dashboard/pulse", () => {
         expiringBeforeSeasonStart: 1,
       },
       renewals: [{
-        contractId: "contract-renewal",
+        agreementId: "agreement-renewal",
         customerId: "customer-renewal",
         customerName: "Renewal HOA",
-        serviceType: "Maintenance",
-        endDate: "2026-10-01T00:00:00.000Z",
-        daysUntilExpiry: 29,
+        line: "both",
+        termId: "season",
+        seasonLabel: "2026",
+        renewalDraftStatus: "sent",
+        endDate: "2026-10-01",
+        daysLeft: 29,
       }],
       crewsToday: [{
         crewId: "crew-1",
@@ -284,5 +290,8 @@ describe("GET /api/dashboard/pulse", () => {
     expect(response.body.revenue.priorMonths).toEqual([
       0, 200, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1200,
     ]);
+    expect(mocks.renewals).toHaveBeenCalledWith(expect.anything(), COMPANY_ID, "2026-09-02");
+    expect(response.body.renewals[0]).not.toHaveProperty("contractId");
+    expect(response.body.renewals[0]).not.toHaveProperty("serviceType");
   });
 });

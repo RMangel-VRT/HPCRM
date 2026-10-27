@@ -6,11 +6,91 @@ import {
   users, type AgreementTerm, type TermStatus,
 } from "@workspace/db";
 import { db } from "../db";
-import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves, renewalSet } from "./contractCenterService";
-import { addCalendarDays, companyToday } from "./companyDay";
+import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves, renewalSet, recoverPayments } from "./contractCenterService";
+import { addCalendarDays, calendarDaysBetween, companyToday } from "./companyDay";
 
 export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type Reader = Pick<typeof db, "select">;
+export interface ContractListFilter {
+  line?: "landscape" | "snow";
+  customerId?: string;
+  includeParent?: "true" | "false";
+  q?: string;
+}
+
+/** Shared board/list population. Queries are bounded independently of agreement count.
+ * Bid-linked lists retain their distinct response contract in loadLinkedContracts. */
+export async function loadContractList(reader: Reader, companyId: string, filter: ContractListFilter = {}, today = companyToday()) {
+  // A Reader may be a transaction's single pg client; avoid concurrent client.query calls.
+  const companyCustomers = await reader.select().from(customers).where(eq(customers.companyId, companyId));
+  const rows = await reader.select().from(agreements).where(eq(agreements.companyId, companyId));
+  const terms = await reader.select().from(agreementTerms).where(eq(agreementTerms.companyId, companyId));
+  const owners = new Map(companyCustomers.map(c => [c.id, c]));
+  const customer = filter.customerId ? owners.get(filter.customerId) : undefined;
+  if (filter.customerId && !customer) throw new ContractCenterError(404, "Customer not found");
+  const parent = filter.includeParent === "true" && customer?.parentCustomerId
+    ? owners.get(customer.parentCustomerId) : undefined;
+  const billing = parent ? await reader.select().from(termBillingMonths).where(eq(termBillingMonths.companyId, companyId)) : [];
+  const byAgreement = new Map<string, AgreementTerm[]>();
+  for (const term of terms) {
+    const group = byAgreement.get(term.agreementId) ?? [];
+    group.push(term); byAgreement.set(term.agreementId, group);
+  }
+  const locationCounts = new Map<string, number>();
+  for (const c of companyCustomers) if (c.parentCustomerId)
+    locationCounts.set(c.parentCustomerId, (locationCounts.get(c.parentCustomerId) ?? 0) + 1);
+  const billingByTerm = new Map<string, typeof billing>();
+  for (const b of billing) {
+    const group = billingByTerm.get(b.termId) ?? [];
+    group.push(b); billingByTerm.set(b.termId, group);
+  }
+  return rows.flatMap(agreement => {
+    const owner = owners.get(agreement.customerId);
+    if (!owner || (filter.q && !owner.name.toLowerCase().includes(filter.q.toLowerCase())) ||
+      (filter.customerId && agreement.customerId !== filter.customerId && agreement.customerId !== parent?.id)) return [];
+    const summary = listSummary(byAgreement.get(agreement.id) ?? [], today);
+    if (filter.line && ![summary.current ?? summary.latest, summary.renewalDraft]
+      .some(t => t?.line === filter.line || t?.line === "both")) return [];
+    const viaParent = !!parent && agreement.customerId === parent.id;
+    const term = summary.current ?? summary.renewalDraft ?? summary.latest;
+    const display = summary.current ?? summary.latest;
+    return [{ ...agreement, line: display?.line, form: display?.form, customerName: owner.name, ...summary,
+      locationCount: owner.isParent === "true" ? locationCounts.get(owner.id) ?? 0 : 0,
+      ...(viaParent ? { viaParent: true, parentName: owner.name,
+        branch: { name: customer!.name, billingCode: customer!.customerNumber },
+        payments: term ? recoverPayments(billingByTerm.get(term.id) ?? []) : [] } : {}) }];
+  });
+}
+
+export interface RenewalDueRow {
+  agreementId: string; customerId: string; customerName: string;
+  line: AgreementTerm["line"]; termId: string; seasonLabel: string; endDate: string;
+  daysLeft: number; renewalDraftStatus: "draft" | "sent" | null;
+}
+export async function loadRenewalsDue(reader: Reader, companyId: string, today = companyToday()): Promise<RenewalDueRow[]> {
+  const items = await loadContractList(reader, companyId, {}, today);
+  return items.flatMap(item => {
+    const term = item.current;
+    // listSummary/displayStatus already suppress signed replacements, including future years.
+    if (!term || !(item.renewalDue || term.displayStatus === "expired")) return [];
+    const status = item.renewalDraft?.status;
+    return [{ agreementId: item.id, customerId: item.customerId, customerName: item.customerName,
+      line: term.line, termId: term.id, seasonLabel: term.seasonLabel, endDate: term.endDate,
+      daysLeft: calendarDaysBetween(today, term.endDate),
+      renewalDraftStatus: status === "draft" || status === "sent" ? status : null }];
+  }).sort((a, b) => a.endDate.localeCompare(b.endDate) || a.agreementId.localeCompare(b.agreementId));
+}
+
+export async function contractsSection(reader: Reader, companyId: string, today = companyToday()) {
+  const rows = await loadRenewalsDue(reader, companyId, today);
+  const actionable = rows.filter(row => row.renewalDraftStatus === null);
+  const first = actionable[0];
+  return { count: actionable.length, overdue: actionable.filter(row => row.daysLeft <= 30).length,
+    mostOverdue: first ? { agreementId: first.agreementId, customerName: first.customerName,
+      endDate: first.endDate, daysLeft: first.daysLeft } : null,
+    // Keep season-owned presentation data from the very same read, not a second eligibility query.
+    rows };
+}
 export async function getAgreement(reader: Reader, companyId: string, id: string) {
   const [row] = await reader.select().from(agreements).where(and(eq(agreements.id, id), eq(agreements.companyId, companyId)));
   if (!row) throw new ContractCenterError(404, "Contract not found");

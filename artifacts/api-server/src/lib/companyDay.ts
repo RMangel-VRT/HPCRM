@@ -41,6 +41,11 @@ export function addCalendarDays(date: string, days: number): string {
   return instant.toISOString().slice(0, 10);
 }
 
+/** Signed distance between date-only values, not elapsed Colorado midnight hours. */
+export function calendarDaysBetween(from: string, to: string): number {
+  return (calendarInstant(to).getTime() - calendarInstant(from).getTime()) / 86_400_000;
+}
+
 export function isWeekend(date: string): boolean {
   const weekday = calendarInstant(date).getUTCDay();
   return weekday === 0 || weekday === 6;

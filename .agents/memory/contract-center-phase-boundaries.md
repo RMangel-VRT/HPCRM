@@ -40,11 +40,15 @@ that the auditor deliberately skipped.
 **How to apply:** Protect non-imported seasons and direct document attachments
 before replacing an imported agreement, including after acquiring write locks.
 
-After the customer switch-over, dashboard, revenue, reports, tickets, snow events and the crew app intentionally continue reading frozen legacy data until Phase 4. Newly created Contract Center contracts will not appear in those consumers yet.
+After the customer switch-over, dashboard metrics other than renewal lists, revenue, reports, tickets, snow events and the crew app intentionally continue reading frozen legacy data until their separate repointing slices.
 
 **Why:** The owner explicitly requires the switch-over and downstream repointing to be separate releases; mixing them changes the copied billing state and expands the release risk.
 
 **How to apply:** Keep those legacy consumers unchanged during the freeze. Production publication, signed-document auditing and imports are manual. Contracts created or renewed in Contract Center during the audit are skipped by the auditor and left untouched by imports.
+
+Renewals come from the Contract Center (`loadRenewalsDue`); the legacy contracts table is frozen and must not feed the dashboard.
+**Why:** Renewal eligibility and destinations belong to agreements and their current seasons, not frozen legacy contract IDs.
+**How to apply:** Repoint renewal lists only; revenue, reporting, snow statistics and other legacy metrics remain separate work.
 
 Legacy contract date-picker timestamps represent UTC calendar dates, not Denver instants. Midnight UTC and 06:00/07:00 UTC must recover the same stored calendar day.
 

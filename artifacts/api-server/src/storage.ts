@@ -127,7 +127,6 @@ export interface IStorage {
   getCustomerGrowthData(companyId: string): Promise<CustomerGrowthData[]>;
   getMonthlyRevenueData(companyId: string, year: number): Promise<MonthlyRevenueData[]>;
   getTopCustomers(companyId: string, limit: number): Promise<TopCustomer[]>;
-  getUpcomingRenewals(companyId: string, daysAhead: number): Promise<UpcomingRenewal[]>;
   
   getContractTemplates(): Promise<ContractTemplate[]>;
   
@@ -577,15 +576,6 @@ export interface TopCustomer {
   name: string;
   totalRevenue: number;
   activeContracts: number;
-}
-
-export interface UpcomingRenewal {
-  contractId: string;
-  customerId: string;
-  customerName: string;
-  serviceType: string;
-  endDate: Date;
-  daysUntilExpiry: number;
 }
 
 export interface CustomerRevenueData {
@@ -1671,38 +1661,6 @@ export class PgStorage implements IStorage {
       name: r.name,
       totalRevenue: Number(r.totalRevenue) / 100, // Convert cents to dollars
       activeContracts: r.activeContracts,
-    }));
-  }
-
-  async getUpcomingRenewals(companyId: string, daysAhead: number): Promise<UpcomingRenewal[]> {
-    const result = await db
-      .select({
-        contractId: contracts.id,
-        customerId: customers.id,
-        customerName: customers.name,
-        serviceType: contracts.serviceType,
-        endDate: contracts.endDate,
-      })
-      .from(contracts)
-      .innerJoin(customers, eq(contracts.customerId, customers.id))
-      .where(
-        and(
-          eq(contracts.companyId, companyId),
-          eq(contracts.status, "active"),
-          sql`${contracts.endDate} IS NOT NULL`,
-          sql`${contracts.endDate} <= NOW() + INTERVAL '${sql.raw(daysAhead.toString())} days'`,
-          sql`${contracts.endDate} >= NOW()`
-        )
-      )
-      .orderBy(contracts.endDate);
-    
-    return result.map(r => ({
-      contractId: r.contractId,
-      customerId: r.customerId,
-      customerName: r.customerName,
-      serviceType: r.serviceType,
-      endDate: r.endDate!,
-      daysUntilExpiry: Math.ceil((r.endDate!.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
     }));
   }
 

@@ -16,7 +16,7 @@ import {
 } from "../lib/contractCenterService";
 import {
   fullDetail, getTerm, getAgreement, lockAgreement, lockTerm, writeTerm, addHistory,
-  activeCard, termWhere, listSummary, replaceRows, agreementSeasons,
+  activeCard, termWhere, loadContractList, replaceRows, agreementSeasons,
 } from "../lib/contractCenterPersistence";
 import { planChangingRenewal } from "../lib/contractChangingRenewal";
 import { ObjectStorageService } from "../objectStorage";
@@ -54,33 +54,7 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       res.json(await loadLinkedContracts(db, companyId, [filter.bidTicketId]));
       return;
     }
-    const companyCustomers = await db.select().from(customers).where(eq(customers.companyId, companyId));
-    const customer = filter.customerId ? companyCustomers.find(c => c.id === filter.customerId) : undefined;
-    if (filter.customerId && !customer) throw new ContractCenterError(404, "Customer not found");
-    const parent = filter.includeParent === "true" && customer?.parentCustomerId
-      ? companyCustomers.find(c => c.id === customer.parentCustomerId) : undefined;
-    const rows = await db.select().from(agreements).where(eq(agreements.companyId, companyId));
-    const terms = await db.select().from(agreementTerms).where(eq(agreementTerms.companyId, companyId));
-    const selected = rows.filter(a => companyCustomers.some(c => c.id === a.customerId &&
-      (!filter.q || c.name.toLowerCase().includes(filter.q.toLowerCase()))) &&
-      (!filter.line || (() => {
-        const s = listSummary(terms.filter(t => t.agreementId === a.id));
-        return [s.current ?? s.latest, s.renewalDraft].some(t => t?.line === filter.line || t?.line === "both");
-      })()) &&
-      (!filter.customerId || a.customerId === filter.customerId || a.customerId === parent?.id));
-    const billing = parent ? await db.select().from(termBillingMonths).where(eq(termBillingMonths.companyId, companyId)) : [];
-    res.json(selected.map(agreement => {
-      const owner = companyCustomers.find(c => c.id === agreement.customerId)!;
-      const summary = listSummary(terms.filter(t => t.agreementId === agreement.id));
-      const viaParent = !!parent && agreement.customerId === parent.id;
-      const term = summary.current ?? summary.renewalDraft ?? summary.latest;
-      const display = summary.current ?? summary.latest;
-      return { ...agreement, line: display?.line, form: display?.form, customerName: owner.name, ...summary,
-        locationCount: owner.isParent === "true" ? companyCustomers.filter(c => c.parentCustomerId === owner.id).length : 0,
-        ...(viaParent ? { viaParent: true, parentName: owner.name,
-          branch: { name: customer!.name, billingCode: customer!.customerNumber },
-          payments: term ? recoverPayments(billing.filter(b => b.termId === term.id)) : [] } : {}) };
-    }));
+    res.json(await loadContractList(db, companyId, filter));
   }));
   app.get("/api/contract-center/contracts/by-legacy/:legacyContractId", handle(async (req, res, user) => {
     const [row] = await db.select({ agreementId: agreementTerms.agreementId }).from(termLegacySources)

@@ -6,10 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   select: vi.fn(), board: vi.fn(), bids: vi.fn(), queue: vi.fn(), invoices: vi.fn(),
-  getCommunicationStats: vi.fn(), getUpcomingRenewals: vi.fn(), visible: vi.fn(),
+  getCommunicationStats: vi.fn(), contracts: vi.fn(), visible: vi.fn(),
 }));
 vi.mock("../db", () => ({ db: { select: mocks.select } }));
 vi.mock("../storage", () => ({ storage: mocks }));
+vi.mock("../lib/contractCenterPersistence", () => ({ contractsSection: mocks.contracts }));
 vi.mock("./estimatesBoard", async original => ({
   ...await original<typeof import("./estimatesBoard")>(), loadEstimatesBoard: mocks.board,
 }));
@@ -48,7 +49,7 @@ beforeEach(() => {
   mocks.queue.mockResolvedValue({ needsScheduling: [], slipped: [] });
   mocks.invoices.mockResolvedValue([]);
   mocks.getCommunicationStats.mockResolvedValue({ drafts: 0, openFollowUps: 0, overdueFollowUps: 0 });
-  mocks.getUpcomingRenewals.mockResolvedValue([]);
+  mocks.contracts.mockResolvedValue({ count: 0, overdue: 0, mostOverdue: null, rows: [] });
   mocks.visible.mockResolvedValue({ mailboxIds: null, includeNullMailbox: true });
   mocks.select.mockImplementation(() => ({
     from: (table: unknown) => {
@@ -92,7 +93,7 @@ describe("dashboard sections access and contract", () => {
     expect(mocks.bids).not.toHaveBeenCalled();
     expect(mocks.invoices).not.toHaveBeenCalled();
     expect(mocks.getCommunicationStats).not.toHaveBeenCalled();
-    expect(mocks.getUpcomingRenewals).not.toHaveBeenCalled();
+    expect(mocks.contracts).not.toHaveBeenCalled();
   });
   it("matches billing navigation visibility rather than widening to billing API permissions", () => {
     expect(permittedSections({ ...user, activeRole: "office", activeTags: ["billing"] })).not.toContain("invoicing");
@@ -112,7 +113,7 @@ describe("dashboard sections access and contract", () => {
     expect(mocks.queue).toHaveBeenCalledWith("company-a", NOW);
     expect(mocks.invoices).toHaveBeenCalledWith(user, { now: NOW });
     expect(mocks.getCommunicationStats).toHaveBeenCalledWith("company-a");
-    expect(mocks.getUpcomingRenewals).toHaveBeenCalledWith("company-a", 60);
+    expect(mocks.contracts).toHaveBeenCalledWith(expect.anything(), "company-a", "2026-10-26");
     for (const predicate of predicates) {
       expect(predicate.sql).toContain('"company_id"');
       expect(predicate.params).toContain("company-a");
@@ -128,7 +129,7 @@ describe("dashboard sections access and contract", () => {
     const pending = loadDashboardSections(user, NOW);
     expect(mocks.queue).toHaveBeenCalled();
     expect(mocks.invoices).toHaveBeenCalled();
-    expect(mocks.getUpcomingRenewals).toHaveBeenCalled();
+    expect(mocks.contracts).toHaveBeenCalled();
     release({ stages: [] });
     await pending;
   });
@@ -192,12 +193,13 @@ describe("section clocks and population parity", () => {
     expect(predicate.sql).toContain('"deleted_at" is null');
     expect(predicate.sql).toContain('"follow_up_due_at" <');
   });
-  it("uses Colorado expiry-day boundaries for the <=30-day renewal warning", async () => {
-    mocks.getUpcomingRenewals.mockResolvedValue([
-      { contractId: "a", customerName: "A", serviceType: "Maintenance", endDate: new Date("2026-11-25T18:00Z") },
-      { contractId: "b", customerName: "B", serviceType: "Maintenance", endDate: new Date("2026-11-26T18:00Z") },
-    ]);
-    expect(await contractsSummary("company-a", NOW)).toMatchObject({ total: 2, overdue: 1, oldest: { label: "A" } });
+  it.each([[30, "Snow · 2026-11-25"], [-10, "Expired 2026-11-25"]] as const)(
+    "maps shared counts and agreement destination with daysLeft %s", async (daysLeft, detail) => {
+    mocks.contracts.mockResolvedValue({ count: 2, overdue: 1,
+      mostOverdue: { agreementId: "agreement-a", customerName: "A", endDate: "2026-11-25", daysLeft },
+      rows: [{ agreementId: "agreement-a", line: "snow" }] });
+    expect(await contractsSummary("company-a", NOW)).toMatchObject({ total: 2, overdue: 1,
+      oldest: { label: "A", detail, href: "/dashboard/contracts/agreement-a" } });
   });
   it("counts all unread flags as overdue from the sidebar's new-status population", async () => {
     byTable.set(flags, [{ total: 3, id: "flag", note: "Irrigation leak", createdAt: NOW }]);

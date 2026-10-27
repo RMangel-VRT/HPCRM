@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getTableName, getTableColumns } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { registerContractCenterRoutes } from "./contractCenter";
+import * as rfpContracts from "../lib/rfpContracts";
 
 const mock = vi.hoisted(() => ({ db: {} as any, parent: vi.fn(), upload: vi.fn(), file: vi.fn(), acl: vi.fn() }));
 vi.mock("../db", () => ({ db: mock.db, inTransaction: (_tx: unknown, fn: () => unknown) => fn() }));
@@ -129,6 +130,19 @@ describe("Contract Center lifecycle routes", () => {
     expect((await agent.post(`${base}/contracts`).send({ ...body, customerId: "foreign" })).status).toBe(404);
     expect((await agent.post(`${base}/contracts`).send({ ...body, propertyManagementCompanyId: "foreign" })).status).toBe(404);
     expect(writes).toBe(0);
+  });
+  it("preserves the bid-linked list short circuit and its distinct response shape", async () => {
+    const linked = [{ bidTicketId: "rfp", agreementId: "agreement", termId: "season", customerName: "Customer",
+      line: "both", form: "ours", seasonLabel: "2026", displayStatus: "draft",
+      annualPriceCents: null, snowPricing: "time_and_materials" }];
+    const spy = vi.spyOn(rfpContracts, "loadLinkedContracts").mockResolvedValueOnce(linked as Awaited<ReturnType<typeof rfpContracts.loadLinkedContracts>>);
+    try {
+      const response = await request(app()).get(`${base}/contracts?bidTicketId=rfp&customerId=missing&line=snow&q=no-match`);
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(linked);
+      expect(spy).toHaveBeenCalledWith(mock.db, "company", ["rfp"]);
+      expect(writes).toBe(0);
+    } finally { spy.mockRestore(); }
   });
   it("allows parent customers without invoking operational guards", async () => {
     tables.customers[0].isParent = "true";

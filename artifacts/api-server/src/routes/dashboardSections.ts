@@ -10,6 +10,7 @@ import { loadBidsBoard } from "./bidsBoard";
 import { loadSchedulingQueue } from "./schedulingQueue";
 import { loadPendingInvoices } from "./pendingInvoices";
 import { resolveVisibleMailboxes } from "../services/mailboxScope";
+import { contractsSection } from "../lib/contractCenterPersistence";
 
 export type SectionKey = "estimates" | "bids" | "scheduling" | "invoicing" | "inbox" | "flags" | "contracts" | "mine";
 type Oldest = { label: string; detail: string; href: string };
@@ -40,7 +41,6 @@ const ticketHref = (id: string) => `/dashboard/tickets/${encodeURIComponent(id)}
 function summary(key: SectionKey, total: number, overdue: number, oldest: Oldest | null): SectionSummary {
   return { key, href: destinations[key], total, overdue, oldest, flow: null };
 }
-const dayDifference = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 
 export async function estimatesSummary(companyId: string, now: Date) {
   return opportunitySummary("estimates", await loadEstimatesBoard(companyId, now));
@@ -140,13 +140,13 @@ export async function flagsSummary(companyId: string) {
 }
 
 export async function contractsSummary(companyId: string, now: Date) {
-  const rows = await storage.getUpcomingRenewals(companyId, 60);
-  const today = companyToday(now);
-  const first = rows[0];
-  return summary("contracts", rows.length,
-    rows.filter(row => dayDifference(today, companyDateString(row.endDate)) <= 30).length, first ? {
-      label: first.customerName, detail: `${first.serviceType} · ${companyDateString(first.endDate)}`,
-      href: `/dashboard/contracts/${encodeURIComponent(first.contractId)}`,
+  const result = await contractsSection(db, companyId, companyToday(now));
+  const first = result.mostOverdue;
+  const line = result.rows.find(row => row.agreementId === first?.agreementId)?.line;
+  return summary("contracts", result.count, result.overdue, first ? {
+      label: first.customerName, detail: first.daysLeft < 0 ? `Expired ${first.endDate}`
+        : `${line === "both" ? "Both" : line === "snow" ? "Snow" : "Landscape"} · ${first.endDate}`,
+      href: `/dashboard/contracts/${encodeURIComponent(first.agreementId)}`,
     } : null);
 }
 

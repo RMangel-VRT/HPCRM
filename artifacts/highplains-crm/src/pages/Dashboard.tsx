@@ -41,6 +41,8 @@ function AdminOfficeDashboard() {
   const { t } = useTranslation();
   const { data: pulse, isLoading, error } = useQuery<PulseResponse>({
     queryKey: ["/api/dashboard/pulse"],
+    // Returning from Contract Center must not reuse the global infinite-stale renewal list.
+    refetchOnMount: "always",
   });
 
   if (error) {

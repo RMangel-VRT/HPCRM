@@ -33,12 +33,15 @@ export interface PulseResponse {
     expiringBeforeSeasonStart: number;
   };
   renewals: Array<{
-    contractId: string;
+    agreementId: string;
     customerId: string;
     customerName: string;
-    serviceType: string;
+    line: "landscape" | "snow" | "both";
+    termId: string;
+    seasonLabel: string;
+    renewalDraftStatus: "draft" | "sent" | null;
     endDate: string;
-    daysUntilExpiry: number;
+    daysLeft: number;
   }>;
   crewsToday: Array<{
     crewId: string;
@@ -89,10 +92,11 @@ function formatDate(value: string | null, options: Intl.DateTimeFormatOptions): 
   return Number.isNaN(parsed.getTime()) ? null : parsed.toLocaleDateString("en-US", options);
 }
 
-function formatServiceType(value: string): string {
-  return value
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+function renewalEndDate(value: string): string {
+  // Season dates are calendar values, not UTC instants projected into the browser timezone.
+  return new Date(`${value}T00:00:00Z`).toLocaleDateString("en-US", {
+    timeZone: "UTC", month: "short", day: "numeric",
+  });
 }
 
 function seriesPoints(values: number[], maxValue: number): string {
@@ -381,17 +385,17 @@ export default function PulseRail({ pulse, isLoading = false }: PulseRailProps) 
           <div className="divide-y divide-border border-y border-border">
             {pulse.renewals.slice(0, 3).map((renewal) => (
               <Link
-                key={renewal.contractId}
-                href={`/dashboard/customers/${renewal.customerId}`}
+                key={renewal.agreementId}
+                href={`/dashboard/contracts/${encodeURIComponent(renewal.agreementId)}`}
                 className="flex items-center justify-between gap-3 py-2.5 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                data-testid={`link-pulse-renewal-${renewal.contractId}`}
+                data-testid={`link-pulse-renewal-${renewal.agreementId}`}
               >
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">{renewal.customerName}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{formatServiceType(renewal.serviceType)} · {formatDate(renewal.endDate, { month: "short", day: "numeric" })}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{renewal.line === "both" ? "Both" : renewal.line === "snow" ? "Snow" : "Landscape"} · {renewalEndDate(renewal.endDate)}</span>
                 </span>
-                <span className={`shrink-0 font-mono text-xs ${renewal.daysUntilExpiry <= 30 ? "text-destructive" : "text-muted-foreground"}`}>
-                  {renewal.daysUntilExpiry}d
+                <span className={`shrink-0 font-mono text-xs ${renewal.daysLeft <= 30 ? "text-destructive" : "text-muted-foreground"}`}>
+                  {renewal.daysLeft}d
                 </span>
               </Link>
             ))}
