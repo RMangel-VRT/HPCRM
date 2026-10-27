@@ -863,6 +863,7 @@ const es = {
     requiredField: "Campo Requerido",
     linkedTickets: "Tickets Vinculados",
     sendComment: "Enviar Comentario",
+    noComments: "Aún no hay comentarios — inicia la conversación abajo.",
     addPhoto: "Agregar Foto",
     resend: "Reenviar",
     sendCompletionEmail: "Enviar Correo de Completado",

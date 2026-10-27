@@ -956,6 +956,7 @@ const en = {
     requiredField: "Required Field",
     linkedTickets: "Linked Tickets",
     sendComment: "Send Comment",
+    noComments: "No comments yet — start the conversation below.",
     addPhoto: "Add Photo",
     resend: "Resend",
     sendCompletionEmail: "Send Completion Email",

@@ -110,9 +110,11 @@ export function TicketConversation({ ticketId, comments, compact = false, onView
     <div className={compact ? "space-y-4" : "flex min-h-[60vh] flex-col gap-4"} data-testid="ticket-conversation">
       <div className="space-y-5 flex-1">
         {comments.length === 0 && (
-          <div className="py-8 text-center">
-            <MessageSquare className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground">{t("tickets.noTicketsFound")}</p>
+          <div className={compact ? "py-3" : "py-8 text-center"}>
+            {!compact && <MessageSquare className="w-8 h-8 mx-auto text-muted-foreground mb-2" />}
+            <p className="text-sm text-muted-foreground">
+              {t("ticketDetail.noComments", { defaultValue: "No comments yet — start the conversation below." })}
+            </p>
           </div>
         )}
         {threads.roots.map(root => {
@@ -154,7 +156,7 @@ export function TicketConversation({ ticketId, comments, compact = false, onView
           );
         })}
       </div>
-      {compact && (
+      {compact && comments.length > 0 && (
         <Button variant="ghost" size="sm" onClick={onViewAll} data-testid="button-view-all-comments">
           View all {comments.length}
         </Button>

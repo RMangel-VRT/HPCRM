@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -203,6 +203,13 @@ export default function TicketDetail() {
   const [showPropertyMaps, setShowPropertyMaps] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
   const photoTriggerRef = useRef<HTMLButtonElement>(null);
+  const [brokenPhotoUrls, setBrokenPhotoUrls] = useState<Set<string>>(() => new Set());
+  const markPhotoBroken = useCallback((photoUrl: string) => {
+    setBrokenPhotoUrls(previous => {
+      if (previous.has(photoUrl)) return previous;
+      return new Set(previous).add(photoUrl);
+    });
+  }, []);
   
   // Delegation state
   const [showDelegateDialog, setShowDelegateDialog] = useState(false);
@@ -1267,7 +1274,7 @@ export default function TicketDetail() {
                       <User className="w-3 h-3" />
                     </AvatarFallback>
                   </Avatar>
-                  <span className="truncate font-medium">{assignedUser?.email || t('common.unassigned')}</span>
+                  <span className="block truncate font-medium">{assignedUser?.email || t('common.unassigned')}</span>
                 </div>
               ),
             },
@@ -1519,7 +1526,7 @@ export default function TicketDetail() {
       </div>
 
       {activeTab === "overview" && (
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_330px]">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_420px]">
           <div className="min-w-0 space-y-4">
           {/* Service Request Type for RFP tickets */}
           {ticketType.name === "RFP Request" && (
@@ -1899,7 +1906,7 @@ export default function TicketDetail() {
                               {proposal.proposalNumber && (
                                 <p className="text-xs font-mono text-muted-foreground" data-testid={`text-proposal-number-${proposal.id}`}>{proposal.proposalNumber}</p>
                               )}
-                              <span className="text-sm font-medium truncate">{proposal.title}</span>
+                              <span className="block text-sm font-medium truncate">{proposal.title}</span>
                             </div>
                           </div>
                           {statusBadge}
@@ -1969,7 +1976,7 @@ export default function TicketDetail() {
                   <Button
                     variant="default"
                     size="sm"
-                    className="gap-2 w-full justify-start"
+                    className="gap-2 w-full justify-start whitespace-normal text-left h-auto py-2"
                     onClick={async () => {
                       try {
                         const res = await apiRequest("POST", `/api/proposals/${sourceProposal.id}/crew-worksheets`, {});
@@ -1984,7 +1991,7 @@ export default function TicketDetail() {
                     }}
                     data-testid="button-generate-crew-worksheet-from-proposal"
                   >
-                    <HardHat className="w-4 h-4" />
+                    <HardHat className="w-4 h-4 shrink-0" />
                     {t('crewWorksheets.generateFromLatestProposal', { defaultValue: "Generate Crew Worksheet from latest proposal" })}
                   </Button>
                 </div>
@@ -2003,7 +2010,7 @@ export default function TicketDetail() {
                           <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
                           <div className="min-w-0">
                             <p className="text-xs font-mono text-muted-foreground">{cw.worksheetNumber}</p>
-                            <span className="text-sm font-medium truncate">{cw.title}</span>
+                            <span className="block text-sm font-medium truncate">{cw.title}</span>
                           </div>
                         </div>
                         {cw.status === "finalized" ? (
@@ -2161,7 +2168,7 @@ export default function TicketDetail() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <MapPin className="w-4 h-4 text-primary shrink-0" />
-                      <span className="font-medium text-sm truncate">
+                      <span className="block font-medium text-sm truncate">
                         {ticket.locationLabel || "Pinned Location"}
                       </span>
                     </div>
@@ -2213,11 +2220,19 @@ export default function TicketDetail() {
                           className="h-[54px] w-[54px] shrink-0 overflow-hidden rounded-md border"
                           data-testid={`photo-thumb-${index}`}
                         >
-                          <img
-                            src={photoUrl}
-                            alt={`Ticket photo ${index + 1}`}
-                            className="h-full w-full object-cover"
-                          />
+                          {brokenPhotoUrls.has(photoUrl) ? (
+                            <span className="grid h-full w-full place-items-center bg-muted">
+                              <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                              <span className="sr-only">{`Ticket photo ${index + 1}`}</span>
+                            </span>
+                          ) : (
+                            <img
+                              src={photoUrl}
+                              alt={`Ticket photo ${index + 1}`}
+                              className="block h-full w-full object-cover"
+                              onError={() => markPhotoBroken(photoUrl)}
+                            />
+                          )}
                         </button>
                       </DialogTrigger>
                     );
@@ -2263,11 +2278,19 @@ export default function TicketDetail() {
                       className="rounded-lg overflow-hidden border hover:ring-2 hover:ring-primary transition-all"
                       data-testid={`photo-thumbnail-${index}`}
                     >
-                      <img
-                        src={photoUrl}
-                        alt={`Ticket photo ${index + 1}`}
-                        className="w-full h-[120px] object-cover"
-                      />
+                      {brokenPhotoUrls.has(photoUrl) ? (
+                        <span className="grid h-[120px] w-full place-items-center bg-muted">
+                          <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                          <span className="sr-only">{`Ticket photo ${index + 1}`}</span>
+                        </span>
+                      ) : (
+                        <img
+                          src={photoUrl}
+                          alt={`Ticket photo ${index + 1}`}
+                          className="block w-full h-[120px] object-cover"
+                          onError={() => markPhotoBroken(photoUrl)}
+                        />
+                      )}
                     </a>
                   );
                 })}
@@ -2301,7 +2324,7 @@ export default function TicketDetail() {
                         data-testid={`document-link-${index}`}
                       >
                         <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <span className="text-sm truncate flex-1">{fileName}</span>
+                        <span className="block text-sm truncate flex-1">{fileName}</span>
                         <ExternalLink className="w-3 h-3 text-muted-foreground shrink-0" />
                       </a>
                     );
@@ -3706,7 +3729,7 @@ export default function TicketDetail() {
                         {uploadingFileNames.map(name => (
                           <div key={name} className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
-                            <span className="truncate">{name}</span>
+                            <span className="block truncate">{name}</span>
                           </div>
                         ))}
                       </div>
