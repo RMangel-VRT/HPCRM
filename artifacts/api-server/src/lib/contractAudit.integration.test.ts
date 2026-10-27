@@ -141,7 +141,7 @@ describe.skipIf(!enabled)("disposable development audit import", () => {
     expect(await db.select().from(termBillingMonths).where(eq(termBillingMonths.companyId, fixture.companyId))).toHaveLength(40);
   });
   it("preserves null-ref contracts and revalidates edited history, outside ownership and source conflicts", async () => {
-    const [untouched] = await db.insert(agreements).values({ companyId: fixture.companyId, customerId: fixture.customerId, line: "landscape" }).returning();
+    const [untouched] = await db.insert(agreements).values({ companyId: fixture.companyId, customerId: fixture.customerId }).returning();
     const [term] = await db.select().from(agreementTerms).where(eq(agreementTerms.companyId, fixture.companyId));
     await db.update(agreementTerms).set({ updatedAt: new Date(Date.now() + 1000) }).where(eq(agreementTerms.id, term.id));
     const preview = planAuditImport(fixture.files, await loadAuditData(fixture.companyId));

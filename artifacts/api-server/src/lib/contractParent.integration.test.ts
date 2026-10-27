@@ -152,7 +152,7 @@ describe.skipIf(!enabled)("parent consolidation — disposable development verif
       else await db.transaction(async tx => {
         await persistence.lockAgreement(tx, f.companyId, term.agreementId);
         if (kind === "season") await persistence.writeTerm(tx, f.companyId, f.userId, null, {
-          agreementId: term.agreementId, seasonLabel: "Manual 2027", startDate: "2027-01-01", endDate: "2027-12-31", status: "draft", billingType: "equal_monthly",
+          agreementId: term.agreementId, line: term.line, form: term.form, seasonLabel: "Manual 2027", startDate: "2027-01-01", endDate: "2027-12-31", status: "draft", billingType: "equal_monthly",
         }, "Created in the Contract Center");
         else await tx.insert(termDocuments).values({ companyId: f.companyId, termId: term.id, kind: "other",
           filename: "manual-protected.pdf", storageObjectPath: "/objects/disposable-no-blob", mimeType: "application/pdf", uploadedBy: f.userId });

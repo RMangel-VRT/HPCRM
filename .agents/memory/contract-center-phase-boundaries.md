@@ -5,6 +5,8 @@ description: Business rules for preserving seasonal contract history and legacy 
 
 An agreement is one customer's continuing contract relationship; each season records its own line (Landscape, Snow or Both) and form, because each season is its own signed document. Renewals must never overwrite a past season.
 
+Line and form exist only on `agreement_terms` (CC2-10 dropped the agreement columns).
+
 **Why:** The Contract Center requirements explicitly preserve historical seasonal terms rather than treating renewal as an edit to the previous contract.
 
 **How to apply:** Later renewal and editing work must target the intended term, creating a new term for a new season instead of mutating past-season data.

@@ -24,9 +24,11 @@ const originalMigration = readFileSync(new URL("../../../../.migration-backup/mi
 const extension = readFileSync(new URL("../../../../.migration-backup/migrations/0046_contract_center_payment_lines.sql", import.meta.url), "utf8");
 const auditExtension = readFileSync(new URL("../../../../.migration-backup/migrations/0048_agreement_import_ref.sql", import.meta.url), "utf8");
 const bidExtension = readFileSync(new URL("../../../../.migration-backup/migrations/0052_term_bid_ticket.sql", import.meta.url), "utf8");
-// Compare the foundation plus the additive extension, never rewrite historical SQL.
+const dropExtension = readFileSync(new URL("../../../../.migration-backup/migrations/0054_drop_agreement_line_form.sql", import.meta.url), "utf8");
+// Compare effective foundation + extensions + obsolete agreement-column drops;
+// never rewrite historical SQL.
 const migration = originalMigration
-  .replace("  line text NOT NULL,\n  form text NOT NULL DEFAULT 'ours',", "  line text,\n  form text DEFAULT 'ours',")
+  .replace("  line text NOT NULL,\n  form text NOT NULL DEFAULT 'ours',\n", "")
   .replace("CREATE TABLE IF NOT EXISTS agreement_terms (\n", "CREATE TABLE IF NOT EXISTS agreement_terms (\n  bid_ticket_id varchar REFERENCES tickets(id) ON DELETE SET NULL,\n  line text NOT NULL,\n  form text NOT NULL DEFAULT 'ours',\n")
   .replace("CREATE TABLE IF NOT EXISTS agreements (\n", "CREATE TABLE IF NOT EXISTS agreements (\n  import_ref text,\n")
   .replace("CREATE TABLE IF NOT EXISTS agreements (\n  import_ref text,", "CREATE TABLE IF NOT EXISTS agreements (\n  CONSTRAINT agreements_company_import_ref_unique UNIQUE (company_id, import_ref),\n  import_ref text,")
@@ -36,6 +38,19 @@ const migration = originalMigration
   + "\nCREATE INDEX IF NOT EXISTS agreement_terms_bid_ticket_idx ON agreement_terms (bid_ticket_id);";
 
 describe("Contract Center schema", () => {
+  it("retires only agreement coverage/form and strips obsolete insert keys on the authoritative server", () => {
+    expect(dropExtension.trim()).toBe("ALTER TABLE agreements DROP COLUMN IF EXISTS line;\nALTER TABLE agreements DROP COLUMN IF EXISTS form;");
+    const columns = getTableConfig(agreements).columns.map(column => column.name);
+    expect(columns).not.toContain("line");
+    expect(columns).not.toContain("form");
+    expect(agreements).not.toHaveProperty("line");
+    expect(agreements).not.toHaveProperty("form");
+    for (const obsolete of [{ line: "both", form: "theirs" }, { line: "invalid", form: "invalid" }]) {
+      const parsed = insertAgreementSchema.parse({ companyId: "company", customerId: "customer", ...obsolete });
+      expect(parsed).not.toHaveProperty("line");
+      expect(parsed).not.toHaveProperty("form");
+    }
+  });
   it("adds only a nullable nonunique indexed ticket FK with SET NULL", () => {
     expect(bidExtension).toContain("ADD COLUMN IF NOT EXISTS bid_ticket_id varchar");
     expect(bidExtension).toContain("REFERENCES tickets(id) ON DELETE SET NULL");
@@ -47,7 +62,7 @@ describe("Contract Center schema", () => {
     expect(auditExtension).toContain("ADD COLUMN IF NOT EXISTS import_ref text");
     expect(auditExtension).toContain("conrelid = 'agreements'::regclass");
     expect(auditExtension).toContain("ADD CONSTRAINT agreements_company_import_ref_unique UNIQUE (company_id, import_ref)");
-    const base = { companyId: "company", customerId: "customer", line: "both" };
+    const base = { companyId: "company", customerId: "customer" };
     expect(insertAgreementSchema.parse(base).importRef).toBeUndefined();
     expect(insertAgreementSchema.parse({ ...base, importRef: null }).importRef).toBeNull();
     expect(insertAgreementSchema.parse({ ...base, importRef: "audited" }).importRef).toBe("audited");
@@ -64,7 +79,7 @@ describe("Contract Center schema", () => {
     expect(insertTermBillingMonthSchema.parse({ companyId: "c", termId: "t", month: "2026-01-01", amountCents: 5 }).component).toBe("Contract");
   });
   it("validates all twelve minimal inserts with the specified defaults", () => {
-    expect(insertAgreementSchema.parse({ companyId: "company", customerId: "customer" }).form).toBeUndefined();
+    expect(insertAgreementSchema.parse({ companyId: "company", customerId: "customer" })).not.toHaveProperty("form");
     expect(insertAgreementTermSchema.parse(term).form).toBe("ours");
     expect(insertContractMasterSchema.parse({ companyId: "company", version: 1, filename: "master", storageObjectPath: "/master" }).isCurrent).toBe(false);
     expect(insertAgreementTermSchema.parse(term).status).toBe("draft");
@@ -120,7 +135,7 @@ describe("Contract Center schema", () => {
       expect(insertTermStatusHistorySchema.parse({ companyId: "company", termId: "term", newStatus: "active", oldStatus }).oldStatus).toBeUndefined();
     }
     expect(insertTermStatusHistorySchema.safeParse({ companyId: "company", termId: "term", newStatus: "", oldStatus: "bad" }).success).toBe(false);
-    expect(insertAgreementSchema.safeParse({ companyId: "company", customerId: "customer", line: "irrigation" }).success).toBe(false);
+    expect(insertAgreementTermSchema.safeParse({ ...term, line: "irrigation" }).success).toBe(false);
     expect(insertAgreementTermSchema.safeParse({ ...term, billingType: "monthly" }).success).toBe(false);
     expect(insertTermScopeLineSchema.safeParse({ ...scope, line: "both" }).success).toBe(false);
     expect(insertRateCardItemSchema.safeParse({ ...rate, line: "both" }).success).toBe(false);

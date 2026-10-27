@@ -100,6 +100,7 @@ describe("production-preview copy rules", () => {
     const t = agreement.terms[0];
     expect(result.report.summary).toMatchObject({ agreements: 1, terms: 1, documents: 1, billingMonths: 12 });
     expect(agreement.agreement.line).toBe("both");
+    expect(agreement.terms[0].term.bidTicketId).toBeNull();
     expect(result.report.customers[0].agreements[0].line).toBe("both");
     expect(t.report.legacyContractIds).toEqual(["c1", "chemical", "s1"]);
     expect(t.term).toMatchObject({ annualPriceCents: 1200000, billingType: "equal_monthly" });

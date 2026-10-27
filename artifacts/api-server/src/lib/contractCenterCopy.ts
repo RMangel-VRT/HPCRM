@@ -55,7 +55,8 @@ export interface TermPlan {
 export interface CustomerPlan {
   report: CustomerReport;
   agreements: Array<{
-    agreement: Pick<Agreement, "customerId" | "line" | "propertyManagementCompanyId">;
+    // Disabled planner-only grouping hint, never an agreements column.
+    agreement: Pick<Agreement, "customerId" | "propertyManagementCompanyId"> & { line: AgreementTerm["line"] };
     terms: TermPlan[];
   }>;
 }
@@ -318,7 +319,7 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
           }
           const termPlan: TermPlan = {
             report: termReport, renewedFromIndex: agreementPlan.terms.length ? agreementPlan.terms.length - 1 : null,
-            term: { line, form: "ours", seasonLabel: termReport.seasonLabel, startDate: start, endDate: end, status, billingType,
+            term: { bidTicketId: null, line, form: "ours", seasonLabel: termReport.seasonLabel, startDate: start, endDate: end, status, billingType,
               snowPricing: line === "landscape" ? null : "time_and_materials", snowFlatPriceCents: null,
               annualPriceCents, renewalIncreasePct: null, legalName: null, managingAgentName: manager?.name ?? customer.managementCompany ?? null,
               projectContact: null, contactPhone: null, contactEmail: null,

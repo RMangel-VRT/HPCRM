@@ -179,13 +179,13 @@ describe("estimate setup SQL and company-scoped persistence", () => {
     expect(await estimateQuickCatalog.list(a, "fee")).toEqual([]);
     await expect(db.execute(sql`insert into estimate_quick_items(company_id,kind,label,umbrella_key) values (${a},'fleet','Invalid','plants')`)).rejects.toBeDefined();
   });
-  it("batches actual resolver reads, uses term-owned line despite legacy agreement hints, and excludes foreign customers and rates", async () => {
+  it("batches actual resolver reads, uses term-owned line, and excludes foreign customers and rates", async () => {
     const cA = randomUUID(), cB = randomUUID(), agreementA = randomUUID(), snowAgreement = randomUUID(), agreementB = randomUUID();
     const termA = randomUUID(), snowTerm = randomUUID(), termB = randomUUID(), today = companyToday();
     await db.insert(customers).values([{ id: cA, companyId: a, name: "Rate verification A", street: "Test", city: "Test", state: "CO", zip: "00000" },
       { id: cB, companyId: b, name: "Rate verification B", street: "Test", city: "Test", state: "CO", zip: "00000" }]);
-    await db.insert(agreements).values([{ id: agreementA, companyId: a, customerId: cA, line: "snow" },
-      { id: snowAgreement, companyId: a, customerId: cA, line: "landscape" }, { id: agreementB, companyId: b, customerId: cB, line: "landscape" }]);
+    await db.insert(agreements).values([{ id: agreementA, companyId: a, customerId: cA },
+      { id: snowAgreement, companyId: a, customerId: cA }, { id: agreementB, companyId: b, customerId: cB }]);
     const base = { seasonLabel: "Verification", status: "active" as const, startDate: addCalendarDays(today, -30), endDate: addCalendarDays(today, 30), billingType: "time_and_materials" as const };
     await db.insert(agreementTerms).values([{ ...base, id: termA, companyId: a, agreementId: agreementA, line: "landscape" },
       { ...base, id: snowTerm, companyId: a, agreementId: snowAgreement, line: "snow", startDate: today },

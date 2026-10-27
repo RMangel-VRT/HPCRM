@@ -1,0 +1,2 @@
+ALTER TABLE agreements DROP COLUMN IF EXISTS line;
+ALTER TABLE agreements DROP COLUMN IF EXISTS form;

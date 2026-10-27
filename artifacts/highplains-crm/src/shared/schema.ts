@@ -706,8 +706,6 @@ export const agreements = pgTable("agreements", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  line: contractCenterText("line").$type<AgreementLine>(),
-  form: contractCenterText("form").default("ours").$type<AgreementForm>(),
   propertyManagementCompanyId: varchar("property_management_company_id").references(() => propertyManagementCompanies.id, { onDelete: "set null" }),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -720,7 +718,6 @@ export const agreements = pgTable("agreements", {
 export const insertAgreementSchema = createInsertSchema(agreements).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   importRef: z.string().nullable().optional(),
   companyId: z.string(), customerId: z.string(),
-  line: z.enum(AGREEMENT_LINES).nullable().optional(), form: z.enum(AGREEMENT_FORMS).nullable().optional(),
   propertyManagementCompanyId: z.string().nullable().optional(), notes: z.string().nullable().optional(),
 });
 export type Agreement = typeof agreements.$inferSelect;

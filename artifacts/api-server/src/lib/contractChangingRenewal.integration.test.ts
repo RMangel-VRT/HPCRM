@@ -39,7 +39,8 @@ describe.skipIf(!enabled)("disposable contract-changing renewals", () => {
       scope: [], rates: [], payments: [] });
     expect(response.status).toBe(201);
     const [relationship] = await db.select().from(agreements).where(eq(agreements.id, response.body.id));
-    expect(relationship.line).toBeNull(); // The legacy form default may remain; no application write.
+    expect(relationship).not.toHaveProperty("line");
+    expect(relationship).not.toHaveProperty("form");
     expect(response.body.terms[0]).toMatchObject({ line: "snow", form: "theirs" });
     const f = await source();
     const draft = await api.post(`${path}/contracts/${f.agreement.id}/renew`).send(requestBody);

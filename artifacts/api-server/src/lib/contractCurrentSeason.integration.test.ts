@@ -32,7 +32,7 @@ describe.skipIf(!enabled)("current season — disposable production-like persist
     ]) {
       const [customer] = await db.insert(customers).values({ companyId, name: `Disposable ${spec.name}`,
         street: "1 Fixture Way", city: "Denver", state: "CO", zip: "80000" }).returning();
-      const [agreement] = await db.insert(agreements).values({ companyId, customerId: customer.id, line: "landscape", form: "ours" }).returning();
+      const [agreement] = await db.insert(agreements).values({ companyId, customerId: customer.id }).returning();
       const terms: typeof agreementTerms.$inferSelect[] = [];
       for (const [i, year] of spec.years.entries()) {
         const [term] = await db.insert(agreementTerms).values({
