@@ -30,6 +30,59 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("shared accessible rail", () => {
+  it("associates h3 headings with their lists using instance-unique, stable IDs", () => {
+    const grouped = [...sections, { label: "System", items: [{ key: "database", label: "Database", href: "/database" }] }];
+    const rails = <><SectionRail title="Settings" ariaLabel="First" sections={grouped} activeKey="company" />
+      <SectionRail title="Settings" ariaLabel="Second" sections={grouped} activeKey="company" /></>;
+    const view = render(rails);
+    const headings = screen.getAllByRole("heading", { level: 3 });
+    const ids = headings.map(h => h.id);
+    expect(new Set(ids).size).toBe(4);
+    for (const nav of screen.getAllByRole("navigation")) {
+      const lists = within(nav).getAllByRole("list");
+      const labels = within(nav).getAllByRole("heading", { level: 3 });
+      lists.forEach((list, i) => {
+        expect(list.getAttribute("aria-labelledby")).toBe(labels[i].id);
+        expect(labels[i].className).toContain("pb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-rail-heading");
+      });
+      expect(labels[0].parentElement?.className).toBe("pb-1.5 pt-0.5");
+      expect(labels[1].parentElement?.className).toBe("pb-1.5 pt-3.5 border-t border-rail-border");
+    }
+    view.rerender(rails);
+    expect(screen.getAllByRole("heading", { level: 3 }).map(h => h.id)).toEqual(ids);
+  });
+  it("leaves unlabelled groups without headings, associations or new separators", () => {
+    render(<SectionRail title="Inbox" ariaLabel="Inbox sections" activeKey="company"
+      sections={[{ items: sections[1].items }, { items: [sections[1].items[0]] }]} />);
+    expect(screen.queryByRole("heading", { level: 3 })).toBeNull();
+    const lists = screen.getAllByRole("list");
+    lists.forEach(list => {
+      expect(list.hasAttribute("aria-labelledby")).toBe(false);
+      expect(list.parentElement?.className ?? "").not.toContain("border-t");
+      expect(list.parentElement?.className ?? "").not.toContain("pt-");
+    });
+    expect(lists[1].parentElement?.className).toBe("mt-4");
+  });
+  it.each([0, 1, 3])("puts dividers only between the %i visible pill groups, including unlabelled groups", count => {
+    narrow = true;
+    const grouped = Array.from({ length: count }, (_, i) => ({
+      label: i === 1 ? undefined : `Group ${i}`,
+      items: [{ key: `item-${i}`, label: `Item ${i}`, href: `/item/${i}` }],
+    }));
+    render(<SectionRail title="Settings" ariaLabel="Settings sections" activeKey="item-0"
+      sections={[{ label: "Hidden first", items: [] }, ...grouped, { label: "Hidden last", items: [] }]} />);
+    const row = screen.getByTestId("section-rail-pills").firstElementChild!;
+    expect(screen.queryAllByTestId("rail-group-divider")).toHaveLength(Math.max(count - 1, 0));
+    expect(screen.queryAllByRole("heading")).toHaveLength(0);
+    if (count > 0) {
+      expect(row.firstElementChild?.tagName).toBe("A");
+      expect(row.lastElementChild?.tagName).toBe("A");
+    }
+    screen.queryAllByTestId("rail-group-divider").forEach(divider => {
+      expect(divider.getAttribute("aria-hidden")).toBe("true");
+      expect(divider.className).toContain("w-px shrink-0 self-stretch bg-rail-border mx-1");
+    });
+  });
   it("uses real anchors, active aria-current, badges and stable/override test IDs; drops empty sections", () => {
     const loc = memoryLocation({ path: "/dashboard/settings/company" });
     render(<Router hook={loc.hook}><Fixture /></Router>);

@@ -1,4 +1,4 @@
-import { useRef, useCallback, useContext, useState, useEffect } from "react";
+import { Fragment, useRef, useCallback, useContext, useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitcher";
@@ -219,52 +219,57 @@ export function CustomerSubNav({
       >
         {isCollapsed ? (
           <div className="flex flex-col items-center gap-0.5 px-1">
-            {visibleItems.map((item) => {
-              const Icon = item.icon;
-              const isActive =
-                item.key === "billing"
-                  ? BILLING_SUBTABS.has(activeTab)
-                  : item.tabValue === activeTab;
-              return (
-                <Tooltip key={item.key} delayDuration={300}>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className={`text-rail-foreground hover:bg-rail-hover hover:text-rail-active-foreground relative${
-                        isActive
-                          ? " bg-rail-active text-rail-active-foreground font-medium"
-                          : " font-normal"
-                      }`}
-                      onClick={() => onTabChange(item.tabValue)}
-                      data-testid={`nav-item-${item.key}`}
-                      data-nav-item
-                      aria-current={isActive ? "page" : undefined}
-                      aria-label={item.label}
-                    >
-                      <Icon className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
-                      {item.badgeCount !== undefined && item.badgeCount > 0 && (
-                        <span
-                          className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] rounded-full bg-rail-hover text-rail-foreground text-[9px] font-semibold flex items-center justify-center px-0.5"
-                          data-testid={`badge-count-${item.key}`}
+            {sections.map((section, i) => (
+              <Fragment key={section.heading}>
+                {i > 0 && <div aria-hidden="true" className="h-px self-stretch bg-rail-border my-1" data-testid="customer-group-divider" />}
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive =
+                    item.key === "billing"
+                      ? BILLING_SUBTABS.has(activeTab)
+                      : item.tabValue === activeTab;
+                  return (
+                    <Tooltip key={item.key} delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={`text-rail-foreground hover:bg-rail-hover hover:text-rail-active-foreground relative${
+                            isActive
+                              ? " bg-rail-active text-rail-active-foreground font-medium"
+                              : " font-normal"
+                          }`}
+                          onClick={() => onTabChange(item.tabValue)}
+                          data-testid={`nav-item-${item.key}`}
+                          data-nav-item
+                          aria-current={isActive ? "page" : undefined}
+                          aria-label={item.label}
                         >
-                          {item.badgeCount}
-                        </span>
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={4}>
-                    {item.label}
-                  </TooltipContent>
-                </Tooltip>
-              );
-            })}
+                          <Icon className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+                          {item.badgeCount !== undefined && item.badgeCount > 0 && (
+                            <span
+                              className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] rounded-full bg-rail-hover text-rail-foreground text-[9px] font-semibold flex items-center justify-center px-0.5"
+                              data-testid={`badge-count-${item.key}`}
+                            >
+                              {item.badgeCount}
+                            </span>
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" sideOffset={4}>
+                        {item.label}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </Fragment>
+            ))}
           </div>
         ) : (
-          sections.map((section) => (
-            <div key={section.heading} className="mb-3" role="group" aria-label={section.heading}>
+          sections.map((section, i) => (
+            <div key={section.heading} className={`pb-1.5 ${i > 0 ? "pt-3.5 border-t border-rail-border" : "pt-0.5"}`} role="group" aria-label={section.heading}>
               <p
-                className="px-3 mb-1 text-[11px] uppercase tracking-wider text-rail-muted font-medium"
+                className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-rail-heading"
                 aria-hidden="true"
               >
                 {section.heading}

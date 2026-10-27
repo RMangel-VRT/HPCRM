@@ -80,6 +80,7 @@ export default {
           border: "hsl(var(--rail-border) / <alpha-value>)",
           foreground: "hsl(var(--rail-foreground) / <alpha-value>)",
           muted: "hsl(var(--rail-muted) / <alpha-value>)",
+          heading: "hsl(var(--rail-heading) / <alpha-value>)",
           hover: "hsl(var(--rail-hover) / <alpha-value>)",
           active: "hsl(var(--rail-active) / <alpha-value>)",
           "active-foreground": "hsl(var(--rail-active-foreground) / <alpha-value>)",
