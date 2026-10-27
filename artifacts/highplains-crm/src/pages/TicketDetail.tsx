@@ -1530,7 +1530,8 @@ export default function TicketDetail() {
       </div>
 
       {activeTab === "overview" && (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_330px]">
+          <div className="min-w-0 space-y-4">
           {/* Service Request Type for RFP tickets */}
           {ticketType.name === "RFP Request" && (
             <Card data-testid="card-service-request">
@@ -1562,43 +1563,205 @@ export default function TicketDetail() {
             </Card>
           )}
 
-          <TicketWorkItemsCard ticketId={ticket.id} serviceType={ticket.serviceType ?? null} />
+          {fieldValues.length > 0 && (() => {
+            const allFields = statuses.flatMap(s => (s.fields || []).map(f => ({ ...f, statusName: s.name, statusColor: s.color })));
+            const filledFields = allFields.filter(f => {
+              const val = fieldValues.find(fv => fv.fieldId === f.id);
+              return val && val.value.trim() !== "";
+            });
+            if (filledFields.length === 0) return null;
 
-          {customer && contract && (
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground mb-1">{t('common.contract')}</p>
-                {canViewCustomer ? (
-                  <Link href={`/dashboard/customers/${customer.id}`}>
-                    <Badge variant="secondary" className="hover-elevate cursor-pointer">
-                      {contract.serviceType?.replace(/_/g, " ") || "Contract"}
-                    </Badge>
-                  </Link>
-                ) : (
-                  <Badge variant="secondary">
-                    {contract.serviceType?.replace(/_/g, " ") || "Contract"}
-                  </Badge>
+            const statusOrder = statuses.map(s => s.name);
+            const groupedByStatus: Record<string, typeof filledFields> = {};
+            for (const field of filledFields) {
+              if (!groupedByStatus[field.statusName]) groupedByStatus[field.statusName] = [];
+              groupedByStatus[field.statusName].push(field);
+            }
+            const sortedGroups = Object.entries(groupedByStatus).sort(
+              ([a], [b]) => statusOrder.indexOf(a) - statusOrder.indexOf(b)
+            );
+
+            const formatFieldValue = (field: typeof filledFields[0], value: string) => {
+              if (field.fieldType === "currency") {
+                const num = parseFloat(value);
+                return isNaN(num) ? value : `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+              }
+              if (field.fieldType === "date") {
+                try { return format(new Date(value), "MMM d, yyyy"); } catch { return value; }
+              }
+              return value;
+            };
+
+            return (
+              <Card data-testid="card-collected-details">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <ClipboardList className="w-4 h-4" />
+                    {t('common.details')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 space-y-3">
+                  {sortedGroups.map(([statusName, fields]) => (
+                    <div key={statusName}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: fields[0]?.statusColor || "#6b7280" }}
+                        />
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          {statusName}
+                        </p>
+                      </div>
+                      <div className="space-y-1 ml-4">
+                        {fields.sort((a, b) => a.displayOrder - b.displayOrder).map((field) => {
+                          const fv = fieldValues.find(v => v.fieldId === field.id);
+                          if (!fv) return null;
+                          const displayValue = formatFieldValue(field, fv.value);
+                          const isLongText = field.fieldType === "textarea" && fv.value.length > 60;
+                          return (
+                            <div key={field.id} className={isLongText ? "" : "flex items-baseline justify-between gap-2"} data-testid={`field-value-${field.fieldKey}`}>
+                              <span className="text-xs text-muted-foreground shrink-0">{field.fieldLabel}</span>
+                              {isLongText ? (
+                                <p className="text-sm whitespace-pre-wrap mt-0.5">{displayValue}</p>
+                              ) : (
+                                <span className="text-sm font-medium text-right">{displayValue}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* Job Recap Card — always shown for completed tickets; also shown when any completion data exists */}
+          {(isComplete || ticket.workSummaryForCustomer) && (
+            <Card data-testid="card-job-recap" className="overflow-hidden">
+              {/* Green Completed Banner */}
+              <div className="bg-green-600 dark:bg-green-700 px-4 py-3 flex flex-wrap items-center justify-between gap-2" data-testid="banner-completed">
+                <div className="flex flex-wrap items-center gap-3 text-white">
+                  <span className="flex items-center gap-1.5 font-semibold text-sm">
+                    <Check className="w-4 h-4" />
+                    {t('ticketDetail.jobRecapTitle')}
+                  </span>
+                  {ticket.leadTechUserId && teamMembers.find(m => m.id === ticket.leadTechUserId) && (
+                    <span className="flex items-center gap-1 text-green-100 text-xs" data-testid="banner-lead-tech">
+                      <User className="w-3.5 h-3.5" />
+                      {teamMembers.find(m => m.id === ticket.leadTechUserId)?.name}
+                    </span>
+                  )}
+                  {(() => {
+                    const start = ticket.actualStartTime ? new Date(ticket.actualStartTime as unknown as string) : null;
+                    const end = ticket.actualEndTime ? new Date(ticket.actualEndTime as unknown as string) : null;
+                    const done = ticket.completedAt ? new Date(ticket.completedAt as unknown as string) : null;
+                    const fmt = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                    const dur = (mins: number) => mins >= 60 ? `${Math.floor(mins / 60)}h${mins % 60 > 0 ? ` ${mins % 60}m` : ''}` : `${mins}m`;
+                    let label = '';
+                    if (start && end) {
+                      const diffMins = Math.round((end.getTime() - start.getTime()) / 60000);
+                      label = `${fmt(start)} – ${fmt(end)} (${dur(diffMins)})`;
+                    } else if (done) {
+                      label = format(done, "MMM d, yyyy");
+                    }
+                    return label ? (
+                      <span className="flex items-center gap-1 text-green-100 text-xs" data-testid="banner-time-on-site">
+                        <Clock className="w-3.5 h-3.5" />
+                        {label}
+                      </span>
+                    ) : null;
+                  })()}
+                  {completionPhotoUrls.length > 0 && (
+                    <span className="flex items-center gap-1 text-green-100 text-xs" data-testid="banner-photo-count">
+                      <Camera className="w-3.5 h-3.5" />
+                      {completionPhotoUrls.length} {completionPhotoUrls.length === 1 ? t('ticketDetail.photo') : t('ticketDetail.photos')}
+                    </span>
+                  )}
+                </div>
+                {isAdminOrOffice && (
+                  <Button variant="ghost" size="sm" onClick={() => setShowCompletionFormDialog(true)} data-testid="button-edit-job-recap" className="text-white hover:text-white">
+                    <Pencil className="w-3.5 h-3.5 mr-1" />
+                    {t('common.edit')}
+                  </Button>
+                )}
+              </div>
+              <CardContent className="pt-3 space-y-3">
+                {ticket.workSummaryForCustomer && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.workSummaryForCustomer')}</p>
+                    <p className="text-sm whitespace-pre-wrap">{ticket.workSummaryForCustomer as string}</p>
+                  </div>
+                )}
+                {ticket.materialsUsed && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.materialsUsed')}</p>
+                    <p className="text-sm whitespace-pre-wrap">{ticket.materialsUsed as string}</p>
+                  </div>
+                )}
+                {ticket.areasWorked && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.areasWorked')}</p>
+                    <p className="text-sm whitespace-pre-wrap">{ticket.areasWorked as string}</p>
+                  </div>
+                )}
+                {ticket.recommendations && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.recommendations')}</p>
+                    <p className="text-sm whitespace-pre-wrap">{ticket.recommendations as string}</p>
+                  </div>
+                )}
+                {completionPhotoUrls.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.completionPhotos')}</p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {completionPhotoUrls.slice(0, 6).map(p => (
+                        <a key={p.key} href={p.url} target="_blank" rel="noopener noreferrer" data-testid={`completion-photo-${p.key}`}>
+                          <img src={p.url} alt="Site photo" className="w-full h-20 object-cover rounded-md border" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!ticket.workSummaryForCustomer && isAdminOrOffice && (
+                  <p className="text-xs text-muted-foreground italic">{t('ticketDetail.noRecapYet')}</p>
                 )}
               </CardContent>
             </Card>
           )}
 
-          {(ticketType?.name === "Estimate Request" || ticketType?.name === "Project") &&
-           !linkedTickets?.find(lt => lt.link.linkType === "invoice_for" && lt.relationship === "source") && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 w-full justify-start"
-              onClick={() => {
-                setCreateInvoiceTitle(`Invoice: ${ticket?.title || ""}`);
-                setShowCreateInvoiceDialog(true);
-              }}
-              data-testid="button-create-invoice-ticket"
-            >
-              <FileText className="w-4 h-4" />
-              Create Invoice Ticket
-            </Button>
+          <MobilePhotosNotesCard ticketId={ticketId} />
+
+          {comments.length > 0 && (
+            <Card data-testid="card-recent-comments">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4" />
+                  {t('ticketDetail.tabs.comments')}
+                </CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => setActiveTab("comments")} data-testid="button-view-all-comments">
+                  {t('common.view')}
+                </Button>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="space-y-2">
+                  {comments.slice(0, 2).map((comment) => (
+                    <div key={comment.id} className="text-sm border-l-2 pl-3 py-1">
+                      <p className="line-clamp-2">{comment.body}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           )}
+          </div>
+
+          <div className="min-w-0 space-y-4">
+          <TicketWorkItemsCard ticketId={ticket.id} serviceType={ticket.serviceType ?? null} />
 
           {linkedTickets && linkedTickets.length > 0 && (
             <Card data-testid="card-linked-tickets">
@@ -1657,6 +1820,42 @@ export default function TicketDetail() {
                 })}
               </CardContent>
             </Card>
+          )}
+
+          {customer && contract && (
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground mb-1">{t('common.contract')}</p>
+                {canViewCustomer ? (
+                  <Link href={`/dashboard/customers/${customer.id}`}>
+                    <Badge variant="secondary" className="hover-elevate cursor-pointer">
+                      {contract.serviceType?.replace(/_/g, " ") || "Contract"}
+                    </Badge>
+                  </Link>
+                ) : (
+                  <Badge variant="secondary">
+                    {contract.serviceType?.replace(/_/g, " ") || "Contract"}
+                  </Badge>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {(ticketType?.name === "Estimate Request" || ticketType?.name === "Project") &&
+           !linkedTickets?.find(lt => lt.link.linkType === "invoice_for" && lt.relationship === "source") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 w-full justify-start"
+              onClick={() => {
+                setCreateInvoiceTitle(`Invoice: ${ticket?.title || ""}`);
+                setShowCreateInvoiceDialog(true);
+              }}
+              data-testid="button-create-invoice-ticket"
+            >
+              <FileText className="w-4 h-4" />
+              Create Invoice Ticket
+            </Button>
           )}
 
           {showProposals && (() => {
@@ -1954,80 +2153,6 @@ export default function TicketDetail() {
             </Card>
           )}
 
-          {fieldValues.length > 0 && (() => {
-            const allFields = statuses.flatMap(s => (s.fields || []).map(f => ({ ...f, statusName: s.name, statusColor: s.color })));
-            const filledFields = allFields.filter(f => {
-              const val = fieldValues.find(fv => fv.fieldId === f.id);
-              return val && val.value.trim() !== "";
-            });
-            if (filledFields.length === 0) return null;
-
-            const statusOrder = statuses.map(s => s.name);
-            const groupedByStatus: Record<string, typeof filledFields> = {};
-            for (const field of filledFields) {
-              if (!groupedByStatus[field.statusName]) groupedByStatus[field.statusName] = [];
-              groupedByStatus[field.statusName].push(field);
-            }
-            const sortedGroups = Object.entries(groupedByStatus).sort(
-              ([a], [b]) => statusOrder.indexOf(a) - statusOrder.indexOf(b)
-            );
-
-            const formatFieldValue = (field: typeof filledFields[0], value: string) => {
-              if (field.fieldType === "currency") {
-                const num = parseFloat(value);
-                return isNaN(num) ? value : `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-              }
-              if (field.fieldType === "date") {
-                try { return format(new Date(value), "MMM d, yyyy"); } catch { return value; }
-              }
-              return value;
-            };
-
-            return (
-              <Card data-testid="card-collected-details">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <ClipboardList className="w-4 h-4" />
-                    {t('common.details')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0 space-y-3">
-                  {sortedGroups.map(([statusName, fields]) => (
-                    <div key={statusName}>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <div
-                          className="w-2 h-2 rounded-full shrink-0"
-                          style={{ backgroundColor: fields[0]?.statusColor || "#6b7280" }}
-                        />
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                          {statusName}
-                        </p>
-                      </div>
-                      <div className="space-y-1 ml-4">
-                        {fields.sort((a, b) => a.displayOrder - b.displayOrder).map((field) => {
-                          const fv = fieldValues.find(v => v.fieldId === field.id);
-                          if (!fv) return null;
-                          const displayValue = formatFieldValue(field, fv.value);
-                          const isLongText = field.fieldType === "textarea" && fv.value.length > 60;
-                          return (
-                            <div key={field.id} className={isLongText ? "" : "flex items-baseline justify-between gap-2"} data-testid={`field-value-${field.fieldKey}`}>
-                              <span className="text-xs text-muted-foreground shrink-0">{field.fieldLabel}</span>
-                              {isLongText ? (
-                                <p className="text-sm whitespace-pre-wrap mt-0.5">{displayValue}</p>
-                              ) : (
-                                <span className="text-sm font-medium text-right">{displayValue}</span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            );
-          })()}
-
           {ticket.locationLat && ticket.locationLng && (
             <Card className="overflow-hidden" data-testid="card-location">
               <div className="h-[150px] relative">
@@ -2149,128 +2274,6 @@ export default function TicketDetail() {
             </Card>
           )}
 
-          {/* Job Recap Card — always shown for completed tickets; also shown when any completion data exists */}
-          {(isComplete || ticket.workSummaryForCustomer) && (
-            <Card data-testid="card-job-recap" className="overflow-hidden">
-              {/* Green Completed Banner */}
-              <div className="bg-green-600 dark:bg-green-700 px-4 py-3 flex flex-wrap items-center justify-between gap-2" data-testid="banner-completed">
-                <div className="flex flex-wrap items-center gap-3 text-white">
-                  <span className="flex items-center gap-1.5 font-semibold text-sm">
-                    <Check className="w-4 h-4" />
-                    {t('ticketDetail.jobRecapTitle')}
-                  </span>
-                  {ticket.leadTechUserId && teamMembers.find(m => m.id === ticket.leadTechUserId) && (
-                    <span className="flex items-center gap-1 text-green-100 text-xs" data-testid="banner-lead-tech">
-                      <User className="w-3.5 h-3.5" />
-                      {teamMembers.find(m => m.id === ticket.leadTechUserId)?.name}
-                    </span>
-                  )}
-                  {(() => {
-                    const start = ticket.actualStartTime ? new Date(ticket.actualStartTime as unknown as string) : null;
-                    const end = ticket.actualEndTime ? new Date(ticket.actualEndTime as unknown as string) : null;
-                    const done = ticket.completedAt ? new Date(ticket.completedAt as unknown as string) : null;
-                    const fmt = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-                    const dur = (mins: number) => mins >= 60 ? `${Math.floor(mins / 60)}h${mins % 60 > 0 ? ` ${mins % 60}m` : ''}` : `${mins}m`;
-                    let label = '';
-                    if (start && end) {
-                      const diffMins = Math.round((end.getTime() - start.getTime()) / 60000);
-                      label = `${fmt(start)} – ${fmt(end)} (${dur(diffMins)})`;
-                    } else if (done) {
-                      label = format(done, "MMM d, yyyy");
-                    }
-                    return label ? (
-                      <span className="flex items-center gap-1 text-green-100 text-xs" data-testid="banner-time-on-site">
-                        <Clock className="w-3.5 h-3.5" />
-                        {label}
-                      </span>
-                    ) : null;
-                  })()}
-                  {completionPhotoUrls.length > 0 && (
-                    <span className="flex items-center gap-1 text-green-100 text-xs" data-testid="banner-photo-count">
-                      <Camera className="w-3.5 h-3.5" />
-                      {completionPhotoUrls.length} {completionPhotoUrls.length === 1 ? t('ticketDetail.photo') : t('ticketDetail.photos')}
-                    </span>
-                  )}
-                </div>
-                {isAdminOrOffice && (
-                  <Button variant="ghost" size="sm" onClick={() => setShowCompletionFormDialog(true)} data-testid="button-edit-job-recap" className="text-white hover:text-white">
-                    <Pencil className="w-3.5 h-3.5 mr-1" />
-                    {t('common.edit')}
-                  </Button>
-                )}
-              </div>
-              <CardContent className="pt-3 space-y-3">
-                {ticket.workSummaryForCustomer && (
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.workSummaryForCustomer')}</p>
-                    <p className="text-sm whitespace-pre-wrap">{ticket.workSummaryForCustomer as string}</p>
-                  </div>
-                )}
-                {ticket.materialsUsed && (
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.materialsUsed')}</p>
-                    <p className="text-sm whitespace-pre-wrap">{ticket.materialsUsed as string}</p>
-                  </div>
-                )}
-                {ticket.areasWorked && (
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.areasWorked')}</p>
-                    <p className="text-sm whitespace-pre-wrap">{ticket.areasWorked as string}</p>
-                  </div>
-                )}
-                {ticket.recommendations && (
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.recommendations')}</p>
-                    <p className="text-sm whitespace-pre-wrap">{ticket.recommendations as string}</p>
-                  </div>
-                )}
-                {completionPhotoUrls.length > 0 && (
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('ticketDetail.completionPhotos')}</p>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {completionPhotoUrls.slice(0, 6).map(p => (
-                        <a key={p.key} href={p.url} target="_blank" rel="noopener noreferrer" data-testid={`completion-photo-${p.key}`}>
-                          <img src={p.url} alt="Site photo" className="w-full h-20 object-cover rounded-md border" />
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {!ticket.workSummaryForCustomer && isAdminOrOffice && (
-                  <p className="text-xs text-muted-foreground italic">{t('ticketDetail.noRecapYet')}</p>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          <MobilePhotosNotesCard ticketId={ticketId} />
-
-          {comments.length > 0 && (
-            <Card data-testid="card-recent-comments">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4" />
-                  {t('ticketDetail.tabs.comments')}
-                </CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => setActiveTab("comments")} data-testid="button-view-all-comments">
-                  {t('common.view')}
-                </Button>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="space-y-2">
-                  {comments.slice(0, 2).map((comment) => (
-                    <div key={comment.id} className="text-sm border-l-2 pl-3 py-1">
-                      <p className="line-clamp-2">{comment.body}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
           {isAdminOrOffice && (isComplete || currentStatus?.isFinal === "true") && ticket.customerId && (
             <Card data-testid="card-overview-send-email">
               <CardContent className="p-4 space-y-3">
@@ -2380,6 +2383,7 @@ export default function TicketDetail() {
               </CardContent>
             </Card>
           )}
+          </div>
         </div>
       )}
 
