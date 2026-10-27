@@ -28,8 +28,7 @@ const rows: [string, string[], string[], string[]][] = [
 describe("work-page rails", () => {
   it.each(rows)("%s gets exactly its permitted views and hides single-view rails", (viewer, tickets, maps, campaigns) => {
     role = viewer;
-    for (const [family, keys] of [["tickets", tickets], ["maps", maps], ["campaigns", campaigns],
-      ["plants", ["admin", "office"].includes(viewer) ? ["library", "matches", "palettes"] : []]] as [WorkFamily, string[]][]) {
+    for (const [family, keys] of [["tickets", tickets], ["maps", maps], ["campaigns", campaigns]] as [WorkFamily, string[]][]) {
       expect(workViewsFor(family, viewer).map(item => item.key)).toEqual(keys);
       render(<Router><WorkPageLayout path={WORK_VIEWS[family][0].href}>Content</WorkPageLayout></Router>);
       expect(screen.queryAllByRole("navigation")).toHaveLength(keys.length > 1 ? 1 : 0);
@@ -45,7 +44,7 @@ describe("work-page rails", () => {
   });
   it("palette detail keeps Palettes active", () => {
     role = "admin";
-    render(<Router><WorkPageLayout path="/dashboard/tools/plant-palette/palette-id">Draft</WorkPageLayout></Router>);
+    render(<Router><WorkPageLayout path="/dashboard/estimates/catalogs/plants/palettes/palette-id">Draft</WorkPageLayout></Router>);
     expect(screen.getByTestId("rail-palettes").getAttribute("aria-current")).toBe("page");
   });
   it.each(["/dashboard/campaigns/c", "/dashboard/campaigns/c/items/i", "/dashboard/tickets/t",

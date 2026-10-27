@@ -4,9 +4,19 @@ import { SectionRail, type RailSection } from "@/components/nav/SectionRail";
 
 export const ESTIMATES_BASE = "/dashboard/estimates";
 export const HARDSCAPE_CATALOG_PATH = `${ESTIMATES_BASE}/catalogs/hardscape`;
-export const PLANT_LIBRARY_PATH = "/dashboard/tools/plant-library";
+export const PLANT_LIBRARY_PATH = `${ESTIMATES_BASE}/catalogs/plants`;
+export const PLANT_MATCHES_PATH = `${PLANT_LIBRARY_PATH}/matches`;
+export const PLANT_PALETTES_PATH = `${PLANT_LIBRARY_PATH}/palettes`;
 
-export type EstimatesRailKey = "all" | "hardscape" | "plant_library";
+export type EstimatesRailKey = "all" | "hardscape" | "plant_library" | "library" | "matches" | "palettes";
+
+/** Only plant pages use the shared outer shell; the board and hardscape own theirs. */
+export function plantRailKey(path: string): EstimatesRailKey | undefined {
+  if (path === PLANT_LIBRARY_PATH) return "library";
+  if (path === PLANT_MATCHES_PATH) return "matches";
+  if (path === PLANT_PALETTES_PATH || new RegExp(`^${PLANT_PALETTES_PATH}/[^/]+$`).test(path)) return "palettes";
+  return undefined;
+}
 
 /** True for estimates-hub sub pages (the board itself is matched separately). */
 export function isEstimatesHubPage(location: string): boolean {
@@ -22,6 +32,9 @@ export function estimatesRailSections(t: (k: string) => string): RailSection[] {
     { label: t("estimates.catalogs"), items: [
       { key: "hardscape", label: t("estimates.hardscapeCatalog"), href: HARDSCAPE_CATALOG_PATH },
       { key: "plant_library", label: t("estimates.plantLibrary"), href: PLANT_LIBRARY_PATH },
+      { key: "library", label: t("workRail.library"), href: PLANT_LIBRARY_PATH, indented: true },
+      { key: "matches", label: t("workRail.matches"), href: PLANT_MATCHES_PATH, indented: true },
+      { key: "palettes", label: t("workRail.palettes"), href: PLANT_PALETTES_PATH, indented: true },
     ] },
     // Settings: provisioned for Slice 2.3 (Labor & Rates, QuickBooks Setup). Empty sections are not rendered.
     { label: t("estimates.settings"), items: [] },

@@ -1,6 +1,6 @@
 import type { NavRole } from "./navConfig";
 
-export type WorkFamily = "tickets" | "maps" | "campaigns" | "plants";
+export type WorkFamily = "tickets" | "maps" | "campaigns";
 type WorkItem = { key: string; labelKey: string; href: string; roles: readonly string[] };
 const AO = ["admin", "office"];
 export const WORK_VIEWS: Record<WorkFamily, WorkItem[]> = {
@@ -17,11 +17,6 @@ export const WORK_VIEWS: Record<WorkFamily, WorkItem[]> = {
     { key: "campaigns", labelKey: "nav.campaigns", href: "/dashboard/campaigns", roles: [...AO, "field", "field_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor"] },
     { key: "checklists", labelKey: "nav.serviceChecklists", href: "/dashboard/campaigns/checklists", roles: [...AO, "field_manager", "chemical_manager"] },
   ],
-  plants: [
-    { key: "library", labelKey: "workRail.library", href: "/dashboard/tools/plant-library", roles: AO },
-    { key: "matches", labelKey: "workRail.matches", href: "/dashboard/tools/plant-matches", roles: AO },
-    { key: "palettes", labelKey: "workRail.palettes", href: "/dashboard/tools/plant-palette", roles: AO },
-  ],
 };
 
 export function workViewsFor(family: WorkFamily, role?: string | null) {
@@ -30,8 +25,7 @@ export function workViewsFor(family: WorkFamily, role?: string | null) {
 
 export function workPage(path: string): { family: WorkFamily; activeKey: string } | undefined {
   for (const family of Object.keys(WORK_VIEWS) as WorkFamily[]) {
-    const item = WORK_VIEWS[family].find(item => path === item.href ||
-      (family === "plants" && item.key === "palettes" && /^\/dashboard\/tools\/plant-palette\/[^/]+$/.test(path)));
+    const item = WORK_VIEWS[family].find(item => path === item.href);
     if (item) return { family, activeKey: item.key };
   }
   return undefined;

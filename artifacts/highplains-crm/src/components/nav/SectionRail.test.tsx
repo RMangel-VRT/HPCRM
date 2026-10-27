@@ -30,6 +30,20 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("shared accessible rail", () => {
+  it.each([false, true])("opt-in child indentation preserves badges, overrides and current semantics; narrow=%s", isNarrow => {
+    narrow = isNarrow;
+    render(<SectionRail title="Example" ariaLabel="Example sections" activeKey="child" sections={[{ items: [
+      { key: "parent", label: "Parent", href: "/parent" },
+      { key: "child", label: "Child", href: "/child", indented: true, badge: 0, testId: "nested-link" },
+    ] }]} />);
+    const parent = screen.getByTestId("rail-parent");
+    const child = screen.getByTestId("nested-link");
+    expect(child.textContent).toBe("Child0");
+    expect(child.getAttribute("aria-current")).toBe("page");
+    expect(parent.hasAttribute("aria-current")).toBe(false);
+    expect(parent.className).not.toContain("pl-6");
+    expect(child.className.includes("pl-6")).toBe(!isNarrow);
+  });
   it("associates h3 headings with their lists using instance-unique, stable IDs", () => {
     const grouped = [...sections, { label: "System", items: [{ key: "database", label: "Database", href: "/database" }] }];
     const rails = <><SectionRail title="Settings" ariaLabel="First" sections={grouped} activeKey="company" />

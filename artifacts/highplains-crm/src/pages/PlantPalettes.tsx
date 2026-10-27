@@ -85,7 +85,7 @@ export default function PlantPalettes() {
       queryClient.invalidateQueries({ queryKey: ["/api/plant-palettes"] });
       setDialogOpen(false);
       resetForm();
-      navigate(`/dashboard/tools/plant-palette/${palette.id}`);
+      navigate(`/dashboard/estimates/catalogs/plants/palettes/${palette.id}`);
     },
     onError: () => {
       toast({ title: t("plantPalette.createFailed"), variant: "destructive" });
@@ -167,7 +167,7 @@ export default function PlantPalettes() {
                 <Badge variant={palette.isTemplate ? "outline" : "secondary"} data-testid={`badge-palette-type-${palette.id}`}>
                   {palette.isTemplate ? t("plantPalette.templates") : t(`plantPalette.${palette.status}`)}
                 </Badge>
-                <Link href={`/dashboard/tools/plant-palette/${palette.id}`}>
+                <Link href={`/dashboard/estimates/catalogs/plants/palettes/${palette.id}`}>
                   <Button size="sm" variant="outline" data-testid={`button-open-palette-${palette.id}`}>
                     <FolderOpen className="w-4 h-4 mr-1" /> {t("tools.openTool")}
                   </Button>

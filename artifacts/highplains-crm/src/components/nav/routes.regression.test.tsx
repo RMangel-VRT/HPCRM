@@ -1,19 +1,76 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Router } from "wouter";
+import { Route, Router, Switch } from "wouter";
 import { canViewBilling } from "@/lib/billing";
 
 vi.mock("wouter", async original => ({
   ...await original<typeof import("wouter")>(),
   Redirect: ({ to }: { to: string }) => <div data-redirect={to} />,
 }));
-import { OperationsRedirect, QueryPreservingRedirect, SeasonsRedirect } from "./QueryPreservingRedirect";
+import { OperationsRedirect, PlantPaletteRedirect, QueryPreservingRedirect, SeasonsRedirect } from "./QueryPreservingRedirect";
 
 const app = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
 const getRoute = (path: string) => app.match(new RegExp(`<ProtectedRoute\\s+path="${path}"[\\s\\S]*?\\/>`))?.[0] ?? "";
 
 describe("shell routes and permission boundaries", () => {
+  it("registers all canonical plant pages with unchanged admin/office gates before Estimates", () => {
+    const base = "/dashboard/estimates/catalogs/plants";
+    for (const [suffix, component] of [["", "PlantLibrary"], ["/matches", "PlantMatches"], ["/palettes", "PlantPalettes"], ["/palettes/:id", "PlantPaletteDraft"]]) {
+      const route = getRoute(`${base}${suffix}`);
+      expect(route).toContain(`component={${component}}`);
+      expect(route).toContain('allowedRoles={["admin", "office"]}');
+      expect(app.indexOf(route)).toBeLessThan(app.indexOf('path="/dashboard/estimates"'));
+    }
+    expect(app).toContain("isEstimatesHubPage(location)");
+  });
+
+  // Build the Switch from the actual legacy declarations, preserving their order,
+  // so broad aliases or a misplaced fallback cannot silently shadow detail routes.
+  const legacyDeclarations = [...app.matchAll(/<Route path="(\/dashboard\/tools\/plant[^"]+)"(?: component=\{(PlantPaletteRedirect)\} \/>)?(?:>\s*<QueryPreservingRedirect to="([^"]+)" \/>\s*<\/Route>)?/g)];
+  const legacyCases = [
+    ["/plant-library", ""],
+    ["/plant-library/library", ""],
+    ["/plant-library/matches", "/matches"],
+    ["/plant-matches", "/matches"],
+    ["/plant-library/palettes", "/palettes"],
+    ["/plant-palette", "/palettes"],
+    ["/plant-library/palettes/palette-42", "/palettes/palette-42"],
+    ["/plant-palette/palette-42", "/palettes/palette-42"],
+    ["/plant-palette/id%20with%26reserved%2Fparts", "/palettes/id%20with%26reserved%2Fparts"],
+  ];
+  it.each(legacyCases)("legacy %s resolves to the canonical destination with the raw query", (suffix, destination) => {
+    const path = `/dashboard/tools${suffix}`;
+    const search = "customerId=one&filter=a%26b%3Dc%23d&space=a%20b&plus=a%2Bb&repeat=1&repeat=2";
+    const html = renderToStaticMarkup(<Router hook={() => [path, () => {}]} searchHook={() => search}>
+      <Switch>
+        {legacyDeclarations.map(([, from, detail, to]) => <Route key={from} path={from}>
+          {detail ? <PlantPaletteRedirect /> : <QueryPreservingRedirect to={to} />}
+        </Route>)}
+        <Route><div>Wrong fallback</div></Route>
+      </Switch>
+    </Router>);
+    expect(legacyDeclarations).toHaveLength(8);
+    expect(html).toContain(`data-redirect="/dashboard/estimates/catalogs/plants${destination}?${search.replace(/&/g, "&amp;")}"`);
+    expect(html).not.toContain("Wrong fallback");
+    expect(app.indexOf('path="/dashboard/tools/plant-palette/:id"')).toBeLessThan(app.indexOf('path="/dashboard/tools/plant-palette"'));
+    expect(app.indexOf('path="/dashboard/tools/plant-library/palettes/:id"')).toBeLessThan(app.indexOf('path="/dashboard/tools/plant-library"'));
+    expect(app.indexOf('path="/dashboard/tools/plant-library"')).toBeLessThan(app.indexOf('path="/dashboard/tools"'));
+  });
+
+  it("plant frontend links use canonical paths; API URLs remain separate", () => {
+    for (const file of ["ToolsPage", "PlantPalettes", "PlantPaletteDraft", "ProposalDraft"]) {
+      const source = readFileSync(new URL(`../../pages/${file}.tsx`, import.meta.url), "utf8");
+      expect(source).not.toMatch(/\/dashboard\/tools\/plant-(?:library|matches|palette)/);
+      expect(source).toContain("/dashboard/estimates/catalogs/plants");
+    }
+    const editor = readFileSync(new URL("../../pages/PlantPaletteDraft.tsx", import.meta.url), "utf8");
+    expect(editor).toContain('navigate("/dashboard/estimates/catalogs/plants/palettes")');
+    expect(editor).toContain("`/api/plant-palettes/${id}`");
+    const menus = readFileSync(new URL("./TopbarMenus.tsx", import.meta.url), "utf8");
+    expect(menus).toContain('href: "/dashboard/estimates/catalogs/plants"');
+    expect(menus).not.toContain("/dashboard/tools/plant-library");
+  });
   it("protects Invoicing with unchanged billing access and redirects the old route with its query", () => {
     expect(getRoute("/dashboard/invoicing")).toContain("component={BillingPage} access={canViewBilling}");
     expect(app).toContain('<Route path="/dashboard/billing">');

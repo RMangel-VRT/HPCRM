@@ -3,17 +3,22 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
 import { SectionRail, SectionRailLayout } from "./SectionRail";
 import { workPage, workViewsFor } from "./workNav";
+import { EstimatesRail, plantRailKey } from "./estimatesRail";
 
 /** Route-family shell; details are deliberately excluded by workPage. */
 export function WorkPageLayout({ path, children }: { path: string; children: ReactNode }) {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const plantKey = plantRailKey(path);
+  if (plantKey && ["admin", "office"].includes(user?.activeRole ?? "")) {
+    return <SectionRailLayout rail={<EstimatesRail activeKey={plantKey} />}>{children}</SectionRailLayout>;
+  }
   const page = workPage(path);
   if (!page) return <>{children}</>;
   const items = workViewsFor(page.family, user?.activeRole).map(item => ({
     ...item, label: t(item.labelKey),
   }));
-  const titleKey = { tickets: "nav.tickets", maps: "nav.maps", campaigns: "nav.campaigns", plants: "topbar.plantLibrary" }[page.family];
+  const titleKey = { tickets: "nav.tickets", maps: "nav.maps", campaigns: "nav.campaigns" }[page.family];
   const title = t(titleKey);
   return (
     <SectionRailLayout fullHeight={page.family === "maps"} rail={items.length > 1

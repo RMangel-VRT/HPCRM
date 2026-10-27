@@ -1157,7 +1157,7 @@ export default function ProposalDraft() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <a
-                  href={`/dashboard/tools/plant-palette/${proposal.plantPaletteId}`}
+                  href={`/dashboard/estimates/catalogs/plants/palettes/${proposal.plantPaletteId}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

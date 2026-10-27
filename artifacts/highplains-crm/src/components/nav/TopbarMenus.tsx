@@ -34,7 +34,7 @@ export default function TopbarMenus() {
     { id: "proposals", href: "/dashboard/tools/proposals", label: t("topbar.proposalMaker"), hint: t("topbar.proposalMakerHint") },
     { id: "visual-scope", href: "/dashboard/tools/visual-scope", label: t("topbar.visualScope") },
     { id: "crew-worksheets", href: "/dashboard/tools/crew-worksheets", label: t("topbar.crewWorksheets"), hint: t("topbar.crewWorksheetsHint") },
-    { id: "plant-library", href: "/dashboard/tools/plant-library", label: t("topbar.plantLibrary") },
+    { id: "plant-library", href: "/dashboard/estimates/catalogs/plants", label: t("topbar.plantLibrary") },
   ];
   const tasks = [
     { id: "contract", href: "/dashboard/tickets/new?workType=contract", label: t("topbar.contractWork"), hint: t("topbar.contractWorkHint") },

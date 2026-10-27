@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link, useParams } from "wouter";
+import { Link, useLocation, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -194,6 +194,7 @@ function PaletteItemCard({
 }
 
 export default function PlantPaletteDraft() {
+  const [, navigate] = useLocation();
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
   const { t } = useTranslation();
@@ -275,7 +276,7 @@ export default function PlantPaletteDraft() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/plant-palettes"] });
-      window.history.back();
+      navigate("/dashboard/estimates/catalogs/plants/palettes");
     },
     onError: () => {
       toast({ title: t("plantPalette.deleteFailed"), variant: "destructive" });
@@ -340,7 +341,7 @@ export default function PlantPaletteDraft() {
     return (
       <div className="p-6 max-w-4xl mx-auto">
         <p className="text-muted-foreground">Palette not found.</p>
-        <Link href="/dashboard/tools/plant-palette">
+        <Link href="/dashboard/estimates/catalogs/plants/palettes">
           <Button variant="outline" className="mt-4"><ArrowLeft className="w-4 h-4 mr-2" /> Back</Button>
         </Link>
       </div>
@@ -354,7 +355,7 @@ export default function PlantPaletteDraft() {
     <div className="p-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-start gap-3 mb-6">
-        <Link href="/dashboard/tools/plant-palette">
+        <Link href="/dashboard/estimates/catalogs/plants/palettes">
           <Button variant="ghost" size="icon" data-testid="button-back-palettes">
             <ArrowLeft className="w-4 h-4" />
           </Button>

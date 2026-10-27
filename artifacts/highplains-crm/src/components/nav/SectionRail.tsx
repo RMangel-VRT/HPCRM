@@ -3,7 +3,7 @@ import { Fragment, useId, useSyncExternalStore } from "react";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 
-export type RailItem = { key: string; label: string; href: string; badge?: number; testId?: string };
+export type RailItem = { key: string; label: string; href: string; badge?: number; testId?: string; indented?: boolean };
 export type RailSection = { label?: string; items: RailItem[] };
 
 const QUERY = "(max-width: 767px)";
@@ -95,6 +95,7 @@ export function SectionRail(props: { title: string; sections: RailSection[]; act
                     data-testid={it.testId ?? `rail-${it.key}`}
                     className={cn(
                       "flex h-[34px] items-center gap-2 rounded-md px-2 text-[13.5px]",
+                      it.indented && "pl-6",
                       active
                         ? "bg-rail-active font-semibold text-rail-active-foreground"
                         : "text-rail-foreground hover:bg-rail-hover",

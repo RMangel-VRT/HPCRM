@@ -93,7 +93,7 @@ describe("HardscapeCatalog", () => {
     expect(screen.getByTestId("text-price-h1").textContent).toBe("$8.75");
     expect(screen.getByTestId("chip-category-pavers")).toBeTruthy();
     expect(screen.getByTestId("rail-hardscape").getAttribute("aria-current")).toBe("page");
-    expect(screen.getByTestId("rail-plant_library").getAttribute("href")).toContain("/dashboard/tools/plant-library");
+    expect(screen.getByTestId("rail-plant_library").getAttribute("href")).toContain("/dashboard/estimates/catalogs/plants");
     fireEvent.change(screen.getByTestId("input-search"), { target: { value: "hol" } });
     fireEvent.change(screen.getByTestId("input-search"), { target: { value: "holland" } });
     await waitFor(() => expect(listCalls().some((c) => c.url === "/api/hardscape-catalog?search=holland")).toBe(true));

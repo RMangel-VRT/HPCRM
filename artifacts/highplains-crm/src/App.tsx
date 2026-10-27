@@ -19,7 +19,7 @@ import "@/i18n";
 import AppSidebar from "@/components/AppSidebar";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import TopbarMenus from "@/components/nav/TopbarMenus";
-import { OperationsRedirect, QueryPreservingRedirect, SeasonsRedirect } from "@/components/nav/QueryPreservingRedirect";
+import { OperationsRedirect, PlantPaletteRedirect, QueryPreservingRedirect, SeasonsRedirect } from "@/components/nav/QueryPreservingRedirect";
 import { isSettingsRailPage } from "@/components/nav/settingsNav";
 import { isEstimatesHubPage } from "@/components/nav/estimatesRail";
 import { workPage } from "@/components/nav/workNav";
@@ -244,6 +244,10 @@ function Router() {
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
         />
         <ProtectedRoute path="/dashboard/estimates/catalogs/hardscape" component={HardscapeCatalog} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/estimates/catalogs/plants/palettes/:id" component={PlantPaletteDraft} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/estimates/catalogs/plants/palettes" component={PlantPalettes} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/estimates/catalogs/plants/matches" component={PlantMatches} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/estimates/catalogs/plants" component={PlantLibrary} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates" component={EstimatesBoardPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/bids" component={BidsBoardPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/invoicing" component={BillingPage} access={canViewBilling} />
@@ -301,10 +305,26 @@ function Router() {
         <ProtectedRoute path="/dashboard/tools/crew-worksheets" component={CrewWorksheetMaker} allowedRoles={["admin", "office", ...allFieldRoles, "crew_supervisor", "mapping"]} />
         <ProtectedRoute path="/dashboard/tools/visual-scope/:id" component={VisualScopeDraft} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/tools/visual-scope" component={VisualScopeList} allowedRoles={["admin", "office"]} />
-        <ProtectedRoute path="/dashboard/tools/plant-library" component={PlantLibrary} allowedRoles={["admin", "office"]} />
-        <ProtectedRoute path="/dashboard/tools/plant-matches" component={PlantMatches} allowedRoles={["admin", "office"]} />
-        <ProtectedRoute path="/dashboard/tools/plant-palette/:id" component={PlantPaletteDraft} allowedRoles={["admin", "office"]} />
-        <ProtectedRoute path="/dashboard/tools/plant-palette" component={PlantPalettes} allowedRoles={["admin", "office"]} />
+        <Route path="/dashboard/tools/plant-library/palettes/:id" component={PlantPaletteRedirect} />
+        <Route path="/dashboard/tools/plant-palette/:id" component={PlantPaletteRedirect} />
+        <Route path="/dashboard/tools/plant-library/palettes">
+          <QueryPreservingRedirect to="/dashboard/estimates/catalogs/plants/palettes" />
+        </Route>
+        <Route path="/dashboard/tools/plant-library/matches">
+          <QueryPreservingRedirect to="/dashboard/estimates/catalogs/plants/matches" />
+        </Route>
+        <Route path="/dashboard/tools/plant-library/library">
+          <QueryPreservingRedirect to="/dashboard/estimates/catalogs/plants" />
+        </Route>
+        <Route path="/dashboard/tools/plant-library">
+          <QueryPreservingRedirect to="/dashboard/estimates/catalogs/plants" />
+        </Route>
+        <Route path="/dashboard/tools/plant-matches">
+          <QueryPreservingRedirect to="/dashboard/estimates/catalogs/plants/matches" />
+        </Route>
+        <Route path="/dashboard/tools/plant-palette">
+          <QueryPreservingRedirect to="/dashboard/estimates/catalogs/plants/palettes" />
+        </Route>
         <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", ...allFieldRoles, "crew_supervisor", "mapping"]} />
         <ProtectedRoute path="/dashboard/snow/new" component={NewSnowEvent} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
