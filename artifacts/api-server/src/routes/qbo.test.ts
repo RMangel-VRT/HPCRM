@@ -2,6 +2,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
+// This suite exercises the original OAuth/connection routes. Item workflows
+// have their own route and transactional-service suites.
+vi.mock("./qboItems", async () => ({ default: (await import("express")).Router() }));
 
 // ── DB mock ────────────────────────────────────────────────────────────────────
 const mockWhere = vi.fn().mockResolvedValue([]);

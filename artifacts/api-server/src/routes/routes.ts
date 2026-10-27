@@ -2725,6 +2725,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/customers/search", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
+    const expectedCompany = req.get("X-Company-Id");
+    if (expectedCompany && expectedCompany !== user.activeCompanyId) {
+      return res.status(409).json({ message: "Active company changed. Reload and try again." });
+    }
     const q = (req.query.q as string) || "";
     const results = await storage.getCustomerSearchWithChildren(user.activeCompanyId, q);
     return res.json(results);

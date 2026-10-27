@@ -289,7 +289,7 @@ describe("estimates rail", () => {
     expect(screen.queryByTestId("rail-estimate_request")).toBeNull();
     expect(screen.queryByTestId("rail-rfp_request")).toBeNull();
     expect(screen.getByTestId("rail-hardscape").getAttribute("href")).toBe("/dashboard/estimates/catalogs/hardscape");
-    expect(screen.queryByText("Settings")).toBeNull();
+    expect(screen.getByTestId("rail-quickbooks").getAttribute("href")).toContain("/settings/quickbooks");
   });
   it("marks hub pages as rail pages", () => {
     expect(isEstimatesHubPage("/dashboard/estimates/catalogs/hardscape")).toBe(true);

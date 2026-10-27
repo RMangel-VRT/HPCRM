@@ -71,7 +71,10 @@ describe("plants inside the Estimates rail", () => {
     }
     expect(screen.getAllByRole("link").filter(l => l.hasAttribute("aria-current"))).toEqual([screen.getByTestId("rail-library")]);
     expect(screen.getByTestId("rail-plant_library").hasAttribute("aria-current")).toBe(false);
-    expect(screen.queryByRole("heading", { name: "Settings" })).toBeNull();
+    expect(screen.getByTestId("rail-labor_rates").getAttribute("href")).toBe("/dashboard/estimates/settings/rates");
+    expect(screen.getByTestId("rail-quickbooks").getAttribute("href")).toBe("/dashboard/estimates/settings/quickbooks");
+    if (isNarrow) expect(screen.queryByRole("heading", { name: "Settings" })).toBeNull();
+    else expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
     if (isNarrow) expect(screen.getByTestId("section-rail-pills").firstElementChild?.className).toContain("overflow-x-auto");
     else expect(screen.getByRole("heading", { name: "Catalogs" }).className).toContain("text-rail-heading");
   });

@@ -6,6 +6,7 @@ import { createHardscapeBody, patchHardscapeBody, importHardscapeCsv, exportHard
 import { logger } from "../lib/logger";
 import { companyDateString } from "../lib/companyDay";
 import { irrigationCatalog } from "../lib/irrigationCatalog";
+import { registerEstimateSetupRoutes } from "./estimateSetup";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 const gate: RequestHandler = (req, res, next) => {
@@ -34,6 +35,7 @@ const wrap = (handler: RequestHandler): RequestHandler => async (req, res, next)
   }
 };
 export function registerCatalogRoutes(app: Express): void {
+  registerEstimateSetupRoutes(app);
   const router = express.Router();
   router.use(gate);
   router.get("/", wrap(async (req, res) => {

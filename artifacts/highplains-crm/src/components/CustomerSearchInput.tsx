@@ -13,6 +13,10 @@ interface CustomerSearchInputProps {
   excludeIds?: string[];
   mode?: "operational" | "any";
   disabled?: boolean;
+  /** Optional tenant guard: sent as X-Company-Id on every search request. */
+  expectedCompanyId?: string;
+  /** Optional user|company|role scope: a change clears results and aborts in-flight searches. */
+  requestScope?: string;
 }
 
 export default function CustomerSearchInput({
@@ -24,6 +28,8 @@ export default function CustomerSearchInput({
   excludeIds,
   mode = "operational",
   disabled = false,
+  expectedCompanyId,
+  requestScope,
 }: CustomerSearchInputProps) {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
@@ -58,7 +64,13 @@ export default function CustomerSearchInput({
   }, []);
 
   useEffect(() => {
+    if (requestScope === undefined) return;
+    setSearch(""); setResults([]); setOpen(false); setIsSearching(false);
+  }, [requestScope]);
+
+  useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    const ctrl = new AbortController();
     if (search.trim().length < 2) {
       setResults([]);
       setOpen(false);
@@ -67,7 +79,12 @@ export default function CustomerSearchInput({
     debounceRef.current = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const res = await fetch(`/api/customers/search?q=${encodeURIComponent(search.trim())}`, { credentials: "include" });
+        const res = await fetch(`/api/customers/search?q=${encodeURIComponent(search.trim())}`, {
+          credentials: "include",
+          signal: ctrl.signal,
+          ...(expectedCompanyId ? { headers: { "X-Company-Id": expectedCompanyId } } : {}),
+        });
+        if (ctrl.signal.aborted) return;
         if (res.ok) {
           const data: Customer[] = await res.json();
           const filtered = excludeIds && excludeIds.length > 0
@@ -77,12 +94,14 @@ export default function CustomerSearchInput({
           setExpandedParents(new Set());
           setOpen(filtered.length > 0);
         }
+      } catch {
+        if (!ctrl.signal.aborted) setResults([]);
       } finally {
-        setIsSearching(false);
+        if (!ctrl.signal.aborted) setIsSearching(false);
       }
     }, 200);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search, excludeIds]);
+    return () => { ctrl.abort(); if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [search, excludeIds, expectedCompanyId, requestScope]);
 
   const handleSelect = (c: Customer) => {
     setSelectedName(c.name);

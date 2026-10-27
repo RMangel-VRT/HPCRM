@@ -6,10 +6,13 @@ export const ESTIMATES_BASE = "/dashboard/estimates";
 export const HARDSCAPE_CATALOG_PATH = `${ESTIMATES_BASE}/catalogs/hardscape`;
 export const IRRIGATION_CATALOG_PATH = `${ESTIMATES_BASE}/catalogs/irrigation`;
 export const PLANT_LIBRARY_PATH = `${ESTIMATES_BASE}/catalogs/plants`;
+export const EQUIPMENT_FEES_PATH = `${ESTIMATES_BASE}/catalogs/equipment-fees`;
+export const LABOR_RATES_PATH = `${ESTIMATES_BASE}/settings/rates`;
+export const QUICKBOOKS_SETUP_PATH = `${ESTIMATES_BASE}/settings/quickbooks`;
 export const PLANT_MATCHES_PATH = `${PLANT_LIBRARY_PATH}/matches`;
 export const PLANT_PALETTES_PATH = `${PLANT_LIBRARY_PATH}/palettes`;
 
-export type EstimatesRailKey = "all" | "hardscape" | "irrigation" | "plant_library" | "library" | "matches" | "palettes";
+export type EstimatesRailKey = "all" | "hardscape" | "irrigation" | "plant_library" | "library" | "matches" | "palettes" | "equipment_fees" | "labor_rates" | "quickbooks";
 
 /** Only plant pages use the shared outer shell; the board and hardscape own theirs. */
 export function plantRailKey(path: string): EstimatesRailKey | undefined {
@@ -37,9 +40,12 @@ export function estimatesRailSections(t: (k: string) => string): RailSection[] {
       { key: "library", label: t("workRail.library"), href: PLANT_LIBRARY_PATH, indented: true },
       { key: "matches", label: t("workRail.matches"), href: PLANT_MATCHES_PATH, indented: true },
       { key: "palettes", label: t("workRail.palettes"), href: PLANT_PALETTES_PATH, indented: true },
+      { key: "equipment_fees", label: t("estimates.equipmentFees"), href: EQUIPMENT_FEES_PATH },
     ] },
-    // Settings: provisioned for Slice 2.3 (Labor & Rates, QuickBooks Setup). Empty sections are not rendered.
-    { label: t("estimates.settings"), items: [] },
+    { label: t("estimates.settings"), items: [
+      { key: "labor_rates", label: t("estimates.laborRates"), href: LABOR_RATES_PATH },
+      { key: "quickbooks", label: t("estimates.quickbooksSetup"), href: QUICKBOOKS_SETUP_PATH },
+    ] },
   ];
 }
 

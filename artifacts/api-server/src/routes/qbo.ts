@@ -16,6 +16,7 @@ import {
   qboRequest,
 } from "../services/qboClient";
 import { encryptToken } from "../services/qboCrypto";
+import qboItemsRouter from "./qboItems";
 
 // ── Session type extension ──────────────────────────────────────────────────────
 declare module "express-session" {
@@ -29,6 +30,7 @@ declare module "express-session" {
 }
 
 const router = Router();
+router.use(qboItemsRouter);
 
 // Multer instance: memory storage, 5 MB limit, only CSV files
 const csvUpload = multer({
