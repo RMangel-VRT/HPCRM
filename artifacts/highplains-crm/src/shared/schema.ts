@@ -4000,3 +4000,42 @@ export interface QboDuplicateCheckResult {
     primaryPhone: string | null;
   };
 }
+
+/** Read-only IrrigoPro mirror (frontend-safe explicit types; JSON timestamps are strings). */
+export interface IrrigationCatalogItem {
+  id: string;
+  companyId: string;
+  externalSku: string;
+  category: string;
+  name: string;
+  description: string | null;
+  material: string | null;
+  size: string | null;
+  brand: string | null;
+  fittingType: string | null;
+  detail: string | null;
+  unit: string;
+  wholesaleCostCents: number | null;
+  retailPriceCents: number | null;
+  umbrellaKey: string;
+  isActive: boolean;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export type IrrigationSyncRunStatus = "running" | "success" | "partial" | "error";
+export interface IrrigationSyncRun {
+  id: string;
+  companyId: string;
+  status: IrrigationSyncRunStatus;
+  source: string;
+  startedAt: string;
+  finishedAt: string | null;
+  itemsUpserted: number;
+  itemsDeactivated: number;
+  itemsSkipped: number;
+  errorMessage: string | null;
+  filename: string | null;
+  importedById: string | null;
+  skippedRows: { line: number; reason: string }[] | null;
+}

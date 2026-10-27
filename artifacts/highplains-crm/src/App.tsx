@@ -96,6 +96,7 @@ const PlantPaletteDraft = lazy(() => import("@/pages/PlantPaletteDraft"));
 const EstimatesBoardPage = lazy(() => import("@/pages/EstimatesBoardPage"));
 const BidsBoardPage = lazy(() => import("@/pages/BidsBoardPage"));
 const HardscapeCatalog = lazy(() => import("@/pages/HardscapeCatalog"));
+const IrrigationCatalog = lazy(() => import("@/pages/IrrigationCatalog"));
 const QboCustomerMapping = lazy(() => import("@/pages/QboCustomerMapping"));
 
 interface ErrorBoundaryProps {
@@ -248,6 +249,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/estimates/catalogs/plants/palettes" component={PlantPalettes} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/plants/matches" component={PlantMatches} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/plants" component={PlantLibrary} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/estimates/catalogs/irrigation" component={IrrigationCatalog} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates" component={EstimatesBoardPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/bids" component={BidsBoardPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/invoicing" component={BillingPage} access={canViewBilling} />

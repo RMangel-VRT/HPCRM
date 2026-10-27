@@ -4,11 +4,12 @@ import { SectionRail, type RailSection } from "@/components/nav/SectionRail";
 
 export const ESTIMATES_BASE = "/dashboard/estimates";
 export const HARDSCAPE_CATALOG_PATH = `${ESTIMATES_BASE}/catalogs/hardscape`;
+export const IRRIGATION_CATALOG_PATH = `${ESTIMATES_BASE}/catalogs/irrigation`;
 export const PLANT_LIBRARY_PATH = `${ESTIMATES_BASE}/catalogs/plants`;
 export const PLANT_MATCHES_PATH = `${PLANT_LIBRARY_PATH}/matches`;
 export const PLANT_PALETTES_PATH = `${PLANT_LIBRARY_PATH}/palettes`;
 
-export type EstimatesRailKey = "all" | "hardscape" | "plant_library" | "library" | "matches" | "palettes";
+export type EstimatesRailKey = "all" | "hardscape" | "irrigation" | "plant_library" | "library" | "matches" | "palettes";
 
 /** Only plant pages use the shared outer shell; the board and hardscape own theirs. */
 export function plantRailKey(path: string): EstimatesRailKey | undefined {
@@ -31,6 +32,7 @@ export function estimatesRailSections(t: (k: string) => string): RailSection[] {
     ] },
     { label: t("estimates.catalogs"), items: [
       { key: "hardscape", label: t("estimates.hardscapeCatalog"), href: HARDSCAPE_CATALOG_PATH },
+      { key: "irrigation", label: t("estimates.irrigationCatalog"), href: IRRIGATION_CATALOG_PATH },
       { key: "plant_library", label: t("estimates.plantLibrary"), href: PLANT_LIBRARY_PATH },
       { key: "library", label: t("workRail.library"), href: PLANT_LIBRARY_PATH, indented: true },
       { key: "matches", label: t("workRail.matches"), href: PLANT_MATCHES_PATH, indented: true },

@@ -5,6 +5,7 @@ import { storage } from "../storage";
 import { createHardscapeBody, patchHardscapeBody, importHardscapeCsv, exportHardscapeCsv } from "../lib/hardscapeCsv";
 import { logger } from "../lib/logger";
 import { companyDateString } from "../lib/companyDay";
+import { irrigationCatalog } from "../lib/irrigationCatalog";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 const gate: RequestHandler = (req, res, next) => {
@@ -84,4 +85,38 @@ export function registerCatalogRoutes(app: Express): void {
   };
   router.use(uploadError);
   app.use("/api/hardscape-catalog", router);
+
+  const irrigation = express.Router();
+  irrigation.use(gate);
+  irrigation.get("/", wrap(async (req, res) => {
+    const allowed = ["search", "category", "brand", "includeInactive"];
+    if (Object.entries(req.query).some(([key, value]) => !allowed.includes(key) || typeof value !== "string" || value.length > 500) ||
+      (req.query.includeInactive !== undefined && !["true", "false", "1", "0"].includes(String(req.query.includeInactive)))) {
+      res.status(400).json({ message: "Invalid irrigation catalog filters" }); return;
+    }
+    res.json(await irrigationCatalog.list(company(req), {
+      search: (req.query.search as string | undefined)?.trim(),
+      category: req.query.category as string | undefined,
+      brand: req.query.brand as string | undefined,
+      includeInactive: req.query.includeInactive === "true" || req.query.includeInactive === "1",
+    }));
+  }));
+  irrigation.get("/sync-runs", wrap(async (req, res) => {
+    const limit = req.query.limit === undefined ? 10 : Number(req.query.limit);
+    if (typeof req.query.limit !== "undefined" && (typeof req.query.limit !== "string" || !/^\d+$/.test(req.query.limit)) ||
+      !Number.isInteger(limit) || limit < 1 || limit > 50) {
+      res.status(400).json({ message: "History limit must be an integer from 1 to 50" }); return;
+    }
+    res.json(await irrigationCatalog.history(company(req), limit));
+  }));
+  irrigation.post("/import", upload.single("file"), wrap(async (req, res) => {
+    if (!req.file) { res.status(400).json({ message: "CSV file required" }); return; }
+    // Retain only the upload's basename, never a client path or control characters.
+    const filename = req.file.originalname.split(/[\\/]/).pop()!.replace(/[\x00-\x1f\x7f]/g, "").slice(0, 255);
+    const { run, httpStatus } = await irrigationCatalog.import(company(req), (req.user as UserWithContext).id, filename, req.file.buffer.toString("utf8"));
+    if (httpStatus !== 200) { res.status(httpStatus).json({ message: run.errorMessage, run }); return; }
+    res.json(run);
+  }));
+  irrigation.use(uploadError);
+  app.use("/api/irrigation-catalog", irrigation);
 }

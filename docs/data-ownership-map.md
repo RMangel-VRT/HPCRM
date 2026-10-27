@@ -22,6 +22,7 @@
 | **What a property is owed** (scope, quantity, months) | Contract Center `term_scope_lines` | **Snapshot:** each term's copied scope | legacy `contracts`, `contract_services`, `contract_monthly_amounts`, `customer_service_plans`, `service_plan_*` | Legacy writes frozen. **Readers still on legacy:** revenue, dashboard, snow, tickets, mobile. |
 | **Service names** | One service-key registry (to build) | — | ~12 separate lists (audit area C) | Planned (O2) |
 | **Current default rates** | `rate_card_items` | **Snapshot:** `term_rates` (negotiated, per term) | `customer_rate_sheets` (writes frozen) | Mostly done |
+| **Irrigation part facts** (SKU, name, specs, category, cost, price, active) | IrrigoPro Parts Catalog | **Read-only CSV mirror:** `irrigation_catalog_items`, sole writer `irrigationCatalog.import`; run audit in `irrigation_sync_runs`. [Import contract](irrigation-catalog-import.md) | — | CSV mirror; no CRM item editing |
 | **Company / manager directory** | `property_management_companies` + `property_managers` (+ emails, phones) | — | `customers.management_company` text, duplicated contact channels in `contacts` | Planned. 5 drifted rows. |
 | **Organization name and branding** | `companies` | `settings` holds overrides only | the duplicate name in `settings` | Planned (small) |
 | **Property display name** | `customers` | campaign completion emails already sent (snapshot) | `campaign_items.customer_name` / `customer_city` copies (7 drifted) | Planned (small) |
