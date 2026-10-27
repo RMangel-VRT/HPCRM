@@ -3,7 +3,7 @@ name: Section action-list direction
 description: User-supplied product rules for distributing action lists across sections.
 ---
 
-Read `attached_assets/Pasted--Section-Action-Lists-Ground-Rules-Paste-this-once-at-t_1793055423616.txt` before planning or implementing section action-list slices.
+Read `attached_assets/Pasted--Section-Action-Lists-Ground-Rules-Paste-this-once-at-t_1793134932506.txt` before planning or implementing section action-list slices. This supersedes the earlier ground-rules uploads.
 
 The dashboard directs users to the section where work happens. Ownership follows status: each lifecycle ticket action list belongs to the section that can act on it; Tickets is the whole-population viewing surface, not an action list. My Tickets remains a personal assignment view.
 
@@ -22,3 +22,15 @@ The October 27 dashboard direction is eight live section tiles, with Bids immedi
 **How to apply:** Use the clarification alongside `attached_assets/Pasted--Slice-01-Dissolve-the-queue-make-the-dashboard-a-route_1793055434946.txt`. Do not implement Campaigns counts or flow now. Completed, not-yet-invoiced campaign work potentially belonging to Invoicing is a future design consideration, not a settled ownership rule.
 
 See [Estimate and RFP boundaries](estimate-rfp-boundaries.md) for the opportunity split and the remaining separate contract lifecycle direction.
+
+Before extending a response, inspect its output-validation boundary. When a generated contract validates it, change the source API specification and regenerate rather than editing generated files. Test that the new field survives actual response serialization.
+
+**Why:** The updated ground rules explicitly warn that unknown response fields can be stripped silently, making a computed field disappear without an error.
+
+**How to apply:** Include contract propagation and serialized-response assertions in any affected slice; computation-only assertions are insufficient.
+
+On a localized surface, every state of a label must use translation keys. Do not fall back to the English identity vocabulary for projected states. Surfaces displaying raw stored names should remain internally consistent instead of translating only some states.
+
+**Why:** The updated rules explicitly prohibit mixed translated labels and hard-coded English identities within one UI element.
+
+**How to apply:** Add missing translation keys for label variants and verify English and Spanish states. Keep this scoped separately from the broader pre-existing database-name localization gap.
