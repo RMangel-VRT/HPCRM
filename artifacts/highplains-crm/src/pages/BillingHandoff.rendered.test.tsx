@@ -108,19 +108,19 @@ describe("MyTickets billing handoff", () => {
 });
 
 describe("TicketsList billing filtering", () => {
-  it.each(["", "view=kanban-type", "view=kanban-user"])("projects approved estimates in Tickets layout %s, retaining raw type filters/grouping", search => {
+  it.each(["", "view=kanban-type", "view=kanban-user"])("projects approved estimates in Tickets layout %s, retaining raw grouping", search => {
     as("admin");
     types.push({ id: "tt-est", name: "Renamed Estimate", typeKey: "estimate_request" });
     statuses.push({ id: "s-approved", ticketTypeId: "tt-est", name: "Renamed stage", statusKey: "scheduled", displayOrder: 1 });
     tickets.push(tk("approved", "tt-est", "s-approved"));
     try {
-      const html = render(<TicketsList />, "/dashboard/tickets", `${search}&type=tt-est`);
+      const html = render(<TicketsList />, "/dashboard/tickets", search);
       expect(html).toContain("Title approved");
       expect(html).toContain("Renamed Estimate");
       expect(html).toContain(">Project</span>");
       expect(html).toContain("background-color:var(--tt-project)");
       expect(html).toContain("background:var(--tt-project)");
-      expect(html).not.toContain("Title work1");
+      expect(html).toContain("Title work1");
       expect(tickets.at(-1)?.ticketTypeId).toBe("tt-est");
     } finally { types.pop(); statuses.pop(); tickets.pop(); }
   });

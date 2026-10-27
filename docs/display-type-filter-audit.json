@@ -1,0 +1,556 @@
+{
+  "testedRevision": "f0ede83bbaf0b90044d149452f7e90f2a65edbe7",
+  "baselineRevision": "a77f0607",
+  "environment": {
+    "timezone": "UTC",
+    "node": "v24.22.1",
+    "vitest": "4.1.5"
+  },
+  "before": {
+    "api": {
+      "passed": 1637,
+      "failed": 18,
+      "skipped": 69,
+      "fileCounts": {
+        "total": 97,
+        "passed": 79,
+        "failed": 8,
+        "skipped": 10
+      },
+      "failures": [
+        {
+          "file": "artifacts/api-server/src/lib/plantEnrichment.test.ts",
+          "test": "enrichPlants — partial failure marks the sync run as 'partial' in the DB",
+          "reason": "AssertionError: expected undefined to be 'partial' // Object.is equality",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/crewSupervisorDetails.test.ts",
+          "test": "actual web details handler crew-supervisor access scopes both directions of summaries on actual collection route /api/tickets/my",
+          "reason": "AssertionError: expected 500 to be 200 // Object.is equality",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback reconnect — syncErrorCount reset resets syncErrorCount to 0 on a successful reconnect from an errored state",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback reconnect — syncErrorCount reset includes syncErrorCount: 0 as an explicit key — not absent — so the DB actually resets it",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback reconnect — syncErrorCount reset does NOT trigger the update at all when the OAuth code exchange fails",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback — shared mailbox rejects email mismatch returns 400 with Email Mismatch page when shared mailbox email differs from connected Google account",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback — personal mailbox auto-correct auto-corrects emailAddress when personal mailbox owner signs in with a different (unclaimed) Gmail",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback — personal mailbox auto-correct rejects when the corrected email is already claimed by another mailbox in the company",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/visits.integration.test.ts",
+          "test": "real PostgreSQL visits API and ticket workflow copies service snapshots through all producers, fills nulls only and filters open summaries",
+          "reason": "AssertionError: expected 500 to be 200 // Object.is equality",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/visits.integration.test.ts",
+          "test": "real PostgreSQL visits API and ticket workflow ordinary ticket edits with open visits save without submitting scheduling mirrors",
+          "reason": "AssertionError: expected 500 to be 200 // Object.is equality",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/visits.integration.test.ts",
+          "test": "real PostgreSQL visits API and ticket workflow ticket crew/date creates, single visit moves, and multi-visit ambiguity changes nothing",
+          "reason": "AssertionError: expected 500 to be 200 // Object.is equality",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/visits.integration.test.ts",
+          "test": "real PostgreSQL visits API and ticket workflow planned visit is removed for incomplete pair {\"crewId\":null}",
+          "reason": "AssertionError: expected 500 to be 200 // Object.is equality",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/visits.integration.test.ts",
+          "test": "real PostgreSQL visits API and ticket workflow planned visit is removed for incomplete pair {\"dueDate\":null}",
+          "reason": "AssertionError: expected 500 to be 200 // Object.is equality",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/visits.integration.test.ts",
+          "test": "real PostgreSQL visits API and ticket workflow planned visit is removed for incomplete pair {\"crewId\":null,\"dueDate\":null}",
+          "reason": "AssertionError: expected 500 to be 200 // Object.is equality",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/visits.integration.test.ts",
+          "test": "real PostgreSQL visits API and ticket workflow single in-progress visit can move to a complete new crew/date pair through ticket PATCH",
+          "reason": "AssertionError: expected 500 to be 200 // Object.is equality",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/visits.integration.test.ts",
+          "test": "real PostgreSQL visits API and ticket workflow explicit status/current/null intent, follow-up and unrelated edits remain compatible",
+          "reason": "AssertionError: expected 500 to be 200 // Object.is equality",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/visits.integration.test.ts",
+          "test": "real PostgreSQL visits API and ticket workflow deadline-only and To-Do behave as before; ticket PATCH permissions are not broadened",
+          "reason": "AssertionError: expected 500 to be 200 // Object.is equality",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/shared/taskWebClient.test.ts",
+          "test": "office ticket-creation entry points opens the creation route and batch-creation container to office, not field roles",
+          "reason": "AssertionError: expected 'import type { LucideIcon } from \"luci…' to match /key: \"tickets\"[\\s\\S]*?href:…/dashboard\\",
+          "classification": "new"
+        }
+      ],
+      "loadErrors": [
+        {
+          "file": "artifacts/api-server/src/routes/contractCenter.test.ts",
+          "test": "<file failed during module loading; no tests collected>",
+          "reason": "[vitest] No \"pool\" export is defined on the \"../db\" mock. Did you forget to return it from \"vi.mock\"?",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/contractCenterCopy.test.ts",
+          "test": "<file failed during module loading; no tests collected>",
+          "reason": "[vitest] No \"pool\" export is defined on the \"../db\" mock. Did you forget to return it from \"vi.mock\"?",
+          "classification": "new"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/contractCenterCopyStatus.test.ts",
+          "test": "<file failed during module loading; no tests collected>",
+          "reason": "[vitest] No \"pool\" export is defined on the \"../db\" mock. Did you forget to return it from \"vi.mock\"?",
+          "classification": "new"
+        }
+      ],
+      "skippedFiles": [
+        {
+          "file": "artifacts/api-server/src/lib/contractAudit.integration.test.ts",
+          "count": 9
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractCenterCreateRenewDevelopment.test.ts",
+          "count": 1
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractCenterDevelopment.test.ts",
+          "count": 1
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractCenterFreezeDevelopment.test.ts",
+          "count": 1
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractChangingRenewal.integration.test.ts",
+          "count": 13
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractCurrentSeason.integration.test.ts",
+          "count": 2
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractParent.integration.test.ts",
+          "count": 8
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractRenewal.integration.test.ts",
+          "count": 10
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractTermMigration.integration.test.ts",
+          "count": 1
+        },
+        {
+          "file": "artifacts/api-server/src/lib/rfpContracts.integration.test.ts",
+          "count": 23
+        }
+      ]
+    },
+    "crm": {
+      "passed": 651,
+      "failed": 8,
+      "skipped": 0,
+      "fileCounts": {
+        "total": 60,
+        "passed": 57,
+        "failed": 3,
+        "skipped": 0
+      },
+      "failures": [
+        {
+          "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+          "test": "CrewAssignmentBoard.selectReducer shift click in a different column does not range-extend; falls back to add",
+          "reason": "AssertionError: expected [ 'y' ] to deeply equal [ 'b', 'y' ]",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+          "test": "CrewAssignmentBoard.selectReducer prune removes ids no longer present and clears lastClicked if it was pruned",
+          "reason": "AssertionError: expected { id: 'b', col: 'u' } to be null",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam returns the default tab when no tab param exists in the URL",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam reads the active tab from the URL search string",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam preserves all non-tab query params when switching tabs",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam only updates the tab key and leaves every other param untouched",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam adds the tab param without disturbing existing params when no tab was present",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/components/contracts/rateCardUtils.test.ts",
+          "test": "rateCardUtils groups and counts missing",
+          "reason": "AssertionError: expected 42 to be 23 // Object.is equality",
+          "classification": "P3-3 baseline"
+        }
+      ],
+      "loadErrors": [],
+      "skippedFiles": []
+    }
+  },
+  "final": {
+    "api": {
+      "passed": 1740,
+      "failed": 7,
+      "skipped": 69,
+      "fileCounts": {
+        "total": 97,
+        "passed": 85,
+        "failed": 2,
+        "skipped": 10
+      },
+      "failures": [
+        {
+          "file": "artifacts/api-server/src/lib/plantEnrichment.test.ts",
+          "test": "enrichPlants — partial failure marks the sync run as 'partial' in the DB",
+          "reason": "AssertionError: expected undefined to be 'partial' // Object.is equality",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback reconnect — syncErrorCount reset resets syncErrorCount to 0 on a successful reconnect from an errored state",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback reconnect — syncErrorCount reset includes syncErrorCount: 0 as an explicit key — not absent — so the DB actually resets it",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback reconnect — syncErrorCount reset does NOT trigger the update at all when the OAuth code exchange fails",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback — shared mailbox rejects email mismatch returns 400 with Email Mismatch page when shared mailbox email differs from connected Google account",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback — personal mailbox auto-correct auto-corrects emailAddress when personal mailbox owner signs in with a different (unclaimed) Gmail",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback — personal mailbox auto-correct rejects when the corrected email is already claimed by another mailbox in the company",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        }
+      ],
+      "loadErrors": [],
+      "skippedFiles": [
+        {
+          "file": "artifacts/api-server/src/lib/contractAudit.integration.test.ts",
+          "count": 9
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractCenterCreateRenewDevelopment.test.ts",
+          "count": 1
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractCenterDevelopment.test.ts",
+          "count": 1
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractCenterFreezeDevelopment.test.ts",
+          "count": 1
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractChangingRenewal.integration.test.ts",
+          "count": 13
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractCurrentSeason.integration.test.ts",
+          "count": 2
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractParent.integration.test.ts",
+          "count": 8
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractRenewal.integration.test.ts",
+          "count": 10
+        },
+        {
+          "file": "artifacts/api-server/src/lib/contractTermMigration.integration.test.ts",
+          "count": 1
+        },
+        {
+          "file": "artifacts/api-server/src/lib/rfpContracts.integration.test.ts",
+          "count": 23
+        }
+      ]
+    },
+    "crm": {
+      "passed": 660,
+      "failed": 8,
+      "skipped": 0,
+      "fileCounts": {
+        "total": 61,
+        "passed": 58,
+        "failed": 3,
+        "skipped": 0
+      },
+      "failures": [
+        {
+          "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+          "test": "CrewAssignmentBoard.selectReducer shift click in a different column does not range-extend; falls back to add",
+          "reason": "AssertionError: expected [ 'y' ] to deeply equal [ 'b', 'y' ]",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+          "test": "CrewAssignmentBoard.selectReducer prune removes ids no longer present and clears lastClicked if it was pruned",
+          "reason": "AssertionError: expected { id: 'b', col: 'u' } to be null",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam returns the default tab when no tab param exists in the URL",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam reads the active tab from the URL search string",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam preserves all non-tab query params when switching tabs",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam only updates the tab key and leaves every other param untouched",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam adds the tab param without disturbing existing params when no tab was present",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/components/contracts/rateCardUtils.test.ts",
+          "test": "rateCardUtils groups and counts missing",
+          "reason": "AssertionError: expected 42 to be 23 // Object.is equality",
+          "classification": "P3-3 baseline"
+        }
+      ],
+      "loadErrors": [],
+      "skippedFiles": []
+    }
+  },
+  "historicalFocused": {
+    "api": {
+      "passed": 222,
+      "failed": 7,
+      "skipped": 0,
+      "fileCounts": {
+        "total": 7,
+        "passed": 5,
+        "failed": 2,
+        "skipped": 0
+      },
+      "failures": [
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback reconnect — syncErrorCount reset resets syncErrorCount to 0 on a successful reconnect from an errored state",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback reconnect — syncErrorCount reset includes syncErrorCount: 0 as an explicit key — not absent — so the DB actually resets it",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback reconnect — syncErrorCount reset does NOT trigger the update at all when the OAuth code exchange fails",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback — shared mailbox rejects email mismatch returns 400 with Email Mismatch page when shared mailbox email differs from connected Google account",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback — personal mailbox auto-correct auto-corrects emailAddress when personal mailbox owner signs in with a different (unclaimed) Gmail",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+          "test": "OAuth callback — personal mailbox auto-correct rejects when the corrected email is already claimed by another mailbox in the company",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/api-server/src/lib/plantEnrichment.test.ts",
+          "test": "enrichPlants — partial failure marks the sync run as 'partial' in the DB",
+          "reason": "AssertionError: expected undefined to be 'partial' // Object.is equality",
+          "classification": "P3-3 baseline"
+        }
+      ],
+      "loadErrors": [],
+      "skippedFiles": []
+    },
+    "crm": {
+      "passed": 12,
+      "failed": 8,
+      "skipped": 0,
+      "fileCounts": {
+        "total": 3,
+        "passed": 0,
+        "failed": 3,
+        "skipped": 0
+      },
+      "failures": [
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam returns the default tab when no tab param exists in the URL",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam reads the active tab from the URL search string",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam preserves all non-tab query params when switching tabs",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam only updates the tab key and leaves every other param untouched",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+          "test": "useTabParam adds the tab param without disturbing existing params when no tab was present",
+          "reason": "ReferenceError: document is not defined",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+          "test": "CrewAssignmentBoard.selectReducer shift click in a different column does not range-extend; falls back to add",
+          "reason": "AssertionError: expected [ 'y' ] to deeply equal [ 'b', 'y' ]",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+          "test": "CrewAssignmentBoard.selectReducer prune removes ids no longer present and clears lastClicked if it was pruned",
+          "reason": "AssertionError: expected { id: 'b', col: 'u' } to be null",
+          "classification": "P3-3 baseline"
+        },
+        {
+          "file": "artifacts/highplains-crm/src/components/contracts/rateCardUtils.test.ts",
+          "test": "rateCardUtils groups and counts missing",
+          "reason": "AssertionError: expected 42 to be 23 // Object.is equality",
+          "classification": "P3-3 baseline"
+        }
+      ],
+      "loadErrors": [],
+      "skippedFiles": []
+    }
+  },
+  "focusedRendered": {
+    "passed": 74,
+    "failed": 0,
+    "skipped": 0,
+    "fileCounts": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    "failures": [],
+    "loadErrors": [],
+    "skippedFiles": []
+  }
+}

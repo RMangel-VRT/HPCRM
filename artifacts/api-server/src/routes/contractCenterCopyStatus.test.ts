@@ -8,6 +8,7 @@ vi.mock("../db", () => ({ db: { select: mocks.select } }));
 vi.mock("../objectStorage", () => ({ ObjectStorageService: vi.fn() }));
 vi.mock("../objectAcl", () => ({ ObjectAccessGroupType: { COMPANY_MEMBER: "company_member" }, ObjectPermission: { READ: "read" } }));
 vi.mock("../utils/parentGuard", () => ({ assertNotParentCustomer: vi.fn() }));
+vi.mock("../storage", () => ({ storage: {} }));
 import { registerContractCenterRoutes } from "./contractCenter";
 function app(role = "admin", company: string | null = "company", authenticated = true, superadmin = false) {
   const instance = express();

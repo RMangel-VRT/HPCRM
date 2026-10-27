@@ -3,6 +3,7 @@ import request from "supertest";
 import { readFileSync } from "node:fs";
 import { transformSync } from "esbuild";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { excludeBidsFromPersonalTickets } from "../lib/personalTicketScope";
 
 const source = readFileSync(new URL("./routes.ts", import.meta.url), "utf8");
 const start = source.indexOf('  app.get("/api/tickets/:id/details",');
@@ -15,7 +16,7 @@ if (listStart < 0 || listEnd < 0) throw new Error("Real ticket collection handle
 const mountList = new Function("app", "storage", "withInvoiceLinkSummaries",
   transformSync(source.slice(listStart, listEnd), { loader: "ts" }).code);
 const myStart = source.indexOf('  app.get("/api/tickets/my",');
-const mountMy = new Function("app", "storage", "withInvoiceLinkSummaries",
+const mountMy = new Function("app", "storage", "withInvoiceLinkSummaries", "excludeBidsFromPersonalTickets",
   transformSync(source.slice(myStart, listStart), { loader: "ts" }).code);
 const customerStart = source.indexOf('  app.get("/api/customers/:customerId/tickets",');
 const customerEnd = source.indexOf('  app.get("/api/contracts/:contractId/tickets",', customerStart);
@@ -41,6 +42,7 @@ beforeEach(() => {
   storage.getTickets = vi.fn().mockResolvedValue([ticket]);
   storage.getTicketsByCustomerId = vi.fn().mockResolvedValue([ticket]);
   storage.getAllTicketTypeStatuses = vi.fn().mockResolvedValue([]);
+  storage.getTicketTypes = vi.fn().mockResolvedValue([{ id: "task", typeKey: "task" }]);
   storage.getCustomersByIds = vi.fn().mockResolvedValue(new Map());
   summaries = vi.fn().mockImplementation(async (_company: string, rows: unknown[]) => rows);
   app = express();
@@ -52,7 +54,7 @@ beforeEach(() => {
   // Deliberately no outer middleware: exercise the actual details handler guard.
   mount(app, storage);
   mountList(app, storage, summaries);
-  mountMy(app, storage, summaries);
+  mountMy(app, storage, summaries, excludeBidsFromPersonalTickets);
   mountCustomerList(app, storage, summaries);
 });
 describe("actual web details handler crew-supervisor access", () => {
@@ -61,6 +63,18 @@ describe("actual web details handler crew-supervisor access", () => {
     expect(res.status).toBe(200);
     expect(res.body.ticket.id).toBe("job");
     expect(storage.getTicketById).toHaveBeenCalledWith("job", "company");
+  });
+  it("display Project metadata neither grants ownership access nor replaces the raw estimate identity", async () => {
+    Object.assign(ticket, { ticketTypeId: "estimate", displayTypeKey: "project", displayTypeName: "Project" });
+    storage.getTicketTypeById.mockResolvedValue({ id: "estimate", typeKey: "estimate_request", name: "Renamed estimate" });
+    ticket.assignedToId = "other";
+    expect((await request(app).get("/api/tickets/job/details")).status).toBe(403);
+    ticket.assignedToId = "owner";
+    const response = await request(app).get("/api/tickets/job/details");
+    expect(response.status).toBe(200);
+    expect(response.body.ticket.ticketTypeId).toBe("estimate");
+    expect(response.body.ticketType.typeKey).toBe("estimate_request");
+    expect(storage.getTicketTypeById).toHaveBeenLastCalledWith("estimate", "company");
   });
   it.each([[], ["billing"]].map(tags => ({ tags })))("blocks other owners before loading linked data, tags=$tags", async ({ tags }) => {
     ticket.assignedToId = "other";

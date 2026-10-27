@@ -43,7 +43,7 @@ import { saveTicketOrigin, ticketDetailHref, RETURN_SCROLL_KEY } from "@/lib/tic
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
-import { resolveDisplayTicketType } from "@shared/ticketVisuals";
+import { resolveDisplayTicketType, matchesDisplayTypeFilter } from "@shared/ticketVisuals";
 import { taskWorkflowStatuses } from "@shared/ticketVisuals";
 import type { TicketLinkSummary } from "@shared/ticketLinks";
 import { isBillingItem } from "@/lib/billing";
@@ -379,7 +379,7 @@ function OperationalTicketsList() {
       ticket.title.toLowerCase().includes(search.toLowerCase()) ||
       ticket.customer?.name?.toLowerCase().includes(search.toLowerCase()) || false;
     const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
-    const matchesType = typeFilters.length === 0 || typeFilters.includes(ticket.ticketTypeId);
+    const matchesType = matchesDisplayTypeFilter(ticket.ticketType, ticket.currentStatus?.statusKey, typeFilters, ticketTypes);
     const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
     const matchesStatus = statusFilter === "all" || ticket.currentStatusId === statusFilter;
     const matchesAssignedTo = assignedToFilter === "all" || ticket.assignedToId === assignedToFilter;

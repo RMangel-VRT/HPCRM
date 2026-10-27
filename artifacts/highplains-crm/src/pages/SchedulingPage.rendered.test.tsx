@@ -81,6 +81,65 @@ function mount() {
 }
 
 describe("SchedulingPage", () => {
+  it("filters both queue tabs by deduplicated display identity with search/service/reset, preserving raw drag and mutation data", async () => {
+    const row = (id: string, typeKey: string | null, typeName: string, extra = {}) => ({
+      id, title: `Work ${id}`, typeKey, typeName, priority: "normal", scheduleBy: null,
+      serviceType: "mowing", customer: null, followUpDate: null, createdAt: "2025-01-01", ...extra,
+    });
+    const approved = row("approved", "estimate_request", "Renamed estimates", { displayTypeKey: "project", displayTypeName: "Project" });
+    const early = row("early", "estimate_request", "Renamed estimates", { displayTypeKey: "estimate_request", displayTypeName: "Renamed estimates" });
+    const real = row("real", "project", "Project");
+    const custom = row("custom", "custom_project", "Project");
+    const legacy = row("legacy", null, "Project");
+    const other = row("other", "project", "Project", { serviceType: "cleanups" });
+    const needsScheduling = [approved, early, real, custom, legacy, other];
+    const slipped = needsScheduling.map(i => ({ ...i, id: `slip-${i.id}`, visit: {
+      id: `v-${i.id}`, visitDate: "2025-10-14", crewId: "k1", crewName: "Crew 1",
+    } }));
+    respond = (_m, url) => url.startsWith("/api/scheduling/queue") ? { json: { needsScheduling, slipped } } : undefined;
+    mount();
+    await screen.findByTestId("card-queue-approved");
+    const type = screen.getByTestId("select-queue-type") as HTMLSelectElement;
+    expect([...type.options].map(o => o.value)).toEqual(["", "project", "estimate_request", "custom_project", 'unkeyed:"Project"']);
+    const change = (value: string) => fireEvent.change(type, { target: { value } });
+    const visible = (prefix: string, yes: string[], no: string[]) => {
+      yes.forEach(id => expect(screen.queryByTestId(`card-queue-${prefix}${id}`)).toBeTruthy());
+      no.forEach(id => expect(screen.queryByTestId(`card-queue-${prefix}${id}`)).toBeNull());
+    };
+    for (const prefix of ["", "slip-"]) {
+      if (prefix) fireEvent.click(screen.getByTestId("tab-queue-slipped"));
+      change("project");
+      visible(prefix, ["approved", "real", "other"], ["early", "custom", "legacy"]);
+      fireEvent.change(screen.getByTestId("select-service-filter"), { target: { value: "mowing" } });
+      visible(prefix, ["approved", "real"], ["other", "early"]);
+      fireEvent.change(screen.getByTestId("input-queue-search"), { target: { value: "approved" } });
+      visible(prefix, ["approved"], ["real", "early"]);
+      change("estimate_request"); visible(prefix, [], ["approved", "early"]);
+      fireEvent.change(screen.getByTestId("input-queue-search"), { target: { value: "" } });
+      visible(prefix, ["early"], ["approved", "real"]);
+      change("custom_project"); visible(prefix, ["custom"], ["approved", "real", "legacy"]);
+      change('unkeyed:"Project"'); visible(prefix, ["legacy"], ["approved", "real", "custom"]);
+      change("");
+      fireEvent.change(screen.getByTestId("select-service-filter"), { target: { value: "" } });
+      visible(prefix, ["approved", "early", "real", "custom", "legacy", "other"], []);
+    }
+    // Filtered projected cards still pass the original raw queue record to scheduling.
+    change("project");
+    act(() => drop({ kind: "queue", item: slipped[0] }, { kind: "cell", crewId: "k1", date: "2025-10-23" }));
+    await waitFor(() => expect(calls.some(c => c.method === "PATCH")).toBe(true));
+    expect(calls.find(c => c.method === "PATCH")).toMatchObject({
+      url: "/api/visits/v-approved", body: { crewId: "k1", visitDate: "2025-10-23" },
+    });
+    fireEvent.click(screen.getByTestId("tab-queue-needs"));
+    act(() => drop({ kind: "queue", item: approved }, { kind: "cell", crewId: "k1", date: "2025-10-24" }));
+    await waitFor(() => expect(calls.some(c => c.method === "POST")).toBe(true));
+    expect(calls.find(c => c.method === "POST")!.body).toEqual({
+      ticketId: "approved", crewId: "k1", visitDate: "2025-10-24",
+    });
+    expect(approved.typeKey).toBe("estimate_request");
+    expect(needsScheduling).toEqual([approved, early, real, custom, legacy, other]);
+  });
+
   it("uses independent panes, crew-owned lanes and real display-type rails", async () => {
     mount();
     const card = await screen.findByTestId("card-queue-t9");
@@ -246,7 +305,7 @@ describe("SchedulingPage", () => {
     expect(screen.getByTestId("button-toggle-queue").getAttribute("aria-expanded")).toBe("true");
   });
 
-  it.each(["light", "dark"])("uses display metadata for queue/visit identities but raw keys for filters in %s", async theme => {
+  it.each(["light", "dark"])("uses display metadata for queue/visit identities and filters in %s", async theme => {
     document.documentElement.className = theme === "dark" ? "dark" : "";
     respond = (_method, url) => {
       if (url.startsWith("/api/scheduling/queue")) return { json: { needsScheduling: [{
@@ -266,8 +325,8 @@ describe("SchedulingPage", () => {
     expect(card.innerHTML).toContain("--tt-project");
     const visitCard = await screen.findByTestId("card-visit-approved");
     expect(visitCard.textContent).toContain("Project");
-    const rawOption = screen.getByRole("option", { name: "Renamed estimate" }) as HTMLOptionElement;
-    expect(rawOption.value).toBe("estimate_request");
+    const displayOption = screen.getByRole("option", { name: "Project" }) as HTMLOptionElement;
+    expect(displayOption.value).toBe("project");
     document.documentElement.className = "";
   });
   it.each(["light", "dark"])("retains empty queue/visit states in %s", async theme => {

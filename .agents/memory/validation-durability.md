@@ -14,3 +14,9 @@ Place extracted baseline source trees outside the workspace, or remove them imme
 **Why:** The schema-drift safety check scans the workspace for extra Drizzle configs even inside ignored generated-output directories. A disposable baseline copy can therefore block validation despite having no schema drift.
 
 **How to apply:** Keep comparison logs in the ignored output directory, but do not leave cloned source/config trees there when running drift checks or completing work.
+
+Historical source archives that borrow installed node_modules also need explicit aliases to their own workspace-library sources.
+
+**Why:** Workspace package symlinks can resolve to the live checkout's generated contracts, making historical routes fail on response fields that did not exist at that revision. A pristine source archive alone is not an isolated historical check.
+
+**How to apply:** Resolve workspace libraries (especially runtime API validators and schema exports) to the archived revision before treating a historical result as provenance evidence. Label incomplete comparisons as invalid, not regressions.

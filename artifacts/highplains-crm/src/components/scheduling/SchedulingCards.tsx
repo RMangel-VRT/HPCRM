@@ -15,10 +15,16 @@ export type DragData =
   | { kind: "visit"; visit: EnrichedVisit }
   | { kind: "cell"; crewId: string; date: string };
 
-/** Display identity (Slice 02) for both badge and rail; raw keys stay for behavior/filtering. */
+/** Display identity for badges, rails and queue filtering; raw records stay operational. */
 export function queueDisplayType(item: QueueItem) {
   if (!item.typeName && !item.typeKey) return null;
   return { name: item.displayTypeName ?? item.typeName ?? item.typeKey ?? "", typeKey: item.displayTypeKey ?? item.typeKey };
+}
+
+/** Queue contract has no type ID: unkeyed identities use the available raw name, never a seeded name fallback. */
+export function queueDisplayFilterIdentity(item: QueueItem) {
+  const display = queueDisplayType(item);
+  return display?.typeKey ?? `unkeyed:${JSON.stringify(display?.name ?? "")}`;
 }
 export function visitDisplayType(v: EnrichedVisit) {
   if (!v.ticket || (!v.ticket.typeName && !v.ticket.typeKey)) return null;

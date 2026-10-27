@@ -92,7 +92,10 @@ describe("office ticket-creation entry points", () => {
     }
     const config = source("components/nav/navConfig.ts");
     expect(config).toContain('const AO: NavRole[] = ["admin", "office"];');
-    expect(config).toMatch(/key: "tickets"[\s\S]*?href: "\/dashboard\/tickets", visible: is\(\.\.\.AO\)/);
+    // Consolidated navigation opens My Tickets; the All/create view remains AO-only.
+    expect(config).toMatch(/key: "tickets"[\s\S]*?href: "\/dashboard\/tickets\/my"/);
+    expect(config).toContain('workViewsFor("tickets", u.activeRole).some(item => item.key === "mine")');
+    expect(source("components/nav/workNav.ts")).toMatch(/key: "all"[\s\S]*?href: "\/dashboard\/tickets"[\s\S]*?roles: AO/);
     expect(source("components/AppSidebar.tsx")).toContain("getNavForUser(navUser)");
   });
   it("keeps selection and batch deletion admin-only while opening create buttons", () => {

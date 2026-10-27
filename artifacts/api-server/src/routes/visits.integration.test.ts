@@ -29,6 +29,7 @@ import { canSeeBilling, isBillingInvoiceAction } from "../lib/billing";
 import { notifyTicketAssignment } from "../lib/ticketAssignmentNotification";
 import { maybeAutoCreateInvoiceOnRfb } from "../lib/rfbInvoiceAutoCreate";
 import { propagateInvoiceCompletion } from "../lib/invoiceCompletion";
+import { applyTicketStatus } from "../lib/ticketStatusChange";
 import { registerCrewsAndMobileRoutes } from "./crewsAndMobile";
 import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes";
 import { issueMobileToken } from "../mobileAuth";
@@ -57,7 +58,7 @@ function app(role = "admin", authenticated = true, activeCompanyId = companyId) 
     insertTicketSchema, pickProvided, maintainScheduleBy, wasDueDateExtendedToFuture,
     findSeededStatus, isSeededStatus, isSeededTicketType, assertNotParentCustomer,
     canSeeBilling, isBillingInvoiceAction, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
-    propagateInvoiceCompletion, eq, and, sql,
+    propagateInvoiceCompletion, applyTicketStatus, eq, and, sql,
     APPROVED_BILLING_STATUS_KEYS: ["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing", "invoicing"],
     // Only the unrelated invoice-producing branch needs this bootstrap function.
     ensureInvoiceTicketType: async () => { throw new Error("Unexpected invoice bootstrap in visits test"); },

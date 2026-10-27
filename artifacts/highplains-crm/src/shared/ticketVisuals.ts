@@ -40,13 +40,33 @@ export function resolveDisplayTypeName<T extends string | null | undefined>(
     ? TICKET_TYPE_NAMES_BY_KEY.project : rawName;
 }
 
-/** Use only for badge/rail/icon rendering; retain the original object for behavior. */
+/** Presentation, including display-type filters; retain the original for operational behavior. */
 export function resolveDisplayTicketType<T extends TicketTypeIdentity>(
   type: T | null | undefined, statusKey: string | null | undefined,
 ): T | null | undefined {
   if (!type || resolveDisplayTypeKey(type.typeKey, statusKey) === type.typeKey) return type;
   return { ...type, typeKey: resolveDisplayTypeKey(type.typeKey, statusKey),
     name: resolveDisplayTypeName(type.typeKey, statusKey, type.name) };
+}
+
+/** Seeded display identity ignores copied raw IDs. Custom/unkeyed rows stay distinct by ID. */
+export function displayTypeFilterIdentity(type: (TicketTypeIdentity & { id?: string }) | null | undefined): string | undefined {
+  if (!type) return undefined;
+  return type.typeKey && Object.hasOwn(TICKET_TYPE_NAMES_BY_KEY, type.typeKey)
+    ? `key:${type.typeKey}` : type.id ? `id:${type.id}` : undefined;
+}
+
+/** Selected values remain catalog IDs for URL/back compatibility, never mutation IDs. */
+export function matchesDisplayTypeFilter(
+  type: (TicketTypeIdentity & { id?: string }) | null | undefined,
+  statusKey: string | null | undefined,
+  selectedIds: readonly string[],
+  types: readonly (TicketTypeIdentity & { id: string })[],
+): boolean {
+  if (!selectedIds.length) return true;
+  const identity = displayTypeFilterIdentity(resolveDisplayTicketType(type, statusKey));
+  return identity !== undefined && types.some(option =>
+    selectedIds.includes(option.id) && displayTypeFilterIdentity(option) === identity);
 }
 
 /** Key-first. A non-null key is authoritative; only unkeyed rows fall back to name. */

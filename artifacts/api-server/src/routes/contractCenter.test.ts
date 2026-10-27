@@ -13,6 +13,8 @@ vi.mock("../db", () => ({ db: { select: mocks.select, insert: mocks.insert, upda
 vi.mock("../objectStorage", () => ({ ObjectStorageService: vi.fn() }));
 vi.mock("../objectAcl", () => ({ ObjectAccessGroupType: { COMPANY_MEMBER: "company_member" }, ObjectPermission: { READ: "read" } }));
 vi.mock("../utils/parentGuard", () => ({ assertNotParentCustomer: vi.fn() }));
+// Rate-card routes use the DB mock; unrelated bid lifecycle imports must not construct PgStorage.
+vi.mock("../storage", () => ({ storage: {} }));
 import { registerContractCenterRoutes } from "./contractCenter";
 
 const URL = "/api/contract-center/rate-card";

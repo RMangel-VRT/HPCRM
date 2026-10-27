@@ -25,3 +25,4 @@
 - [Data ownership policy](data-ownership-policy.md) — one owner per fact; copies need explicit snapshot or mirror semantics; retire holders only through the approved staged sequence.
 - [Ownership map check](ownership-map-check.md) — before adding a table or column, check the agreed fact owner in the data-ownership map.
 - [Migration filenames](migration-filename-stability.md) — preserve existing migration filenames despite duplicate numeric prefixes; allocate a new unused number.
+- [Display filter boundary](display-type-filter-boundary.md) — only Tickets/My Tickets pills and Scheduling queue filter use projected identity; operational types remain raw.

@@ -16,6 +16,8 @@ import { executeLegacyCopy } from "../lib/contractCenterCopyExecution";
 vi.mock("../objectStorage", () => ({ ObjectStorageService: vi.fn() }));
 vi.mock("../objectAcl", () => ({ ObjectAccessGroupType: { COMPANY_MEMBER: "company_member" }, ObjectPermission: { READ: "read" } }));
 vi.mock("../utils/parentGuard", () => ({ assertNotParentCustomer: vi.fn() }));
+// Legacy-copy routes use the DB mock, not the unrelated bid lifecycle storage singleton.
+vi.mock("../storage", () => ({ storage: {} }));
 
 const URL = "/api/admin/contract-center/copy-legacy";
 const COMPANY = "company";
@@ -206,8 +208,9 @@ describe("legacy copy endpoint safety", () => {
     })));
     const response = await executeHistoricalCopy();
     expect(response.body.summary).toMatchObject({ agreements: 1, terms: 1, documents: 1, billingMonths: 1 });
-    expect(committed.find(c => c.table === agreements)!.values[0].line).toBe("both");
-    expect(committed.find(c => c.table === agreementTerms)!.values[0]).toMatchObject({ annualPriceCents: 100, billingType: "monthly_variable" });
+    // Service line belongs to the season, never the standing relationship.
+    expect(committed.find(c => c.table === agreements)!.values[0]).not.toHaveProperty("line");
+    expect(committed.find(c => c.table === agreementTerms)!.values[0]).toMatchObject({ line: "both", annualPriceCents: 100, billingType: "monthly_variable" });
     expect(committed.find(c => c.table === termLegacySources)!.values.map(v => v.legacyContractId)).toEqual(["c1", "s1"]);
     expect(committed.find(c => c.table === termDocuments)!.values[0].createdAt).toEqual(new Date("2025-12-01Z"));
   });

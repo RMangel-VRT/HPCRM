@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { VisitDialog, type VisitDialogMode, type VisitDialogVisit } from "@/components/scheduling/VisitDialog";
 import { CrewDaySheet, TONE_CLASS } from "@/components/scheduling/CrewDaySheet";
-import { QueueCard, QueueCardBody, VisitCard, VisitCardBody, type DragData } from "@/components/scheduling/SchedulingCards";
+import { QueueCard, QueueCardBody, VisitCard, VisitCardBody, queueDisplayType, queueDisplayFilterIdentity, type DragData } from "@/components/scheduling/SchedulingCards";
 import "@/components/scheduling/scheduling-board.css";
 import { typeHueVar } from "@shared/ticketVisuals";
 import { useAuth } from "@/hooks/use-auth";
@@ -133,13 +133,16 @@ function SchedulingBoardPage() {
   const rawItems = (tab === "needs" ? queue.data?.needsScheduling : queue.data?.slipped) ?? [];
   const typeOptions = useMemo(() => {
     const m = new Map<string, string>();
-    for (const i of [...(queue.data?.needsScheduling ?? []), ...(queue.data?.slipped ?? [])]) if (i.typeKey) m.set(i.typeKey, i.typeName ?? i.typeKey);
+    for (const i of [...(queue.data?.needsScheduling ?? []), ...(queue.data?.slipped ?? [])]) {
+      const display = queueDisplayType(i);
+      if (display) m.set(queueDisplayFilterIdentity(i), display.name);
+    }
     return [...m.entries()];
   }, [queue.data]);
   const needle = q.trim().toLowerCase();
   const items = rawItems.filter(i =>
     (!service || i.serviceType === service) &&
-    (!typeFilter || i.typeKey === typeFilter) &&
+    (!typeFilter || queueDisplayFilterIdentity(i) === typeFilter) &&
     (!needle || (i.customer?.name ?? "").toLowerCase().includes(needle) || i.title.toLowerCase().includes(needle)));
   const groups = groupQueue(items, today);
 

@@ -21,7 +21,7 @@ import { useAuth } from "@/hooks/use-auth";
 import TicketCard from "@/components/TicketCard";
 import type { TicketWithDetails } from "@/components/TicketCard";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
-import { resolveDisplayTicketType } from "@shared/ticketVisuals";
+import { resolveDisplayTicketType, matchesDisplayTypeFilter } from "@shared/ticketVisuals";
 import BillingView from "@/components/BillingView";
 import { apiRequest } from "@/lib/queryClient";
 import { canViewBilling, isBillingItem, isBillingPerson, pendingInvoicesKey, type PendingInvoice } from "@/lib/billing";
@@ -328,7 +328,7 @@ export default function MyTickets() {
       ticket.customer?.name?.toLowerCase().includes(search.toLowerCase()) || false;
     const matchesPriority = priorityFilter === "all" || ticket.priority === priorityFilter;
     const matchesWorkType = workTypeFilter === "all" || ticket.workType === workTypeFilter;
-    const matchesType = typeFilters.length === 0 || typeFilters.includes(ticket.ticketTypeId);
+    const matchesType = matchesDisplayTypeFilter(ticket.ticketType, ticket.currentStatus?.statusKey, typeFilters, ticketTypes);
     const matchesStatus = statusFilter === "all" || ticket.currentStatusId === statusFilter;
     return matchesSearch && matchesPriority && matchesWorkType && matchesType && matchesStatus;
   });
