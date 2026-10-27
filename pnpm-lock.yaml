@@ -489,6 +489,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/api-zod':
+        specifier: workspace:*
+        version: link:../../lib/api-zod
       autoprefixer:
         specifier: ^10.5.0
         version: 10.5.0(postcss@8.5.14)

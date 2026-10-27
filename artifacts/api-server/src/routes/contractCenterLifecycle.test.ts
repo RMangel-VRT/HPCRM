@@ -222,7 +222,7 @@ describe("Contract Center lifecycle routes", () => {
     const committed = await agent.post(`${base}/contracts/${agreementId}/renew`).send({ increasePct: 3, roundTo: "dollar" });
     expect(committed.status).toBe(201); const renewal = committed.body.terms.find((t: any) => t.id !== termId);
     expect(rows("agreement_terms").find(t => t.id === termId)).toEqual(old);
-    expect((await agent.post(`${base}/contracts/${agreementId}/renew`).send({ roundTo: "dollar" })).status).toBe(409);
+    expect((await agent.post(`${base}/contracts/${agreementId}/renew`).send({ increasePct: 3, roundTo: "dollar" })).status).toBe(409);
     await agent.post(`${base}/terms/${renewal.id}/status`).send({ to: "sent" });
     expect((await agent.post(`${base}/terms/${renewal.id}/status`).send({ to: "signed" })).status).toBe(200);
     expect(rows("agreement_terms").find(t => t.id === termId).status).toBe("renewed");
@@ -232,7 +232,7 @@ describe("Contract Center lifecycle routes", () => {
   it("serializes concurrent renewals and refuses terminal edits", async () => {
     const agent = request(app()), { termId, agreementId } = await create(agent);
     rows("agreement_terms")[0].status = "active";
-    const responses = await Promise.all([1,2].map(() => agent.post(`${base}/contracts/${agreementId}/renew`).send({ roundTo: "twelve" })));
+    const responses = await Promise.all([1,2].map(() => agent.post(`${base}/contracts/${agreementId}/renew`).send({ increasePct: 3, roundTo: "twelve" })));
     expect(responses.map(r => r.status).sort()).toEqual([201,409]);
     rows("agreement_terms").find(t => t.id === termId).status = "renewed";
     expect((await agent.patch(`${base}/terms/${termId}`).send({ notes: "X" })).status).toBe(409);
@@ -241,7 +241,7 @@ describe("Contract Center lifecycle routes", () => {
   it("logs losing a renewal on its source without changing source status", async () => {
     const agent = request(app()), { termId, agreementId } = await create(agent);
     rows("agreement_terms")[0].status = "active";
-    const response = await agent.post(`${base}/contracts/${agreementId}/renew`).send({ roundTo: "dollar" });
+    const response = await agent.post(`${base}/contracts/${agreementId}/renew`).send({ increasePct: 3, roundTo: "dollar" });
     const renewal = response.body.terms.find((t: any) => t.id !== termId);
     expect((await agent.post(`${base}/terms/${renewal.id}/status`).send({ to: "lost" })).status).toBe(200);
     expect(rows("term_status_history").at(-1)).toMatchObject({ termId, oldStatus: "active", newStatus: "active", note: "Renewal lost" });

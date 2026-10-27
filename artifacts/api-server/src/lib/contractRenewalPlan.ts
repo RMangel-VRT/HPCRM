@@ -2,7 +2,8 @@ import type { AgreementTerm, AgreementLine, AgreementForm, TermScopeLine } from 
 import type { AuditData } from "./contractAuditData";
 import type { AuditFiles, CsvRow, Diagnostic } from "./contractAuditFiles";
 import { planAuditImport, type ImportTerm } from "./contractAuditPlan";
-import { renewalRates, snapshotRates } from "./contractCenterService";
+import { renewalRates, snapshotRates, renewalCoverage } from "./contractCenterService";
+import { renewalScope } from "./contractChangingRenewal";
 import { addCalendarDays } from "./companyDay";
 
 export type RenewalTerm = Omit<ImportTerm, "documents" | "scope"> & {
@@ -60,13 +61,17 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
       const value = source[camel(key) as keyof AgreementTerm];
       if (value != null) inherited[key] = String(value);
     }
-    const snowPricing = v.snow_pricing || source.snowPricing || undefined;
-    const snowPrice = v.snow_flat_price || (source.snowFlatPriceCents == null ? undefined :
-      `${Math.floor(source.snowFlatPriceCents / 100)}.${String(source.snowFlatPriceCents % 100).padStart(2, "0")}`);
+    const line = (v.line || source.line) as AgreementLine, form = (v.form || source.form) as AgreementForm;
+    const coverage = renewalCoverage(source, line, []);
+    const snowPricing = v.snow_pricing || coverage.snowPricing || undefined;
+    const snowPrice = v.snow_flat_price || (coverage.snowFlatPriceCents == null ? undefined :
+      `${Math.floor(coverage.snowFlatPriceCents / 100)}.${String(coverage.snowFlatPriceCents % 100).padStart(2, "0")}`);
     const synthetic = { ...row, values: { ...inherited, ...v, agreement_ref: agreement.id, customer_id: customer.id,
-      line: agreement.line, form: agreement.form, ...(snowPricing ? { snow_pricing: snowPricing } : {}),
+      line, form, ...(snowPricing ? { snow_pricing: snowPricing } : {}),
       ...(snowPrice ? { snow_flat_price: snowPrice } : {}) } };
-    let rates = renewalRates((data.rates ?? []).filter(r => r.termId === source.id), data.card, agreement.line).rates;
+    // Explicit CSV overrides still apply below; a move onto Our form starts from the card.
+    let rates = form === "ours" && source.form !== form ? snapshotRates(data.card, [], line)
+      : renewalRates((data.rates ?? []).filter(r => r.termId === source.id), data.card, line).rates;
     const overrideRows = children("rates.csv").map(r => {
       const existing = rates.find(rate => rate.rateKey === r.values.rate_key);
       return existing ? { ...r, values: { label: existing.label, unit: existing.unit, category: existing.category,
@@ -86,7 +91,7 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
     plan.errors.push(...built.errors); plan.warnings.push(...built.warnings);
     const term = built.customers[0]?.agreements[0]?.terms[0];
     if (!term) continue;
-    if (!(agreement.line === "snow" && snowPricing === "time_and_materials") &&
+    if (!(line === "snow" && snowPricing === "time_and_materials") &&
         (!children("payments.csv").length || term.values.annualPriceCents == null))
       diag(row, "Payments must be supplied for the new season", "contract_ref");
     if (v.renewal_increase_pct !== undefined &&
@@ -103,7 +108,7 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
           ...Object.fromEntries(keys.map(k => [k, supplied[k as keyof typeof supplied]])) } : rate);
         else {
           // Validation of custom metadata is shared with normal rate snapshots.
-          snapshotRates(data.card, [supplied], agreement.line);
+          snapshotRates(data.card, [supplied], line);
           rates.push(supplied);
         }
       } catch { diag(r, "Invalid rate override", "rate_key"); }
@@ -121,11 +126,11 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
     }
     if (v.status === "signed" && !documents.some(d => d.kind === "signed"))
       diag(row, "Signed row has no signed document attached", "status", true);
-    const scope = children("scope.csv").length ? term.scope : (data.scope ?? []).filter(s => s.termId === source.id)
-      .map(({ id: _id, companyId: _company, termId: _term, createdAt: _created, updatedAt: _updated, ...s }) => s);
+    const scope = children("scope.csv").length ? term.scope :
+      renewalScope((data.scope ?? []).filter(s => s.termId === source.id), source.line, line, "carry");
     let group = plan.customers.find(c => c.id === customer.id);
     if (!group) { group = { id: customer.id, name: customer.name, terms: [] }; plan.customers.push(group); }
-    group.terms.push({ ...term, sourceTerm: source, agreementId: agreement.id, line: agreement.line, form: agreement.form, skipped, scope, rates, documents,
+    group.terms.push({ ...term, sourceTerm: source, agreementId: agreement.id, line, form, skipped, scope, rates, documents,
       values: { ...term.values, ...(v.renewal_increase_pct ? { renewalIncreasePct: v.renewal_increase_pct } : {}) } });
   }
   return plan;
@@ -138,7 +143,7 @@ export function renewalReport(plan: RenewalPlan, dryRun: boolean) {
         agreementRef: id, action: "add renewal", line: c.terms.find(t => t.agreementId === id)!.line,
         form: c.terms.find(t => t.agreementId === id)!.form,
         terms: c.terms.filter(t => t.agreementId === id).map(t => ({
-          contractRef: t.contractRef, action: t.skipped ? "skip" : "add renewal",
+          contractRef: t.contractRef, line: t.values.line, form: t.values.form, action: t.skipped ? "skip" : "add renewal",
           description: `${t.skipped ? "Skip" : "Add"} ${t.values.seasonLabel} to ${c.name} (renews ${t.sourceTerm.seasonLabel})`,
           season: t.values.seasonLabel, startDate: t.values.startDate, endDate: t.values.endDate,
           status: t.values.status, annualPrice: t.values.annualPriceCents, paymentLines: t.paymentCount,

@@ -11,6 +11,7 @@ import { planAuditImport } from "./contractAuditPlan";
 import { executeAuditImport } from "./contractAuditExecution";
 import { registerContractCenterRoutes } from "../routes/contractCenter";
 import * as persistence from "./contractCenterPersistence";
+import { ObjectStorageService } from "../objectStorage";
 
 const enabled = process.env.CONTRACT_AUDIT_DB_TEST === "1" && process.env.NODE_ENV !== "production";
 describe.skipIf(!enabled)("disposable development audit import", () => {
@@ -31,6 +32,51 @@ describe.skipIf(!enabled)("disposable development audit import", () => {
     for (const file of fixture.upload.filter(f => f.name.endsWith(".csv"))) req.attach("files", file.data, file.name.split("/").pop()!);
     return req;
   };
+  it("keeps imported seasonal histories independent despite same-transaction predecessor chains", async () => {
+    const f = await createAuditFixture();
+    try {
+      const result = await executeAuditImport(f.files, f.companyId, f.userId);
+      expect(result.failures).toEqual([]);
+      const [a] = await db.select().from(agreements).where(eq(agreements.companyId, f.companyId));
+      const server = express(); server.use(express.json());
+      server.use((req, _res, next) => {
+        Object.assign(req, { isAuthenticated: () => true, user: { id: f.userId, activeRole: "admin",
+          activeCompanyId: f.companyId, isSuperAdminBool: false } });
+        next();
+      });
+      registerContractCenterRoutes(server);
+      const api = request(server), base = "/api/contract-center";
+      let detail = (await api.get(`${base}/contracts/${a.id}`)).body;
+      const first = detail.terms[0], second = detail.terms[1];
+      expect(second.renewedFromTermId).toBe(first.id);
+      expect(second.createdAtExact).toBe(first.createdAtExact);
+      for (const t of detail.terms) {
+        expect(t.renewalSet).toMatchObject({ firstTermId: t.id, year: 1, length: 1 });
+        expect(t.signedDocumentTermId).toBe(t.id);
+      }
+      const status = await api.post(`${base}/terms/${second.id}/status`).send({ to: "signed" });
+      expect(status.status).toBe(200);
+      // Exercise the real document route/DB with only external object I/O mocked.
+      vi.spyOn(ObjectStorageService.prototype, "normalizeObjectEntityPath").mockReturnValue("/objects/disposable-import-signed");
+      vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue({} as never);
+      vi.spyOn(ObjectStorageService.prototype, "trySetObjectEntityAclPolicy").mockResolvedValue("/objects/disposable-import-signed");
+      // The middleware grants an authorized upload binding for each imported season.
+      const bindingServer = express(); bindingServer.use(express.json());
+      bindingServer.use((req, _res, next) => {
+        Object.assign(req, { isAuthenticated: () => true, user: { id: f.userId, activeRole: "admin", activeCompanyId: f.companyId },
+          session: { contractCenterUploads: { "/objects/disposable-import-signed": { companyId: f.companyId, termId: req.path.split("/")[4] } } } });
+        next();
+      });
+      registerContractCenterRoutes(bindingServer);
+      for (const t of [first, second]) {
+        const doc = await request(bindingServer).post(`${base}/terms/${t.id}/documents`).send({ uploadURL: "/objects/disposable-import-signed",
+          kind: "signed", filename: "disposable.pdf", fileSize: 10, mimeType: "application/pdf" });
+        expect(doc.status).toBe(201); expect(doc.body.termId).toBe(t.id);
+      }
+      detail = (await api.get(`${base}/contracts/${a.id}`)).body;
+      expect(detail.terms.every((t: { renewalSet: { length: number } }) => t.renewalSet.length === 1)).toBe(true);
+    } finally { vi.restoreAllMocks(); await removeAuditFixture(f.companyId, f.userId); }
+  });
   it("authorizes before multipart/DB work and scopes exports/imports to company", async () => {
     for (const role of ["office", "field_manager", "mapping", "crew_supervisor"]) {
       expect((await request(app(role)).get("/api/admin/contract-center/audit-export/batches")).status).toBe(403);
@@ -163,7 +209,10 @@ describe.skipIf(!enabled)("disposable development audit import", () => {
     const [agreement] = await db.select().from(agreements).where(and(eq(agreements.companyId, fixture.companyId), eq(agreements.importRef, "college-hills")));
     const terms = await db.select().from(agreementTerms).where(eq(agreementTerms.agreementId, agreement.id));
     const latest = terms.sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
-    expect((await request(app()).post(`/api/contract-center/terms/${latest.id}/status`).send({ to: "signed" })).status).toBe(200);
+    const detail = await request(app()).get(`/api/contract-center/contracts/${agreement.id}`);
+    const firstId = detail.body.terms.find((t: { id: string }) => t.id === latest.id).renewalSet.firstTermId;
+    expect(firstId).toBe(latest.id);
+    expect((await request(app()).post(`/api/contract-center/terms/${firstId}/status`).send({ to: "signed" })).status).toBe(200);
     const renewed = await request(app()).post(`/api/contract-center/contracts/${agreement.id}/renew`).send({ increasePct: 3, roundTo: "dollar" });
     expect(renewed.status).toBe(201);
     const renewal = renewed.body.terms.find((t: { renewedFromTermId: string }) => t.renewedFromTermId === latest.id);

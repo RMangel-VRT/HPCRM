@@ -33,7 +33,7 @@ function data(): AuditData {
   const now = new Date("2025-01-01T00:00:00Z");
   const card = RATE_CARD_DEFAULTS.map(({ key, ...r }, sortOrder) => ({ ...r, rateKey: key, sortOrder,
     id: key, companyId: "company", active: true, createdAt: now, updatedAt: now }));
-  const source = { id: "source", companyId: "company", agreementId: "agreement", seasonLabel: "2025–26",
+  const source = { id: "source", companyId: "company", agreementId: "agreement", line: "landscape", form: "ours", seasonLabel: "2025–26",
     startDate: "2025-11-01", endDate: "2026-10-31", status: "signed", renewedFromTermId: null,
     legalName: "Source legal name", projectContact: "Source contact", notes: "Source notes",
     snowPricing: null, snowFlatPriceCents: null, createdAt: now, updatedAt: now, signedAt: now };
@@ -115,6 +115,31 @@ describe("renewal upload boundaries", () => {
   });
 });
 describe("renewal preview validation and carry-forward", () => {
+  it.each([["both", "both", true], ["snow", "both", true], ["both", "landscape", false]] as const)(
+    "carries custom Snow scope for CSV %s→%s without changing its line", async (from, to, retained) => {
+      const d = data(); d.terms[0].line = from; d.terms[0].snowPricing = "time_and_materials";
+      d.scope[0].line = "snow";
+      const files = await input(); files.tables["renewals.csv"][0].values.line = to;
+      const p = planRenewalImport(files, d);
+      expect(p.errors).toEqual([]);
+      const custom = p.customers[0].terms[0].scope.find(s => s.serviceKey === "other:custom");
+      if (retained) expect(custom).toMatchObject({ line: "snow" }); else expect(custom).toBeUndefined();
+    });
+  it("defaults blank seasonal columns to the explicit source and adds snow coverage on a form change", async () => {
+    const d = data(); d.terms[0].form = "theirs";
+    const files = await input();
+    files.tables["renewals.csv"][0].values.line = "both";
+    files.tables["renewals.csv"][0].values.form = "ours";
+    const p = planRenewalImport(files, d);
+    expect(p.errors).toEqual([]);
+    const term = p.customers[0].terms[0];
+    expect(term.values).toMatchObject({ line: "both", form: "ours", snowPricing: "time_and_materials" });
+    expect(term.rates.some(r => r.line === "snow")).toBe(true);
+    expect(term.scope.some(s => s.serviceKey === "snow_walks" && s.included)).toBe(true);
+    files.tables["renewals.csv"][0].values.line = "";
+    files.tables["renewals.csv"][0].values.form = "";
+    expect(planRenewalImport(files, d).customers[0].terms[0].values).toMatchObject({ line: "landscape", form: "theirs" });
+  });
   it("preserves source fields, rates and exact scope without any automatic increase", async () => {
     const f = await input(), d = data(); f.tables["renewals.csv"][0].values.renewal_increase_pct = "3.00";
     const before = structuredClone(d), p = planRenewalImport(f, d), t = p.customers[0].terms[0];
@@ -194,7 +219,7 @@ describe("renewal preview validation and carry-forward", () => {
   it("requires new payments except for snow-only T&M, carrying snow values unchanged", async () => {
     const f = await input(), d = data(); f.tables["payments.csv"] = [];
     expect(planRenewalImport(f, d).errors.some(e => e.message.includes("Payments must"))).toBe(true);
-    d.agreements[0].line = "snow"; d.terms[0].snowPricing = "time_and_materials";
+    d.terms[0].line = "snow"; d.terms[0].snowPricing = "time_and_materials";
     expect(planRenewalImport(f, d).errors).toEqual([]);
     d.terms[0].snowPricing = "flat_rate"; d.terms[0].snowFlatPriceCents = 12345;
     f.tables["payments.csv"] = [{ file: "payments.csv", row: 2, values: { contract_ref: "r", payment_line: "Snow", jan: "100" } }];

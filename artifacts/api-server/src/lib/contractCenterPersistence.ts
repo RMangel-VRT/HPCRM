@@ -1,4 +1,4 @@
-import { and, eq, asc, desc } from "drizzle-orm";
+import { and, eq, asc, desc, sql, getTableColumns } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   agreements, agreementTerms, customers, propertyManagementCompanies, termScopeLines,
@@ -6,7 +6,7 @@ import {
   users, type AgreementTerm, type TermStatus,
 } from "@workspace/db";
 import { db } from "../db";
-import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves } from "./contractCenterService";
+import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves, renewalSet } from "./contractCenterService";
 import { addCalendarDays, companyToday } from "./companyDay";
 
 export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -62,6 +62,17 @@ export async function addHistory(tx: Transaction, companyId: string, userId: str
 export async function activeCard(reader: Reader, companyId: string) {
   return reader.select().from(rateCardItems).where(and(eq(rateCardItems.companyId, companyId), eq(rateCardItems.active, true)));
 }
+/** Keep microseconds; Date truncates them and can group separate transactions. */
+export async function agreementSeasons(reader: Reader, companyId: string, agreementId: string) {
+  return reader.select({ ...getTableColumns(agreementTerms),
+    createdAtExact: sql<string>`${agreementTerms.createdAt}::text`,
+    renewalNote: sql<string | null>`(select h.note from term_status_history h
+      where h.term_id = agreement_terms.id and h.company_id = agreement_terms.company_id
+      and h.note like 'Renewed from % (year % of % renewal,%'
+      order by h.created_at, h.id limit 1)` })
+    .from(agreementTerms).where(and(eq(agreementTerms.agreementId, agreementId), eq(agreementTerms.companyId, companyId)))
+    .orderBy(asc(agreementTerms.startDate), asc(agreementTerms.createdAt));
+}
 export async function fullDetail(reader: Reader, companyId: string, agreementId: string) {
   const agreement = await getAgreement(reader, companyId, agreementId);
   const [customer] = await reader.select().from(customers).where(and(eq(customers.id, agreement.customerId), eq(customers.companyId, companyId)));
@@ -69,8 +80,7 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
   const managementId = agreement.propertyManagementCompanyId ?? customer.propertyManagementCompanyId;
   const [managementCompany] = managementId ? await reader.select().from(propertyManagementCompanies)
     .where(and(eq(propertyManagementCompanies.id, managementId), eq(propertyManagementCompanies.companyId, companyId))) : [];
-  const terms = await reader.select().from(agreementTerms).where(and(eq(agreementTerms.agreementId, agreementId), eq(agreementTerms.companyId, companyId)))
-    .orderBy(asc(agreementTerms.startDate), asc(agreementTerms.createdAt));
+  const terms = await agreementSeasons(reader, companyId, agreementId);
   const summary = listSummary(terms);
   const editableIds = new Set([summary.current?.id, summary.renewalDraft?.id].filter(Boolean));
   const nested = await Promise.all(terms.map(async term => {
@@ -89,14 +99,18 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
       return [id, actor?.name ?? id] as const;
     }));
     const names = new Map(actors);
-    const editable = editableIds.has(term.id) && !["renewed", "lost", "cancelled"].includes(term.status);
+    const set = renewalSet(terms, term), first = set[0], year = set.findIndex(t => t.id === term.id) + 1;
+    const editable = (editableIds.has(term.id) || ["draft", "sent"].includes(term.status)) && !["renewed", "lost", "cancelled"].includes(term.status);
     return { ...term, displayStatus: displayStatus(term, terms), editable,
-      allowedMoves: editable ? allowedMoves(term.status, !!term.renewedFromTermId) : [],
+      renewalSet: { firstTermId: first.id, firstSeason: first.seasonLabel, lastSeason: set[set.length - 1].seasonLabel, year, length: set.length },
+      signedDocumentTermId: first.id,
+      allowedMoves: year === 1 && (editable || set.length > 1) ? allowedMoves(set[set.length - 1].status, !!first.renewedFromTermId) : [],
       scope, rates, billingMonths,
       documents: documents.map(d => ({ ...d, uploadedByName: d.uploadedBy ? names.get(d.uploadedBy) ?? d.uploadedBy : "System" })),
       history: history.map(h => ({ ...h, changedByName: h.changedBy ? names.get(h.changedBy) ?? h.changedBy : "System" })) };
   }));
-  return { ...agreement, customer: { id: customer.id, name: customer.name,
+  const display = summary.current ?? summary.latest;
+  return { ...agreement, line: display?.line, form: display?.form, customer: { id: customer.id, name: customer.name,
     address: `${customer.street}, ${customer.city}, ${customer.state} ${customer.zip}`,
     street: customer.street, city: customer.city, state: customer.state, zip: customer.zip,
     managementCompany: managementCompany ?? customer.managementCompany }, terms: nested,
@@ -105,7 +119,7 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
 }
 export function listSummary(terms: AgreementTerm[], today = companyToday()) {
   const current = selectCurrent(terms, today);
-  const summarize = (t: AgreementTerm) => ({ id: t.id, seasonLabel: t.seasonLabel,
+  const summarize = (t: AgreementTerm) => ({ id: t.id, seasonLabel: t.seasonLabel, line: t.line, form: t.form,
     startDate: t.startDate, endDate: t.endDate, status: t.status, displayStatus: displayStatus(t, terms, today),
     annualPriceCents: t.annualPriceCents, snowPricing: t.snowPricing, needsReview: t.needsReview,
     signedAt: t.signedAt, snowFlatPriceCents: t.snowFlatPriceCents,

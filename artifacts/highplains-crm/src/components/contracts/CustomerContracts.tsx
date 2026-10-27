@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { LineBadge, StatusPill, RenewalChip } from "./ContractBadges";
 import { dateOnly, dateTime, money } from "./contractFormat";
+import { termForm, termLine } from "./contractTypes";
 import type { ContractListItem } from "./contractTypes";
 import { branchPaymentHint } from "./parentContract";
 
@@ -44,8 +45,8 @@ export function CustomerContracts({ customerId, children }: { customerId: string
           return <Card key={contract.id} data-testid={`center-contract-${contract.id}`}>
             <CardContent className="space-y-3 p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <LineBadge line={contract.line} />
-                <span className="text-sm">{contract.form === "ours" ? "Our form" : "Their form"}</span>
+                <LineBadge line={termLine(contract.current ?? contract.latest ?? term, contract.line)} />
+                <span className="text-sm">{termForm(contract.current ?? contract.latest ?? term, contract.form) === "ours" ? "Our form" : "Their form"}</span>
                 {term && <StatusPill status={term.displayStatus} />}
                 {contract.renewalDue && <RenewalChip />}
               </div>

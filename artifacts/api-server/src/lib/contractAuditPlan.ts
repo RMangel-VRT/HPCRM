@@ -9,7 +9,7 @@ type BuiltScope = ReturnType<typeof buildScope>;
 type BuiltRates = ReturnType<typeof snapshotRates>;
 export type ImportTerm = {
   source: CsvRow; contractRef: string; renewsRef?: string; legacyIds: string[];
-  values: ReturnType<typeof termFieldsSchema.parse> & { status: TermStatus; signedAt: Date | null; reviewNote: string | null;
+  values: ReturnType<typeof termFieldsSchema.parse> & { line: AgreementLine; form: AgreementForm; status: TermStatus; signedAt: Date | null; reviewNote: string | null;
     annualPriceCents: number | null; billingType: ReturnType<typeof paymentSummary>["billingType"] };
   scope: BuiltScope; rates: BuiltRates; billing: ReturnType<typeof expandPayments>;
   documents: Array<{ source: ContractDocument; kind: "signed" | "their_form" | "other" }>;
@@ -71,8 +71,8 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
     if (byRef.has(ref)) diagnostic(row, "Duplicate contract_ref", "contract_ref");
     else byRef.set(ref, row);
     const previous = agreementOwners.get(agreementRef);
-    if (previous && ["customer_id", "line", "form"].some(k => previous.values[k] !== row.values[k]))
-      diagnostic(row, "Agreement rows must agree on customer, line and form", "agreement_ref");
+    if (previous && previous.values.customer_id !== row.values.customer_id)
+      diagnostic(row, "Agreement rows must agree on customer", "agreement_ref");
     else agreementOwners.set(agreementRef, row);
   }
   const replacements = new Set<string>();
@@ -120,7 +120,7 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
     if (!["draft", "sent", "signed", "renewed", "lost", "cancelled"].includes(status)) diagnostic(row, "Unknown status", "status");
     attempt(row, () => validateDates(v.start_date, v.end_date), undefined, "start_date");
     const snowFlatPriceCents = money(row, "snow_flat_price");
-    const values = { seasonLabel: v.season_label || (v.start_date?.slice(0, 4) === v.end_date?.slice(0, 4)
+    const values = { line, form, seasonLabel: v.season_label || (v.start_date?.slice(0, 4) === v.end_date?.slice(0, 4)
       ? v.start_date?.slice(0, 4) : `${v.start_date?.slice(0, 4)}–${v.end_date?.slice(2, 4)}`),
       startDate: v.start_date ?? "", endDate: v.end_date ?? "", snowPricing: v.snow_pricing as "time_and_materials" | "flat_rate" | undefined,
       snowFlatPriceCents, needsReview: boolean(row, "needs_review"),
@@ -237,7 +237,7 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
 export function auditReport(plan: ImportPlan, dryRun: boolean) {
   const customers = plan.customers.map(c => ({ customerId: c.id, customerName: c.name,
     agreements: c.agreements.map(a => ({ agreementRef: a.ref, line: a.line, form: a.form, action: a.replaceId ? "replace" : "create",
-      terms: a.terms.map(t => ({ contractRef: t.contractRef, season: t.values.seasonLabel, startDate: t.values.startDate,
+      terms: a.terms.map(t => ({ contractRef: t.contractRef, line: t.values.line, form: t.values.form, season: t.values.seasonLabel, startDate: t.values.startDate,
         endDate: t.values.endDate, status: t.values.status, annualPrice: t.values.annualPriceCents, paymentLines: t.paymentCount,
         rates: t.rates.length, scope: t.scope.length, documents: t.documents.length, needsReview: t.values.needsReview ?? false })) })) }));
   const agreements = plan.customers.flatMap(c => c.agreements), terms = agreements.flatMap(a => a.terms);

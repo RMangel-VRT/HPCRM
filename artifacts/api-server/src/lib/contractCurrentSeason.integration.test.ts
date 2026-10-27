@@ -36,7 +36,7 @@ describe.skipIf(!enabled)("current season — disposable production-like persist
       const terms: typeof agreementTerms.$inferSelect[] = [];
       for (const [i, year] of spec.years.entries()) {
         const [term] = await db.insert(agreementTerms).values({
-          companyId, agreementId: agreement.id, createdBy: userId,
+          companyId, agreementId: agreement.id, createdBy: userId, line: "landscape", form: "ours",
           seasonLabel: spec.offset ? `${year}–${String(year + 1).slice(-2)}` : String(year),
           startDate: `${year}-${spec.month}-01`, endDate: `${year + spec.offset}-${spec.endMonth}-${spec.endDay}`,
           status: i === spec.years.length - 1 ? "signed" : "renewed", renewedFromTermId: terms.at(-1)?.id ?? null,
@@ -139,7 +139,7 @@ describe.skipIf(!enabled)("current season — disposable production-like persist
     });
     const after = await snapshot();
     for (const dryRun of [true, false]) {
-      expect((await agent.post(`${base}/contracts/${fixture.agreementId}/renew`).send({ roundTo: "dollar", dryRun })).status).toBe(409);
+      expect((await agent.post(`${base}/contracts/${fixture.agreementId}/renew`).send({ increasePct: 3, roundTo: "dollar", dryRun })).status).toBe(409);
     }
     expect(await snapshot()).toEqual(after);
   });

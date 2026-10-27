@@ -9,7 +9,8 @@ import { BoardColumn } from "@/components/contracts/BoardColumn";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LineBadge, RenewalChip, ReviewChip, StatusPill } from "@/components/contracts/ContractBadges";
 import { dateOnly, coloradoToday, money } from "@/components/contracts/contractFormat";
-import { boardColumns, priceLabel, renewalProgress, rowTerm, tableRows } from "@/components/contracts/boardLogic";
+import { boardColumns, priceLabel, renewalProgress, rowForm, rowLine, rowTerm, tableRows } from "@/components/contracts/boardLogic";
+import { termForm, termLine } from "@/components/contracts/contractTypes";
 import type { BoardCard, ColumnKey, FilterChip, SortKey } from "@/components/contracts/boardLogic";
 import type { BoardLine, ContractListItem } from "@/components/contracts/contractTypes";
 import { contractCustomerLabel } from "@/components/contracts/parentContract";
@@ -98,8 +99,8 @@ function BoardCardView({ card, board, onRenew }: { card: BoardCard; board: Board
           : <Button size="sm" variant="outline" className="h-7 min-h-0 shrink-0 px-2.5 text-xs" asChild><Link href={href} data-testid={`link-open-${column}-${item.id}`}>Open</Link></Button>}
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-        <LineBadge line={item.line} />
-        <span className="text-xs text-muted-foreground">{item.form === "ours" ? "Our form" : "Their form"}</span>
+        <LineBadge line={termLine(term, item.line)} />
+        <span className="text-xs text-muted-foreground">{termForm(term, item.form) === "ours" ? "Our form" : "Their form"}</span>
         <StatusPill status={term.displayStatus} />
         {column === "drafted" && <span className="text-xs text-muted-foreground" data-testid="text-renewal-state">Renewal {term.status}</span>}
         {column === "renewal" && item.renewalDue && <RenewalChip />}
@@ -165,8 +166,8 @@ export function ContractTable({ items, board, q, onOpen, chips: controlledChips,
                 <tr key={i.id} className="border-t cursor-pointer hover:bg-muted/40" tabIndex={0} data-testid={`row-contract-${i.id}`}
                   onClick={() => onOpen?.(i.id)} onKeyDown={e => { if (e.key === "Enter") onOpen?.(i.id); }}>
                   <td className="p-2 font-medium">{contractCustomerLabel(i)}</td>
-                  <td className="p-2"><LineBadge line={i.line} /></td>
-                  <td className="p-2">{i.form === "ours" ? "Our form" : "Their form"}</td>
+                  <td className="p-2"><LineBadge line={rowLine(i)} /></td>
+                  <td className="p-2">{rowForm(i) === "ours" ? "Our form" : "Their form"}</td>
                   <td className="p-2">{t?.seasonLabel ?? "\u2014"}</td>
                   <td className="p-2">
                     <span className="inline-flex flex-wrap items-center gap-2">

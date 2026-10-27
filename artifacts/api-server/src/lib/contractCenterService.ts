@@ -44,9 +44,16 @@ export const createContractSchema = z.object({
   term: termFieldsSchema, scope: scopeSchema, rates: ratesSchema, payments: paymentsSchema,
 });
 export const renewSchema = z.object({
-  increasePct: z.number().min(-50).max(100).default(3),
+  increasePct: z.number().min(-50).max(100).optional(),
+  targetAnnualCents: cents.optional(),
+  laterYearPcts: z.array(z.number().min(-50).max(100)).max(4).default([]),
+  line: z.enum(["landscape", "snow", "both"]).optional(),
+  form: z.enum(["ours", "theirs"]).optional(),
+  rates: z.enum(["carry", "card"]).optional(),
+  scope: z.enum(["carry", "standard"]).default("carry"),
   roundTo: z.enum(["dollar", "twelve"]), dryRun: z.boolean().default(false),
-});
+}).refine(b => (b.increasePct === undefined) !== (b.targetAnnualCents === undefined),
+  { message: "Give either an increase or a new annual price" });
 export function inclusiveMonths(start: string, end: string): number {
   const [sy, sm] = start.split("-").map(Number), [ey, em] = end.split("-").map(Number);
   return (ey - sy) * 12 + em - sm + 1;
@@ -208,6 +215,8 @@ export function renewalDates(term: Pick<AgreementTerm, "startDate" | "endDate">)
   return { startDate, endDate, seasonLabel: sy === ey ? sy : `${sy}–${ey.slice(-2)}` };
 }
 export function renewalRates(old: TermRate[], card: RateCardItem[], line: AgreementLine) {
+  const removed = old.filter(r => !applies(line, r.line));
+  old = old.filter(r => applies(line, r.line));
   const active = card.filter(r => r.active && applies(line, r.line));
   const overrides = old.filter(r => !active.some(c => c.rateKey === r.rateKey) ||
     r.priceCents !== r.cardPriceCents || r.priceText !== r.cardPriceText);
@@ -223,7 +232,78 @@ export function renewalRates(old: TermRate[], card: RateCardItem[], line: Agreem
     const before = old.find(o => o.rateKey === r.rateKey);
     const kept = overrides.some(o => o.rateKey === r.rateKey);
     return { rateKey: r.rateKey, label: r.label, old: { priceCents: before?.priceCents ?? null, priceText: before?.priceText ?? null },
-      new: { priceCents: r.priceCents, priceText: r.priceText }, reason: kept ? "kept override" : "card changed" };
+      new: { priceCents: r.priceCents, priceText: r.priceText }, reason: !before ? "added" : kept ? "kept override" : "card changed" };
   });
+  changes.push(...removed.map(r => ({ rateKey: r.rateKey, label: r.label,
+    old: { priceCents: r.priceCents, priceText: r.priceText },
+    new: { priceCents: null, priceText: null }, reason: "removed" })));
   return { rates, changes };
+}
+
+/** Exact annual target, retaining every line/month's share of the original total. */
+export function scaledPayments(input: Payments, target: number, roundTo: "dollar" | "twelve"): Payments {
+  cents.parse(target);
+  const payments = validatePayments(input);
+  const total = payments.reduce((n, p) => n + p.months.reduce((s, m) => s + m.amountCents, 0), 0);
+  cents.parse(total);
+  if (!total) {
+    const share = Math.floor(target / 12);
+    return [{ component: "Grounds maintenance", months: Array.from({ length: 12 }, (_, i) =>
+      ({ month: i + 1, amountCents: i === 11 ? target - share * 11 : share })) }];
+  }
+  const paid = payments.flatMap((p, pi) => p.months.filter(m => m.amountCents > 0)
+    .sort((a, b) => a.month - b.month).map(m => ({ pi, ...m })));
+  let allocated = 0;
+  const result = payments.map(p => ({ component: p.component, months: [] as Payments[number]["months"] }));
+  paid.forEach((m, i) => {
+    // Products of two supported cent amounts exceed JS's exact integer range.
+    const numerator = BigInt(target) * BigInt(m.amountCents), denominator = BigInt(total);
+    const rounded = roundTo === "dollar"
+      ? Number((numerator + denominator * 50n) / (denominator * 100n)) * 100
+      : Number(numerator / denominator);
+    const amountCents = i === paid.length - 1 ? target - allocated : Math.min(rounded, target - allocated);
+    cents.parse(amountCents); allocated += amountCents;
+    result[m.pi].months.push({ month: m.month, amountCents });
+  });
+  return validatePayments(result);
+}
+
+/** Coverage changes run before repricing and are shared with explicit-source imports. */
+export function renewalCoverage(source: Pick<AgreementTerm, "line" | "snowPricing" | "snowFlatPriceCents">,
+  line: AgreementLine, input: Payments) {
+  let payments = validatePayments(input);
+  const addingSnow = source.line === "landscape" && line !== "landscape";
+  const snowPricing = line === "landscape" ? null : addingSnow ? "time_and_materials" as const : source.snowPricing;
+  const snowFlatPriceCents = line === "landscape" || addingSnow ? null : source.snowFlatPriceCents;
+  if (line === "landscape") payments = payments.filter(p => p.component !== "Snow");
+  if (line === "snow") payments = snowPricing === "time_and_materials" ? [] : payments.filter(p => p.component === "Snow");
+  return { payments, snowPricing, snowFlatPriceCents };
+}
+
+type SetTerm = StatusTerm & { agreementId: string; companyId: string; createdAt: Date; createdAtExact?: string; renewalNote?: string | null };
+/** Chain AND transaction timestamp AND positive creation-note evidence on every member.
+ * Ordinary audit/Copy histories also share transaction timestamps, but are not renewal sets. */
+export function renewalSet<T extends SetTerm>(terms: T[], member: T): T[] {
+  const stamp = (t: T) => t.createdAtExact ?? t.createdAt.toISOString();
+  const note = (t: T) => t.renewalNote?.match(/\(year ([1-5]) of (.+) renewal,/);
+  const memberNote = note(member);
+  if (!memberNote) return [member];
+  const same = (t: T) => t.agreementId === member.agreementId && t.companyId === member.companyId && stamp(t) === stamp(member)
+    && note(t)?.[2] === memberNote[2];
+  let first = member;
+  const visited = new Set<string>();
+  while (first.renewedFromTermId && !visited.has(first.id)) {
+    visited.add(first.id);
+    const parent = terms.find(t => t.id === first.renewedFromTermId && same(t));
+    if (!parent || Number(note(parent)![1]) + 1 !== Number(note(first)![1])) break;
+    first = parent;
+  }
+  if (note(first)?.[1] !== "1") return [member];
+  const result = [first];
+  while (true) {
+    const children = terms.filter(t => t.renewedFromTermId === result[result.length - 1].id && same(t) && !result.some(r => r.id === t.id));
+    if (children.length !== 1 || Number(note(children[0])![1]) !== result.length + 1) break;
+    result.push(children[0]);
+  }
+  return result.some(t => t.id === member.id) ? result : [member];
 }

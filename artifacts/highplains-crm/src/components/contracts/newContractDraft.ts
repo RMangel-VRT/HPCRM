@@ -8,6 +8,8 @@ import { GROUNDS_LINE, SNOW_LINE, applyPreset, blankLine, equalMonthly, annualCe
 import type { PaymentLine } from "./paymentDraft";
 import { parseDollarsToCents } from "./rateCardUtils";
 import type { RateCardItem } from "./rateCardUtils";
+import { initialScope as standardScope, standardScopeIncludes } from "@workspace/api-zod/contractScope";
+import { SCOPE_CATALOG } from "@/shared/contractCatalog";
 
 export type SnowPricing = "time_and_materials" | "flat_rate";
 export interface NewContractDraft {
@@ -70,27 +72,21 @@ export function setDates(d: NewContractDraft, p: { startDate?: string; endDate?:
   return next;
 }
 
-const FULL_HOA = new Set(["mowing", "aeration", "cleanups", "shrub_trimming", "chemical", "winter_visits",
-  "irrigation_open", "irrigation_inspection", "irrigation_winterization", "backflow"]);
-const STANDARD_SNOW = new Set(["snow_walks", "snow_drives", "ice_melt", "snow_stakes"]);
 export type ScopePreset = "hoa" | "snow" | "clear";
 const realDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && addDays(v, 0) === v;
 export const monthSpan = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7)) + 1;
 export function applyScopePreset(rows: ScopeRow[], preset: ScopePreset): ScopeRow[] {
   return rows.map(r => {
     if (preset === "clear") return { ...r, included: false };
-    if (preset === "hoa" && r.line !== "snow") return { ...r, included: FULL_HOA.has(r.serviceKey) };
-    if (preset === "snow" && r.line === "snow") return { ...r, included: STANDARD_SNOW.has(r.serviceKey) };
+    if (preset === "hoa" && r.line !== "snow") return { ...r, included: standardScopeIncludes(r.serviceKey, r.line) };
+    if (preset === "snow" && r.line === "snow") return { ...r, included: standardScopeIncludes(r.serviceKey, r.line) };
     return r;
   });
 }
 
 /** Catalog defaults for the type: HOA landscape and/or standard snow switched on. */
 export function initialScope(line: AgreementLine): ScopeRow[] {
-  let rows = buildScopeRows([], line);
-  if (hasLandscape(line)) rows = applyScopePreset(rows, "hoa");
-  if (hasSnow(line)) rows = applyScopePreset(rows, "snow");
-  return rows;
+  return standardScope(line, SCOPE_CATALOG);
 }
 
 /** Active card rows relevant to the contract type, as editable rate rows. */

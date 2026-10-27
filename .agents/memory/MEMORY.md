@@ -18,3 +18,4 @@
 - [Auth fixture canonicalization](auth-fixture-canonicalization.md) — directly seeded sign-in fixtures need canonical identifiers; valid hashes alone do not rule out identifier mismatch.
 - [Section action-list direction](section-action-lists.md) — section ownership follows status; each section uses its own overdue clock; uploaded ground rules govern upcoming slices.
 - [Estimate and RFP boundaries](estimate-rfp-boundaries.md) — estimates deliver projects; RFPs produce contracts through Contracts › RFP Center, never a standalone Bids section.
+- [Drizzle correlated selects](drizzle-correlated-selects.md) — single-table projection formatting can strip interpolated outer-column qualifiers inside subqueries.

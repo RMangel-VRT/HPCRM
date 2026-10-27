@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Link } from "wouter";
 
 export interface Batch { batch: number; firstName: string; lastName: string; customers: number; documents: number; bytes: number }
-interface Term { contractRef: string; season: string; description?: string; action?: string; startDate: string; endDate: string; status: string;
+interface Term { contractRef: string; season: string; line?: string; form?: string; description?: string; action?: string; startDate: string; endDate: string; status: string;
   annualPrice: number | null; paymentLines: number; rates: number; scope: number;
   documents: number | { signed?: number; their_form?: number; other?: number; total?: number }; needsReview: boolean }
 interface ImportError { file: string; row: number; column?: string; message: string }
@@ -251,11 +251,12 @@ export default function AuditImportCard() {
                   {c.agreements.map(a => <Fragment key={a.agreementRef}>
                     <tr className="border-t">
                       <td colSpan={8} className="px-3 py-1 text-xs"><code className="rounded bg-muted px-1">{a.agreementRef}</code>
-                        <span className="ml-2 text-muted-foreground">{LINES[a.line] ?? a.line} · {a.form === "ours" ? "Our form" : "Their form"}</span></td>
+                        <span className="ml-2 text-muted-foreground">{a.terms.length} seasons</span></td>
                       <td className="px-3 py-1 text-right"><span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase ${a.action === "replace" ? "bg-[var(--ts-waiting)]/15 text-[var(--warning)]" : "bg-primary/15"}`} data-testid={`action-${a.agreementRef}`}>{a.action}</span></td>
                     </tr>
                     {a.terms.map(t => <tr key={t.contractRef} className={`border-t ${t.needsReview ? "bg-[var(--ts-waiting)]/5" : ""}`} data-testid={`term-${t.contractRef}`}>
-                      <td className="py-1 pl-8 pr-3"><span className="font-medium">{t.description ?? t.season}</span><span className="ml-2 font-mono text-[11px] text-muted-foreground">{t.contractRef}</span></td>
+                      <td className="py-1 pl-8 pr-3"><span className="font-medium">{t.description ?? t.season}</span><span className="ml-2 font-mono text-[11px] text-muted-foreground">{t.contractRef}</span>
+                        <span className="block text-xs text-muted-foreground">{LINES[t.line ?? a.line] ?? t.line ?? a.line} · {(t.form ?? a.form) === "ours" ? "Our form" : "Their form"}</span></td>
                       <td className="whitespace-nowrap px-3 py-1 tabular-nums">{t.startDate} – {t.endDate}</td>
                       <td className="px-3 py-1"><span className={`rounded px-1.5 py-0.5 text-xs capitalize ${STATUS_TONE[t.status] ?? "bg-muted"}`}>{t.status}</span>
                         {t.needsReview && <span className="ml-1 text-[11px] font-medium text-[var(--warning)]">review</span>}</td>

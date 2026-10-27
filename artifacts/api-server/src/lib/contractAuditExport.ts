@@ -55,7 +55,7 @@ function sortedSeasons(data: AuditData, customerIds: string[]) {
 export function seasonCsv(data: AuditData, customerIds: string[]) {
   const today = companyToday();
   return csv(SEASON_COLUMNS, sortedSeasons(data, customerIds).map(({ t, a, c }) => [
-    c.id, c.name, data.customers.find(p => p.id === c.parentCustomerId)?.name, a.id, a.importRef, a.line, a.form,
+    c.id, c.name, data.customers.find(p => p.id === c.parentCustomerId)?.name, a.id, a.importRef, t.line, t.form,
     t.id, t.seasonLabel, t.startDate, t.endDate, t.status, displayStatus(t, data.terms, today), t.renewedFromTermId,
     iso(t.signedAt), dollars(t.annualPriceCents),
     recoverPayments((data.billing ?? []).filter(b => b.termId === t.id)).map(p => {

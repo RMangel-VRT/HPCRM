@@ -652,8 +652,8 @@ export const agreements = pgTable("agreements", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  line: text("line").notNull().$type<AgreementLine>(),
-  form: text("form").notNull().default("ours").$type<AgreementForm>(),
+  line: text("line").$type<AgreementLine>(),
+  form: text("form").default("ours").$type<AgreementForm>(),
   propertyManagementCompanyId: varchar("property_management_company_id").references(() => propertyManagementCompanies.id, { onDelete: "set null" }),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -666,7 +666,7 @@ export const agreements = pgTable("agreements", {
 export const insertAgreementSchema = createInsertSchema(agreements).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   importRef: z.string().nullable().optional(),
   companyId: z.string(), customerId: z.string(),
-  line: z.enum(AGREEMENT_LINES), form: z.enum(AGREEMENT_FORMS).default("ours"),
+  line: z.enum(AGREEMENT_LINES).nullable().optional(), form: z.enum(AGREEMENT_FORMS).nullable().optional(),
   propertyManagementCompanyId: z.string().nullable().optional(), notes: z.string().nullable().optional(),
 });
 export type Agreement = typeof agreements.$inferSelect;
@@ -694,6 +694,8 @@ export type ContractMaster = typeof contractMasters.$inferSelect;
 export type InsertContractMaster = z.infer<typeof insertContractMasterSchema>;
 
 export const agreementTerms = pgTable("agreement_terms", {
+  line: text("line").notNull().$type<AgreementLine>(),
+  form: text("form").notNull().default("ours").$type<AgreementForm>(),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   agreementId: varchar("agreement_id").notNull().references(() => agreements.id, { onDelete: "cascade" }),
@@ -731,6 +733,7 @@ export const agreementTerms = pgTable("agreement_terms", {
   companyEndIdx: index("agreement_terms_company_end_idx").on(t.companyId, t.endDate),
 }));
 export const insertAgreementTermSchema = createInsertSchema(agreementTerms).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  line: z.enum(AGREEMENT_LINES), form: z.enum(AGREEMENT_FORMS).default("ours"),
   companyId: z.string(), agreementId: z.string(), seasonLabel: z.string(),
   startDate: contractCalendarDate, endDate: contractCalendarDate,
   status: z.enum(TERM_STATUSES).default("draft"), billingType: z.enum(BILLING_TYPES),

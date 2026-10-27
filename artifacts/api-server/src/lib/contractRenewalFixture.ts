@@ -32,9 +32,9 @@ export function renewalFixturePdf() {
 }
 export async function seedRenewalSource(companyId: string, userId: string, customerId: string) {
   return db.transaction(async tx => {
-    const [agreement] = await tx.insert(agreements).values({ companyId, customerId, line: "landscape", form: "ours",
+    const [agreement] = await tx.insert(agreements).values({ companyId, customerId,
       importRef: `unchanged-${randomUUID()}` }).returning();
-    const source = await writeTerm(tx, companyId, userId, null, { agreementId: agreement.id, seasonLabel: "2025–26",
+    const source = await writeTerm(tx, companyId, userId, null, { agreementId: agreement.id, line: "landscape", form: "ours", seasonLabel: "2025–26",
       startDate: "2025-10-01", endDate: "2026-09-30", status: "signed", signedAt: new Date("2025-09-15T18:00:00Z"),
       annualPriceCents: 120000, billingType: "equal_monthly", legalName: "Original legal name", notes: "Historical notes" }, "Disposable fixture");
     const scope = buildScope([{ serviceKey: "other:fixture", included: true, quantity: 12,

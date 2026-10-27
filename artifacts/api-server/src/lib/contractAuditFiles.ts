@@ -7,7 +7,7 @@ import yauzl from "yauzl";
 export const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 export const IMPORT_HEADERS: Record<string, string[]> = {
   "remove_agreements.csv": ["agreement_ref"],
-  "renewals.csv": "contract_ref renews_term_id customer_name season_label start_date end_date status signed_date snow_pricing snow_flat_price legal_name managing_agent_name project_contact contact_phone contact_email project_address po snow_triggers notes renewal_increase_pct needs_review review_note".split(" "),
+  "renewals.csv": "contract_ref renews_term_id customer_name season_label start_date end_date status signed_date snow_pricing snow_flat_price legal_name managing_agent_name project_contact contact_phone contact_email project_address po snow_triggers notes renewal_increase_pct needs_review review_note line form".split(" "),
   "contracts.csv": "contract_ref agreement_ref customer_id customer_name line form season_label start_date end_date status signed_date renews_ref snow_pricing snow_flat_price managing_agent_name legal_name project_contact contact_phone contact_email project_address po snow_triggers legacy_contract_ids needs_review review_note notes".split(" "),
   "payments.csv": ["contract_ref", "payment_line", ...MONTHS],
   "rates.csv": "contract_ref rate_key price price_text minimum unit label category line".split(" "),

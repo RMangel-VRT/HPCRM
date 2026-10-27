@@ -23,6 +23,7 @@ import { RenewDialog } from "@/components/contracts/RenewDialog";
 import { SNOW_LINE, lineProblems, lineSum, linesFromBilling, paymentsFingerprint, paymentsPayload, startMonthOf } from "@/components/contracts/paymentDraft";
 import type { PaymentLine } from "@/components/contracts/paymentDraft";
 import { dateOnly, dateTime, errorStatus, errorText, monthName, money } from "@/components/contracts/contractFormat";
+import { isLaterYear, termForm, termLine } from "@/components/contracts/contractTypes";
 import type { ContractDetail, DetailTerm } from "@/components/contracts/contractTypes";
 
 const LIST_KEY = "/api/contract-center/contracts";
@@ -40,7 +41,7 @@ const isEditableTerm = (d: ContractDetail, t: DetailTerm) =>
   t.editable ?? (!["renewed", "lost", "cancelled"].includes(t.status) && (t.id === (d.currentTermId ?? d.terms[d.terms.length - 1]?.id) || t.id === d.renewalDraftId));
 const termHash = (h: string) => (h.startsWith("#term-") ? h.slice(6) : null);
 const priceText = (d: ContractDetail, t: DetailTerm) =>
-  d.line === "snow" ? (t.snowPricing === "flat_rate" ? `Flat snow ${money(t.snowFlatPriceCents)}` : "T&M")
+  termLine(t, d.line) === "snow" ? (t.snowPricing === "flat_rate" ? `Flat snow ${money(t.snowFlatPriceCents)}` : "T&M")
     : t.annualPriceCents != null ? money(t.annualPriceCents) : "T&M";
 
 export function ContractView({ detail, initialHash }: { detail: ContractDetail; initialHash: string }) {
@@ -70,7 +71,10 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const [signPrompt, setSignPrompt] = useState(false);
   const [tab, setTab] = useState("scope");
 
-  const scopeBase = useMemo(() => (term ? buildScopeRows(term.scope, detail.line) : []), [term, detail.line]);
+  // Editors follow the selected season's own line; the header shows the contract's (current season's) line.
+  const seasonLine = termLine(term, detail.line);
+  const seasonForm = termForm(term, detail.form);
+  const scopeBase = useMemo(() => (term ? buildScopeRows(term.scope, seasonLine) : []), [term, seasonLine]);
   const ratesBase = useMemo(() => (term ? toRateRows(term.rates) : []), [term]);
   const paymentsBase = useMemo(() => (term ? linesFromBilling(term.billingMonths) : []), [term]);
   const paymentRows = payments ?? paymentsBase;
@@ -160,7 +164,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
     if (!term) return;
     const want = (n: string) => !only || only.includes(n);
     if (!dirty) return only ? undefined : resetEdits();
-    const effFlat = detail.line !== "landscape" && (fields?.snowPricing ?? term.snowPricing) === "flat_rate";
+    const effFlat = seasonLine !== "landscape" && (fields?.snowPricing ?? term.snowPricing) === "flat_rate";
     const savingBilling = want("payments") || (want("fields") && fieldsDirty);
     const problems = [...(want("fields") && fieldsDirty ? fieldBuild.problems : []), ...(want("scope") && scopeDirty ? scopeProblems(scopeRows) : []),
       ...(want("rates") && ratesDirty ? rateProblems(rateRows) : []), ...(savingBilling ? lineProblems(paymentRows, effFlat) : [])];
@@ -208,11 +212,19 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   }
 
   if (!term) return <div className="text-sm text-muted-foreground" data-testid="empty-terms">This contract has no seasons yet.</div>;
-  const moves = editable ? term.allowedMoves ?? [] : [];
+  const laterYear = isLaterYear(term);
+  const set = term.renewalSet;
+  // Signing renews the intermediate years, but year 1 still owns the set's
+  // status and signed document while its signed fields remain read-only.
+  const signedSetOwner = !laterYear && (set?.length ?? 0) > 1 && detail.terms.some(t =>
+    t.renewalSet?.firstTermId === term.id && ["signed", "active"].includes(t.status));
+  const moves = (editable || signedSetOwner) && !laterYear ? term.allowedMoves ?? [] : [];
+  const docTermId = term.signedDocumentTermId && term.signedDocumentTermId !== term.id ? term.signedDocumentTermId : laterYear ? set!.firstTermId : null;
+  const docTerm = docTermId ? detail.terms.find(t => t.id === docTermId) : undefined;
   const showRenew = (detail.renewalDue || ["expired", "active"].includes(term.displayStatus)) && term.id === (detail.currentTermId ?? term.id);
   const reviewItems = (term.reviewNote ?? "").split(/\n+/).map(s => s.replace(/^\s*[-*\u2022]\s*/, "").trim()).filter(Boolean);
   const monthlyCents = term.billingType === "equal_monthly" ? monthlyOf(term) : null;
-  const snow = detail.line !== "landscape";
+  const snow = seasonLine !== "landscape";
   const f = fields ?? {};
   const setF = (p: FieldDraft) => setFields({ ...f, ...p });
   const fieldValue = (k: keyof FieldDraft) => (f[k] !== undefined ? f[k] : (term[k as keyof DetailTerm] as string | null | undefined)) ?? "";
@@ -263,6 +275,11 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
         </dl>
       </header>
 
+      {laterYear && set && (
+        <p className="text-sm rounded-md border bg-muted/40 p-2" data-testid="note-status-follows">
+          Year {set.year} of the {set.firstSeason}–{set.lastSeason} renewal. Status follows {set.firstSeason}.
+        </p>
+      )}
       {confirmMove && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm" role="alert" data-testid="bar-confirm-status">
           <span>Change this season to {confirmMove}?</span>
@@ -279,11 +296,21 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
             <div className="font-semibold text-sm">{t.seasonLabel}</div>
             <div className="text-muted-foreground">{dateOnly(t.startDate)} – {dateOnly(t.endDate)}</div>
             <div className="flex items-center justify-between mt-1"><span className="tabular-nums">{priceText(detail, t)}</span><StatusPill status={t.displayStatus} /></div>
+            <div className="flex flex-wrap items-center gap-1 mt-1" data-testid={`chip-term-badges-${t.id}`}>
+              <LineBadge line={termLine(t, detail.line)} />
+              <span className="text-muted-foreground">{termForm(t, detail.form) === "ours" ? "Our form" : "Their form"}</span>
+              {t.renewalSet && t.renewalSet.length > 1 && <span className="text-muted-foreground">Year {t.renewalSet.year} of {t.renewalSet.length}</span>}
+            </div>
           </button>
         ))}
       </nav>
 
-      {!editable && <p className="text-sm text-muted-foreground rounded-md bg-muted/50 p-2" data-testid="note-past-season">Past season, read only</p>}
+      {(termLine(term, detail.line) !== detail.line || seasonForm !== detail.form) && (
+        <p className="text-sm text-muted-foreground flex flex-wrap items-center gap-2" data-testid="text-season-line-form">
+          This season: <LineBadge line={seasonLine} /> {seasonForm === "ours" ? "Our form" : "Their form"}
+        </p>
+      )}
+      {!editable && <p className="text-sm text-muted-foreground rounded-md bg-muted/50 p-2" data-testid="note-past-season">{signedSetOwner ? "Signed season fields are read only" : "Past season, read only"}</p>}
       {editing && ["signed", "active"].includes(term.status) && <p className="text-sm rounded-md border p-2" style={amberBox} data-testid="note-signed-edit">Changes to a signed contract are recorded in History.</p>}
 
       {bar && (
@@ -342,25 +369,31 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
         </TabsList>
         <TabsContent value="scope">
           {editing && <div className="mb-3"><Button size="sm" disabled={saving || !(scopeDirty || fieldsDirty)} onClick={() => save(["fields", "scope"])} data-testid="button-save-scope">Save scope</Button></div>}
-          <ScopeEditor line={detail.line} rows={scopeRows} editing={editing} onChange={setScope}
+          <ScopeEditor line={seasonLine} rows={scopeRows} editing={editing} onChange={setScope}
             snowTriggers={f.snowTriggers !== undefined ? f.snowTriggers : term.snowTriggers ?? null} onSnowTriggers={v => setF({ snowTriggers: v })} />
         </TabsContent>
         <TabsContent value="rates">
           {editing && <div className="mb-3"><Button size="sm" disabled={saving || !ratesDirty} onClick={() => save(["rates"])} data-testid="button-save-rates">Save rates</Button></div>}
-          <RatesEditor line={detail.line} rows={rateRows} editing={editing} onChange={setRates} />
+          <RatesEditor line={seasonLine} rows={rateRows} editing={editing} onChange={setRates} />
         </TabsContent>
         <TabsContent value="billing">
           {editing && <div className="mb-3"><Button size="sm" disabled={saving || !(paymentsDirty || fieldsDirty)} onClick={() => save(["fields", "payments"])} data-testid="button-save-payments">Save payments</Button></div>}
           {editing
-            ? <PaymentEditor lines={paymentRows} onChange={setPayments} startMonth={startMonthOf(term.startDate)} line={detail.line}
+            ? <PaymentEditor lines={paymentRows} onChange={setPayments} startMonth={startMonthOf(term.startDate)} line={seasonLine}
                 snowPricing={fields?.snowPricing ?? term.snowPricing} flatSnowAllowed={(fields?.snowPricing ?? term.snowPricing) === "flat_rate"} errors />
             : <BillingTab term={term} snow={snow} />}
         </TabsContent>
         <TabsContent value="documents">
           <section className="space-y-3" data-testid="tab-documents-body">
-            {editable && (
+            {docTerm && (
+              <p className="text-sm rounded-md border bg-muted/40 p-2" data-testid="note-signed-document">
+                Signed document: see{" "}
+                <button type="button" className="underline font-medium" onClick={() => selectTerm(docTerm.id)} data-testid="link-signed-document-term">{docTerm.seasonLabel}</button>
+              </p>
+            )}
+            {(editable || signedSetOwner) && (
               <div className="flex flex-wrap gap-2">
-                {(["signed", "their_form", "other"] as const).map(kind => (
+                {(docTerm ? (["their_form", "other"] as const) : (["signed", "their_form", "other"] as const)).map(kind => (
                   <ContractUploadButton key={kind} label={kind === "signed" ? "Signed copy" : kind === "their_form" ? "Their form" : "Other"} testId={`upload-${kind}`}
                     uploadUrlPath={`/api/contract-center/terms/${term.id}/documents/upload-url`} registerPath={`/api/contract-center/terms/${term.id}/documents`}
                     extraBody={{ kind }} options={TERM_UPLOAD_OPTIONS} accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"

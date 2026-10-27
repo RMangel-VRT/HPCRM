@@ -13,7 +13,7 @@ async function writeCustomer(tx: Transaction, group: ImportCustomer, files: Audi
     if (agreement.replaceId) await tx.delete(agreements).where(and(eq(agreements.companyId, companyId),
       eq(agreements.customerId, group.id), eq(agreements.id, agreement.replaceId), eq(agreements.importRef, agreement.ref)));
     const [created] = await tx.insert(agreements).values({ companyId, customerId: group.id,
-      importRef: agreement.ref, line: agreement.line, form: agreement.form,
+      importRef: agreement.ref,
       propertyManagementCompanyId: group.managementId }).returning();
     const termIds = new Map<string, string>();
     for (const term of agreement.terms) {

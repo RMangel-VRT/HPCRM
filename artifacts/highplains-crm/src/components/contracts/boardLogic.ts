@@ -1,8 +1,14 @@
 import { addDays } from "./contractFormat";
 import { coloradoDay } from "./contractFormat";
-import type { BoardLine, ContractListItem, TermSummary } from "./contractTypes";
+import { termForm, termLine } from "./contractTypes";
+import type { AgreementLine, BoardLine, ContractListItem, TermSummary } from "./contractTypes";
 
-export const onBoard = (item: ContractListItem, board: BoardLine) => item.line === "both" || item.line === board;
+const covers = (line: AgreementLine, board: BoardLine) => line === "both" || line === board;
+/** The contract's line comes from its current season (the server derives item.line); a card uses its own season's line. */
+export const onBoard = (item: ContractListItem, board: BoardLine, term?: TermSummary | null) =>
+  covers(term ? termLine(term, item.line) : termLine(item.current ?? item.latest, item.line), board);
+export const rowLine = (item: ContractListItem) => termLine(rowTerm(item), item.line);
+export const rowForm = (item: ContractListItem) => termForm(rowTerm(item), item.form);
 
 export const matchesSearch = (item: ContractListItem, q: string) =>
   !q.trim() || item.customerName.toLowerCase().includes(q.trim().toLowerCase());
@@ -29,8 +35,8 @@ export function placements(item: ContractListItem, today: string): BoardCard[] {
 export function boardColumns(items: ContractListItem[], board: BoardLine, q: string, today: string): Record<ColumnKey, BoardCard[]> {
   const cols: Record<ColumnKey, BoardCard[]> = { renewal: [], drafted: [], signed: [], lost: [] };
   for (const item of items) {
-    if (!onBoard(item, board) || !matchesSearch(item, q)) continue;
-    for (const card of placements(item, today)) cols[card.column].push(card);
+    if (!matchesSearch(item, q)) continue;
+    for (const card of placements(item, today)) if (onBoard(item, board, card.term)) cols[card.column].push(card);
   }
   cols.renewal.sort((a, b) => a.term.endDate.localeCompare(b.term.endDate));
   cols.drafted.sort((a, b) => a.term.endDate.localeCompare(b.term.endDate));
@@ -56,7 +62,7 @@ export const rowTerm = (item: ContractListItem) => item.current ?? item.latest ?
 
 export function priceLabel(item: Pick<ContractListItem, "line">, term: TermSummary, money: (c: number | null | undefined) => string, board?: BoardLine): string {
   const flat = term.snowPricing === "flat_rate" && term.snowFlatPriceCents != null;
-  if (item.line === "snow" || board === "snow") return flat ? `Flat snow ${money(term.snowFlatPriceCents)}` : "T&M";
+  if (termLine(term, item.line) === "snow" || board === "snow") return flat ? `Flat snow ${money(term.snowFlatPriceCents)}` : "T&M";
   return term.annualPriceCents != null ? money(term.annualPriceCents) : "T&M";
 }
 
@@ -64,11 +70,11 @@ const sortValue = (item: ContractListItem, key: SortKey, board: BoardLine): stri
   const t = rowTerm(item);
   switch (key) {
     case "customer": return item.customerName.toLowerCase();
-    case "type": return item.line;
-    case "form": return item.form;
+    case "type": return rowLine(item);
+    case "form": return rowForm(item);
     case "season": return t?.seasonLabel ?? "";
     case "status": return t?.displayStatus ?? "";
-    case "price": return item.line === "snow" || board === "snow"
+    case "price": return rowLine(item) === "snow" || board === "snow"
       ? (t?.snowPricing === "flat_rate" ? t.snowFlatPriceCents ?? -1 : -1)
       : t?.annualPriceCents ?? -1;
     case "agent": return (t?.managingAgentName ?? "").toLowerCase();
@@ -77,7 +83,7 @@ const sortValue = (item: ContractListItem, key: SortKey, board: BoardLine): stri
 };
 
 export function tableRows(items: ContractListItem[], board: BoardLine, q: string, chips: FilterChip[], key: SortKey, dir: "asc" | "desc") {
-  const rows = items.filter(i => onBoard(i, board) && matchesSearch(i, q)).filter(i => {
+  const rows = items.filter(i => covers(rowLine(i), board) && matchesSearch(i, q)).filter(i => {
     if (!chips.length) return true;
     const t = rowTerm(i);
     return (chips.includes("review") && !!t?.needsReview)

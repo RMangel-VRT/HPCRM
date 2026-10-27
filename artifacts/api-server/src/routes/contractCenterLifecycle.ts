@@ -12,12 +12,13 @@ import {
   ContractCenterError, createContractSchema, termFieldsSchema, scopeSchema, ratesSchema, paymentsSchema,
   renewSchema, validateDates, validateSnow, expandPayments, recoverPayments, paymentSummary,
   buildScope, snapshotRates, assertEditable, assertMove, selectRenewalSource, displayStatus,
-  increasedPayments, renewalDates, renewalRates, cents,
+  renewalSet,
 } from "../lib/contractCenterService";
 import {
   fullDetail, getTerm, getAgreement, lockAgreement, lockTerm, writeTerm, addHistory,
-  activeCard, termWhere, listSummary, replaceRows,
+  activeCard, termWhere, listSummary, replaceRows, agreementSeasons,
 } from "../lib/contractCenterPersistence";
+import { planChangingRenewal } from "../lib/contractChangingRenewal";
 import { ObjectStorageService } from "../objectStorage";
 import { ObjectAccessGroupType, ObjectPermission } from "../objectAcl";
 import type { Session } from "express-session";
@@ -56,7 +57,10 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     const terms = await db.select().from(agreementTerms).where(eq(agreementTerms.companyId, companyId));
     const selected = rows.filter(a => companyCustomers.some(c => c.id === a.customerId &&
       (!filter.q || c.name.toLowerCase().includes(filter.q.toLowerCase()))) &&
-      (!filter.line || a.line === filter.line || a.line === "both") &&
+      (!filter.line || (() => {
+        const s = listSummary(terms.filter(t => t.agreementId === a.id));
+        return [s.current ?? s.latest, s.renewalDraft].some(t => t?.line === filter.line || t?.line === "both");
+      })()) &&
       (!filter.customerId || a.customerId === filter.customerId || a.customerId === parent?.id));
     const billing = parent ? await db.select().from(termBillingMonths).where(eq(termBillingMonths.companyId, companyId)) : [];
     res.json(selected.map(agreement => {
@@ -64,7 +68,8 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       const summary = listSummary(terms.filter(t => t.agreementId === agreement.id));
       const viaParent = !!parent && agreement.customerId === parent.id;
       const term = summary.current ?? summary.renewalDraft ?? summary.latest;
-      return { ...agreement, customerName: owner.name, ...summary,
+      const display = summary.current ?? summary.latest;
+      return { ...agreement, line: display?.line, form: display?.form, customerName: owner.name, ...summary,
         locationCount: owner.isParent === "true" ? companyCustomers.filter(c => c.parentCustomerId === owner.id).length : 0,
         ...(viaParent ? { viaParent: true, parentName: owner.name,
           branch: { name: customer!.name, billingCode: customer!.customerNumber },
@@ -96,8 +101,8 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       const scope = buildScope(body.scope, body.line), rates = snapshotRates(await activeCard(tx, companyId), body.rates, body.line);
       const billing = expandPayments(body.payments, body.term.startDate, body.term.endDate);
       const [agreement] = await tx.insert(agreements).values({ companyId, customerId: body.customerId,
-        line: body.line, form: body.form, propertyManagementCompanyId: managementId }).returning();
-      const term = await writeTerm(tx, companyId, user.id, null, { ...body.term, agreementId: agreement.id, status: "draft",
+        propertyManagementCompanyId: managementId }).returning();
+      const term = await writeTerm(tx, companyId, user.id, null, { ...body.term, line: body.line, form: body.form, agreementId: agreement.id, status: "draft",
         ...paymentSummary(body.payments, body.line, body.term.snowPricing) }, "Created in the Contract Center");
       await replaceRows(tx, companyId, term.id, termScopeLines, scope);
       await replaceRows(tx, companyId, term.id, termRates, rates);
@@ -114,10 +119,10 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     const result = await db.transaction(async tx => {
       const { term, agreement } = await lockTerm(tx, companyId, id); assertEditable(term.status);
       const next = { ...term, ...updates };
-      validateDates(next.startDate, next.endDate); validateSnow(agreement.line, next);
+      validateDates(next.startDate, next.endDate); validateSnow(term.line, next);
       const payments = recoverPayments(await tx.select().from(termBillingMonths).where(termWhere(termBillingMonths, companyId, id)));
       const row = await writeTerm(tx, companyId, userId, term, { ...updates,
-        ...paymentSummary(payments, agreement.line, next.snowPricing) }, Object.keys(updates).join(", "));
+        ...paymentSummary(payments, term.line, next.snowPricing) }, Object.keys(updates).join(", "));
       if (next.startDate !== term.startDate || next.endDate !== term.endDate)
         await replaceRows(tx, companyId, id, termBillingMonths, expandPayments(payments, next.startDate, next.endDate));
       return row;
@@ -131,12 +136,12 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       const { companyId, userId, id } = context(req, user);
       const result = await db.transaction(async tx => {
         const { term, agreement } = await lockTerm(tx, companyId, id); assertEditable(term.status);
-        if (part === "scope") await replaceRows(tx, companyId, id, termScopeLines, buildScope(scopeSchema.parse(input), agreement.line));
-        if (part === "rates") await replaceRows(tx, companyId, id, termRates, snapshotRates(await activeCard(tx, companyId), ratesSchema.parse(input), agreement.line));
+        if (part === "scope") await replaceRows(tx, companyId, id, termScopeLines, buildScope(scopeSchema.parse(input), term.line));
+        if (part === "rates") await replaceRows(tx, companyId, id, termRates, snapshotRates(await activeCard(tx, companyId), ratesSchema.parse(input), term.line));
         let summary = {};
         if (part === "payments") {
           const payments = paymentsSchema.parse(input);
-          summary = paymentSummary(payments, agreement.line, term.snowPricing);
+          summary = paymentSummary(payments, term.line, term.snowPricing);
           await replaceRows(tx, companyId, id, termBillingMonths, expandPayments(payments, term.startDate, term.endDate));
         }
         return writeTerm(tx, companyId, userId, term, summary, part);
@@ -148,15 +153,24 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     const body = z.object({ to: z.string(), note: z.string().max(10000).optional() }).parse(req.body);
     const { companyId, userId, id } = context(req, user);
     const row = await db.transaction(async tx => {
-      const { term } = await lockTerm(tx, companyId, id); assertMove(term, body.to);
-      const source = term.renewedFromTermId ? await getTerm(tx, companyId, term.renewedFromTermId) : null;
-      if (source && source.agreementId !== term.agreementId) throw new ContractCenterError(404, "Renewal source not found");
-      const updated = await writeTerm(tx, companyId, userId, term, { status: body.to as TermStatus,
-        ...(body.to === "sent" ? { sentAt: new Date() } : {}),
-        ...(body.to === "signed" ? { signedAt: new Date() } : {}) }, body.note ?? `Status changed to ${body.to}`);
-      if (source && body.to === "signed") await writeTerm(tx, companyId, userId, source, { status: "renewed" }, `Renewed by ${term.seasonLabel}`);
-      if (source && body.to === "lost") await addHistory(tx, companyId, userId, source, "Renewal lost");
-      return updated;
+      const { term } = await lockTerm(tx, companyId, id);
+      const terms = await agreementSeasons(tx, companyId, term.agreementId);
+      const set = renewalSet(terms, terms.find(t => t.id === id)!);
+      if (set[0].id !== id) throw new ContractCenterError(409,
+        `This season is year ${set.findIndex(t => t.id === id) + 1} of a renewal; change its status from ${set[0].seasonLabel}.`);
+      const last = set[set.length - 1];
+      const now = new Date();
+      for (const season of set) {
+        assertMove(season.status === "renewed" && set.length > 1 ? { ...season, status: last.status } : season, body.to);
+        const source = season.renewedFromTermId ? await getTerm(tx, companyId, season.renewedFromTermId) : null;
+        if (source && source.agreementId !== term.agreementId) throw new ContractCenterError(404, "Renewal source not found");
+        await writeTerm(tx, companyId, userId, season, { status: body.to as TermStatus,
+          ...(body.to === "sent" ? { sentAt: now } : {}),
+          ...(body.to === "signed" ? { signedAt: now } : {}) }, body.note ?? `Status changed to ${body.to}`);
+        if (source && body.to === "signed") await writeTerm(tx, companyId, userId, source, { status: "renewed" }, `Renewed by ${season.seasonLabel}`);
+        if (source && season.id === id && body.to === "lost") await addHistory(tx, companyId, userId, source, "Renewal lost");
+      }
+      return getTerm(tx, companyId, id);
     });
     res.json(row);
   }));
@@ -171,27 +185,20 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       const scope = await tx.select().from(termScopeLines).where(termWhere(termScopeLines, companyId, source.id));
       const oldRates = await tx.select().from(termRates).where(termWhere(termRates, companyId, source.id));
       const before = recoverPayments(await tx.select().from(termBillingMonths).where(termWhere(termBillingMonths, companyId, source.id)));
-      const after = increasedPayments(before, body.increasePct, body.roundTo);
-      const { rates, changes } = renewalRates(oldRates, await activeCard(tx, companyId), agreement.line);
-      const dates = renewalDates(source);
-      const snowAfter = source.snowFlatPriceCents === null ? null : Math.round(source.snowFlatPriceCents * (100 + body.increasePct) / 100);
-      if (snowAfter !== null) cents.parse(snowAfter);
-      const fields = {
-        ...dates, agreementId: id, status: "draft" as const, renewedFromTermId: source.id,
-        renewalIncreasePct: String(body.increasePct), legalName: source.legalName, managingAgentName: source.managingAgentName,
-        projectContact: source.projectContact, contactPhone: source.contactPhone, contactEmail: source.contactEmail,
-        projectAddress: source.projectAddress, snowTriggers: source.snowTriggers, po: source.po, notes: source.notes,
-        snowPricing: source.snowPricing ?? (agreement.line === "landscape" ? null : "time_and_materials"),
-        snowFlatPriceCents: snowAfter, ...paymentSummary(after, agreement.line, source.snowPricing),
-      };
-      validateSnow(agreement.line, fields);
-      if (body.dryRun) return { ...fields, payments: before.map((p, i) => ({ component: p.component, before: p.months, after: after[i].months })),
-        snowFlatPrice: { before: source.snowFlatPriceCents, after: snowAfter }, rateChanges: changes };
-      const term = await writeTerm(tx, companyId, userId, null, fields,
-        `Renewed from ${source.seasonLabel} at ${body.increasePct >= 0 ? "+" : ""}${body.increasePct}%`);
-      await replaceRows(tx, companyId, term.id, termScopeLines, scope.map(({ id: _id, companyId: _company, termId: _term, createdAt: _created, updatedAt: _updated, ...s }) => s));
-      await replaceRows(tx, companyId, term.id, termRates, rates);
-      await replaceRows(tx, companyId, term.id, termBillingMonths, expandPayments(after, dates.startDate, dates.endDate));
+      const plan = planChangingRenewal(source, before, scope, oldRates, await activeCard(tx, companyId), body);
+      if (body.dryRun) return plan;
+      let previous = source;
+      const range = `${plan.years[0].startDate.slice(0, 4)}–${plan.years[plan.years.length - 1].endDate.slice(0, 4)}`;
+      for (const [i, year] of plan.years.entries()) {
+        const { before: _before, after, payments: _payments, snowFlatPrice: _snow, ...fields } = year;
+        const term = await writeTerm(tx, companyId, userId, null, { ...fields, agreementId: id, renewedFromTermId: previous.id },
+          `Renewed from ${previous.seasonLabel} (year ${i + 1} of ${range} renewal, ${fields.renewalIncreasePct === null ? "new annual price" :
+            `${Number(fields.renewalIncreasePct) >= 0 ? "+" : ""}${fields.renewalIncreasePct}%`})`);
+        await replaceRows(tx, companyId, term.id, termScopeLines, plan.scope);
+        await replaceRows(tx, companyId, term.id, termRates, plan.rates);
+        await replaceRows(tx, companyId, term.id, termBillingMonths, expandPayments(after, fields.startDate, fields.endDate));
+        previous = term;
+      }
       return fullDetail(tx, companyId, id);
     });
     res.status(body.dryRun ? 200 : 201).json(result);
@@ -209,7 +216,12 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
   app.post("/api/contract-center/terms/:termId/documents", handle(async (req, res, user) => {
     const body = documentsSchema.parse(req.body), { companyId, userId, id } = context(req, user);
     const row = await db.transaction(async tx => {
-      await lockTerm(tx, companyId, id);
+      const { term } = await lockTerm(tx, companyId, id);
+      if (body.kind === "signed") {
+        const terms = await agreementSeasons(tx, companyId, term.agreementId);
+        const first = renewalSet(terms, terms.find(t => t.id === id)!)[0];
+        if (first.id !== id) throw new ContractCenterError(409, `Upload the signed document to ${first.seasonLabel}.`);
+      }
       const service = new ObjectStorageService(), path = service.normalizeObjectEntityPath(body.uploadURL);
       if (!path.startsWith("/objects/")) throw new ContractCenterError(400, "Invalid storage object path");
       const binding = (req.session as UploadSession).contractCenterUploads?.[path];

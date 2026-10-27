@@ -14,7 +14,8 @@ export async function executeLegacyCopy(plan: CopyPlan, companyId: string, admin
       await db.transaction(async tx => {
         for (const agreement of customer.agreements) {
           const agreementId = randomUUID();
-          await tx.insert(agreements).values({ ...agreement.agreement, id: agreementId, companyId });
+          const { line: _legacyGroupingLine, ...relationship } = agreement.agreement;
+          await tx.insert(agreements).values({ ...relationship, id: agreementId, companyId });
           const termIds = agreement.terms.map(() => randomUUID());
           for (const [index, term] of agreement.terms.entries()) {
             const termId = termIds[index];

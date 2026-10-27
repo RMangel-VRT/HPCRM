@@ -132,6 +132,14 @@ describe("audit planner canonical rules", () => {
     const errors = planAuditImport(files, data()).errors;
     expect(errors.some(e => e.file === file && e.row && e.message.toLowerCase().includes(expected.toLowerCase()))).toBe(true);
   });
+  it("accepts differing seasonal forms within one customer's agreement", async () => {
+    const { files } = await fixture();
+    const rows = files.tables["contracts.csv"];
+    rows[0].values.form = "theirs"; rows[1].values.form = "ours";
+    const plan = planAuditImport(files, data());
+    expect(plan.errors).toEqual([]);
+    expect(plan.customers[0].agreements[0].terms.map(t => t.values.form)).toEqual(["theirs", "ours"]);
+  });
   it("checks duplicate refs and inconsistent agreements without rejecting parents", async () => {
     const { files } = await fixture();
     change(files, "contracts.csv", "contract_ref", "college-hills-2025-26", 1);
@@ -139,7 +147,8 @@ describe("audit planner canonical rules", () => {
     const d = data(); d.customers[0].isParent = "true";
     const messages = planAuditImport(files, d).errors.map(e => e.message);
     expect(messages.some(m => m.includes("Duplicate"))).toBe(true);
-    expect(messages.some(m => m.includes("agree"))).toBe(true);
+    // Different seasonal forms are valid; only the customer must agree.
+    expect(messages.some(m => m.includes("agree"))).toBe(false);
     expect(messages.some(m => m.includes("Parent"))).toBe(false);
   });
   it("rejects zero-valued payment rows for snow T&M and invalid child refs", async () => {

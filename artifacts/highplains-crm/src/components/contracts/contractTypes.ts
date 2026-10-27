@@ -1,5 +1,7 @@
 export type AgreementLine = "landscape" | "snow" | "both";
 export type BoardLine = "landscape" | "snow";
+export type AgreementForm = "ours" | "theirs";
+export interface RenewalSetInfo { firstTermId: string; firstSeason: string; lastSeason: string; year: number; length: number }
 
 export interface TermSummary {
   id: string;
@@ -15,6 +17,9 @@ export interface TermSummary {
   signedAt?: string | null;
   managingAgentName?: string | null;
   billingType?: string | null;
+  /** Each season records its own line and form (CC2-9). */
+  line?: AgreementLine;
+  form?: AgreementForm;
 }
 
 export interface ContractListItem {
@@ -59,6 +64,7 @@ export interface DetailTerm extends TermSummary {
   projectAddress?: string | null; snowTriggers?: string | null; po?: string | null; notes?: string | null;
   reviewNote?: string | null; renewedFromTermId?: string | null;
   allowedMoves?: string[]; editable?: boolean;
+  renewalSet?: RenewalSetInfo | null; signedDocumentTermId?: string | null;
   scope: TermScopeRow[]; rates: TermRateRow[]; billingMonths: TermBillingRow[];
   documents: TermDocument[]; history: TermHistoryRow[];
 }
@@ -67,4 +73,15 @@ export interface ContractDetail {
   customer: { id: string; name: string };
   currentTermId?: string | null; renewalDue?: boolean; renewalDraftId?: string | null;
   terms: DetailTerm[];
+}
+
+/** A season's own line and form, falling back to the contract's derived values for older payloads. */
+export const termLine = (t: { line?: AgreementLine } | null | undefined, fallback: AgreementLine): AgreementLine => t?.line ?? fallback;
+export const termForm = (t: { form?: AgreementForm } | null | undefined, fallback: AgreementForm): AgreementForm => t?.form ?? fallback;
+/** Later years of a multi-year renewal follow year 1 for status and signed documents. */
+export const isLaterYear = (t: { renewalSet?: RenewalSetInfo | null }) => !!t.renewalSet && t.renewalSet.year > 1;
+/** Mirrors the server's selectRenewalSource: the last eligible season, not the displayed current one. */
+export function selectRenewalSource<T extends { id: string; status: string; startDate: string; renewedFromTermId?: string | null }>(terms: T[]): T | undefined {
+  return [...terms].filter(t => t.status !== "cancelled" && !(t.renewedFromTermId && ["draft", "sent", "lost"].includes(t.status)))
+    .sort((a, b) => b.startDate.localeCompare(a.startDate) || b.id.localeCompare(a.id))[0];
 }

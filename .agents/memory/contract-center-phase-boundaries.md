@@ -3,11 +3,17 @@ name: Contract Center seasonal history and rollout
 description: Business rules for preserving seasonal contract history and legacy behavior during the staged rebuild.
 ---
 
-An agreement represents one customer and one contract line; each season has a separate term with its own scope, rate snapshots, billing, documents and history. Renewals must never overwrite a past season.
+An agreement is one customer's continuing contract relationship; each season records its own line (Landscape, Snow or Both) and form, because each season is its own signed document. Renewals must never overwrite a past season.
 
 **Why:** The Contract Center requirements explicitly preserve historical seasonal terms rather than treating renewal as an edit to the previous contract.
 
 **How to apply:** Later renewal and editing work must target the intended term, creating a new term for a new season instead of mutating past-season data.
+
+Imported historical seasons remain independent documents, even when their predecessor chain was inserted in one transaction. A multi-year set needs positive, matching year/range creation-note evidence for every member, in addition to chain and exact transaction timestamp equality.
+
+**Why:** Audit import and legacy Copy also insert multiple historical seasons in one transaction; chain plus timestamp alone would wrongly remove their independent status and signed-document controls.
+
+**How to apply:** Do not treat missing multi-year creation notes as permissive evidence of membership. Ordinary imported histories must remain one-year sets.
 
 Parent-owned Contract Center agreements may cover direct branches while both parent and branch retain their own agreements. This exception does not relax operational parent restrictions.
 

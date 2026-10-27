@@ -18,7 +18,7 @@ const today = "2026-10-12";
 const storageKey = "hp-contract-center-board-open";
 const term = (o: Partial<TermSummary> = {}): TermSummary => ({
   id: "term", seasonLabel: "2026–27", startDate: "2026-04-01", endDate: "2027-03-31",
-  status: "active", displayStatus: "active", annualPriceCents: 150000, snowPricing: null, needsReview: false, ...o,
+  status: "active", displayStatus: "active", annualPriceCents: 150000, snowPricing: null, needsReview: false, line: "landscape", form: "ours", ...o,
 });
 const item = (id: string, o: Partial<ContractListItem> = {}): ContractListItem => ({
   id, customerId: `customer-${id}`, customerName: `Wellman ${id}`, line: "landscape", form: "ours",
@@ -121,7 +121,7 @@ describe("Lost history and table handoff", () => {
       const signed = item("signed", { recentSigned: term({ signedAt: `${addDays(today, -days)}T18:00:00Z` }) });
       expect(placements(signed, today).some(c => c.column === "signed")).toBe(days >= 0 && days <= 60);
     }
-    const items = [lost("80", 80), lost("120", 120), lost("snow", 120, { line: "snow" }), item("active")];
+    const items = [lost("80", 80), lost("120", 120), lost("snow", 120, { line: "snow", latest: term({ line: "snow", status: "lost", displayStatus: "lost", endDate: addDays(today, -120) }) }), item("active")];
     expect(tableRows(items, "landscape", "", ["lost"], "ends", "asc").map(i => i.id)).toEqual(["120", "80"]);
     expect(tableRows(items, "landscape", "120", ["lost"], "ends", "asc").map(i => i.id)).toEqual(["120"]);
   });
@@ -157,7 +157,7 @@ describe("Lost history and table handoff", () => {
   });
 
   it("View all lost replaces page chips and smoothly scrolls without changing search or board", () => {
-    fx.items = [lost("old", 120), lost("recent", 80), lost("snow", 120, { line: "snow" }), item("active")];
+    fx.items = [lost("old", 120), lost("recent", 80), lost("snow", 120, { line: "snow", latest: term({ line: "snow", status: "lost", displayStatus: "lost", endDate: addDays(today, -120) }) }), item("active")];
     const scroll = vi.fn();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
     const loc = memoryLocation({ path: "/dashboard/contracts" });
@@ -203,8 +203,8 @@ describe("compact cards and independent scrolling", () => {
 
   it("retains Both/snow flat and time-and-material pricing in the first row", () => {
     mountBoard({ board: "snow", items: [
-      item("flat", { line: "both", renewalDue: true, current: term({ snowPricing: "flat_rate", snowFlatPriceCents: 80000 }) }),
-      item("tm", { line: "snow", renewalDue: true }),
+      item("flat", { line: "both", renewalDue: true, current: term({ line: "both", snowPricing: "flat_rate", snowFlatPriceCents: 80000 }) }),
+      item("tm", { line: "snow", renewalDue: true, current: term({ line: "snow" }) }),
     ] });
     expect(screen.getByTestId("card-renewal-flat").children[0].textContent).toContain("Flat snow $800");
     expect(screen.getByTestId("card-renewal-tm").children[0].textContent).toContain("T&M");

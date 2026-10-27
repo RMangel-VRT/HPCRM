@@ -24,7 +24,7 @@ function mount(line: "snow" | "both") {
     id: "agreement", customerId: "customer", customer: { id: "customer", name: "Snow property" },
     line, form: "ours", currentTermId: "current", renewalDue: false, renewalDraftId: null,
     terms: [{
-      id: "current", seasonLabel: "2026–27", startDate: "2026-10-01", endDate: "2027-09-30",
+      id: "current", line, form: "ours", seasonLabel: "2026–27", startDate: "2026-10-01", endDate: "2027-09-30",
       status: "draft", displayStatus: "draft", editable: true, allowedMoves: [],
       snowPricing: "flat_rate", snowFlatPriceCents: 500000, annualPriceCents: 500000,
       billingType: "custom", scope: [], rates: [], billingMonths: snow, documents: [], history: [],
@@ -78,5 +78,49 @@ describe("flat-rate Billing payment safety", () => {
         { month: 12, amountCents: 120000 },
       ],
     }]);
+  });
+});
+
+describe("seasonal line/form and renewal sets", () => {
+  const season = (id: string, o: Record<string, unknown>) => ({ id, seasonLabel: id, startDate: "2027-10-01", endDate: "2028-09-30",
+    status: "draft", displayStatus: "draft", editable: true, allowedMoves: ["sent", "cancelled"], line: "both", form: "ours",
+    snowPricing: "time_and_materials", annualPriceCents: 3090000, scope: [], rates: [], billingMonths: [], documents: [], history: [],
+    signedDocumentTermId: id, ...o });
+  function mountSet(hash: string, signed = false) {
+    const set = (year: number) => ({ firstTermId: "y1", firstSeason: "2027–28", lastSeason: "2029–30", year, length: 3 });
+    const detail = { id: "agreement", customerId: "c", customer: { id: "c", name: "Huntington" }, line: "landscape", form: "theirs",
+      currentTermId: "src", renewalDue: false, renewalDraftId: "y1",
+      terms: [season("src", { status: "active", displayStatus: "active", line: "landscape", form: "theirs", startDate: "2026-10-01", allowedMoves: [] }),
+        season("y1", { seasonLabel: "2027–28", renewalSet: set(1), ...(signed ? { status: "renewed", editable: false, allowedMoves: ["lost", "cancelled"] } : {}) }),
+        season("y2", { seasonLabel: "2028–29", renewalSet: set(2), signedDocumentTermId: "y1", startDate: "2028-10-01", ...(signed ? { status: "signed", editable: false } : {}) })] } as unknown as ContractDetail;
+    render(<QueryClientProvider client={new QueryClient()}><Router hook={memoryLocation({ path: "/dashboard/contracts/agreement" }).hook}>
+      <ContractView detail={detail} initialHash={hash} />
+    </Router></QueryClientProvider>);
+  }
+  it("year 1 keeps its status menu and shows its own line badge", () => {
+    mountSet("#term-y1");
+    expect(screen.getByTestId("button-status-menu")).toBeTruthy();
+    expect(screen.queryByTestId("note-status-follows")).toBeNull();
+    expect(screen.getByTestId("chip-term-badges-y1").textContent).toContain("Our form");
+    expect(screen.getByTestId("chip-term-badges-src").textContent).toContain("Their form");
+  });
+  it("year 1 retains document uploads and set status ownership after signing renews its status", async () => {
+    const user = userEvent.setup();
+    mountSet("#term-y1", true);
+    expect(screen.getByTestId("button-status-menu")).toBeTruthy();
+    expect(screen.queryByTestId("button-edit-contract")).toBeNull();
+    await user.click(screen.getByTestId("tab-documents"));
+    expect(screen.getByTestId("button-upload-signed")).toBeTruthy();
+  });
+  it("a later year shows the Status follows note instead of status buttons, and points documents to year 1", async () => {
+    const user = userEvent.setup();
+    mountSet("#term-y2");
+    expect(screen.queryByTestId("button-status-menu")).toBeNull();
+    expect(screen.getByTestId("note-status-follows").textContent).toBe("Year 2 of the 2027–28–2029–30 renewal. Status follows 2027–28.");
+    expect(screen.getByTestId("button-edit-contract")).toBeTruthy();
+    await user.click(screen.getByTestId("tab-documents"));
+    expect(screen.getByTestId("note-signed-document").textContent).toContain("2027–28");
+    await user.click(screen.getByTestId("link-signed-document-term"));
+    expect(screen.getByTestId("button-status-menu")).toBeTruthy();
   });
 });
