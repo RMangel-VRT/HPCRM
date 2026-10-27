@@ -21,3 +21,4 @@
 - [Drizzle correlated selects](drizzle-correlated-selects.md) — single-table projection formatting can strip interpolated outer-column qualifiers inside subqueries.
 - [Pricing company boundary](pricing-company-boundary.md) — bind requests to the initiating company as well as scoping caches; mutable sessions can otherwise misdirect queued writes.
 - [Merge marker validation](merge-marker-validation.md) — the merge continuation check can mistake decorative equals-sign comment separators for unresolved markers.
+- [Data ownership policy](data-ownership-policy.md) — one owner per fact; copies need explicit snapshot or mirror semantics; retire holders only through the approved staged sequence.
