@@ -157,7 +157,7 @@ function Router() {
   const { i18n } = useTranslation();
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [location] = useLocation();
-  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags" || location === "/dashboard/estimates" || location === "/dashboard/bids" || isEstimatesHubPage(location);
+  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags" || location === "/dashboard/scheduling" || location === "/dashboard/estimates" || location === "/dashboard/bids" || isEstimatesHubPage(location);
   const isVisualScopeDraft = /^\/dashboard\/tools\/visual-scope\/[^/]+/.test(location);
   const isCustomerDetail =
     /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
@@ -443,7 +443,7 @@ function Router() {
                 </div>
               </header>
               <AppBreadcrumb />
-              <main className={`flex-1 min-h-0 overflow-y-auto relative ${isVisualScopeDraft || isCustomerDetail || isRailPage ? "" : "p-6 md:p-8"}`}>
+              <main className={`flex-1 min-h-0 relative ${location === "/dashboard/scheduling" ? "sb-main" : "overflow-y-auto"} ${isVisualScopeDraft || isCustomerDetail || isRailPage ? "" : "p-6 md:p-8"}`}>
                 {phantomRailVisible && (
                   <div
                     aria-hidden="true"

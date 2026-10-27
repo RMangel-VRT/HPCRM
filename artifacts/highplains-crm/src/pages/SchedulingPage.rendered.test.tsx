@@ -1,19 +1,40 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import "@/i18n";
 
 const toast = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast }), toast }));
 const auth = vi.hoisted(() => ({ company: "c1" }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { activeCompanyId: auth.company, activeRole: "admin" } }) }));
-const dnd = vi.hoisted(() => ({ onDragEnd: null as null | ((e: any) => void) }));
+const dnd = vi.hoisted(() => ({
+  onDragEnd: null as null | ((e: any) => void),
+  onDragStart: null as null | ((e: any) => void),
+  onDragCancel: null as null | (() => void),
+  props: {} as Record<string, any>,
+  overlayProps: {} as Record<string, any>,
+  activeId: null as string | null,
+}));
 vi.mock("@dnd-kit/core", async importOriginal => {
   const actual = await importOriginal<typeof import("@dnd-kit/core")>();
-  return { ...actual, DndContext: ({ children, onDragEnd }: any) => { dnd.onDragEnd = onDragEnd; return <>{children}</>; } };
+  return {
+    ...actual,
+    DndContext: ({ children, ...props }: any) => {
+      dnd.onDragEnd = props.onDragEnd;
+      dnd.onDragStart = props.onDragStart;
+      dnd.onDragCancel = props.onDragCancel;
+      dnd.props = props;
+      return <>{children}</>;
+    },
+    DragOverlay: ({ children, ...props }: any) => { dnd.overlayProps = props; return <>{children}</>; },
+    useDraggable: (options: any) => ({
+      ...actual.useDraggable(options), isDragging: dnd.activeId === options.id,
+    }),
+  };
 });
 import SchedulingPage from "./SchedulingPage";
 const drop = (activeData: unknown, overData: unknown) => dnd.onDragEnd!({ active: { data: { current: activeData } }, over: { data: { current: overData } } });
@@ -25,17 +46,21 @@ const visit = (id: string, order: number, extra: Record<string, unknown> = {}) =
   customer: { id: "cu", name: `Prop ${id}` }, crew: { id: "k1", name: "Crew 1", color: "#16a34a" }, ...extra,
 });
 const calls: { method: string; url: string; body?: any }[] = [];
-let respond: (method: string, url: string) => { status?: number; json: unknown } | undefined;
+type Reply = { status?: number; json: unknown } | undefined;
+let respond: (method: string, url: string) => Reply | Promise<Reply>;
 
 beforeEach(() => {
   auth.company = "c1";
+  dnd.activeId = null;
   calls.length = 0;
   toast.mockClear();
+  vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
   respond = () => undefined;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
-    const o = respond(method, url);
+    const o = await respond(method, url);
     const def = (() => {
       if (url.startsWith("/api/scheduling/queue")) return { json: { needsScheduling: [{ id: "t9", title: "Spring cleanup", typeKey: "task", typeName: "Task", priority: "high", scheduleBy: "2000-01-01", serviceType: "cleanups", customer: { id: "cu", name: "Elm Park", city: "Denver" }, followUpDate: null, createdAt: "2025-01-01" }], slipped: [{ id: "t8", title: "Slipped job", typeKey: "task", typeName: "Task", priority: "normal", scheduleBy: null, serviceType: null, customer: { id: "cu", name: "Oak HOA", city: null }, followUpDate: null, createdAt: "2025-01-01", visit: { id: "vs", visitDate: "2025-10-14", crewId: "k1", crewName: "Crew 1" } }] } };
       if (url.startsWith("/api/crews/board")) return { json: [{ id: "k1", name: "Crew 1", color: "#16a34a", defaultHoursPerDay: 8, supervisorName: "Sam" }] };
@@ -56,6 +81,171 @@ function mount() {
 }
 
 describe("SchedulingPage", () => {
+  it("uses independent panes, crew-owned lanes and real display-type rails", async () => {
+    mount();
+    const card = await screen.findByTestId("card-queue-t9");
+    expect(screen.getByTestId("page-scheduling").className).not.toContain("max-w");
+    expect(screen.getByTestId("panel-queue")).not.toBe(screen.getByTestId("board-scroll"));
+    expect(screen.getByTestId("lane-k1").getAttribute("data-crew-color")).toBe("#16a34a");
+    expect(screen.getByTestId("row-crew-k1").getAttribute("style")).toContain("--crew");
+    expect(screen.getByTestId("text-crew-week-k1").textContent).toContain("7.2");
+    expect(screen.getByTestId("capacity-bar-k1-2025-10-21").getAttribute("data-tone")).toBe("amber");
+    expect(screen.getByTestId("rail-queue-t9").getAttribute("data-hue")).toContain("--tt-extra");
+    expect(within(card).getByTestId("badge-queue-type-t9").innerHTML).toContain("--tt-extra");
+    expect(screen.getByTestId("rail-visit-a").getAttribute("data-hue")).toContain("--tt-extra");
+    expect(screen.getByTestId("empty-cell-k1-2025-10-22").textContent).toBe("Drop a job here");
+    expect(screen.getByTestId("scheduling-header").contains(screen.getByTestId("button-today"))).toBe(true);
+    expect(dnd.props.autoScroll.layoutShiftCompensation).toBe(false);
+    expect(dnd.props.autoScroll.enabled).toBe(false); // A dedicated bounded pane loop owns scrolling.
+    expect(dnd.props.sensors.map((s: any) => s.sensor.name)).toEqual(["PointerSensor", "KeyboardSensor"]);
+    expect(dnd.props.sensors[0].options.activationConstraint.distance).toBe(6);
+    expect(dnd.props.sensors[1].options.coordinateGetter).toBeTypeOf("function");
+  });
+
+  it("renders group counts, server order, late-day labels, and keeps undated jobs in Later", async () => {
+    const today = (await import("../lib/schedulingStatus")).companyToday();
+    const { addDaysYmd } = await import("../lib/schedulingStatus");
+    respond = (_m, url) => url.startsWith("/api/scheduling/queue") ? { json: {
+      needsScheduling: [
+        { id: "late-z", title: "Z first", typeKey: "task", typeName: "Task", scheduleBy: addDaysYmd(today, -1) },
+        { id: "none", title: "No date", typeKey: "task", typeName: "Task", scheduleBy: null },
+        { id: "late-a", title: "A second", typeKey: "task", typeName: "Task", scheduleBy: addDaysYmd(today, -4) },
+        { id: "today", title: "Today", typeKey: "task", typeName: "Task", scheduleBy: today },
+      ], slipped: [],
+    } } : undefined;
+    mount();
+    await screen.findByTestId("card-queue-late-z");
+    expect(screen.getByTestId("queue-group-count-past").textContent).toBe("2");
+    expect(screen.getByTestId("queue-group-count-week").textContent).toBe("1");
+    expect(screen.getByTestId("queue-group-count-later").textContent).toBe("1");
+    const cards = [...screen.getByTestId("list-queue").querySelectorAll("[data-testid^='card-queue-']")];
+    expect(cards.map(c => c.getAttribute("data-testid"))).toEqual([
+      "card-queue-late-z", "card-queue-late-a", "card-queue-today", "card-queue-none",
+    ]);
+    expect(screen.getByTestId("text-queue-scheduleby-late-a").textContent).toContain("4 days late");
+    expect(screen.getByTestId("text-queue-scheduleby-late-z").getAttribute("data-urgency")).toBe("late");
+    expect(screen.getByTestId("text-queue-scheduleby-today").getAttribute("data-urgency")).toBe("soon");
+  });
+
+  it("portals a presentation-only overlay while the source remains stationary, then clears on cancel", async () => {
+    mount();
+    const source = await screen.findByTestId("card-queue-t9");
+    const item = { id: "t9", title: "Spring cleanup", typeKey: "task", typeName: "Task", scheduleBy: null };
+    act(() => {
+      dnd.activeId = "queue:t9";
+      dnd.onDragStart!({ active: { data: { current: { kind: "queue", item } } } });
+    });
+    const overlay = screen.getByTestId("drag-overlay");
+    expect(screen.getByTestId("page-scheduling").contains(overlay)).toBe(false);
+    expect(document.body.contains(overlay)).toBe(true);
+    expect(screen.getByTestId("list-queue").contains(source)).toBe(true);
+    expect(source.getAttribute("data-source")).toBe("true");
+    expect(source.style.transform).toBe("");
+    expect(overlay.getAttribute("data-lifted")).toBe("true");
+    expect(overlay.querySelector("a, button, [tabindex]")).toBeNull();
+    act(() => { dnd.activeId = null; dnd.onDragCancel!(); });
+    expect(screen.queryByTestId("drag-overlay")).toBeNull();
+    expect(calls.some(c => c.method !== "GET")).toBe(false);
+  });
+
+  it("suppresses overlay drop animation for reduced motion", async () => {
+    const original = window.matchMedia;
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true });
+    try {
+      mount();
+      await screen.findByTestId("card-queue-t9");
+      expect(dnd.overlayProps.dropAnimation).toBeNull();
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
+  it("shows a noninteractive pending copy only at the target and clears it after a failed drop", async () => {
+    let release!: (r: Reply) => void;
+    const response = new Promise<Reply>(resolve => { release = resolve; });
+    respond = (m, u) => m === "PATCH" && u === "/api/visits/a" ? response : undefined;
+    mount();
+    const source = await screen.findByTestId("card-visit-a");
+    act(() => drop({ kind: "visit", visit: visit("a", 1) }, { kind: "cell", crewId: "k1", date: "2025-10-24" }));
+    const pending = await screen.findByTestId("pending-drop-a");
+    expect(screen.getByTestId("cell-k1-2025-10-24").contains(pending)).toBe(true);
+    expect(pending.getAttribute("aria-hidden")).toBe("true");
+    expect(pending.querySelector("a, button, [tabindex]")).toBeNull();
+    expect(screen.getByTestId("cell-k1-2025-10-21").contains(source)).toBe(true);
+    expect(screen.getAllByTestId("card-visit-a")).toHaveLength(1);
+    await act(async () => release({ status: 409, json: { error: "VISIT_CLOSED", message: "Visit is closed" } }));
+    await waitFor(() => expect(screen.queryByTestId("pending-drop-a")).toBeNull());
+    expect(screen.getByTestId("cell-k1-2025-10-21").contains(source)).toBe(true);
+    expect(toast.mock.calls.some(([a]) => a.description === "Visit is closed")).toBe(true);
+  });
+
+  it("shows a presentation-only pending reorder without changing authoritative stop order", async () => {
+    let release!: (r: Reply) => void;
+    const response = new Promise<Reply>(resolve => { release = resolve; });
+    respond = (m, u) => m === "POST" && u === "/api/visits/reorder" ? response : undefined;
+    mount();
+    await screen.findByTestId("card-visit-b");
+    act(() => drop({ kind: "visit", visit: visit("b", 2) }, { kind: "visit", visit: visit("a", 1) }));
+    await screen.findByTestId("pending-drop-b");
+    const ids = () => [...screen.getByTestId("cell-k1-2025-10-21").querySelectorAll("[data-testid^='card-visit-']")].map(x => x.getAttribute("data-testid"));
+    expect(ids()).toEqual(["card-visit-a", "card-visit-b"]);
+    await act(async () => release({ json: { ok: true } }));
+    await waitFor(() => expect(screen.queryByTestId("pending-drop-b")).toBeNull());
+    expect(ids()).toEqual(["card-visit-a", "card-visit-b"]);
+  });
+
+  it("clears a successful pending placement without fabricating a visit or changing queue membership", async () => {
+    let release!: (r: Reply) => void;
+    const response = new Promise<Reply>(resolve => { release = resolve; });
+    respond = (m, u) => m === "POST" && u === "/api/visits" ? response : undefined;
+    mount();
+    const source = await screen.findByTestId("card-queue-t9");
+    act(() => drop({ kind: "queue", item: { id: "t9", title: "Spring cleanup" } }, { kind: "cell", crewId: "k1", date: "2025-10-24" }));
+    await screen.findByTestId("pending-drop-t9");
+    expect(screen.getByTestId("list-queue").contains(source)).toBe(true);
+    await act(async () => release({ json: { ok: true } }));
+    await waitFor(() => expect(screen.queryByTestId("pending-drop-t9")).toBeNull());
+    expect(screen.getAllByTestId("card-queue-t9")).toHaveLength(1);
+    expect(screen.getByTestId("cell-k1-2025-10-24").querySelector("[data-testid^='card-visit-']")).toBeNull();
+  });
+
+  it("leaves off-board drops unchanged and resets active and pending copies on company switch", async () => {
+    let release!: (r: Reply) => void;
+    const response = new Promise<Reply>(resolve => { release = resolve; });
+    respond = (m, u) => m === "POST" && u === "/api/visits" ? response : undefined;
+    const view = mount();
+    await screen.findByTestId("card-queue-t9");
+    const item = { id: "t9", title: "Spring cleanup", scheduleBy: null };
+    act(() => drop({ kind: "queue", item }, undefined));
+    expect(calls.some(c => c.method !== "GET")).toBe(false);
+    act(() => drop({ kind: "queue", item }, { kind: "cell", crewId: "k1", date: "2025-10-24" }));
+    await screen.findByTestId("pending-drop-t9");
+    act(() => dnd.onDragStart!({ active: { data: { current: { kind: "queue", item } } } }));
+    expect(screen.getByTestId("drag-overlay")).toBeTruthy();
+    auth.company = "c2";
+    const { hook, searchHook } = memoryLocation({ path: "/dashboard/scheduling?week=2025-10-20" });
+    view.rerender(<QueryClientProvider client={new QueryClient()}><Router hook={hook} searchHook={searchHook}><SchedulingPage /></Router></QueryClientProvider>);
+    expect(screen.queryByTestId("pending-drop-t9")).toBeNull();
+    expect(screen.queryByTestId("drag-overlay")).toBeNull();
+    await act(async () => release({ json: { ok: true } }));
+    expect(screen.queryByTestId("pending-drop-t9")).toBeNull();
+  });
+
+  it("keeps completed and skipped cards muted without drag handles and supports a collapsible queue", async () => {
+    respond = (_m, u) => u.startsWith("/api/visits?") ? { json: [
+      visit("done", 1, { status: "done" }), visit("skipped", 2, { status: "skipped" }),
+    ] } : undefined;
+    mount();
+    expect((await screen.findByTestId("card-visit-done")).getAttribute("data-closed")).toBe("true");
+    expect(screen.getByTestId("card-visit-skipped").getAttribute("data-closed")).toBe("true");
+    expect(screen.queryByTestId("handle-visit-done")).toBeNull();
+    expect(screen.queryByTestId("handle-visit-skipped")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-toggle-queue"));
+    expect(screen.getByTestId("button-toggle-queue").getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(screen.getByTestId("button-toggle-queue"));
+    expect(screen.getByTestId("button-toggle-queue").getAttribute("aria-expanded")).toBe("true");
+  });
+
   it.each(["light", "dark"])("uses display metadata for queue/visit identities but raw keys for filters in %s", async theme => {
     document.documentElement.className = theme === "dark" ? "dark" : "";
     respond = (_method, url) => {
