@@ -9,10 +9,13 @@ import {
   Camera,
   ArrowUp,
   ArrowDown,
+  ClipboardCheck,
+  ChevronRight,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,9 +62,11 @@ type Template = {
   items: TemplateItem[];
 };
 
-interface Props {
+export interface TicketWorkItemsCardProps {
   ticketId: string;
   serviceType?: string | null;
+  /** Extra rows rendered below work items; the page owns their guards, handlers and state. */
+  extraRows?: React.ReactNode;
 }
 
 const SKIP_REASON_LABELS: Record<string, string> = {
@@ -76,7 +81,7 @@ const SKIP_REASON_LABELS: Record<string, string> = {
   not_applicable: "Not applicable",
 };
 
-export function TicketWorkItemsCard({ ticketId, serviceType }: Props) {
+export function TicketWorkItemsCard({ ticketId, serviceType, extraRows }: TicketWorkItemsCardProps) {
   const { toast } = useToast();
   const itemsKey = ["/api/tickets", ticketId, "work-items"] as const;
 
@@ -102,6 +107,7 @@ export function TicketWorkItemsCard({ ticketId, serviceType }: Props) {
   const [newPhotoRequired, setNewPhotoRequired] = useState(false);
   const [newRequired, setNewRequired] = useState(false);
   const [templateId, setTemplateId] = useState<string>("");
+  const [showWorkItems, setShowWorkItems] = useState(false);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: itemsKey });
 
@@ -181,14 +187,43 @@ export function TicketWorkItemsCard({ ticketId, serviceType }: Props) {
   };
 
   return (
+    <Dialog open={showWorkItems} onOpenChange={setShowWorkItems}>
     <Card data-testid="card-work-items">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <CheckSquare className="w-4 h-4" />
-          Work items
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pt-0 space-y-3">
+      <div className="flex items-center gap-2 border-b px-3.5 py-2.5">
+        <ClipboardCheck className="h-3.5 w-3.5 text-muted-foreground" />
+        <h3 className="flex-1 text-[11px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
+          Work &amp; Billing
+        </h3>
+      </div>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-muted/60"
+          data-testid="button-open-work-items"
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-muted/50">
+            <ClipboardCheck className="h-3.5 w-3.5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[12.5px] font-semibold">Work items</span>
+            <span className="block truncate text-[11.5px] text-muted-foreground">
+              {isLoading
+                ? "Loading..."
+                : items.length === 0
+                  ? "None yet — add or load a template"
+                  : `${items.filter(item => item.isComplete).length} of ${items.length} complete`}
+            </span>
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </button>
+      </DialogTrigger>
+      {extraRows}
+    </Card>
+    <DialogContent className="max-w-xl" aria-describedby={undefined}>
+      <DialogHeader>
+        <DialogTitle>Work items</DialogTitle>
+      </DialogHeader>
+      <div className="max-h-[70vh] overflow-auto space-y-3">
         {isLoading ? (
           <p className="text-xs text-muted-foreground">Loading...</p>
         ) : items.length === 0 ? (
@@ -288,8 +323,9 @@ export function TicketWorkItemsCard({ ticketId, serviceType }: Props) {
             </Button>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </DialogContent>
+    </Dialog>
   );
 }
 

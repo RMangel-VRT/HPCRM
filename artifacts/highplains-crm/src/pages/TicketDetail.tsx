@@ -22,6 +22,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -200,6 +201,8 @@ export default function TicketDetail() {
   const [statusNotes, setStatusNotes] = useState("");
   const [activeTab, setActiveTab] = useState<"overview" | "workflow" | "comments" | "history" | "emails">("overview");
   const [showPropertyMaps, setShowPropertyMaps] = useState(false);
+  const [showPhotos, setShowPhotos] = useState(false);
+  const photoTriggerRef = useRef<HTMLButtonElement>(null);
   
   // Delegation state
   const [showDelegateDialog, setShowDelegateDialog] = useState(false);
@@ -1763,7 +1766,30 @@ export default function TicketDetail() {
           </div>
 
           <div className="min-w-0 space-y-4">
-          <TicketWorkItemsCard ticketId={ticket.id} serviceType={ticket.serviceType ?? null} />
+          <TicketWorkItemsCard
+            ticketId={ticket.id}
+            serviceType={ticket.serviceType ?? null}
+            extraRows={
+              (ticketType?.name === "Estimate Request" || ticketType?.name === "Project") &&
+              !linkedTickets?.find(lt => lt.link.linkType === "invoice_for" && lt.relationship === "source") && (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 border-t px-3.5 py-2.5 text-left hover:bg-muted/60"
+                  onClick={() => {
+                    setCreateInvoiceTitle(`Invoice: ${ticket?.title || ""}`);
+                    setShowCreateInvoiceDialog(true);
+                  }}
+                  data-testid="button-create-invoice-ticket"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-muted/50">
+                    <FileText className="w-4 h-4" />
+                  </span>
+                  <span className="min-w-0 flex-1 text-[12.5px] font-semibold">Create Invoice Ticket</span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              )
+            }
+          />
 
           {linkedTickets && linkedTickets.length > 0 && (
             <Card data-testid="card-linked-tickets">
@@ -1844,23 +1870,6 @@ export default function TicketDetail() {
           )}
 
           {ticketType?.typeKey === "rfp_request" && <RfpContracts ticketId={ticket.id} statuses={statuses} statusId={ticket.currentStatusId} />}
-
-          {(ticketType?.name === "Estimate Request" || ticketType?.name === "Project") &&
-           !linkedTickets?.find(lt => lt.link.linkType === "invoice_for" && lt.relationship === "source") && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 w-full justify-start"
-              onClick={() => {
-                setCreateInvoiceTitle(`Invoice: ${ticket?.title || ""}`);
-                setShowCreateInvoiceDialog(true);
-              }}
-              data-testid="button-create-invoice-ticket"
-            >
-              <FileText className="w-4 h-4" />
-              Create Invoice Ticket
-            </Button>
-          )}
 
           {showProposals && (() => {
             const ticket = details?.ticket;
@@ -2208,39 +2217,92 @@ export default function TicketDetail() {
           )}
 
           {ticket.photos && ticket.photos.length > 0 && (
+            <Dialog open={showPhotos} onOpenChange={setShowPhotos}>
             <Card data-testid="card-photos">
-              <CardHeader className="pb-2">
+              <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <ImageIcon className="w-4 h-4" />
                   {t('ticketDetail.photos')} ({ticket.photos.length})
                 </CardTitle>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="sm" onClick={(event) => { photoTriggerRef.current = event.currentTarget; }}>View all</Button>
+                </DialogTrigger>
               </CardHeader>
               <CardContent className="pb-3">
-                <div className="grid grid-cols-3 gap-2">
-                  {ticket.photos.map((photo, index) => {
+                <div className="flex flex-wrap gap-1.5">
+                  {ticket.photos.slice(0, 5).map((photo: string, index: number) => {
                     const photoUrl = photo.startsWith("/objects/") 
                       ? photo 
                       : `/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`;
                     return (
-                      <a
-                        key={index}
-                        href={photoUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="aspect-square rounded-lg overflow-hidden border hover:ring-2 hover:ring-primary transition-all"
-                        data-testid={`photo-thumbnail-${index}`}
-                      >
-                        <img
-                          src={photoUrl}
-                          alt={`Ticket photo ${index + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                      </a>
+                      <DialogTrigger asChild key={index}>
+                        <button
+                          type="button"
+                          onClick={(event) => { photoTriggerRef.current = event.currentTarget; }}
+                          className="h-[54px] w-[54px] shrink-0 overflow-hidden rounded-md border"
+                          data-testid={`photo-thumb-${index}`}
+                        >
+                          <img
+                            src={photoUrl}
+                            alt={`Ticket photo ${index + 1}`}
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                      </DialogTrigger>
                     );
                   })}
+                  {ticket.photos.length > 5 && (
+                    <DialogTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(event) => { photoTriggerRef.current = event.currentTarget; }}
+                        className="grid h-[54px] w-[54px] shrink-0 place-items-center rounded-md border bg-muted/50 text-[12px] font-semibold"
+                        data-testid="button-photos-more"
+                        aria-label={`View ${ticket.photos.length - 5} more photos`}
+                      >
+                        +{ticket.photos.length - 5}
+                      </button>
+                    </DialogTrigger>
+                  )}
                 </div>
               </CardContent>
             </Card>
+            <DialogContent
+              className="max-w-4xl"
+              aria-describedby={undefined}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                photoTriggerRef.current?.focus();
+              }}
+            >
+              <DialogHeader>
+                <DialogTitle>Photos · {ticket.photos?.length ?? 0}</DialogTitle>
+              </DialogHeader>
+              <div className="grid max-h-[70vh] grid-cols-2 gap-2 overflow-auto sm:grid-cols-3 md:grid-cols-4">
+                {ticket.photos.map((photo: string, index: number) => {
+                  const photoUrl = photo.startsWith("/objects/")
+                    ? photo
+                    : `/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`;
+                  return (
+                    <a
+                      key={index}
+                      href={photoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-lg overflow-hidden border hover:ring-2 hover:ring-primary transition-all"
+                      data-testid={`photo-thumbnail-${index}`}
+                    >
+                      <img
+                        src={photoUrl}
+                        alt={`Ticket photo ${index + 1}`}
+                        className="w-full h-[120px] object-cover"
+                      />
+                    </a>
+                  );
+                })}
+              </div>
+            </DialogContent>
+            </Dialog>
           )}
 
           {ticket.documents && ticket.documents.length > 0 && ticket.workType === "estimate_request" && (
