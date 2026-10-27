@@ -41,7 +41,7 @@ import {
 import type { UserWithContext } from "../auth";
 import { addPushSubscription, removePushSubscription } from "../services/pushNotifications";
 import { pickProvided } from "../lib/patchBody";
-import { CrewLinkError, lockCrewCompany, replacePlannerLink, recordCrewLinkChoice } from "../lib/crewLinks";
+import { CrewLinkError, lockCrewCompany, replacePlannerLink, recordCrewLinkChoice, validateCampaignOwner } from "../lib/crewLinks";
 import { addCalendarDays, companyDateString, companyDayBounds, companyToday } from "../lib/companyDay";
 
 // Query values are calendar dates, not instants. Invalid values retain the
@@ -77,12 +77,9 @@ const crewPatchSchema = crewBodySchema.partial();
 // Postgres unique-constraint violation; surfaced via the `code` field on the
 // driver error. We narrow safely from `unknown` rather than reaching for `any`.
 function isUniqueViolation(e: unknown): boolean {
-  return (
-    typeof e === "object" &&
-    e !== null &&
-    "code" in e &&
-    (e as { code: unknown }).code === "23505"
-  );
+  return typeof e === "object" && e !== null &&
+    (("code" in e && e.code === "23505") ||
+      ("cause" in e && typeof e.cause === "object" && e.cause !== null && "code" in e.cause && e.cause.code === "23505"));
 }
 
 const loginSchema = z.object({
@@ -116,24 +113,80 @@ async function listCrewsWithSupervisor(companyId: string) {
     .where(eq(crews.companyId, companyId))
     .orderBy(sql`${crews.displayOrder} ASC NULLS LAST`, asc(crews.name));
   const [planners, teams] = await Promise.all([
-    db.select({ id: maintenanceCrews.id, name: maintenanceCrews.name, crewId: maintenanceCrews.crewId }).from(maintenanceCrews).where(eq(maintenanceCrews.companyId, companyId)),
+    // Planner column metadata, not another editable crew identity.
+    db.select({ id: maintenanceCrews.id, crewId: maintenanceCrews.crewId }).from(maintenanceCrews).where(eq(maintenanceCrews.companyId, companyId)),
     db.select({ crewId: campaignCrews.crewId }).from(campaignCrews)
       .innerJoin(campaigns, and(eq(campaigns.id, campaignCrews.campaignId), eq(campaigns.companyId, companyId), eq(campaigns.status, "active")))
       .where(eq(campaignCrews.companyId, companyId)),
   ]);
-  const plannerByCrew = new Map(planners.filter(p => p.crewId).map(p => [p.crewId, { id: p.id, name: p.name }]));
+  const plannerByCrew = new Map(planners.filter(p => p.crewId).map(p => [p.crewId, p.id]));
   const counts = new Map<string, number>();
   for (const t of teams) if (t.crewId) counts.set(t.crewId, (counts.get(t.crewId) ?? 0) + 1);
   return rows.map((r) => ({
     ...r.crew,
     supervisorName: r.supervisorName ?? null,
     supervisorEmail: r.supervisorEmail ?? null,
-    plannerCrew: plannerByCrew.get(r.crew.id) ?? null,
+    plannerCrew: plannerByCrew.has(r.crew.id) ? { id: plannerByCrew.get(r.crew.id), name: r.crew.name } : null,
     campaignTeamCount: counts.get(r.crew.id) ?? 0,
   }));
 }
 
 export function registerCrewsAndMobileRoutes(app: Express): void {
+  app.get("/api/crews/worksheet-options", async (req, res) => {
+    if (!req.isAuthenticated?.()) return void res.status(401).json({ message: "Not authenticated" });
+    const u = req.user as UserWithContext;
+    if (!["admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor"].includes(u.activeRole)) return void res.status(403).json({ message: "Forbidden" });
+    res.json(await db.select({ id: crews.id, name: crews.name }).from(crews).where(and(eq(crews.companyId, u.activeCompanyId), eq(crews.isActive, true))).orderBy(sql`${crews.displayOrder} ASC NULLS LAST`, crews.name));
+  });
+  app.get("/api/crews/setup", async (req, res) => {
+    const u = adminOrOffice(req, res);
+    if (!u) return;
+    const [planners, teams] = await Promise.all([
+      db.select({ id: maintenanceCrews.id, name: maintenanceCrews.name, color: maintenanceCrews.color, defaultHoursPerDay: maintenanceCrews.defaultHoursPerDay,
+        // Static qualification prevents Drizzle's single-table projection from
+        // stripping the outer table qualifier inside this correlated subquery.
+        placementCount: sql<number>`(SELECT count(*)::int FROM schedule_blocks b WHERE b.crew_id = maintenance_crews.id)` })
+        .from(maintenanceCrews).where(and(eq(maintenanceCrews.companyId, u.activeCompanyId), sql`${maintenanceCrews.crewId} IS NULL`)),
+      db.select({ id: campaignCrews.id, campaignId: campaigns.id, campaignTitle: campaigns.title, name: campaignCrews.name, color: campaignCrews.color, leaderUserId: campaignCrews.leaderUserId })
+        .from(campaignCrews).innerJoin(campaigns, and(eq(campaigns.id, campaignCrews.campaignId), eq(campaigns.companyId, u.activeCompanyId), eq(campaigns.status, "active")))
+        .where(and(eq(campaignCrews.companyId, u.activeCompanyId), sql`${campaignCrews.crewId} IS NULL`)),
+    ]);
+    const linkedTeams = await db.select({ campaignId: campaignCrews.campaignId, crewId: campaignCrews.crewId }).from(campaignCrews).where(eq(campaignCrews.companyId, u.activeCompanyId));
+    res.json({ planners, teams: teams.map(t => ({ ...t, unavailableCrewIds: linkedTeams.filter(l => l.campaignId === t.campaignId && l.crewId).map(l => l.crewId) })) });
+  });
+  for (const source of ["planner", "campaign-team"] as const) {
+    app.post(`/api/crews/from-${source}/:sourceId`, async (req, res) => {
+      const u = adminOrOffice(req, res);
+      if (!u) return;
+      const parsed = crewBodySchema.omit({ plannerCrewId: true }).safeParse(req.body);
+      if (!parsed.success) return void res.status(400).json({ message: "Invalid crew", errors: parsed.error.flatten() });
+      try {
+        const row = await db.transaction(async tx => {
+          await lockCrewCompany(tx, u.activeCompanyId);
+          const table = source === "planner" ? maintenanceCrews : campaignCrews;
+          const [item] = await tx.select().from(table).where(and(eq(table.id, req.params.sourceId), eq(table.companyId, u.activeCompanyId)));
+          if (!item) throw new CrewLinkError(400, "Item must belong to this company");
+          if (item.crewId) throw new CrewLinkError(409, "Item is already linked");
+          const [membership] = await tx.select().from(companyUsers).where(and(eq(companyUsers.userId, parsed.data.supervisorUserId), eq(companyUsers.companyId, u.activeCompanyId), eq(companyUsers.status, "active")));
+          if (!membership || !MOBILE_ALLOWED_ROLES.has(membership.role)) throw new CrewLinkError(400, "Supervisor must hold a supervisor role");
+          const [created] = await tx.insert(crews).values({ ...parsed.data, companyId: u.activeCompanyId }).returning();
+          if (source === "planner") await replacePlannerLink(tx, u.activeCompanyId, created.id, item.id);
+          else {
+            const team = item as typeof campaignCrews.$inferSelect;
+            await validateCampaignOwner(tx, u.activeCompanyId, team.campaignId, team.id, created.id);
+            await tx.update(campaignCrews).set({ crewId: created.id }).where(and(eq(campaignCrews.id, team.id), eq(campaignCrews.companyId, u.activeCompanyId)));
+            await recordCrewLinkChoice(tx, u.activeCompanyId);
+          }
+          return created;
+        });
+        res.status(201).json(row);
+      } catch (e) {
+        if (e instanceof CrewLinkError) return void res.status(e.status).json({ message: e.message });
+        if (isUniqueViolation(e)) return void res.status(409).json({ message: "A crew with this name already exists" });
+        throw e;
+      }
+    });
+  }
   app.post("/api/crews/order", async (req, res) => {
     const u = adminOrOffice(req, res);
     if (!u) return;
@@ -274,11 +327,35 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
     if (!u) return;
     const result = await db.transaction(async tx => {
       await lockCrewCompany(tx, u.activeCompanyId);
+      // Lock the owner as well: FK checks for newly linked rows wait until this
+      // transaction finishes, rather than racing the link inventory and delete.
+      const [owner] = await tx.select({ id: crews.id, name: crews.name }).from(crews).where(and(eq(crews.id, req.params.id), eq(crews.companyId, u.activeCompanyId))).for("update");
+      if (!owner) return { kind: "missing" as const };
+      const planners = await tx.select({
+        id: maintenanceCrews.id,
+        placementCount: sql<number>`(SELECT count(*)::int FROM schedule_blocks b WHERE b.crew_id = maintenance_crews.id)`,
+      }).from(maintenanceCrews).where(and(eq(maintenanceCrews.crewId, owner.id), eq(maintenanceCrews.companyId, u.activeCompanyId)));
+      const linkedTeams = await tx.select({ id: campaignCrews.id, campaignTitle: campaigns.title, status: campaigns.status }).from(campaignCrews)
+        .innerJoin(campaigns, and(eq(campaigns.id, campaignCrews.campaignId), eq(campaigns.companyId, u.activeCompanyId)))
+        .where(and(eq(campaignCrews.crewId, owner.id), eq(campaignCrews.companyId, u.activeCompanyId)))
+        .for("update", { of: campaigns });
+      const teams = linkedTeams.filter(t => t.status === "active");
+      if (planners.length || teams.length) {
+        const reasons = [
+          ...planners.map(p => `Linked to planner column with ${p.placementCount} placements`),
+          ...teams.map(t => `${t.campaignTitle} team`),
+        ];
+        return { kind: "inUse" as const, planners: planners.map(p => ({ ...p, name: owner.name })), teams, message: reasons.join("; ") };
+      }
       const rows = await tx.delete(crews).where(and(eq(crews.id, req.params.id), eq(crews.companyId, u.activeCompanyId))).returning();
       if (rows.length) await recordCrewLinkChoice(tx, u.activeCompanyId);
-      return rows;
+      return { kind: "deleted" as const };
     });
-    if (result.length === 0) {
+    if (result.kind === "inUse") {
+      res.status(409).json({ code: "CREW_IN_USE", message: result.message, plannerColumns: result.planners, campaignTeams: result.teams });
+      return;
+    }
+    if (result.kind === "missing") {
       res.status(404).json({ message: "Not found" });
       return;
     }

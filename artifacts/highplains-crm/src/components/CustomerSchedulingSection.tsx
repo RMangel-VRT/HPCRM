@@ -260,9 +260,9 @@ export default function CustomerSchedulingSection({ customerId }: CustomerSchedu
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">No preference</SelectItem>
-                    {crews.filter(c => c.isActive).map(crew => (
+                    {crews.filter(c => c.isActive || c.placementCount > 0 || c.id === formData.preferredCrewId).map(crew => (
                       <SelectItem key={crew.id} value={crew.id}>
-                        {crew.name}
+                        {crew.name}{!crew.linked ? " · Not connected — set up in Settings → Crews" : !crew.isActive ? " · Inactive" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>

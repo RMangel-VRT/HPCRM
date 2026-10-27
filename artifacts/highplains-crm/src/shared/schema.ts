@@ -2198,6 +2198,7 @@ export interface MaterialItem {
 }
 
 export const crewWorksheets = pgTable("crew_worksheets", {
+  crewId: varchar("crew_id").references(() => crews.id, { onDelete: "set null" }),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
@@ -2688,6 +2689,7 @@ export const campaignCrews = pgTable("campaign_crews", {
   campaignCrewsCampaignIdx: index("campaign_crews_campaign_id_idx").on(table.campaignId),
   campaignCrewsCompanyIdx: index("campaign_crews_company_id_idx").on(table.companyId),
   standingCrewIdx: index("campaign_crews_crew_id_idx").on(table.crewId),
+  campaignStandingUnique: uniqueIndex("campaign_crews_campaign_crew_unique").on(table.campaignId, table.crewId).where(sql`${table.crewId} IS NOT NULL`),
   campaignCrewsCampaignNameUnique: uniqueIndex("campaign_crews_campaign_name_unique").on(table.campaignId, table.name),
 }));
 

@@ -1,10 +1,20 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { companies, crews, maintenanceCrews } from "@workspace/db";
+import { companies, crews, maintenanceCrews, campaignCrews } from "@workspace/db";
 import { db } from "../db";
 
 export type CrewTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export class CrewLinkError extends Error {
   constructor(public status: 400 | 404 | 409, message: string) { super(message); }
+}
+export class CrewPlacementError extends Error {
+  constructor(public count: number) { super(`Move its ${count} placements first.`); }
+}
+export async function validateCampaignOwner(tx: CrewTransaction, companyId: string, campaignId: string, teamId: string, crewId: string | null) {
+  await validateStandingCrew(tx, companyId, crewId);
+  if (!crewId) return;
+  const [owner] = await tx.select({ id: campaignCrews.id }).from(campaignCrews)
+    .where(and(eq(campaignCrews.companyId, companyId), eq(campaignCrews.campaignId, campaignId), eq(campaignCrews.crewId, crewId)));
+  if (owner && owner.id !== teamId) throw new CrewLinkError(409, "This campaign already has a team for this standing crew");
 }
 
 /** Serialize all link mutations and the backfill within a company. Held to COMMIT. */

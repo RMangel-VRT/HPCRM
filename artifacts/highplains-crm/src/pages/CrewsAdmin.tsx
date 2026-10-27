@@ -1,3 +1,4 @@
+import { CrewSetupCard } from "@/components/CrewSetupCard";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -73,6 +74,7 @@ export default function CrewsAdmin() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Crew | null>(null);
   const [supervisorPickerOpen, setSupervisorPickerOpen] = useState(false);
+  const [blockedDelete, setBlockedDelete] = useState<{ id: string; message: string } | null>(null);
 
   const { data: crews = [], isLoading } = useQuery<Crew[]>({
     queryKey: ["/api/crews"],
@@ -160,9 +162,25 @@ export default function CrewsAdmin() {
       refreshCrews();
       toast({ title: "Crew deleted" });
     },
-    onError: () => {
-      toast({ title: "Delete failed", variant: "destructive" });
+    onError: (error: Error, id: string) => {
+      try {
+        const payload = JSON.parse(error.message.replace(/^\d+:\s*/, "")) as { code?: string; message?: string };
+        if (payload.code === "CREW_IN_USE" && payload.message) {
+          setBlockedDelete({ id, message: payload.message });
+          return;
+        }
+      } catch { /* Non-JSON errors still appear in the error toast. */ }
+      toast({ title: "Delete failed", description: extractErrorMessage(error, "Try again"), variant: "destructive" });
     },
+  });
+  const deactivateMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("PATCH", `/api/crews/${id}`, { isActive: false }),
+    onSuccess: () => {
+      setBlockedDelete(null);
+      refreshCrews();
+      toast({ title: "Crew deactivated" });
+    },
+    onError: (error: Error) => toast({ title: "Could not deactivate crew", description: extractErrorMessage(error, "Try again"), variant: "destructive" }),
   });
 
   const supervisorOptions = useMemo(() => supervisors, [supervisors]);
@@ -173,6 +191,19 @@ export default function CrewsAdmin() {
 
   return (
     <div className="space-y-6">
+      <CrewSetupCard />
+      <Dialog open={!!blockedDelete} onOpenChange={open => { if (!open) setBlockedDelete(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Crew is still in use</DialogTitle>
+            <DialogDescription>{blockedDelete?.message}. Deactivate instead to keep existing links and placements.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBlockedDelete(null)}>Cancel</Button>
+            <Button disabled={deactivateMutation.isPending} onClick={() => blockedDelete && deactivateMutation.mutate(blockedDelete.id)}>Deactivate instead</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
@@ -202,7 +233,7 @@ export default function CrewsAdmin() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Hours/day</TableHead>
-                  <TableHead>Planner crew</TableHead>
+                  <TableHead>Planner column</TableHead>
                   <TableHead>Supervisor</TableHead>
                   <TableHead>Active</TableHead>
                   <TableHead className="w-[120px]">Actions</TableHead>

@@ -52,6 +52,8 @@ If you reverse this order, the schema-drift / required-extensions validation wil
 
 ## Architecture decisions
 
+- Before adding or changing an owner of a fact, consult [the data-ownership map](docs/data-ownership-map.md). The crew list ownership rollout is marked O1 merged there.
+
 - OpenAPI spec skipped — frontend uses the original `apiRequest` fetch layer directly (no generated hooks)
 - `registerRoutes(app)` in `routes.ts` returns an HTTP server; `index.ts` calls it and invokes `server.listen()`
 - Frontend `@shared/*` alias points to `src/shared/` — drizzle stub replaces pg-core at build time so types work without bundling pg drivers

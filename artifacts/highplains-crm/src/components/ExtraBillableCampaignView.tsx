@@ -526,11 +526,9 @@ function CrewDialog({
 }) {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const [name, setName] = useState(crew?.name || "");
-  const [color, setColor] = useState(crew?.color || COLOR_PRESETS[0]);
   const [leaderUserId, setLeaderUserId] = useState(crew?.leaderUserId || "");
   const [standingCrewId, setStandingCrewId] = useState<string | null>(crew?.crewId ?? null);
-  const { data: standingCrews = [] } = useQuery<Array<{ id: string; name: string; isActive: boolean }>>({
+  const { data: standingCrews = [] } = useQuery<Array<{ id: string; name: string; isActive: boolean; supervisorUserId: string }>>({
     queryKey: ["/api/crews"],
     staleTime: 30_000, refetchOnWindowFocus: true,
   });
@@ -550,7 +548,7 @@ function CrewDialog({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const body = { name, color, leaderUserId, crewId: standingCrewId };
+      const body = crew ? { leaderUserId, crewId: standingCrewId } : { crewId: standingCrewId, ...(leaderUserId && leaderUserId !== standingCrews.find(c => c.id === standingCrewId)?.supervisorUserId ? { leaderUserId } : {}) };
       const res = crew
         ? await apiRequest("PATCH", `/api/campaigns/${campaignId}/crews/${crew.id}`, body)
         : await apiRequest("POST", `/api/campaigns/${campaignId}/crews`, body);
@@ -590,38 +588,15 @@ function CrewDialog({
         <div className="space-y-3">
           <div className="space-y-1">
             <Label>Standing crew</Label>
-            <Select value={standingCrewId ?? "none"} onValueChange={v => setStandingCrewId(v === "none" ? null : v)}>
+            <Select value={standingCrewId ?? "none"} onValueChange={v => {
+              setStandingCrewId(v === "none" ? null : v);
+              if (!crew) setLeaderUserId(standingCrews.find(c => c.id === v)?.supervisorUserId ?? "");
+            }}>
               <SelectTrigger data-testid="select-standing-crew"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="none">None</SelectItem>{standingCrews.filter(c => c.isActive || c.id === standingCrewId).map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+              <SelectContent><SelectItem value="none" disabled={!crew}>Select a standing crew</SelectItem>{standingCrews.filter(c => c.isActive || c.id === standingCrewId).map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="space-y-1">
-            <Label>{t("campaigns.extraBillableCrewName")}</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} data-testid="input-crew-name" />
-          </div>
-          <div className="space-y-1">
-            <Label>{t("campaigns.extraBillableColorPresets")}</Label>
-            <div className="flex flex-wrap gap-2" data-testid="color-presets">
-              {COLOR_PRESETS.map(c => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setColor(c)}
-                  className={`w-7 h-7 rounded-md border-2 hover-elevate ${color === c ? "border-foreground" : "border-transparent"}`}
-                  style={{ backgroundColor: c }}
-                  aria-label={c}
-                  data-testid={`button-color-${c.replace("#", "")}`}
-                />
-              ))}
-              <Input
-                type="color"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                className="w-12 h-9 p-1"
-                data-testid="input-crew-color"
-              />
-            </div>
-          </div>
+          <a href="/dashboard/settings/crews" className="block text-sm underline">Edit name and color in Settings → Crews</a>
           <div className="space-y-1">
             <Label>{t("campaigns.extraBillableCrewLeader")}</Label>
             <Select value={leaderUserId} onValueChange={(v) => { setLeaderUserId(v); setMemberIds(prev => { const n = new Set(prev); n.add(v); return n; }); }}>
@@ -668,7 +643,7 @@ function CrewDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
           <Button
             onClick={() => saveMutation.mutate()}
-            disabled={!name || !leaderUserId || saveMutation.isPending}
+            disabled={!standingCrewId || !leaderUserId || saveMutation.isPending}
             data-testid="button-save-crew"
           >
             {t("common.save")}

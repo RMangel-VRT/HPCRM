@@ -193,6 +193,7 @@ export default function CrewWorksheetDraft() {
   const [scopeOfWork, setScopeOfWork] = useState("");
   const [crewNotes, setCrewNotes] = useState("");
   const [crewLabel, setCrewLabel] = useState("");
+  const { data: standingCrews = [] } = useQuery<Array<{ id: string; name: string }>>({ queryKey: ["/api/crews/worksheet-options"], staleTime: 30_000 });
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledStartTime, setScheduledStartTime] = useState("");
   const [estimatedHours, setEstimatedHours] = useState("");
@@ -496,8 +497,19 @@ export default function CrewWorksheetDraft() {
           </div>
           <div>
             <Label>{t("crewWorksheets.crewLabel")}</Label>
-            <Input value={crewLabel} onChange={(e) => setCrewLabel(e.target.value)} onBlur={() => handleBlur("crewLabel", crewLabel || null)}
-              placeholder="Randy's Crew" disabled={isReadOnly} data-testid="input-crew-label" />
+            {isReadOnly ? <p>{ws.crewLabel || "—"}</p> : <>
+              <select aria-label="Crew" className="w-full rounded border bg-background p-2" value={ws.crewId ?? "custom"} disabled={saveMutation.isPending}
+                onChange={e => {
+                  const crewId = e.target.value === "custom" ? null : e.target.value;
+                  if (crewId) setCrewLabel(standingCrews.find(c => c.id === crewId)?.name ?? "");
+                  saveMutation.mutate({ crewId, ...(crewId ? {} : { crewLabel: crewLabel || null }) });
+                }}>
+                <option value="custom">Custom…</option>
+                {ws.crewId && !standingCrews.some(c => c.id === ws.crewId) && <option value={ws.crewId}>{ws.crewLabel}</option>}
+                {standingCrews.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              {!ws.crewId && <Input value={crewLabel} onChange={e => setCrewLabel(e.target.value)} onBlur={() => handleBlur("crewLabel", crewLabel || null)} placeholder="Custom crew label" data-testid="input-crew-label" />}
+            </>}
           </div>
           <div>
             <Label>{t("crewWorksheets.estimatedHours")}</Label>
@@ -509,7 +521,7 @@ export default function CrewWorksheetDraft() {
             <CrewLeadPicker
               value={ws.assignedCrewLeadId ?? null}
               valueName={ws.assignedCrewLeadName ?? null}
-              disabled={isReadOnly}
+              disabled={isReadOnly || !!ws.crewId}
               onChange={(userId) => saveMutation.mutate({ assignedCrewLeadId: userId })}
             />
           </div>

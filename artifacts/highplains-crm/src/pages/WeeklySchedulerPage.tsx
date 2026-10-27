@@ -1,3 +1,4 @@
+import { PlannerCrewPicker } from "@/components/PlannerCrewPicker";
 import { useState, useMemo, Fragment, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -244,10 +245,6 @@ export default function WeeklySchedulerPage() {
   const [seasonEndMonth, setSeasonEndMonth] = useState(10);
   const [showCrewManager, setShowCrewManager] = useState(false);
   const [editingCrew, setEditingCrew] = useState<MaintenanceCrew | null>(null);
-  const [newCrewName, setNewCrewName] = useState("");
-  const [newCrewHours, setNewCrewHours] = useState(8);
-  const [newCrewActive, setNewCrewActive] = useState(true);
-  const [newCrewColor, setNewCrewColor] = useState<string>(CREW_COLORS[0]);
   const [isLocked, setIsLocked] = useState(true);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [renamingTemplateId, setRenamingTemplateId] = useState<string | null>(null);
@@ -286,7 +283,7 @@ export default function WeeklySchedulerPage() {
 
   const activeTemplate = templates.find((t) => t.id === selectedTemplateId) || templates.find((t) => t.isActive) || templates[0];
 
-  const activeCrews = crews.filter((c) => c.isActive);
+  const activeCrews = crews.filter((c) => c.isActive || c.placementCount > 0);
 
   useEffect(() => {
     if (!templatesLoading && templates.length === 0 && canEdit && activeCrews.length > 0) {
@@ -448,41 +445,6 @@ export default function WeeklySchedulerPage() {
     },
   });
 
-  const createCrewMutation = useMutation({
-    mutationFn: async (data: { name: string; color: string; defaultHoursPerDay: number; isActive: boolean }) => {
-      return apiRequest("POST", "/api/maintenance-crews", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
-      setNewCrewName("");
-      setNewCrewColor(CREW_COLORS[0]);
-      setNewCrewHours(8);
-      setNewCrewActive(true);
-      toast({ title: t("schedule.crewCreated") });
-    },
-    onError: () => {
-      toast({ title: t("schedule.crewCreated"), variant: "destructive" });
-    },
-  });
-
-  const updateCrewMutation = useMutation({
-    mutationFn: async (data: { id: string; name: string; color: string; defaultHoursPerDay: number; isActive: boolean }) => {
-      return apiRequest("PATCH", `/api/maintenance-crews/${data.id}`, {
-        name: data.name,
-        color: data.color,
-        defaultHoursPerDay: data.defaultHoursPerDay,
-        isActive: data.isActive,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
-      setEditingCrew(null);
-      toast({ title: t("schedule.crewUpdated") });
-    },
-    onError: () => {
-      toast({ title: t("schedule.crewUpdated"), variant: "destructive" });
-    },
-  });
 
   const deleteCrewMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -492,54 +454,20 @@ export default function WeeklySchedulerPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
       toast({ title: t("schedule.crewDeleted") });
     },
-    onError: () => {
-      toast({ title: t("schedule.crewDeleted"), variant: "destructive" });
+    onError: (e: Error) => {
+      toast({ title: "Cannot remove column", description: e.message, variant: "destructive" });
     },
   });
 
   const openCrewManager = () => {
-    setNewCrewName("");
-    setNewCrewColor(CREW_COLORS[0]);
-    setNewCrewHours(8);
-    setNewCrewActive(true);
     setEditingCrew(null);
     setShowCrewManager(true);
   };
 
   const startEditCrew = (crew: MaintenanceCrew) => {
     setEditingCrew(crew);
-    setNewCrewName(crew.name);
-    setNewCrewColor(crew.color || CREW_COLORS[0]);
-    setNewCrewHours(crew.defaultHoursPerDay || 8);
-    setNewCrewActive(crew.isActive ?? true);
   };
 
-  const handleSaveCrew = () => {
-    if (editingCrew) {
-      updateCrewMutation.mutate({
-        id: editingCrew.id,
-        name: newCrewName,
-        color: newCrewColor,
-        defaultHoursPerDay: newCrewHours,
-        isActive: newCrewActive,
-      });
-    } else {
-      createCrewMutation.mutate({
-        name: newCrewName,
-        color: newCrewColor,
-        defaultHoursPerDay: newCrewHours,
-        isActive: newCrewActive,
-      });
-    }
-  };
-
-  const cancelEditCrew = () => {
-    setEditingCrew(null);
-    setNewCrewName("");
-    setNewCrewColor(CREW_COLORS[0]);
-    setNewCrewHours(8);
-    setNewCrewActive(true);
-  };
 
   const getBlocksForCell = (crewId: string, day: DayOfWeek) => {
     return blocksWithDetails.filter((b) => b.crewId === crewId && b.dayOfWeek === day);
@@ -687,54 +615,7 @@ export default function WeeklySchedulerPage() {
               <DialogTitle>{t("schedule.crewManager")}</DialogTitle>
             </DialogHeader>
             <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-              <div className="space-y-3 border rounded-md p-3">
-                <div className="text-sm font-medium">{editingCrew ? t("common.edit") : t("schedule.addCrew")}</div>
-                {editingCrew && <p className="text-xs text-muted-foreground">{editingCrew.standingCrew ? `Scheduling board crew: ${editingCrew.standingCrew.name}` : "Not linked — set it in Settings → Crews"}</p>}
-                <div className="grid grid-cols-[1fr,100px] gap-2">
-                  <Input
-                    placeholder={t("schedule.crewName")}
-                    value={newCrewName}
-                    onChange={(e) => setNewCrewName(e.target.value)}
-                    data-testid="input-crew-name"
-                  />
-                  <Input
-                    type="number"
-                    min={1}
-                    max={24}
-                    placeholder={t("schedule.dailyCapacity")}
-                    value={newCrewHours}
-                    onChange={(e) => setNewCrewHours(Number(e.target.value))}
-                    data-testid="input-crew-hours"
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={newCrewActive}
-                      onChange={(e) => setNewCrewActive(e.target.checked)}
-                      className="rounded border-input"
-                      data-testid="checkbox-crew-active"
-                    />
-                    {t("common.active")}
-                  </Label>
-                  <div className="flex gap-2">
-                    {editingCrew && (
-                      <Button size="sm" variant="ghost" onClick={cancelEditCrew}>
-                        {t("common.cancel")}
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      onClick={handleSaveCrew}
-                      disabled={!newCrewName.trim() || createCrewMutation.isPending || updateCrewMutation.isPending}
-                      data-testid="button-save-crew"
-                    >
-                      {editingCrew ? t("common.save") : t("schedule.addCrew")}
-                    </Button>
-                  </div>
-                </div>
-              </div>
+              <PlannerCrewPicker crew={editingCrew} />
 
               {crews.length > 0 && (
                 <div className="space-y-2">
@@ -766,7 +647,8 @@ export default function WeeklySchedulerPage() {
                             <Button
                               size="icon"
                               variant="ghost"
-                              disabled={deleteCrewMutation.isPending}
+                              disabled={deleteCrewMutation.isPending || crew.placementCount > 0}
+                              title={crew.placementCount > 0 ? `Move its ${crew.placementCount} placements first.` : "Remove column"}
                               data-testid={`button-delete-crew-${crew.id}`}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -914,10 +796,12 @@ export default function WeeklySchedulerPage() {
 
                 {activeCrews.map((crew) => (
                   <Fragment key={crew.id}>
-                    <div className="p-2 flex items-start">
+                    <div className={`p-2 flex items-start ${!crew.isActive ? "bg-muted text-muted-foreground" : ""}`}>
                       <div>
                         <div className="font-medium text-sm" data-testid={`text-crew-name-${crew.id}`}>
                           {crew.name}
+                          {!crew.isActive && <Badge variant="secondary">Inactive</Badge>}
+                          {!crew.linked && <a className="block underline text-xs" href="/dashboard/settings/crews#crew-setup">Not connected</a>}
                         </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                           <Clock className="h-3 w-3" />
@@ -1323,73 +1207,8 @@ export default function WeeklySchedulerPage() {
             <DialogTitle>{t("schedule.crewManager")}</DialogTitle>
           </DialogHeader>
           <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-            <div className="space-y-3 border rounded-md p-3">
-              <div className="text-sm font-medium">{editingCrew ? t("common.edit") : t("schedule.addCrew")}</div>
-              {editingCrew && <p className="text-xs text-muted-foreground">{editingCrew.standingCrew ? `Scheduling board crew: ${editingCrew.standingCrew.name}` : "Not linked — set it in Settings → Crews"}</p>}
-              <div className="grid grid-cols-[1fr,100px] gap-2">
-                <Input
-                  placeholder={t("schedule.crewName")}
-                  value={newCrewName}
-                  onChange={(e) => setNewCrewName(e.target.value)}
-                  data-testid="input-crew-name"
-                />
-                <Input
-                  type="number"
-                  min={1}
-                  max={24}
-                  placeholder={t("schedule.dailyCapacity")}
-                  value={newCrewHours}
-                  onChange={(e) => setNewCrewHours(Number(e.target.value))}
-                  data-testid="input-crew-hours"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">{t("schedule.crewColor")}</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {CREW_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => setNewCrewColor(color)}
-                      className={`w-7 h-7 rounded-md border-2 transition-all ${
-                        newCrewColor === color 
-                          ? "border-foreground scale-110" 
-                          : "border-transparent hover:scale-105"
-                      }`}
-                      style={{ backgroundColor: color }}
-                      data-testid={`color-${color}`}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={newCrewActive}
-                    onChange={(e) => setNewCrewActive(e.target.checked)}
-                    className="rounded border-input"
-                    data-testid="checkbox-crew-active"
-                  />
-                  {t("common.active")}
-                </Label>
-                <div className="flex gap-2">
-                  {editingCrew && (
-                    <Button size="sm" variant="ghost" onClick={cancelEditCrew}>
-                      {t("common.cancel")}
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    onClick={handleSaveCrew}
-                    disabled={!newCrewName.trim() || createCrewMutation.isPending || updateCrewMutation.isPending}
-                    data-testid="button-save-crew"
-                  >
-                    {editingCrew ? t("common.save") : t("schedule.addCrew")}
-                  </Button>
-                </div>
-              </div>
-            </div>
+            <PlannerCrewPicker crew={editingCrew} />
+            {editingCrew && <Button variant="ghost" onClick={() => setEditingCrew(null)}>Add another column</Button>}
 
             {crews.length > 0 && (
               <div className="space-y-2">
@@ -1426,7 +1245,8 @@ export default function WeeklySchedulerPage() {
                             size="icon"
                             variant="ghost"
                             onClick={() => deleteCrewMutation.mutate(crew.id)}
-                            disabled={deleteCrewMutation.isPending}
+                            disabled={deleteCrewMutation.isPending || crew.placementCount > 0}
+                            title={crew.placementCount > 0 ? `Move its ${crew.placementCount} placements first.` : "Remove column"}
                             data-testid={`button-delete-crew-${crew.id}`}
                           >
                             <Trash2 className="h-4 w-4" />

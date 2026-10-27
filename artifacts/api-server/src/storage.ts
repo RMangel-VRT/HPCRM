@@ -1,3 +1,5 @@
+import { plannerProjection, plannerJoin, campaignProjection, campaignJoin } from "./lib/crewProjection";
+import { CrewLinkError, CrewPlacementError, validateCampaignOwner } from "./lib/crewLinks";
 import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrewWithMembers } from "@workspace/db";
 import { hardscapeStorage } from "./lib/hardscapeStorage";
 
@@ -212,8 +214,6 @@ export interface IStorage {
   // Maintenance Scheduling
   getMaintenanceCrews(companyId: string): Promise<MaintenanceCrew[]>;
   getMaintenanceCrewById(id: string, companyId: string): Promise<MaintenanceCrew | undefined>;
-  createMaintenanceCrew(crew: InsertMaintenanceCrew): Promise<MaintenanceCrew>;
-  updateMaintenanceCrew(id: string, companyId: string, updates: Partial<InsertMaintenanceCrew>): Promise<MaintenanceCrew | undefined>;
   deleteMaintenanceCrew(id: string, companyId: string): Promise<void>;
   
   getMaintenanceVisitConfig(customerId: string, companyId: string): Promise<MaintenanceVisitConfig | undefined>;
@@ -2184,38 +2184,26 @@ export class PgStorage implements IStorage {
 
   // Maintenance Scheduling
   async getMaintenanceCrews(companyId: string): Promise<MaintenanceCrew[]> {
-    const rows = await db.select().from(maintenanceCrews)
+    return db.select(plannerProjection).from(maintenanceCrews).leftJoin(crews, plannerJoin)
       .where(eq(maintenanceCrews.companyId, companyId))
-      .orderBy(maintenanceCrews.name);
-    const ids = rows.flatMap(r => r.crewId ? [r.crewId] : []);
-    const linked = ids.length ? await db.select({ id: crews.id, name: crews.name }).from(crews).where(and(eq(crews.companyId, companyId), inArray(crews.id, ids))) : [];
-    const byId = new Map(linked.map(c => [c.id, c]));
-    return rows.map(r => ({ ...r, standingCrew: r.crewId ? byId.get(r.crewId) ?? null : null }));
+      .orderBy(sql`${crews.displayOrder} ASC NULLS LAST`, plannerProjection.name);
   }
 
   async getMaintenanceCrewById(id: string, companyId: string): Promise<MaintenanceCrew | undefined> {
-    const result = await db.select().from(maintenanceCrews)
+    const result = await db.select(plannerProjection).from(maintenanceCrews).leftJoin(crews, plannerJoin)
       .where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId)))
       .limit(1);
     return result[0];
   }
 
-  async createMaintenanceCrew(insertCrew: InsertMaintenanceCrew): Promise<MaintenanceCrew> {
-    const result = await db.insert(maintenanceCrews).values([insertCrew]).returning();
-    return result[0];
-  }
-
-  async updateMaintenanceCrew(id: string, companyId: string, updates: Partial<InsertMaintenanceCrew>): Promise<MaintenanceCrew | undefined> {
-    const result = await db.update(maintenanceCrews)
-      .set(updates)
-      .where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId)))
-      .returning();
-    return result[0];
-  }
-
   async deleteMaintenanceCrew(id: string, companyId: string): Promise<void> {
-    await db.delete(maintenanceCrews)
-      .where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId)));
+    await db.transaction(async tx => {
+      // FOR UPDATE conflicts with the FK key-share lock of concurrent block inserts.
+      await tx.select().from(maintenanceCrews).where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId))).for("update");
+      const [row] = await tx.select({ count: sql<number>`count(*)::int` }).from(scheduleBlocks).where(eq(scheduleBlocks.crewId, id));
+      if (row.count) throw new CrewPlacementError(row.count);
+      await tx.delete(maintenanceCrews).where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId)));
+    });
   }
 
   async getMaintenanceVisitConfig(customerId: string, companyId: string): Promise<MaintenanceVisitConfig | undefined> {
@@ -3540,11 +3528,25 @@ export class PgStorage implements IStorage {
   }
 
   async updateCrewWorksheet(id: string, companyId: string, updates: Partial<import("@workspace/db").InsertCrewWorksheet>): Promise<import("@workspace/db").CrewWorksheet | undefined> {
-    const result = await db.update(crewWorksheets)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(and(eq(crewWorksheets.id, id), eq(crewWorksheets.companyId, companyId)))
-      .returning();
-    return result[0];
+    return db.transaction(async tx => {
+      const [current] = await tx.select().from(crewWorksheets).where(and(eq(crewWorksheets.id, id), eq(crewWorksheets.companyId, companyId))).for("update");
+      if (!current) return undefined;
+      const selecting = updates.crewId !== undefined;
+      if (current.status !== "draft" && (selecting || updates.crewLabel !== undefined || updates.assignedCrewLeadId !== undefined)) throw new CrewLinkError(409, "Finalized worksheet crew snapshots cannot be changed");
+      // The label and lead are printed snapshots, not a live join. Only an explicit
+      // draft selection captures the current owner; later renames never rewrite them.
+      if (selecting && updates.crewId) {
+        await validateStandingCrew(tx, companyId, updates.crewId);
+        const [crew] = await tx.select().from(crews).where(and(eq(crews.id, updates.crewId), eq(crews.companyId, companyId))).for("share");
+        updates = { ...updates, crewLabel: crew.name, assignedCrewLeadId: crew.supervisorUserId };
+      } else if (selecting) {
+        updates = { ...updates, assignedCrewLeadId: null };
+      } else if (current.crewId && (updates.crewLabel !== undefined || updates.assignedCrewLeadId !== undefined)) {
+        throw new CrewLinkError(409, "Choose Custom to edit the crew snapshot");
+      }
+      const [row] = await tx.update(crewWorksheets).set({ ...updates, updatedAt: new Date() }).where(and(eq(crewWorksheets.id, id), eq(crewWorksheets.companyId, companyId))).returning();
+      return row;
+    });
   }
 
   async deleteCrewWorksheet(id: string, companyId: string): Promise<void> {
@@ -3950,11 +3952,11 @@ export class PgStorage implements IStorage {
   }
 
   async getCampaignCrews(campaignId: string, companyId: string): Promise<CampaignCrewWithMembers[]> {
-    const crews = await db.select().from(campaignCrews)
+    const teams = await db.select(campaignProjection).from(campaignCrews).leftJoin(crews, campaignJoin)
       .where(and(eq(campaignCrews.campaignId, campaignId), eq(campaignCrews.companyId, companyId)))
       .orderBy(asc(campaignCrews.displayOrder), asc(campaignCrews.createdAt));
-    if (crews.length === 0) return [];
-    const crewIds = crews.map(c => c.id);
+    if (teams.length === 0) return [];
+    const crewIds = teams.map(c => c.id);
     const [memberRows, itemAggRows, leaderRows] = await Promise.all([
       db.select({ crewId: campaignCrewMembers.campaignCrewId, userId: campaignCrewMembers.userId, userName: users.name })
         .from(campaignCrewMembers)
@@ -3971,7 +3973,7 @@ export class PgStorage implements IStorage {
         .groupBy(campaignItems.assignedCampaignCrewId),
       db.select({ id: users.id, name: users.name })
         .from(users)
-        .where(inArray(users.id, crews.map(c => c.leaderUserId))),
+        .where(inArray(users.id, teams.map(c => c.leaderUserId))),
     ]);
     const membersByCrew = new Map<string, { userId: string; userName: string }[]>();
     for (const m of memberRows) {
@@ -3983,7 +3985,7 @@ export class PgStorage implements IStorage {
       if (r.crewId) aggByCrew.set(r.crewId, { total: Number(r.total) || 0, completed: Number(r.completed) || 0, photos: Number(r.photos) || 0 });
     }
     const leaderById = new Map(leaderRows.map(u => [u.id, u.name]));
-    return crews.map(c => {
+    return teams.map(c => {
       const agg = aggByCrew.get(c.id);
       return {
         ...c,
@@ -3997,7 +3999,7 @@ export class PgStorage implements IStorage {
   }
 
   async getCampaignCrewById(crewId: string, companyId: string): Promise<CampaignCrew | undefined> {
-    const [row] = await db.select().from(campaignCrews)
+    const [row] = await db.select(campaignProjection).from(campaignCrews).leftJoin(crews, campaignJoin)
       .where(and(eq(campaignCrews.id, crewId), eq(campaignCrews.companyId, companyId)));
     return row;
   }
@@ -4005,7 +4007,8 @@ export class PgStorage implements IStorage {
   async createCampaignCrew(crew: InsertCampaignCrew): Promise<CampaignCrew> {
     return db.transaction(async (tx) => {
       await lockCrewCompany(tx, crew.companyId);
-      if (crew.crewId !== undefined) await validateStandingCrew(tx, crew.companyId, crew.crewId);
+      if (!crew.crewId) throw new CrewLinkError(400, "Standing crew is required");
+      await validateCampaignOwner(tx, crew.companyId, crew.campaignId, "", crew.crewId);
       if (crew.crewId !== undefined) await recordCrewLinkChoice(tx, crew.companyId);
       const [row] = await tx.insert(campaignCrews).values(crew as typeof campaignCrews.$inferInsert).returning();
       await tx.insert(campaignCrewMembers).values({
@@ -4019,7 +4022,9 @@ export class PgStorage implements IStorage {
   async updateCampaignCrew(crewId: string, companyId: string, updates: Partial<InsertCampaignCrew>): Promise<CampaignCrew | undefined> {
     return db.transaction(async (tx) => {
       await lockCrewCompany(tx, companyId);
-      if (updates.crewId !== undefined) await validateStandingCrew(tx, companyId, updates.crewId);
+      const [current] = await tx.select().from(campaignCrews).where(and(eq(campaignCrews.id, crewId), eq(campaignCrews.companyId, companyId)));
+      if (!current) return undefined;
+      if (updates.crewId !== undefined) await validateCampaignOwner(tx, companyId, current.campaignId, crewId, updates.crewId);
       const [row] = await tx.update(campaignCrews)
         .set({ ...updates, updatedAt: new Date() } as Partial<typeof campaignCrews.$inferInsert>)
         .where(and(eq(campaignCrews.id, crewId), eq(campaignCrews.companyId, companyId)))
@@ -4078,8 +4083,8 @@ export class PgStorage implements IStorage {
     const isAdminOrOffice = role === "admin" || role === "office";
     const baseSelect = {
       crewId: campaignCrews.id,
-      crewName: campaignCrews.name,
-      crewColor: campaignCrews.color,
+      crewName: campaignProjection.name,
+      crewColor: campaignProjection.color,
       leaderUserId: campaignCrews.leaderUserId,
       leaderName: users.name,
       campaignId: campaigns.id,
@@ -4106,17 +4111,19 @@ export class PgStorage implements IStorage {
       crewRows = await db
         .select(baseSelect)
         .from(campaignCrews)
+        .leftJoin(crews, campaignJoin)
         .innerJoin(campaigns, eq(campaignCrews.campaignId, campaigns.id))
         .innerJoin(users, eq(campaignCrews.leaderUserId, users.id))
         .where(and(
           eq(campaignCrews.companyId, companyId),
           eq(campaigns.category, "extra_billable"),
         ))
-        .orderBy(desc(campaigns.windowEnd), asc(campaignCrews.name));
+        .orderBy(desc(campaigns.windowEnd), asc(campaignProjection.name));
     } else {
       crewRows = await db
         .selectDistinct(baseSelect)
         .from(campaignCrews)
+        .leftJoin(crews, campaignJoin)
         .innerJoin(campaigns, eq(campaignCrews.campaignId, campaigns.id))
         .innerJoin(users, eq(campaignCrews.leaderUserId, users.id))
         .leftJoin(campaignCrewMembers, eq(campaignCrewMembers.campaignCrewId, campaignCrews.id))

@@ -92,7 +92,7 @@ export default function SchedulePreview() {
 
   const isLoading = loadingCrews || loadingBlocks;
 
-  const activeCrews = crews.filter((c) => c.isActive);
+  const activeCrews = crews.filter((c) => c.isActive || c.placementCount > 0);
   const totalMinutes = todaysBlocks.reduce((sum, b) => sum + (b.visitConfig?.estimatedDurationMinutes || 0), 0);
   const totalHours = Math.floor(totalMinutes / 60);
   const remainingMins = totalMinutes % 60;
@@ -154,6 +154,8 @@ export default function SchedulePreview() {
                             >
                               <Users className="h-3 w-3" />
                               {crew.name}
+                              {!crew.linked && <a href="/dashboard/settings/crews#crew-setup" className="underline">Not connected</a>}
+                              {!crew.isActive && <span>Inactive</span>}
                             </div>
                           ))}
                         </div>

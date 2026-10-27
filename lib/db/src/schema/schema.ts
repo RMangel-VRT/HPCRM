@@ -1175,6 +1175,7 @@ export const tickets = pgTable("tickets", {
   completedByUserId: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
   actualStartTime: timestamp("actual_start_time"),
   actualEndTime: timestamp("actual_end_time"),
+  // Execution snapshots of who did this job, not current standing-crew membership.
   leadTechUserId: varchar("lead_tech_user_id").references(() => users.id, { onDelete: "set null" }),
   crewMemberUserIds: text("crew_member_user_ids").array().default(sql`ARRAY[]::text[]`),
   workSummaryForCustomer: text("work_summary_for_customer"),
@@ -1501,6 +1502,8 @@ export const maintenanceCrews = pgTable("maintenance_crews", {
   crewId: varchar("crew_id").references((): AnyPgColumn => crews.id, { onDelete: "set null" }),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  // Frozen compatibility values for unlinked planner columns and required inserts.
+  // Linked identity is always projected from crews; do not edit these again.
   name: text("name").notNull(),
   color: text("color").default("#2563eb"), // Crew color for schedule display
   defaultHoursPerDay: real("default_hours_per_day").default(8),
@@ -2217,6 +2220,7 @@ export interface MaterialItem {
 }
 
 export const crewWorksheets = pgTable("crew_worksheets", {
+  crewId: varchar("crew_id").references(() => crews.id, { onDelete: "set null" }),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
@@ -2231,6 +2235,7 @@ export const crewWorksheets = pgTable("crew_worksheets", {
   scopeOfWork: text("scope_of_work").notNull().default(""),
   status: varchar("status").notNull().default("draft"),
   visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
+  // Printed execution snapshots; never reproject when a standing crew changes.
   assignedCrewLeadId: varchar("assigned_crew_lead_id").references(() => users.id, { onDelete: "set null" }),
   crewLabel: varchar("crew_label"),
   scheduledDate: varchar("scheduled_date"),
@@ -2701,6 +2706,7 @@ export const campaignCrews = pgTable("campaign_crews", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  // Frozen display fallback for unlinked legacy teams; linked identity comes from crews.
   name: text("name").notNull(),
   color: text("color").notNull().default("#2563eb"),
   displayOrder: integer("display_order").notNull().default(0),
@@ -2711,6 +2717,7 @@ export const campaignCrews = pgTable("campaign_crews", {
   campaignCrewsCampaignIdx: index("campaign_crews_campaign_id_idx").on(table.campaignId),
   campaignCrewsCompanyIdx: index("campaign_crews_company_id_idx").on(table.companyId),
   standingCrewIdx: index("campaign_crews_crew_id_idx").on(table.crewId),
+  campaignStandingUnique: uniqueIndex("campaign_crews_campaign_crew_unique").on(table.campaignId, table.crewId).where(sql`${table.crewId} IS NOT NULL`),
   campaignCrewsCampaignNameUnique: uniqueIndex("campaign_crews_campaign_name_unique").on(table.campaignId, table.name),
 }));
 

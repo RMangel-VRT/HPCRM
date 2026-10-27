@@ -3,17 +3,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { standingCrewFormSchema, insertCampaignCrewSchema, insertMaintenanceCrewSchema } from "../shared/schema";
 
-const fixtures = vi.hoisted(() => ({ crews: [] as any[], planners: [] as any[] }));
+const fixtures = vi.hoisted(() => ({ crews: [] as any[], planners: [] as any[], teams: [] as any[] }));
 vi.mock("@tanstack/react-query", async importOriginal => ({
   ...await importOriginal<typeof import("@tanstack/react-query")>(),
   useQuery: ({ queryKey }: { queryKey: string[] }) => ({
-    data: queryKey[0] === "/api/maintenance-crews" ? fixtures.planners : queryKey[0] === "/api/crews" ? fixtures.crews : [],
+    data: queryKey[0] === "/api/maintenance-crews" ? fixtures.planners : queryKey[0] === "/api/crews/setup" ? { planners: fixtures.planners.filter(p => !p.crewId), teams: fixtures.teams } : queryKey[0] === "/api/crews" ? fixtures.crews : [],
     isLoading: false,
   }),
 }));
 import CrewsAdmin from "./CrewsAdmin";
 const render = () => renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><CrewsAdmin /></QueryClientProvider>);
-beforeEach(() => { fixtures.crews = []; fixtures.planners = []; });
+beforeEach(() => { fixtures.crews = []; fixtures.planners = []; fixtures.teams = []; });
 
 describe("standing crew settings and form payloads", () => {
   it("shows color, hours/day, planner link and up/down controls", () => {
@@ -26,10 +26,12 @@ describe("standing crew settings and form payloads", () => {
     expect(html).toContain('aria-label="Move North down"');
     expect(html).toContain("<td");
   });
-  it("no longer nags about unlinked planner crews but keeps the planner field", () => {
-    fixtures.planners = [{ id: "p", name: "First", isActive: true, crewId: null }];
+  it("shows setup for unlinked planner columns with their placement counts", () => {
+    fixtures.planners = [{ id: "p", name: "First", color: "#123456", placementCount: 61, isActive: true, crewId: null }];
     const html = render();
-    expect(html).not.toContain("planner crews aren");
+    expect(html).toContain("Finish crew setup: 1 items aren");
+    expect(html).toContain("61 placements");
+    expect(html).toContain("Create crew from this");
     expect(html).not.toContain('role="alert"');
   });
   it("preserves new standing fields, including zero hours and explicit clearing", () => {

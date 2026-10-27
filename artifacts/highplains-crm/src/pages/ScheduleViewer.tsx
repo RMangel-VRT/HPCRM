@@ -174,7 +174,7 @@ export default function ScheduleViewer() {
     queryKey: ["/api/maintenance-visit-configs"],
   });
 
-  const activeCrews = crews.filter((c) => c.isActive);
+  const activeCrews = crews.filter((c) => c.isActive || c.placementCount > 0);
 
   const blocksWithDetails: ScheduleBlockWithDetails[] = useMemo(() => {
     if (!activeTemplate) return [];
@@ -394,6 +394,8 @@ function CrewView({
                   style={{ backgroundColor: crewColor }}
                 />
                 <span className="font-semibold" data-testid={`text-crew-header-${crew.id}`}>{crew.name}</span>
+                {!crew.linked && <a className="text-xs underline" href="/dashboard/settings/crews#crew-setup">Not connected</a>}
+                {!crew.isActive && <span className="text-xs text-muted-foreground">Inactive</span>}
                 <Badge variant="secondary" className="text-xs">
                   {crewTotalProperties} {crewTotalProperties === 1 ? 'property' : 'properties'}
                 </Badge>
@@ -534,6 +536,8 @@ function CombinedView({
                         style={{ backgroundColor: crewColor }}
                       />
                       <span className="font-semibold text-xs truncate">{crew.name}</span>
+                      {!crew.linked && <a className="text-xs underline" href="/dashboard/settings/crews#crew-setup">Not connected</a>}
+                      {!crew.isActive && <span className="text-xs text-muted-foreground">Inactive</span>}
                     </div>
                     <div className="text-[10px] text-muted-foreground">
                       {crewTotalProperties} props

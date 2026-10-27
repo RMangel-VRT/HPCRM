@@ -22,3 +22,5 @@
 - [Pricing company boundary](pricing-company-boundary.md) — bind requests to the initiating company as well as scoping caches; mutable sessions can otherwise misdirect queued writes.
 - [Merge marker validation](merge-marker-validation.md) — the merge continuation check can mistake decorative equals-sign comment separators for unresolved markers.
 - [Data ownership policy](data-ownership-policy.md) — one owner per fact; copies need explicit snapshot or mirror semantics; retire holders only through the approved staged sequence.
+- [Ownership map check](ownership-map-check.md) — before adding a table or column, check the agreed fact owner in the data-ownership map.
+- [Migration filenames](migration-filename-stability.md) — preserve existing migration filenames despite duplicate numeric prefixes; allocate a new unused number.
