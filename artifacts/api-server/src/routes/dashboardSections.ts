@@ -4,7 +4,8 @@ import { communications, flags, tickets, ticketTypes, ticketTypeStatuses, ticket
 import type { UserWithContext } from "../auth";
 import { db } from "../db";
 import { storage } from "../storage";
-import { companyDateString, companyToday } from "../lib/companyDay";
+import { companyToday } from "../lib/companyDay";
+import { ageDetail, calendarDetail } from "../lib/sectionDetail";
 import { loadEstimatesBoard, estimateDaysInStage } from "./estimatesBoard";
 import { loadBidsBoard } from "./bidsBoard";
 import { loadSchedulingQueue } from "./schedulingQueue";
@@ -59,7 +60,7 @@ function opportunitySummary(key: "estimates" | "bids", board: Awaited<ReturnType
   } : null);
 }
 
-export async function schedulingSummary(companyId: string, now: Date) {
+export async function schedulingSummary(companyId: string, now: Date, language = "en") {
   const queue = await loadSchedulingQueue(companyId, now);
   // The destination's two sets are disjoint; defend the summary against duplicate visit rows too.
   const rows = [...new Map([...queue.needsScheduling, ...queue.slipped].map(row => [row.id, row])).values()];
@@ -68,7 +69,7 @@ export async function schedulingSummary(companyId: string, now: Date) {
   rows.sort((a, b) => (a.scheduleBy ?? "9999").localeCompare(b.scheduleBy ?? "9999"));
   const first = rows[0];
   return summary("scheduling", rows.length, rows.filter(row => row.scheduleBy && row.scheduleBy < today).length, first ? {
-    label: first.customer?.name ?? first.title, detail: first.scheduleBy ? `${first.title} · ${first.scheduleBy}` : first.title,
+    label: first.customer?.name ?? first.title, detail: calendarDetail(first.title, first.scheduleBy, now, language),
     href: ticketHref(first.id),
   } : null);
 }
@@ -99,7 +100,7 @@ export async function invoicingSummary(user: UserWithContext, now: Date) {
   const first = aged[0];
   return summary("invoicing", rows.length, aged.filter(item => item.days !== null && item.days >= 7).length, first ? {
     label: first.row.customer?.name ?? first.row.title,
-    detail: first.days === null ? first.row.title : `${first.row.title} · ${first.days}d`, href: ticketHref(first.row.id),
+    detail: ageDetail(first.row.title, first.days, user.language), href: ticketHref(first.row.id),
   } : null);
 }
 
@@ -116,18 +117,20 @@ export async function inboxSummary(user: UserWithContext, now: Date) {
   );
   const [first] = await db.select({
     id: communications.id, subject: communications.subject, status: communications.status,
-    followUpDueAt: communications.followUpDueAt,
+    followUpDueAt: communications.followUpDueAt, createdAt: communications.createdAt,
   }).from(communications).where(and(eq(communications.companyId, companyId), isNull(communications.deletedAt), mailboxScope,
     or(eq(communications.status, "draft"), eq(communications.followUpStatus, "open"),
       and(eq(communications.followUpStatus, "snoozed"), lt(communications.followUpDueAt, now)))))
     .orderBy(sql`${communications.followUpDueAt} ASC NULLS LAST`, asc(communications.createdAt), asc(communications.id)).limit(1);
   return summary("inbox", stats.drafts + stats.openFollowUps, stats.overdueFollowUps, first ? {
-    label: first.subject, detail: first.followUpDueAt ? companyDateString(first.followUpDueAt) : user.language === "es" ? "Borrador" : "Draft",
+    label: first.subject, detail: calendarDetail(
+      first.status === "draft" ? user.language === "es" ? "Borrador" : "Draft" : user.language === "es" ? "Seguimiento" : "Follow-up",
+      first.status === "draft" ? first.createdAt : first.followUpDueAt, now, user.language),
     href: `/dashboard/communications/all?focusId=${encodeURIComponent(first.id)}`,
   } : null);
 }
 
-export async function flagsSummary(companyId: string) {
+export async function flagsSummary(companyId: string, now = new Date(), language = "en") {
   const scope = and(eq(flags.companyId, companyId), eq(flags.status, "new"));
   const [[count], [first]] = await Promise.all([
     db.select({ total: sql<number>`count(*)::int` }).from(flags).where(scope),
@@ -135,17 +138,23 @@ export async function flagsSummary(companyId: string) {
       .orderBy(asc(flags.createdAt), asc(flags.id)).limit(1),
   ]);
   return summary("flags", count?.total ?? 0, count?.total ?? 0, first ? {
-    label: first.note || first.tag, detail: companyDateString(first.createdAt), href: `/dashboard/flags/${encodeURIComponent(first.id)}`,
+    label: first.note || first.tag, detail: calendarDetail(first.tag || (language === "es" ? "Sin leer" : "Unread flag"), first.createdAt, now, language), href: `/dashboard/flags/${encodeURIComponent(first.id)}`,
   } : null);
 }
 
-export async function contractsSummary(companyId: string, now: Date) {
+export async function contractsSummary(companyId: string, now: Date, language = "en") {
   const result = await contractsSection(db, companyId, companyToday(now));
   const first = result.mostOverdue;
   const line = result.rows.find(row => row.agreementId === first?.agreementId)?.line;
+  const context = language === "es"
+    ? line === "both" ? "Ambos" : line === "snow" ? "Nieve" : "Paisajismo"
+    : line === "both" ? "Both" : line === "snow" ? "Snow" : "Landscape";
+  // Deliberate exception: Contracts owns expiry, so retain the explicit calendar
+  // date and service-line context, not an ambiguous relative age.
   return summary("contracts", result.count, result.overdue, first ? {
-      label: first.customerName, detail: first.daysLeft < 0 ? `Expired ${first.endDate}`
-        : `${line === "both" ? "Both" : line === "snow" ? "Snow" : "Landscape"} · ${first.endDate}`,
+      label: first.customerName, detail: `${context} · ${language === "es"
+        ? first.daysLeft < 0 ? "venció" : "vence"
+        : first.daysLeft < 0 ? "expired" : "expires"} ${first.endDate}`,
       href: `/dashboard/contracts/${encodeURIComponent(first.agreementId)}`,
     } : null);
 }
@@ -170,16 +179,16 @@ export async function mineSummary(user: UserWithContext, now: Date) {
     .where(scope).orderBy(sql`${deadline} ASC NULLS LAST`, asc(tickets.createdAt), asc(tickets.id));
   const first = rows[0];
   return summary("mine", rows.length, rows.filter(row => row.deadline && row.deadline < today).length, first ? {
-    label: first.title, detail: first.deadline ?? (user.language === "es" ? "Asignado a ti" : "Assigned to you"), href: ticketHref(first.id),
+    label: first.title, detail: calendarDetail(first.title, first.deadline, now, user.language), href: ticketHref(first.id),
   } : null);
 }
 
 export async function loadDashboardSections(user: UserWithContext, now = new Date()) {
   const companyId = user.activeCompanyId;
   const loaders: Record<SectionKey, () => Promise<SectionSummary>> = {
-    estimates: () => estimatesSummary(companyId, now), bids: () => bidsSummary(companyId, now), scheduling: () => schedulingSummary(companyId, now),
+    estimates: () => estimatesSummary(companyId, now), bids: () => bidsSummary(companyId, now), scheduling: () => schedulingSummary(companyId, now, user.language),
     invoicing: () => invoicingSummary(user, now), inbox: () => inboxSummary(user, now),
-    flags: () => flagsSummary(companyId), contracts: () => contractsSummary(companyId, now), mine: () => mineSummary(user, now),
+    flags: () => flagsSummary(companyId, now, user.language), contracts: () => contractsSummary(companyId, now, user.language), mine: () => mineSummary(user, now),
   };
   return { sections: await Promise.all(permittedSections(user).map(key => loaders[key]())) };
 }

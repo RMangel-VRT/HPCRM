@@ -94,3 +94,9 @@ criteria require preserving realistic imported statuses and historical guards.
 final season. In-effect display does not confer editing permission on an
 underlying renewed season. Keep display selection separate from renewal intent;
 an explicit import source must not be replaced by whichever season is current.
+
+Retiring legacy agreement-level line/form requires removing their schema declarations and applying the column drops in the same change. Until that cleanup lands, the nullable agreement copies remain part of the declared shape; seasonal values remain authoritative.
+
+**Why:** The owner clarified that the season backfill only relaxed the original columns to nullable. Dropping them outside the migration/declaration change caused shared development drift and blocked unrelated work; it was not fork staleness.
+
+**How to apply:** Keep the Contract Center cleanup's schema edits and guarded drop migration together, and validate schema drift against that matching pair. Never remove the development columns ahead of the declarations or introduce an unrelated repair migration.

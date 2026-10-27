@@ -159,7 +159,7 @@ describe("section clocks and population parity", () => {
       slipped: [item("old", "2026-10-25"), item("slipped", "2026-10-27")],
     });
     expect(await schedulingSummary("company-a", NOW)).toMatchObject({
-      total: 4, overdue: 1, oldest: { label: "old", href: "/dashboard/tickets/old" },
+      total: 4, overdue: 1, oldest: { label: "old", detail: "old · 1d", href: "/dashboard/tickets/old" },
     });
   });
   it("uses source RFB entry and not stale schedule-by, work-completed date, or invoice creation", async () => {
@@ -181,7 +181,7 @@ describe("section clocks and population parity", () => {
   });
   it("does not fabricate an overdue age when legacy billing history is absent", async () => {
     mocks.invoices.mockResolvedValue([{ id: "legacy", title: "Legacy", kind: "stranded", sourceTicket: { id: "legacy", createdAt: new Date("2020-01-01") } }]);
-    expect(await invoicingSummary(user, NOW)).toMatchObject({ total: 1, overdue: 0, oldest: { detail: "Legacy" } });
+    expect(await invoicingSummary(user, NOW)).toMatchObject({ total: 1, overdue: 0, oldest: { detail: "Legacy · Date unavailable" } });
   });
   it("reuses communication statistics exactly and applies mailbox restrictions to the oldest lookup", async () => {
     mocks.getCommunicationStats.mockResolvedValue({ drafts: 2, openFollowUps: 3, overdueFollowUps: 1 });
@@ -193,7 +193,23 @@ describe("section clocks and population parity", () => {
     expect(predicate.sql).toContain('"deleted_at" is null');
     expect(predicate.sql).toContain('"follow_up_due_at" <');
   });
-  it.each([[30, "Snow · 2026-11-25"], [-10, "Expired 2026-11-25"]] as const)(
+  it("keeps draft creation and follow-up due clocks distinct, with honest missing dates", async () => {
+    byTable.set(communications, [{ id: "draft", subject: "Proposal", status: "draft",
+      createdAt: new Date("2026-10-24T18:00Z"), followUpDueAt: new Date("2026-01-01") }]);
+    expect((await inboxSummary(user, NOW)).oldest?.detail).toBe("Draft · 2d");
+    byTable.set(communications, [{ id: "sent", subject: "Proposal", status: "sent",
+      createdAt: new Date("2026-01-01"), followUpDueAt: new Date("2026-10-25T18:00Z") }]);
+    expect((await inboxSummary(user, NOW)).oldest?.detail).toBe("Follow-up · 1d");
+    byTable.set(communications, [{ id: "sent", subject: "Proposal", status: "sent", followUpDueAt: null }]);
+    expect((await inboxSummary({ ...user, language: "es" }, NOW)).oldest?.detail).toBe("Seguimiento · Fecha no disponible");
+  });
+  it("keeps context when scheduling and personal deadlines are unavailable", async () => {
+    mocks.queue.mockResolvedValue({ needsScheduling: [{ id: "x", title: "Drain", scheduleBy: null }], slipped: [] });
+    expect((await schedulingSummary("company-a", NOW)).oldest?.detail).toBe("Drain · Date unavailable");
+    byTable.set(tickets, [{ id: "x", title: "Personal", deadline: null }]);
+    expect((await mineSummary(user, NOW)).oldest?.detail).toBe("Personal · Date unavailable");
+  });
+  it.each([[30, "Snow · expires 2026-11-25"], [-10, "Snow · expired 2026-11-25"]] as const)(
     "maps shared counts and agreement destination with daysLeft %s", async (daysLeft, detail) => {
     mocks.contracts.mockResolvedValue({ count: 2, overdue: 1,
       mostOverdue: { agreementId: "agreement-a", customerName: "A", endDate: "2026-11-25", daysLeft },

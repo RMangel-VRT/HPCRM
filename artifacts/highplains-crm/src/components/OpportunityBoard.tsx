@@ -9,7 +9,7 @@ import { TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LinkedContractRow, type LinkedContract } from "@/components/contracts/RfpContracts";
-import { resolveDisplayTypeKey, resolveDisplayTypeName } from "@shared/ticketVisuals";
+import { resolveDisplayTypeKey } from "@shared/ticketVisuals";
 
 export interface BoardTicket {
   contracts?: LinkedContract[];
@@ -25,9 +25,10 @@ function OpportunityCard({ ticket, labels, readOnly }: { ticket: BoardTicket; la
   const { t } = useTranslation();
   // Display resolvers project approved estimates as Projects without changing stored
   // identity; pre-approval estimates and RFPs keep their original badge and rail.
+  const typeKey = resolveDisplayTypeKey(ticket.typeKey, ticket.statusKey);
   const type = {
-    name: resolveDisplayTypeName(ticket.typeKey, ticket.statusKey, t(`${labels}.typeLabel`)),
-    typeKey: resolveDisplayTypeKey(ticket.typeKey, ticket.statusKey),
+    name: t(typeKey === "project" ? "estimates.projectLabel" : `${labels}.typeLabel`),
+    typeKey,
   };
   const stale = ticket.daysInStage >= 7;
   return (

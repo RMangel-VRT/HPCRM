@@ -330,6 +330,7 @@ const es = {
     umbrella: { plants: "Plantas", landscape_materials: "Materiales de paisajismo", irrigation_materials: "Materiales de riego", landscape_labor: "Mano de obra de paisajismo", irrigation_labor: "Mano de obra de riego", fees_surcharges: "Cargos y recargos" },
   },
   estimates: {
+    projectLabel: "Proyecto",
     typeLabel: "Solicitud de estimado",
     stage: { new: "Nuevo", estimating: "Estimando", proposal: "Propuesta", sent: "Enviado", decision: "Decisión", won: "Ganado — en curso" },
     owner: { scheduling: "en Programación", invoicing: "en Facturación" },

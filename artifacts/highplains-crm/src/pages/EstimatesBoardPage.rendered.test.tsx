@@ -71,7 +71,7 @@ describe("EstimatesBoardPage", () => {
     for (const ticket of tickets) {
       const card = within(won).getByTestId(`card-bid-${ticket.id}`);
       expect(card.getAttribute("href")).toBe(ticket.owner.href);
-      expect(card.textContent).toContain("Project");
+      expect(card.textContent).toContain(lang === "es" ? "Proyecto" : "Project");
       expect(card.textContent).toContain("Aspen Ridge HOA");
       expect(card.innerHTML).toContain("--tt-project");
       expect(card.getAttribute("style")).toContain("--tt-project");

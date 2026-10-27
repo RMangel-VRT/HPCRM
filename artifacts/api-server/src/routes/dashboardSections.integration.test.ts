@@ -94,7 +94,7 @@ describe("dashboard sections real PostgreSQL regressions", () => {
       total: queue.needsScheduling.length + queue.slipped.length, overdue: 1,
     });
     expect(result.sections.find(s => s.key === "mine")).toMatchObject({
-      total: 3, overdue: 1, oldest: { label: "Yesterday in Colorado", detail: "2026-10-25" },
+      total: 3, overdue: 1, oldest: { label: "Yesterday in Colorado", detail: "Yesterday in Colorado · 1d" },
     });
     // Re-entry resets the stage clock and never uses an old schedule deadline.
     await db.insert(ticketStatusHistory).values({ ticketId: rows[0].id, toStatusId: bidStatus, changedById: viewer.id, createdAt: new Date("2026-10-26T18:00Z") });

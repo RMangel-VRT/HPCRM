@@ -12,7 +12,7 @@ import { Link } from "wouter";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import type { PulseResponse } from "./PulseRail";
+import type { PulseResponse } from "./pulseTypes";
 
 interface CommandBandProps {
   pulse?: PulseResponse;

@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard, Building2, Settings, Shield, DollarSign, ClipboardList, UserCheck,
   Map, CalendarDays, FileText, FileBarChart, MessagesSquare, Flag, Receipt,
-  Users, Snowflake, Megaphone, Wrench, CalendarClock, Calculator,
+  Users, Snowflake, Megaphone, Wrench, CalendarClock, Calculator, Gavel,
 } from "lucide-react";
 import { showBillingSidebar } from "@/lib/billing";
 import { commsTabHref, type CommsTab } from "@/lib/last-comms-tab";
@@ -119,7 +119,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
     labelKey: "nav.business",
     items: [
       { key: "estimates", labelKey: "nav.estimates", icon: Calculator, href: "/dashboard/estimates", visible: is(...AO) },
-      { key: "bids", labelKey: "nav.bids", icon: Calculator, href: "/dashboard/bids", visible: is(...AO) },
+      { key: "bids", labelKey: "nav.bids", icon: Gavel, href: "/dashboard/bids", visible: is(...AO) },
       { key: "billing", labelKey: "nav.invoicing", icon: Receipt, href: "/dashboard/invoicing", badge: "billing",
         visible: (u) => showBillingSidebar(u) },
       { key: "revenue", labelKey: "nav.revenue", icon: DollarSign, href: "/dashboard/revenue", visible: is(...AO) },
@@ -151,6 +151,13 @@ const SUPER_ADMIN_GROUPS: NavGroupDef[] = [
     ],
   },
 ];
+
+/** Resolve identity from the shared definitions, independently of permission checks. */
+export function navigationIcon(key: string): LucideIcon {
+  const item = [...NAV_GROUPS, ...SUPER_ADMIN_GROUPS].flatMap(group => group.items).find(item => item.key === key);
+  if (!item) throw new Error(`Unknown navigation key: ${key}`);
+  return item.icon;
+}
 
 function isWinterSeason(now: Date): boolean {
   const month = Number(localDateString(now).slice(5, 7));

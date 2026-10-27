@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import SchedulePreview from "@/components/SchedulePreview";
 import SectionRouter from "@/components/dashboard/SectionRouter";
 import CommandBand from "@/components/dashboard/CommandBand";
-import PulseRail, { type PulseResponse } from "@/components/dashboard/PulseRail";
+import type { PulseResponse } from "@/components/dashboard/pulseTypes";
 import { useAuth } from "@/hooks/use-auth";
 import SuperAdminDashboard from "./SuperAdminDashboard";
 import FieldHomeDashboard from "./FieldHomeDashboard";
@@ -39,7 +39,7 @@ export default function Dashboard() {
 
 function AdminOfficeDashboard() {
   const { t } = useTranslation();
-  const { data: pulse, isLoading, error } = useQuery<PulseResponse>({
+  const { data: pulse, error } = useQuery<PulseResponse>({
     queryKey: ["/api/dashboard/pulse"],
     // Returning from Contract Center must not reuse the global infinite-stale renewal list.
     refetchOnMount: "always",
@@ -98,10 +98,7 @@ function AdminOfficeDashboard() {
     <div className="space-y-4">
       <CommandBand pulse={pulse} />
 
-      <div className="grid grid-cols-1 gap-11 min-[1040px]:grid-cols-[minmax(0,1.85fr)_minmax(0,1fr)]">
-        <SectionRouter />
-        <PulseRail pulse={pulse} isLoading={isLoading} />
-      </div>
+      <SectionRouter />
 
       <SchedulePreview />
     </div>

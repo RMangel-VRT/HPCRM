@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { getNavForUser, navItemIsActive, type NavRole, type NavUser } from "./navConfig";
+import { getNavForUser, navigationIcon, navItemIsActive, type NavRole, type NavUser } from "./navConfig";
+import { Calculator, Gavel, UserCheck, ClipboardList } from "lucide-react";
 import { defaultRedirectPath, loginLandingPath } from "@/lib/landing";
 
 const summer = new Date("2026-07-01T12:00:00Z");
+it("uses distinct Bids and Estimates identities and the personal, not all-tickets, glyph", () => {
+  expect(navigationIcon("bids")).toBe(Gavel);
+  expect(navigationIcon("estimates")).toBe(Calculator);
+  expect(navigationIcon("myTickets")).toBe(UserCheck);
+  expect(navigationIcon("tickets")).toBe(ClipboardList);
+  for (const item of getNavForUser({ activeRole: "admin" }).flatMap(g => g.items)) {
+    expect(navigationIcon(item.key)).toBe(item.icon);
+  }
+});
 const keys = (user: NavUser, now = summer) => getNavForUser(user, now).flatMap(g => g.items.map(i => i.key));
 const roleRows: [NavRole, string[]][] = [
   ["admin", ["dashboard", "inbox", "flags", "tickets", "scheduling", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "settings", "team"]],

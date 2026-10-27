@@ -330,6 +330,7 @@ const en = {
     umbrella: { plants: "Plants", landscape_materials: "Landscape Materials", irrigation_materials: "Irrigation Materials", landscape_labor: "Landscape Labor", irrigation_labor: "Irrigation Labor", fees_surcharges: "Fees & Surcharges" },
   },
   estimates: {
+    projectLabel: "Project",
     typeLabel: "Estimate Request",
     stage: { new: "New", estimating: "Estimating", proposal: "Proposal", sent: "Sent", decision: "Decision", won: "Won — in flight" },
     owner: { scheduling: "in Scheduling", invoicing: "in Invoicing" },

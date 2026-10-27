@@ -34,3 +34,9 @@ On a localized surface, every state of a label must use translation keys. Do not
 **Why:** The updated rules explicitly prohibit mixed translated labels and hard-coded English identities within one UI element.
 
 **How to apply:** Add missing translation keys for label variants and verify English and Spanish states. Keep this scoped separately from the broader pre-existing database-name localization gap.
+
+Removing the dashboard pulse rail is approved even when its statistics have no destination yet. Do not add Revenue or Reports displays as part of rail removal, and never describe intentionally unplaced figures as relocated.
+
+**Why:** The user explicitly amended the original “nothing is lost” specification after the consumer audit was corrected. Missing monthly/YTD summaries, active-customer/contract statistics, and top-customer rendering belong to later section-owned work.
+
+**How to apply:** Keep the pulse payload and the stats, top-customers, and monthly-revenue endpoints intact. Preserve existing Revenue charts. Do not restore close-to-invoice latency or wire/delete the orphan customer-growth chart under this dashboard scope.

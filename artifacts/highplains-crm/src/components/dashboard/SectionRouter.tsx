@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
-import { getNavForUser, type NavUser } from "@/components/nav/navConfig";
+import { getNavForUser, navigationIcon, type NavUser } from "@/components/nav/navConfig";
 import "./SectionRouter.css";
 
 export type SectionKey = "estimates" | "bids" | "scheduling" | "invoicing" | "inbox" | "flags" | "contracts" | "mine";
@@ -34,6 +34,11 @@ export async function fetchSections(): Promise<SectionsResponse> {
   const res = await fetch("/api/dashboard/sections", { credentials: "include" });
   if (!res.ok) throw new Error(`${res.status}: ${(await res.text()) || res.statusText}`);
   return res.json();
+}
+
+function SectionName({ navKey, name }: { navKey: string; name: string }) {
+  const Icon = navigationIcon(navKey);
+  return <span className="sr-tile__name"><Icon className="sr-tile__icon" aria-hidden="true" /><span>{name}</span></span>;
 }
 
 export function permittedSectionKeys(user: NavUser): Set<SectionKey> {
@@ -79,7 +84,7 @@ export default function SectionRouter() {
             const state = error ? "error" : isLoading || !enabled ? "loading" : "unavailable";
             return (
               <div key={key} className={`sr-tile sr-tile--${state}`} data-testid={`tile-section-${key}`} data-state={state} aria-busy={state === "loading"}>
-                <span className="sr-tile__name">{name}</span>
+                <SectionName navKey={key === "mine" ? "myTickets" : NAV_KEY[key]} name={name} />
                 <span className="sr-tile__count sr-tile__count--placeholder">{state === "loading" ? <span className="sr-skel" /> : "\u2014"}</span>
                 <span className="sr-tile__overdue">&nbsp;</span>
                 <span className="sr-tile__flow" />
@@ -96,7 +101,7 @@ export default function SectionRouter() {
               className={`sr-tile${empty ? " sr-tile--empty" : ""}${hot ? " sr-tile--overdue" : ""}`}
               aria-label={t("sectionRouter.open", { name, total: s.total, overdue: overdueText })}
               data-testid={`tile-section-${key}`} data-state={empty ? "empty" : hot ? "overdue" : "ok"}>
-              <span className="sr-tile__name">{name}</span>
+              <SectionName navKey={key === "mine" ? "myTickets" : NAV_KEY[key]} name={name} />
               <span className="sr-tile__count" data-testid={`text-section-total-${key}`}>{s.total}</span>
               <span className="sr-tile__overdue" data-testid={`text-section-overdue-${key}`}>{overdueText}</span>
               <span className="sr-tile__flow" data-testid={`slot-section-flow-${key}`} />
@@ -113,7 +118,7 @@ export default function SectionRouter() {
           );
         })}
         <div className="sr-tile sr-tile--reserved" aria-disabled="true" data-testid="tile-section-campaigns">
-          <span className="sr-tile__name">{t("nav.campaigns")}</span>
+          <SectionName navKey="campaigns" name={t("nav.campaigns")} />
           <span className="sr-tile__count sr-tile__count--placeholder" />
           <span className="sr-tile__overdue">{t("sectionRouter.reserved")}</span>
           <span className="sr-tile__flow" />

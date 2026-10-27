@@ -4,6 +4,8 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { renderToStaticMarkup } from "react-dom/server";
+import { navigationIcon } from "@/components/nav/navConfig";
 
 const fx = vi.hoisted(() => ({ user: null as Record<string, unknown> | null }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: fx.user, isLoading: false }) }));
@@ -42,11 +44,18 @@ describe("SectionRouter", () => {
       const tile = screen.getByTestId(`tile-section-${k}`);
       expect(tile.tagName).toBe("A");
       expect(tile.querySelectorAll("a,button")).toHaveLength(0);
+      const navKey = k === "mine" ? "myTickets" : k === "invoicing" ? "billing" : k;
+      const Icon = navigationIcon(navKey);
+      const expectedIcon = document.createElement("div");
+      expectedIcon.innerHTML = renderToStaticMarkup(<Icon />);
+      expect(tile.querySelector("svg")?.innerHTML).toBe(expectedIcon.querySelector("svg")?.innerHTML);
+      expect(tile.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
       expect(within(tile).getByTestId(`slot-section-flow-${k}`).textContent).toBe("");
     }
     const camp = screen.getByTestId("tile-section-campaigns");
     expect(camp.tagName).toBe("DIV");
     expect(camp.getAttribute("aria-disabled")).toBe("true");
+    expect(camp.querySelector("svg")?.classList.contains("lucide-megaphone")).toBe(true);
     expect(screen.getByTestId("slot-estimates-value").textContent).toBe("");
     expect(fetchMock).toHaveBeenCalledWith("/api/dashboard/sections", { credentials: "include" });
   });
@@ -95,6 +104,7 @@ describe("SectionRouter", () => {
     await waitFor(() => expect(screen.getByTestId("tile-section-estimates").getAttribute("data-state")).toBe("error"));
     expect(screen.queryByText("0")).toBeNull();
     expect(screen.queryByTestId("text-section-total-estimates")).toBeNull();
+    expect(screen.getByTestId("tile-section-estimates").querySelector("svg")).not.toBeNull();
   });
 
   it("loading shows skeleton, not zero; key is company/user scoped", () => {
@@ -102,6 +112,7 @@ describe("SectionRouter", () => {
     mount({ activeRole: "admin" });
     expect(screen.getByTestId("tile-section-inbox").getAttribute("data-state")).toBe("loading");
     expect(screen.queryByText("0")).toBeNull();
+    expect(screen.getByTestId("tile-section-inbox").querySelector("svg")).not.toBeNull();
     expect(sectionsQueryKey("c1", "u1")).toEqual(["/api/dashboard/sections", "c1", "u1"]);
   });
 
