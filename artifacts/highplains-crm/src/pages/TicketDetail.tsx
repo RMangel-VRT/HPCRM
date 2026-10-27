@@ -51,7 +51,6 @@ import {
   FileText,
   Receipt,
   FilePlus,
-  Briefcase,
   ClipboardList,
   ClipboardCheck,
   Layers,
@@ -177,6 +176,14 @@ const TYPE_ICON = {
   invoice: FileText,
   todo: Check,
 } as const;
+
+type MetaCell = {
+  label: string;
+  value?: string;
+  dot?: string;
+  node?: React.ReactNode;
+  sub?: string;
+};
 
 export default function TicketDetail() {
   const { t } = useTranslation();
@@ -1137,6 +1144,29 @@ export default function TicketDetail() {
                     </span>
                   );
                 })()}
+                {currentStatus && !ticket.completedAt && (
+                  currentStatus.actionType === "waiting" ? (
+                    <Badge
+                      className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700 gap-1 font-normal text-[11.5px]"
+                      data-testid="badge-action-type-waiting"
+                    >
+                      <Clock className="w-3 h-3" />
+                      Waiting{currentStatus.waitingCategory ? ` · ${
+                        currentStatus.waitingCategory === "customer" ? "Customer" :
+                        currentStatus.waitingCategory === "vendor" ? "Vendor" :
+                        currentStatus.waitingCategory === "internal" ? "Internal" : "Other"
+                      }` : ""}
+                    </Badge>
+                  ) : (
+                    <Badge
+                      className="bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700 gap-1 font-normal text-[11.5px]"
+                      data-testid="badge-action-type-needs-action"
+                    >
+                      <AlertCircle className="w-3 h-3" />
+                      Needs Action
+                    </Badge>
+                  )
+                )}
                 {isComplete && (
                   <Badge variant="default" className="text-xs bg-green-600">
                     <Check className="w-3 h-3 mr-1" />
@@ -1175,9 +1205,83 @@ export default function TicketDetail() {
           className="flex flex-wrap border-t bg-muted/40"
           data-testid="strip-ticket-meta"
         >
-          {[
-            customer ? { label: t('common.customer'), value: customer.name } : null,
-            { label: t('ticketDetail.assignedTo'), value: assignedUser?.email ?? t('common.unassigned') },
+          {([
+            customer ? {
+              label: t('common.customer'),
+              node: (
+                <div className="flex min-w-0 flex-1 items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[12.5px] font-medium">{customer.name}</p>
+                    <p className="truncate text-[11px] font-normal text-muted-foreground">
+                      {[customer.street, customer.city, customer.state, customer.zip].filter(Boolean).join(", ")}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-0.5">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      data-testid="button-view-property-maps"
+                      onClick={() => setShowPropertyMaps(true)}
+                      title="Maps"
+                      aria-label="Maps"
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                    </Button>
+                    {canViewCustomer && (
+                      <Link href={`/dashboard/customers/${customer.id}`}>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" data-testid="button-view-customer" title="Open customer" aria-label="Open customer">
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              ),
+            } : null,
+            {
+              label: t('ticketDetail.assignedTo'),
+              node: canReassign ? (
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Avatar className="w-6 h-6 shrink-0">
+                    <AvatarFallback className="text-xs">
+                      <User className="w-3 h-3" />
+                    </AvatarFallback>
+                  </Avatar>
+                  <Select
+                    value={ticket.assignedToId || "unassigned"}
+                    onValueChange={(value) => {
+                      reassignMutation.mutate(value === "unassigned" ? null : value);
+                    }}
+                    disabled={reassignMutation.isPending}
+                  >
+                    <SelectTrigger className="h-7 w-full max-w-[190px] text-[12.5px]" data-testid="select-reassign-ticket">
+                      <SelectValue placeholder="Select assignee..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">{t('common.unassigned')}</SelectItem>
+                      {teamMembers.map((member) => (
+                        <SelectItem key={member.id} value={member.id}>
+                          {member.name} ({member.role})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {reassignMutation.isPending && (
+                    <Loader2 className="w-4 h-4 shrink-0 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+              ) : (
+                <div className="flex min-w-0 items-center gap-2">
+                  <Avatar className="w-6 h-6 shrink-0">
+                    <AvatarFallback className="text-xs">
+                      <User className="w-3 h-3" />
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="truncate font-medium">{assignedUser?.email || t('common.unassigned')}</span>
+                </div>
+              ),
+            },
             { label: t('common.priority'), value: priority.label, dot: priority.color },
             !isTask && ticket.workType && WORK_TYPE_CATALOG[ticket.workType as WorkType]
               ? { label: t('tickets.workType'), value: WORK_TYPE_CATALOG[ticket.workType as WorkType].billingLabel }
@@ -1201,7 +1305,12 @@ export default function TicketDetail() {
             ticket.workCompletedDate
               ? { label: t('ticketDetail.workCompletedDate'), value: format(new Date(ticket.workCompletedDate), "MMM d, yyyy") }
               : null,
-          ]
+            {
+              label: t('ticketDetail.createdAt', { defaultValue: "Created" }),
+              value: format(new Date(ticket.createdAt), "MMM d, yyyy"),
+              sub: creatorName ? `by ${creatorName}` : undefined,
+            },
+          ] as (MetaCell | null)[])
             .filter((cell): cell is NonNullable<typeof cell> => cell !== null)
             .map((cell, index) => (
               <div
@@ -1211,10 +1320,13 @@ export default function TicketDetail() {
                 <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-muted-foreground">
                   {cell.label}
                 </p>
-                <div className="flex items-center gap-1.5 truncate text-[12.5px] font-medium">
+                <div className={`flex items-center gap-1.5 text-[12.5px] font-medium ${cell.node ? "min-w-0" : "truncate"}`}>
                   {cell.dot && <span className={`h-2 w-2 shrink-0 rounded-full ${cell.dot}`} />}
                   {cell.node ?? cell.value}
                 </div>
+                {cell.sub && (
+                  <p className="truncate text-[11px] font-normal text-muted-foreground">{cell.sub}</p>
+                )}
               </div>
             ))}
           {isTask && (
@@ -1245,6 +1357,19 @@ export default function TicketDetail() {
           )}
         </div>
       </div>
+
+      {isDelegated && delegatedByUser && (
+        <div
+          className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2"
+          data-testid="delegation-indicator"
+        >
+          <CornerDownLeft className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <div className="min-w-0">
+            <span className="block truncate text-sm font-medium text-amber-700 dark:text-amber-300">{delegatedByUser.email}</span>
+            <p className="text-xs text-amber-600 dark:text-amber-400">{t('ticketDetail.delegateTicket')}</p>
+          </div>
+        </div>
+      )}
 
       <TicketSchedulingPanel
         ticketId={ticket.id}
@@ -1406,101 +1531,6 @@ export default function TicketDetail() {
 
       {activeTab === "overview" && (
         <div className="space-y-4">
-          <Card data-testid="card-ticket-summary">
-            <CardContent className="p-4">
-              <div className="grid grid-cols-1 gap-4">
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('common.status')}</p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="outline" className="font-medium">
-                      {currentStatus?.name || t('common.unknown')}
-                    </Badge>
-                    {currentStatus && !ticket.completedAt && (
-                      currentStatus.actionType === "waiting" ? (
-                        <Badge
-                          className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700 gap-1 font-normal"
-                          data-testid="badge-action-type-waiting"
-                        >
-                          <Clock className="w-3 h-3" />
-                          Waiting{currentStatus.waitingCategory ? ` · ${
-                            currentStatus.waitingCategory === "customer" ? "Customer" :
-                            currentStatus.waitingCategory === "vendor" ? "Vendor" :
-                            currentStatus.waitingCategory === "internal" ? "Internal" : "Other"
-                          }` : ""}
-                        </Badge>
-                      ) : (
-                        <Badge
-                          className="bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700 gap-1 font-normal"
-                          data-testid="badge-action-type-needs-action"
-                        >
-                          <AlertCircle className="w-3 h-3" />
-                          Needs Action
-                        </Badge>
-                      )
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('ticketDetail.assignedTo')}</p>
-                  {canReassign ? (
-                    <div className="flex items-center gap-2">
-                      <Avatar className="w-6 h-6">
-                        <AvatarFallback className="text-xs">
-                          <User className="w-3 h-3" />
-                        </AvatarFallback>
-                      </Avatar>
-                      <Select 
-                        value={ticket.assignedToId || "unassigned"} 
-                        onValueChange={(value) => {
-                          reassignMutation.mutate(value === "unassigned" ? null : value);
-                        }}
-                        disabled={reassignMutation.isPending}
-                      >
-                        <SelectTrigger className="w-[200px] h-8" data-testid="select-reassign-ticket">
-                          <SelectValue placeholder="Select assignee..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unassigned">{t('common.unassigned')}</SelectItem>
-                          {teamMembers.map((member) => (
-                            <SelectItem key={member.id} value={member.id}>
-                              {member.name} ({member.role})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {reassignMutation.isPending && (
-                        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <Avatar className="w-6 h-6">
-                        <AvatarFallback className="text-xs">
-                          <User className="w-3 h-3" />
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="font-medium">{assignedUser?.email || t('common.unassigned')}</span>
-                    </div>
-                  )}
-                </div>
-                
-                {isDelegated && delegatedByUser && (
-                  <div className="space-y-1" data-testid="delegation-indicator">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('ticketDetail.delegateTicket')}</p>
-                    <div className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
-                      <CornerDownLeft className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                      <div className="min-w-0">
-                        <span className="text-sm font-medium text-amber-700 dark:text-amber-300">{delegatedByUser.email}</span>
-                        <p className="text-xs text-amber-600 dark:text-amber-400">{t('ticketDetail.delegateTicket')}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Service Request Type for RFP tickets */}
           {ticketType.name === "RFP Request" && (
             <Card data-testid="card-service-request">
@@ -1534,58 +1564,20 @@ export default function TicketDetail() {
 
           <TicketWorkItemsCard ticketId={ticket.id} serviceType={ticket.serviceType ?? null} />
 
-          {customer && (
-            <Card data-testid="card-customer">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Briefcase className="w-4 h-4" />
-                  {t('common.customer')} & {t('common.property')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-3">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <p className="font-medium">{customer.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {customer.street}, {customer.city}, {customer.state} {customer.zip}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      data-testid="button-view-property-maps"
-                      onClick={() => setShowPropertyMaps(true)}
-                    >
-                      <Layers className="w-3 h-3 mr-1" />
-                      {t('customerDetail.tabs.maps')}
-                    </Button>
-                    {canViewCustomer && (
-                      <Link href={`/dashboard/customers/${customer.id}`}>
-                        <Button variant="outline" size="sm" data-testid="button-view-customer">
-                          {t('common.view')}
-                          <ExternalLink className="w-3 h-3 ml-1" />
-                        </Button>
-                      </Link>
-                    )}
-                  </div>
-                </div>
-
-                {contract && (
-                  <div className="pt-2 border-t">
-                    <p className="text-xs text-muted-foreground mb-1">{t('common.contract')}</p>
-                    {canViewCustomer ? (
-                      <Link href={`/dashboard/customers/${customer.id}`}>
-                        <Badge variant="secondary" className="hover-elevate cursor-pointer">
-                          {contract.serviceType?.replace(/_/g, " ") || "Contract"}
-                        </Badge>
-                      </Link>
-                    ) : (
-                      <Badge variant="secondary">
-                        {contract.serviceType?.replace(/_/g, " ") || "Contract"}
-                      </Badge>
-                    )}
-                  </div>
+          {customer && contract && (
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground mb-1">{t('common.contract')}</p>
+                {canViewCustomer ? (
+                  <Link href={`/dashboard/customers/${customer.id}`}>
+                    <Badge variant="secondary" className="hover-elevate cursor-pointer">
+                      {contract.serviceType?.replace(/_/g, " ") || "Contract"}
+                    </Badge>
+                  </Link>
+                ) : (
+                  <Badge variant="secondary">
+                    {contract.serviceType?.replace(/_/g, " ") || "Contract"}
+                  </Badge>
                 )}
               </CardContent>
             </Card>
