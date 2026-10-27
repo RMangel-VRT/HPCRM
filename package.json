@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
+    "test:ticket-display": "pnpm --filter @workspace/api-server exec vitest run src/shared/ticketCapabilities.test.ts src/shared/ticketDisplayIdentity.test.ts src/lib/ticketDisplayPayloads.test.ts src/lib/ticketLinkSummary.test.ts src/lib/ticketLinkSummary.queryBudget.test.ts src/routes/pendingInvoices.test.ts && pnpm --filter @workspace/highplains-crm exec vitest run --config vitest.config.ts src/components/TicketDisplayIdentity.rendered.test.tsx src/components/TicketLinkDisplay.test.tsx src/components/BillingView.count.test.tsx src/pages/BillingHandoff.rendered.test.tsx src/pages/TicketDetail.visits.rendered.test.tsx src/pages/SchedulingPage.rendered.test.tsx src/pages/BidsBoardPage.rendered.test.tsx src/pages/EstimatesBoardPage.rendered.test.tsx",
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",

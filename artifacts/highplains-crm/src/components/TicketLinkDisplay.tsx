@@ -26,7 +26,7 @@ export function InvoiceParentLine({ summary, typeKey }: { summary?: TicketLinkSu
   if (typeKey !== "invoice" || !parent) return null;
   return (
     <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" data-testid="invoice-parent-line">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: typeHueVar({ name: parent.typeName, typeKey: parent.typeKey }) }} />
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: typeHueVar({ name: parent.displayTypeName ?? parent.typeName, typeKey: parent.displayTypeKey ?? parent.typeKey }) }} />
       <span className="truncate">For: {parent.title}</span>
     </div>
   );

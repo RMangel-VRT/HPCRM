@@ -56,6 +56,42 @@ function mount() {
 }
 
 describe("SchedulingPage", () => {
+  it.each(["light", "dark"])("uses display metadata for queue/visit identities but raw keys for filters in %s", async theme => {
+    document.documentElement.className = theme === "dark" ? "dark" : "";
+    respond = (_method, url) => {
+      if (url.startsWith("/api/scheduling/queue")) return { json: { needsScheduling: [{
+        id: "approved", title: "Approved work", typeKey: "estimate_request", typeName: "Renamed estimate",
+        displayTypeKey: "project", displayTypeName: "Project", priority: "normal", scheduleBy: null,
+        serviceType: null, customer: null, followUpDate: null, createdAt: "2025-01-01",
+      }], slipped: [] } };
+      if (url.startsWith("/api/visits?")) return { json: [visit("approved", 1, { ticket: {
+        id: "approved", title: "Work", typeKey: "estimate_request", typeName: "Renamed estimate",
+        displayTypeKey: "project", displayTypeName: "Project", statusKey: "scheduled", statusName: "Scheduled",
+        priority: "normal", scheduleBy: null,
+      } })] };
+    };
+    mount();
+    const card = await screen.findByTestId("card-queue-approved");
+    expect(card.textContent).toContain("Project");
+    expect(card.innerHTML).toContain("--tt-project");
+    const visitCard = await screen.findByTestId("card-visit-approved");
+    expect(visitCard.textContent).toContain("Project");
+    const rawOption = screen.getByRole("option", { name: "Renamed estimate" }) as HTMLOptionElement;
+    expect(rawOption.value).toBe("estimate_request");
+    document.documentElement.className = "";
+  });
+  it.each(["light", "dark"])("retains empty queue/visit states in %s", async theme => {
+    document.documentElement.className = theme === "dark" ? "dark" : "";
+    respond = (_method, url) => {
+      if (url.startsWith("/api/scheduling/queue")) return { json: { needsScheduling: [], slipped: [] } };
+      if (url.startsWith("/api/visits?") || url.startsWith("/api/visits/summary")) return { json: [] };
+    };
+    mount();
+    await waitFor(() => expect(calls.some(c => c.url.startsWith("/api/scheduling/queue"))).toBe(true));
+    expect(screen.queryByTestId("card-queue-t9")).toBeNull();
+    expect(screen.queryByTestId("card-visit-a")).toBeNull();
+    document.documentElement.className = "";
+  });
   it("week navigation survives reload and Back without relying on component state", async () => {
     const location = memoryLocation({ path: "/dashboard/scheduling?week=2025-10-20", record: true });
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

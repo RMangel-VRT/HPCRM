@@ -1202,12 +1202,14 @@ components:
           items: { $ref: "#/components/schemas/SchedulingQueueItem" }
     SchedulingQueueItem:
       type: object
-      required: [id, title, typeKey, typeName, priority, scheduleBy, serviceType, customer, followUpDate, createdAt]
+      required: [id, title, typeKey, typeName, displayTypeKey, displayTypeName, priority, scheduleBy, serviceType, customer, followUpDate, createdAt]
       properties:
         id: { type: string }
         title: { type: string }
         typeKey: { type: [string, "null"] }
         typeName: { type: string }
+        displayTypeKey: { type: [string, "null"] }
+        displayTypeName: { type: string }
         priority: { type: string }
         scheduleBy: { type: [string, "null"] }
         serviceType: { type: [string, "null"] }
@@ -1243,12 +1245,14 @@ components:
           properties:
             ticket:
               type: [object, "null"]
-              required: [id, title, typeKey, typeName, statusKey, statusName, priority, scheduleBy]
+              required: [id, title, typeKey, typeName, displayTypeKey, displayTypeName, statusKey, statusName, priority, scheduleBy]
               properties:
                 id: { type: string }
                 title: { type: string }
                 typeKey: { type: [string, "null"] }
                 typeName: { type: [string, "null"] }
+                displayTypeKey: { type: [string, "null"] }
+                displayTypeName: { type: [string, "null"] }
                 statusKey: { type: [string, "null"] }
                 statusName: { type: [string, "null"] }
                 priority: { type: string }

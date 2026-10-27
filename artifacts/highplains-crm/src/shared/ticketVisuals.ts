@@ -21,6 +21,34 @@ export interface TicketTypeIdentity {
   typeKey?: string | null;
 }
 
+/** Display only: approval never changes a ticket's stored identity. No name fallback. */
+export function resolveDisplayTypeKey(
+  typeKey: string | null | undefined,
+  statusKey: string | null | undefined,
+): string | null | undefined {
+  return typeKey === "estimate_request" && (
+    statusKey === "ready_to_schedule" || statusKey === "scheduled"
+    || statusKey === "work_completed" || statusKey === "ready_for_billing"
+    || statusKey === "invoicing"
+  ) ? "project" : typeKey;
+}
+
+export function resolveDisplayTypeName<T extends string | null | undefined>(
+  typeKey: string | null | undefined, statusKey: string | null | undefined, rawName: T,
+): string | T {
+  return resolveDisplayTypeKey(typeKey, statusKey) !== typeKey
+    ? TICKET_TYPE_NAMES_BY_KEY.project : rawName;
+}
+
+/** Use only for badge/rail/icon rendering; retain the original object for behavior. */
+export function resolveDisplayTicketType<T extends TicketTypeIdentity>(
+  type: T | null | undefined, statusKey: string | null | undefined,
+): T | null | undefined {
+  if (!type || resolveDisplayTypeKey(type.typeKey, statusKey) === type.typeKey) return type;
+  return { ...type, typeKey: resolveDisplayTypeKey(type.typeKey, statusKey),
+    name: resolveDisplayTypeName(type.typeKey, statusKey, type.name) };
+}
+
 /** Key-first. A non-null key is authoritative; only unkeyed rows fall back to name. */
 export function isSeededTicketType(
   type: TicketTypeIdentity | null | undefined,

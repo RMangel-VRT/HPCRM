@@ -88,6 +88,7 @@ import "leaflet/dist/leaflet.css";
 import LayerMapViewer from "@/components/LayerMapViewer";
 import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType, isSeededStatus, taskWorkflowStatuses } from "@shared/ticketVisuals";
 import { ticketHue, TaskBillingBadge } from "@/components/TicketIdentity";
+import { resolveDisplayTicketType } from "@shared/ticketVisuals";
 import { TicketVisitsCard } from "@/components/scheduling/TicketVisitsCard";
 import { useTicketOpenVisitGuard } from "@/hooks/use-scheduling";
 import { handleMultipleVisits } from "@/lib/multipleVisits";
@@ -780,9 +781,10 @@ export default function TicketDetail() {
   );
   const sortedCurrentIndex = sortedStatuses.findIndex(s => s.id === ticket.currentStatusId);
 
-  const hue = typeHueVar(ticketType);
+  const displayType = resolveDisplayTicketType(ticketType, currentStatus?.statusKey)!;
+  const hue = typeHueVar(displayType);
   const typeIconKey = (Object.keys(TYPE_ICON) as Array<keyof typeof TYPE_ICON>)
-    .find(key => isSeededTicketType(ticketType, key));
+    .find(key => isSeededTicketType(displayType, key));
   const TypeIcon = typeIconKey ? TYPE_ICON[typeIconKey] : ClipboardList;
   
   // Handle RFP Request branching at "Decision Received" status
@@ -1129,7 +1131,7 @@ export default function TicketDetail() {
                     className="px-2.5 py-1 text-[12px] font-semibold whitespace-nowrap"
                     style={{ color: `color-mix(in srgb, ${hue} 82%, var(--foreground))` }}
                   >
-                    {ticketType.name}
+                    {displayType.name}
                   </span>
                 </span>
                 {(() => {
@@ -1802,6 +1804,7 @@ export default function TicketDetail() {
               <CardContent className="pt-0 space-y-2">
                 {linkedTickets.map((linked) => {
                   if (!linked.ticket) return null;
+                  const linkedDisplayType = resolveDisplayTicketType(linked.ticketType, linked.currentStatus?.statusKey);
                   
                   let linkLabel = "Related ticket";
                   const isSource = linked.relationship === "source";
@@ -1823,7 +1826,7 @@ export default function TicketDetail() {
                         <div className="flex items-center gap-2 min-w-0">
                           <div 
                             className={`w-2 h-2 rounded-full shrink-0 ${isChild ? "ring-2 ring-primary/30" : ""}`}
-                            style={{ backgroundColor: ticketHue(linked.ticketType) }}
+                            style={{ backgroundColor: ticketHue(linkedDisplayType) }}
                           />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1">

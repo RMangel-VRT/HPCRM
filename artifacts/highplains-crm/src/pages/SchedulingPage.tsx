@@ -8,6 +8,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, ChevronDown, GripVertical, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
+import { TicketTypeBadge } from "@/components/TicketIdentity";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -81,7 +82,7 @@ function QueueCard({ item, slipped, onSchedule }: { item: QueueItem; slipped: bo
             {item.title}
           </Link>
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            {item.typeName && <Badge variant="outline" className="no-default-hover-elevate px-1.5 py-0 text-[10px]">{item.typeName}</Badge>}
+            {item.typeName && <TicketTypeBadge type={{ name: item.displayTypeName ?? item.typeName, typeKey: item.displayTypeKey ?? item.typeKey }} />}
             {(item.priority === "high" || item.priority === "urgent") && (
               <Badge variant="destructive" className="no-default-hover-elevate px-1.5 py-0 text-[10px] capitalize" data-testid={`badge-queue-priority-${item.id}`}>{t(`priorities.${item.priority}`, item.priority)}</Badge>
             )}
@@ -123,7 +124,7 @@ function VisitCard({
   const drag = useDraggable({ id: `visit:${visit.id}`, data: { kind: "visit", visit } satisfies DragData, disabled: !open });
   const drop = useDroppable({ id: `visit:${visit.id}`, data: { kind: "visit", visit } satisfies DragData, disabled: !open });
   const isTicket = visit.sourceType === "ticket" && !!visit.ticketId;
-  const label = visit.sourceType === "ticket" ? visit.ticket?.typeName : visit.sourceType.replace("_", " ");
+  const label = visit.sourceType === "ticket" ? visit.ticket?.displayTypeName ?? visit.ticket?.typeName : visit.sourceType.replace("_", " ");
   return (
     <div
       ref={n => { drag.setNodeRef(n); drop.setNodeRef(n); }}

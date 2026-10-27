@@ -1,6 +1,7 @@
 import { and, asc, eq, sql, type SQL } from "drizzle-orm";
 import { visits, tickets, ticketTypes, ticketTypeStatuses, customers, crews } from "@workspace/db";
 import { db } from "../db";
+import { displayTypeMetadata } from "../shared/ticketCapabilities";
 
 /** One company-scoped bulk enrichment query shared by bounded board and complete history. */
 export async function loadEnrichedVisits(companyId: string, filters: (SQL | undefined)[]) {
@@ -19,6 +20,7 @@ export async function loadEnrichedVisits(companyId: string, filters: (SQL | unde
     .where(and(eq(visits.companyId, companyId), ...filters))
     .orderBy(asc(visits.visitDate), sql`${crews.displayOrder} NULLS LAST`,
       sql`${visits.routeOrder} NULLS LAST`, sql`${visits.startTime} NULLS LAST`, asc(visits.id));
-  return rows.map(row => ({ ...row.visit, ticket: row.ticket?.id ? row.ticket : null,
+  return rows.map(row => ({ ...row.visit, ticket: row.ticket?.id ? { ...row.ticket,
+    ...displayTypeMetadata(row.ticket.typeKey, row.ticket.statusKey, row.ticket.typeName) } : null,
     customer: row.customer?.id ? row.customer : null, crew: row.crew?.id ? row.crew : null }));
 }

@@ -11,6 +11,19 @@ vi.mock("@tanstack/react-query", async importOriginal => ({
 import BillingView from "./BillingView";
 
 describe("rendered Billing header", () => {
+  it("uses source display metadata, leaving the raw source identity intact", () => {
+    fixtures.rows = [{ id: "charge", title: "Charge", sourceTicket: {
+      id: "estimate", title: "Work", typeKey: "estimate_request", typeName: "Renamed estimate",
+      displayTypeKey: "project", displayTypeName: "Project",
+    } }];
+    const html = renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}>
+      <Router ssrPath="/dashboard/invoicing"><BillingView role="office" companyId="company" userId="viewer" users={new Map()} /></Router>
+    </QueryClientProvider>);
+    expect(html).toContain(">Project</span>");
+    expect(html).toContain("--tt-project");
+    expect(html).not.toContain("--tt-estimate");
+    expect(fixtures.rows[0].sourceTicket.typeKey).toBe("estimate_request");
+  });
   it.each([
     [0, "0 charges waiting"],
     [1, "1 charge waiting"],

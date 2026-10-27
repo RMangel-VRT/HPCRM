@@ -24,6 +24,22 @@ describe.each(configs)("$name shared rendering", ({ name, Page, keys, type }) =>
       <Router hook={memoryLocation({ path: `/dashboard/${name}` }).hook}><Page /></Router>
     </QueryClientProvider>);
   }
+  it.each(["light", "dark"])("keeps raw board badges and matching rails in %s even for an unexpected approved key", async theme => {
+    document.documentElement.className = theme === "dark" ? "dark" : "";
+    vi.mocked(apiRequest).mockResolvedValue({ json: async () => ({ stages: [{
+      key: "decision", tickets: [{
+        id: "raw", title: "Opportunity", typeKey: type, statusKey: "scheduled", statusName: "Unexpected",
+        customer: null, assignee: null, priority: "normal", estimateNumber: null, daysInStage: 0,
+      }],
+    }] }) } as Response);
+    mount();
+    const card = await screen.findByTestId("card-bid-raw");
+    const token = type === "estimate_request" ? "--tt-estimate" : "--tt-rfp";
+    expect(card.innerHTML).toContain(token);
+    expect(card.getAttribute("style")).toContain(token);
+    expect(card.textContent).toContain(i18n.t(`${name}.typeLabel`));
+    expect(card.innerHTML).not.toContain("--tt-project");
+  });
   it.each(["en", "es"])("uses independent %s labels and shared identity, warnings and links", async lang => {
     await i18n.changeLanguage(lang);
     vi.mocked(apiRequest).mockResolvedValue({ json: async () => ({ stages: keys.map(key => ({

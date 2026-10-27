@@ -5,7 +5,8 @@ export interface TicketLinkSummary {
   invoices: Array<{
     id: string; title: string; statusKey: string | null; statusName: string; isFinal: boolean;
   }>;
-  parent: { id: string; title: string; typeKey: string | null; typeName: string } | null;
+  parent: { id: string; title: string; typeKey: string | null; typeName: string;
+    displayTypeKey?: string | null; displayTypeName?: string | null } | null;
 }
 
 const STATE_PROGRESS: Record<TicketStatusState, number> = {

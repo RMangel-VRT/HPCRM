@@ -4,7 +4,7 @@ import { companyUsers, customers, tickets, ticketLinks, users, type TicketLink }
 import type { UserWithContext } from "../auth";
 import { db } from "../db";
 import { storage } from "../storage";
-import { findSeededStatus, findSeededTicketType, isSeededStatus } from "../shared/ticketCapabilities";
+import { displayTypeMetadata, findSeededStatus, findSeededTicketType, isSeededStatus } from "../shared/ticketCapabilities";
 import { localDateString } from "../lib/scheduleBy";
 import { canSeeBilling, isStrandedEligible } from "../lib/billing";
 import { addCalendarDays, companyDayBounds, companyToday } from "../lib/companyDay";
@@ -69,6 +69,7 @@ export async function loadPendingInvoices(
       recent ? lt(tickets.completedAt, bounds.end) : undefined,
     )) : [];
     const typeMap = new Map(ticketTypes.map(type => [type.id, type]));
+    const statusMap = new Map(statuses.map(status => [status.id, status]));
     const rfbIds = statuses.filter(status => isSeededStatus(status, "ready_for_billing")).map(status => status.id);
     const rfbJobs = !recent && rfbIds.length ? (await db.select().from(tickets).where(and(
       eq(tickets.companyId, user.activeCompanyId),
@@ -118,7 +119,8 @@ export async function loadPendingInvoices(
         assigneeName: ticket.assignedToId ? assigneeNames.get(ticket.assignedToId) ?? null : null,
         invoiceCategory: kind === "stranded" ? null : ticket.invoiceCategory,
         customer: ticket.customerId ? customerMap.get(ticket.customerId) ?? null : null,
-        sourceTicket: source ? { ...source, typeKey: sourceType?.typeKey ?? null, typeName: sourceType?.name ?? "Unknown" } : null,
+        sourceTicket: source ? { ...source, typeKey: sourceType?.typeKey ?? null, typeName: sourceType?.name ?? "Unknown",
+          ...displayTypeMetadata(sourceType?.typeKey ?? null, statusMap.get(source.currentStatusId)?.statusKey, sourceType?.name ?? "Unknown") } : null,
         ticketTypeName: typeMap.get(ticket.ticketTypeId)?.name ?? "Unknown",
         ageDays: invoiceAgeDays(ticket.workCompletedDate ?? ticket.createdAt, now),
       };

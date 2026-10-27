@@ -14,6 +14,9 @@ export interface SchedulingQueueItem {
   /** @nullable */
   typeKey: string | null;
   typeName: string;
+  /** @nullable */
+  displayTypeKey: string | null;
+  displayTypeName: string;
   priority: string;
   /** @nullable */
   scheduleBy: string | null;

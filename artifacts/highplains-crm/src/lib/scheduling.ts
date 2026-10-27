@@ -40,7 +40,9 @@ export interface EnrichedVisit {
   status: VisitStatus;
   notes: string | null;
   serviceKey?: string | null;
-  ticket: { id: string; title: string; typeKey: string | null; typeName: string | null; statusKey: string | null; statusName: string | null; priority: string; scheduleBy: string | null } | null;
+  ticket: { id: string; title: string; typeKey: string | null; typeName: string | null;
+    displayTypeKey?: string | null; displayTypeName?: string | null;
+    statusKey: string | null; statusName: string | null; priority: string; scheduleBy: string | null } | null;
   customer: VisitCustomer | null;
   crew: { id: string; name: string; color: string | null } | null;
 }
@@ -54,6 +56,8 @@ export interface QueueItem {
   title: string;
   typeKey: string | null;
   typeName: string | null;
+  displayTypeKey?: string | null;
+  displayTypeName?: string | null;
   priority: string;
   scheduleBy: string | null;
   serviceType: string | null;

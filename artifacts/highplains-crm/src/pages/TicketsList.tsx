@@ -43,6 +43,7 @@ import { saveTicketOrigin, ticketDetailHref, RETURN_SCROLL_KEY } from "@/lib/tic
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
+import { resolveDisplayTicketType } from "@shared/ticketVisuals";
 import { taskWorkflowStatuses } from "@shared/ticketVisuals";
 import type { TicketLinkSummary } from "@shared/ticketLinks";
 import { isBillingItem } from "@/lib/billing";
@@ -1153,9 +1154,10 @@ interface KanbanCardProps {
 }
 
 function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusSet, onNavigate, ticketHref, selectionMode, selectedTicketIds, onToggleSelect }: KanbanCardProps) {
-  const hue = ticketHue(ticket.ticketType);
   const needsScheduling = isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId);
   const currentStatus = allStatuses.find(s => s.id === ticket.currentStatusId);
+  const displayType = resolveDisplayTicketType(ticket.ticketType, currentStatus?.statusKey);
+  const hue = ticketHue(displayType);
 
   const content = (
       <Card
@@ -1189,7 +1191,7 @@ function KanbanCard({ ticket, usersMap, allStatuses, schedulingStatusSet, onNavi
               {/* Badges */}
               <div className="flex items-center gap-2 flex-wrap mt-2 mb-1.5">
                 <TicketTypeBadge
-                  type={ticket.ticketType}
+                  type={displayType}
                   billingBehavior={ticket.billingBehavior}
                   testId={`kanban-tickettype-${ticket.id}`}
                 />
@@ -1454,7 +1456,8 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusSet, sele
       })
     : null;
 
-  const hue = ticketHue(ticket.ticketType);
+  const displayType = resolveDisplayTicketType(ticket.ticketType, ticket.currentStatus?.statusKey);
+  const hue = ticketHue(displayType);
 
   // Check if this ticket needs scheduling (set membership)
   const needsScheduling = isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId);
@@ -1514,7 +1517,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusSet, sele
             {/* Badges */}
             <div className="flex items-center gap-2 flex-wrap mt-2">
               <TicketTypeBadge
-                type={ticket.ticketType}
+                type={displayType}
                 billingBehavior={ticket.billingBehavior}
                 testId={`text-tickettype-${ticket.id}`}
               />

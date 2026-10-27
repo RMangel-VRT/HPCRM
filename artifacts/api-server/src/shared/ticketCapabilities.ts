@@ -76,6 +76,34 @@ export const TICKET_TYPE_NAMES_BY_KEY: Record<TicketTypeKey, string> = {
   rfp_request: "RFP Request",
 };
 
+/** Display only: approval never changes a ticket's stored identity. No name fallback. */
+export function resolveDisplayTypeKey(
+  typeKey: string | null | undefined,
+  statusKey: string | null | undefined,
+): string | null | undefined {
+  return typeKey === "estimate_request" && (
+    statusKey === "ready_to_schedule" || statusKey === "scheduled"
+    || statusKey === "work_completed" || statusKey === "ready_for_billing"
+    || statusKey === "invoicing"
+  ) ? "project" : typeKey;
+}
+
+export function resolveDisplayTypeName<T extends string | null | undefined>(
+  typeKey: string | null | undefined, statusKey: string | null | undefined, rawName: T,
+): string | T {
+  return resolveDisplayTypeKey(typeKey, statusKey) !== typeKey
+    ? TICKET_TYPE_NAMES_BY_KEY.project : rawName;
+}
+
+export function displayTypeMetadata(
+  typeKey: string | null, statusKey: string | null | undefined, typeName: string | null,
+) {
+  return {
+    displayTypeKey: resolveDisplayTypeKey(typeKey, statusKey),
+    displayTypeName: resolveDisplayTypeName(typeKey, statusKey, typeName),
+  };
+}
+
 /**
  * Display name → stable machine identity, retained for seed/backfill writes.
  */

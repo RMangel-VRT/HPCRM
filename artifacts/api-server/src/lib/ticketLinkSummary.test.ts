@@ -79,7 +79,8 @@ describe("bulk invoice link summaries", () => {
       parent: null,
     });
     expect(summaries.get("bill")).toEqual({
-      invoices: [], parent: { id: "job", title: "Title job", typeKey: "task", typeName: "Renamed work type" },
+      invoices: [], parent: { id: "job", title: "Title job", typeKey: "task", typeName: "Renamed work type",
+        displayTypeKey: "task", displayTypeName: "Renamed work type" },
     });
     expect(summaries.get("unlinked")).toEqual({ invoices: [], parent: null });
     expect(mocks.getTicketsByIds).toHaveBeenCalledWith(["bill", "job"], companyId);
@@ -136,6 +137,21 @@ describe("bulk invoice link summaries", () => {
     expect(summaries.get("job")!.invoices[0]).toMatchObject({ statusKey: null, statusName: "Unknown", isFinal: false });
     expect(summaries.get("bill")!.parent).toMatchObject({ typeKey: null, typeName: "Unknown" });
   });
+
+  it.each(["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing", "invoicing"])(
+    "projects the lineage parent at %s without changing raw identity or reads", async statusKey => {
+      mocks.where.mockResolvedValue([link("estimate", "bill")]);
+      mocks.getTicketsByIds.mockResolvedValue([ticket("estimate", "estimate", "approved")]);
+      mocks.getTicketTypes.mockResolvedValue([{ id: "estimate", typeKey: "estimate_request", name: "Renamed estimate" }]);
+      mocks.getAllTicketTypeStatuses.mockResolvedValue([{ id: "approved", statusKey, name: "Renamed stage" }]);
+      const parent = (await getInvoiceLinkSummaries(companyId, ["bill"])).get("bill")!.parent;
+      expect(parent).toMatchObject({
+        typeKey: "estimate_request", typeName: "Renamed estimate", displayTypeKey: "project", displayTypeName: "Project",
+      });
+      expect(mocks.select).toHaveBeenCalledOnce();
+      expect(mocks.getAllTicketTypeStatuses).toHaveBeenCalledOnce();
+    },
+  );
 
   it("returns an empty map without any reads for empty input", async () => {
     expect(await getInvoiceLinkSummaries(companyId, [])).toEqual(new Map());

@@ -91,6 +91,26 @@ describe("GET /api/pending-invoices", () => {
       }),
     }));
   });
+  it.each(["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing", "invoicing"])(
+    "serializes approved estimate source metadata at %s without replacing raw identity", async statusKey => {
+      mocks.getTicketTypes.mockResolvedValue([
+        { id: "invoice-type", typeKey: "invoice", name: "Renamed Charges" },
+        { id: "estimate-type", typeKey: "estimate_request", name: "Renamed estimate" },
+      ]);
+      mocks.getTicketTypeStatusesByTypeIds.mockResolvedValue([
+        { id: "pending", ticketTypeId: "invoice-type", statusKey: "pending_invoice", isFinal: "false" },
+        { id: "approved", ticketTypeId: "estimate-type", statusKey, isFinal: "false" },
+      ]);
+      links = [{ sourceTicketId: "estimate", targetTicketId: "standalone", linkType: "invoice_for" }];
+      sources = [invoice("estimate", { ticketTypeId: "estimate-type", currentStatusId: "approved" })];
+      const response = await request(app()).get("/api/pending-invoices");
+      expect(response.status).toBe(200);
+      expect(response.body[0].sourceTicket).toMatchObject({
+        ticketTypeId: "estimate-type", typeKey: "estimate_request", typeName: "Renamed estimate",
+        displayTypeKey: "project", displayTypeName: "Project",
+      });
+    },
+  );
   it("requires authentication before reading any data", async () => {
     expect((await request(app("admin", false)).get("/api/pending-invoices")).status).toBe(401);
     expect(mocks.getTicketTypes).not.toHaveBeenCalled();

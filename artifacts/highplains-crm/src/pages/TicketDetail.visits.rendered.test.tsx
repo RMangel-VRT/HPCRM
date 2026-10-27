@@ -23,7 +23,7 @@ const visit = (id: string, st: string) => ({
   estimatedHours: null, status: st, notes: null, serviceKey: null, ticket: null, customer: null, crew: { id: "k1", name: "Crew 1", color: "#16a34a" },
 });
 const detailsFor = (scheduled: boolean, typeName = "Task") => ({
-  ticket: { id: "t1", companyId: "c1", customerId: null, title: "Aerate lawn", description: "", priority: "normal", currentStatusId: "s1", dueDate: "2025-10-24T12:00:00", crewId: "k1", routeOrder: null, createdById: "u1", workCompletedDate: null, invoiceCategory: null },
+  ticket: { id: "t1", companyId: "c1", customerId: null, title: "Aerate lawn", description: "", priority: "normal", currentStatusId: "s1", dueDate: "2025-10-24T12:00:00", crewId: "k1", routeOrder: null, createdById: "u1", createdAt: "2025-10-01T12:00:00Z", workCompletedDate: null, invoiceCategory: null },
   ticketType: { id: "tt", name: typeName, color: null, typeKey: typeName.toLowerCase() },
   statuses: scheduled ? [status("s0", "ready_to_schedule", "Needs scheduling", 0), status("s1", "scheduled", "Renamed Display", 1)] : [status("s1", null, "Open", 1)],
   fieldValues: [], statusHistory: [], comments: [], customer: null, linkedTickets: [], contractServices: [],
@@ -58,7 +58,7 @@ beforeEach(() => {
   gate = null;
   (globalThis as any).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); document.documentElement.className = ""; });
 
 function mount() {
   const { hook } = memoryLocation({ path: "/dashboard/tickets/t1" });
@@ -74,6 +74,32 @@ async function openEdit() {
 }
 
 describe("TicketDetail edit form with visits", () => {
+  it.each(["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing", "invoicing"].flatMap(
+    statusKey => ["light", "dark"].map(theme => [statusKey, theme]),
+  ))(
+    "renders the approved estimate header and linked identity as teal at %s in %s", async (statusKey, theme) => {
+      document.documentElement.className = theme === "dark" ? "dark" : "";
+      details = detailsFor(true);
+      details.ticketType = { id: "tt", name: "Renamed estimate", typeKey: "estimate_request", color: null };
+      details.statuses[1].statusKey = statusKey;
+      details.linkedTickets = [{
+        link: { id: "link", linkType: "invoice_for" }, relationship: "target",
+        ticket: { id: "linked", title: "Original work" },
+        ticketType: { id: "tt", name: "Renamed estimate", typeKey: "estimate_request", color: null },
+        currentStatus: { id: "linked-stage", name: "Renamed stage", statusKey, color: null },
+      }];
+      history = () => ({ json: [] });
+      mount();
+      await screen.findByTestId("button-edit-ticket");
+      expect(screen.getByText("Project")).toBeTruthy();
+      const header = screen.getByTestId("header-ticket-identity");
+      expect(header.getAttribute("style")).toContain("--tt-project");
+      expect(header.innerHTML).toContain("background: var(--tt-project)");
+      expect(screen.getByTestId("link-ticket-linked").innerHTML).toContain("--tt-project");
+      expect(document.body.innerHTML).toContain("--tt-project");
+      expect(details.ticketType.typeKey).toBe("estimate_request");
+    },
+  );
   it.each([
     ["estimate_request", "ready_for_billing", "Ready to invoice", "false", false],
     ["project", "ready_for_billing", "Custom invoice label", "false", false],

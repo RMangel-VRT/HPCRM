@@ -21,6 +21,7 @@ import { useAuth } from "@/hooks/use-auth";
 import TicketCard from "@/components/TicketCard";
 import type { TicketWithDetails } from "@/components/TicketCard";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
+import { resolveDisplayTicketType } from "@shared/ticketVisuals";
 import BillingView from "@/components/BillingView";
 import { apiRequest } from "@/lib/queryClient";
 import { canViewBilling, isBillingItem, isBillingPerson, pendingInvoicesKey, type PendingInvoice } from "@/lib/billing";
@@ -1010,9 +1011,10 @@ interface MyKanbanCardProps {
 }
 
 function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusSet, onNavigate }: MyKanbanCardProps) {
-  const hue = ticketHue(ticket.ticketType);
   const needsScheduling = isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId);
   const currentStatus = allStatuses.find(s => s.id === ticket.currentStatusId);
+  const displayType = resolveDisplayTicketType(ticket.ticketType, currentStatus?.statusKey);
+  const hue = ticketHue(displayType);
 
   return (
     <Link href={`/dashboard/tickets/${ticket.id}`} onClick={() => onNavigate?.()}>
@@ -1043,7 +1045,7 @@ function MyKanbanCard({ ticket, usersMap, allStatuses, schedulingStatusSet, onNa
               <InvoiceParentLine summary={ticket.linkSummary} typeKey={ticket.ticketType?.typeKey} />
               <div className="flex items-center gap-2 flex-wrap mt-2 mb-1.5">
                 <TicketTypeBadge
-                  type={ticket.ticketType}
+                  type={displayType}
                   billingBehavior={ticket.billingBehavior}
                   testId={`kanban-my-tickettype-${ticket.id}`}
                 />

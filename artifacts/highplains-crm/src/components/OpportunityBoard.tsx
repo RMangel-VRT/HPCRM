@@ -21,6 +21,8 @@ export interface BoardResponse { stages: { key: string; tickets: BoardTicket[] }
 
 function OpportunityCard({ ticket, labels }: { ticket: BoardTicket; labels: string }) {
   const { t } = useTranslation();
+  // Both Estimates and Bids stop at decision_received: their populations are
+  // pre-approval by definition, so keep raw type badges and rails on both boards.
   const type = { name: t(`${labels}.typeLabel`), typeKey: ticket.typeKey };
   const stale = ticket.daysInStage >= 7;
   return (

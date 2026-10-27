@@ -2,13 +2,14 @@ import { and, eq, inArray, or } from "drizzle-orm";
 import { ticketLinks } from "@workspace/db";
 import { db } from "../db";
 import { storage } from "../storage";
-import { isSeededTicketType } from "../shared/ticketCapabilities";
+import { displayTypeMetadata, isSeededTicketType } from "../shared/ticketCapabilities";
 
 export interface TicketLinkSummary {
   invoices: Array<{
     id: string; title: string; statusKey: string | null; statusName: string; isFinal: boolean;
   }>;
-  parent: { id: string; title: string; typeKey: string | null; typeName: string } | null;
+  parent: { id: string; title: string; typeKey: string | null; typeName: string;
+    displayTypeKey: string | null | undefined; displayTypeName: string | null } | null;
 }
 
 /**
@@ -64,6 +65,7 @@ export async function getInvoiceLinkSummaries(
       targetSummary.parent = {
         id: parent.id, title: parent.title, typeKey: type?.typeKey ?? null,
         typeName: type?.name ?? "Unknown",
+        ...displayTypeMetadata(type?.typeKey ?? null, statusMap.get(parent.currentStatusId)?.statusKey, type?.name ?? "Unknown"),
       };
     }
   }

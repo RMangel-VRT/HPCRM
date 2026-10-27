@@ -5,6 +5,7 @@ import { SchedulingQueueResponse } from "@workspace/api-zod";
 import type { UserWithContext } from "../auth";
 import { db } from "../db";
 import { companyToday } from "../lib/companyDay";
+import { displayTypeMetadata } from "../shared/ticketCapabilities";
 
 export function registerSchedulingQueue(app: Express,
   authorize: (req: Request, res: Response) => UserWithContext | undefined,
@@ -22,6 +23,7 @@ export async function loadSchedulingQueue(companyId: string, now = new Date()) {
       const today = companyToday(now);
       const fields = {
         id: tickets.id, title: tickets.title, typeKey: ticketTypes.typeKey, typeName: ticketTypes.name,
+        statusKey: ticketTypeStatuses.statusKey,
         priority: tickets.priority, scheduleBy: tickets.scheduleBy, serviceType: tickets.serviceType,
         followUpDate: tickets.followUpDate, createdAt: tickets.createdAt,
         customer: { id: customers.id, name: customers.name, city: customers.city },
@@ -59,5 +61,8 @@ export async function loadSchedulingQueue(companyId: string, now = new Date()) {
         .leftJoin(crews, and(eq(crews.id, visits.crewId), eq(crews.companyId, companyId)))
         .where(and(scope, eq(ticketTypeStatuses.statusKey, "scheduled"), eq(visits.status, "planned"), sql`${visits.visitDate} < ${today}::date`))
         .orderBy(asc(visits.visitDate), asc(tickets.id));
-      return { needsScheduling, slipped };
+       const enrich = <T extends { typeKey: string | null; typeName: string; statusKey: string | null }>(row: T) => ({
+         ...row, ...displayTypeMetadata(row.typeKey, row.statusKey, row.typeName),
+       });
+       return { needsScheduling: needsScheduling.map(enrich), slipped: slipped.map(enrich) };
 }

@@ -11,6 +11,12 @@ Estimate Requests continue as the same ticket into project delivery and never cr
 
 **How to apply:** Do not add estimate-to-contract conversion or generalize RFP linking for symmetry. Read the uploaded update before planning either pipeline.
 
+Approved estimates intentionally override the otherwise lifetime-stable type appearance: the same stored Estimate Request displays as a teal Project only at the five explicitly enumerated post-approval stages. Unknown or missing keys must never be inferred from names or stage order. Both opportunity boards retain raw identity.
+
+**Why:** The user explicitly said estimates are projects once approved, while retaining the same ticket and requiring badge/rail agreement. This is a deliberate visual-system exception, not a conversion.
+
+**How to apply:** Follow `attached_assets/Pasted--Slice-02-An-approved-estimate-displays-as-a-Project-As_1793126555657.txt` for display-only work; do not extend the exception to RFPs, custom statuses, behavioral filters, or stored type changes.
+
 The October 27 brief supersedes October 26 navigation/board placement: RFPs belong to a standalone Bids board immediately after Estimates, never to any Estimates surface or count. Keep Campaigns as the ninth reserved dashboard slot after eight live slots; do not replace it with Bids or activate it.
 
 **Why:** The user explicitly changed the earlier RFP Center-inside-Contracts direction and chose to retain the held Campaigns cell.

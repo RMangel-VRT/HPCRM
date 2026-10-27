@@ -17,6 +17,10 @@ export type EnrichedVisitTicket = {
   /** @nullable */
   typeName: string | null;
   /** @nullable */
+  displayTypeKey: string | null;
+  /** @nullable */
+  displayTypeName: string | null;
+  /** @nullable */
   statusKey: string | null;
   /** @nullable */
   statusName: string | null;

@@ -15,7 +15,7 @@ import type { Ticket, Customer, User as UserType } from "@shared/schema";
 import type { WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
-import { isSeededTicketType, taskWorkflowStatuses } from "@shared/ticketVisuals";
+import { isSeededTicketType, taskWorkflowStatuses, resolveDisplayTicketType } from "@shared/ticketVisuals";
 import type { TicketLinkSummary } from "@shared/ticketLinks";
 import { InvoiceLinkChip, InvoiceParentLine } from "./TicketLinkDisplay";
 
@@ -87,7 +87,8 @@ export default function TicketCard({
       })
     : null;
 
-  const hue = ticketHue(ticket.ticketType);
+  const displayType = resolveDisplayTicketType(ticket.ticketType, ticket.currentStatus?.statusKey);
+  const hue = ticketHue(displayType);
   workflowStatuses = taskWorkflowStatuses(workflowStatuses, ticket.ticketType, ticket.billingBehavior);
 
   const needsScheduling = isNeedsSchedulingStatus(schedulingStatusSet, ticket.currentStatusId);
@@ -144,7 +145,7 @@ export default function TicketCard({
 
             <div className="flex items-center gap-2 flex-wrap mt-2">
               <TicketTypeBadge
-                type={ticket.ticketType}
+                type={displayType}
                 billingBehavior={ticket.billingBehavior}
                 testId={`text-tickettype-${ticket.id}`}
               />

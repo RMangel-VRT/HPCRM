@@ -46,7 +46,8 @@ export interface PendingInvoice {
   createdAt?: string | Date | null;
   ageDays?: number | null;
   customer?: { id: string; name?: string | null } | null;
-  sourceTicket?: { id: string; title: string; typeKey?: string | null; typeName?: string | null } | null;
+  sourceTicket?: { id: string; title: string; typeKey?: string | null; typeName?: string | null;
+    displayTypeKey?: string | null; displayTypeName?: string | null } | null;
   ticketTypeName?: string | null;
 }
 

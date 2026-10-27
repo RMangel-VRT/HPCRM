@@ -198,7 +198,7 @@ function BillingViewInner({
         <td className="px-3 py-2">
           {src ? (
             <span className="flex items-center gap-2 min-w-0">
-              <TicketTypeBadge type={{ name: src.typeName ?? "", typeKey: src.typeKey }} />
+              <TicketTypeBadge type={{ name: src.displayTypeName ?? src.typeName ?? "", typeKey: src.displayTypeKey ?? src.typeKey }} />
               <span className="truncate max-w-[220px]">{src.title}</span>
             </span>
           ) : <span className="text-muted-foreground">Standalone</span>}
