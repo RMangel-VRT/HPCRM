@@ -104,7 +104,7 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
     return { ...term, displayStatus: displayStatus(term, terms), editable,
       renewalSet: { firstTermId: first.id, firstSeason: first.seasonLabel, lastSeason: set[set.length - 1].seasonLabel, year, length: set.length },
       signedDocumentTermId: first.id,
-      allowedMoves: year === 1 && (editable || set.length > 1) ? allowedMoves(set[set.length - 1].status, !!first.renewedFromTermId) : [],
+      allowedMoves: year === 1 && (editable || set.length > 1) ? allowedMoves(set[set.length - 1].status, !!first.renewedFromTermId, !!first.bidTicketId) : [],
       scope, rates, billingMonths,
       documents: documents.map(d => ({ ...d, uploadedByName: d.uploadedBy ? names.get(d.uploadedBy) ?? d.uploadedBy : "System" })),
       history: history.map(h => ({ ...h, changedByName: h.changedBy ? names.get(h.changedBy) ?? h.changedBy : "System" })) };

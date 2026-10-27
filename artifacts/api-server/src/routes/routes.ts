@@ -20,7 +20,7 @@ import { excludeBidsFromPersonalTickets } from "../lib/personalTicketScope";
 import { registerDashboardSectionsRoutes } from "./dashboardSections";
 import { registerContractCenterRoutes } from "./contractCenter";
 import { rejectLegacyContractWrite, hasFrozenLegacyRows } from "../lib/legacyContractFreeze";
-import { db } from "../db";
+import { db, inTransaction } from "../db";
 import { logger } from "../lib/logger";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
 import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema, insertChemicalNotificationTemplateSchema } from "@workspace/db";
@@ -78,6 +78,10 @@ import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from '../lib/du
 import { migrateSchedulingStatuses } from '../lib/schedulingStatuses';
 import { backfillScheduleBy } from '../lib/backfillScheduleBy';
 import { maintainScheduleBy } from '../lib/scheduleByMaintenance';
+import { applyTicketStatus } from "../lib/ticketStatusChange";
+import { guardManualRfpStatus, lockRfp } from "../lib/rfpContracts";
+import { applyRfpDecisionLost } from "../lib/contractCenterStatusChange";
+import { ContractCenterError } from "../lib/contractCenterService";
 import { notifyTicketAssignment } from '../lib/ticketAssignmentNotification';
 import { registerTicketOwnerResponseRoutes } from './ticketOwnerResponse';
 import { registerSchedulingStatusRoute } from './schedulingStatus';
@@ -6901,6 +6905,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // If status is changing, record history
     if (req.body.currentStatusId && req.body.currentStatusId !== existingTicket.currentStatusId) {
+      try {
+        if (ptType?.typeKey === "rfp_request") await guardManualRfpStatus(db as unknown as import("../lib/contractCenterPersistence").Transaction, existingTicket, req.body.currentStatusId);
+      } catch (error) {
+        if (error instanceof ContractCenterError) return res.status(error.status).json({ message: error.message });
+        throw error;
+      }
       const allStatuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
       const newStatus = allStatuses.find(s => s.id === req.body.currentStatusId);
       const oldStatus = allStatuses.find(s => s.id === existingTicket.currentStatusId);
@@ -6996,13 +7006,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Record status history
-      await storage.createTicketStatusHistory({
-        ticketId: existingTicket.id,
-        fromStatusId: existingTicket.currentStatusId,
-        toStatusId: req.body.currentStatusId,
-        changedById: user.id,
-        notes: req.body.statusChangeNotes || null,
-      });
+      // Persisted once by applyTicketStatus after all PATCH validation succeeds.
       
       // === FORWARD-ONLY LOGIC (skip all of this on step-back) ===
       if (!isSteppingBack) {
@@ -7057,36 +7061,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         if (newStatus?.isFinal === "true") {
-          req.body.completedAt = new Date();
-          if (!req.body.completedByUserId) req.body.completedByUserId = user.id;
-          
-          // Create completion notification for main admin
-          try {
-            const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
-            const mainAdmin = companyUsers.find(cu => cu.role === "admin");
-            
-            if (mainAdmin) {
-              const customer = existingTicket.customerId 
-                ? await storage.getCustomerById(existingTicket.customerId, user.activeCompanyId)
-                : null;
-              
-              const customerText = customer ? ` - ${customer.name}` : "";
-              const completedAt = new Date().toLocaleString();
-              
-              await storage.createNotification({
-                companyId: user.activeCompanyId,
-                recipientId: mainAdmin.userId,
-                ticketId: existingTicket.id,
-                type: "completed",
-                message: `Ticket completed: ${existingTicket.title}${customerText} (${completedAt})`,
-                isRead: false,
-              });
-              
-              console.log(`Created completion notification for ticket ${existingTicket.id} to admin ${mainAdmin.userId}`);
-            }
-          } catch (err) {
-            console.error("Failed to create completion notification:", err);
-          }
+          // Completion fields and admin notification are owned by applyTicketStatus.
           
           // Auto-propagate Invoice completion back to parent ticket
           const currentTicketType = await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
@@ -7219,7 +7194,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const previousCrewId = existingTicket.crewId;
     const newCrewId: string | null = crewChanged ? (req.body.crewId ?? null) : null;
 
-    const ticket = await storage.updateTicket(req.params.id, user.activeCompanyId, updates);
+    const ticket = await applyTicketStatus(db as unknown as import("../lib/contractCenterPersistence").Transaction, {
+      ticket: existingTicket, updates, userId: user.id, note: req.body.statusChangeNotes || null,
+    });
     if (ticket && Object.hasOwn(updates, "followUpDate") && updates.followUpDate !== undefined) {
       await storage.createTicketComment({
         ticketId: existingTicket.id,
@@ -7239,30 +7216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
 
-    // Dismiss stale due-date notifications when the due date is extended to a strictly
-    // future date (tomorrow or later) or when the ticket moves to a final (resolved) status
-    try {
-      // Only fire when dueDate was explicitly included in the update payload,
-      // the new value is strictly in the future (tomorrow or later), and it
-      // actually differs from the existing due date.
-      const dueDateExtendedToFuture = wasDueDateExtendedToFuture(
-        updates.dueDate as string | Date | null | undefined, existingTicket.dueDate,
-      );
-
-      let resolvedToFinalStatus = false;
-      if (req.body.currentStatusId && req.body.currentStatusId !== existingTicket.currentStatusId) {
-        const allTicketStatuses = await storage.getTicketTypeStatuses(existingTicket.ticketTypeId);
-        const updatedStatus = allTicketStatuses.find(s => s.id === req.body.currentStatusId);
-        resolvedToFinalStatus = updatedStatus?.isFinal === "true";
-      }
-
-      if (dueDateExtendedToFuture || resolvedToFinalStatus) {
-        await storage.dismissDueDateNotificationsForTicket(req.params.id);
-        console.log(`Dismissed due-date notifications for ticket ${req.params.id} (dueDateExtendedToFuture=${dueDateExtendedToFuture}, resolvedToFinalStatus=${resolvedToFinalStatus})`);
-      }
-    } catch (err) {
-      console.error("Failed to dismiss due-date notifications:", err);
-    }
+    // Shared status persistence also dismisses stale due-date notifications.
 
     // Create notification for ticket assignment/reassignment
     if (isBeingAssigned) {
@@ -7622,6 +7576,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
 
+    const decisionField = await storage.getTicketTypeFieldById(req.params.fieldId);
+    const decisionType = decisionField?.fieldKey === "decision_outcome"
+      ? await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId) : null;
+    if (decisionField?.ticketTypeId === ticket.ticketTypeId && decisionType?.typeKey === "rfp_request" && req.body.value === "Lost") {
+      try {
+        const value = await db.transaction(async tx => {
+          const current = await lockRfp(tx, user.activeCompanyId, ticket.id);
+          if (!current) throw new ContractCenterError(404, "Ticket not found");
+          return inTransaction(tx, async () => {
+            const value = await storage.upsertTicketFieldValue(result.data);
+            const statuses = await storage.getTicketTypeStatuses(current.ticketTypeId);
+            if (isSeededStatus(statuses.find(s => s.id === current.currentStatusId), "decision_received")) {
+              await applyRfpDecisionLost(tx, current, user.id);
+            }
+            return value;
+          });
+        });
+        return res.json(value);
+      } catch (error) {
+        if (error instanceof ContractCenterError) return res.status(error.status).json({ message: error.message });
+        throw error;
+      }
+    }
     const fieldValue = await storage.upsertTicketFieldValue(result.data);
     
     // Auto-transition Project tickets to "Ready to Schedule" when decision is Approved
@@ -7673,28 +7650,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
 
-        if (isSeededTicketType(ticketType, "rfp_request") && isSeededStatus(currentStatus, "decision_received")) {
-          if (req.body.value === "Lost") {
-            const closedLostStatus = findSeededStatus(statuses, "closed_lost");
-            if (closedLostStatus) {
-              await storage.createTicketStatusHistory({
-                ticketId: ticket.id,
-                fromStatusId: ticket.currentStatusId,
-                toStatusId: closedLostStatus.id,
-                changedById: user.id,
-                notes: "Auto-transitioned: RFP lost, ticket closed as lost",
-              });
-              await storage.updateTicket(ticket.id, user.activeCompanyId, {
-                currentStatusId: closedLostStatus.id,
-                completedAt: new Date(),
-              });
-              await storage.dismissDueDateNotificationsForTicket(ticket.id).catch(err => {
-                console.error("Failed to dismiss due-date notifications on RFP loss:", err);
-              });
-              console.log(`Auto-transitioned RFP Request ${ticket.id} to "Closed - Lost" after lost decision`);
-            }
-          }
-        }
       }
     } catch (err) {
       console.error("Failed to auto-transition on decision:", err);

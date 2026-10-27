@@ -22,6 +22,8 @@ import { planChangingRenewal } from "../lib/contractChangingRenewal";
 import { ObjectStorageService } from "../objectStorage";
 import { ObjectAccessGroupType, ObjectPermission } from "../objectAcl";
 import type { Session } from "express-session";
+import { validateRfpCreation, loadLinkedContracts } from "../lib/rfpContracts";
+import { applyContractStatus } from "../lib/contractCenterStatusChange";
 
 type Authorize = (req: Request, res: Response) => UserWithContext | null;
 type UploadSession = Session & { contractCenterUploads?: Record<string, { companyId: string; termId: string }> };
@@ -45,9 +47,13 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       }
     };
   app.get("/api/contract-center/contracts", handle(async (req, res, user) => {
-    const filter = z.object({ line: z.enum(["landscape", "snow"]).optional(), customerId: z.string().min(1).optional(),
+    const filter = z.object({ bidTicketId: z.string().min(1).optional(), line: z.enum(["landscape", "snow"]).optional(), customerId: z.string().min(1).optional(),
       includeParent: z.enum(["true", "false"]).optional(), q: z.string().max(200).optional() }).parse(req.query);
     const companyId = user.activeCompanyId;
+    if (filter.bidTicketId) {
+      res.json(await loadLinkedContracts(db, companyId, [filter.bidTicketId]));
+      return;
+    }
     const companyCustomers = await db.select().from(customers).where(eq(customers.companyId, companyId));
     const customer = filter.customerId ? companyCustomers.find(c => c.id === filter.customerId) : undefined;
     if (filter.customerId && !customer) throw new ContractCenterError(404, "Customer not found");
@@ -93,6 +99,7 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     if (!customer) throw new ContractCenterError(404, "Customer not found");
     validateDates(body.term.startDate, body.term.endDate); validateSnow(body.line, body.term);
     const detail = await db.transaction(async tx => {
+      const bid = body.bidTicketId ? await validateRfpCreation(tx, companyId, body.bidTicketId, customer) : null;
       const managementId = body.propertyManagementCompanyId ?? customer.propertyManagementCompanyId;
       if (managementId) {
         const [management] = await tx.select().from(propertyManagementCompanies).where(and(eq(propertyManagementCompanies.id, managementId), eq(propertyManagementCompanies.companyId, companyId)));
@@ -102,8 +109,8 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       const billing = expandPayments(body.payments, body.term.startDate, body.term.endDate);
       const [agreement] = await tx.insert(agreements).values({ companyId, customerId: body.customerId,
         propertyManagementCompanyId: managementId }).returning();
-      const term = await writeTerm(tx, companyId, user.id, null, { ...body.term, line: body.line, form: body.form, agreementId: agreement.id, status: "draft",
-        ...paymentSummary(body.payments, body.line, body.term.snowPricing) }, "Created in the Contract Center");
+      const term = await writeTerm(tx, companyId, user.id, null, { ...body.term, bidTicketId: body.bidTicketId ?? null, line: body.line, form: body.form, agreementId: agreement.id, status: "draft",
+        ...paymentSummary(body.payments, body.line, body.term.snowPricing) }, bid ? `Created from RFP ${bid.estimateNumber || bid.title}` : "Created in the Contract Center");
       await replaceRows(tx, companyId, term.id, termScopeLines, scope);
       await replaceRows(tx, companyId, term.id, termRates, rates);
       await replaceRows(tx, companyId, term.id, termBillingMonths, billing);
@@ -152,26 +159,7 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
   app.post("/api/contract-center/terms/:termId/status", handle(async (req, res, user) => {
     const body = z.object({ to: z.string(), note: z.string().max(10000).optional() }).parse(req.body);
     const { companyId, userId, id } = context(req, user);
-    const row = await db.transaction(async tx => {
-      const { term } = await lockTerm(tx, companyId, id);
-      const terms = await agreementSeasons(tx, companyId, term.agreementId);
-      const set = renewalSet(terms, terms.find(t => t.id === id)!);
-      if (set[0].id !== id) throw new ContractCenterError(409,
-        `This season is year ${set.findIndex(t => t.id === id) + 1} of a renewal; change its status from ${set[0].seasonLabel}.`);
-      const last = set[set.length - 1];
-      const now = new Date();
-      for (const season of set) {
-        assertMove(season.status === "renewed" && set.length > 1 ? { ...season, status: last.status } : season, body.to);
-        const source = season.renewedFromTermId ? await getTerm(tx, companyId, season.renewedFromTermId) : null;
-        if (source && source.agreementId !== term.agreementId) throw new ContractCenterError(404, "Renewal source not found");
-        await writeTerm(tx, companyId, userId, season, { status: body.to as TermStatus,
-          ...(body.to === "sent" ? { sentAt: now } : {}),
-          ...(body.to === "signed" ? { signedAt: now } : {}) }, body.note ?? `Status changed to ${body.to}`);
-        if (source && body.to === "signed") await writeTerm(tx, companyId, userId, source, { status: "renewed" }, `Renewed by ${season.seasonLabel}`);
-        if (source && season.id === id && body.to === "lost") await addHistory(tx, companyId, userId, source, "Renewal lost");
-      }
-      return getTerm(tx, companyId, id);
-    });
+    const row = await db.transaction(tx => applyContractStatus(tx, { companyId, userId, termId: id, to: body.to, note: body.note }));
     res.json(row);
   }));
   app.post("/api/contract-center/contracts/:agreementId/renew", handle(async (req, res, user) => {

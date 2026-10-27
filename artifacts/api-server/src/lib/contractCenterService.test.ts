@@ -120,6 +120,10 @@ describe("renewal, status and Colorado display", () => {
     expect(() => assertMove(term({ status: "draft" }), "signed")).toThrow();
     expect(allowedMoves("draft", false)).toEqual(["sent", "cancelled"]);
     expect(allowedMoves("draft", true)).toEqual(["sent", "cancelled", "lost"]);
+    expect(allowedMoves("draft", false, true)).toEqual(["sent", "cancelled", "lost"]);
+    expect(() => assertMove(term({ status: "draft", bidTicketId: "rfp" }), "lost")).not.toThrow();
+    expect(() => assertMove(term({ status: "draft", bidTicketId: null }), "lost")).toThrow();
+    expect(() => assertMove(term({ status: "draft", renewedFromTermId: "source" }), "lost")).not.toThrow();
     expect(() => assertMove(term({ status: "sent" }), "signed")).not.toThrow();
     expect(() => assertMove(term(), "active")).toThrow();
   });

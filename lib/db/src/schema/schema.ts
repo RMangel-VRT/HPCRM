@@ -738,6 +738,7 @@ export type ContractMaster = typeof contractMasters.$inferSelect;
 export type InsertContractMaster = z.infer<typeof insertContractMasterSchema>;
 
 export const agreementTerms = pgTable("agreement_terms", {
+  bidTicketId: varchar("bid_ticket_id").references(() => tickets.id, { onDelete: "set null" }),
   line: text("line").notNull().$type<AgreementLine>(),
   form: text("form").notNull().default("ours").$type<AgreementForm>(),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -772,11 +773,13 @@ export const agreementTerms = pgTable("agreement_terms", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
   companyIdx: index("agreement_terms_company_idx").on(t.companyId),
+  bidTicketIdx: index("agreement_terms_bid_ticket_idx").on(t.bidTicketId),
   agreementIdx: index("agreement_terms_agreement_idx").on(t.agreementId),
   companyStatusIdx: index("agreement_terms_company_status_idx").on(t.companyId, t.status),
   companyEndIdx: index("agreement_terms_company_end_idx").on(t.companyId, t.endDate),
 }));
 export const insertAgreementTermSchema = createInsertSchema(agreementTerms).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  bidTicketId: z.string().min(1).nullable().optional(),
   line: z.enum(AGREEMENT_LINES), form: z.enum(AGREEMENT_FORMS).default("ours"),
   companyId: z.string(), agreementId: z.string(), seasonLabel: z.string(),
   startDate: contractCalendarDate, endDate: contractCalendarDate,

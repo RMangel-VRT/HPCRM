@@ -22,3 +22,9 @@ The earlier contract lifecycle direction remains separate: the contract document
 **Why:** A property manager must receive the proposed contract for consideration before award; later signature is the award outcome.
 
 **How to apply:** Follow the dedicated Contract Center slice for linking and synchronization. Estimate-only Won work must exclude RFP onboarding and retain final-status and Colorado-day safeguards.
+
+Bid-linked draft and sent seasons may be marked Lost through the ordinary Contract Center lifecycle, including before sending. Decision = Lost uses that same operation, not a propagation-only exception. Unrelated non-renewal drafts retain their restrictions.
+
+**Why:** The user approved ordinary Lost eligibility for bid drafts so the RFP decision and direct Contract Center actions cannot disagree.
+
+**How to apply:** When changing lifecycle validation or its UI, preserve the shared eligibility rule. Signed synchronization deliberately requires an RFP strictly before Awarded; do not “fix” an already-Awarded RFP to Contract Executed without a new product decision.

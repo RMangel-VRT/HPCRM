@@ -24,6 +24,8 @@ import {
 } from "@/components/contracts/newContractDraft";
 import type { NewContractDraft, ScopePreset } from "@/components/contracts/newContractDraft";
 import { startMonthOf } from "@/components/contracts/paymentDraft";
+import { prefillRfp, type RfpPrefill } from "@/components/contracts/newContractDraft";
+import { useTranslation } from "react-i18next";
 
 const STEPS = ["Customer and type", "Term and contacts", "Scope", "Rates", "Payments", "Review and create"];
 interface CustomerLite {
@@ -45,13 +47,16 @@ function Field(props: { label: string; value: string; onChange: (v: string) => v
 export default function NewContractPage() {
   const { user } = useAuth();
   if (!user) return <div className="space-y-3" data-testid="loading-new-contract"><Skeleton className="h-8 w-48" /><Skeleton className="h-40 w-full" /></div>;
-  const key = sessionKey(user.activeCompanyId, user.id);
+  const fromRfp = new URLSearchParams(window.location.search).get("fromRfp");
+  const key = sessionKey(user.activeCompanyId, user.id, fromRfp);
   // Keyed by company and login, so drafts, files and in-flight state never cross identities.
-  return <NewContractBody key={key} companyId={user.activeCompanyId} userId={user.id} storageKey={key} />;
+  return <NewContractBody key={key} companyId={user.activeCompanyId} userId={user.id} storageKey={key} fromRfp={fromRfp} />;
 }
 
-function NewContractBody({ companyId, userId, storageKey }: { companyId: string; userId: string; storageKey: string }) {
+function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId: string; userId: string; storageKey: string; fromRfp: string | null }) {
+  const { t } = useTranslation();
   const today = coloradoToday();
+  const rfpApplied = useRef(!!loadDraft(storageKey)?.bidTicketId);
   const [d, setD] = useState<NewContractDraft>(() => { const s = loadDraft(storageKey); return s ? { ...s, step: s.created ? 6 : s.step } : newDraft(today); });
   const [errors, setErrors] = useState<string[]>([]);
   const [showLineErrors, setShowLineErrors] = useState(false);
@@ -80,6 +85,15 @@ function NewContractBody({ companyId, userId, storageKey }: { companyId: string;
 
   const prefillId = useMemo(() => new URLSearchParams(typeof window !== "undefined" ? window.location.search : "").get("customerId"), []);
   const fetchJson = async (url: string) => (await apiRequest("GET", url)).json();
+  const rfp = useQuery<RfpPrefill>({
+    queryKey: ["/api/tickets", fromRfp, "details", companyId, userId], enabled: !!fromRfp, retry: false,
+    queryFn: () => fetchJson(`/api/tickets/${encodeURIComponent(fromRfp!)}/details`),
+  });
+  useEffect(() => {
+    if (!rfp.data || rfpApplied.current) return;
+    rfpApplied.current = true;
+    setD(cur => prefillRfp(cur, rfp.data!, today));
+  }, [rfp.data, today]);
   const results = useQuery<{ customers: CustomerLite[] }>({
     queryKey: [...scoped, "contract-new-search", debounced], enabled: debounced.length > 1, retry: false,
     queryFn: () => fetchJson(`/api/customers?limit=20&search=${encodeURIComponent(debounced)}`),
@@ -88,7 +102,7 @@ function NewContractBody({ companyId, userId, storageKey }: { companyId: string;
     queryFn: () => fetchJson("/api/property-management-companies") });
   const rateCard = useQuery<RateCardItem[]>({ queryKey: ["/api/contract-center/rate-card", companyId, userId, "new-contract"], retry: false,
     queryFn: () => fetchJson("/api/contract-center/rate-card") });
-  const prefill = useQuery<CustomerLite>({ queryKey: [...scoped, "contract-prefill", prefillId ?? "none"], enabled: !!prefillId && !d.customerId && !d.created, retry: false,
+  const prefill = useQuery<CustomerLite>({ queryKey: [...scoped, "contract-prefill", prefillId ?? "none"], enabled: !fromRfp && !!prefillId && !d.customerId && !d.created, retry: false,
     queryFn: () => fetchJson(`/api/customers/${prefillId}`) });
   // A customer id from the draft is never trusted; it is re-read from the server.
   const customerQ = useQuery<CustomerLite>({ queryKey: [...scoped, "contract-verify", d.customerId], enabled: !!d.customerId && !d.created, retry: false,
@@ -160,6 +174,7 @@ function NewContractBody({ companyId, userId, storageKey }: { companyId: string;
   }
   function gate(step: number): string[] {
     const problems = stepProblems(d, step);
+    if (fromRfp && !rfp.isSuccess) problems.push(t("rfpContracts.loadError"));
     if (step === 1 && d.customerId) {
       if (customerQ.isLoading) problems.push("Checking the customer, try again in a moment");
       else if (customerQ.isError) problems.push("The customer could not be verified. Retry the check.");
@@ -183,7 +198,7 @@ function NewContractBody({ companyId, userId, storageKey }: { companyId: string;
       if (!created) {
         const problems = [1, 2, 3, 4, 5].flatMap(gate);
         if (problems.length) { setErrors(problems); return; }
-        const res = await apiRequest("POST", "/api/contract-center/contracts", createBody({ ...d, scope: scopeRows, rates: rateRows }));
+        const res = await apiRequest("POST", "/api/contract-center/contracts", createBody({ ...d, bidTicketId: fromRfp ?? undefined, scope: scopeRows, rates: rateRows }));
         const detail = (await res.json()) as ContractDetail;
         created = { agreementId: detail.id, termId: detail.terms[detail.terms.length - 1].id };
         // Persist the marker before anything else so a reload can never create a second contract.
@@ -205,11 +220,13 @@ function NewContractBody({ companyId, userId, storageKey }: { companyId: string;
     clearDraft(storageKey);
     setFile(null);
     void qc.invalidateQueries({ queryKey: ["/api/contract-center/contracts"] });
+    void qc.invalidateQueries({ queryKey: ["/api/bids/board"] });
+    if (fromRfp) void qc.invalidateQueries({ queryKey: ["/api/tickets", fromRfp] });
     toast({ title: "Draft created" });
-    navigate(`/dashboard/contracts/${agreementId}`);
+    navigate(fromRfp ? `/dashboard/tickets/${encodeURIComponent(fromRfp)}` : `/dashboard/contracts/${agreementId}`);
   }
   function reset() {
-    clearDraft(storageKey); setD(newDraft(today)); setErrors([]); setFile(null); setUploadFailed(null); setSubmitError(null);
+    clearDraft(storageKey); setD(rfp.data ? prefillRfp(newDraft(today), rfp.data, today) : newDraft(today)); setErrors([]); setFile(null); setUploadFailed(null); setSubmitError(null);
     applied.current = { contacts: null, agent: null };
   }
   function leave(action: "reset" | "cancel" | "open", confirmed = false) {
@@ -223,8 +240,16 @@ function NewContractBody({ companyId, userId, storageKey }: { companyId: string;
   const review = reviewRows(d);
   const flat = hasSnow(d.line) && d.snowPricing === "flat_rate";
 
+  if (fromRfp && !rfp.isSuccess) return <div role="status" className="space-y-3">
+    <p>{rfp.isError ? t("rfpContracts.loadError") : t("rfpContracts.loading")}</p>
+    {rfp.isError && <Button variant="outline" onClick={() => void rfp.refetch()}>{t("rfpContracts.retry")}</Button>}
+  </div>;
+
   return (
     <div className="space-y-6 max-w-4xl" data-testid="page-new-contract">
+      {fromRfp && <div role="note" className="rounded-md border bg-muted p-3 text-sm" data-testid="rfp-contract-banner">
+        {rfp.data ? t("rfpContracts.banner", { title: rfp.data.ticket.title }) : rfp.isError ? t("rfpContracts.loadError") : t("rfpContracts.loading")}
+      </div>}
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">New contract</h1>
         <div className="flex gap-2">

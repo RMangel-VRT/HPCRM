@@ -17,6 +17,7 @@ export const ESTIMATE_STAGES = [
 ] as const;
 
 interface BoardTicket {
+  contracts?: Awaited<ReturnType<typeof import("../lib/rfpContracts").loadLinkedContracts>>;
   id: string; title: string; typeKey: string; statusKey: string; statusName: string;
   customer: { id: string; name: string } | null;
   assignee: { id: string; name: string } | null;
@@ -40,6 +41,7 @@ export function loadEstimatesBoard(companyId: string, now = new Date()) {
 export async function loadOpportunityBoard<T extends Parameters<typeof findSeededTicketType>[1], S extends string>(
   companyId: string, typeKey: T,
   definitions: readonly { key: S; statusKeys: readonly string[] }[], now = new Date(),
+  enrich?: (ids: string[]) => Promise<Awaited<ReturnType<typeof import("../lib/rfpContracts").loadLinkedContracts>>>,
 ) {
   const stages: { key: S; tickets: BoardTicket[] }[] =
     definitions.map(stage => ({ key: stage.key, tickets: [] }));
@@ -83,6 +85,7 @@ export async function loadOpportunityBoard<T extends Parameters<typeof findSeede
   ]);
   const assigneesById = new Map(assignees.map(row => [row.id, row]));
   const enteredById = new Map(history.map(row => [row.ticketId, row.enteredAt]));
+  const linked = enrich ? await enrich(rows.map(row => row.id)) : undefined;
   for (const row of rows) {
     const status = statusMap.get(row.currentStatusId);
     if (!status || status.typeId !== row.ticketTypeId) continue;
@@ -93,6 +96,7 @@ export async function loadOpportunityBoard<T extends Parameters<typeof findSeede
       assignee: row.assignedToId ? assigneesById.get(row.assignedToId) ?? null : null,
       priority: row.priority, estimateNumber: row.estimateNumber,
       daysInStage: estimateDaysInStage(enteredById.get(row.id) ?? row.createdAt, now),
+      ...(linked ? { contracts: linked.filter(c => c.bidTicketId === row.id) } : {}),
     });
   }
   for (const stage of stages) stage.tickets.sort((a, b) => b.daysInStage - a.daysInStage || a.id.localeCompare(b.id));

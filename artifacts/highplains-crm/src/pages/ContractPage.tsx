@@ -206,7 +206,14 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   async function changeStatus(to: string) {
     if (!term) return;
     setMoveBusy(true);
-    try { await api("POST", `/api/contract-center/terms/${term.id}/status`, { to }); await refresh(); setErrors({}); setConfirmMove(null); setMenuOpen(false); setSignPrompt(false); }
+    try {
+      await api("POST", `/api/contract-center/terms/${term.id}/status`, { to });
+      if (term.bidTicketId) {
+        void qc.invalidateQueries({ queryKey: ["/api/tickets", term.bidTicketId] });
+        void qc.invalidateQueries({ queryKey: ["/api/bids/board"] });
+      }
+      await refresh(); setErrors({}); setConfirmMove(null); setMenuOpen(false); setSignPrompt(false);
+    }
     catch (e) { setErrors({ status: errorText(e) }); }
     finally { setMoveBusy(false); }
   }

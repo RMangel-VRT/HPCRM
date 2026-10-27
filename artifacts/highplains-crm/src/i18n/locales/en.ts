@@ -293,6 +293,15 @@ const en = {
     stage: { new: "New", reviewing: "Reviewing", walk: "Pre-proposal walk", proposal: "Proposal", submitted: "Submitted", decision: "Decision" },
     days: "{{count}} days", empty: "No open bids.", loading: "Loading bids", error: "Could not load bids.", retry: "Retry", priority: "Priority", unassigned: "Unassigned",
   },
+  rfpContracts: {
+    title: "Contracts from this RFP", create: "Create contract",
+    beforeDraft: "Create the contract once the RFP reaches Proposal Drafted.",
+    banner: "Creating a contract for RFP {{title}}. It will be linked to the RFP and sent to the property manager as the proposal.",
+    loading: "Loading RFP contracts…", loadError: "Could not load the RFP. Reload before continuing.", retry: "Retry loading contracts",
+    tm: "T&M", line: { landscape: "Landscape", snow: "Snow", both: "Landscape + Snow" },
+    form: { ours: "Our form", theirs: "Their form" },
+    status: { draft: "Draft", sent: "Sent", signed: "Signed", active: "Active", expired: "Expired", renewed: "Renewed", lost: "Lost", cancelled: "Cancelled" },
+  },
   nav: {
     bids: "Bids",
     estimates: "Estimates",

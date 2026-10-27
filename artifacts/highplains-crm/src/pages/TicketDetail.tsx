@@ -78,6 +78,7 @@ import { DatePickerField } from "@/components/DatePickerField";
 import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import { TicketWorkItemsCard } from "@/components/TicketWorkItemsCard";
 import type { Ticket, TicketFieldValue, TicketComment, TicketCommentWithAuthor, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
+import { RfpContracts } from "@/components/contracts/RfpContracts";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -306,6 +307,7 @@ export default function TicketDetail() {
       return res.json();
     },
     enabled: !!ticketId,
+    refetchInterval: query => query.state.data?.ticketType?.typeKey === "rfp_request" ? 60_000 : false,
   });
 
   // Scheduled-capable by stable status identity (never display name or current status).
@@ -1840,6 +1842,8 @@ export default function TicketDetail() {
               </CardContent>
             </Card>
           )}
+
+          {ticketType?.typeKey === "rfp_request" && <RfpContracts ticketId={ticket.id} statuses={statuses} statusId={ticket.currentStatusId} />}
 
           {(ticketType?.name === "Estimate Request" || ticketType?.name === "Project") &&
            !linkedTickets?.find(lt => lt.link.linkType === "invoice_for" && lt.relationship === "source") && (

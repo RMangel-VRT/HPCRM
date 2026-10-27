@@ -6,7 +6,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { registerContractCenterRoutes } from "./contractCenter";
 
 const mock = vi.hoisted(() => ({ db: {} as any, parent: vi.fn(), upload: vi.fn(), file: vi.fn(), acl: vi.fn() }));
-vi.mock("../db", () => ({ db: mock.db }));
+vi.mock("../db", () => ({ db: mock.db, inTransaction: (_tx: unknown, fn: () => unknown) => fn() }));
+vi.mock("../storage", () => ({ storage: {} }));
 vi.mock("../utils/parentGuard", () => ({ assertNotParentCustomer: mock.parent }));
 vi.mock("../objectAcl", () => ({ ObjectAccessGroupType: { COMPANY_MEMBER: "company_member" }, ObjectPermission: { READ: "read" } }));
 vi.mock("../objectStorage", () => ({ ObjectStorageService: class {

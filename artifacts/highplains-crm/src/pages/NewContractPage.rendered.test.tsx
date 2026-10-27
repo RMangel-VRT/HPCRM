@@ -17,6 +17,7 @@ vi.mock("@/lib/contractUpload", async importOriginal => ({ ...(await importOrigi
 import NewContractPage from "@/pages/NewContractPage";
 import { applyPreset, blankLine } from "@/components/contracts/paymentDraft";
 import { newDraft, sessionKey } from "@/components/contracts/newContractDraft";
+import i18n from "@/i18n";
 
 const customer = (o: object = {}) => ({ id: "c1", companyId: "co1", name: "Elm Court HOA", isParent: "false", street: "12 Elm St", city: "Denver", state: "CO", zip: "80202", ...o });
 const ok = (data: unknown) => Promise.resolve({ json: async () => data });
@@ -52,6 +53,37 @@ beforeEach(() => { posts = 0; fx.api.mockReset(); fx.toast.mockReset(); fx.uploa
 afterEach(cleanup);
 
 describe("New contract flow", () => {
+  it.each(["en", "es"])("prefills an isolated RFP draft with its explanatory banner in %s", async language => {
+    await i18n.changeLanguage(language);
+    store("u1", "co1", draft({ notes: "Unrelated ordinary draft" }));
+    routes({ "/api/tickets/r1/details": { ticket: { id: "r1", title: "RFP test", customerId: "c1", estimateNumber: "R-42" },
+      customer: customer(), statuses: [{ fields: [{ id: "service", fieldKey: "service_request_type" }] }],
+      fieldValues: [{ fieldId: "service", value: "Maintenance & Snow Removal" }] } });
+    window.history.replaceState(null, "", "/dashboard/contracts/new?fromRfp=r1");
+    mount();
+    expect((await screen.findByTestId("rfp-contract-banner")).textContent).toBe(i18n.t("rfpContracts.banner", { title: "RFP test" }));
+    await waitFor(() => expect(screen.getByTestId("text-selected-customer").textContent).toBe("Elm Court HOA"));
+    await waitFor(() => expect(JSON.parse(window.sessionStorage.getItem(sessionKey("co1", "u1", "r1"))!).line).toBe("both"));
+    const saved = JSON.parse(window.sessionStorage.getItem(sessionKey("co1", "u1", "r1"))!);
+    expect(saved.notes).toBe("Bid for RFP R-42: RFP test");
+    expect(saved.scope).not.toBeNull();
+    expect(JSON.parse(window.sessionStorage.getItem(sessionKey("co1", "u1"))!).notes).toBe("Unrelated ordinary draft");
+  });
+  it("restores user edits rather than overwriting them, binds the RFP on submit and returns to it", async () => {
+    await i18n.changeLanguage("en");
+    window.sessionStorage.setItem(sessionKey("co1", "u1", "r1"), JSON.stringify(draft({ bidTicketId: "r1", form: "ours", notes: "My edited bid" })));
+    routes({ "/api/tickets/r1/details": { ticket: { id: "r1", title: "RFP test", customerId: "c1" },
+      customer: customer(), statuses: [], fieldValues: [] } });
+    window.history.replaceState(null, "", "/dashboard/contracts/new?fromRfp=r1");
+    const m = mount();
+    await screen.findByTestId("button-create-contract");
+    await settle();
+    expect(JSON.parse(window.sessionStorage.getItem(sessionKey("co1", "u1", "r1"))!).notes).toBe("My edited bid");
+    await userEvent.click(screen.getByTestId("button-create-contract"));
+    await waitFor(() => expect(m.loc.history?.at(-1)).toBe("/dashboard/tickets/r1"));
+    const call = fx.api.mock.calls.find(c => c[0] === "POST" && c[1] === "/api/contract-center/contracts");
+    expect(call?.[2]).toMatchObject({ bidTicketId: "r1", term: { notes: "My edited bid" } });
+  });
   it("shows inline validation on Next", async () => {
     mount();
     await userEvent.click(screen.getByTestId("button-next"));

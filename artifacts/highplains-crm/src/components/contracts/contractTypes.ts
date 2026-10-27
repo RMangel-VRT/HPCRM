@@ -59,6 +59,7 @@ export interface TermHistoryRow {
   id: string; oldStatus: string | null; newStatus: string; note: string | null; createdAt: string; changedByName?: string | null;
 }
 export interface DetailTerm extends TermSummary {
+  bidTicketId?: string | null;
   agreementId?: string;
   legalName?: string | null; projectContact?: string | null; contactPhone?: string | null; contactEmail?: string | null;
   projectAddress?: string | null; snowTriggers?: string | null; po?: string | null; notes?: string | null;

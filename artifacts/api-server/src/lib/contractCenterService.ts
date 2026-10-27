@@ -39,6 +39,7 @@ export const paymentsSchema = z.array(z.object({
 })).max(100);
 export type Payments = z.infer<typeof paymentsSchema>;
 export const createContractSchema = z.object({
+  bidTicketId: z.string().min(1).optional(),
   customerId: z.string().min(1), line: z.enum(["landscape", "snow", "both"]),
   form: z.enum(["ours", "theirs"]), propertyManagementCompanyId: z.string().min(1).nullable().optional(),
   term: termFieldsSchema, scope: scopeSchema, rates: ratesSchema, payments: paymentsSchema,
@@ -173,12 +174,12 @@ export function renewalDue(term: StatusTerm, terms: StatusTerm[] = [], today = c
   if (terms.some(t => t.renewedFromTermId === term.id && ["signed", "active", "renewed"].includes(t.status))) return false;
   return displayStatus(term, terms, today) === "active" && addCalendarDays(term.endDate, -60) <= today;
 }
-export function allowedMoves(status: string, renewal: boolean) {
+export function allowedMoves(status: string, renewal: boolean, isBid = false) {
   const moves: Record<string, string[]> = { draft: ["sent", "cancelled"], sent: ["signed", "draft", "lost"], signed: ["lost", "cancelled"], active: ["lost", "cancelled"] };
-  return [...new Set([...(moves[status] ?? []), ...(renewal && ["draft", "sent"].includes(status) ? ["lost"] : [])])];
+  return [...new Set([...(moves[status] ?? []), ...((renewal || isBid) && ["draft", "sent"].includes(status) ? ["lost"] : [])])];
 }
-export function assertMove(term: Pick<AgreementTerm, "status" | "renewedFromTermId">, to: string) {
-  const allowed = allowedMoves(term.status, !!term.renewedFromTermId);
+export function assertMove(term: Pick<AgreementTerm, "status" | "renewedFromTermId"> & { bidTicketId?: string | null }, to: string) {
+  const allowed = allowedMoves(term.status, !!term.renewedFromTermId, !!term.bidTicketId);
   if (!allowed.includes(to)) throw new ContractCenterError(409, `Invalid status move; allowed: ${allowed.join(", ") || "none"}`, allowed);
 }
 export function assertEditable(status: string) {

@@ -8,8 +8,10 @@ import { SectionRailLayout } from "@/components/nav/SectionRail";
 import { TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LinkedContractRow, type LinkedContract } from "@/components/contracts/RfpContracts";
 
 export interface BoardTicket {
+  contracts?: LinkedContract[];
   id: string; title: string; typeKey: string; statusKey: string; statusName: string;
   customer: { id: string; name: string } | null;
   assignee: { id: string; name: string } | null;
@@ -22,6 +24,7 @@ function OpportunityCard({ ticket, labels }: { ticket: BoardTicket; labels: stri
   const type = { name: t(`${labels}.typeLabel`), typeKey: ticket.typeKey };
   const stale = ticket.daysInStage >= 7;
   return (
+    <div className="space-y-1">
     <Link href={`/dashboard/tickets/${encodeURIComponent(ticket.id)}`}
       data-testid={`card-bid-${ticket.id}`}
       className="block rounded-md border bg-card p-3 border-l-4 hover-elevate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -45,6 +48,13 @@ function OpportunityCard({ ticket, labels }: { ticket: BoardTicket; labels: stri
         </span>
       </div>
     </Link>
+    {labels === "bids" && <div className="space-y-1 px-1">
+      {ticket.contracts?.map(c => <LinkedContractRow key={c.termId} contract={c} />)}
+      {ticket.statusKey === "proposal_draft" && !ticket.contracts?.length &&
+        <Link className="inline-block p-1 text-xs underline" href={`/dashboard/contracts/new?fromRfp=${encodeURIComponent(ticket.id)}`}
+          onClick={e => e.stopPropagation()} data-testid={`create-contract-${ticket.id}`}>{t("rfpContracts.create")}</Link>}
+    </div>}
+    </div>
   );
 }
 

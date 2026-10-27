@@ -60,4 +60,33 @@ describe.each(configs)("$name shared rendering", ({ name, Page, keys, type }) =>
     await screen.findByTestId(`${name}-board`);
     expect(screen.queryByRole("alert")).toBeNull();
   });
+  it.each(["en", "es"])("renders linked contracts and narrow create eligibility in %s", async lang => {
+    await i18n.changeLanguage(lang);
+    const ticket = (id: string, statusKey: string, contracts: any[] = []) => ({
+      id, title: id, typeKey: type, statusKey, statusName: statusKey, customer: null, assignee: null,
+      priority: "normal", estimateNumber: null, daysInStage: 0, contracts,
+    });
+    const contract = { agreementId: "agreement", termId: "term", customerName: "Branch", line: "both",
+      form: "ours", seasonLabel: "2027", displayStatus: "sent", annualPriceCents: 4151500, snowPricing: "time_and_materials" };
+    vi.mocked(apiRequest).mockResolvedValue({ json: async () => ({ stages: [{
+      key: "proposal", tickets: [ticket("with-contract", "proposal_draft", [contract, { ...contract, termId: "snow", line: "snow" }]),
+        ticket("create", "proposal_draft"), ticket("early", "new"), ticket("later", "proposal_sent")],
+    }] }) } as Response);
+    mount();
+    await screen.findByTestId("card-bid-create");
+    if (name === "bids") {
+      expect(screen.getByTestId("rfp-contract-term").getAttribute("href")).toBe("/dashboard/contracts/agreement");
+      expect(screen.getByText("$41,515")).toBeTruthy();
+      expect(screen.getByText(i18n.t("rfpContracts.tm"))).toBeTruthy();
+      expect(screen.getAllByTestId("pill-status-sent")[0].textContent).toContain(i18n.t("rfpContracts.status.sent"));
+      expect(screen.getByTestId("create-contract-create").getAttribute("href")).toBe("/dashboard/contracts/new?fromRfp=create");
+      expect(screen.queryByTestId("create-contract-with-contract")).toBeNull();
+      expect(screen.queryByTestId("create-contract-early")).toBeNull();
+      expect(screen.queryByTestId("create-contract-later")).toBeNull();
+      expect(screen.getByTestId("rfp-contract-term").closest("[data-testid='card-bid-with-contract']")).toBeNull();
+    } else {
+      expect(screen.queryByTestId("rfp-contract-term")).toBeNull();
+      expect(screen.queryByTestId("create-contract-create")).toBeNull();
+    }
+  });
 });

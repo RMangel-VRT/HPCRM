@@ -13,6 +13,7 @@ import { SCOPE_CATALOG } from "@/shared/contractCatalog";
 
 export type SnowPricing = "time_and_materials" | "flat_rate";
 export interface NewContractDraft {
+  bidTicketId?: string;
   step: number;
   customerId: string; customerName: string; line: AgreementLine | ""; form: "ours" | "theirs" | "";
   snowPricing: SnowPricing; flatPrice: string;
@@ -160,6 +161,7 @@ export function createBody(d: NewContractDraft) {
   const snowLine = payments.find(l => l.name.trim() === SNOW_LINE);
   return {
     customerId: d.customerId, line: d.line, form: d.form,
+    ...(d.bidTicketId ? { bidTicketId: d.bidTicketId } : {}),
     ...(d.propertyManagementCompanyId ? { propertyManagementCompanyId: d.propertyManagementCompanyId } : {}),
     term: {
       seasonLabel: d.seasonLabel.trim(), startDate: d.startDate, endDate: d.endDate,
@@ -192,8 +194,37 @@ export function reviewRows(d: NewContractDraft) {
 }
 
 export const SESSION_PREFIX = "contract-center:new-contract";
-export const sessionKey = (companyId: string | null | undefined, userId: string | null | undefined) =>
-  `${SESSION_PREFIX}:${companyId ?? "none"}:${userId ?? "none"}`;
+export const sessionKey = (companyId: string | null | undefined, userId: string | null | undefined, rfpId?: string | null) =>
+  `${SESSION_PREFIX}:${companyId ?? "none"}:${userId ?? "none"}${rfpId ? `:rfp:${rfpId}` : ""}`;
+
+export interface RfpPrefill {
+  ticket: { id: string; customerId?: string | null; estimateNumber?: string | null; title: string };
+  customer?: { id: string; name: string; street?: string; city?: string; state?: string; zip?: string;
+    managementCompany?: string | null; propertyManagementCompanyId?: string | null } | null;
+  statuses: { fields: { id: string; fieldKey: string }[] }[];
+  fieldValues: { fieldId: string; value: string | null }[];
+}
+/** Stable seeded fields only. Proposal due date is NOT a contract end date.
+ * No end/length field is seeded, so retain ordinary line-based end defaults. */
+export function prefillRfp(d: NewContractDraft, rfp: RfpPrefill, today: string): NewContractDraft {
+  const values = new Map(rfp.fieldValues.map(v => [v.fieldId, v.value]));
+  const fields = new Map(rfp.statuses.flatMap(s => s.fields).map(f => [f.fieldKey, values.get(f.id)]));
+  const lines: Record<string, AgreementLine> = {
+    "Maintenance only": "landscape", "Snow Removal Only": "snow", "Maintenance & Snow Removal": "both",
+  };
+  const line = lines[fields.get("service_request_type") ?? ""] ?? d.line;
+  const dates = defaultDates(line, today);
+  const desired = fields.get("desired_start_date") ?? "";
+  const startDate = realDate(desired) ? desired : dates.startDate;
+  return { ...d, bidTicketId: rfp.ticket.id, customerId: rfp.ticket.customerId ?? "",
+    customerName: rfp.customer?.name ?? "", line, startDate, endDate: dates.endDate,
+    legalName: rfp.customer?.name ?? "", managingAgentName: rfp.customer?.managementCompany ?? "",
+    propertyManagementCompanyId: rfp.customer?.propertyManagementCompanyId ?? null,
+    projectAddress: [rfp.customer?.street, [rfp.customer?.city, rfp.customer?.state].filter(Boolean).join(", "), rfp.customer?.zip].filter(Boolean).join(" "),
+    datesEdited: realDate(desired), seasonLabel: seasonLabelFor(startDate, dates.endDate),
+    scope: line ? initialScope(line) : null,
+    notes: `Bid for RFP ${rfp.ticket.estimateNumber || rfp.ticket.id}: ${rfp.ticket.title}` };
+}
 export function loadDraft(key: string): NewContractDraft | null {
   try {
     const raw = window.sessionStorage.getItem(key);

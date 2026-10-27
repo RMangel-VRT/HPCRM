@@ -2,7 +2,7 @@ import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { tickets, ticketStatusHistory } from "@workspace/db";
+import { tickets, ticketStatusHistory, agreementTerms } from "@workspace/db";
 
 const mocks = vi.hoisted(() => ({
   select: vi.fn(), selectDistinct: vi.fn(), getTicketTypes: vi.fn(),
@@ -18,6 +18,7 @@ const dialect = new PgDialect();
 let queries: { sql: string; params: unknown[] }[];
 let rows: any[];
 let histories: any[];
+let linked: any[];
 const typeRows = ["estimate_request", "rfp_request"].map(typeKey => ({ id: typeKey, typeKey, name: "Renamed type" }));
 const statuses = (typeKey: "estimate_request" | "rfp_request") =>
   [...new Set([...(typeKey === "estimate_request" ? ESTIMATE_STAGES : BID_STAGES).flatMap(stage => [...stage.statusKeys]), "ready_to_schedule", "awarded", "closed_lost", "scheduled", "completed"])]
@@ -30,7 +31,7 @@ const ticket = (type = "estimate_request", status = "new", id = `${type}:${statu
 
 beforeEach(() => {
   vi.clearAllMocks();
-  queries = []; rows = []; histories = [];
+  queries = []; rows = []; histories = []; linked = [];
   mocks.getTicketTypes.mockResolvedValue(typeRows);
   mocks.getTicketTypeStatuses.mockImplementation(async type => statuses(type));
   mocks.getCustomersByIds.mockImplementation(async (_ids, company) => {
@@ -63,6 +64,11 @@ beforeEach(() => {
             const aggregate = dialect.sqlToQuery((projection as any).enteredAt);
             expect(aggregate.sql).toContain('max("ticket_status_history"."created_at")');
             result = histories;
+          } else if (table === agreementTerms) {
+            expect(predicate.params).toContain("company-a");
+            expect(predicate.sql).toContain('"agreement_terms"."bid_ticket_id" in');
+            expect(builder.innerJoin).toHaveBeenCalledTimes(2);
+            result = linked;
           } else {
             expect(predicate.params).toContain("company-a");
             result = [{ id: "user-a", name: "Development Estimator" }];
@@ -75,6 +81,21 @@ beforeEach(() => {
   });
   mocks.select.mockImplementation(select);
   mocks.selectDistinct.mockImplementation(select);
+});
+
+it("enriches only Bids with exact linked seasons, while Estimates has no contracts property", async () => {
+  const bid = ticket("rfp_request", "proposal_draft", "rfp");
+  linked = [{ customerName: "Direct branch", signedRenewal: false, term: { id: "old-season", agreementId: "agreement", bidTicketId: bid.id,
+    status: "signed", startDate: "2020-01-01", endDate: "2021-01-01", line: "both", form: "theirs", seasonLabel: "2026", annualPriceCents: 3200000, snowPricing: "time_and_materials" } }];
+  rows = [bid];
+  const board = await loadBidsBoard("company-a", now);
+  expect(board.stages.flatMap(s => s.tickets)[0].contracts).toEqual([{
+    bidTicketId: bid.id, agreementId: "agreement", termId: "old-season", customerName: "Direct branch", line: "both",
+    form: "theirs", seasonLabel: "2026", displayStatus: "expired", annualPriceCents: 3200000, snowPricing: "time_and_materials",
+  }]);
+  rows = [ticket()];
+  const estimates = await loadEstimatesBoard("company-a", now);
+  expect(estimates.stages.flatMap(s => s.tickets)[0]).not.toHaveProperty("contracts");
 });
 
 describe.each([
@@ -152,7 +173,7 @@ describe.each([
       counts.push(queries.length + mocks.getTicketTypes.mock.calls.length +
         mocks.getTicketTypeStatuses.mock.calls.length + mocks.getCustomersByIds.mock.calls.length);
     }
-    expect(counts).toEqual([6, 6]);
+    expect(counts).toEqual(type === "rfp_request" ? [7, 7] : [6, 6]);
   });
   it.each(["UTC", "America/Denver"])("counts Colorado calendar days under TZ=%s across midnight and DST", timezone => {
     const previous = process.env.TZ;

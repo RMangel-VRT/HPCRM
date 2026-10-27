@@ -14,10 +14,12 @@ import { canSeeBilling, isBillingInvoiceAction } from "../lib/billing";
 import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from "../lib/dueDateDismissal";
 import * as capabilities from "../shared/ticketCapabilities";
 import { applySchedulingTransition } from "../lib/schedulingTransition";
+import { applyTicketStatus } from "../lib/ticketStatusChange";
+import { ContractCenterError } from "../lib/contractCenterService";
 
 const mockedStorage = vi.hoisted(() => ({}));
 vi.mock("../storage", () => ({ storage: mockedStorage }));
-vi.mock("../db", () => ({ db: {} }));
+vi.mock("../db", () => ({ db: {}, inTransaction: (_tx: unknown, fn: () => unknown) => fn() }));
 vi.mock("../auth", () => ({ setupAuth: vi.fn(), hashPassword: vi.fn() }));
 import { ensureTaskTicketType } from "./routes";
 
@@ -32,7 +34,7 @@ const mount = new Function("deps", `
      insertTicketSchema, pickProvided, computeScheduleBy, maintainScheduleBy, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
     isSeededTicketType, isSeededStatus, findSeededStatus, canSeeBilling, isBillingInvoiceAction, propagateInvoiceCompletion, wasDueDateExtendedToFuture,
     assertNotParentCustomer, sendPushToUser, APPROVED_BILLING_STATUS_KEYS,
-    db, transactionalTicketPatch, applyVisitTicketEdit, applySchedulingTransition } = deps;
+    db, transactionalTicketPatch, applyVisitTicketEdit, applySchedulingTransition, applyTicketStatus, ContractCenterError, guardManualRfpStatus } = deps;
   ${transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code}
 `);
 const decisionStart = source.indexOf('  app.put("/api/tickets/:ticketId/field-values/:fieldId",');
@@ -119,6 +121,7 @@ beforeEach(() => {
     // The actual shared transition is used; visits.integration.test.ts covers
     // compatibility and transaction rollback against real PostgreSQL.
     db: {}, transactionalTicketPatch: (handler: unknown) => handler,
+    applyTicketStatus, ContractCenterError, guardManualRfpStatus: vi.fn(),
     applyVisitTicketEdit: async () => {}, applySchedulingTransition,
     canSeeBilling, isBillingInvoiceAction, propagateInvoiceCompletion: invoicePropagation, wasDueDateExtendedToFuture,
     ...capabilities, assertNotParentCustomer: parentGuard, sendPushToUser: vi.fn(),

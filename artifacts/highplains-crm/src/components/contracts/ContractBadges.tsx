@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 import type { AgreementLine } from "./contractTypes";
 
 const tint = (color: string, pct = 14): CSSProperties => ({
@@ -50,11 +51,12 @@ const STATUS: Record<string, { label: string; color: string }> = {
 };
 
 export function StatusPill({ status, className }: { status: string; className?: string }) {
+  const { t } = useTranslation();
   const s = STATUS[status] ?? { label: status, color: GREY };
   return (
     <span data-testid={`pill-status-${status}`} className={cn("inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap", className)}>
       <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} />
-      {s.label}
+      {t(`rfpContracts.status.${status}`, { defaultValue: s.label })}
     </span>
   );
 }

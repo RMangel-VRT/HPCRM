@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import type { UserWithContext } from "../auth";
 import { loadOpportunityBoard } from "./estimatesBoard";
+import { loadLinkedContracts } from "../lib/rfpContracts";
+import { db } from "../db";
 
 export const BID_STAGES = [
   { key: "new", statusKeys: ["new"] },
@@ -12,7 +14,7 @@ export const BID_STAGES = [
 ] as const;
 
 export function loadBidsBoard(companyId: string, now = new Date()) {
-  return loadOpportunityBoard(companyId, "rfp_request", BID_STAGES, now);
+  return loadOpportunityBoard(companyId, "rfp_request", BID_STAGES, now, ids => loadLinkedContracts(db, companyId, ids));
 }
 
 export function registerBidsBoardRoutes(app: Express): void {

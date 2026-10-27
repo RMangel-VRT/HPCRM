@@ -293,6 +293,15 @@ const es = {
     stage: { new: "Nuevo", reviewing: "En revisión", walk: "Visita previa a la propuesta", proposal: "Propuesta", submitted: "Presentada", decision: "Decisión" },
     days: "{{count}} días", empty: "No hay ofertas abiertas.", loading: "Cargando ofertas", error: "No se pudieron cargar las ofertas.", retry: "Reintentar", priority: "Prioridad", unassigned: "Sin asignar",
   },
+  rfpContracts: {
+    title: "Contratos de esta solicitud", create: "Crear contrato",
+    beforeDraft: "Cree el contrato cuando la solicitud llegue a Propuesta redactada.",
+    banner: "Creando un contrato para la solicitud {{title}}. Se vinculará a la solicitud y se enviará al administrador de la propiedad como propuesta.",
+    loading: "Cargando contratos de la solicitud…", loadError: "No se pudo cargar la solicitud. Recargue antes de continuar.", retry: "Reintentar cargar contratos",
+    tm: "Tiempo y materiales", line: { landscape: "Jardinería", snow: "Nieve", both: "Jardinería + Nieve" },
+    form: { ours: "Nuestro formulario", theirs: "Su formulario" },
+    status: { draft: "Borrador", sent: "Enviado", signed: "Firmado", active: "Activo", expired: "Vencido", renewed: "Renovado", lost: "Perdido", cancelled: "Cancelado" },
+  },
   nav: {
     bids: "Ofertas",
     estimates: "Estimados",
