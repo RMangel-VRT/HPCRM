@@ -187,7 +187,7 @@ const es = {
     importing: "Importando",
     helper: "Exporte el catálogo de piezas de IrrigoPro como CSV y súbalo aquí.",
     replaceWarning: "Cada archivo se trata como el catálogo completo. Las piezas que no aparezcan en el archivo se desactivan. Los archivos vacíos o totalmente inválidos se rechazan sin cambiar nada.",
-    headersHint: "Columnas obligatorias: sku, name, category, price. Opcionales: description, cost, material, size, brand, fittingType, detail, isActive. Máximo 5 MB.",
+    headersHint: "Columnas obligatorias: SKU, Product/Service Name, Part Type, Price. Los valores vacíos de Part Type se importan como Misc. Opcionales: Sales Description, Cost, Brand, Size, Material, Fitting Type, Detail, Active. Approval Status y QuickBooks ID se ignoran. Máximo 5 MB.",
     fileTooLarge: "El CSV supera el límite de 5 MB.",
     importFailed: "La importación falló",
     importDone: "Importación terminada",

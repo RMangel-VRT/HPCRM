@@ -96,6 +96,7 @@ describe("IrrigationCatalog", () => {
     expect(screen.getByTestId("text-price-i1").textContent).toBe("$6.45");
     expect(screen.getByTestId("text-cost-i1").textContent).toBe("$2.87");
     expect(screen.getByTestId("text-import-helper").textContent).toBe("Export the Parts Catalog from IrrigoPro as CSV, then upload it here.");
+    expect(screen.getByTestId("text-import-headers").textContent).toBe("Required columns: SKU, Product/Service Name, Part Type, Price. Blank Part Type values default to Misc. Optional: Sales Description, Cost, Brand, Size, Material, Fitting Type, Detail, Active. Approval Status and QuickBooks ID are ignored. Max 5 MB.");
     expect(screen.getByTestId("text-replace-warning").textContent).toMatch(/complete catalog/);
     expect(screen.getByTestId("rail-irrigation").getAttribute("aria-current")).toBe("page");
     expect(screen.getByTestId("rail-hardscape").getAttribute("href")).toBe("/dashboard/estimates/catalogs/hardscape");
@@ -291,6 +292,7 @@ describe("IrrigationCatalog", () => {
     await screen.findByTestId("text-name-i1");
     expect(screen.getByTestId("text-page-title").textContent).toContain("Catálogo de riego");
     expect(screen.getByTestId("button-import-irrigopro").textContent).toBe("Importar desde IrrigoPro");
+    expect(screen.getByTestId("text-import-headers").textContent).toBe("Columnas obligatorias: SKU, Product/Service Name, Part Type, Price. Los valores vacíos de Part Type se importan como Misc. Opcionales: Sales Description, Cost, Brand, Size, Material, Fitting Type, Detail, Active. Approval Status y QuickBooks ID se ignoran. Máximo 5 MB.");
     expect(isEstimatesHubPage("/dashboard/estimates/catalogs/irrigation")).toBe(true);
   });
 });

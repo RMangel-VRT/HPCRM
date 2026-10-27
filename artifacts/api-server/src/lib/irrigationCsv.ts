@@ -6,8 +6,14 @@ export class IrrigationCsvError extends Error {
   constructor(message: string, public skippedRows: IrrigationSkip[] = []) { super(message); }
 }
 const normalize = (name: string) => {
-  const normalized = name.trim().toLowerCase().replace(/[_\s-]/g, "");
-  return normalized === "active" ? "isactive" : normalized;
+  const normalized = name.trim().toLowerCase().replace(/[_\s/-]/g, "");
+  switch (normalized) {
+    case "active": return "isactive";
+    case "productservicename": return "name";
+    case "parttype": return "category";
+    case "salesdescription": return "description";
+    default: return normalized;
+  }
 };
 export function parseIrrigationCsv(text: string) {
   const [header, ...records] = parseCsv(text);
@@ -28,12 +34,12 @@ export function parseIrrigationCsv(text: string) {
       if (duplicate) throw new Error("Duplicate SKU: first occurrence wins");
       if (record.error) throw new Error(record.error);
       if (record.fields.length !== names.length) throw new Error("Column count does not match header");
-      for (const key of ["sku", "name", "category"]) if (!row[key]) throw new Error(`Required value missing: ${key}`);
+      for (const key of ["sku", "name"]) if (!row[key]) throw new Error(`Required value missing: ${key}`);
       const active = (row.isactive ?? row.active ?? "").toLowerCase();
       if (!["", "true", "false", "1", "0", "yes", "no"].includes(active)) throw new Error("Active must be true/false, yes/no or 1/0");
       const optional = (name: string) => row[name] || null;
       rows.push({
-        externalSku: sku, name: row.name, category: row.category,
+        externalSku: sku, name: row.name, category: row.category || "Misc",
         description: optional("description"), material: optional("material"), size: optional("size"),
         brand: optional("brand"), fittingType: optional("fittingtype"), detail: optional("detail"),
         unit: row.unit || "ea", wholesaleCostCents: dollarsToCents(row.cost ?? ""),

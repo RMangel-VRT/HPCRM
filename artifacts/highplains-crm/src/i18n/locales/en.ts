@@ -187,7 +187,7 @@ const en = {
     importing: "Importing",
     helper: "Export the Parts Catalog from IrrigoPro as CSV, then upload it here.",
     replaceWarning: "Each upload is treated as the complete catalog. Parts missing from the file are deactivated. Empty or wholly invalid files are rejected and change nothing.",
-    headersHint: "Required columns: sku, name, category, price. Optional: description, cost, material, size, brand, fittingType, detail, isActive. Max 5 MB.",
+    headersHint: "Required columns: SKU, Product/Service Name, Part Type, Price. Blank Part Type values default to Misc. Optional: Sales Description, Cost, Brand, Size, Material, Fitting Type, Detail, Active. Approval Status and QuickBooks ID are ignored. Max 5 MB.",
     fileTooLarge: "CSV exceeds the 5 MB upload limit.",
     importFailed: "Import failed",
     importDone: "Import finished",

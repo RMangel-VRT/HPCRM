@@ -264,7 +264,7 @@ function IrrigationCatalogContent() {
                 <p className="mt-2 rounded border border-[hsl(var(--est-warn))]/40 bg-[hsl(var(--est-warn-bg))]/50 px-2.5 py-1.5 text-xs font-medium text-[hsl(var(--est-warn))]" data-testid="text-replace-warning">
                   {t("irrigationCatalog.replaceWarning")}
                 </p>
-                <p className="mt-1.5 text-[11px] text-muted-foreground">{t("irrigationCatalog.headersHint")}</p>
+                <p className="mt-1.5 text-[11px] text-muted-foreground" data-testid="text-import-headers">{t("irrigationCatalog.headersHint")}</p>
               </div>
             </div>
             <input ref={fileRef} type="file" accept=".csv,text/csv" className="sr-only" tabIndex={-1} data-testid="input-import-file"
