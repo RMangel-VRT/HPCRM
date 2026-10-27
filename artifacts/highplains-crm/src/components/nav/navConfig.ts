@@ -119,6 +119,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
     labelKey: "nav.business",
     items: [
       { key: "estimates", labelKey: "nav.estimates", icon: Calculator, href: "/dashboard/estimates", visible: is(...AO) },
+      { key: "bids", labelKey: "nav.bids", icon: Calculator, href: "/dashboard/bids", visible: is(...AO) },
       { key: "billing", labelKey: "nav.invoicing", icon: Receipt, href: "/dashboard/invoicing", badge: "billing",
         visible: (u) => showBillingSidebar(u) },
       { key: "revenue", labelKey: "nav.revenue", icon: DollarSign, href: "/dashboard/revenue", visible: is(...AO) },

@@ -6,17 +6,18 @@ import { db } from "../db";
 import { storage } from "../storage";
 import { companyDateString, companyToday } from "../lib/companyDay";
 import { loadEstimatesBoard, estimateDaysInStage } from "./estimatesBoard";
+import { loadBidsBoard } from "./bidsBoard";
 import { loadSchedulingQueue } from "./schedulingQueue";
 import { loadPendingInvoices } from "./pendingInvoices";
 import { resolveVisibleMailboxes } from "../services/mailboxScope";
 
-export type SectionKey = "estimates" | "scheduling" | "invoicing" | "inbox" | "flags" | "contracts" | "mine";
+export type SectionKey = "estimates" | "bids" | "scheduling" | "invoicing" | "inbox" | "flags" | "contracts" | "mine";
 type Oldest = { label: string; detail: string; href: string };
 export interface SectionSummary {
   key: SectionKey; href: string; total: number; overdue: number; oldest: Oldest | null; flow: null;
 }
 const destinations: Record<SectionKey, string> = {
-  estimates: "/dashboard/estimates", scheduling: "/dashboard/scheduling", invoicing: "/dashboard/invoicing",
+  estimates: "/dashboard/estimates", bids: "/dashboard/bids", scheduling: "/dashboard/scheduling", invoicing: "/dashboard/invoicing",
   inbox: "/dashboard/communications/inbox", flags: "/dashboard/flags",
   contracts: "/dashboard/contracts", mine: "/dashboard/tickets/my",
 };
@@ -29,7 +30,7 @@ export function permittedSections(user: Pick<UserWithContext, "activeRole" | "ac
   const billingNav = user.activeRole === "admin" || (user.activeRole === "office" && !user.activeTags?.includes("billing"));
   if (user.isSuperAdminBool) return billingNav ? ["invoicing", "mine"] : [];
   return ([
-    ["estimates", office], ["scheduling", office || user.activeRole === "field_manager"],
+    ["estimates", office], ["bids", office], ["scheduling", office || user.activeRole === "field_manager"],
     ["invoicing", billingNav], ["inbox", office], ["flags", office], ["contracts", office],
     ["mine", PERSONAL_ROLES.includes(user.activeRole) || user.activeTags?.includes("billing")],
   ] as const).filter(([, allowed]) => allowed).map(([key]) => key);
@@ -42,10 +43,17 @@ function summary(key: SectionKey, total: number, overdue: number, oldest: Oldest
 const dayDifference = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 
 export async function estimatesSummary(companyId: string, now: Date) {
-  const board = await loadEstimatesBoard(companyId, undefined, now);
+  return opportunitySummary("estimates", await loadEstimatesBoard(companyId, now));
+}
+
+export async function bidsSummary(companyId: string, now: Date) {
+  return opportunitySummary("bids", await loadBidsBoard(companyId, now));
+}
+
+function opportunitySummary(key: "estimates" | "bids", board: Awaited<ReturnType<typeof loadEstimatesBoard>> | Awaited<ReturnType<typeof loadBidsBoard>>) {
   const rows = board.stages.flatMap(stage => stage.tickets).sort((a, b) => b.daysInStage - a.daysInStage || a.id.localeCompare(b.id));
   const first = rows[0];
-  return summary("estimates", rows.length, rows.filter(row => row.daysInStage >= 7).length, first ? {
+  return summary(key, rows.length, rows.filter(row => row.daysInStage >= 7).length, first ? {
     label: first.customer?.name ?? first.title,
     detail: `${first.statusName} · ${first.daysInStage}d`, href: ticketHref(first.id),
   } : null);
@@ -169,7 +177,7 @@ export async function mineSummary(user: UserWithContext, now: Date) {
 export async function loadDashboardSections(user: UserWithContext, now = new Date()) {
   const companyId = user.activeCompanyId;
   const loaders: Record<SectionKey, () => Promise<SectionSummary>> = {
-    estimates: () => estimatesSummary(companyId, now), scheduling: () => schedulingSummary(companyId, now),
+    estimates: () => estimatesSummary(companyId, now), bids: () => bidsSummary(companyId, now), scheduling: () => schedulingSummary(companyId, now),
     invoicing: () => invoicingSummary(user, now), inbox: () => inboxSummary(user, now),
     flags: () => flagsSummary(companyId), contracts: () => contractsSummary(companyId, now), mine: () => mineSummary(user, now),
   };

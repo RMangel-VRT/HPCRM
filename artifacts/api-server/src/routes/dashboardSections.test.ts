@@ -5,7 +5,7 @@ import { communications, flags, tickets, ticketStatusHistory } from "@workspace/
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  select: vi.fn(), board: vi.fn(), queue: vi.fn(), invoices: vi.fn(),
+  select: vi.fn(), board: vi.fn(), bids: vi.fn(), queue: vi.fn(), invoices: vi.fn(),
   getCommunicationStats: vi.fn(), getUpcomingRenewals: vi.fn(), visible: vi.fn(),
 }));
 vi.mock("../db", () => ({ db: { select: mocks.select } }));
@@ -14,12 +14,13 @@ vi.mock("./estimatesBoard", async original => ({
   ...await original<typeof import("./estimatesBoard")>(), loadEstimatesBoard: mocks.board,
 }));
 vi.mock("./schedulingQueue", () => ({ loadSchedulingQueue: mocks.queue }));
+vi.mock("./bidsBoard", () => ({ loadBidsBoard: mocks.bids }));
 vi.mock("./pendingInvoices", () => ({ loadPendingInvoices: mocks.invoices }));
 vi.mock("../services/mailboxScope", () => ({ resolveVisibleMailboxes: mocks.visible }));
 
 import {
   registerDashboardSectionsRoutes, loadDashboardSections, permittedSections,
-  estimatesSummary, schedulingSummary, invoicingSummary, contractsSummary, inboxSummary, mineSummary,
+  estimatesSummary, bidsSummary, schedulingSummary, invoicingSummary, contractsSummary, inboxSummary, mineSummary,
 } from "./dashboardSections";
 import type { UserWithContext } from "../auth";
 
@@ -43,6 +44,7 @@ beforeEach(() => {
   byTable = new Map();
   predicates = [];
   mocks.board.mockResolvedValue({ stages: Array.from({ length: 5 }, () => ({ tickets: [] })) });
+  mocks.bids.mockResolvedValue({ stages: Array.from({ length: 6 }, () => ({ tickets: [] })) });
   mocks.queue.mockResolvedValue({ needsScheduling: [], slipped: [] });
   mocks.invoices.mockResolvedValue([]);
   mocks.getCommunicationStats.mockResolvedValue({ drafts: 0, openFollowUps: 0, overdueFollowUps: 0 });
@@ -74,10 +76,10 @@ describe("dashboard sections access and contract", () => {
     expect((await request(app({ ...user, activeCompanyId: null } as unknown as UserWithContext)).get("/api/dashboard/sections")).status).toBe(403);
     expect(mocks.select).not.toHaveBeenCalled();
   });
-  it("returns all seven zero summaries, null oldest and explicit flow null for an empty company", async () => {
+  it("returns all eight zero summaries, null oldest and explicit flow null for an empty company", async () => {
     const response = await request(app()).get("/api/dashboard/sections");
     expect(response.status).toBe(200);
-    expect(response.body.sections.map((s: { key: string }) => s.key)).toEqual(["estimates", "scheduling", "invoicing", "inbox", "flags", "contracts", "mine"]);
+    expect(response.body.sections.map((s: { key: string }) => s.key)).toEqual(["estimates", "bids", "scheduling", "invoicing", "inbox", "flags", "contracts", "mine"]);
     for (const section of response.body.sections) {
       expect(section).toMatchObject({ total: 0, overdue: 0, oldest: null, flow: null });
       expect(Object.keys(section).sort()).toEqual(["flow", "href", "key", "oldest", "overdue", "total"]);
@@ -87,6 +89,7 @@ describe("dashboard sections access and contract", () => {
     const response = await request(app({ ...user, activeRole: "field_manager" })).get("/api/dashboard/sections");
     expect(response.body.sections.map((s: { key: string }) => s.key)).toEqual(["scheduling", "mine"]);
     expect(mocks.board).not.toHaveBeenCalled();
+    expect(mocks.bids).not.toHaveBeenCalled();
     expect(mocks.invoices).not.toHaveBeenCalled();
     expect(mocks.getCommunicationStats).not.toHaveBeenCalled();
     expect(mocks.getUpcomingRenewals).not.toHaveBeenCalled();
@@ -104,7 +107,8 @@ describe("dashboard sections access and contract", () => {
   });
   it("passes active tenant and a single consistent time to shared sources; SQL stays scoped", async () => {
     await loadDashboardSections(user, NOW);
-    expect(mocks.board).toHaveBeenCalledWith("company-a", undefined, NOW);
+    expect(mocks.board).toHaveBeenCalledWith("company-a", NOW);
+    expect(mocks.bids).toHaveBeenCalledWith("company-a", NOW);
     expect(mocks.queue).toHaveBeenCalledWith("company-a", NOW);
     expect(mocks.invoices).toHaveBeenCalledWith(user, { now: NOW });
     expect(mocks.getCommunicationStats).toHaveBeenCalledWith("company-a");
@@ -114,7 +118,8 @@ describe("dashboard sections access and contract", () => {
       expect(predicate.params).toContain("company-a");
     }
     await loadDashboardSections({ ...user, activeCompanyId: "company-b" }, NOW);
-    expect(mocks.board).toHaveBeenLastCalledWith("company-b", undefined, NOW);
+    expect(mocks.board).toHaveBeenLastCalledWith("company-b", NOW);
+    expect(mocks.bids).toHaveBeenLastCalledWith("company-b", NOW);
     expect(mocks.queue).toHaveBeenLastCalledWith("company-b", NOW);
   });
   it("starts permitted sources concurrently", async () => {
@@ -130,6 +135,15 @@ describe("dashboard sections access and contract", () => {
 });
 
 describe("section clocks and population parity", () => {
+  it("keeps six-stage Bids separate and uses the seven-day threshold", async () => {
+    mocks.bids.mockResolvedValue({ stages: [0, 1, 6, 7, 8, 21].map((daysInStage, id) => ({
+      tickets: [{ id: `${id}`, title: `RFP ${id}`, statusName: "Renamed stage", customer: null, daysInStage }],
+    })) });
+    expect(await bidsSummary("company-a", NOW)).toMatchObject({
+      key: "bids", href: "/dashboard/bids", total: 6, overdue: 3, oldest: { label: "RFP 5" },
+    });
+    expect(await estimatesSummary("company-a", NOW)).toMatchObject({ total: 0 });
+  });
   it("sums all five actual board stages and uses established days-in-stage, including undated bids", async () => {
     mocks.board.mockResolvedValue({ stages: [0, 1, 7, 8, 21].map((daysInStage, id) => ({
       tickets: [{ id: `${id}`, title: `Bid ${id}`, statusName: "Renamed stage", customer: null, daysInStage }],

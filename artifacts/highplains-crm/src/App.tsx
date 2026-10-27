@@ -94,6 +94,7 @@ const PlantMatches = lazy(() => import("@/pages/PlantMatches"));
 const PlantPalettes = lazy(() => import("@/pages/PlantPalettes"));
 const PlantPaletteDraft = lazy(() => import("@/pages/PlantPaletteDraft"));
 const EstimatesBoardPage = lazy(() => import("@/pages/EstimatesBoardPage"));
+const BidsBoardPage = lazy(() => import("@/pages/BidsBoardPage"));
 const HardscapeCatalog = lazy(() => import("@/pages/HardscapeCatalog"));
 const QboCustomerMapping = lazy(() => import("@/pages/QboCustomerMapping"));
 
@@ -155,7 +156,7 @@ function Router() {
   const { i18n } = useTranslation();
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [location] = useLocation();
-  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags" || location === "/dashboard/estimates" || isEstimatesHubPage(location);
+  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags" || location === "/dashboard/estimates" || location === "/dashboard/bids" || isEstimatesHubPage(location);
   const isVisualScopeDraft = /^\/dashboard\/tools\/visual-scope\/[^/]+/.test(location);
   const isCustomerDetail =
     /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
@@ -244,6 +245,7 @@ function Router() {
         />
         <ProtectedRoute path="/dashboard/estimates/catalogs/hardscape" component={HardscapeCatalog} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates" component={EstimatesBoardPage} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/bids" component={BidsBoardPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/invoicing" component={BillingPage} access={canViewBilling} />
         <Route path="/dashboard/billing">
           <QueryPreservingRedirect to="/dashboard/invoicing" />

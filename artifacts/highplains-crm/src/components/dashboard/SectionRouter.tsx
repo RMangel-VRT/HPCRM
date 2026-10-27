@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { getNavForUser, type NavUser } from "@/components/nav/navConfig";
 import "./SectionRouter.css";
 
-export type SectionKey = "estimates" | "scheduling" | "invoicing" | "inbox" | "flags" | "contracts" | "mine";
+export type SectionKey = "estimates" | "bids" | "scheduling" | "invoicing" | "inbox" | "flags" | "contracts" | "mine";
 export interface SectionSummary {
   key: SectionKey;
   href: string;
@@ -17,13 +17,13 @@ export interface SectionSummary {
 export interface SectionsResponse { sections: SectionSummary[] }
 
 /** Fixed slot order; never reordered by urgency. */
-export const SECTION_ORDER: SectionKey[] = ["estimates", "scheduling", "invoicing", "inbox", "flags", "contracts", "mine"];
+export const SECTION_ORDER: SectionKey[] = ["estimates", "bids", "scheduling", "invoicing", "inbox", "flags", "contracts", "mine"];
 const NAV_KEY: Record<SectionKey, string> = {
-  estimates: "estimates", scheduling: "scheduling", invoicing: "billing", inbox: "inbox",
+  estimates: "estimates", bids: "bids", scheduling: "scheduling", invoicing: "billing", inbox: "inbox",
   flags: "flags", contracts: "contracts", mine: "tickets",
 };
 const LABEL_KEY: Record<SectionKey, string> = {
-  estimates: "nav.estimates", scheduling: "nav.scheduling", invoicing: "nav.invoicing", inbox: "nav.inbox",
+  estimates: "nav.estimates", bids: "nav.bids", scheduling: "nav.scheduling", invoicing: "nav.invoicing", inbox: "nav.inbox",
   flags: "nav.flags", contracts: "nav.contracts", mine: "nav.myTickets",
 };
 

@@ -286,8 +286,8 @@ describe("estimates rail", () => {
       <Router hook={memoryLocation({ path: "/dashboard/estimates" }).hook}><EstimatesBoardPage /></Router>
     </QueryClientProvider>);
     expect(screen.getByTestId("rail-all").getAttribute("href")).toBe("/dashboard/estimates");
-    expect(screen.getByTestId("rail-estimate_request").getAttribute("href")).toBe("/dashboard/estimates?type=estimate_request");
-    expect(screen.getByTestId("rail-rfp_request").getAttribute("href")).toBe("/dashboard/estimates?type=rfp_request");
+    expect(screen.queryByTestId("rail-estimate_request")).toBeNull();
+    expect(screen.queryByTestId("rail-rfp_request")).toBeNull();
     expect(screen.getByTestId("rail-hardscape").getAttribute("href")).toBe("/dashboard/estimates/catalogs/hardscape");
     expect(screen.queryByText("Settings")).toBeNull();
   });

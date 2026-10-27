@@ -6,7 +6,7 @@ export const ESTIMATES_BASE = "/dashboard/estimates";
 export const HARDSCAPE_CATALOG_PATH = `${ESTIMATES_BASE}/catalogs/hardscape`;
 export const PLANT_LIBRARY_PATH = "/dashboard/tools/plant-library";
 
-export type EstimatesRailKey = "all" | "estimate_request" | "rfp_request" | "hardscape" | "plant_library";
+export type EstimatesRailKey = "all" | "hardscape" | "plant_library";
 
 /** True for estimates-hub sub pages (the board itself is matched separately). */
 export function isEstimatesHubPage(location: string): boolean {
@@ -18,8 +18,6 @@ export function estimatesRailSections(t: (k: string) => string): RailSection[] {
   return [
     { items: [
       { key: "all", label: t("estimates.all"), href: ESTIMATES_BASE },
-      { key: "estimate_request", label: t("estimates.requests"), href: `${ESTIMATES_BASE}?type=estimate_request` },
-      { key: "rfp_request", label: t("estimates.rfps"), href: `${ESTIMATES_BASE}?type=rfp_request` },
     ] },
     { label: t("estimates.catalogs"), items: [
       { key: "hardscape", label: t("estimates.hardscapeCatalog"), href: HARDSCAPE_CATALOG_PATH },

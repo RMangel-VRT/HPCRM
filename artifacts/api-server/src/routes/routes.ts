@@ -15,6 +15,8 @@ import { registerCrewsAndMobileRoutes } from "./crewsAndMobile";
 import { registerFlagsRoutes } from "./flags";
 import { registerDashboardQueueRoutes } from "./dashboardQueue";
 import { registerEstimatesBoardRoutes } from "./estimatesBoard";
+import { registerBidsBoardRoutes } from "./bidsBoard";
+import { excludeBidsFromPersonalTickets } from "../lib/personalTicketScope";
 import { registerDashboardSectionsRoutes } from "./dashboardSections";
 import { registerContractCenterRoutes } from "./contractCenter";
 import { rejectLegacyContractWrite, hasFrozenLegacyRows } from "../lib/legacyContractFreeze";
@@ -2646,6 +2648,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerFlagsRoutes(app);
   registerDashboardQueueRoutes(app);
   registerEstimatesBoardRoutes(app);
+  registerBidsBoardRoutes(app);
   registerDashboardSectionsRoutes(app);
   registerCatalogRoutes(app);
   registerContractCenterRoutes(app);
@@ -6223,10 +6226,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    const [tickets, allStatuses] = await Promise.all([
+    const [assignedTickets, allStatuses, personalTypes] = await Promise.all([
       storage.getTickets(user.activeCompanyId, { assignedToId: user.id }),
       storage.getAllTicketTypeStatuses(user.activeCompanyId),
+      storage.getTicketTypes(user.activeCompanyId),
     ]);
+    const tickets = excludeBidsFromPersonalTickets(assignedTickets, personalTypes);
 
     const statusMap = new Map(allStatuses.map(s => [s.id, s]));
 

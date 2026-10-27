@@ -37,8 +37,8 @@ describe("EstimatesBoardPage", () => {
   });
   it.each([
     ["", "/api/estimates/board", "all"],
-    ["?type=estimate_request", "/api/estimates/board?type=estimate_request", "estimate_request"],
-    ["?type=rfp_request", "/api/estimates/board?type=rfp_request", "rfp_request"],
+    ["?type=estimate_request", "/api/estimates/board", "all"],
+    ["?type=rfp_request", "/api/estimates/board", "all"],
     ["?type=invalid", "/api/estimates/board", "all"],
   ])("uses the URL filter %s for API and active rail", async (search, url, key) => {
     const loc = memoryLocation({ path: "/dashboard/estimates" });
@@ -56,12 +56,12 @@ describe("EstimatesBoardPage", () => {
       <Router hook={memoryLocation({ path: "/dashboard/estimates" }).hook}><EstimatesBoardPage /></Router>
     </QueryClientProvider>);
     await screen.findByTestId("card-bid-t1");
-    expect(screen.getByText("Todas las ofertas")).toBeTruthy();
+    expect(screen.getByText("Todos los estimados")).toBeTruthy();
     expect(screen.getByText("Decisión")).toBeTruthy();
     expect(screen.getByText("Solicitud de estimado")).toBeTruthy();
     expect(screen.getByText("Prioridad: Alta")).toBeTruthy();
     expect(screen.getByText("8 días")).toBeTruthy();
-    expect(screen.getAllByText("No hay ofertas abiertas.")).toHaveLength(4);
+    expect(screen.getAllByText("No hay estimados abiertos.")).toHaveLength(4);
   });
   it("shows an explicit error rather than a false empty board", async () => {
     vi.mocked(apiRequest).mockRejectedValueOnce(new Error("Failed"));

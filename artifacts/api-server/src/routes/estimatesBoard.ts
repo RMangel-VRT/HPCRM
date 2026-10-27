@@ -7,19 +7,17 @@ import type { UserWithContext } from "../auth";
 import { findSeededTicketType } from "../shared/ticketCapabilities";
 import { companyDateString } from "../lib/companyDay";
 
-/** The only board workflow definition. Display names never determine membership. */
+/** Estimate-only workflow. Display names never determine membership. */
 export const ESTIMATE_STAGES = [
-  { key: "new", estimate_request: ["new"], rfp_request: ["new"] },
-  { key: "estimating", estimate_request: ["estimating"], rfp_request: ["reviewing", "waiting_info", "site_visit"] },
-  { key: "proposal", estimate_request: ["proposal_draft"], rfp_request: ["proposal_draft"] },
-  { key: "sent", estimate_request: ["proposal_sent"], rfp_request: ["proposal_sent", "awaiting_response"] },
-  { key: "decision", estimate_request: ["decision_received"], rfp_request: ["decision_received"] },
+  { key: "new", statusKeys: ["new"] },
+  { key: "estimating", statusKeys: ["estimating"] },
+  { key: "proposal", statusKeys: ["proposal_draft"] },
+  { key: "sent", statusKeys: ["proposal_sent"] },
+  { key: "decision", statusKeys: ["decision_received"] },
 ] as const;
 
-type BidType = "estimate_request" | "rfp_request";
-type StageKey = typeof ESTIMATE_STAGES[number]["key"];
 interface BoardTicket {
-  id: string; title: string; typeKey: BidType; statusKey: string; statusName: string;
+  id: string; title: string; typeKey: string; statusKey: string; statusName: string;
   customer: { id: string; name: string } | null;
   assignee: { id: string; name: string } | null;
   priority: string; estimateNumber: string | null; daysInStage: number;
@@ -34,23 +32,26 @@ export function estimateDaysInStage(enteredAt: Date, now: Date): number {
   return Math.max(0, dayNumber(now) - dayNumber(enteredAt));
 }
 
-export async function loadEstimatesBoard(companyId: string, filter: unknown, now = new Date()) {
-  const stages: { key: StageKey; tickets: BoardTicket[] }[] =
-    ESTIMATE_STAGES.map(stage => ({ key: stage.key, tickets: [] }));
+export function loadEstimatesBoard(companyId: string, now = new Date()) {
+  return loadOpportunityBoard(companyId, "estimate_request", ESTIMATE_STAGES, now);
+}
+
+/** One type per invocation, SQL-scoped and uncapped, with constant bulk queries. */
+export async function loadOpportunityBoard<T extends Parameters<typeof findSeededTicketType>[1], S extends string>(
+  companyId: string, typeKey: T,
+  definitions: readonly { key: S; statusKeys: readonly string[] }[], now = new Date(),
+) {
+  const stages: { key: S; tickets: BoardTicket[] }[] =
+    definitions.map(stage => ({ key: stage.key, tickets: [] }));
   const types = await storage.getTicketTypes(companyId);
-  const statusMap = new Map<string, { typeId: string; typeKey: BidType; stageKey: StageKey; statusKey: string; statusName: string }>();
-  const typeIds: string[] = [];
-  for (const typeKey of ["estimate_request", "rfp_request"] as const) {
-    if ((filter === "estimate_request" || filter === "rfp_request") && filter !== typeKey) continue;
-    const type = findSeededTicketType(types, typeKey);
-    if (!type) continue;
-    typeIds.push(type.id);
-    for (const status of await storage.getTicketTypeStatuses(type.id)) {
-      const stage = ESTIMATE_STAGES.find(stage => (stage[typeKey] as readonly string[]).includes(status.statusKey ?? ""));
-      if (stage) statusMap.set(status.id, {
-        typeId: type.id, typeKey, stageKey: stage.key, statusKey: status.statusKey!, statusName: status.name,
-      });
-    }
+  const statusMap = new Map<string, { typeId: string; typeKey: T; stageKey: S; statusKey: string; statusName: string }>();
+  const type = findSeededTicketType(types, typeKey);
+  if (!type) return { stages };
+  for (const status of await storage.getTicketTypeStatuses(type.id)) {
+    const stage = definitions.find(stage => stage.statusKeys.includes(status.statusKey ?? ""));
+    if (stage) statusMap.set(status.id, {
+      typeId: type.id, typeKey, stageKey: stage.key, statusKey: status.statusKey!, statusName: status.name,
+    });
   }
   if (!statusMap.size) return { stages };
   // Deliberately uncapped: this is the complete open-bid population, not a queue preview.
@@ -60,7 +61,7 @@ export async function loadEstimatesBoard(companyId: string, filter: unknown, now
     assignedToId: tickets.assignedToId, priority: tickets.priority,
     estimateNumber: tickets.estimateNumber, createdAt: tickets.createdAt,
   }).from(tickets).where(and(
-    eq(tickets.companyId, companyId), inArray(tickets.ticketTypeId, typeIds),
+    eq(tickets.companyId, companyId), inArray(tickets.ticketTypeId, [type.id]),
     inArray(tickets.currentStatusId, [...statusMap.keys()]),
   ));
   if (!rows.length) return { stages };
@@ -110,9 +111,9 @@ export function registerEstimatesBoardRoutes(app: Express): void {
       return;
     }
     try {
-      res.json(await loadEstimatesBoard(user.activeCompanyId, req.query.type));
+      res.json(await loadEstimatesBoard(user.activeCompanyId));
     } catch (error) {
-      req.log.error({ err: error }, "Failed to load estimates board");
+      req.log?.error({ err: error }, "Failed to load estimates board");
       res.status(500).json({ message: "Failed to load estimates board" });
     }
   });

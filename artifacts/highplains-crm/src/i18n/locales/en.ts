@@ -214,13 +214,19 @@ const en = {
     noDescription: "",
   },
   estimates: {
-    type: { estimate_request: "Estimate Request", rfp_request: "RFP Request" },
+    typeLabel: "Estimate Request",
     stage: { new: "New", estimating: "Estimating", proposal: "Proposal", sent: "Sent", decision: "Decision" },
-    title: "Estimates", all: "All bids", requests: "Estimate requests", rfps: "RFPs",
-    days: "{{count}} days", empty: "No open bids.", loading: "Loading bids", error: "Could not load bids.", retry: "Retry", priority: "Priority", unassigned: "Unassigned", railLabel: "Estimate filters",
+    title: "Estimates", all: "All estimates",
+    days: "{{count}} days", empty: "No open estimates.", loading: "Loading estimates", error: "Could not load estimates.", retry: "Retry", priority: "Priority", unassigned: "Unassigned", railLabel: "Estimates navigation",
     catalogs: "Catalogs", settings: "Settings", hardscapeCatalog: "Hardscape Catalog", plantLibrary: "Plant Library",
   },
+  bids: {
+    title: "Bids", typeLabel: "RFP Request",
+    stage: { new: "New", reviewing: "Reviewing", walk: "Pre-proposal walk", proposal: "Proposal", submitted: "Submitted", decision: "Decision" },
+    days: "{{count}} days", empty: "No open bids.", loading: "Loading bids", error: "Could not load bids.", retry: "Retry", priority: "Priority", unassigned: "Unassigned",
+  },
   nav: {
+    bids: "Bids",
     estimates: "Estimates",
     adminHome: "Admin Home",
     dashboard: "Dashboard",

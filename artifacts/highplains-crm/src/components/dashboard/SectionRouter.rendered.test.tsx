@@ -31,11 +31,13 @@ describe("SectionRouter", () => {
   it("matches separate super-admin navigation without widening section access", () => {
     expect([...permittedSectionKeys({ activeRole: "admin", isSuperAdminBool: true })]).toEqual(["invoicing", "mine"]);
   });
-  it("renders seven live tiles in fixed order plus reserved Campaigns cell for admin", async () => {
+  it("renders eight live tiles in fixed order plus ninth reserved Campaigns cell for admin", async () => {
     respond({ sections: [...all(2)].reverse() });
     mount({ activeRole: "admin" });
     await screen.findByTestId("text-section-total-mine");
     expect(order()).toEqual([...SECTION_ORDER.map(k => `tile-section-${k}`), "tile-section-campaigns"]);
+    expect(SECTION_ORDER.slice(0, 2)).toEqual(["estimates", "bids"]);
+    expect(order()).toHaveLength(9);
     for (const k of SECTION_ORDER) {
       const tile = screen.getByTestId(`tile-section-${k}`);
       expect(tile.tagName).toBe("A");
@@ -73,8 +75,10 @@ describe("SectionRouter", () => {
     await screen.findByTestId("text-section-total-scheduling");
     expect(screen.getByTestId("slot-hidden-invoicing").textContent).toBe("");
     expect(screen.getByTestId("slot-hidden-estimates").getAttribute("aria-hidden")).toBe("true");
+    expect(screen.getByTestId("slot-hidden-bids").getAttribute("aria-hidden")).toBe("true");
+    expect(screen.queryByTestId("text-section-total-bids")).toBeNull();
     expect(screen.queryByTestId("text-section-total-invoicing")).toBeNull();
-    expect(order()).toHaveLength(8);
+    expect(order()).toHaveLength(9);
   });
 
   it("billing-tagged office follows sidebar billing visibility", async () => {

@@ -9,6 +9,9 @@ import {
 import { db, pool } from "../db";
 import { registerDashboardSectionsRoutes, loadDashboardSections } from "./dashboardSections";
 import { loadEstimatesBoard } from "./estimatesBoard";
+import { BID_STAGES, loadBidsBoard } from "./bidsBoard";
+import { excludeBidsFromPersonalTickets } from "../lib/personalTicketScope";
+import { storage } from "../storage";
 import { loadSchedulingQueue } from "./schedulingQueue";
 import type { UserWithContext } from "../auth";
 
@@ -49,7 +52,7 @@ describe("dashboard sections real PostgreSQL regressions", () => {
   it("returns 200 for a truly empty tenant, including Mine's date expression", async () => {
     const response = await request(app).get("/api/dashboard/sections");
     expect(response.status).toBe(200);
-    expect(response.body.sections).toHaveLength(7);
+    expect(response.body.sections).toHaveLength(8);
     for (const section of response.body.sections) {
       expect(section).toMatchObject({ total: 0, overdue: 0, oldest: null, flow: null });
     }
@@ -82,7 +85,7 @@ describe("dashboard sections real PostgreSQL regressions", () => {
     ].map(row => ({ ...row, createdById: viewer.id }))).returning();
     insertedTicketIds.push(...rows.map(row => row.id));
     const [result, board, queue] = await Promise.all([
-      loadDashboardSections(viewer, NOW), loadEstimatesBoard(companyIds[0], undefined, NOW), loadSchedulingQueue(companyIds[0], NOW),
+      loadDashboardSections(viewer, NOW), loadEstimatesBoard(companyIds[0], NOW), loadSchedulingQueue(companyIds[0], NOW),
     ]);
     expect(result.sections.find(s => s.key === "estimates")).toMatchObject({
       total: board.stages.reduce((n, stage) => n + stage.tickets.length, 0), overdue: 1,
@@ -96,6 +99,39 @@ describe("dashboard sections real PostgreSQL regressions", () => {
     // Re-entry resets the stage clock and never uses an old schedule deadline.
     await db.insert(ticketStatusHistory).values({ ticketId: rows[0].id, toStatusId: bidStatus, changedById: viewer.id, createdAt: new Date("2026-10-26T18:00Z") });
     expect((await loadDashboardSections(viewer, NOW)).sections.find(s => s.key === "estimates")?.overdue).toBe(0);
+  }, 30_000);
+  it("isolates renamed RFPs across all stages, summary totals and Mine, including re-entry", async () => {
+    const [type] = await db.insert(ticketTypes).values({
+      companyId: companyIds[0], name: "Renamed contract opportunity", typeKey: "rfp_request",
+    }).returning();
+    const statuses = await db.insert(ticketTypeStatuses).values(BID_STAGES.flatMap(stage => stage.statusKeys.map(statusKey => ({
+      ticketTypeId: type.id, name: `Renamed ${statusKey}`, statusKey, displayOrder: 0,
+    })))).returning();
+    const rows = await db.insert(tickets).values(statuses.map(status => ({
+      companyId: companyIds[0], title: `Contract opportunity ${status.statusKey}`, ticketTypeId: type.id,
+      currentStatusId: status.id, assignedToId: viewer.id, createdById: viewer.id, createdAt: new Date("2026-10-01T18:00Z"),
+    }))).returning();
+    insertedTicketIds.push(...rows.map(row => row.id));
+    const bids = await loadBidsBoard(companyIds[0], NOW);
+    expect(bids.stages.map(s => s.tickets.length)).toEqual([1, 2, 1, 1, 2, 1]);
+    const estimates = await loadEstimatesBoard(companyIds[0], NOW);
+    expect(estimates.stages.flatMap(s => s.tickets).every(t => t.typeKey === "estimate_request")).toBe(true);
+    const sections = (await loadDashboardSections(viewer, NOW)).sections;
+    expect(sections.find(s => s.key === "bids")).toMatchObject({ total: 8, overdue: 8 });
+    expect(sections.find(s => s.key === "estimates")?.total).toBe(estimates.stages.flatMap(s => s.tickets).length);
+    expect(sections.find(s => s.key === "mine")?.total).toBe(3);
+    const assigned = await storage.getTickets(companyIds[0], { assignedToId: viewer.id });
+    const personal = excludeBidsFromPersonalTickets(assigned, await storage.getTicketTypes(companyIds[0]));
+    expect(assigned.some(t => rows.some(bid => bid.id === t.id))).toBe(true);
+    expect(personal.some(t => rows.some(bid => bid.id === t.id))).toBe(false);
+    expect(personal.some(t => t.ticketTypeId === estimateTypeId)).toBe(true);
+    await db.insert(ticketStatusHistory).values([
+      { ticketId: rows[0].id, toStatusId: statuses[0].id, changedById: viewer.id, createdAt: new Date("2026-10-02T18:00Z") },
+      { ticketId: rows[0].id, toStatusId: statuses[0].id, changedById: viewer.id, createdAt: new Date("2026-10-26T18:00Z") },
+      { ticketId: rows[0].id, toStatusId: statuses[1].id, changedById: viewer.id, createdAt: new Date("2026-10-27T00:00Z") },
+    ]);
+    expect((await loadBidsBoard(companyIds[0], NOW)).stages[0].tickets[0].daysInStage).toBe(0);
+    expect((await loadDashboardSections(viewer, NOW)).sections.find(s => s.key === "bids")?.overdue).toBe(7);
   }, 30_000);
   it("never returns the populated tenant's rows from another active company", async () => {
     const result = await loadDashboardSections({ ...viewer, activeCompanyId: companyIds[1] }, NOW);

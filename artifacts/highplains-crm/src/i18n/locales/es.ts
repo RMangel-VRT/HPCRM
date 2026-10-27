@@ -214,13 +214,19 @@ const es = {
     noDescription: "",
   },
   estimates: {
-    type: { estimate_request: "Solicitud de estimado", rfp_request: "Solicitud de RFP" },
+    typeLabel: "Solicitud de estimado",
     stage: { new: "Nuevo", estimating: "Estimando", proposal: "Propuesta", sent: "Enviado", decision: "Decisión" },
-    title: "Estimados", all: "Todas las ofertas", requests: "Solicitudes de estimado", rfps: "RFP",
-    days: "{{count}} días", empty: "No hay ofertas abiertas.", loading: "Cargando ofertas", error: "No se pudieron cargar las ofertas.", retry: "Reintentar", priority: "Prioridad", unassigned: "Sin asignar", railLabel: "Filtros de estimados",
+    title: "Estimados", all: "Todos los estimados",
+    days: "{{count}} días", empty: "No hay estimados abiertos.", loading: "Cargando estimados", error: "No se pudieron cargar los estimados.", retry: "Reintentar", priority: "Prioridad", unassigned: "Sin asignar", railLabel: "Navegación de estimados",
     catalogs: "Catálogos", settings: "Configuración", hardscapeCatalog: "Catálogo de materiales", plantLibrary: "Biblioteca de plantas",
   },
+  bids: {
+    title: "Ofertas", typeLabel: "Solicitud de RFP",
+    stage: { new: "Nuevo", reviewing: "En revisión", walk: "Visita previa a la propuesta", proposal: "Propuesta", submitted: "Presentada", decision: "Decisión" },
+    days: "{{count}} días", empty: "No hay ofertas abiertas.", loading: "Cargando ofertas", error: "No se pudieron cargar las ofertas.", retry: "Reintentar", priority: "Prioridad", unassigned: "Sin asignar",
+  },
   nav: {
+    bids: "Ofertas",
     estimates: "Estimados",
     adminHome: "Inicio Admin",
     dashboard: "Panel",

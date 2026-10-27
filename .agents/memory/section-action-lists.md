@@ -15,10 +15,10 @@ These three slices permit no schema changes; stop and ask if a column appears ne
 
 **How to apply:** Treat this upload as shared requirements alongside each forthcoming slice specification. The upload references a separate design document; locate and read it before relying on its contents. Its diagnostic counts are a dated baseline, not proof of current results.
 
-The user clarified the dashboard design: seven live section tiles, plus a visibly held eighth cell. Campaigns waits until Phase 5's move to visits and a deliberate action-ownership decision; flow waits for its own index migration. Both spaces remain reserved so enabling them later does not reorder or resize tiles. Tile order/geometry never change with urgency; only intensity changes.
+The October 27 dashboard direction is eight live section tiles, with Bids immediately after Estimates, plus a visibly held ninth Campaigns cell. Campaigns waits until Phase 5's move to visits and a deliberate action-ownership decision; flow waits for its own index migration. Both spaces remain reserved so enabling them later does not reorder or resize tiles. Tile order/geometry never change with urgency; only intensity changes.
 
-**Why:** The user resolved the mismatch between the mockup and the Slice 01 wording and explicitly deferred both capabilities.
+**Why:** The user explicitly chose to retain Campaigns while splitting Bids, superseding the October 26 plan to give the reserved cell to RFP Center.
 
 **How to apply:** Use the clarification alongside `attached_assets/Pasted--Slice-01-Dissolve-the-queue-make-the-dashboard-a-route_1793055434946.txt`. Do not implement Campaigns counts or flow now. Completed, not-yet-invoiced campaign work potentially belonging to Invoicing is a future design consideration, not a settled ownership rule.
 
-The subsequently uploaded October 26 bids update assigns the future reserved router cell to RFP Center, not Campaigns, when that dedicated Contract Center work lands. Initial dashboard slices remain unchanged. See [Estimate and RFP boundaries](estimate-rfp-boundaries.md) for the newer lifecycle and rollout decisions.
+See [Estimate and RFP boundaries](estimate-rfp-boundaries.md) for the opportunity split and the remaining separate contract lifecycle direction.

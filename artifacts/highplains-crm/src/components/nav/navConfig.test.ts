@@ -5,8 +5,8 @@ import { defaultRedirectPath, loginLandingPath } from "@/lib/landing";
 const summer = new Date("2026-07-01T12:00:00Z");
 const keys = (user: NavUser, now = summer) => getNavForUser(user, now).flatMap(g => g.items.map(i => i.key));
 const roleRows: [NavRole, string[]][] = [
-  ["admin", ["dashboard", "inbox", "flags", "tickets", "scheduling", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "billing", "revenue", "reports", "settings", "team"]],
-  ["office", ["dashboard", "inbox", "flags", "tickets", "scheduling", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "billing", "revenue", "reports", "settings"]],
+  ["admin", ["dashboard", "inbox", "flags", "tickets", "scheduling", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "settings", "team"]],
+  ["office", ["dashboard", "inbox", "flags", "tickets", "scheduling", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "settings"]],
   ["field_manager", ["dashboard", "tickets", "scheduling", "campaigns", "snow", "customers", "maps"]],
   ["chemical_manager", ["dashboard", "tickets", "campaigns", "customers", "maps"]],
   ["irrigation_manager", ["dashboard", "tickets", "planner", "campaigns", "customers", "maps"]],
@@ -28,6 +28,7 @@ const field: NavRole[] = ["field_manager", "chemical_manager", "field", "irrigat
 const routeRoles: Record<string, NavRole[]> = {
   "/dashboard": [...AO, ...field],
   "/dashboard/estimates": AO,
+  "/dashboard/bids": AO,
   "/dashboard/communications": [...AO, ...field, "mapping"],
   "/dashboard/flags": AO,
   "/dashboard/tickets": AO,
@@ -100,7 +101,7 @@ describe("approved ordered sidebar matrix", () => {
     expect(keys({ activeRole: "mapping" })).toEqual(["maps"]);
   });
   it.each([
-    ["/dashboard/invoicing", "billing"], ["/dashboard/estimates", "estimates"],
+    ["/dashboard/invoicing", "billing"], ["/dashboard/estimates", "estimates"], ["/dashboard/bids", "bids"],
     ["/dashboard/tickets/my", "tickets"], ["/dashboard/my-batches", "tickets"],
     ["/dashboard/tickets", "tickets"], ["/dashboard/tickets/ticket-id", "tickets"],
     ["/dashboard/maps", "maps"], ["/dashboard/customers/map", "maps"],

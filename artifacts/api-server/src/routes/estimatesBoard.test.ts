@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../db", () => ({ db: { select: mocks.select, selectDistinct: mocks.selectDistinct } }));
 vi.mock("../storage", () => ({ storage: mocks }));
 import { ESTIMATE_STAGES, estimateDaysInStage, loadEstimatesBoard, registerEstimatesBoardRoutes } from "./estimatesBoard";
+import { BID_STAGES, loadBidsBoard, registerBidsBoardRoutes } from "./bidsBoard";
 
 const now = new Date("2026-10-21T18:00:00Z");
 const dialect = new PgDialect();
@@ -19,7 +20,7 @@ let rows: any[];
 let histories: any[];
 const typeRows = ["estimate_request", "rfp_request"].map(typeKey => ({ id: typeKey, typeKey, name: "Renamed type" }));
 const statuses = (typeKey: "estimate_request" | "rfp_request") =>
-  [...new Set([...ESTIMATE_STAGES.flatMap(stage => [...stage[typeKey]]), "ready_to_schedule", "awarded", "closed_lost", "scheduled", "completed"])]
+  [...new Set([...(typeKey === "estimate_request" ? ESTIMATE_STAGES : BID_STAGES).flatMap(stage => [...stage.statusKeys]), "ready_to_schedule", "awarded", "closed_lost", "scheduled", "completed"])]
     .map(statusKey => ({ id: `${typeKey}:${statusKey}`, statusKey, name: `Renamed ${statusKey}` }));
 const ticket = (type = "estimate_request", status = "new", id = `${type}:${status}`) => ({
   id, companyId: "company-a", title: `Bid ${id}`, ticketTypeId: type,
@@ -76,59 +77,67 @@ beforeEach(() => {
   mocks.selectDistinct.mockImplementation(select);
 });
 
-describe("existing-ticket estimates board", () => {
-  it("exports exactly the supplied five-stage map", () => {
+describe.each([
+  { type: "estimate_request", stages: ESTIMATE_STAGES, load: loadEstimatesBoard },
+  { type: "rfp_request", stages: BID_STAGES, load: loadBidsBoard },
+] as const)("$type board", ({ type, stages, load }) => {
+  it("exports exactly the supplied stage maps", () => {
     expect(ESTIMATE_STAGES).toEqual([
-      { key: "new", estimate_request: ["new"], rfp_request: ["new"] },
-      { key: "estimating", estimate_request: ["estimating"], rfp_request: ["reviewing", "waiting_info", "site_visit"] },
-      { key: "proposal", estimate_request: ["proposal_draft"], rfp_request: ["proposal_draft"] },
-      { key: "sent", estimate_request: ["proposal_sent"], rfp_request: ["proposal_sent", "awaiting_response"] },
-      { key: "decision", estimate_request: ["decision_received"], rfp_request: ["decision_received"] },
+      { key: "new", statusKeys: ["new"] },
+      { key: "estimating", statusKeys: ["estimating"] },
+      { key: "proposal", statusKeys: ["proposal_draft"] },
+      { key: "sent", statusKeys: ["proposal_sent"] },
+      { key: "decision", statusKeys: ["decision_received"] },
+    ]);
+    expect(BID_STAGES).toEqual([
+      { key: "new", statusKeys: ["new"] }, { key: "reviewing", statusKeys: ["reviewing", "waiting_info"] },
+      { key: "walk", statusKeys: ["site_visit"] }, { key: "proposal", statusKeys: ["proposal_draft"] },
+      { key: "submitted", statusKeys: ["proposal_sent", "awaiting_response"] }, { key: "decision", statusKeys: ["decision_received"] },
     ]);
   });
-  it.each(ESTIMATE_STAGES)("places each Estimate Request stage $key by stable status key", async stage => {
-    rows = [ticket("estimate_request", stage.estimate_request[0])];
-    const board = await loadEstimatesBoard("company-a", undefined, now);
+  it.each(stages as readonly { key: string; statusKeys: readonly string[] }[])("places stage $key by stable status key", async stage => {
+    rows = [ticket(type, stage.statusKeys[0])];
+    const board = await load("company-a", now);
     expect(board.stages.find(s => s.key === stage.key)!.tickets).toHaveLength(1);
-    expect(board.stages).toHaveLength(5);
+    expect(board.stages).toHaveLength(stages.length);
     expect(board.stages.flatMap(s => s.tickets)[0]).toMatchObject({
-      typeKey: "estimate_request", statusName: `Renamed ${stage.estimate_request[0]}`,
+      typeKey: type, statusName: `Renamed ${stage.statusKeys[0]}`,
       customer: { id: "customer-a", name: "Safe Development Customer" },
       assignee: { id: "user-a", name: "Development Estimator" },
       priority: "high", estimateNumber: "E-101", daysInStage: 20,
     });
   });
-  it.each(ESTIMATE_STAGES.flatMap(stage => stage.rfp_request.map(status => ({ key: stage.key, status }))))
-    ("places RFP $status in $key", async ({ key, status }) => {
-      rows = [ticket("rfp_request", status)];
-      expect((await loadEstimatesBoard("company-a", undefined, now)).stages.find(s => s.key === key)!.tickets).toHaveLength(1);
+  it.each(stages.flatMap(stage => stage.statusKeys.map(status => ({ key: stage.key, status }))))
+    ("places every status $status in $key", async ({ key, status }) => {
+      rows = [ticket(type, status)];
+      expect((await load("company-a", now)).stages.find(s => s.key === key)!.tickets).toHaveLength(1);
     });
   it("excludes later statuses, unrelated types and other companies in SQL", async () => {
     rows = [
-      ticket(), ...["ready_to_schedule", "awarded", "closed_lost", "scheduled", "completed"].flatMap(status =>
+      ticket(type), ...["ready_to_schedule", "awarded", "closed_lost", "scheduled", "completed"].flatMap(status =>
         [ticket("estimate_request", status), ticket("rfp_request", status)]),
       { ...ticket(), id: "foreign", companyId: "company-b" },
       { ...ticket(), id: "wrong-type", ticketTypeId: "custom" },
     ];
-    const all = (await loadEstimatesBoard("company-a", undefined, now)).stages.flatMap(s => s.tickets);
-    expect(all.map(t => t.id)).toEqual(["estimate_request:new"]);
+    const all = (await load("company-a", now)).stages.flatMap(s => s.tickets);
+    expect(all.map(t => t.id)).toEqual([`${type}:new`]);
   });
-  it.each(["estimate_request", "rfp_request", "invalid", "", undefined, ["rfp_request"]])("recognizes only valid scalar filters %j", async filter => {
+  it("never mixes opportunity types", async () => {
     rows = [ticket(), ticket("rfp_request")];
-    const all = (await loadEstimatesBoard("company-a", filter, now)).stages.flatMap(s => s.tickets);
-    expect(all).toHaveLength(filter === "estimate_request" || filter === "rfp_request" ? 1 : 2);
-    if (filter === "estimate_request" || filter === "rfp_request") expect(all[0].typeKey).toBe(filter);
+    const all = (await load("company-a", now)).stages.flatMap(s => s.tickets);
+    expect(all).toHaveLength(1);
+    expect(all[0].typeKey).toBe(type);
   });
   it("keeps all empty stages, including a company with no seeded types", async () => {
-    expect((await loadEstimatesBoard("company-a", undefined, now)).stages.map(s => s.tickets)).toEqual([[], [], [], [], []]);
+    expect((await load("company-a", now)).stages.map(s => s.tickets)).toEqual(stages.map(() => []));
     mocks.getTicketTypes.mockResolvedValue([]);
-    expect((await loadEstimatesBoard("company-a", undefined, now)).stages.map(s => s.tickets)).toEqual([[], [], [], [], []]);
+    expect((await load("company-a", now)).stages.map(s => s.tickets)).toEqual(stages.map(() => []));
   });
   it("uses latest current-status entry, creation fallback, deterministic ordering and nullable relations", async () => {
-    rows = [ticket("estimate_request", "new", "b"), ticket("estimate_request", "new", "a"),
-      { ...ticket("estimate_request", "new", "recent"), customerId: null, assignedToId: null, estimateNumber: null }];
+    rows = [ticket(type, "new", "b"), ticket(type, "new", "a"),
+      { ...ticket(type, "new", "recent"), customerId: null, assignedToId: null, estimateNumber: null }];
     histories = [{ ticketId: "recent", enteredAt: new Date("2026-10-21T05:00:00Z") }];
-    const all = (await loadEstimatesBoard("company-a", undefined, now)).stages[0].tickets;
+    const all = (await load("company-a", now)).stages[0].tickets;
     expect(all.map(t => [t.id, t.daysInStage])).toEqual([["a", 20], ["b", 20], ["recent", 1]]);
     expect(all[2]).toMatchObject({ customer: null, assignee: null, estimateNumber: null });
   });
@@ -136,14 +145,14 @@ describe("existing-ticket estimates board", () => {
     const counts = [];
     for (const count of [1, 1001]) {
       vi.clearAllMocks(); queries = [];
-      rows = Array.from({ length: count }, (_, i) => ticket("estimate_request", "new", String(i)));
-      const board = await loadEstimatesBoard("company-a", undefined, now);
+      rows = Array.from({ length: count }, (_, i) => ticket(type, "new", String(i)));
+      const board = await load("company-a", now);
       expect(board.stages[0].tickets).toHaveLength(count);
-      // Three metadata queries, tickets, customers, assignees, grouped history = seven.
+      // Two metadata queries, tickets, customers, assignees, grouped history = six (<= seven).
       counts.push(queries.length + mocks.getTicketTypes.mock.calls.length +
         mocks.getTicketTypeStatuses.mock.calls.length + mocks.getCustomersByIds.mock.calls.length);
     }
-    expect(counts).toEqual([7, 7]);
+    expect(counts).toEqual([6, 6]);
   });
   it.each(["UTC", "America/Denver"])("counts Colorado calendar days under TZ=%s across midnight and DST", timezone => {
     const previous = process.env.TZ;
@@ -159,32 +168,51 @@ describe("existing-ticket estimates board", () => {
   });
 });
 
-describe("estimates board authorization", () => {
-  function app(role: string, authenticated = true) {
+describe.each([
+  { path: "/api/estimates/board", register: registerEstimatesBoardRoutes, type: "estimate_request", count: 5 },
+  { path: "/api/bids/board", register: registerBidsBoardRoutes, type: "rfp_request", count: 6 },
+])("$path authorization", ({ path, register, type, count }) => {
+  function app(role: string, authenticated = true, activeCompanyId: string | null = "company-a") {
     const app = express();
     app.use((req, _res, next) => {
       (req as any).isAuthenticated = () => authenticated;
-      (req as any).user = { activeRole: role, activeCompanyId: "company-a" };
+      (req as any).user = { activeRole: role, activeCompanyId };
       next();
     });
-    registerEstimatesBoardRoutes(app);
+    register(app);
     return app;
   }
   it("rejects unauthenticated requests before querying", async () => {
-    expect((await request(app("admin", false)).get("/api/estimates/board")).status).toBe(401);
+    expect((await request(app("admin", false)).get(path)).status).toBe(401);
     expect(mocks.getTicketTypes).not.toHaveBeenCalled();
   });
   it.each(["field_manager", "field", "crew_supervisor", "mapping", "shop_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor"])
     ("denies %s before querying", async role => {
-      expect((await request(app(role)).get("/api/estimates/board")).status).toBe(403);
+      expect((await request(app(role)).get(path)).status).toBe(403);
       expect(mocks.getTicketTypes).not.toHaveBeenCalled();
     });
   it.each(["admin", "office"])("permits %s and uses active company", async role => {
-    const response = await request(app(role)).get("/api/estimates/board?type=rfp_request");
+    rows = [ticket(), ticket("rfp_request")];
+    const response = await request(app(role)).get(`${path}?type=rfp_request`);
     expect(response.status).toBe(200);
-    expect(response.body.stages).toHaveLength(5);
+    expect(response.body.stages).toHaveLength(count);
+    expect(response.body.stages.flatMap((s: any) => s.tickets).map((t: any) => t.typeKey)).toEqual([type]);
     expect(mocks.getTicketTypes).toHaveBeenCalledWith("company-a");
     expect(mocks.getTicketTypeStatuses).toHaveBeenCalledTimes(1);
-    expect(mocks.getTicketTypeStatuses).toHaveBeenCalledWith("rfp_request");
+    expect(mocks.getTicketTypeStatuses).toHaveBeenCalledWith(type);
+  });
+  it("requires active company before querying", async () => {
+    expect((await request(app("admin", true, null)).get(path)).status).toBe(403);
+    expect(mocks.getTicketTypes).not.toHaveBeenCalled();
+  });
+  it.each(["type=estimate_request", "type=rfp_request", "type=invalid", "type=", "type=rfp_request&type=estimate_request", "type[x]=rfp_request"])
+    ("ignores legacy query %s", async query => {
+      rows = [ticket(), ticket("rfp_request")];
+      const response = await request(app("office")).get(`${path}?${query}`);
+      expect(response.body.stages.flatMap((s: any) => s.tickets).map((t: any) => t.typeKey)).toEqual([type]);
+    });
+  it("reports loader errors explicitly", async () => {
+    mocks.getTicketTypes.mockRejectedValueOnce(new Error("Unavailable"));
+    expect((await request(app("admin")).get(path)).status).toBe(500);
   });
 });
