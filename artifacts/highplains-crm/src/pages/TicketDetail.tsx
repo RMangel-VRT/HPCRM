@@ -332,7 +332,7 @@ export default function TicketDetail() {
   // Fetch customer rate sheet for Invoice tickets
   const { data: rateSheet } = useQuery<CustomerRateSheet | null>({
     queryKey: ["/api/customers", details?.customer?.id, "rate-sheet"],
-    enabled: !!details?.customer?.id && details?.ticketType?.name === "Invoice",
+    enabled: !!details?.customer?.id && isSeededTicketType(details?.ticketType, "invoice"),
   });
 
   const fieldRoles = ["field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"];
@@ -618,7 +618,7 @@ export default function TicketDetail() {
   });
 
   const showProposals = isAdminOrOffice
-    && details?.ticketType?.name === "Estimate Request";
+    && isSeededTicketType(details?.ticketType, "estimate_request");
 
   const { data: linkedProposals = [], isLoading: proposalsLoading } = useQuery<ProposalWithDetails[]>({
     queryKey: ["/api/tickets", ticketId, "proposals"],
@@ -791,9 +791,9 @@ export default function TicketDetail() {
     const defaultNext = sortedStatuses[sortedCurrentIndex + 1];
     
     // Check if this is at Decision Received - need to branch based on outcome
-    if (currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request") {
+    if (isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "rfp_request")) {
       // Find the decision_outcome field value
-      const decisionField = currentStatus.fields?.find(f => f.fieldKey === "decision_outcome");
+      const decisionField = currentStatus?.fields?.find(f => f.fieldKey === "decision_outcome");
       const decisionValue = decisionField ? fieldValues.find(fv => fv.fieldId === decisionField.id)?.value : null;
       
       if (decisionValue === "Awarded") {
@@ -808,8 +808,8 @@ export default function TicketDetail() {
       return statuses.find(s => s.name === "Awarded") || defaultNext;
     }
 
-    if (currentStatus?.name === "Decision Received" && ticketType.name === "Estimate Request") {
-      const decisionField = currentStatus.fields?.find(f => f.fieldKey === "decision_outcome");
+    if (isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "estimate_request")) {
+      const decisionField = currentStatus?.fields?.find(f => f.fieldKey === "decision_outcome");
       const decisionValue = decisionField ? fieldValues.find(fv => fv.fieldId === decisionField.id)?.value : null;
 
       if (decisionValue === "Denied") {
@@ -861,7 +861,7 @@ export default function TicketDetail() {
     if (
       !bypassProposalCheck &&
       currentStatus?.name === "Estimating" &&
-      ticketType?.name === "Estimate Request" &&
+      isSeededTicketType(ticketType, "estimate_request") &&
       nextStatus?.name === "Create Proposal"
     ) {
       setShowProposalChoiceDialog(true);
@@ -927,7 +927,7 @@ export default function TicketDetail() {
     const pendingTargetStatus = statuses.find(s => s.id === pendingStatusId);
     if (
       pendingTargetStatus?.name === "Create Proposal" &&
-      ticketType?.name === "Estimate Request"
+      isSeededTicketType(ticketType, "estimate_request")
     ) {
       // Save any current-status field values entered by the user before showing choice
       for (const [fieldId, value] of Object.entries(fieldInputs)) {
@@ -951,7 +951,7 @@ export default function TicketDetail() {
     
     // Determine actual target status (handle RFP/Project branching based on dialog inputs)
     let actualTargetStatusId = pendingStatusId;
-    if (currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request") {
+    if (isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "rfp_request")) {
       const decisionField = currentStatusFields.find(f => f.fieldKey === "decision_outcome");
       const decisionValue = decisionField ? fieldInputs[decisionField.id] : null;
       
@@ -965,7 +965,7 @@ export default function TicketDetail() {
     }
     
     // Handle Estimate Request decision branching
-    if (currentStatus?.name === "Decision Received" && ticketType.name === "Estimate Request") {
+    if (isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "estimate_request")) {
       const decisionField = currentStatusFields.find(f => f.fieldKey === "decision_outcome");
       const decisionValue = decisionField ? fieldInputs[decisionField.id] : null;
       
@@ -1529,7 +1529,7 @@ export default function TicketDetail() {
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_420px]">
           <div className="min-w-0 space-y-4">
           {/* Service Request Type for RFP tickets */}
-          {ticketType.name === "RFP Request" && (
+          {isSeededTicketType(ticketType, "rfp_request") && (
             <Card data-testid="card-service-request">
               <CardContent className="p-4">
                 <div className="space-y-1">
@@ -1747,7 +1747,7 @@ export default function TicketDetail() {
             ticketId={ticket.id}
             serviceType={ticket.serviceType ?? null}
             extraRows={
-              (ticketType?.name === "Estimate Request" || ticketType?.name === "Project") &&
+              (isSeededTicketType(ticketType, "estimate_request") || isSeededTicketType(ticketType, "project")) &&
               !linkedTickets?.find(lt => lt.link.linkType === "invoice_for" && lt.relationship === "source") && (
                 <button
                   type="button"
@@ -2050,7 +2050,7 @@ export default function TicketDetail() {
             );
           })()}
 
-          {ticketType?.name === "Invoice" && rateSheet && ticket?.invoiceCategory && (
+          {isSeededTicketType(ticketType, "invoice") && rateSheet && ticket?.invoiceCategory && (
             <Card data-testid="card-rate-sheet">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
@@ -2456,7 +2456,7 @@ export default function TicketDetail() {
             
             // Determine which branch we're on for RFP Request
             let filteredStatuses = sortedStatuses;
-            if (ticketType.name === "RFP Request") {
+            if (isSeededTicketType(ticketType, "rfp_request")) {
               const decisionReceivedStatus = sortedStatuses.find(s => s.name === "Decision Received");
               const currentOrder = currentStatus?.displayOrder || 0;
               
@@ -2983,7 +2983,7 @@ export default function TicketDetail() {
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
                   <>
-                    {nextStatus?.name === "Decision Received" && (ticketType.name === "RFP Request" || ticketType.name === "Estimate Request")
+                    {isSeededStatus(nextStatus, "decision_received") && (isSeededTicketType(ticketType, "rfp_request") || isSeededTicketType(ticketType, "estimate_request"))
                       ? "Record Decision"
                       : `Move to: ${nextStatus.name}`}
                     <ChevronRight className="w-5 h-5" />
@@ -3022,14 +3022,14 @@ export default function TicketDetail() {
         <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {statuses.find(s => s.id === pendingStatusId)?.name === "Decision Received" && (ticketType.name === "RFP Request" || ticketType.name === "Estimate Request")
+              {isSeededStatus(statuses.find(s => s.id === pendingStatusId), "decision_received") && (isSeededTicketType(ticketType, "rfp_request") || isSeededTicketType(ticketType, "estimate_request"))
                 ? "Record Decision Outcome" 
                 : `Move to: ${statuses.find(s => s.id === pendingStatusId)?.name}`}
             </DialogTitle>
             <DialogDescription>
-              {statuses.find(s => s.id === pendingStatusId)?.name === "Decision Received" && ticketType.name === "RFP Request"
+              {isSeededStatus(statuses.find(s => s.id === pendingStatusId), "decision_received") && isSeededTicketType(ticketType, "rfp_request")
                 ? "Select Awarded or Lost to proceed to the appropriate workflow."
-                : statuses.find(s => s.id === pendingStatusId)?.name === "Decision Received" && ticketType.name === "Estimate Request"
+                : isSeededStatus(statuses.find(s => s.id === pendingStatusId), "decision_received") && isSeededTicketType(ticketType, "estimate_request")
                 ? "Select Approved to continue to Work Completed, or Denied to close the project."
                 : "Fill in the required information to proceed."}
             </DialogDescription>
@@ -3087,7 +3087,7 @@ export default function TicketDetail() {
             )}
             
             {/* Next status fields section - hide for Decision Received since target is determined by outcome */}
-            {!(currentStatus?.name === "Decision Received" && ticketType.name === "RFP Request") && 
+            {!(isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "rfp_request")) &&
              statuses.find(s => s.id === pendingStatusId)?.fields && statuses.find(s => s.id === pendingStatusId)!.fields!.length > 0 && (
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
@@ -3514,7 +3514,7 @@ export default function TicketDetail() {
               </p>
             )}
 
-            {ticketType?.name === "Invoice" && (
+            {isSeededTicketType(ticketType, "invoice") && (
               <div className="space-y-2">
                 <Label htmlFor="edit-invoiceCategory">{t('ticketDetail.invoiceCategory')}</Label>
                 <Select 

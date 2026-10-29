@@ -43,7 +43,7 @@ import { saveTicketOrigin, ticketDetailHref, RETURN_SCROLL_KEY } from "@/lib/tic
 import QuickAddToDo from "@/components/QuickAddToDo";
 import BatchTicketDialog from "@/components/BatchTicketDialog";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
-import { resolveDisplayTicketType, matchesDisplayTypeFilter } from "@shared/ticketVisuals";
+import { resolveDisplayTicketType, matchesDisplayTypeFilter, isSeededTicketType, findSeededTicketType } from "@shared/ticketVisuals";
 import { taskWorkflowStatuses } from "@shared/ticketVisuals";
 import type { TicketLinkSummary } from "@shared/ticketLinks";
 import { isBillingItem } from "@/lib/billing";
@@ -333,7 +333,7 @@ function OperationalTicketsList() {
     if (urlParams.get("view") !== "pendingInvoices") return;
     if (ticketTypes.length === 0 || allStatuses.length === 0) return;
 
-    const invoiceType = ticketTypes.find(tt => tt.name === "Invoice");
+    const invoiceType = findSeededTicketType(ticketTypes, "invoice");
     if (invoiceType) {
       const pendingStatus = (allStatuses as TicketTypeStatus[]).find(
         (s) => s.ticketTypeId === invoiceType.id && s.name === "Pending Invoice"
@@ -1561,7 +1561,7 @@ function TicketCard({ ticket, formatDueDate, usersMap, schedulingStatusSet, sele
                   </Badge>
                 )
               )}
-              {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
+              {isSeededTicketType(ticket.ticketType, "invoice") && ticket.invoiceCategory && (
                 <Badge 
                   variant="outline"
                   className={`text-xs font-normal ${

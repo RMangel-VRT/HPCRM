@@ -140,10 +140,11 @@ export interface TicketStatusIdentity {
 /** Scheduling identity mirrors the server; legacy labels apply only to unkeyed rows. */
 export function isSeededStatus(
   status: TicketStatusIdentity | null | undefined,
-  key: "new" | "ready_to_schedule" | "scheduled" | "ready_for_billing",
+  key: "new" | "ready_to_schedule" | "scheduled" | "ready_for_billing" | "decision_received",
 ): boolean {
   if (!status) return false;
   if (status.statusKey != null) return status.statusKey === key;
+  if (key === "decision_received") return status.name === "Decision Received";
   if (key === "ready_for_billing") return status.name === "Ready for Billing" || status.name === "Ready to invoice";
   if (key === "new") return status.name === "New";
   return key === "ready_to_schedule"

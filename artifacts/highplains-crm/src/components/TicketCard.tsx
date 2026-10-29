@@ -194,7 +194,7 @@ export default function TicketCard({
                   </Badge>
                 )
               )}
-              {ticket.ticketType?.name === "Invoice" && ticket.invoiceCategory && (
+              {isSeededTicketType(ticket.ticketType, "invoice") && ticket.invoiceCategory && (
                 <Badge
                   variant="outline"
                   className={`text-xs font-normal ${
