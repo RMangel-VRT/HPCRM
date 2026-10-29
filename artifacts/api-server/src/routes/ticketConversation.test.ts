@@ -127,13 +127,27 @@ describe("Unchanged ticket comment validation, access and mentions", () => {
     expect(res.body.body).toBe(body);
     expect(storage.createTicketCommentMention).toHaveBeenCalledExactlyOnceWith({ commentId: "new", mentionedUserId: "bb" });
     expect(storage.createNotification).toHaveBeenCalledExactlyOnceWith({
-      companyId: "company", recipientId: "bb", ticketId: "ticket", type: "mentioned",
+      companyId: "company", recipientId: "bb", ticketId: "ticket", commentId: "new", type: "mentioned",
       message: 'Author mentioned you in ticket "Work"', isRead: false,
     });
   });
   it.each(["", "x".repeat(5001), 42])("rejects invalid body before writes", async body => {
     expect((await post(null, body as any)).status).toBe(400);
     noWrites();
+  });
+  it("does not notify an unknown user", async () => {
+    storage.getUserById.mockResolvedValueOnce(undefined);
+    expect((await post(undefined, "@[bb:Person]")).status).toBe(200);
+    expect(storage.createTicketCommentMention).toHaveBeenCalledExactlyOnceWith({ commentId: "new", mentionedUserId: "bb" });
+    expect(storage.createNotification).not.toHaveBeenCalled();
+  });
+  it("keeps the comment and processes later mentions when a notification fails", async () => {
+    storage.createNotification.mockRejectedValueOnce(new Error("notification unavailable"));
+    const res = await post(undefined, "@[bb:Person] @[cc:Other]");
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe("new");
+    expect(storage.createTicketCommentMention).toHaveBeenCalledTimes(2);
+    expect(storage.createNotification).toHaveBeenCalledTimes(2);
   });
   it("requires authentication", async () => {
     authenticated = false;

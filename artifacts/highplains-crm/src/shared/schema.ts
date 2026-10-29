@@ -1586,6 +1586,7 @@ export const ticketNotifications = pgTable("ticket_notifications", {
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   recipientId: varchar("recipient_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  commentId: varchar("comment_id").references(() => ticketComments.id, { onDelete: "set null" }),
   type: text("type").notNull().$type<NotificationType>(),
   message: text("message").notNull(),
   isRead: boolean("is_read").notNull().default(false),

@@ -9,6 +9,8 @@ import { randomUUID } from "crypto";
 import { z } from "zod/v4";
 import { setupAuth, hashPassword, type UserWithContext } from "../auth";
 import { storage } from "../storage";
+import type { NotificationFilter } from "../storage";
+import { insertTicketNotificationSchema, type NotificationType } from "@workspace/db";
 import * as extraBillableAccess from "../lib/extraBillableAccess";
 import { registerExtraBillableBillingRoutes, makeBucketCopyPhotoFn } from "./extraBillableBilling";
 import { registerCrewsAndMobileRoutes } from "./crewsAndMobile";
@@ -93,6 +95,35 @@ import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRA
 
 import { registerCatalogRoutes } from "./catalog";
 import { registerEstimateRoutes } from "./estimates";
+
+// Derive runtime choices from the existing insert enum, never a second type list.
+export const NOTIFICATION_TYPES = insertTicketNotificationSchema.shape.type.options;
+type RuntimeNotificationType = (typeof NOTIFICATION_TYPES)[number];
+type AssertNever<T extends never> = T;
+type NotificationEnumHasNoExtras = AssertNever<Exclude<RuntimeNotificationType, NotificationType>>;
+type NotificationEnumHasNoOmissions = AssertNever<Exclude<NotificationType, RuntimeNotificationType>>;
+
+export function parseNotificationFilter(query: Record<string, unknown>):
+  { filter: NotificationFilter | undefined; error?: never } | { error: string; filter?: never } {
+  // Express's default simple parser leaves bracket notation in literal keys.
+  // Reject it here rather than changing the parser for unrelated endpoints.
+  if (Object.keys(query).some(key => /^(type|exclude)\[/.test(key))) {
+    return { error: "Notification filters must be scalar strings" };
+  }
+  const { type, exclude } = query;
+  if (type !== undefined && exclude !== undefined) {
+    return { error: "type and exclude are mutually exclusive" };
+  }
+  const valid = (raw: unknown): raw is NotificationType =>
+    typeof raw === "string" && NOTIFICATION_TYPES.some(value => value === raw);
+  if (type !== undefined) {
+    return valid(type) ? { filter: { type } } : { error: "Invalid notification type" };
+  }
+  if (exclude !== undefined) {
+    return valid(exclude) ? { filter: { exclude } } : { error: "Invalid notification exclude" };
+  }
+  return { filter: undefined };
+}
 
 /**
  * Signed URL TTL for chemical product label attachments (in seconds).
@@ -7784,6 +7815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             companyId: user.activeCompanyId,
             recipientId: mentionedUserId,
             ticketId: ticket.id,
+            commentId: comment.id,
             type: "mentioned",
             message: `${user.name} mentioned you in ticket "${ticket.title}"`,
             isRead: false,
@@ -8917,7 +8949,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    const notifications = await storage.getNotificationsByUser(user.id, user.activeCompanyId);
+    const parsed = parseNotificationFilter(req.query);
+    if (parsed.error !== undefined) return res.status(400).json({ message: parsed.error });
+    const notifications = await storage.getNotificationsByUser(user.id, user.activeCompanyId, parsed.filter);
     res.json(notifications);
   });
 
@@ -8927,7 +8961,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    const count = await storage.getUnreadNotificationCount(user.id, user.activeCompanyId);
+    const parsed = parseNotificationFilter(req.query);
+    if (parsed.error !== undefined) return res.status(400).json({ message: parsed.error });
+    const count = await storage.getUnreadNotificationCount(user.id, user.activeCompanyId, parsed.filter);
     res.json({ count });
   });
 

@@ -30,12 +30,22 @@ import type { QboConnection, InsertQboConnection, QboCustomerCache } from "@work
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@workspace/db";
 import type { VisibleMailboxes } from "./services/mailboxScope";
 import type { CommunicationAutomationRule, InsertCommunicationAutomationRule, ServicePlanTemplateWithItems, ServicePlanTemplate, InsertServicePlanTemplate, ServicePlanTemplateItem, ServicePlanCategory, CustomerServicePlan, InsertCustomerServicePlan, ServiceFulfillmentRow } from "@workspace/db";
-import { eq, and, or, sql, desc, asc, inArray, isNull, max, type SQL, getTableColumns } from "drizzle-orm";
+import { eq, ne, and, or, sql, desc, asc, inArray, isNull, max, type SQL, getTableColumns } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
 
 const PostgresSessionStore = connectPg(session);
+
+export type NotificationFilter =
+  | { type?: NotificationType; exclude?: never }
+  | { type?: never; exclude?: NotificationType };
+
+function notificationTypePredicate(filter?: NotificationFilter): SQL | undefined {
+  if (filter?.type !== undefined) return eq(ticketNotifications.type, filter.type);
+  if (filter?.exclude !== undefined) return ne(ticketNotifications.type, filter.exclude);
+  return undefined;
+}
 
 export interface IStorage {
   getHardscapeCatalog: typeof hardscapeStorage.getHardscapeCatalog;
@@ -234,8 +244,8 @@ export interface IStorage {
   deleteScheduleBlocksByTemplate(templateId: string): Promise<void>;
   
   // Ticket Notifications
-  getNotificationsByUser(userId: string, companyId: string): Promise<TicketNotification[]>;
-  getUnreadNotificationCount(userId: string, companyId: string): Promise<number>;
+  getNotificationsByUser(userId: string, companyId: string, filter?: NotificationFilter): Promise<TicketNotification[]>;
+  getUnreadNotificationCount(userId: string, companyId: string, filter?: NotificationFilter): Promise<number>;
   createNotification(notification: InsertTicketNotification): Promise<TicketNotification>;
   markNotificationRead(id: string, userId: string): Promise<TicketNotification | undefined>;
   markAllNotificationsRead(userId: string, companyId: string): Promise<void>;
@@ -2277,19 +2287,20 @@ export class PgStorage implements IStorage {
   }
 
   // Ticket Notifications
-  async getNotificationsByUser(userId: string, companyId: string): Promise<TicketNotification[]> {
+  async getNotificationsByUser(userId: string, companyId: string, filter?: NotificationFilter): Promise<TicketNotification[]> {
     return await db.select().from(ticketNotifications)
-      .where(and(eq(ticketNotifications.recipientId, userId), eq(ticketNotifications.companyId, companyId)))
+      .where(and(eq(ticketNotifications.recipientId, userId), eq(ticketNotifications.companyId, companyId), notificationTypePredicate(filter)))
       .orderBy(desc(ticketNotifications.createdAt));
   }
 
-  async getUnreadNotificationCount(userId: string, companyId: string): Promise<number> {
+  async getUnreadNotificationCount(userId: string, companyId: string, filter?: NotificationFilter): Promise<number> {
     const result = await db.select({ count: sql<number>`COUNT(*)::int` })
       .from(ticketNotifications)
       .where(and(
         eq(ticketNotifications.recipientId, userId),
         eq(ticketNotifications.companyId, companyId),
-        eq(ticketNotifications.isRead, false)
+        eq(ticketNotifications.isRead, false),
+        notificationTypePredicate(filter)
       ));
     return result[0]?.count || 0;
   }
