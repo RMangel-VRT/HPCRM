@@ -32,6 +32,9 @@
 | **Organization name and branding** | `companies` | `settings` holds overrides only | the duplicate name in `settings` | Planned (small) |
 | **Property display name** | `customers` | campaign completion emails already sent (snapshot) | `campaign_items.customer_name` / `customer_city` copies (7 drifted) | Planned (small) |
 | **Job lifecycle** | `tickets` | — | — | Kept |
+| **Estimate document identity, number and title** | `estimates`; atomic company/Colorado-year allocation by `createEstimate` using `estimate_number_counters` | **Automatic compatibility mirror:** `tickets.estimate_number`, assigned only by estimate creation in its transaction; not a numbering authority | None | Draft API live; job lifecycle remains ticket-owned |
+| **Estimate document state and grouping** | `estimate_versions` owns version state; `estimate_sections` owns names/order | Frozen non-draft totals belong to versions; no lifecycle transitions in this slice | None | Lifecycle-ready fields; draft editing only |
+| **Estimate commercial values** | `estimate_lines` owns captured values and permitted subsequent manual edits | **Intentional snapshots:** source names, details, prices, costs, units, umbrellas and term provenance. Catalogs/rate cards/terms retain source ownership; no live price joins or refresh | None | `calculateExtendedCents` is the sole derived stored-amount writer on every line write |
 | **Invoice charges** | Invoice tickets + `ticket_links` | Billing and To invoice are projections | — | Done (C3) |
 | **Dead tables** | — | — | `contract_masters`, `scope_presets`, `scope_preset_lines` (empty; nothing reads them) | Drop after confirming at a publish |
 

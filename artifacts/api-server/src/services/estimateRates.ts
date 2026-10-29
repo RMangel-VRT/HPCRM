@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { agreements, agreementTerms, customers, rateCardItems, termRates, type AgreementTerm, type RateCardItem, type TermRate } from "@workspace/db";
-import { db } from "../db";
+import { db, type AppTransaction } from "../db";
 import { applies, ContractCenterError, selectInEffectTerm } from "../lib/contractCenterService";
 import { companyToday } from "../lib/companyDay";
 
@@ -24,21 +24,21 @@ export function resolveFromRows(card: RateCardItem | undefined, terms: Agreement
     contractRateCents: contract?.priceCents ?? null, contractPriceText: contract?.priceText ?? null,
   };
 }
-export async function loadEstimateRateContext(companyId: string, customerId: string) {
-  const [customer] = await db.select({ id: customers.id }).from(customers)
+export async function loadEstimateRateContext(companyId: string, customerId: string, connection: typeof db | AppTransaction = db) {
+  const [customer] = await connection.select({ id: customers.id }).from(customers)
     .where(and(eq(customers.companyId, companyId), eq(customers.id, customerId)));
   if (!customer) throw new ContractCenterError(404, "Customer not found");
   const [card, joined] = await Promise.all([
-    db.select().from(rateCardItems).where(and(eq(rateCardItems.companyId, companyId), eq(rateCardItems.active, true))).orderBy(rateCardItems.sortOrder, rateCardItems.rateKey),
-    db.select({ term: agreementTerms }).from(agreementTerms).innerJoin(agreements, eq(agreements.id, agreementTerms.agreementId))
+    connection.select().from(rateCardItems).where(and(eq(rateCardItems.companyId, companyId), eq(rateCardItems.active, true))).orderBy(rateCardItems.sortOrder, rateCardItems.rateKey),
+    connection.select({ term: agreementTerms }).from(agreementTerms).innerJoin(agreements, eq(agreements.id, agreementTerms.agreementId))
       .where(and(eq(agreements.companyId, companyId), eq(agreements.customerId, customerId), eq(agreementTerms.companyId, companyId))),
   ]);
   const terms = joined.map(r => r.term);
-  const rates = terms.length ? await db.select().from(termRates).where(and(eq(termRates.companyId, companyId), inArray(termRates.termId, terms.map(t => t.id)))) : [];
+  const rates = terms.length ? await connection.select().from(termRates).where(and(eq(termRates.companyId, companyId), inArray(termRates.termId, terms.map(t => t.id)))) : [];
   return { card, terms, rates };
 }
-export async function resolveEstimateRate(companyId: string, customerId: string, rateKey: string) {
-  const { card, terms, rates } = await loadEstimateRateContext(companyId, customerId);
+export async function resolveEstimateRate(companyId: string, customerId: string, rateKey: string, context?: Awaited<ReturnType<typeof loadEstimateRateContext>>) {
+  const { card, terms, rates } = context ?? await loadEstimateRateContext(companyId, customerId);
   return resolveFromRows(card.find(r => r.rateKey === rateKey), terms, rates, rateKey);
 }
 export async function previewEstimateRates(companyId: string, customerId: string) {

@@ -92,6 +92,7 @@ import { convertExtraBillableToTask } from '../lib/convertExtraBillableToTask';
 import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRATIONS_DIR } from '../lib/migrationRunner';
 
 import { registerCatalogRoutes } from "./catalog";
+import { registerEstimateRoutes } from "./estimates";
 
 /**
  * Signed URL TTL for chemical product label attachments (in seconds).
@@ -2655,6 +2656,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerBidsBoardRoutes(app);
   registerDashboardSectionsRoutes(app);
   registerCatalogRoutes(app);
+  registerEstimateRoutes(app);
   registerContractCenterRoutes(app);
 
   // ── Communication Center permission constants & helpers ──────────────────────

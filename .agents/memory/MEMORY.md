@@ -28,3 +28,4 @@
 - [Migration filenames](migration-filename-stability.md) — preserve existing migration filenames despite duplicate numeric prefixes; allocate a new unused number.
 - [Display filter boundary](display-type-filter-boundary.md) — only Tickets/My Tickets pills and Scheduling queue filter use projected identity; operational types remain raw.
 - [Estimate pricing selection](estimate-pricing-selection.md) — choose the governing term before exact-key lookup; never revive older negotiated rates or use the board's display fallback.
+- [Estimate totals conventions](estimate-totals-conventions.md) — preserve the agreed margin contract across builder and lifecycle slices; undefined margin must not display as zero.

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
+    "./estimate-contracts": "./src/estimateContracts.ts",
     "./check-drift": "./src/check-drift.ts"
   },
   "scripts": {
