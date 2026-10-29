@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import "@/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Route, Router } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -88,6 +89,22 @@ const page = (hash: string) => renderToStaticMarkup(
   <QueryClientProvider client={new QueryClient()}><Router ssrPath="/dashboard/contracts/a1"><Route path="/dashboard/contracts/:id"><ContractPage initialHash={hash} /></Route></Router></QueryClientProvider>);
 
 describe("contract page", () => {
+  it.each([
+    ["renewed", true, "2026-04-01", "2027-03-31", null],
+    ["signed", true, "2030-04-01", "2031-03-31", null],
+    ["renewed", false, "2024-04-01", "2025-03-31", "Past season, read only"],
+    ["lost", false, "2030-04-01", "2031-03-31", "Closed season, read only"],
+    ["cancelled", false, "2030-04-01", "2031-03-31", "Closed season, read only"],
+    ["draft", false, "2030-04-01", "2031-03-31", "Past season, read only"],
+  ])("uses only the server editable flag for %s", (status, editable, startDate, endDate, note) => {
+    fx.q = { "/api/contract-center/contracts/a1": { data: detail({ terms: [
+      { ...detail().terms[1], status, editable, startDate, endDate },
+    ] }) } };
+    const html = page("#term-t2");
+    expect(html.includes('data-testid="button-edit-contract"')).toBe(editable);
+    if (note) expect(html).toContain(note);
+    else expect(html).not.toContain('data-testid="note-past-season"');
+  });
   it("shows a final-season renewal draft on the board, keeps it editable, and disables another Renew while year 1 is current", () => {
     const seasons = Array.from({ length: 5 }, (_, i) => ({
       ...detail().terms[0], ...term({ id: `y${i + 1}`, seasonLabel: String(2026 + i),

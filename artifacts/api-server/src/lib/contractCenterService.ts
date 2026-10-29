@@ -191,8 +191,13 @@ export function assertMove(term: Pick<AgreementTerm, "status" | "renewedFromTerm
   const allowed = allowedMoves(term.status, !!term.renewedFromTermId, !!term.bidTicketId);
   if (!allowed.includes(to)) throw new ContractCenterError(409, `Invalid status move; allowed: ${allowed.join(", ") || "none"}`, allowed);
 }
-export function assertEditable(status: string) {
-  if (["renewed", "lost", "cancelled"].includes(status)) throw new ContractCenterError(409, "This term can no longer be edited");
+export function isTermEditable(term: { status: string; endDate: string }, today = companyToday()) {
+  return ["draft", "sent"].includes(term.status) ||
+    (["signed", "active", "renewed"].includes(term.status) && term.endDate >= today);
+}
+export function assertEditable(term: { status: string; endDate: string }, today = companyToday()) {
+  if (!isTermEditable(term, today)) throw new ContractCenterError(409,
+    ["lost", "cancelled"].includes(term.status) ? "Closed season, read only" : "Past season, read only");
 }
 export function increasedPayments(payments: Payments, pct: number, roundTo: "dollar" | "twelve"): Payments {
   return validatePayments(payments).map(p => {

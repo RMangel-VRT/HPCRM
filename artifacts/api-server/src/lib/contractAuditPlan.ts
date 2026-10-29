@@ -12,7 +12,7 @@ export type ImportTerm = {
   values: ReturnType<typeof termFieldsSchema.parse> & { line: AgreementLine; form: AgreementForm; status: TermStatus; signedAt: Date | null; reviewNote: string | null;
     annualPriceCents: number | null; billingType: ReturnType<typeof paymentSummary>["billingType"] };
   scope: BuiltScope; rates: BuiltRates; billing: ReturnType<typeof expandPayments>;
-  documents: Array<{ source: ContractDocument; kind: "signed" | "their_form" | "other" }>;
+  documents: Array<{ source: ContractDocument; kind: "signed" | "their_form" | "other"; coversThroughRef?: string }>;
   paymentCount: number;
 };
 export type ImportAgreement = { ref: string; line: AgreementLine; form: AgreementForm; replaceId?: string; terms: ImportTerm[] };
@@ -198,7 +198,14 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
       if (usedDocuments.has(id)) diagnostic(r, "Document used on more than one season", "document_id");
       usedDocuments.add(id);
       if (!["signed", "their_form", "other"].includes(kind)) diagnostic(r, "Unknown document kind", "kind");
-      if (doc) documents.push({ source: doc, kind: kind as "signed" | "their_form" | "other" });
+      const coversThroughRef = r.values.covers_through_ref;
+      if (coversThroughRef) {
+        const target = (files.tables["contracts.csv"] ?? []).find(t => t.values.contract_ref === coversThroughRef);
+        if (!target || target.values.agreement_ref !== v.agreement_ref || target.values.customer_id !== v.customer_id ||
+          target.values.start_date <= v.start_date)
+          diagnostic(r, "Coverage reference must identify a strictly later season in the same agreement", "covers_through_ref");
+      }
+      if (doc) documents.push({ source: doc, kind: kind as "signed" | "their_form" | "other", coversThroughRef });
     }
     if (!customer) continue;
     let group = plan.customers.find(c => c.id === customer.id);

@@ -1,6 +1,7 @@
 import express from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as companyDay from "../lib/companyDay";
 import { getTableName, getTableColumns } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { registerContractCenterRoutes } from "./contractCenter";
@@ -101,14 +102,73 @@ beforeEach(() => {
     tail = task.then(() => undefined, () => undefined); return task;
   });
 });
+afterEach(() => vi.restoreAllMocks());
 describe("Contract Center lifecycle routes", () => {
+  it("sets/clears coverage with attributable history and derives bounded covered rows", async () => {
+    const agent = request(app()), { termId, agreementId } = await create(agent);
+    const source = rows("agreement_terms")[0];
+    rows("agreement_terms").push(...[
+      { id: "middle", startDate: "2026-10-01", endDate: "2027-09-30", seasonLabel: "2026–27" },
+      { id: "last", startDate: "2027-10-01", endDate: "2028-09-30", seasonLabel: "2027–28" },
+      { id: "beyond", startDate: "2028-10-01", endDate: "2029-09-30", seasonLabel: "2028–29" },
+    ].map(t => ({ ...source, ...t })));
+    rows("term_documents").push({ id: "doc", companyId: "company", termId, kind: "signed", filename: "signed.pdf", createdAt: new Date(), version: 1 },
+      { id: "own", companyId: "company", termId, kind: "other", filename: "own.docx", createdAt: new Date(), version: 1 });
+    expect((await agent.patch(`${base}/documents/doc/coverage`).send({ coversThroughTermId: "last" })).status).toBe(200);
+    const detail = (await agent.get(`${base}/contracts/${agreementId}`)).body;
+    for (const id of ["middle", "last"]) {
+      const term = detail.terms.find((t: any) => t.id === id);
+      expect(term.documents).toEqual([]);
+      expect(term.coveredBy).toMatchObject([{ id: "doc", fromTermId: termId, fromSeasonLabel: source.seasonLabel }]);
+      expect(term).not.toHaveProperty("signedDocumentTermId");
+    }
+    expect(detail.terms.find((t: any) => t.id === "beyond").coveredBy).toEqual([]);
+    expect(detail.terms[0].coveredBy).toEqual([]);
+    expect(rows("term_status_history").at(-1)).toMatchObject({ termId, changedBy: "actor",
+      note: "Document signed.pdf now also covers 2025–26–2027–28" });
+    expect((await agent.patch(`${base}/documents/doc/coverage`).send({ coversThroughTermId: null })).body.coversThroughTermId).toBeNull();
+    expect(rows("term_status_history").at(-1).note).toBe("Document signed.pdf covers this season only");
+    expect((await agent.get(`${base}/contracts/${agreementId}`)).body.terms.every((t: any) => !t.coveredBy.length)).toBe(true);
+  });
+  it("rejects missing, foreign, self, equal-date and earlier coverage targets and strict payload violations", async () => {
+    const agent = request(app()), { termId } = await create(agent);
+    const source = rows("agreement_terms")[0];
+    rows("term_documents").push({ id: "doc", companyId: "company", termId, filename: "signed.pdf" });
+    rows("agreement_terms").push(
+      { ...source, id: "equal" }, { ...source, id: "earlier", startDate: "2024-01-01" },
+      { ...source, id: "other-agreement", agreementId: "foreign", startDate: "2030-01-01" },
+      { ...source, id: "other-company", companyId: "foreign", startDate: "2030-01-01" });
+    for (const target of [termId, "equal", "earlier", "other-agreement", "other-company", "missing"])
+      expect((await agent.patch(`${base}/documents/doc/coverage`).send({ coversThroughTermId: target })).status).toBe(400);
+    for (const payload of [{}, { coversThroughTermId: "" }, { coversThroughTermId: 1 }, { coversThroughTermId: null, termId: "injected" }])
+      expect((await agent.patch(`${base}/documents/doc/coverage`).send(payload)).status).toBe(400);
+    expect((await request(app("office", "foreign")).patch(`${base}/documents/doc/coverage`).send({ coversThroughTermId: null })).status).toBe(404);
+    expect((await agent.patch(`${base}/documents/missing/coverage`).send({ coversThroughTermId: null })).status).toBe(404);
+    expect(rows("term_status_history")).toHaveLength(1);
+  });
+  it.each(["draft", "sent", "signed", "active", "renewed", "lost", "cancelled"].flatMap(status =>
+    ["2026-09-29", "2026-09-30", "2026-10-01"].map(today => [status, today] as const)))(
+    "agrees between detail and every field endpoint for %s on %s", async (status, today) => {
+      vi.spyOn(companyDay, "companyToday").mockReturnValue(today);
+      const agent = request(app()), { termId, agreementId } = await create(agent);
+      rows("agreement_terms")[0].status = status;
+      const editable = ["draft", "sent"].includes(status) || (["signed", "active", "renewed"].includes(status) && today <= "2026-09-30");
+      const detail = (await agent.get(`${base}/contracts/${agreementId}`)).body;
+      expect(detail.terms[0].editable).toBe(editable);
+      expect((await agent.patch(`${base}/terms/${termId}`).send({ notes: "updated" })).status).toBe(editable ? 200 : 409);
+      for (const [part, input] of [["scope", body.scope], ["rates", []], ["payments", payments]] as const)
+        expect((await agent.put(`${base}/terms/${termId}/${part}`).send({ [part]: input })).status).toBe(editable ? 200 : 409);
+      if (editable && ["signed", "active", "renewed"].includes(status))
+        expect(rows("term_status_history").slice(1)).toEqual(expect.arrayContaining(
+          ["notes", "scope", "rates", "payments"].map(note => expect.objectContaining({ changedBy: "actor", note: `Edited after signing: ${note}` }))));
+    });
   it.each(["field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"])("denies %s every lifecycle endpoint", async role => {
     const agent = request(app(role));
     for (const [method, path] of [
       ["get", "/contracts"], ["get", "/contracts/id"], ["get", "/contracts/by-legacy/id"],
       ["post", "/contracts"], ["patch", "/terms/id"], ["put", "/terms/id/scope"],
       ["put", "/terms/id/rates"], ["put", "/terms/id/payments"], ["post", "/terms/id/status"],
-      ["post", "/contracts/id/renew"], ["post", "/terms/id/documents/upload-url"], ["post", "/terms/id/documents"],
+      ["post", "/contracts/id/renew"], ["post", "/terms/id/documents/upload-url"], ["post", "/terms/id/documents"], ["patch", "/documents/id/coverage"],
     ]) expect((await (agent as any)[method](`${base}${path}`).send({})).status).toBe(403);
     expect(mock.db.select).not.toHaveBeenCalled(); expect(mock.db.transaction).not.toHaveBeenCalled();
   });
@@ -177,6 +237,7 @@ describe("Contract Center lifecycle routes", () => {
     expect(writes).toBe(0);
   });
   it("preserves omitted fields, ignores status injection, re-expands date edits and audits signed edits", async () => {
+    vi.spyOn(companyDay, "companyToday").mockReturnValue("2026-06-01");
     const agent = request(app()), { termId } = await create(agent);
     await agent.post(`${base}/terms/${termId}/status`).send({ to: "sent" });
     await agent.post(`${base}/terms/${termId}/status`).send({ to: "signed" });
@@ -283,6 +344,7 @@ describe("Contract Center lifecycle routes", () => {
     expect(response.status).toBe(404); expect(mock.file).not.toHaveBeenCalled(); expect(mock.acl).not.toHaveBeenCalled();
   });
   it("creates flat snow, previews its increase, and preserves all metadata on renew", async () => {
+    vi.spyOn(companyDay, "companyToday").mockReturnValue("2026-06-01");
     const agent = request(app());
     const created = await agent.post(`${base}/contracts`).send({ ...body, line: "snow",
       term: { ...body.term, snowPricing: "flat_rate", snowFlatPriceCents: 50000, projectContact: "Site contact", snowTriggers: "2 inches" },

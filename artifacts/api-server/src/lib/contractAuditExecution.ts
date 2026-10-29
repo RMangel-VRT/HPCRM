@@ -28,10 +28,16 @@ async function writeCustomer(tx: Transaction, group: ImportCustomer, files: Audi
       if (term.rates.length) await tx.insert(termRates).values(term.rates.map(r => ({ ...r, ...context })));
       if (term.billing.length) await tx.insert(termBillingMonths).values(term.billing.map(r => ({ ...r, ...context })));
       if (term.legacyIds.length) await tx.insert(termLegacySources).values(term.legacyIds.map(legacyContractId => ({ ...context, legacyContractId })));
-      if (term.documents.length) await tx.insert(termDocuments).values(term.documents.map(({ source, kind }) => ({
-        ...context, kind, version: source.version, filename: source.filename, storageObjectPath: source.storageObjectPath,
-        mimeType: source.mimeType, fileSize: source.fileSize, uploadedBy: source.uploadedBy, createdAt: source.uploadedAt,
-      })));
+    }
+    // All identities must exist before forward coverage references are written.
+    for (const term of agreement.terms) {
+      if (term.documents.length) await tx.insert(termDocuments).values(term.documents.map(({ source, kind, coversThroughRef }) => {
+        const coversThroughTermId = coversThroughRef ? termIds.get(coversThroughRef) : null;
+        if (coversThroughRef && !coversThroughTermId) throw new Error("Coverage target was not written");
+        return { companyId, termId: termIds.get(term.contractRef)!, coversThroughTermId,
+          kind, version: source.version, filename: source.filename, storageObjectPath: source.storageObjectPath,
+          mimeType: source.mimeType, fileSize: source.fileSize, uploadedBy: source.uploadedBy, createdAt: source.uploadedAt };
+      }));
     }
   }
   return { customerId: group.id, customerName: group.name, agreements: group.agreements.length, terms: termCount };

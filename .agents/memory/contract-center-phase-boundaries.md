@@ -11,7 +11,7 @@ Line and form exist only on `agreement_terms` (CC2-10 dropped the agreement colu
 
 **How to apply:** Later renewal and editing work must target the intended term, creating a new term for a new season instead of mutating past-season data.
 
-Imported historical seasons remain independent documents, even when their predecessor chain was inserted in one transaction. A multi-year set needs positive, matching year/range creation-note evidence for every member, in addition to chain and exact transaction timestamp equality.
+Imported historical seasons remain independent renewal-set members, even when their predecessor chain was inserted in one transaction. A multi-year set needs positive, matching year/range creation-note evidence for every member, in addition to chain and exact transaction timestamp equality. Explicit document coverage does not imply renewal-set membership.
 
 **Why:** Audit import and legacy Copy also insert multiple historical seasons in one transaction; chain plus timestamp alone would wrongly remove their independent status and signed-document controls.
 
@@ -91,9 +91,20 @@ are signed, but its explicit status rules and the owner's clarified acceptance
 criteria require preserving realistic imported statuses and historical guards.
 
 **How to apply:** Verify display behavior with renewed predecessors and a signed
-final season. In-effect display does not confer editing permission on an
-underlying renewed season. Keep display selection separate from renewal intent;
-an explicit import source must not be replaced by whichever season is current.
+final season. Keep display selection separate from renewal intent; an explicit
+import source must not be replaced by whichever season is current.
+
+Renewed field-edit restrictions were explicitly superseded: draft/sent seasons
+are editable, and signed/active/renewed seasons remain editable through their
+inclusive Colorado end date, including future seasons. This does not transfer
+renewal-set status ownership away from year one.
+
+**Why:** The owner clarified on October 29, 2026 that an in-effect renewed season
+and a future signed season must not be treated as past/read-only merely because
+another season is current or already signed.
+
+**How to apply:** Keep field editability independent from display-current
+selection and year-one-only lifecycle moves. Imported coverage is never inferred.
 
 Retiring legacy agreement-level line/form requires removing their schema declarations and applying the column drops in the same change. Until that cleanup lands, the nullable agreement copies remain part of the declared shape; seasonal values remain authoritative.
 

@@ -15,6 +15,22 @@ import { ObjectStorageService } from "../objectStorage";
 
 const enabled = process.env.CONTRACT_AUDIT_DB_TEST === "1" && process.env.NODE_ENV !== "production";
 describe.skipIf(!enabled)("disposable development audit import", () => {
+  it("persists forward coverage after resolving out-of-order audited seasons", async () => {
+    const f = await createAuditFixture();
+    try {
+      const source = f.files.tables["contracts.csv"][0], target = f.files.tables["contracts.csv"][1];
+      const document = f.files.tables["documents.csv"].find(r => r.values.contract_ref === source.values.contract_ref)!;
+      document.values.covers_through_ref = target.values.contract_ref;
+      f.files.tables["contracts.csv"].reverse();
+      const result = await executeAuditImport(f.files, f.companyId, f.userId);
+      expect(result.errors).toEqual([]); expect(result.failures).toEqual([]);
+      const [agreement] = await db.select().from(agreements).where(eq(agreements.companyId, f.companyId));
+      const detail = await persistence.fullDetail(db, f.companyId, agreement.id);
+      expect(detail.terms[0].documents[0].coversThroughTermId).toBe(detail.terms[1].id);
+      expect(detail.terms[1].coveredBy[0]).toMatchObject({ id: detail.terms[0].documents[0].id,
+        fromTermId: detail.terms[0].id, fromSeasonLabel: detail.terms[0].seasonLabel });
+    } finally { await removeAuditFixture(f.companyId, f.userId); }
+  });
   let fixture: Awaited<ReturnType<typeof createAuditFixture>>;
   const createdCustomers: string[] = [];
   beforeAll(async () => { fixture = await createAuditFixture(); }, 30000);
@@ -52,7 +68,8 @@ describe.skipIf(!enabled)("disposable development audit import", () => {
       expect(second.createdAtExact).toBe(first.createdAtExact);
       for (const t of detail.terms) {
         expect(t.renewalSet).toMatchObject({ firstTermId: t.id, year: 1, length: 1 });
-        expect(t.signedDocumentTermId).toBe(t.id);
+        expect(t).not.toHaveProperty("signedDocumentTermId");
+        expect(t.coveredBy).toEqual([]);
       }
       const status = await api.post(`${base}/terms/${second.id}/status`).send({ to: "signed" });
       expect(status.status).toBe(200);

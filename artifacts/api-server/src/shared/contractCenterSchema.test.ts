@@ -28,6 +28,8 @@ const dropExtension = readFileSync(new URL("../../../../.migration-backup/migrat
 // Compare effective foundation + extensions + obsolete agreement-column drops;
 // never rewrite historical SQL.
 const migration = originalMigration
+  .replace(/(CREATE TABLE IF NOT EXISTS term_documents \([\s\S]*?term_id varchar NOT NULL REFERENCES agreement_terms\(id\) ON DELETE CASCADE,)/,
+    "$1\n  covers_through_term_id varchar REFERENCES agreement_terms(id) ON DELETE SET NULL,")
   .replace("  line text NOT NULL,\n  form text NOT NULL DEFAULT 'ours',\n", "")
   .replace("CREATE TABLE IF NOT EXISTS agreement_terms (\n", "CREATE TABLE IF NOT EXISTS agreement_terms (\n  bid_ticket_id varchar REFERENCES tickets(id) ON DELETE SET NULL,\n  line text NOT NULL,\n  form text NOT NULL DEFAULT 'ours',\n")
   .replace("CREATE TABLE IF NOT EXISTS agreements (\n", "CREATE TABLE IF NOT EXISTS agreements (\n  import_ref text,\n")

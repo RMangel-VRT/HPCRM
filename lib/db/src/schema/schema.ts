@@ -895,6 +895,7 @@ export const termDocuments = pgTable("term_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  coversThroughTermId: varchar("covers_through_term_id").references(() => agreementTerms.id, { onDelete: "set null" }),
   kind: text("kind").notNull().$type<TermDocumentKind>(),
   version: integer("version").notNull().default(1),
   filename: text("filename").notNull(),
@@ -906,6 +907,7 @@ export const termDocuments = pgTable("term_documents", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ termIdx: index("term_documents_term_idx").on(t.termId) }));
 export const insertTermDocumentSchema = createInsertSchema(termDocuments).omit({ id: true, createdAt: true }).extend({
+  coversThroughTermId: z.string().min(1).nullable().optional(),
   companyId: z.string(), termId: z.string(), kind: z.enum(TERM_DOCUMENT_KINDS), version: z.number().int().default(1),
   filename: z.string(), storageObjectPath: z.string(), mimeType: z.string(), fileSize: z.number().int().nullable().optional(),
   masterId: z.string().nullable().optional(), uploadedBy: z.string().nullable().optional(),

@@ -2,7 +2,8 @@ import express from "express";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { agreementTerms, agreements, termRates, termScopeLines, termBillingMonths, termStatusHistory } from "@workspace/db";
+import { agreementTerms, agreements, termRates, termScopeLines, termBillingMonths, termStatusHistory, termDocuments } from "@workspace/db";
+import { ObjectStorageService } from "../objectStorage";
 import { db, pool } from "../db";
 import { registerContractCenterRoutes } from "../routes/contractCenter";
 import { createAuditFixture, removeAuditFixture } from "./contractAuditFixture";
@@ -72,7 +73,7 @@ describe.skipIf(!enabled)("disposable contract-changing renewals", () => {
     expect(second.status).toBe(409); expect(second.body.message).toContain(`year 2 of a renewal; change its status from ${terms[0].seasonLabel}`);
     expect((await api.post(`${path}/terms/${terms[1].id}/documents`).send({
       uploadURL: "/objects/no-upload-needed", filename: "fixture.pdf", fileSize: 10, mimeType: "application/pdf", kind: "signed",
-    })).status).toBe(409);
+    })).status).toBe(404);
     expect((await api.patch(`${path}/terms/${terms[1].id}`).send({ notes: "Year two independent edits" })).status).toBe(200);
     expect((await api.post(`${path}/terms/${terms[0].id}/status`).send({ to: "sent" })).status).toBe(200);
     let detail = await fullDetail(db, fixture.companyId, f.agreement.id);
@@ -83,7 +84,7 @@ describe.skipIf(!enabled)("disposable contract-changing renewals", () => {
     expect(detail.terms.map(t => t.status)).toEqual(["renewed", "renewed", "renewed", "signed"]);
     expect(new Set(detail.terms.slice(1).map(t => t.signedAt!.toISOString())).size).toBe(1);
     expect(detail.terms.slice(1).map(t => t.renewalSet.year)).toEqual([1, 2, 3]);
-    expect(detail.terms.slice(1).every(t => t.signedDocumentTermId === terms[0].id)).toBe(true);
+    expect(detail.terms.slice(1).every(t => !("signedDocumentTermId" in t) && t.coveredBy.length === 0 && t.editable)).toBe(true);
     expect(detail.terms[2].allowedMoves).toEqual([]);
     expect(detail.terms[2].notes).toBe("Year two independent edits");
     expect(listSummary(detail.terms, detail.terms[1].startDate).current).toMatchObject({
@@ -113,6 +114,48 @@ describe.skipIf(!enabled)("disposable contract-changing renewals", () => {
     expect(term.rates.some((r: { line: string }) => r.line === "snow")).toBe(false);
     expect(term.scope.some((s: { line: string }) => s.line === "snow")).toBe(false);
     expect((await fullDetail(db, fixture.companyId, f.agreement.id)).terms[0]).toEqual(before.terms[0]);
+  });
+  it("defaults signed year-one uploads across three seasons, permits separate copies and nulls deleted targets", async () => {
+    const f = await source(), api = server();
+    const created = await api.post(`${path}/contracts/${f.agreement.id}/renew`).send(requestBody);
+    const terms = created.body.terms.slice(1);
+    expect(terms).toHaveLength(3);
+    await api.post(`${path}/terms/${terms[0].id}/status`).send({ to: "sent" });
+    await api.post(`${path}/terms/${terms[0].id}/status`).send({ to: "signed" });
+    const objectPath = "/objects/disposable-coverage-upload";
+    vi.spyOn(ObjectStorageService.prototype, "normalizeObjectEntityPath").mockReturnValue(objectPath);
+    vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue({} as never);
+    vi.spyOn(ObjectStorageService.prototype, "trySetObjectEntityAclPolicy").mockResolvedValue(objectPath);
+    const uploadServer = express(); uploadServer.use(express.json());
+    uploadServer.use((req, _res, next) => {
+      const termId = req.path.split("/")[4];
+      Object.assign(req, { isAuthenticated: () => true, user: { id: fixture.userId, activeRole: "office", activeCompanyId: fixture.companyId },
+        session: { contractCenterUploads: { [objectPath]: { companyId: fixture.companyId, termId } } } });
+      next();
+    });
+    registerContractCenterRoutes(uploadServer);
+    const upload = (id: string) => request(uploadServer).post(`${path}/terms/${id}/documents`).send({
+      uploadURL: objectPath, filename: "three-year.pdf", kind: "signed", mimeType: "application/pdf", fileSize: 20,
+    });
+    const first = await upload(terms[0].id);
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(first.body.coversThroughTermId).toBe(terms[2].id);
+    let detail = await fullDetail(db, fixture.companyId, f.agreement.id);
+    expect(detail.terms.slice(2).map(t => t.coveredBy.map(d => d.id))).toEqual([[first.body.id], [first.body.id]]);
+    expect(detail.terms[2].coveredBy[0]).toMatchObject({ fromTermId: terms[0].id, fromSeasonLabel: terms[0].seasonLabel });
+    const separate = await upload(terms[1].id);
+    expect(separate.status).toBe(201);
+    expect(separate.body.coversThroughTermId).toBeNull();
+    expect((await api.patch(`${path}/terms/${terms[0].id}`).send({ notes: "Reviewed after signing" })).status).toBe(200);
+    expect((await api.put(`${path}/terms/${terms[1].id}/scope`).send({ scope: [] })).status).toBe(200);
+    detail = await fullDetail(db, fixture.companyId, f.agreement.id);
+    expect(detail.terms[1].history.some(h => h.changedBy === fixture.userId && h.note === "Edited after signing: notes")).toBe(true);
+    expect(detail.terms[2].history.some(h => h.changedBy === fixture.userId && h.note === "Edited after signing: scope")).toBe(true);
+    expect((await api.post(`${path}/terms/${terms[1].id}/status`).send({ to: "lost" })).status).toBe(409);
+    await db.delete(agreementTerms).where(eq(agreementTerms.id, terms[2].id));
+    const [document] = await db.select().from(termDocuments).where(eq(termDocuments.id, first.body.id));
+    expect(document.coversThroughTermId).toBeNull();
+    expect((await fullDetail(db, fixture.companyId, f.agreement.id)).terms[2].coveredBy).toEqual([]);
   });
   it.each([["both", "both", true], ["snow", "both", true], ["both", "landscape", false]] as const)(
     "persists custom Snow scope correctly on %s→%s renewal", async (from, to, retained) => {
@@ -181,7 +224,7 @@ describe.skipIf(!enabled)("disposable contract-changing renewals", () => {
     expect(second.status, JSON.stringify(second.body)).toBe(201);
     const detail = await fullDetail(db, fixture.companyId, f.agreement.id);
     expect(detail.terms.every(t => t.renewalSet.length === 1)).toBe(true);
-    expect(detail.terms[2].signedDocumentTermId).toBe(detail.terms[2].id);
+    expect(detail.terms[2]).not.toHaveProperty("signedDocumentTermId");
   });
   it("retains company scoping and role allow-lists", async () => {
     const f = await source();

@@ -54,6 +54,8 @@ export interface TermBillingRow { component: string; month: string; amountCents:
 export interface TermDocument {
   id: string; kind: string; version: number; filename: string; storageObjectPath: string; mimeType: string;
   fileSize: number | null; createdAt: string; uploadedByName?: string | null;
+  coversThroughTermId?: string | null;
+  fromTermId?: string; fromSeasonLabel?: string;
 }
 export interface TermHistoryRow {
   id: string; oldStatus: string | null; newStatus: string; note: string | null; createdAt: string; changedByName?: string | null;
@@ -65,9 +67,9 @@ export interface DetailTerm extends TermSummary {
   projectAddress?: string | null; snowTriggers?: string | null; po?: string | null; notes?: string | null;
   reviewNote?: string | null; renewedFromTermId?: string | null;
   allowedMoves?: string[]; editable?: boolean;
-  renewalSet?: RenewalSetInfo | null; signedDocumentTermId?: string | null;
+  renewalSet?: RenewalSetInfo | null;
   scope: TermScopeRow[]; rates: TermRateRow[]; billingMonths: TermBillingRow[];
-  documents: TermDocument[]; history: TermHistoryRow[];
+  documents: TermDocument[]; coveredBy?: TermDocument[]; history: TermHistoryRow[];
 }
 export interface ContractDetail {
   id: string; customerId: string; line: AgreementLine; form: "ours" | "theirs";

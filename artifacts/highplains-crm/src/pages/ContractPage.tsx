@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Redirect, useLocation, useParams } from "wouter";
-import { AlertTriangle, Download, Pencil, RefreshCw } from "lucide-react";
+import { AlertTriangle, Pencil, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { SeasonDocuments } from "@/components/contracts/SeasonDocuments";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -28,7 +30,6 @@ import type { ContractDetail, DetailTerm } from "@/components/contracts/contract
 
 const LIST_KEY = "/api/contract-center/contracts";
 const MOVE_LABEL: Record<string, string> = { draft: "Back to draft", sent: "Mark sent", signed: "Mark signed", lost: "Mark lost", cancelled: "Cancel contract" };
-const KIND_LABEL: Record<string, string> = { signed: "Signed copy", their_form: "Their form", other: "Other", review: "Review", clean: "Clean", clarifications: "Clarifications" };
 const FIELD_INPUTS: { key: keyof FieldDraft; label: string }[] = [
   { key: "seasonLabel", label: "Season" }, { key: "startDate", label: "Start date" }, { key: "endDate", label: "End date" },
   { key: "legalName", label: "Legal name" }, { key: "managingAgentName", label: "Managing agent" }, { key: "projectContact", label: "Project contact" },
@@ -37,14 +38,14 @@ const FIELD_INPUTS: { key: keyof FieldDraft; label: string }[] = [
 ];
 type Pending = { kind: "term"; id: string } | { kind: "leave"; href: string } | { kind: "cancel" } | null;
 
-const isEditableTerm = (d: ContractDetail, t: DetailTerm) =>
-  t.editable ?? (!["renewed", "lost", "cancelled"].includes(t.status) && (t.id === (d.currentTermId ?? d.terms[d.terms.length - 1]?.id) || t.id === d.renewalDraftId));
+const isEditableTerm = (_d: ContractDetail, t: DetailTerm) => t.editable === true;
 const termHash = (h: string) => (h.startsWith("#term-") ? h.slice(6) : null);
 const priceText = (d: ContractDetail, t: DetailTerm) =>
   termLine(t, d.line) === "snow" ? (t.snowPricing === "flat_rate" ? `Flat snow ${money(t.snowFlatPriceCents)}` : "T&M")
     : t.annualPriceCents != null ? money(t.annualPriceCents) : "T&M";
 
 export function ContractView({ detail, initialHash }: { detail: ContractDetail; initialHash: string }) {
+  const { t: translate } = useTranslation();
   const qc = useQueryClient();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -221,13 +222,11 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   if (!term) return <div className="text-sm text-muted-foreground" data-testid="empty-terms">This contract has no seasons yet.</div>;
   const laterYear = isLaterYear(term);
   const set = term.renewalSet;
-  // Signing renews the intermediate years, but year 1 still owns the set's
-  // status and signed document while its signed fields remain read-only.
+  // Year one owns set status; field editability comes only from the server flag.
   const signedSetOwner = !laterYear && (set?.length ?? 0) > 1 && detail.terms.some(t =>
     t.renewalSet?.firstTermId === term.id && ["signed", "active"].includes(t.status));
   const moves = (editable || signedSetOwner) && !laterYear ? term.allowedMoves ?? [] : [];
-  const docTermId = term.signedDocumentTermId && term.signedDocumentTermId !== term.id ? term.signedDocumentTermId : laterYear ? set!.firstTermId : null;
-  const docTerm = docTermId ? detail.terms.find(t => t.id === docTermId) : undefined;
+  const coveredSigned = term.coveredBy?.find(d => d.kind === "signed");
   const showRenew = (detail.renewalDue || ["expired", "active"].includes(term.displayStatus)) && term.id === (detail.currentTermId ?? term.id);
   const reviewItems = (term.reviewNote ?? "").split(/\n+/).map(s => s.replace(/^\s*[-*\u2022]\s*/, "").trim()).filter(Boolean);
   const monthlyCents = term.billingType === "equal_monthly" ? monthlyOf(term) : null;
@@ -317,8 +316,8 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
           This season: <LineBadge line={seasonLine} /> {seasonForm === "ours" ? "Our form" : "Their form"}
         </p>
       )}
-      {!editable && <p className="text-sm text-muted-foreground rounded-md bg-muted/50 p-2" data-testid="note-past-season">{signedSetOwner ? "Signed season fields are read only" : "Past season, read only"}</p>}
-      {editing && ["signed", "active"].includes(term.status) && <p className="text-sm rounded-md border p-2" style={amberBox} data-testid="note-signed-edit">Changes to a signed contract are recorded in History.</p>}
+      {!editable && <p className="text-sm text-muted-foreground rounded-md bg-muted/50 p-2" data-testid={["lost", "cancelled"].includes(term.status) ? "note-closed-season" : "note-past-season"}>{translate(["lost", "cancelled"].includes(term.status) ? "contractDocuments.closedSeason" : "contractDocuments.pastSeason")}</p>}
+      {editing && ["signed", "active", "renewed"].includes(term.status) && <p className="text-sm rounded-md border p-2" style={amberBox} data-testid="note-signed-edit">Changes to a signed contract are recorded in History.</p>}
 
       {bar && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm" style={amberBox} role="alert" data-testid="bar-discard">
@@ -392,15 +391,12 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
         </TabsContent>
         <TabsContent value="documents">
           <section className="space-y-3" data-testid="tab-documents-body">
-            {docTerm && (
-              <p className="text-sm rounded-md border bg-muted/40 p-2" data-testid="note-signed-document">
-                Signed document: see{" "}
-                <button type="button" className="underline font-medium" onClick={() => selectTerm(docTerm.id)} data-testid="link-signed-document-term">{docTerm.seasonLabel}</button>
-              </p>
-            )}
+            {coveredSigned && <p className="text-sm rounded-md border bg-muted/40 p-2" data-testid="note-covered-signed">
+              {translate("contractDocuments.coveredSigned", { season: coveredSigned.fromSeasonLabel })}
+            </p>}
             {(editable || signedSetOwner) && (
               <div className="flex flex-wrap gap-2">
-                {(docTerm ? (["their_form", "other"] as const) : (["signed", "their_form", "other"] as const)).map(kind => (
+                {(["signed", "their_form", "other"] as const).map(kind => (
                   <ContractUploadButton key={kind} label={kind === "signed" ? "Signed copy" : kind === "their_form" ? "Their form" : "Other"} testId={`upload-${kind}`}
                     uploadUrlPath={`/api/contract-center/terms/${term.id}/documents/upload-url`} registerPath={`/api/contract-center/terms/${term.id}/documents`}
                     extraBody={{ kind }} options={TERM_UPLOAD_OPTIONS} accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
@@ -417,16 +413,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
                 <Button size="sm" variant="ghost" onClick={() => setSignPrompt(false)} data-testid="button-prompt-signed-no">No</Button>
               </div>
             )}
-            {!term.documents.length ? <p className="text-sm text-muted-foreground" data-testid="empty-documents">No files for this season.</p> : (
-              <table className="w-full text-sm"><thead><tr className="text-left text-xs text-muted-foreground"><th className="p-2">Kind</th><th>Version</th><th>File</th><th>Date</th><th>Uploaded by</th><th /></tr></thead>
-                <tbody>
-                  {[...term.documents].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.version - a.version).map(d => (
-                    <tr key={d.id} className="border-t" data-testid={`row-document-${d.id}`}>
-                      <td className="p-2">{KIND_LABEL[d.kind] ?? d.kind}</td><td>v{d.version}</td><td>{d.filename}</td><td>{dateTime(d.createdAt)}</td><td>{d.uploadedByName ?? "\u2014"}</td>
-                      <td><Button size="sm" variant="ghost" asChild><a href={d.storageObjectPath} download={d.filename} data-testid={`link-download-${d.id}`}><Download className="w-4 h-4 mr-1" />Download</a></Button></td>
-                    </tr>))}
-                </tbody></table>
-            )}
+            <SeasonDocuments key={term.id} term={term} terms={detail.terms} selectTerm={selectTerm} refresh={refresh} />
           </section>
         </TabsContent>
         <TabsContent value="history">

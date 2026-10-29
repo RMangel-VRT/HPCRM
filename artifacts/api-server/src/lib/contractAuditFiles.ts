@@ -12,7 +12,7 @@ export const IMPORT_HEADERS: Record<string, string[]> = {
   "payments.csv": ["contract_ref", "payment_line", ...MONTHS],
   "rates.csv": "contract_ref rate_key price price_text minimum unit label category line".split(" "),
   "scope.csv": ["contract_ref", "service_key", "included", "quantity", "unit", ...MONTHS, "label", "notes"],
-  "documents.csv": ["contract_ref", "document_id", "kind"],
+  "documents.csv": ["contract_ref", "document_id", "kind", "covers_through_ref"],
 };
 export type Diagnostic = { file: string; row?: number; column?: string; contractRef?: string; message: string };
 export type CsvRow = { file: string; row: number; values: Record<string, string> };

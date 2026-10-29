@@ -6,7 +6,7 @@ import {
   users, type AgreementTerm, type TermStatus,
 } from "@workspace/db";
 import { db } from "../db";
-import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves, renewalSet, recoverPayments } from "./contractCenterService";
+import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves, renewalSet, recoverPayments, isTermEditable } from "./contractCenterService";
 import { addCalendarDays, calendarDaysBetween, companyToday } from "./companyDay";
 
 export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -127,7 +127,7 @@ export async function writeTerm(tx: Transaction, companyId: string, userId: stri
       .where(and(eq(agreementTerms.id, previous.id), eq(agreementTerms.companyId, companyId))).returning()
     : await tx.insert(agreementTerms).values({ ...values, companyId, createdBy: userId } as typeof agreementTerms.$inferInsert).returning();
   if (!row) throw new ContractCenterError(404, "Term not found");
-  if (!previous || previous.status !== row.status || ["signed", "active"].includes(previous.status)) {
+  if (!previous || previous.status !== row.status || ["signed", "active", "renewed"].includes(previous.status)) {
     await tx.insert(termStatusHistory).values({
       companyId, termId: row.id, oldStatus: previous?.status ?? null, newStatus: row.status,
       changedBy: userId, note: previous && previous.status === row.status ? `Edited after signing: ${note}` : note,
@@ -161,8 +161,8 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
   const [managementCompany] = managementId ? await reader.select().from(propertyManagementCompanies)
     .where(and(eq(propertyManagementCompanies.id, managementId), eq(propertyManagementCompanies.companyId, companyId))) : [];
   const terms = await agreementSeasons(reader, companyId, agreementId);
-  const summary = listSummary(terms);
-  const editableIds = new Set([summary.current?.id, summary.renewalDraft?.id].filter(Boolean));
+  const today = companyToday(), summary = listSummary(terms, today);
+  const statusEditableIds = new Set([summary.current?.id, summary.renewalDraft?.id].filter(Boolean));
   const nested = await Promise.all(terms.map(async term => {
     const [scope, rates, billingMonths, documents, history] = await Promise.all([
       reader.select().from(termScopeLines).where(termWhere(termScopeLines, companyId, term.id)).orderBy(asc(termScopeLines.sortOrder), asc(termScopeLines.serviceKey)),
@@ -180,20 +180,27 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
     }));
     const names = new Map(actors);
     const set = renewalSet(terms, term), first = set[0], year = set.findIndex(t => t.id === term.id) + 1;
-    const editable = (editableIds.has(term.id) || ["draft", "sent"].includes(term.status)) && !["renewed", "lost", "cancelled"].includes(term.status);
+    const editable = isTermEditable(term, today);
+    const statusEditable = (statusEditableIds.has(term.id) || ["draft", "sent"].includes(term.status)) && !["renewed", "lost", "cancelled"].includes(term.status);
     return { ...term, displayStatus: displayStatus(term, terms), editable,
       renewalSet: { firstTermId: first.id, firstSeason: first.seasonLabel, lastSeason: set[set.length - 1].seasonLabel, year, length: set.length },
-      signedDocumentTermId: first.id,
-      allowedMoves: year === 1 && (editable || set.length > 1) ? allowedMoves(set[set.length - 1].status, !!first.renewedFromTermId, !!first.bidTicketId) : [],
+      allowedMoves: year === 1 && (statusEditable || set.length > 1) ? allowedMoves(set[set.length - 1].status, !!first.renewedFromTermId, !!first.bidTicketId) : [],
       scope, rates, billingMonths,
       documents: documents.map(d => ({ ...d, uploadedByName: d.uploadedBy ? names.get(d.uploadedBy) ?? d.uploadedBy : "System" })),
       history: history.map(h => ({ ...h, changedByName: h.changedBy ? names.get(h.changedBy) ?? h.changedBy : "System" })) };
   }));
+  const withCoverage = nested.map(term => ({ ...term, coveredBy: nested.flatMap(source => {
+    if (source.startDate >= term.startDate) return [];
+    return source.documents.filter(document => {
+      const target = nested.find(t => t.id === document.coversThroughTermId);
+      return target && target.startDate > source.startDate && target.startDate >= term.startDate;
+    }).map(document => ({ ...document, fromTermId: source.id, fromSeasonLabel: source.seasonLabel }));
+  }) }));
   const display = summary.current ?? summary.latest;
   return { ...agreement, line: display?.line, form: display?.form, customer: { id: customer.id, name: customer.name,
     address: `${customer.street}, ${customer.city}, ${customer.state} ${customer.zip}`,
     street: customer.street, city: customer.city, state: customer.state, zip: customer.zip,
-    managementCompany: managementCompany ?? customer.managementCompany }, terms: nested,
+    managementCompany: managementCompany ?? customer.managementCompany }, terms: withCoverage,
     currentTermId: summary.current?.id ?? null, renewalDraftId: summary.renewalDraft?.id ?? null,
     renewalDue: summary.renewalDue };
 }

@@ -98,7 +98,7 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     if (!Object.keys(updates).length) throw new ContractCenterError(400, "Nothing to update");
     const { companyId, userId, id } = context(req, user);
     const result = await db.transaction(async tx => {
-      const { term, agreement } = await lockTerm(tx, companyId, id); assertEditable(term.status);
+      const { term, agreement } = await lockTerm(tx, companyId, id); assertEditable(term);
       const next = { ...term, ...updates };
       validateDates(next.startDate, next.endDate); validateSnow(term.line, next);
       const payments = recoverPayments(await tx.select().from(termBillingMonths).where(termWhere(termBillingMonths, companyId, id)));
@@ -116,7 +116,7 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       const input = Array.isArray(req.body) ? req.body : req.body?.[part];
       const { companyId, userId, id } = context(req, user);
       const result = await db.transaction(async tx => {
-        const { term, agreement } = await lockTerm(tx, companyId, id); assertEditable(term.status);
+        const { term, agreement } = await lockTerm(tx, companyId, id); assertEditable(term);
         if (part === "scope") await replaceRows(tx, companyId, id, termScopeLines, buildScope(scopeSchema.parse(input), term.line));
         if (part === "rates") await replaceRows(tx, companyId, id, termRates, snapshotRates(await activeCard(tx, companyId), ratesSchema.parse(input), term.line));
         let summary = {};
@@ -179,14 +179,15 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     const body = documentsSchema.parse(req.body), { companyId, userId, id } = context(req, user);
     const row = await db.transaction(async tx => {
       const { term } = await lockTerm(tx, companyId, id);
+      let coversThroughTermId: string | null = null;
       if (body.kind === "signed") {
         const terms = await agreementSeasons(tx, companyId, term.agreementId);
-        const first = renewalSet(terms, terms.find(t => t.id === id)!)[0];
-        if (first.id !== id) throw new ContractCenterError(409, `Upload the signed document to ${first.seasonLabel}.`);
+        const set = renewalSet(terms, terms.find(t => t.id === id)!);
+        if (set[0].id === id && set.length > 1) coversThroughTermId = set[set.length - 1].id;
       }
       const service = new ObjectStorageService(), path = service.normalizeObjectEntityPath(body.uploadURL);
       if (!path.startsWith("/objects/")) throw new ContractCenterError(400, "Invalid storage object path");
-      const binding = (req.session as UploadSession).contractCenterUploads?.[path];
+      const binding = (req.session as UploadSession | undefined)?.contractCenterUploads?.[path];
       if (!binding || binding.companyId !== companyId || binding.termId !== id) throw new ContractCenterError(404, "Upload not found for this term");
       await service.getObjectEntityFile(path);
       await service.trySetObjectEntityAclPolicy(body.uploadURL, { owner: userId, visibility: "private",
@@ -194,10 +195,33 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       const existing = await tx.select().from(termDocuments).where(and(termWhere(termDocuments, companyId, id), eq(termDocuments.kind, body.kind)));
       const version = Math.max(0, ...existing.map(d => d.version)) + 1;
       const [document] = await tx.insert(termDocuments).values({ companyId, termId: id, uploadedBy: userId,
-        version, storageObjectPath: path, filename: body.filename, fileSize: body.fileSize, mimeType: body.mimeType, kind: body.kind }).returning();
+        coversThroughTermId, version, storageObjectPath: path, filename: body.filename, fileSize: body.fileSize, mimeType: body.mimeType, kind: body.kind }).returning();
       return document;
     });
     delete (req.session as UploadSession).contractCenterUploads?.[row.storageObjectPath];
     res.status(201).json(row);
+  }));
+  app.patch("/api/contract-center/documents/:documentId/coverage", handle(async (req, res, user) => {
+    const parsed = z.object({ coversThroughTermId: z.string().trim().min(1).nullable() }).strict().parse(req.body);
+    const updates = pickProvided(parsed, req.body), companyId = user.activeCompanyId;
+    const documentId = String(req.params.documentId);
+    const row = await db.transaction(async tx => {
+      const where = and(eq(termDocuments.id, documentId), eq(termDocuments.companyId, companyId));
+      const [initial] = await tx.select().from(termDocuments).where(where);
+      if (!initial) throw new ContractCenterError(404, "Document not found");
+      const { term } = await lockTerm(tx, companyId, initial.termId);
+      const [document] = await tx.select().from(termDocuments).where(where).for("update");
+      if (!document) throw new ContractCenterError(404, "Document not found");
+      const terms = await agreementSeasons(tx, companyId, term.agreementId);
+      const target = terms.find(t => t.id === updates.coversThroughTermId);
+      if (updates.coversThroughTermId !== null && (!target || target.startDate <= term.startDate))
+        throw new ContractCenterError(400, "Coverage must end at a strictly later season of the same agreement");
+      const [updated] = await tx.update(termDocuments).set(updates).where(where).returning();
+      await addHistory(tx, companyId, user.id, term, target
+        ? `Document ${document.filename} now also covers ${term.seasonLabel}–${target.seasonLabel}`
+        : `Document ${document.filename} covers this season only`);
+      return updated;
+    });
+    res.json(row);
   }));
 }

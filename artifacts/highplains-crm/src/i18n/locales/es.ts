@@ -1,4 +1,12 @@
 const es = {
+  contractDocuments: {
+    view: "Ver", download: "Descargar", preview: "Vista previa del documento",
+    openNewTab: "Abrir en una pestaña nueva", noPreview: "No hay vista previa disponible para este tipo de archivo.",
+    from: "De {{season}}", covers: "Cubre:", thisSeason: "Solo esta temporada",
+    coverageFor: "Cobertura de {{filename}}", saving: "Guardando…",
+    coveredSigned: "Esta temporada está cubierta por la copia firmada de {{season}}; suba una copia firmada separada solo si esta temporada tiene su propio documento.",
+    pastSeason: "Temporada pasada, solo lectura", closedSeason: "Temporada cerrada, solo lectura",
+  },
   invoicing: {
     openPage: "Abrir Facturación",
     stranded: "Listo para facturar, aún sin factura",

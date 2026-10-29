@@ -92,6 +92,40 @@ describe("audit file boundaries", () => {
 });
 
 describe("audit planner canonical rules", () => {
+  it("accepts optional forward coverage references, regardless of CSV order, and rejects invalid targets", async () => {
+    const { files } = await fixture();
+    const source = files.tables["contracts.csv"][0], target = files.tables["contracts.csv"][1];
+    const document = files.tables["documents.csv"].find(r => r.values.contract_ref === source.values.contract_ref)!;
+    document.values.covers_through_ref = target.values.contract_ref;
+    const plan = planAuditImport(files, data());
+    expect(plan.errors).toEqual([]);
+    expect(plan.customers[0].agreements[0].terms[0].documents[0].coversThroughRef).toBe(target.values.contract_ref);
+    files.tables["contracts.csv"].reverse();
+    expect(planAuditImport(files, data()).errors).toEqual([]);
+    for (const targetRef of ["missing", source.values.contract_ref]) {
+      document.values.covers_through_ref = targetRef;
+      expect(planAuditImport(files, data()).errors.some(e => e.column === "covers_through_ref")).toBe(true);
+    }
+    document.values.covers_through_ref = target.values.contract_ref;
+    const start = target.values.start_date;
+    target.values.start_date = source.values.start_date;
+    expect(planAuditImport(files, data()).errors.some(e => e.column === "covers_through_ref")).toBe(true);
+    target.values.start_date = "2000-01-01";
+    expect(planAuditImport(files, data()).errors.some(e => e.column === "covers_through_ref")).toBe(true);
+    target.values.start_date = start;
+    target.values.agreement_ref = "another-agreement";
+    expect(planAuditImport(files, data()).errors.some(e => e.column === "covers_through_ref")).toBe(true);
+  });
+  it("parses the new optional column without making it required for legacy CSVs", async () => {
+    const { upload } = await fixture();
+    const legacy = await parseAuditFiles(upload);
+    expect(legacy.errors).toEqual([]);
+    const extended = await parseAuditFiles(upload.map(file => file.name.endsWith("documents.csv") ? {
+      ...file, data: Buffer.from(file.data.toString().trimEnd().split(/\r?\n/).map((line, i) => `${line},${i ? "" : "covers_through_ref"}`).join("\n")),
+    } : file));
+    expect(extended.errors).toEqual([]);
+    expect(planAuditImport(extended, data()).errors).toEqual([]);
+  });
   it("uses unchanged worked business values and exact annual/billing totals", async () => {
     const { files } = await fixture();
     const plan = planAuditImport(files, data());
@@ -189,7 +223,7 @@ describe("audit planner canonical rules", () => {
     d.history.push({ termId: "manual-renewal", oldStatus: null, note: "Imported from audit (old.zip)", createdAt: new Date("2026-01-01") } as AuditData["history"][number]);
     d.terms[0].updatedAt = new Date("2026-01-01");
     const legacy = d.documents[0];
-    d.termDocs.push({ ...legacy, id: "imported-doc", termId: "manual-renewal", createdAt: legacy.uploadedAt, kind: "signed", masterId: null });
+    d.termDocs.push({ ...legacy, id: "imported-doc", termId: "manual-renewal", coversThroughTermId: null, createdAt: legacy.uploadedAt, kind: "signed", masterId: null });
     expect(planAuditImport(files, d).errors).toEqual([]);
     d.termDocs.push({ ...d.termDocs[0], id: "manual-doc", filename: "new signed document.pdf", storageObjectPath: "/objects/new" });
     expect(planAuditImport(files, d).errors.some(e => e.message.includes("attached in Contract Center") && e.row && e.column === "agreement_ref")).toBe(true);

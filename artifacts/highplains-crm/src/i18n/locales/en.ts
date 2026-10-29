@@ -1,4 +1,12 @@
 const en = {
+  contractDocuments: {
+    view: "View", download: "Download", preview: "Document preview",
+    openNewTab: "Open in new tab", noPreview: "No inline preview is available for this file type.",
+    from: "From {{season}}", covers: "Covers:", thisSeason: "This season only",
+    coverageFor: "Coverage for {{filename}}", saving: "Saving…",
+    coveredSigned: "This season is covered by the {{season}} signed copy; only upload a separate signed copy if this season has its own document.",
+    pastSeason: "Past season, read only", closedSeason: "Closed season, read only",
+  },
   invoicing: {
     openPage: "Open Invoicing",
     stranded: "Ready to invoice, no invoice yet",

@@ -328,6 +328,7 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
               needsReview: flags.length > 0, reviewNote: flags.length ? flags.join("; ") : null, notes: notes.join("\n") || null },
             scope: scopeLines, rates: termRates, billingMonths,
             documents: uniqueDocuments.map(d => ({
+              coversThroughTermId: null,
               kind: "other", version: d.version, filename: d.filename, storageObjectPath: d.storageObjectPath,
               mimeType: d.mimeType, fileSize: d.fileSize, uploadedBy: d.uploadedBy, masterId: null, createdAt: new Date(d.uploadedAt),
             })),
