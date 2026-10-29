@@ -86,7 +86,7 @@ import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import LayerMapViewer from "@/components/LayerMapViewer";
-import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType, isSeededStatus, taskWorkflowStatuses } from "@shared/ticketVisuals";
+import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType, isSeededStatus, findSeededStatus, taskWorkflowStatuses } from "@shared/ticketVisuals";
 import { ticketHue, TaskBillingBadge } from "@/components/TicketIdentity";
 import { resolveDisplayTicketType } from "@shared/ticketVisuals";
 import { TicketVisitsCard } from "@/components/scheduling/TicketVisitsCard";
@@ -798,14 +798,14 @@ export default function TicketDetail() {
       
       if (decisionValue === "Awarded") {
         // Go to Awarded status
-        return statuses.find(s => s.name === "Awarded") || defaultNext;
+        return findSeededStatus(statuses, "awarded") || defaultNext;
       } else if (decisionValue === "Lost") {
         // Go to Closed - Lost status
-        return statuses.find(s => s.name === "Closed - Lost") || defaultNext;
+        return findSeededStatus(statuses, "closed_lost") || defaultNext;
       }
       // No decision made yet - return Awarded as the default next for the button
       // (The actual target will be determined in handleConfirmStatusChange based on dialog input)
-      return statuses.find(s => s.name === "Awarded") || defaultNext;
+      return findSeededStatus(statuses, "awarded") || defaultNext;
     }
 
     if (isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "estimate_request")) {
@@ -813,7 +813,7 @@ export default function TicketDetail() {
       const decisionValue = decisionField ? fieldValues.find(fv => fv.fieldId === decisionField.id)?.value : null;
 
       if (decisionValue === "Denied") {
-        return statuses.find(s => s.name === "Closed - Lost") || defaultNext;
+        return findSeededStatus(statuses, "closed_lost") || defaultNext;
       }
     }
     
@@ -860,9 +860,9 @@ export default function TicketDetail() {
     // Intercept: Estimate Request ticket advancing from Estimating → Create Proposal
     if (
       !bypassProposalCheck &&
-      currentStatus?.name === "Estimating" &&
+      isSeededStatus(currentStatus, "estimating") &&
       isSeededTicketType(ticketType, "estimate_request") &&
-      nextStatus?.name === "Create Proposal"
+      isSeededStatus(nextStatus, "proposal_draft")
     ) {
       setShowProposalChoiceDialog(true);
       return;
@@ -926,7 +926,7 @@ export default function TicketDetail() {
     // close the field dialog and show the proposal choice dialog instead.
     const pendingTargetStatus = statuses.find(s => s.id === pendingStatusId);
     if (
-      pendingTargetStatus?.name === "Create Proposal" &&
+      isSeededStatus(pendingTargetStatus, "proposal_draft") &&
       isSeededTicketType(ticketType, "estimate_request")
     ) {
       // Save any current-status field values entered by the user before showing choice
@@ -956,10 +956,10 @@ export default function TicketDetail() {
       const decisionValue = decisionField ? fieldInputs[decisionField.id] : null;
       
       if (decisionValue === "Awarded") {
-        const awardedStatus = statuses.find(s => s.name === "Awarded");
+        const awardedStatus = findSeededStatus(statuses, "awarded");
         if (awardedStatus) actualTargetStatusId = awardedStatus.id;
       } else if (decisionValue === "Lost") {
-        const lostStatus = statuses.find(s => s.name === "Closed - Lost");
+        const lostStatus = findSeededStatus(statuses, "closed_lost");
         if (lostStatus) actualTargetStatusId = lostStatus.id;
       }
     }
@@ -971,7 +971,7 @@ export default function TicketDetail() {
       
       if (decisionValue === "Denied") {
         // Go to Closed - Lost
-        const lostStatus = statuses.find(s => s.name === "Closed - Lost");
+        const lostStatus = findSeededStatus(statuses, "closed_lost");
         if (lostStatus) actualTargetStatusId = lostStatus.id;
       }
       // Approved continues to natural next step (Work Completed)
@@ -1016,7 +1016,7 @@ export default function TicketDetail() {
   const handleUseProposalMaker = async () => {
     setShowProposalChoiceDialog(false);
     // Move to "Create Proposal" status directly (fields already saved if we came via field dialog)
-    const createProposalStatus = statuses.find(s => s.name === "Create Proposal");
+    const createProposalStatus = findSeededStatus(statuses, "proposal_draft");
     if (createProposalStatus) {
       try {
         await updateStatusMutation.mutateAsync({ statusId: createProposalStatus.id });
@@ -1034,7 +1034,7 @@ export default function TicketDetail() {
   };
 
   const handleSkipProposal = () => {
-    const decisionStatus = statuses.find(s => s.name === "Decision Received");
+    const decisionStatus = findSeededStatus(statuses, "decision_received");
     if (decisionStatus) {
       updateStatusMutation.mutate({ statusId: decisionStatus.id, notes: "Proposal steps skipped" });
     }
@@ -2457,17 +2457,17 @@ export default function TicketDetail() {
             // Determine which branch we're on for RFP Request
             let filteredStatuses = sortedStatuses;
             if (isSeededTicketType(ticketType, "rfp_request")) {
-              const decisionReceivedStatus = sortedStatuses.find(s => s.name === "Decision Received");
+              const decisionReceivedStatus = findSeededStatus(sortedStatuses, "decision_received");
               const currentOrder = currentStatus?.displayOrder || 0;
               
               // Check if we've passed Decision Received
               if (decisionReceivedStatus && currentOrder > decisionReceivedStatus.displayOrder) {
                 // Determine which branch by checking if Awarded or Closed - Lost was visited
                 const isOnAwardedPath = visitedStatusIds.has(
-                  sortedStatuses.find(s => s.name === "Awarded")?.id || ""
+                  findSeededStatus(sortedStatuses, "awarded")?.id || ""
                 );
                 const isOnLostPath = visitedStatusIds.has(
-                  sortedStatuses.find(s => s.name === "Closed - Lost")?.id || ""
+                  findSeededStatus(sortedStatuses, "closed_lost")?.id || ""
                 );
                 
                 if (isOnAwardedPath) {

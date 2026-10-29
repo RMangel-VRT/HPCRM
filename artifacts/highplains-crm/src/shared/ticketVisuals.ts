@@ -140,16 +140,30 @@ export interface TicketStatusIdentity {
 /** Scheduling identity mirrors the server; legacy labels apply only to unkeyed rows. */
 export function isSeededStatus(
   status: TicketStatusIdentity | null | undefined,
-  key: "new" | "ready_to_schedule" | "scheduled" | "ready_for_billing" | "decision_received",
+  key: "new" | "ready_to_schedule" | "scheduled" | "ready_for_billing" | "decision_received"
+    | "awarded" | "closed_lost" | "proposal_draft" | "estimating",
 ): boolean {
   if (!status) return false;
   if (status.statusKey != null) return status.statusKey === key;
+  if (key === "awarded") return status.name === "Awarded";
+  if (key === "closed_lost") return status.name === "Closed - Lost";
+  if (key === "proposal_draft") return status.name === "Create Proposal";
+  if (key === "estimating") return status.name === "Estimating";
   if (key === "decision_received") return status.name === "Decision Received";
   if (key === "ready_for_billing") return status.name === "Ready for Billing" || status.name === "Ready to invoice";
   if (key === "new") return status.name === "New";
   return key === "ready_to_schedule"
     ? status.name === "Ready to Schedule" || status.name === "Needs scheduling"
     : status.name === "Scheduled";
+}
+
+/** Prefer an authoritative keyed match anywhere in the list over an unkeyed name match. */
+export function findSeededStatus<T extends TicketStatusIdentity>(
+  statuses: readonly T[],
+  key: Parameters<typeof isSeededStatus>[1],
+): T | undefined {
+  return statuses.find(s => s.statusKey === key)
+    ?? statuses.find(s => s.statusKey == null && isSeededStatus(s, key));
 }
 
 const OPEN_KEYS = new Set(["new", "pending_invoice"]);
