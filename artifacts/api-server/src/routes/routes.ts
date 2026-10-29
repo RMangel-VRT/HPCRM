@@ -18622,6 +18622,9 @@ ${pdfText.slice(0, 8000)}`;
   app.get("/api/plant-library/items", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ error: "COMPANY_CHANGED" });
+    }
     if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
@@ -18631,11 +18634,12 @@ ${pdfText.slice(0, 8000)}`;
       const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
       const category = typeof req.query.category === "string" ? req.query.category.trim() : "";
       const inStockOnly = req.query.inStockOnly !== "false";
+      const activeOnly = req.query.activeOnly === "true";
 
       const conditions: ReturnType<typeof eq>[] = [
         eq(plantCatalogItems.companyId, user.activeCompanyId),
       ];
-      if (inStockOnly) {
+      if (inStockOnly || activeOnly) {
         conditions.push(eq(plantCatalogItems.isActive, true));
       }
       if (category) {
@@ -18675,6 +18679,8 @@ ${pdfText.slice(0, 8000)}`;
         location: string | null;
         enrichment: typeof enrichmentRows[0] | null;
         sizes: Array<{
+          id: string;
+          isActive: boolean;
           productCode: string;
           sizeCode: string | null;
           sizeLabel: string;
@@ -18697,6 +18703,8 @@ ${pdfText.slice(0, 8000)}`;
           });
         }
         groupMap.get(row.varietyKey)!.sizes.push({
+          id: row.id,
+          isActive: row.isActive,
           productCode: row.productCode,
           sizeCode: row.sizeCode,
           sizeLabel: row.sizeLabel,

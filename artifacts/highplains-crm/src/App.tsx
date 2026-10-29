@@ -95,6 +95,8 @@ const PlantPalettes = lazy(() => import("@/pages/PlantPalettes"));
 const PlantPaletteDraft = lazy(() => import("@/pages/PlantPaletteDraft"));
 const EstimatesBoardPage = lazy(() => import("@/pages/EstimatesBoardPage"));
 const BidsBoardPage = lazy(() => import("@/pages/BidsBoardPage"));
+const EstimateBuilderList = lazy(() => import("@/pages/EstimateBuilderList"));
+const EstimateBuilder = lazy(() => import("@/pages/EstimateBuilder"));
 const HardscapeCatalog = lazy(() => import("@/pages/HardscapeCatalog"));
 const IrrigationCatalog = lazy(() => import("@/pages/IrrigationCatalog"));
 const EquipmentFeesCatalog = lazy(() => import("@/pages/EquipmentFeesCatalog"));
@@ -247,6 +249,8 @@ function Router() {
           component={CustomersList}
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
         />
+        <ProtectedRoute path="/dashboard/estimates/builder/:id" component={EstimateBuilder} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/estimates/builder" component={EstimateBuilderList} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/hardscape" component={HardscapeCatalog} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/plants/palettes/:id" component={PlantPaletteDraft} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/plants/palettes" component={PlantPalettes} allowedRoles={["admin", "office"]} />

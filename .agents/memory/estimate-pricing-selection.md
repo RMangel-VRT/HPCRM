@@ -16,3 +16,14 @@ overlapping eligible agreements use the lifecycle ordering after term-owned
 service-line applicability. For a key absent from the active card, the agreed
 implementation chooses the latest eligible term across lines before lookup;
 see `docs/estimate-setup.md` for this explicit deterministic convention.
+
+The builder's rates-context label describes the governing term, not the price
+source of an arbitrary resolved row. Preserve separate contexts when service
+lines have different governing terms.
+
+**Why:** A term can govern while its absent exact key legitimately falls back
+to the card. Calling that whole context "Rate Card" conceals the governing
+agreement; showing one season across distinct contexts is equally misleading.
+
+**How to apply:** Consume the explicit read metadata and keep per-line source
+badges independent; see `docs/estimate-builder-screen.md`.

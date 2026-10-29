@@ -9,10 +9,11 @@ export const PLANT_LIBRARY_PATH = `${ESTIMATES_BASE}/catalogs/plants`;
 export const EQUIPMENT_FEES_PATH = `${ESTIMATES_BASE}/catalogs/equipment-fees`;
 export const LABOR_RATES_PATH = `${ESTIMATES_BASE}/settings/rates`;
 export const QUICKBOOKS_SETUP_PATH = `${ESTIMATES_BASE}/settings/quickbooks`;
+export const ESTIMATE_BUILDER_LIST_PATH = `${ESTIMATES_BASE}/builder`;
 export const PLANT_MATCHES_PATH = `${PLANT_LIBRARY_PATH}/matches`;
 export const PLANT_PALETTES_PATH = `${PLANT_LIBRARY_PATH}/palettes`;
 
-export type EstimatesRailKey = "all" | "hardscape" | "irrigation" | "plant_library" | "library" | "matches" | "palettes" | "equipment_fees" | "labor_rates" | "quickbooks";
+export type EstimatesRailKey = "all" | "builder" | "hardscape" | "irrigation" | "plant_library" | "library" | "matches" | "palettes" | "equipment_fees" | "labor_rates" | "quickbooks";
 
 /** Only plant pages use the shared outer shell; the board and hardscape own theirs. */
 export function plantRailKey(path: string): EstimatesRailKey | undefined {
@@ -24,7 +25,7 @@ export function plantRailKey(path: string): EstimatesRailKey | undefined {
 
 /** True for estimates-hub sub pages (the board itself is matched separately). */
 export function isEstimatesHubPage(location: string): boolean {
-  return location.startsWith(`${ESTIMATES_BASE}/catalogs/`) || location.startsWith(`${ESTIMATES_BASE}/settings/`);
+  return location === ESTIMATE_BUILDER_LIST_PATH || location.startsWith(`${ESTIMATE_BUILDER_LIST_PATH}/`) || location.startsWith(`${ESTIMATES_BASE}/catalogs/`) || location.startsWith(`${ESTIMATES_BASE}/settings/`);
 }
 
 /** Pure section builder so every hub page renders one consistent rail. */
@@ -32,6 +33,7 @@ export function estimatesRailSections(t: (k: string) => string): RailSection[] {
   return [
     { items: [
       { key: "all", label: t("estimates.all"), href: ESTIMATES_BASE },
+      { key: "builder", label: t("estimates.builder"), href: ESTIMATE_BUILDER_LIST_PATH },
     ] },
     { label: t("estimates.catalogs"), items: [
       { key: "hardscape", label: t("estimates.hardscapeCatalog"), href: HARDSCAPE_CATALOG_PATH },

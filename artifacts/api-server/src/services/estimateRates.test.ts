@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgreementTerm, RateCardItem, TermRate } from "@workspace/db";
 vi.mock("../db", () => ({ db: {} }));
-import { isLaborRelevant, resolveFromRows } from "./estimateRates";
+import { isLaborRelevant, resolveFromRows, previewFromRows } from "./estimateRates";
 import { isTermInEffect, selectCurrent, selectInEffectTerm } from "../lib/contractCenterService";
 import { companyToday } from "../lib/companyDay";
 import { RATE_CARD_DEFAULTS } from "../shared/contractCatalog";
@@ -80,5 +80,30 @@ describe("labor-category preview rule against seeded and custom values", () => {
   it("excludes inactive and snow rows", () => {
     expect(isLaborRelevant(card({ active: false }))).toBe(false);
     expect(isLaborRelevant(card({ line: "snow" }))).toBe(false);
+  });
+});
+
+describe("preview governing context metadata", () => {
+  it("reports the governing season even when its missing exact key falls back to card", () => {
+    const result = previewFromRows([card()], [term({ seasonLabel: "2026 landscape" })], [], today);
+    expect(result.governingContexts).toEqual([{ line: "landscape", termId: "t", seasonLabel: "2026 landscape" }]);
+    expect(result.items[0]).toEqual(resolveFromRows(card(), [term({ seasonLabel: "2026 landscape" })], [], "labor", today));
+    expect(result.items[0].source).toBe("rate_card");
+    expect(result.items[0]).not.toHaveProperty("termId");
+  });
+  it("preserves distinct service-line contexts and deduplicates card rows by line", () => {
+    const cards = [card(), card({ rateKey: "extra" }), card({ line: "irrigation" }), card({ line: "general" })];
+    const terms = [term({ seasonLabel: "Summer" }), term({ id: "snow", line: "snow", startDate: "2026-10-01", seasonLabel: "Winter" })];
+    expect(previewFromRows(cards, terms, [], today).governingContexts).toEqual([
+      { line: "landscape", termId: "t", seasonLabel: "Summer" },
+      { line: "irrigation", termId: "t", seasonLabel: "Summer" },
+      { line: "general", termId: "snow", seasonLabel: "Winter" },
+    ]);
+  });
+  it("reports explicit rate-card context when no eligible term exists", () => {
+    expect(previewFromRows([card()], [term({ status: "draft" })], [], today).governingContexts)
+      .toEqual([{ line: "landscape", termId: null, seasonLabel: null }]);
+    expect(previewFromRows([card({ active: false }), card({ category: "Materials" })], [term()], [], today))
+      .toEqual({ items: [], governingContexts: [] });
   });
 });

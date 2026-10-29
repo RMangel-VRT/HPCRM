@@ -43,6 +43,14 @@ export async function resolveEstimateRate(companyId: string, customerId: string,
 }
 export async function previewEstimateRates(companyId: string, customerId: string) {
   const { card, terms, rates } = await loadEstimateRateContext(companyId, customerId);
-  const today = companyToday();
-  return { items: card.filter(isLaborRelevant).map(r => resolveFromRows(r, terms, rates, r.rateKey, today)) };
+  return previewFromRows(card, terms, rates);
+}
+/** Read metadata only: governing context is independent of exact-key fallback. */
+export function previewFromRows(card: RateCardItem[], terms: AgreementTerm[], rates: TermRate[], today = companyToday()) {
+  const labor = card.filter(isLaborRelevant);
+  const governingContexts = [...new Set(labor.map(r => r.line))].map(line => {
+    const term = selectInEffectTerm(terms.filter(t => applies(t.line, line)), today);
+    return { line, termId: term?.id ?? null, seasonLabel: term?.seasonLabel ?? null };
+  });
+  return { items: labor.map(r => resolveFromRows(r, terms, rates, r.rateKey, today)), governingContexts };
 }
