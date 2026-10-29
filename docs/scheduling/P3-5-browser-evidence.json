@@ -1,0 +1,355 @@
+{
+  "layoutTestedRevision": "b1b73fd8ef7697196d63cf9cd0d922e3258e9e68",
+  "finalPresentationRevision": "9c20a3da139706f0747cf2ef4b414fbc8063b0b2",
+  "initialBrowserSnapshot": {
+    "route": "/dashboard/scheduling?week=2026-10-26",
+    "browser": "real Chromium driven by managed Playwright runner",
+    "apiIsolation": "All /api/** requests intercepted browser-locally; API workflow not started; no live persistence verified.",
+    "fixture": {
+      "activeRole": "admin",
+      "activeCompanyId": "c1",
+      "week": "2026-10-26",
+      "today": "2026-10-29",
+      "crewIds": [
+        "k1",
+        "k2",
+        "k3",
+        "k4",
+        "k5"
+      ],
+      "crewColors": [
+        "#ef4444",
+        "#3b82f6",
+        "#22c55e",
+        "#a855f7",
+        "#f59e0b"
+      ],
+      "queue": [
+        {
+          "id": "q1",
+          "title": "P3-5 queue task",
+          "typeKey": "task"
+        }
+      ],
+      "initialVisits": [],
+      "summary": []
+    },
+    "desktop": {
+      "1440x900": {
+        "boardClientHeight": 755,
+        "headerHeight": 41,
+        "rowGap": 10,
+        "paddingBottom": 12,
+        "crews": 5,
+        "rawLaneHeight": 130.4,
+        "cssLaneHeight": 130.4,
+        "renderedCellHeight": 130.391
+      },
+      "1920x1080": {
+        "boardClientHeight": 950,
+        "headerHeight": 41,
+        "rowGap": 10,
+        "paddingBottom": 12,
+        "rawLaneHeight": 169.4,
+        "cssLaneHeight": 169.4,
+        "renderedCellHeight": 169.391,
+        "bodyHeight": 1080,
+        "documentWidth": 1920
+      },
+      "1920x1400-cap": {
+        "paneClientHeight": 1270,
+        "headerHeight": 41,
+        "rowGap": 10,
+        "paddingBottom": 12,
+        "rawLaneHeight": 233.4,
+        "cssLaneHeight": 220,
+        "renderedCellHeight": 220,
+        "gridHeight": 1203,
+        "remainingPaneSpace": 67,
+        "bodyHeight": 1400
+      }
+    },
+    "today": {
+      "trueElementsAt1440x900": 6,
+      "composition": "one header + five crew cells for 2026-10-29",
+      "lightAlpha": 0.1,
+      "lightComputedBackground": "rgba(129, 172, 42, 0.1)",
+      "darkAlpha": 0.14,
+      "darkComputedBackground": "rgba(138, 185, 45, 0.14)",
+      "darkPseudoBorders": [
+        "2px solid rgb(138, 185, 45)",
+        "2px solid rgb(138, 185, 45)"
+      ],
+      "pointerEvents": "none"
+    },
+    "dragAndPending": {
+      "idleHintNodes": 0,
+      "idleDescribedCells": 0,
+      "activeHintsFiveCrewsSixDays": 30,
+      "activeDescribedCellsFiveCrewsSixDays": 30,
+      "activeTarget": "cell-k3-2026-10-29",
+      "targetRingColor": "rgb(34, 197, 94)",
+      "frozenBeforePaneResize": {
+        "paneOuterHeight": 870,
+        "paneClientHeight": 855,
+        "laneHeight": 150.4,
+        "targetRect": {
+          "x": 1264,
+          "y": 501.78125,
+          "width": 156,
+          "height": 150.390625
+        },
+        "rowTops": [
+          181,
+          341.390625,
+          501.78125,
+          662.171875,
+          822.5625
+        ],
+        "rowHeights": [
+          150.390625
+        ]
+      },
+      "frozenDuringPaneOverride": {
+        "paneOuterHeight": 600,
+        "paneClientHeight": 585,
+        "laneHeight": 150.4,
+        "targetRect": {
+          "x": 1264,
+          "y": 501.78125,
+          "width": 156,
+          "height": 150.390625
+        },
+        "rowTops": [
+          181,
+          341.390625,
+          501.78125,
+          662.171875,
+          822.5625
+        ],
+        "rowHeights": [
+          150.390625
+        ],
+        "pendingCloneRect": {
+          "x": 1270.59375,
+          "y": 550.078125,
+          "width": 143.8125,
+          "height": 95.5
+        },
+        "hintsAfterDrop": 0
+      },
+      "afterFailure500": {
+        "laneHeight": 120,
+        "targetCellHeight": 120,
+        "pendingClones": 0,
+        "queueCards": 1,
+        "toast": "Couldn't update the schedule / Fixture write failed"
+      },
+      "afterRestoreAndSuccess200": {
+        "paneOuterHeight": 870,
+        "paneClientHeight": 855,
+        "laneHeight": 150.4,
+        "pendingClones": 0,
+        "heldRoutes": 0
+      }
+    },
+    "keyboard": {
+      "queueJourney": [
+        "focus card-queue-q1",
+        "Space",
+        "ArrowRight",
+        "ArrowRight",
+        "Space"
+      ],
+      "queueWrite": {
+        "method": "POST",
+        "url": "/api/visits",
+        "body": {
+          "ticketId": "q1",
+          "crewId": "k2",
+          "visitDate": "2026-10-27"
+        },
+        "localStatus": 200
+      },
+      "visitJourney": [
+        "focus handle-visit-v1",
+        "Space",
+        "ArrowRight",
+        "Space"
+      ],
+      "visitWrite": {
+        "method": "POST",
+        "url": "/api/visits/reorder",
+        "body": {
+          "crewId": "k1",
+          "visitDate": "2026-10-29",
+          "visitIds": [
+            "v2",
+            "v3",
+            "v4",
+            "v1",
+            "v5",
+            "v6",
+            "v7",
+            "v8"
+          ]
+        },
+        "localStatus": 200
+      },
+      "visitEscape": {
+        "handle": "handle-visit-v2",
+        "hintsDuring": 34,
+        "describedDuring": 34,
+        "hintsAfter": 0,
+        "describedAfter": 0,
+        "overlayAfter": false,
+        "pendingAfter": 0,
+        "laneHeight": 150.4,
+        "k1CellHeights": [
+          563.5625,
+          563.5625,
+          563.5625,
+          563.5625,
+          563.5625,
+          563.5625,
+          563.5625
+        ]
+      }
+    },
+    "cancelNoOps": {
+      "pointerEscape": {
+        "status": "Dragging was cancelled. Draggable item queue:q1 was dropped.",
+        "hints": 0,
+        "described": 0,
+        "overlay": false,
+        "pending": 0,
+        "queueCards": 1,
+        "nonGetRequestCount": 5
+      },
+      "offBoardRelease": {
+        "pointerX": 570,
+        "boardLeft": 576,
+        "status": "Draggable item queue:q1 was dropped.",
+        "hints": 0,
+        "described": 0,
+        "overlay": false,
+        "pending": 0,
+        "queueCards": 1,
+        "nonGetRequestCount": 5
+      }
+    },
+    "eightStops": {
+      "visitsInCell": "cell-k1-2026-10-29",
+      "count": 8,
+      "dayCount": 7,
+      "laneHeight": 150.4,
+      "k1CellHeights": [
+        563.5625,
+        563.5625,
+        563.5625,
+        563.5625,
+        563.5625,
+        563.5625,
+        563.5625
+      ],
+      "k2ThroughK5CellHeights": 150.390625,
+      "boardClientHeight": 855,
+      "boardScrollHeight": 1268,
+      "bodyHeight": 1000,
+      "documentWidth": 1440
+    },
+    "mobile390x844": {
+      "light": {
+        "boardOuterHeight": 590.796875,
+        "expected70vh": 590.8,
+        "boardClientWidth": 360,
+        "boardClientHeight": 576,
+        "boardScrollWidth": 1168,
+        "boardScrollHeight": 703,
+        "overflowX": "auto",
+        "overflowY": "auto",
+        "documentWidth": 390,
+        "bodyWidth": 390
+      },
+      "dark": {
+        "htmlClass": "dark",
+        "todayAlpha": 0.14,
+        "boardOuterHeight": 590.796875,
+        "boardClientWidth": 360,
+        "boardClientHeight": 576,
+        "boardScrollWidth": 1168,
+        "boardScrollHeight": 703,
+        "documentWidth": 390,
+        "bodyWidth": 390,
+        "screenshotObscuredBySidebar": true
+      }
+    },
+    "screenshots": [
+      {
+        "id": "sd2uid",
+        "description": "Desktop 1440x900 light empty five-crew board with today column."
+      },
+      {
+        "id": "hftyj0",
+        "description": "Desktop dark five-crew board after closing profile menu."
+      },
+      {
+        "id": "8q7bhs",
+        "description": "Desktop 1920x1080 dark empty board."
+      },
+      {
+        "id": "9xhxkg",
+        "description": "1920x1400 dark board at 220px lane cap with unused space below."
+      },
+      {
+        "id": "5wvg8b",
+        "description": "Queue source plus pending-copy in K3 Thursday."
+      },
+      {
+        "id": "fnx2fg",
+        "description": "Local 500 failure toast and cleared pending copy."
+      },
+      {
+        "id": "ek8h83",
+        "description": "Eight-stop tall row with Sunday enabled."
+      },
+      {
+        "id": "4uw98w",
+        "description": "Keyboard queue drop pending copy."
+      },
+      {
+        "id": "m5mlfg",
+        "description": "Visit keyboard drag hints while eight-stop row remained tall."
+      },
+      {
+        "id": "mjg0j8",
+        "description": "Pointer Escape cleanup with eight-stop row."
+      },
+      {
+        "id": "zwx0uk",
+        "description": "Off-board release cleanup with eight-stop row."
+      },
+      {
+        "id": "zeuova",
+        "description": "Mobile 390x844 light board; internal scroll and no page horizontal overflow."
+      },
+      {
+        "id": "8nlq3b",
+        "description": "Mobile dark mode measured, but sidebar/profile overlay obscured the board."
+      }
+    ],
+    "notRun": [
+      "18-crew autoscroll rate/limit/stationary pointer and stop/restart checks",
+      "WCAG contrast calculations for capacity/card/hint text",
+      "unobstructed mobile dark screenshot"
+    ],
+    "workspaceChanges": [
+      "generated-artifacts/p3-5/browser/report.md",
+      "generated-artifacts/p3-5/browser/evidence.json",
+      "generated-artifacts/p3-5/browser/repro.js"
+    ]
+  },
+  "continuationReport": "# P3-5 Scheduling Presentation \u2014 Chromium Browser Verification\n\n**Outcome: requested browser checks passed; no application defect confirmed.** Tested the running High Plains CRM frontend in real Chromium at `/dashboard/scheduling?week=2026-10-26`. Every `/api/**` request was fulfilled or held in a browser-local Playwright route; the API workflow was not started and no live persistence is claimed. This test agent did not modify application code, database, accounts, or Canvas. Separately, the main agent committed the CSS-only contrast correction `9c20a3da139706f0747cf2ef4b414fbc8063b0b2`. Per the requester, the correction was not re-exercised in browser; its provided contrast script/JSON results are identified below. The browser runner exposes screenshots by attachment ID but does not provide image files for filesystem export.\n\n## Completed checks\n\n- Loaded admin fixture (`activeCompanyId=c1`, role `admin`), five crews with distinct hex colors, one queue task `q1`, empty visits, and empty visit summaries. Week 44 included today, Thu Oct 29, 2026.\n- **Desktop theme/viewport matrix, five crews:** 1440\u00d7900 light and dark both had client/header/gap/padding 755/41/10/12px; `(755\u221241\u22125\u00d710\u221212)/5 = 130.4px`, CSS `--lane-h:130.4px`, rendered 130.390625px. 1920\u00d71080 light and dark both had 950/41/10/12px; `(950\u221241\u22125\u00d710\u221212)/5 = 169.4px`, CSS `--lane-h:169.4px`, rendered 169.390625px. The observed theme change affected color tokens, not these lane geometry values.\n- **Cap check, 1920\u00d71400:** pane client 1270px; raw formula 233.4px; `--lane-h` and row cells clamped to 220px. Grid was 1203px high, leaving 67px below the capped rows; document/body stayed 1400px high.\n- Today treatment: exactly one today header plus five today cells on the six-day view. Light theme alpha `.10`; dark theme alpha `.14`. Computed dark header/cell `::before` had `2px solid rgb(138,185,45)` side borders and `pointer-events:none`; the light pseudo overlay was `rgba(129,172,42,.10)` and non-intercepting.\n- Pointer drag: idle had zero hint nodes/descriptions; active five-crew/six-day drag produced 30 empty-cell hints and `aria-describedby` references. K3 Thu acquired the strong crew ring/dashed target. Pending copies were noninteractive, the queue source remained, and hints cleared after drop.\n- Freeze check used the allowed temporary inline board-pane height override because resizing the Chromium viewport while a pointer was held caused browser pointer cancellation. At pane outer/client 600/585px, the drag/pending state retained `--lane-h:150.4px`, all row tops/heights, target rect, and pending-copy rect. A browser-local 500 response cleared the clone and recomputed to the 120px floor; restoring the pane to 870/855px recomputed to 150.4px. A separate local 200 response also cleared pending state.\n- Queue keyboard journey: focused queue card \u2192 Space \u2192 ArrowRight \u2192 ArrowRight \u2192 Space selected K2 Tue and emitted intercepted POST `/api/visits` with `{\"ticketId\":\"q1\",\"crewId\":\"k2\",\"visitDate\":\"2026-10-27\"}`. Local 200 cleared pending state.\n- Visit keyboard journey: focused `handle-visit-v1` \u2192 Space \u2192 ArrowRight (target `visit:v4`) \u2192 Space emitted intercepted POST `/api/visits/reorder` with the exact order recorded in `evidence.json`; local 200 cleared the pending copy. A separate `handle-visit-v2` Space \u2192 Escape cleared 34 hints/descriptions and the overlay without adding a request.\n- Pointer cancellation: pointer Escape returned q1 to the queue with zero hints/descriptions/overlay/pending; the non-GET count stayed at five. Off-board release at x=570 (board begins x=576) produced no additional non-GET request, left q1 queued, and cleared transient UI.\n- Eight-stop variation: eight fixture visits in K1 Thu made the shared row 563.5625px tall while `--lane-h` remained 150.4px. After enabling Sunday, all **seven** K1 day cells measured 563.5625px; K2\u2013K5 cells remained 150.390625px. Board scroll client/extent was 855/1268px; body remained 1000px high and document width 1440px.\n- Mobile light at **390\u00d7844:** `.sb-board` outer height 590.796875px (=70vh), client 360\u00d7576px, scroll extent 1168\u00d7703px, `overflow-x/y:auto`; document/body width remained 390px. The later **18-crew dark mobile** capture at the same viewport was unobstructed: `<html class=\"dark\">`, no profile menu/sidebar drawer, board outer rect x=0/y=543/375\u00d7590.796875px, client 360\u00d7576px, scroll extent 1168\u00d72393px, and document/body widths 390px. The queue remained expanded above the board, but no overlay covered it (screenshot `z2kgpo`).\n- **18-crew edge-scroll at 1440\u00d7900:** fixture retained q1, `--lane-h:120px`, every crew row/cell was 120px, and the internal board measured 755/2393px client/scroll height (max `scrollTop` 1638); document width stayed 1440px. A valid lower-edge drag had a stationary 1005.2ms sample 1153\u21921257 (+104px, **103.46px/s**). A near-bottom preset at 1488 then yielded multiple stationary 200ms-frame increments (all within 250px/s plus 1px browser-rounding allowance), reached exactly 1638, and stayed at the bound (0px over the following 405ms). `main.scrollTop` remained 0 and body height 900px.\n- Leaving the board with the held pointer and presetting the internal scroller to 1488 yielded 0px across three ~200ms samples; Escape kept it at 1488, returned q1 to the queue, cleared overlay/hints/descriptions/pending state, and added no request. A subsequent valid local drop to K1 Thu emitted `{\"ticketId\":\"q1\",\"crewId\":\"k1\",\"visitDate\":\"2026-10-29\"}` and the browser-local 200 cleared the clone. A new drag after that drop resumed scrolling: 770\u2192874px over 1004.7ms (**103.51px/s**, under 250); Escape again cleared it with no additional request. Main/body/document remained fixed (0/900/1440px).\n\nThe 8-visit fixture deliberately had `summary: []`, so day summary text continued to show zero stops/hours; this is a fixture consistency choice, not a persistence assertion. All captured POST/PATCH/reorder requests were browser-local; this does not verify live database writes.\n\n## Contrast verification provenance\n\n- The main agent's post-fix evidence (`docs/scheduling/check-p3-5-contrast.py` and `docs/scheduling/P3-5-contrast.json`, commit `9c20a3da139706f0747cf2ef4b414fbc8063b0b2`) reports WCAG AA for all RGB crew-color corners in both themes, including the stronger drop tint: capacity minima \u22655.04:1, hint minima \u22654.75:1, and normal-card muted text \u22655.10:1, against the 4.5:1 threshold. Per request, I did not rerun browser interactions after this color-only fix. Before that commit, this browser session had sampled one red-crew/today case in each theme; those pre-fix spot values are not presented as post-fix evidence.\n- The unobstructed 390\u00d7844 dark screenshot is available as runner attachment `z2kgpo`; no drawer/profile overlay was open. No required acceptance gap remains. Screenshot images remain attachment IDs because the runner did not expose a filesystem export path.\n- A real viewport resize cancels the active pointer drag in Chromium; lane freeze was therefore tested with the permitted DOM-only pane-height override instead.\n- Screenshots are retained as browser-runner attachment IDs rather than filesystem image files; the runner did not expose a screenshot path. Selected evidence IDs are recorded in `evidence.json`; no large images were added to Git.\n- The project workspace does not resolve a local `playwright` npm package. `repro.js` is intended to run in the same managed Playwright notebook that supplies `newBrowserContext` and `REPLIT_DEV_DOMAIN`.\n",
+  "contrastProof": "P3-5-contrast.json",
+  "interpretation": "The initial snapshot's notRun list is historical. The continuation report adds the 18-crew stationary-edge, bounded scroll, leaving-pane and post-drop recovery checks. Final color-only AA verification is in the separate contrast proof. An unobscured mobile dark screenshot was not retained; dimensions, theme alpha and no page-level horizontal overflow were measured."
+}

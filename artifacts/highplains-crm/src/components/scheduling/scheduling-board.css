@@ -20,11 +20,13 @@
   .sb-board { flex: none; height: 70vh; max-height: 70vh; }
 }
 
-.sb-grid { display: grid; row-gap: 10px; padding: 0 .75rem .75rem 0; }
+.sb-grid { --today-alpha: .10; display: grid; grid-template-rows: auto; grid-auto-rows: minmax(var(--lane-h, 120px), auto); align-content: start; row-gap: 10px; padding: 0 .75rem .75rem 0; }
+.dark .sb-grid { --today-alpha: .14; }
 .sb-corner, .sb-dayhead { position: sticky; top: 0; background: hsl(var(--background)); border-bottom: 1px solid hsl(var(--border)); padding: .5rem; }
 .sb-corner { left: 0; z-index: 30; font-size: 11px; font-weight: 600; letter-spacing: .08em; color: hsl(var(--muted-foreground)); padding-left: .75rem; }
 .sb-dayhead { z-index: 20; display: flex; align-items: baseline; gap: .35rem; font-size: 12px; color: hsl(var(--muted-foreground)); }
 .sb-dayhead[data-today="true"] { color: hsl(var(--foreground)); }
+.sb-dayhead > * { position: relative; z-index: 1; }
 .sb-daynum { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); line-height: 1; }
 .sb-daypill { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); border-radius: 999px; padding: 2px 8px; }
 
@@ -33,11 +35,11 @@
   border-radius: 10px 0 0 10px; border: 1px solid color-mix(in srgb, var(--crew) 35%, hsl(var(--border)));
   border-left: 5px solid var(--crew);
   background: color-mix(in srgb, var(--crew) 14%, hsl(var(--background)));
-  padding: .5rem .6rem; min-width: 0;
+  padding: .5rem .6rem; min-width: 0; min-height: var(--lane-h, 120px);
 }
 .dark .sb-crew { background: color-mix(in srgb, var(--crew) 12%, hsl(var(--background))); }
 .sb-cell {
-  position: relative; min-height: 96px; padding: .35rem; display: flex; flex-direction: column; gap: .3rem;
+  position: relative; min-height: var(--lane-h, 120px); padding: .35rem; display: flex; flex-direction: column; gap: .3rem;
   background: color-mix(in srgb, var(--crew) 7%, hsl(var(--background)));
   border-top: 1px solid color-mix(in srgb, var(--crew) 35%, hsl(var(--border)));
   border-bottom: 1px solid color-mix(in srgb, var(--crew) 35%, hsl(var(--border)));
@@ -45,13 +47,22 @@
 }
 .dark .sb-cell { background: color-mix(in srgb, var(--crew) 6%, hsl(var(--background))); }
 .sb-cell[data-last="true"] { border-right: 1px solid color-mix(in srgb, var(--crew) 35%, hsl(var(--border))); border-radius: 0 10px 10px 0; }
-.sb-cell[data-today="true"]::before { content: ""; position: absolute; inset: 0; background: hsl(var(--primary) / .06); pointer-events: none; border-radius: inherit; }
+.sb-cell[data-today="true"]::before, .sb-dayhead[data-today="true"]::before {
+  content: ""; position: absolute; inset: 0; bottom: -11px;
+  background: hsl(var(--primary) / var(--today-alpha));
+  border-left: 2px solid hsl(var(--primary)); border-right: 2px solid hsl(var(--primary));
+  pointer-events: none; border-radius: inherit;
+}
+.sb-cell[data-today="true"][data-last-lane="true"]::before { bottom: 0; }
+.sb-cell > * { position: relative; }
 .sb-cell[data-over="true"] { background: color-mix(in srgb, var(--crew) 18%, hsl(var(--background))); box-shadow: inset 0 0 0 2px var(--crew); }
+.sb-cell[data-over="true"]::after { content: ""; position: absolute; inset: 2px; box-shadow: inset 0 0 0 2px var(--crew); border-radius: inherit; pointer-events: none; }
 .sb-cap { display: block; width: 100%; text-align: left; border-radius: 6px; padding: 2px 4px; font-size: 11px; font-variant-numeric: tabular-nums; }
 .sb-cap:hover { background: hsl(var(--muted) / .7); }
 .sb-bar { height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--crew) 16%, hsl(var(--muted))); overflow: hidden; margin-top: 3px; }
 .sb-bar > span { display: block; height: 100%; border-radius: inherit; }
-.sb-empty { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 11px; color: color-mix(in srgb, hsl(var(--muted-foreground)) 85%, hsl(var(--foreground))); border: 1px dashed transparent; border-radius: 6px; min-height: 40px; }
+.sb-cell > .sb-empty { position: absolute; inset: 42px .35rem .35rem; display: flex; align-items: center; justify-content: center; font-size: 11px; color: color-mix(in srgb, hsl(var(--muted-foreground)) 85%, hsl(var(--foreground))); border: 1px dashed transparent; border-radius: 6px; pointer-events: none; }
+.sb-cell[data-today="true"] > .sb-empty { color: color-mix(in srgb, hsl(var(--muted-foreground)) 75%, hsl(var(--foreground))); }
 .sb-cell[data-over="true"] .sb-empty { border-color: var(--crew); color: hsl(var(--foreground)); }
 
 .sb-card { position: relative; display: flex; overflow: hidden; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); color: hsl(var(--card-foreground)); }
@@ -60,6 +71,11 @@
 .sb-prop { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: color-mix(in srgb, hsl(var(--muted-foreground)) 85%, hsl(var(--foreground))); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-danger { color: color-mix(in srgb, var(--ts-lost) 82%, hsl(var(--foreground))); }
 .sb-card .text-muted-foreground, .sb-cap[data-tone="ok"] { color: color-mix(in srgb, hsl(var(--muted-foreground)) 85%, hsl(var(--foreground))); }
+/* Today's extra tint (including the stronger drop target) needs higher text contrast.
+   Keep tone identity in both text and bars without changing capacity thresholds. */
+.sb-cell[data-today="true"] .sb-cap[data-tone="ok"] { color: color-mix(in srgb, hsl(var(--foreground)) 70%, hsl(var(--muted-foreground))); }
+.sb-cell[data-today="true"] .sb-cap[data-tone="amber"] { color: color-mix(in srgb, hsl(var(--warning)) 55%, hsl(var(--foreground))); }
+.sb-cell[data-today="true"] .sb-cap[data-tone="red"] { color: color-mix(in srgb, hsl(var(--foreground)) 80%, hsl(var(--destructive))); }
 .sb-crew .text-muted-foreground { color: color-mix(in srgb, hsl(var(--muted-foreground)) 75%, hsl(var(--foreground))); }
 .sb-title { font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }
 .sb-card[data-source="true"] { opacity: .3; }

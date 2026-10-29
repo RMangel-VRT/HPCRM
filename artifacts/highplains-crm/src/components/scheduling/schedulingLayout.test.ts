@@ -52,4 +52,30 @@ describe("scheduling layout boundaries", () => {
     expect(css).toContain("prefers-reduced-motion: reduce");
     expect(css).not.toMatch(/#[\da-f]{3,8}\b/i);
   });
+
+  it("uses content-sized headers and shared expanding minimum rows, with out-of-flow hints and pending copies", () => {
+    expect(rule(".sb-grid")).toContain("grid-template-rows: auto");
+    expect(rule(".sb-grid")).toContain("grid-auto-rows: minmax(var(--lane-h, 120px), auto)");
+    expect(rule(".sb-grid")).toContain("align-content: start");
+    for (const selector of [".sb-cell", ".sb-crew"]) expect(rule(selector)).toContain("min-height: var(--lane-h, 120px)");
+    expect(rule(".sb-cell > .sb-empty")).toContain("position: absolute");
+    expect(rule(".sb-cell > .sb-empty")).toContain("pointer-events: none");
+    expect(rule(".sb-pending")).toContain("position: absolute");
+  });
+  it("tints today in both themes with continuous input-transparent two-pixel side lines", () => {
+    expect(rule(".sb-grid")).toContain("--today-alpha: .10");
+    expect(rule(".dark .sb-grid")).toContain("--today-alpha: .14");
+    const overlay = rule('.sb-cell[data-today="true"]::before, .sb-dayhead[data-today="true"]::before');
+    expect(overlay).toContain("var(--today-alpha)");
+    expect(overlay).toContain("border-left: 2px solid hsl(var(--primary))");
+    expect(overlay).toContain("border-right: 2px solid hsl(var(--primary))");
+    expect(overlay).toContain("bottom: -11px");
+    expect(overlay).toContain("pointer-events: none");
+    expect(rule('.sb-cell[data-today="true"][data-last-lane="true"]::before')).toContain("bottom: 0");
+    expect(rule(".sb-card")).toContain("background: hsl(var(--card))");
+    expect(rule('.sb-cell[data-today="true"] .sb-cap[data-tone="ok"]')).toContain("hsl(var(--foreground)) 70%");
+    expect(rule('.sb-cell[data-today="true"] .sb-cap[data-tone="amber"]')).toContain("hsl(var(--warning)) 55%");
+    expect(rule('.sb-cell[data-today="true"] .sb-cap[data-tone="red"]')).toContain("hsl(var(--foreground)) 80%");
+    expect(rule('.sb-cell[data-today="true"] > .sb-empty')).toContain("hsl(var(--muted-foreground)) 75%");
+  });
 });

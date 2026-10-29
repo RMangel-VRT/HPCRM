@@ -9,6 +9,12 @@ Save long-running validation output in an ignored project directory, not only `/
 
 **How to apply:** Keep generated verification outputs excluded from Git and deployment. If a restart interrupts a check, rerun only the unfinished or unconfirmed checks after restoring the relevant workflows; retain already confirmed results.
 
+Do not combine both full application suites and both leaf typechecks at once when comparing failure baselines in this workspace.
+
+**Why:** Aggregate CPU contention produced many additional unrelated test timeouts and missing-element failures even though focused tests passed. Running the complete suites sequentially with two workers, after typechecks finished, restored baseline-equivalent failures without changing assertions or timeouts.
+
+**How to apply:** Parallelize inexpensive independent work, but limit aggregate concurrency for full-suite baseline attribution. Retain the contended outputs and compare individual failures before calling them product regressions; do not increase test timeouts or suppress tests to hide the result.
+
 Place extracted baseline source trees outside the workspace, or remove them immediately after comparing checks.
 
 **Why:** The schema-drift safety check scans the workspace for extra Drizzle configs even inside ignored generated-output directories. A disposable baseline copy can therefore block validation despite having no schema drift.

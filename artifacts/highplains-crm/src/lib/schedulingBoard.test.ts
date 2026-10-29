@@ -1,9 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   capacityBarColor, capacityPct, daysLate, groupQueue, isoWeekNumber,
-  queueGroupOf, scheduleByUrgency, boardKeyboardCoordinates, paneScrollVelocity, keepOverlayInViewport,
+  queueGroupOf, scheduleByUrgency, boardKeyboardCoordinates, paneScrollVelocity, keepOverlayInViewport, laneHeight,
 } from "./schedulingBoard";
 import { capacityTone } from "./scheduling";
+
+describe("responsive lane minimum", () => {
+  it("keeps the formula for five crews in 900px, subtracting all gaps and bottom padding", () => {
+    expect(laneHeight(900, 40, 5 * 10 + 12, 5)).toBe(159.6);
+    expect(laneHeight(1000, 40, 62, 5)).toBe(179.6);
+  });
+  it("caps only sufficiently tall panes and floors crowded panes", () => {
+    expect(laneHeight(1300, 40, 62, 5)).toBe(220);
+    expect(laneHeight(900, 40, 192, 18)).toBe(120);
+    expect(laneHeight(20, 40, 62, 5)).toBe(120);
+  });
+  it.each([[0, 0, 0, 0], [900, 40, 12, 0], [NaN, 40, 12, 5], [900, Infinity, 12, 5], [900, 40, 12, -1]])(
+    "guards empty or invalid measurements (%s,%s,%s,%s)", (pane, header, gaps, crews) => {
+      expect(laneHeight(pane, header, gaps, crews)).toBe(120);
+    },
+  );
+});
 
 describe("scheduling board presentation (company calendar dates)", () => {
   it("groups by current Colorado week, retains server order and puts undated jobs in Later", () => {

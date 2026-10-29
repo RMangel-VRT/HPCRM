@@ -15,6 +15,7 @@
 - [Visit transaction order](visit-transaction-order.md) — company scheduling gate precedes sorted ticket locks; finer-grained gates need coordinated phantom/deadlock protection.
 - [Master scheduling direction](master-scheduling-direction.md) — read the agreed October 19 master design for visits-based scheduling, demand source and build order.
 - [Scheduling drag scrolling](scheduling-drag-scroll.md) — keep pane-owned scrolling continuous at stationary edge hovers; ancestor-based scrolling stalled in the browser.
+- [Scheduling specification correction](scheduling-polish-specification.md) — user chose the available-height formula over the attachment's contradictory five-crew cap example.
 - [Navigation direction](navigation-direction.md) — approved all-role desktop/mobile scope; web navigation and mobile access changes are separate projects.
 - [Auth fixture canonicalization](auth-fixture-canonicalization.md) — directly seeded sign-in fixtures need canonical identifiers; valid hashes alone do not rule out identifier mismatch.
 - [Section action-list direction](section-action-lists.md) — section ownership follows status; each section uses its own overdue clock; uploaded ground rules govern upcoming slices.

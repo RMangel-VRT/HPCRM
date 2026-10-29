@@ -22,6 +22,7 @@ import { typeHueVar } from "@shared/ticketVisuals";
 import { useAuth } from "@/hooks/use-auth";
 import { useBoardCrews, useSchedulingQueue, useVisitActions, useWeekSummary, useWeekVisits } from "@/hooks/use-scheduling";
 import { useSchedulingDragScroll } from "@/hooks/use-scheduling-drag-scroll";
+import { useBoardLaneHeight } from "@/hooks/use-board-lane-height";
 import {
   SERVICE_OPTIONS, capacityTone, fmtDay, fmtHours, isOpenVisit, mondayOf, moveInList, serviceLabel, sortRoute,
   weekDays, weekFromSearch, weekToSearch, type BoardCrew, type EnrichedVisit, type QueueItem,
@@ -49,16 +50,16 @@ const LEGEND = [
   { typeKey: "estimate_request", name: "Estimate Request", label: "scheduling.legendEstimate" },
 ] as const;
 
-function BoardCell({ crewId, date, children, isToday, isLast, empty }: { crewId: string; date: string; children: ReactNode; isToday: boolean; isLast: boolean; empty: boolean }) {
+function BoardCell({ crewId, date, children, isToday, isLast, isLastLane, empty, dragging }: { crewId: string; date: string; children: ReactNode; isToday: boolean; isLast: boolean; isLastLane: boolean; empty: boolean; dragging: boolean }) {
   const { t } = useTranslation();
   const { setNodeRef, isOver } = useDroppable({ id: `cell:${crewId}:${date}`, data: { kind: "cell", crewId, date } satisfies DragData });
   const { over } = useDndContext();
   const target = over?.data.current as DragData | undefined;
   const visitOver = target?.kind === "visit" && target.visit.crewId === crewId && target.visit.visitDate.slice(0, 10) === date;
   return (
-    <div ref={setNodeRef} className="sb-cell" data-over={isOver || visitOver} data-today={isToday} data-last={isLast} data-testid={`cell-${crewId}-${date}`}>
+    <div ref={setNodeRef} className="sb-cell" data-over={isOver || visitOver} data-today={isToday} data-last={isLast} data-last-lane={isLastLane} aria-describedby={empty && dragging ? `hint-${crewId}-${date}` : undefined} data-testid={`cell-${crewId}-${date}`}>
       {children}
-      {empty && <div className="sb-empty" data-testid={`empty-cell-${crewId}-${date}`}>{t("scheduling.dropHere", "Drop a job here")}</div>}
+      {empty && dragging && <div id={`hint-${crewId}-${date}`} className="sb-empty" data-testid={`empty-cell-${crewId}-${date}`}>{t("scheduling.dropHere", "Drop a job here")}</div>}
     </div>
   );
 }
@@ -116,6 +117,11 @@ function SchedulingBoardPage() {
   const goWeek = (monday: string) => navigate(`/dashboard/scheduling${weekToSearch(monday)}`);
 
   const crews: BoardCrew[] = crewsQ.data ?? [];
+  const { headerRef, gridRef, height: laneH } = useBoardLaneHeight(
+    boardRef, crews.length,
+    !!crewsQ.data && !!visitsQ.data && !!summaryQ.data && !crewsQ.isError && !visitsQ.isError && !summaryQ.isError,
+    !!active || pendingDrops.length > 0,
+  );
   const visits = useMemo(() => (visitsQ.data ?? []).filter(v => v.status !== "cancelled"), [visitsQ.data]);
   const cells = useMemo(() => {
     const m = new Map<string, EnrichedVisit[]>();
@@ -343,8 +349,8 @@ function SchedulingBoardPage() {
                 {t("scheduling.noCrews", "No active crews yet. Add one in Settings → Crews.")}
               </p>
             ) : (
-              <div className="sb-grid text-sm" style={{ gridTemplateColumns: `220px repeat(${days.length}, minmax(156px, 1fr))`, minWidth: 232 + days.length * 156 }} data-testid="board-grid">
-                <div className="sb-corner">{t("scheduling.crew", "Crew").toUpperCase()}</div>
+              <div ref={gridRef} className="sb-grid text-sm" style={{ "--lane-h": `${laneH}px`, gridTemplateColumns: `220px repeat(${days.length}, minmax(156px, 1fr))`, minWidth: 232 + days.length * 156 } as CSSProperties} data-testid="board-grid">
+                <div ref={headerRef} className="sb-corner">{t("scheduling.crew", "Crew").toUpperCase()}</div>
                 {days.map(d => (
                   <div key={d} className="sb-dayhead" data-testid={`header-day-${d}`} data-today={d === today}>
                     {d === today ? (
@@ -352,7 +358,7 @@ function SchedulingBoardPage() {
                     ) : (<><span className="sb-daynum">{dayNum(d)}</span><span>{weekday(d)}</span></>)}
                   </div>
                 ))}
-                {crews.map(crew => {
+                {crews.map((crew, crewIndex) => {
                   const color = crew.color;
                   const laneStyle = { "--crew": color } as CSSProperties;
                   let wkStops = 0, wkHours = 0, wkCap = 0;
@@ -382,7 +388,7 @@ function SchedulingBoardPage() {
                         const stops = s?.visitCount ?? 0;
                         return (
                           <div key={d} className="contents" style={laneStyle}>
-                            <BoardCell crewId={crew.id} date={d} isToday={d === today} isLast={di === days.length - 1} empty={list.length === 0}>
+                            <BoardCell crewId={crew.id} date={d} isToday={d === today} isLast={di === days.length - 1} isLastLane={crewIndex === crews.length - 1} empty={list.length === 0} dragging={!!active}>
                               <button
                                 type="button" onClick={() => setSheet({ crewId: crew.id, date: d })}
                                 className={`sb-cap ${TONE_CLASS[tone]}`} data-testid={`header-cell-${crew.id}-${d}`} data-tone={tone}

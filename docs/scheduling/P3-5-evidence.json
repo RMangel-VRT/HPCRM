@@ -1,0 +1,547 @@
+{
+  "baselineRevision": "2cc3bf1ac7a2b10db641012ed0609d2673e74e5f",
+  "testedRevision": "9c20a3da139706f0747cf2ef4b414fbc8063b0b2",
+  "suites": {
+    "api": {
+      "before": {
+        "passed": 1876,
+        "failed": 7,
+        "skipped": 73,
+        "files": {
+          "passed": 92,
+          "failed": 2,
+          "skipped": 10
+        },
+        "failures": [
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback reconnect \u2014 syncErrorCount reset resets syncErrorCount to 0 on a successful reconnect from an errored state",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback reconnect \u2014 syncErrorCount reset includes syncErrorCount: 0 as an explicit key \u2014 not absent \u2014 so the DB actually resets it",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback reconnect \u2014 syncErrorCount reset does NOT trigger the update at all when the OAuth code exchange fails",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback \u2014 shared mailbox rejects email mismatch returns 400 with Email Mismatch page when shared mailbox email differs from connected Google account",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback \u2014 personal mailbox auto-correct auto-corrects emailAddress when personal mailbox owner signs in with a different (unclaimed) Gmail",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback \u2014 personal mailbox auto-correct rejects when the corrected email is already claimed by another mailbox in the company",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/lib/plantEnrichment.test.ts",
+            "test": "enrichPlants \u2014 partial failure marks the sync run as 'partial' in the DB",
+            "reason": "AssertionError: expected undefined to be 'partial' // Object.is equality"
+          }
+        ],
+        "loadErrors": []
+      },
+      "final": {
+        "passed": 1876,
+        "failed": 7,
+        "skipped": 73,
+        "files": {
+          "passed": 92,
+          "skipped": 10,
+          "failed": 2
+        },
+        "failures": [
+          {
+            "file": "artifacts/api-server/src/lib/plantEnrichment.test.ts",
+            "test": "enrichPlants \u2014 partial failure marks the sync run as 'partial' in the DB",
+            "reason": "AssertionError: expected undefined to be 'partial' // Object.is equality"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback reconnect \u2014 syncErrorCount reset resets syncErrorCount to 0 on a successful reconnect from an errored state",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback reconnect \u2014 syncErrorCount reset includes syncErrorCount: 0 as an explicit key \u2014 not absent \u2014 so the DB actually resets it",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback reconnect \u2014 syncErrorCount reset does NOT trigger the update at all when the OAuth code exchange fails",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback \u2014 shared mailbox rejects email mismatch returns 400 with Email Mismatch page when shared mailbox email differs from connected Google account",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback \u2014 personal mailbox auto-correct auto-corrects emailAddress when personal mailbox owner signs in with a different (unclaimed) Gmail",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback \u2014 personal mailbox auto-correct rejects when the corrected email is already claimed by another mailbox in the company",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          }
+        ],
+        "loadErrors": []
+      },
+      "againstFreshBaseline": {
+        "added": [],
+        "resolved": [],
+        "unchanged": 7
+      },
+      "againstDisplayFilterAudit": {
+        "added": [],
+        "resolved": [],
+        "unchanged": 7
+      },
+      "contendedRun": {
+        "passed": 1867,
+        "failed": 16,
+        "skipped": 73,
+        "files": {
+          "passed": 88,
+          "skipped": 10,
+          "failed": 6
+        },
+        "failures": [
+          {
+            "file": "artifacts/api-server/src/lib/plantEnrichment.test.ts",
+            "test": "enrichPlants \u2014 partial failure marks the sync run as 'partial' in the DB",
+            "reason": "AssertionError: expected undefined to be 'partial' // Object.is equality"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/crewLinks.integration.test.ts",
+            "test": "crew links against real PostgreSQL loads eligible supervisors for the actual form without malformed array SQL",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/crewLinks.integration.test.ts",
+            "test": "crew links against real PostgreSQL guarded linker copies only null values and reruns without changes",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/crewLinks.integration.test.ts",
+            "test": "crew links against real PostgreSQL atomically replaces a standing crew's previous planner",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/invoicingRename.integration.test.ts",
+            "test": "Invoicing boot label update (real PostgreSQL, rolled back) renames only exact keyed seeded labels, preserves custom names and is idempotent",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/invoicingRename.integration.test.ts",
+            "test": "Invoicing boot label update (real PostgreSQL, rolled back) seeds EstimateRequest with the new label and reruns without duplicates even after a custom rename",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/invoicingRename.integration.test.ts",
+            "test": "Invoicing boot label update (real PostgreSQL, rolled back) seeds Task with the new label and reruns without duplicates even after a custom rename",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/invoicingRename.integration.test.ts",
+            "test": "Invoicing boot label update (real PostgreSQL, rolled back) seeds Project with the new label and reruns without duplicates even after a custom rename",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback reconnect \u2014 syncErrorCount reset resets syncErrorCount to 0 on a successful reconnect from an errored state",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback reconnect \u2014 syncErrorCount reset includes syncErrorCount: 0 as an explicit key \u2014 not absent \u2014 so the DB actually resets it",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback reconnect \u2014 syncErrorCount reset does NOT trigger the update at all when the OAuth code exchange fails",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback \u2014 shared mailbox rejects email mismatch returns 400 with Email Mismatch page when shared mailbox email differs from connected Google account",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback \u2014 personal mailbox auto-correct auto-corrects emailAddress when personal mailbox owner signs in with a different (unclaimed) Gmail",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/routes/mailboxAccounts.oauthReconnect.test.ts",
+            "test": "OAuth callback \u2014 personal mailbox auto-correct rejects when the corrected email is already claimed by another mailbox in the company",
+            "reason": "SyntaxError: \"undefined\" is not valid JSON"
+          },
+          {
+            "file": "artifacts/api-server/src/services/estimateSetup.integration.test.ts",
+            "test": "estimate setup SQL and company-scoped persistence links only active supported company-owned items; unlink clears binding but never permanent rows",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/api-server/src/services/qboClient.test.ts",
+            "test": "isQboConfigured returns true when all 5 env vars are set",
+            "reason": "Error: STACK_TRACE_ERROR"
+          }
+        ],
+        "loadErrors": []
+      }
+    },
+    "crm": {
+      "before": {
+        "passed": 698,
+        "failed": 11,
+        "skipped": 0,
+        "files": {
+          "passed": 59,
+          "failed": 6
+        },
+        "failures": [
+          {
+            "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+            "test": "CrewAssignmentBoard.selectReducer shift click in a different column does not range-extend; falls back to add",
+            "reason": "AssertionError: expected [ 'y' ] to deeply equal [ 'b', 'y' ]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+            "test": "CrewAssignmentBoard.selectReducer prune removes ids no longer present and clears lastClicked if it was pruned",
+            "reason": "AssertionError: expected { id: 'b', col: 'u' } to be null"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/components/TicketConversation.rendered.test.tsx",
+            "test": "Shared ticket conversation preserves the empty state and always offers the main composer and compact navigation",
+            "reason": "TestingLibraryElementError: Unable to find an element with the text: No tickets found. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam returns the default tab when no tab param exists in the URL",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam reads the active tab from the URL search string",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam preserves all non-tab query params when switching tabs",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam only updates the tab key and leaves every other param untouched",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam adds the tab param without disturbing existing params when no tab was present",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/DisplayTypeFilters.rendered.test.tsx",
+            "test": "actual display-type pills, My Tickets=false selects all five approved stages with real Projects, not estimates or name lookalikes; toggles multi-select and clears",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/TicketDetail.visits.rendered.test.tsx",
+            "test": "TicketDetail conversation locations always offers the Overview Conversation card and opens the focused tab when empty",
+            "reason": "TestingLibraryElementError: Unable to find an element by: [data-testid=\"button-view-all-comments\"]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/components/contracts/rateCardUtils.test.ts",
+            "test": "rateCardUtils groups and counts missing",
+            "reason": "AssertionError: expected 42 to be 23 // Object.is equality"
+          }
+        ],
+        "loadErrors": []
+      },
+      "final": {
+        "passed": 713,
+        "failed": 10,
+        "skipped": 0,
+        "files": {
+          "passed": 61,
+          "failed": 5
+        },
+        "failures": [
+          {
+            "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+            "test": "CrewAssignmentBoard.selectReducer shift click in a different column does not range-extend; falls back to add",
+            "reason": "AssertionError: expected [ 'y' ] to deeply equal [ 'b', 'y' ]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+            "test": "CrewAssignmentBoard.selectReducer prune removes ids no longer present and clears lastClicked if it was pruned",
+            "reason": "AssertionError: expected { id: 'b', col: 'u' } to be null"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/components/TicketConversation.rendered.test.tsx",
+            "test": "Shared ticket conversation preserves the empty state and always offers the main composer and compact navigation",
+            "reason": "TestingLibraryElementError: Unable to find an element with the text: No tickets found. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam returns the default tab when no tab param exists in the URL",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam reads the active tab from the URL search string",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam preserves all non-tab query params when switching tabs",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam only updates the tab key and leaves every other param untouched",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam adds the tab param without disturbing existing params when no tab was present",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/TicketDetail.visits.rendered.test.tsx",
+            "test": "TicketDetail conversation locations always offers the Overview Conversation card and opens the focused tab when empty",
+            "reason": "TestingLibraryElementError: Unable to find an element by: [data-testid=\"button-view-all-comments\"]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/components/contracts/rateCardUtils.test.ts",
+            "test": "rateCardUtils groups and counts missing",
+            "reason": "AssertionError: expected 42 to be 23 // Object.is equality"
+          }
+        ],
+        "loadErrors": []
+      },
+      "againstFreshBaseline": {
+        "added": [],
+        "resolved": [
+          {
+            "file": "artifacts/highplains-crm/src/pages/DisplayTypeFilters.rendered.test.tsx",
+            "test": "actual display-type pills, My Tickets=false selects all five approved stages with real Projects, not estimates or name lookalikes; toggles multi-select and clears"
+          }
+        ],
+        "unchanged": 10
+      },
+      "againstDisplayFilterAudit": {
+        "added": [
+          {
+            "file": "artifacts/highplains-crm/src/components/TicketConversation.rendered.test.tsx",
+            "test": "Shared ticket conversation preserves the empty state and always offers the main composer and compact navigation"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/TicketDetail.visits.rendered.test.tsx",
+            "test": "TicketDetail conversation locations always offers the Overview Conversation card and opens the focused tab when empty"
+          }
+        ],
+        "resolved": [],
+        "unchanged": 8
+      },
+      "contendedRun": {
+        "passed": 698,
+        "failed": 25,
+        "skipped": 0,
+        "files": {
+          "passed": 58,
+          "failed": 8
+        },
+        "failures": [
+          {
+            "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+            "test": "CrewAssignmentBoard.selectReducer shift click in a different column does not range-extend; falls back to add",
+            "reason": "AssertionError: expected [ 'y' ] to deeply equal [ 'b', 'y' ]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/components/CrewAssignmentBoard.test.ts",
+            "test": "CrewAssignmentBoard.selectReducer prune removes ids no longer present and clears lastClicked if it was pruned",
+            "reason": "AssertionError: expected { id: 'b', col: 'u' } to be null"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/components/TicketConversation.rendered.test.tsx",
+            "test": "Shared ticket conversation preserves the empty state and always offers the main composer and compact navigation",
+            "reason": "TestingLibraryElementError: Unable to find an element with the text: No tickets found. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam returns the default tab when no tab param exists in the URL",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam reads the active tab from the URL search string",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam preserves all non-tab query params when switching tabs",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam only updates the tab key and leaves every other param untouched",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/hooks/useTabParam.test.ts",
+            "test": "useTabParam adds the tab param without disturbing existing params when no tab was present",
+            "reason": "ReferenceError: document is not defined"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/ContractBilling.rendered.test.tsx",
+            "test": "flat-rate Billing payment safety blocks button-save-payments after remove of the Snow line on snow",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/ContractBilling.rendered.test.tsx",
+            "test": "flat-rate Billing payment safety blocks button-done after remove of the Snow line on snow",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/ContractBilling.rendered.test.tsx",
+            "test": "flat-rate Billing payment safety blocks button-save-payments after rename of the Snow line on snow",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/ContractBilling.rendered.test.tsx",
+            "test": "flat-rate Billing payment safety blocks button-done after rename of the Snow line on snow",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/ContractBilling.rendered.test.tsx",
+            "test": "flat-rate Billing payment safety blocks button-save-payments after remove of the Snow line on both",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/ContractBilling.rendered.test.tsx",
+            "test": "flat-rate Billing payment safety blocks button-done after remove of the Snow line on both",
+            "reason": "TestingLibraryElementError: Unable to find an element by: [data-testid=\"button-remove-line-0\"]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/EstimateSettings.rendered.test.tsx",
+            "test": "Equipment & Fees renders rows with optional rate and company header",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/EstimateSettings.rendered.test.tsx",
+            "test": "Equipment & Fees empty and error with retry",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/EstimateSettings.rendered.test.tsx",
+            "test": "Equipment & Fees create validates, defaults umbrella by kind, posts null rate",
+            "reason": "TestingLibraryElementError: Unable to find an element by: [data-testid=\"input-rate\"]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/IrrigationCatalog.rendered.test.tsx",
+            "test": "IrrigationCatalog shows persistent history with loud partial state and skipped lines",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/IrrigationCatalog.rendered.test.tsx",
+            "test": "IrrigationCatalog history load error offers retry",
+            "reason": "Error: Unable to find an element by: [data-testid=\"runs-error\"]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/IrrigationCatalog.rendered.test.tsx",
+            "test": "IrrigationCatalog list load error and empty state",
+            "reason": "Error: Unable to find an element by: [data-testid=\"irrigation-error\"]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/IrrigationCatalog.rendered.test.tsx",
+            "test": "IrrigationCatalog imports multipart with company header and shows the returned run",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/IrrigationCatalog.rendered.test.tsx",
+            "test": "IrrigationCatalog 400 with run renders the error run loudly",
+            "reason": "Error: STACK_TRACE_ERROR"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/IrrigationCatalog.rendered.test.tsx",
+            "test": "IrrigationCatalog late import from old company never renders after switch",
+            "reason": "Error: Unable to find an element by: [data-testid=\"text-name-i1\"]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/pages/TicketDetail.visits.rendered.test.tsx",
+            "test": "TicketDetail conversation locations always offers the Overview Conversation card and opens the focused tab when empty",
+            "reason": "TestingLibraryElementError: Unable to find an element by: [data-testid=\"button-view-all-comments\"]"
+          },
+          {
+            "file": "artifacts/highplains-crm/src/components/contracts/rateCardUtils.test.ts",
+            "test": "rateCardUtils groups and counts missing",
+            "reason": "AssertionError: expected 42 to be 23 // Object.is equality"
+          }
+        ],
+        "loadErrors": []
+      }
+    },
+    "focused-utc": {
+      "passed": 131,
+      "failed": 1,
+      "skipped": 0,
+      "files": {
+        "passed": 9,
+        "failed": 1
+      },
+      "failures": [
+        {
+          "file": "artifacts/highplains-crm/src/pages/TicketDetail.visits.rendered.test.tsx",
+          "test": "TicketDetail conversation locations always offers the Overview Conversation card and opens the focused tab when empty",
+          "reason": "TestingLibraryElementError: Unable to find an element by: [data-testid=\"button-view-all-comments\"]"
+        }
+      ],
+      "loadErrors": []
+    },
+    "focused-denver": {
+      "passed": 131,
+      "failed": 1,
+      "skipped": 0,
+      "files": {
+        "passed": 9,
+        "failed": 1
+      },
+      "failures": [
+        {
+          "file": "artifacts/highplains-crm/src/pages/TicketDetail.visits.rendered.test.tsx",
+          "test": "TicketDetail conversation locations always offers the Overview Conversation card and opens the focused tab when empty",
+          "reason": "TestingLibraryElementError: Unable to find an element by: [data-testid=\"button-view-all-comments\"]"
+        }
+      ],
+      "loadErrors": []
+    }
+  },
+  "types": {
+    "api": {
+      "baseline": 730,
+      "final": 730,
+      "added": {},
+      "removed": {}
+    },
+    "crm": {
+      "baseline": 221,
+      "final": 221,
+      "added": {},
+      "removed": {}
+    }
+  }
+}

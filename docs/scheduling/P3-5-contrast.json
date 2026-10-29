@@ -1,0 +1,20 @@
+{
+  "light": {
+    "today-capacity-ok-minimum": 6.4897,
+    "today-capacity-amber-minimum": 5.4907,
+    "today-capacity-red-minimum": 8.8077,
+    "today-hint-minimum": 4.7567,
+    "card-text": 14.2044,
+    "card-muted-text": 5.1088,
+    "today-pill": 6.5179
+  },
+  "dark": {
+    "today-capacity-ok-minimum": 5.7543,
+    "today-capacity-amber-minimum": 5.8348,
+    "today-capacity-red-minimum": 5.0476,
+    "today-hint-minimum": 5.5792,
+    "card-text": 14.6884,
+    "card-muted-text": 7.0305,
+    "today-pill": 7.4582
+  }
+}

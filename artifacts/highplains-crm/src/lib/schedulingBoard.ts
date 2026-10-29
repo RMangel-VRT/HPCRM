@@ -5,6 +5,12 @@ import type { KeyboardCoordinateGetter, Modifier } from "@dnd-kit/core";
 export type QueueGroupKey = "past" | "week" | "later";
 export const QUEUE_GROUP_ORDER: readonly QueueGroupKey[] = ["past", "week", "later"];
 
+/** Minimum lane height. gaps includes ALL row gaps (header → lanes) and bottom padding. */
+export function laneHeight(pane: number, header: number, gaps: number, crews: number): number {
+  if (![pane, header, gaps, crews].every(Number.isFinite) || pane <= 0 || crews <= 0) return 120;
+  return Math.max(120, Math.min(220, (pane - Math.max(0, header) - Math.max(0, gaps)) / crews));
+}
+
 /** Calendar-day difference b - a (both YYYY-MM-DD, company calendar). */
 export function daysBetween(a: string, b: string): number {
   return Math.round((parseCalendarDate(b).getTime() - parseCalendarDate(a).getTime()) / 86_400_000);

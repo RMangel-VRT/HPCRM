@@ -152,7 +152,9 @@ describe("SchedulingPage", () => {
     expect(screen.getByTestId("rail-queue-t9").getAttribute("data-hue")).toContain("--tt-extra");
     expect(within(card).getByTestId("badge-queue-type-t9").innerHTML).toContain("--tt-extra");
     expect(screen.getByTestId("rail-visit-a").getAttribute("data-hue")).toContain("--tt-extra");
-    expect(screen.getByTestId("empty-cell-k1-2025-10-22").textContent).toBe("Drop a job here");
+    expect(screen.queryByTestId("empty-cell-k1-2025-10-22")).toBeNull();
+    expect(screen.getByTestId("cell-k1-2025-10-22").hasAttribute("aria-describedby")).toBe(false);
+    expect(screen.getByTestId("board-grid").style.getPropertyValue("--lane-h")).toBe("120px");
     expect(screen.getByTestId("scheduling-header").contains(screen.getByTestId("button-today"))).toBe(true);
     expect(dnd.props.autoScroll.layoutShiftCompensation).toBe(false);
     expect(dnd.props.autoScroll.enabled).toBe(false); // A dedicated bounded pane loop owns scrolling.
@@ -202,8 +204,12 @@ describe("SchedulingPage", () => {
     expect(source.style.transform).toBe("");
     expect(overlay.getAttribute("data-lifted")).toBe("true");
     expect(overlay.querySelector("a, button, [tabindex]")).toBeNull();
+    const hints = screen.getAllByText("Drop a job here");
+    expect(hints).toHaveLength(5);
+    for (const hint of hints) expect(hint.parentElement?.getAttribute("aria-describedby")).toBe(hint.id);
     act(() => { dnd.activeId = null; dnd.onDragCancel!(); });
     expect(screen.queryByTestId("drag-overlay")).toBeNull();
+    expect(screen.queryByText("Drop a job here")).toBeNull();
     expect(calls.some(c => c.method !== "GET")).toBe(false);
   });
 
@@ -225,7 +231,10 @@ describe("SchedulingPage", () => {
     respond = (m, u) => m === "PATCH" && u === "/api/visits/a" ? response : undefined;
     mount();
     const source = await screen.findByTestId("card-visit-a");
+    act(() => dnd.onDragStart!({ active: { data: { current: { kind: "visit", visit: visit("a", 1) } } } }));
+    expect(screen.getAllByText("Drop a job here")).toHaveLength(5);
     act(() => drop({ kind: "visit", visit: visit("a", 1) }, { kind: "cell", crewId: "k1", date: "2025-10-24" }));
+    expect(screen.queryByText("Drop a job here")).toBeNull();
     const pending = await screen.findByTestId("pending-drop-a");
     expect(screen.getByTestId("cell-k1-2025-10-24").contains(pending)).toBe(true);
     expect(pending.getAttribute("aria-hidden")).toBe("true");
@@ -236,6 +245,23 @@ describe("SchedulingPage", () => {
     await waitFor(() => expect(screen.queryByTestId("pending-drop-a")).toBeNull());
     expect(screen.getByTestId("cell-k1-2025-10-21").contains(source)).toBe(true);
     expect(toast.mock.calls.some(([a]) => a.description === "Visit is closed")).toBe(true);
+  });
+
+  it.each(["light", "dark"])("marks only today's full column and retains its pill in %s", async theme => {
+    document.documentElement.className = theme === "dark" ? "dark" : "";
+    try {
+      mount();
+      fireEvent.click(await screen.findByTestId("button-today"));
+      const { companyToday } = await import("../lib/schedulingStatus");
+      const today = companyToday();
+      const header = await screen.findByTestId(`header-day-${today}`);
+      expect(header.getAttribute("data-today")).toBe("true");
+      expect(header.querySelector(".sb-daypill")).toBeTruthy();
+      expect(screen.getByTestId(`cell-k1-${today}`).getAttribute("data-today")).toBe("true");
+      expect(document.querySelectorAll('.sb-dayhead[data-today="true"]')).toHaveLength(1);
+      expect(document.querySelectorAll('.sb-cell[data-today="true"]')).toHaveLength(1);
+      expect(document.querySelector('.sb-cell[data-today="false"]')).toBeTruthy();
+    } finally { document.documentElement.className = ""; }
   });
 
   it("shows a presentation-only pending reorder without changing authoritative stop order", async () => {
