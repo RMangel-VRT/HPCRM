@@ -40,12 +40,11 @@ function mount(line: "snow" | "both") {
 describe("flat-rate Billing payment safety", () => {
   for (const line of ["snow", "both"] as const) {
     for (const change of ["remove", "rename"] as const) {
-      for (const save of ["button-save-payments", "button-done"] as const) {
+      for (const save of ["button-save-payments"] as const) {
         it(`blocks ${save} after ${change} of the Snow line on ${line}`, async () => {
           const user = userEvent.setup();
           mount(line);
-          await user.click(screen.getByTestId("button-edit-contract"));
-          await user.click(screen.getByTestId("tab-billing"));
+          await user.click(screen.getByTestId("button-edit-billing"));
           if (change === "remove") await user.click(screen.getByTestId("button-remove-line-0"));
           else {
             await user.clear(screen.getByTestId("input-line-name-0"));
@@ -53,7 +52,7 @@ describe("flat-rate Billing payment safety", () => {
           }
           await user.click(screen.getByTestId(save));
           expect(screen.getByTestId("error-flat-snow-line").textContent).toContain('named "Snow"');
-          expect(screen.getByTestId("button-done")).toBeTruthy();
+          expect(screen.getByTestId("button-save-payments")).toBeTruthy();
           expect(fx.api).not.toHaveBeenCalled();
         });
       }
@@ -66,8 +65,7 @@ describe("flat-rate Billing payment safety", () => {
   it("saves a valid edited Snow amount and derives the flat price for the same save", async () => {
     const user = userEvent.setup();
     mount("snow");
-    await user.click(screen.getByTestId("button-edit-contract"));
-    await user.click(screen.getByTestId("tab-billing"));
+    await user.click(screen.getByTestId("button-edit-billing"));
     await user.clear(screen.getByTestId("input-month-0-12"));
     await user.type(screen.getByTestId("input-month-0-12"), "1200");
     await user.click(screen.getByTestId("button-save-payments"));
@@ -111,8 +109,8 @@ describe("seasonal line/form and renewal sets", () => {
     const user = userEvent.setup();
     mountSet("#term-y1", true);
     expect(screen.getByTestId("button-status-menu")).toBeTruthy();
-    expect(screen.getByTestId("button-edit-contract")).toBeTruthy();
-    await user.click(screen.getByTestId("tab-documents"));
+    expect(screen.getByTestId("button-edit-details")).toBeTruthy();
+    expect(screen.getByTestId("panel-documents")).toBeTruthy();
     expect(screen.getByTestId("button-upload-signed")).toBeTruthy();
   });
   it("a later year shows Status follows and covered rows with source navigation and separate uploads", async () => {
@@ -120,8 +118,8 @@ describe("seasonal line/form and renewal sets", () => {
     mountSet("#term-y2");
     expect(screen.queryByTestId("button-status-menu")).toBeNull();
     expect(screen.getByTestId("note-status-follows").textContent).toBe("Year 2 of the 2027–28–2029–30 renewal. Status follows 2027–28.");
-    expect(screen.getByTestId("button-edit-contract")).toBeTruthy();
-    await user.click(screen.getByTestId("tab-documents"));
+    expect(screen.getByTestId("button-edit-details")).toBeTruthy();
+    expect(screen.getByTestId("panel-documents")).toBeTruthy();
     expect(screen.getByTestId("note-covered-signed").textContent).toContain("2027–28");
     expect(screen.getByTestId("button-upload-signed")).toBeTruthy();
     await user.click(screen.getByTestId("link-source-season-signed"));

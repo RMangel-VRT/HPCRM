@@ -101,7 +101,9 @@ describe("contract page", () => {
       { ...detail().terms[1], status, editable, startDate, endDate },
     ] }) } };
     const html = page("#term-t2");
-    expect(html.includes('data-testid="button-edit-contract"')).toBe(editable);
+    for (const panel of ["billing", "details", "scope", "rates"]) {
+      expect(html.includes(`data-testid="button-edit-${panel}"`)).toBe(editable);
+    }
     if (note) expect(html).toContain(note);
     else expect(html).not.toContain('data-testid="note-past-season"');
   });
@@ -123,17 +125,17 @@ describe("contract page", () => {
     }) } };
     const current = page("");
     expect(current.match(/<button\b[^>]*data-testid="button-renew-contract"[^>]*>/)?.[0]).toContain("disabled");
-    expect(current).not.toContain("button-edit-contract");
+    expect(current).not.toContain("button-edit-details");
     const pending = page("#term-y6");
-    expect(pending).toContain("button-edit-contract");
+    expect(pending).toContain("button-edit-details");
     expect(pending).toContain("button-status-menu");
   });
   it("shows no Edit button on a past term", () => {
     fx.q = { "/api/contract-center/contracts/a1": { data: detail() } };
     const past = page("#term-t1");
     expect(past).toContain("Past season, read only");
-    expect(past).not.toContain("button-edit-contract");
-    expect(page("#term-t2")).toContain("button-edit-contract");
+    expect(past).not.toContain("button-edit-details");
+    expect(page("#term-t2")).toContain("button-edit-details");
   });
   it("redirects legacy ids to the agreement", () => {
     fx.q = { "/api/contract-center/contracts/a1": { isError: true, error: new Error("404: {}") },

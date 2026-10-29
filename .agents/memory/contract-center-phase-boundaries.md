@@ -111,3 +111,12 @@ Retiring legacy agreement-level line/form requires removing their schema declara
 **Why:** The owner clarified that the season backfill only relaxed the original columns to nullable. Dropping them outside the migration/declaration change caused shared development drift and blocked unrelated work; it was not fork staleness.
 
 **How to apply:** Keep the Contract Center cleanup's schema edits and guarded drop migration together, and validate schema drift against that matching pair. Never remove the development columns ahead of the declarations or introduce an unrelated repair migration.
+
+Billing month strips follow the selected season's contract year, while Scope
+timing always follows January through December, regardless of the season start.
+
+**Why:** The contract widget requirements distinguish payment-cycle ordering
+from seasonal service timing; rotating both strips would misrepresent services.
+
+**How to apply:** Preserve calendar-indexed scope timing when revising contract
+summaries or editors. Only billing presentation follows the contract start month.

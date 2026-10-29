@@ -63,6 +63,8 @@ export function scopePayload(rows: ScopeRow[]) {
 export function ScopeEditor(props: {
   line: AgreementLine; rows: ScopeRow[]; editing: boolean; onChange: (rows: ScopeRow[]) => void;
   snowTriggers: string | null; onSnowTriggers: (value: string) => void;
+  /** Hide the snow-triggers field (edited from Contract details instead). */
+  hideSnowTriggers?: boolean;
 }) {
   const { rows, editing, onChange } = props;
   const [custom, setCustom] = useState("");
@@ -87,7 +89,7 @@ export function ScopeEditor(props: {
         return (
           <section key={group} data-testid={`scope-group-${group}`}>
             <h3 className="text-sm font-semibold mb-2">{GROUP_LABEL[group]}</h3>
-            {group === "snow" && (
+            {group === "snow" && !props.hideSnowTriggers && (
               <div className="mb-3">
                 <label className="text-xs text-muted-foreground" htmlFor="snow-triggers">Snow triggers</label>
                 {editing ? (
