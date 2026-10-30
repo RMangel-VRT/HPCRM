@@ -1,58 +1,48 @@
 # High Plains CRM: Master schedule design
 
-**Status (Oct 19, 2026):**
-- Agreed with Randy. P3-1 (one crew list) and P3-2 (visits) are live.
-- P3-3 (Scheduling page) is written: `scheduling-slices/phase3/P3-3-scheduling-page.md`.
+**Status (Oct 30, 2026): Phase 3 is complete and live.**
+- **Live:**
+  - P3-1 (one crew list);
+  - P3-2 (visits);
+  - P3-3 (Scheduling page);
+  - P3-4 (redesign: full-screen, crew lanes, ticket-style cards, overlay drag);
+  - P3-5 (polish: lanes fill the height, drop hints only while dragging, clear today column);
+  - O1 (Settings → Crews owns crews);
+  - display-type filters (#783).
+- **Mockup:** "High Plains Scheduling Board" artifact, https://claude.ai/artifact/7rJBcUXq4122PHbN3Wt3Zm.
+- **Housekeeping still open:**
+  - `replit.md` has plaintext test passwords (an admin login and the mobile seed user);
+  - the dev-only test login task hasn't run.
 
 ## Core idea
 
-Every scheduling tool produces **visits** (one crew, one Colorado day, one trip). The calendar, the crew-day view, the crew app and property pages only read visits. Services come in different shapes, so they get different planning tools, but they all write the same visits.
+Every scheduling tool produces **visits** (one crew, one Colorado day, one trip). The calendar, the crew-day view, the crew app and property pages only read visits.
 
 | Shape | Services | Planning tool | State |
 |---|---|---|---|
-| Recurring routes | Mowing, pet stations, winter visits, irrigation checks | **Routes**: property + crew + weekday + cadence, generating visits a few weeks ahead, with a rain-day "slide" | To build. Replaces the old Maintenance planner. |
-| Counted rounds | Aeration ×2, fert/chem ×5, cleanups, shrub trims, grass cutback, irrigation start-up and winterization | **Campaigns**: window, one item per property, target/backup date, applicator, product, HOA pre/post notices, weather | Exists. Needs items placed as visits, and generation from contract scope. |
-| One-offs | Tasks, projects, estimates, extra-billable jobs | **Tickets → Needs scheduling → Scheduling board** | Visits are live (P3-2). The board is P3-3. |
-| Events | Snow | Storm-triggered, separate design | Not planned yet |
+| Recurring routes | Mowing, pet stations, winter visits, irrigation checks | **Routes**: property + crew + weekday + cadence, generating visits a few weeks ahead, with a rain-day slide | **Next.** Replaces the old Maintenance planner. |
+| Counted rounds | Aeration, fert/chem, cleanups, shrub trims, grass cutback, irrigation start-up and winterization | **Campaigns** | Exists. Needs items placed as visits, and generation from contract scope. |
+| One-offs | Tasks, projects, estimates, extra-billable jobs | **Tickets → Needs scheduling → Scheduling board** | Live |
+| Events | Snow | Storm-triggered | Not planned yet |
+
+## Scheduling page design rules (approved)
+
+- **Full-screen.** The queue and the board scroll in their own panes.
+- **Crew color owns the lane; ticket-type hue owns the card.**
+- **Queue cards use the ticket-list look**, with display types (approved estimates show as Project). They're grouped into Past schedule-by, Due this week and Later.
+- **Lanes fill the height:** `laneHeight` clamps each lane between 120 and 220px. Drop hints show only while dragging. Today's column has a tint and side lines.
 
 ## Demand source
 
-**Contract Center** scope lines (`term_scope_lines`: service key, quantity, month spread, per season term) say what each property is owed. They should be the **only** "what does this property get" source.
+**Contract Center** `term_scope_lines` (service key, quantity, month spread, per term) are the only "what does this property get" source. See `claude/data-ownership-map.md`.
 
-These should retire over time:
-- legacy `contract_services`;
-- `customer_service_plans` and their templates;
-- `maintenance_visit_configs`;
-- campaign items' `service_plan_category`.
+## Build order (remaining)
 
-## Design rules
-
-- A master schedule is several views, not one giant calendar:
-  - **crew-day** (what the crew lead sees);
-  - **service-line progress** (e.g. "Fall aeration 64/112, 9 days left");
-  - **exceptions** (Needs scheduling, Slipped).
-- Mowing should run on autopilot; the board is for exceptions.
-- **Weather is the normal case.** Generate a rolling few weeks, never a whole season. "Slide a crew's day" or "slide everyone's Tuesday" is a single action.
-- Day plus route order is enough. Clock times only for chemical notices and appointments.
-- `visits.service_key` (added in P3-3) makes the calendar filterable by service line.
-- **The payoff is proof of service:** contract scope compared with completed visits, per property and season.
-
-## Build order
-
-1. **P3-3, the Scheduling page.** Needs scheduling and Slipped queue, crew × day board, crew-day sheet, a Visits card on ticket detail, `service_key`.
-2. **Phase 4, the crew app on visits.** Start and Complete close the visit and move the official ticket status; photos; "needs a return trip".
-3. **Routes.** Rebuild the planner on standing crews, generate dated visits, rain-day slide. One-time import of the planner placements that are still valid, then retire `/dashboard/schedule`. Randy says the current planner crews are inaccurate, so fix the crews in the new tool, not the old planner.
-4. **Campaigns onto the calendar.** Placing an item creates its visit. Generate campaigns from Contract Center scope.
-5. **Fulfillment report.**
-
-## Facts from the code (checked Oct 19, 2026)
-
-- **The planner** (`maintenance_crews`, `schedule_blocks`, `maintenance_visit_configs`, `weekly_schedule_templates`) is isolated: nothing outside its own pages reads it, and the crew app doesn't use it. Two traps:
-  - deleting a planner crew cascades its blocks;
-  - an inactive crew hides its blocks from both the grid and the Unscheduled list.
-- **Production planner crews:** JOJO, Luciano Crew, Manuel Crew, Rolando, Sergio Crew.
-- **Production had no standing crews as of Oct 12.** Randy confirmed each crew has a supervisor login.
+1. **Routes.** Rebuild the planner on standing crews: dated visits generated a few weeks ahead, a rain-day slide, and prefill from contract scope where it exists. One-time import of the valid planner placements, then retire `/dashboard/schedule`, `maintenance_crews`, `schedule_blocks` and `maintenance_visit_configs`.
+2. **Campaigns onto the calendar.** Placing an item creates its visit. Generate campaigns from contract scope.
+3. **Phase 4, the crew app on visits.** Coordinated with the mobile project (see `claude/mobile-app-assessment.md`): Today from visits; Start and Complete close the visit and move the official status; return trips.
+4. **Fulfillment report.**
 
 ## Open question
 
-Do Contract Center 2027 scope lines record quantity and months for every property? This decides whether campaigns can be generated automatically (step 4).
+Do Contract Center 2027 scope lines record quantity and months for every property? Routes can be built either way: prefill where they do, manual setup where they don't.

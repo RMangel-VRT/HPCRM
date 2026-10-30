@@ -2,7 +2,7 @@
 
 Reference documents for the scheduling section:
 
-- [Master schedule design](Master-schedule-design.md) — agreed master plan dated October 19, 2026; visits, demand source, design rules, build order and open question.
+- [Master schedule design](Master-schedule-design.md) — October 30, 2026 update; Phase 3 status, approved board rules, visits, demand source and remaining build order.
 - [P3-3: Scheduling page](P3-3-scheduling-page.md) — Needs scheduling and Slipped queues, crew-day board, service filtering, ticket Visits section and verification requirements.
 - [Design sheet](Design.md)
 - [Rules](Rules.md)
