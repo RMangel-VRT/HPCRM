@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, varchar, text, integer, boolean, numeric, timestamp, uniqueIndex, index, check } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, integer, boolean, numeric, timestamp, date, uniqueIndex, index, check } from "drizzle-orm/pg-core";
 import { companies, customers, tickets, users, plantCatalogItems, hardscapeCatalogItems, agreementTerms } from "./schema";
 import { irrigationCatalogItems } from "./irrigation";
 import { estimateQuickItems } from "./estimateSetup";
@@ -34,6 +34,7 @@ export const estimateVersions = pgTable("estimate_versions", {
   createdFromVersionId: varchar("created_from_version_id"),
   sentAt: timestamp("sent_at"), sentById: userRef("sent_by_id"), sentMethod: text("sent_method").$type<typeof ESTIMATE_SENT_METHODS[number]>(),
   acceptedAt: timestamp("accepted_at"), acceptedById: userRef("accepted_by_id"), acceptanceMethod: text("acceptance_method").$type<typeof ESTIMATE_ACCEPTANCE_METHODS[number]>(),
+  acceptedOn: date("accepted_on", { mode: "string" }),
   poNumber: text("po_number"), declinedAt: timestamp("declined_at"), declinedById: userRef("declined_by_id"), declineReason: text("decline_reason"),
   supersededAt: timestamp("superseded_at"), frozenSubtotalCents: integer("frozen_subtotal_cents"), frozenCostKnownCents: integer("frozen_cost_known_cents"),
   frozenCostUnknownLines: integer("frozen_cost_unknown_lines"), createdById: userRef("created_by_id"), ...times(),

@@ -1,11 +1,23 @@
 /** Driver-free Estimate Builder request contracts, shared by CRM and API. */
 import { z } from "zod/v4";
+import { isCalendarDate } from "./schema/calendarDate";
+export { isCalendarDate } from "./schema/calendarDate";
 
 export const ESTIMATE_STATUSES = ["draft", "sent", "accepted", "declined", "superseded", "void"] as const;
 export const ESTIMATE_LINE_TYPES = ["plant", "hardscape", "irrigation", "labor", "equipment", "fee", "custom"] as const;
 export const ESTIMATE_PRICE_SOURCES = ["catalog", "contract", "rate_card", "quick_list", "manual"] as const;
 export const ESTIMATE_SENT_METHODS = ["email", "hard_copy", "portal", "other"] as const;
 export const ESTIMATE_ACCEPTANCE_METHODS = ["email_approval", "signed_pdf", "phone", "portal", "other"] as const;
+export const sendEstimateSchema = z.object({
+  method: z.enum(ESTIMATE_SENT_METHODS), confirmZeroPriced: z.boolean().optional(),
+}).strict();
+export const acceptEstimateSchema = z.object({
+  method: z.enum(ESTIMATE_ACCEPTANCE_METHODS), poNumber: z.string().trim().max(500).optional(),
+  acceptedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate).optional(),
+}).strict();
+export const estimateReasonSchema = z.object({ reason: z.string().trim().min(1).max(10000) }).strict();
+export const emptyEstimateActionSchema = z.object({}).strict();
+export const ESTIMATE_LIST_STATUSES = ["open", "sent", "accepted", "declined", "void"] as const;
 export const ESTIMATE_UMBRELLAS = ["plants", "landscape_materials", "irrigation_materials", "landscape_labor", "irrigation_labor", "fees_surcharges"] as const;
 export type EstimateUmbrella = typeof ESTIMATE_UMBRELLAS[number];
 export const estimateIdSchema = z.string().trim().min(1).max(200);
@@ -56,6 +68,7 @@ export const patchEstimateLineSchema = z.object({
 export const estimateListQuerySchema = z.object({
   customerId: estimateIdSchema.optional(), ticketId: estimateIdSchema.optional(),
   search: z.string().max(500).optional(), includeVoid: z.enum(["true", "false"]).optional(),
+  status: z.enum(ESTIMATE_LIST_STATUSES).optional(),
 }).strict();
 export const estimateDetailQuerySchema = z.object({
   version: z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().max(2147483647)).optional(),
@@ -90,11 +103,19 @@ export interface EstimateTotalsDto {
 }
 export interface EstimateVersionSummaryDto extends EstimateTimestampsDto {
   id: string; versionNumber: number; status: typeof ESTIMATE_STATUSES[number];
+  createdFromVersionId?: string | null;
+  sentAt?: string | null; sentById?: string | null; sentMethod?: typeof ESTIMATE_SENT_METHODS[number] | null;
+  acceptedAt?: string | null; acceptedOn?: string | null; acceptedById?: string | null;
+  acceptanceMethod?: typeof ESTIMATE_ACCEPTANCE_METHODS[number] | null; poNumber?: string | null;
+  declinedAt?: string | null; declinedById?: string | null; declineReason?: string | null;
+  supersededAt?: string | null;
+  frozenSubtotalCents?: number | null; frozenCostKnownCents?: number | null; frozenCostUnknownLines?: number | null;
 }
 export interface EstimateVersionDto extends EstimateVersionSummaryDto {
   companyId: string; estimateId: string; createdFromVersionId: string | null;
   sentAt: string | null; sentById: string | null; sentMethod: typeof ESTIMATE_SENT_METHODS[number] | null;
   acceptedAt: string | null; acceptedById: string | null; acceptanceMethod: typeof ESTIMATE_ACCEPTANCE_METHODS[number] | null;
+  acceptedOn: string | null;
   poNumber: string | null; declinedAt: string | null; declinedById: string | null; declineReason: string | null;
   supersededAt: string | null; frozenSubtotalCents: number | null; frozenCostKnownCents: number | null;
   frozenCostUnknownLines: number | null; createdById: string | null;
@@ -107,4 +128,5 @@ export interface EstimateDetailDto extends EstimateContainerDto {
 export interface EstimateListItemDto extends EstimateContainerDto {
   customerName: string; currentVersionNumber: number | null;
   currentVersionStatus: typeof ESTIMATE_STATUSES[number] | null; subtotalCents: number | null;
+  versions?: EstimateVersionSummaryDto[];
 }

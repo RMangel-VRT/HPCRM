@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { fetchJson, formatCents } from "@/lib/hardscapeCatalog";
 import { scopeOf } from "@/lib/estimateSettings";
 import {
-  ESTIMATES_API, builderPath, formatDate, listUrl, sendEstimate, type EstimateListItemDto,
+  ESTIMATES_API, LIST_STATUSES, builderPath, formatDate, listUrl, sendEstimate, type EstimateListItemDto, type ListStatusFilter,
 } from "@/lib/estimateBuilder";
 import { SectionRailLayout } from "@/components/nav/SectionRail";
 import { EstimatesRail } from "@/components/nav/estimatesRail";
@@ -107,11 +107,12 @@ function ListContent() {
   const [searchInput, setSearchInput] = useState("");
   const search = useDebounced(searchInput.trim(), 300);
   const [includeVoid, setIncludeVoid] = useState(false);
+  const [status, setStatus] = useState<ListStatusFilter | null>(null);
   const [creating, setCreating] = useState(false);
   const allowed = user?.activeRole === "admin" || user?.activeRole === "office";
-  const url = listUrl(search, includeVoid);
+  const url = listUrl(search, includeVoid, status);
   const { data, isLoading, isError, refetch, isFetching } = useQuery<EstimateListItemDto[]>({
-    queryKey: [ESTIMATES_API, "list", user?.activeCompanyId, user?.id, user?.activeRole, search, includeVoid],
+    queryKey: [ESTIMATES_API, "list", user?.activeCompanyId, user?.id, user?.activeRole, search, includeVoid, status ?? "all"],
     queryFn: ({ signal }) => fetchJson<EstimateListItemDto[]>(url, companyId, signal),
     enabled: !!user && allowed,
   });
@@ -138,9 +139,22 @@ function ListContent() {
             <Input type="search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder={t("estimateBuilder.searchPlaceholder")}
               aria-label={t("estimateBuilder.searchLabel")} className="pl-8" data-testid="input-search" />
           </div>
-          <label className="ml-auto inline-flex items-center gap-2 text-sm">
-            <Switch checked={includeVoid} onCheckedChange={setIncludeVoid} data-testid="switch-show-void" />
+          <div role="radiogroup" aria-label={t("estimateBuilder.filter.label")} className="inline-flex flex-wrap items-center gap-1 rounded-full border bg-card p-0.5" data-testid="filter-status">
+            {([null, ...LIST_STATUSES] as (ListStatusFilter | null)[]).map((f) => {
+              const on = status === f;
+              return (
+                <button key={f ?? "all"} type="button" role="radio" aria-checked={on} onClick={() => setStatus(f)} data-testid={`filter-status-${f ?? "all"}`}
+                  className={cn("h-7 rounded-full px-3 text-xs font-medium transition-colors", on ? "bg-rail-active text-rail-active-foreground" : "text-muted-foreground hover:bg-rail-hover hover:text-foreground")}>
+                  {t(`estimateBuilder.filter.${f ?? "all"}`)}
+                </button>
+              );
+            })}
+          </div>
+          <label className="ml-auto inline-flex items-center gap-2 text-sm" title={status === "void" ? t("estimateBuilder.filter.voidIncluded") : undefined}>
+            <Switch checked={status === "void" || includeVoid} disabled={status === "void"} onCheckedChange={setIncludeVoid} data-testid="switch-show-void"
+              aria-describedby={status === "void" ? "est-void-included" : undefined} />
             {t("estimateBuilder.showVoid")}
+            {status === "void" && <span id="est-void-included" className="sr-only">{t("estimateBuilder.filter.voidIncluded")}</span>}
           </label>
         </div>
 
@@ -156,9 +170,9 @@ function ListContent() {
             </div>
           ) : rows.length === 0 ? (
             <div className="rounded-md border border-dashed bg-card/60 px-6 py-12 text-center" data-testid="estimates-empty">
-              <p className="font-semibold">{search ? t("estimateBuilder.noMatches") : t("estimateBuilder.empty")}</p>
-              {search ? (
-                <Button variant="ghost" className="mt-2" onClick={() => setSearchInput("")} data-testid="button-clear-search">{t("estimateBuilder.clearFilters")}</Button>
+              <p className="font-semibold">{search || status ? t("estimateBuilder.noMatches") : t("estimateBuilder.empty")}</p>
+              {search || status ? (
+                <Button variant="ghost" className="mt-2" onClick={() => { setSearchInput(""); setStatus(null); }} data-testid="button-clear-search">{t("estimateBuilder.clearFilters")}</Button>
               ) : <p className="mt-1 text-sm text-muted-foreground">{t("estimateBuilder.emptyHint")}</p>}
             </div>
           ) : (

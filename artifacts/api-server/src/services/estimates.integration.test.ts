@@ -398,9 +398,10 @@ describe("serialized draft edits, read payloads and isolation", () => {
     expect((await request(app).get("/api/estimates").query({ ticketId: t.id })).body.map((d: { id: string }) => d.id)).toEqual([first.id]);
     expect((await request(app).get("/api/estimates").query({ search: first.estimateNumber })).body[0].id).toBe(first.id);
     const current = await request(app).get(`/api/estimates/${first.id}`);
-    expect(current.body.versions).toHaveLength(2); expect(current.body.version.totals.subtotalCents).toBe(123);
+    // Lifecycle reads now honor the captured aggregate, matching the list.
+    expect(current.body.versions).toHaveLength(2); expect(current.body.version.totals.subtotalCents).toBe(999);
     const historical = await request(app).get(`/api/estimates/${first.id}?version=2`);
-    expect(historical.body.version).toMatchObject({ id: v2.id, status: "declined", totals: { subtotalCents: 0 } });
+    expect(historical.body.version).toMatchObject({ id: v2.id, status: "declined", totals: { subtotalCents: 777 } });
     expect((await request(app).get(`/api/estimates/${first.id}?version=3`)).status).toBe(404);
     expect((await request(app).get(`/api/estimates/${first.id}?version=1.1`)).status).toBe(400);
     expect((await request(app).get("/api/estimates?includeVoid=maybe")).status).toBe(400);

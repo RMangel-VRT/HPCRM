@@ -4,7 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Droplets, FileText, Hammer, Leaf, Lock, Mountain, Palette, PenLine, Plus, Receipt, Tractor, Trash2,
+  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Ban, Check, CheckCircle2, Droplets, FileText, GitBranch, Hammer, History, Leaf, Lock, MoreHorizontal,
+  Mountain, Palette, PenLine, Plus, Receipt, Send, ThumbsDown, Tractor, Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -13,7 +14,7 @@ import { centsToInput, fetchJson, formatCents, parseDollarsToCents } from "@/lib
 import { RATES_PREVIEW_API, scopeOf } from "@/lib/estimateSettings";
 import {
   ESTIMATES_API, ESTIMATE_BUILDER_PATH, FREE_UNITS, FREE_UNIT_TYPES, LINE_TINT, LINE_TYPES, UMBRELLAS, builderPath, distinctContexts,
-  errorStatus, isVersionLocked, sendEstimate, validQuantity,
+  conflictOf, errorStatus, formatCalendarDate, formatDate, isVersionLocked, sendEstimate, validQuantity,
   type EstimateDetailDto, type EstimateLineDto, type EstimateLineType, type EstimateSectionDto, type RatesPreviewWithContext,
 } from "@/lib/estimateBuilder";
 import { SectionRailLayout } from "@/components/nav/SectionRail";
@@ -23,6 +24,10 @@ import { AddLineDialog, type AddLineBody } from "@/components/estimates/AddLineD
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { AcceptDialog, DeclineDialog, DiscardDialog, SendDialog, VoidDialog } from "@/components/estimates/LifecycleDialogs";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
@@ -47,6 +52,8 @@ function errorText(err: unknown, t: (k: string) => string): string {
 }
 
 type Run = (method: string, url: string, body?: unknown) => Promise<boolean>;
+type LifeKind = "send" | "accept" | "decline" | "revise" | "discard" | "void";
+type LifeDialog = Exclude<LifeKind, "revise"> | null;
 
 export default function EstimateBuilder() {
   const { user } = useAuth();
@@ -119,6 +126,10 @@ function BuilderContent({ id }: { id: string }) {
     enabled: !!user && allowed && !!id,
     retry: false,
   });
+  const activeVersionRef = useRef(data?.version.id);
+  activeVersionRef.current = data?.version.id;
+  const contentEditableRef = useRef(false);
+  contentEditableRef.current = false;
 
   const customerId = data?.customerId;
   const rates = useQuery<RatesPreviewWithContext>({
@@ -140,6 +151,7 @@ function BuilderContent({ id }: { id: string }) {
 
   /** Single mutation path: scoped header, stale-view drop, newest-response-wins install. */
   const run: Run = async (method, url, body) => {
+    if (viewRef.current !== viewTag || activeVersionRef.current !== data?.version.id || !contentEditableRef.current) return false;
     const view = viewTag;
     try {
       const d = await sendEstimate(method, url, companyId, body);
@@ -165,6 +177,77 @@ function BuilderContent({ id }: { id: string }) {
     }
   };
   const invalid = (msg: string) => toast({ title: t("estimateBuilder.saveFailed"), description: msg, variant: "destructive" });
+
+  // ---- Lifecycle (send/accept/decline/revise/discard/void) ----
+  const scopePrefix = [ESTIMATES_API, "detail", user?.activeCompanyId, user?.id, user?.activeRole, id] as const;
+  const currentKey = [...scopePrefix, "current"] as const;
+  const [dialog, setDialog] = useState<LifeDialog>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [needPrice, setNeedPrice] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const opRef = useRef(0);
+  // Defensive gate (set each render from the viewed state): hidden buttons are not the only barrier.
+  const gateRef = useRef<(k: LifeKind) => boolean>(() => false);
+  gateRef.current = () => false; // Loading/error renders must not retain the previous view's permissions.
+  useEffect(() => {
+    // New view: invalidate any in-flight operation identity and drop old dialog state.
+    opRef.current++; busyRef.current = false;
+    setBusy(false); setDialog(null); setDialogError(null); setNeedPrice(null);
+  }, [viewTag]);
+  const openDialog = (d: LifeDialog) => { if (busyRef.current || (d && !gateRef.current(d))) return; setDialogError(null); setNeedPrice(null); setDialog(d); };
+  const closeDialog = () => { if (busyRef.current) return; setDialog(null); setDialogError(null); setNeedPrice(null); };
+  const refreshScope = () => { void qc.invalidateQueries({ queryKey: [...scopePrefix] }); };
+
+  /** Installs an authoritative full response (current version) without clobbering a newer cached payload. */
+  async function installCurrent(d: EstimateDetailDto, view: string): Promise<boolean> {
+    await qc.cancelQueries({ queryKey: [...currentKey] });
+    if (viewRef.current !== view) return false;
+    const cached = qc.getQueryData<EstimateDetailDto>([...currentKey]);
+    if (!cached || cached.id !== d.id || freshness(d) >= freshness(cached)) qc.setQueryData([...currentKey], d);
+    // Version-pinned views (and the old current-by-number view) refetch; the installed current view is kept.
+    void qc.invalidateQueries({ queryKey: [...scopePrefix], predicate: (q) => q.queryKey[6] !== "current" });
+    if (d.ticketId) void qc.invalidateQueries({ queryKey: ["/api/tickets", user?.activeCompanyId, user?.id, user?.activeRole, d.ticketId] });
+    return true;
+  }
+
+  async function lifecycle(kind: LifeKind, method: string, url: string, body?: unknown): Promise<void> {
+    if (viewRef.current !== viewTag || activeVersionRef.current !== data?.version.id || busyRef.current || !gateRef.current(kind)) return;
+    const view = viewTag;
+    const op = ++opRef.current;
+    busyRef.current = true; setBusy(true); setDialogError(null);
+    try {
+      const d = await sendEstimate(method, url, companyId, body);
+      void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "list"] });
+      if (viewRef.current !== view) { refreshScope(); return; }
+      if (!(await installCurrent(d, view))) return;
+      setDialog(null); setNeedPrice(null);
+      toast({ title: t(`estimateBuilder.life.done.${kind}`) });
+      if (requestedVersion) setLocation(builderPath(d.id));
+    } catch (err) {
+      if (viewRef.current !== view) return;
+      const c = conflictOf(err);
+      if (kind === "send" && c?.error === "LINES_NEED_PRICE" && c.lineIds?.length) { setNeedPrice(c.lineIds); return; }
+      if (c?.error === "DRAFT_EXISTS") {
+        setDialog(null);
+        toast({ title: t("estimateBuilder.life.failed"), description: t("estimateBuilder.life.err.DRAFT_EXISTS") });
+        refreshScope();
+        const target = data?.versions.find((s) => s.id === c.versionId);
+        setLocation(!target || target.id === data?.currentVersionId ? builderPath(id) : builderPath(id, target.versionNumber));
+        return;
+      }
+      const known = c && ["INVALID_TRANSITION", "NO_LINES", "HAS_ACCEPTED_VERSION", "ESTIMATE_VOIDED", "CONFLICT", "LINES_NEED_PRICE"].includes(c.error);
+      const msg = known ? t(`estimateBuilder.life.err.${c!.error}`) : errorText(err, t);
+      if (dialogRef.current) setDialogError(msg);
+      else toast({ title: t("estimateBuilder.life.failed"), description: msg, variant: "destructive" });
+      const st = errorStatus(err);
+      if (st === 409 || st === 404) refreshScope();
+    } finally {
+      if (opRef.current === op) { busyRef.current = false; if (viewRef.current === view) setBusy(false); }
+    }
+  }
+  const dialogRef = useRef<LifeDialog>(null);
+  dialogRef.current = dialog;
 
   const [addFor, setAddFor] = useState<{ type: EstimateLineType; sectionId: string } | null>(null);
   const [removeSection, setRemoveSection] = useState<EstimateSectionDto | null>(null);
@@ -207,6 +290,7 @@ function BuilderContent({ id }: { id: string }) {
   const v = data.version;
   const isCurrent = v.id === data.currentVersionId;
   const editable = !locked && !data.voidedAt && v.status === "draft" && isCurrent;
+  contentEditableRef.current = editable;
   const base = `${ESTIMATES_API}/${encodeURIComponent(data.id)}`;
   const vBase = `${base}/versions/${encodeURIComponent(v.id)}`;
   const statusLabel = (s: string) => t(`estimateBuilder.status.${s}`);
@@ -215,6 +299,34 @@ function BuilderContent({ id }: { id: string }) {
     const tk = ticket.data; if (!tk) return null;
     return tk.statuses?.find(status => status.id === tk.ticket?.currentStatusId)?.name ?? null;
   })();
+
+  const nextN = Math.max(0, ...data.versions.map((s) => s.versionNumber)) + 1;
+  const draftSummary = data.versions.find((s) => s.status === "draft");
+  const acceptedSummary = data.versions.find((s) => s.status === "accepted");
+  const lifeOn = !data.voidedAt && !locked && isCurrent;
+  const versionLabel = (s: EstimateDetailDto["versions"][number]) => {
+    if (s.status === "superseded" && s.sentAt) {
+      const original = s.acceptedAt ? "accepted" : "sent";
+      return `${t("estimateBuilder.versionPill", { n: s.versionNumber, status: statusLabel(original) })} · ${statusLabel("superseded")}`;
+    }
+    const base = t("estimateBuilder.versionPill", { n: s.versionNumber, status: statusLabel(s.status) });
+    if (s.status === "draft" && s.createdFromVersionId) return `${base} (${acceptedSummary ? t("estimateBuilder.life.changeOrderTag") : t("estimateBuilder.life.revisionTag")})`;
+    return base;
+  };
+  const needPriceLines = needPrice?.map((lid) => ({ id: lid, name: sections.flatMap((s) => s.lines).find((l) => l.id === lid)?.name ?? null })) ?? null;
+  const reviseLabel = v.status === "accepted" ? "changeOrder" : v.status === "declined" ? "revise" : "edit";
+  const canRevise = lifeOn && (v.status === "sent" || v.status === "accepted" || v.status === "declined");
+  const canVoid = !data.voidedAt && !acceptedSummary && isCurrent;
+  gateRef.current = (k) => {
+    if (!lifeOn) return false;
+    switch (k) {
+      case "send": return v.status === "draft" && isCurrent;
+      case "discard": return v.status === "draft" && isCurrent && v.versionNumber > 1;
+      case "accept": case "decline": return v.status === "sent";
+      case "revise": return canRevise && !draftSummary;
+      case "void": return canVoid;
+    }
+  };
 
   async function addLine(body: AddLineBody) {
     const ok = await run("POST", `${vBase}/lines`, body);
@@ -247,14 +359,55 @@ function BuilderContent({ id }: { id: string }) {
             {data.voidedAt && <StatusPill status="void" label={t("estimateBuilder.voided")} />}
             <RatesChip q={rates} />
           </div>
+          <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
           {editable ? (
             <InlineInput value={data.title} disabled={false} label={t("estimateBuilder.editTitle")} testId="input-estimate-title"
               className="mt-2 h-auto border-transparent bg-transparent px-1 -ml-1 text-2xl font-bold tracking-tight shadow-none hover:border-input focus-visible:border-input"
               validate={(raw) => raw.trim() ? { value: raw.trim(), same: raw.trim() === data.title } : { error: t("estimateBuilder.errTitle") }}
               onCommit={(title) => run("PATCH", base, { title })} onInvalid={invalid} />
           ) : (
-            <h1 className="mt-2 text-2xl font-bold tracking-tight" data-testid="text-estimate-title">{data.title}</h1>
+            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-estimate-title">{data.title}</h1>
           )}
+          </div>
+          <div role="toolbar" aria-label={t("estimateBuilder.life.actions")} className="flex flex-wrap items-center gap-1.5" data-testid="bar-lifecycle">
+            {lifeOn && v.status === "draft" && isCurrent && (
+              <Button size="sm" disabled={busy} onClick={() => openDialog("send")} data-testid="button-mark-sent"><Send className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.markSent")}</Button>
+            )}
+            {lifeOn && v.status === "sent" && (<>
+              <Button size="sm" disabled={busy} onClick={() => openDialog("accept")} data-testid="button-record-accept"><CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.recordAccept")}</Button>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => openDialog("decline")} data-testid="button-record-decline"><ThumbsDown className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.recordDecline")}</Button>
+            </>)}
+            {v.status === "accepted" && (
+              <span className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-700/30 bg-emerald-700/5 px-2.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300"
+                aria-disabled="true" title={t("estimateBuilder.life.lockedHint")} data-testid="indicator-locked"><Lock className="h-3.5 w-3.5" />{t("estimateBuilder.life.locked")}</span>
+            )}
+            {canRevise && (draftSummary ? (
+              <Button size="sm" variant="outline" onClick={() => setLocation(draftSummary.id === data.currentVersionId ? builderPath(data.id) : builderPath(data.id, draftSummary.versionNumber))}
+                data-testid="button-open-draft"><GitBranch className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.openDraft", { n: draftSummary.versionNumber })}</Button>
+            ) : (
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void lifecycle("revise", "POST", `${vBase}/revise`, {})} data-testid="button-revise">
+                <GitBranch className="mr-1.5 h-3.5 w-3.5" />{t(`estimateBuilder.life.${reviseLabel}`, { n: nextN })}</Button>
+            ))}
+            {lifeOn && v.status === "draft" && isCurrent && v.versionNumber > 1 && (
+              <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => openDialog("discard")} data-testid="button-discard-draft">
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.discard")}</Button>
+            )}
+            {!data.voidedAt && isCurrent && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={t("estimateBuilder.life.more")} disabled={busy} data-testid="button-overflow"><MoreHorizontal className="h-4 w-4" /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuItem disabled={!canVoid || locked} onSelect={() => openDialog("void")} className="text-destructive focus:text-destructive" data-testid="menu-void">
+                    <Ban className="mr-2 h-4 w-4" />{t("estimateBuilder.life.void")}
+                  </DropdownMenuItem>
+                  {!canVoid && <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground" data-testid="text-void-blocked">{t("estimateBuilder.life.voidBlocked")}</DropdownMenuLabel>}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+          </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <Link href={`/dashboard/customers/${data.customerId}`} className="font-medium text-foreground hover:underline" data-testid="link-customer">
               {customer.data?.name ?? t("estimateBuilder.customer")}
@@ -279,7 +432,8 @@ function BuilderContent({ id }: { id: string }) {
                   className={cn("h-7 rounded-full border px-3 text-[12px] tabular-nums transition-colors",
                     viewing ? "border-transparent bg-rail-active font-semibold text-rail-active-foreground" : "bg-background text-muted-foreground hover:bg-rail-hover",
                     cur && !viewing && "border-[hsl(var(--rail-active-icon))]/50")}>
-                  {t("estimateBuilder.versionPill", { n: s.versionNumber, status: statusLabel(s.status) })}{cur ? ` · ${t("estimateBuilder.current")}` : ""}
+                  {s.status === "accepted" && <Check className="-ml-0.5 mr-1 inline h-3 w-3" aria-label={t("estimateBuilder.life.acceptedMark")} />}
+                  {versionLabel(s)}{cur ? ` · ${t("estimateBuilder.current")}` : ""}
                 </button>
               );
             })}
@@ -291,12 +445,18 @@ function BuilderContent({ id }: { id: string }) {
             <Lock className="mt-0.5 h-4 w-4 shrink-0" />{t("estimateBuilder.locked")}
           </div>
         )}
+        {!isCurrent && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-[hsl(var(--rail-active-icon))]/50 bg-[hsl(var(--rail-active-icon))]/5 p-3 text-sm" data-testid="bar-not-current">
+            <span className="inline-flex items-center gap-2 font-medium"><History className="h-4 w-4 text-[hsl(var(--rail-active-icon))]" />{t("estimateBuilder.life.notCurrent", { n: v.versionNumber })}</span>
+            <Button size="sm" variant="outline" onClick={() => setLocation(builderPath(data.id))} data-testid="button-view-current">{t("estimateBuilder.life.backToCurrent")}</Button>
+          </div>
+        )}
         {!editable && !locked && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 p-3 text-sm" data-testid="banner-read-only">
-            <span className="inline-flex items-center gap-2"><Lock className="h-4 w-4 text-muted-foreground" />
-              {data.voidedAt ? t("estimateBuilder.readOnly.void") : !isCurrent ? t("estimateBuilder.readOnly.historical", { n: v.versionNumber }) : t("estimateBuilder.readOnly.nonDraft", { status: statusLabel(v.status) })}
-            </span>
-            {!isCurrent && <Button size="sm" variant="outline" onClick={() => setLocation(builderPath(data.id))} data-testid="button-view-current">{t("estimateBuilder.readOnly.viewCurrent")}</Button>}
+          <LifecycleBanner data={data} lang={lang} notCurrent={!isCurrent} />
+        )}
+        {v.status === "draft" && acceptedSummary && acceptedSummary.id !== v.id && !data.voidedAt && (
+          <div className="mt-3 flex items-start gap-2 rounded-md border border-emerald-700/30 bg-emerald-700/5 p-3 text-sm text-emerald-900 dark:text-emerald-200" data-testid="banner-contract">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{t("estimateBuilder.life.banner.contract", { n: acceptedSummary.versionNumber })}
           </div>
         )}
 
@@ -339,7 +499,83 @@ function BuilderContent({ id }: { id: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <SendDialog open={dialog === "send"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog} needPrice={needPriceLines}
+        onSubmit={(b) => void lifecycle("send", "POST", `${vBase}/send`, b)} />
+      <AcceptDialog open={dialog === "accept"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog}
+        onSubmit={(b) => void lifecycle("accept", "POST", `${vBase}/accept`, b)} />
+      <DeclineDialog open={dialog === "decline"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog}
+        onSubmit={(b) => void lifecycle("decline", "POST", `${vBase}/decline`, b)} />
+      <DiscardDialog open={dialog === "discard"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog}
+        onSubmit={() => void lifecycle("discard", "DELETE", vBase)} />
+      <VoidDialog open={dialog === "void"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog}
+        onSubmit={(b) => void lifecycle("void", "POST", `${base}/void`, b)} />
     </SectionRailLayout>
+  );
+}
+
+/** Read-only banner for the viewed version: tone and copy follow its actual lifecycle state. */
+function LifecycleBanner({ data, lang, notCurrent }: { data: EstimateDetailDto; lang: string; notCurrent: boolean }) {
+  const { t } = useTranslation();
+  const v = data.version;
+  const box = "mt-3 flex items-start gap-2 rounded-md border p-3 text-sm";
+  if (data.voidedAt) {
+    return (
+      <div className={cn(box, "bg-muted/40")} data-testid="banner-read-only" data-tone="void">
+        <Ban className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <span>{t("estimateBuilder.life.banner.void")}{data.voidReason && <> <span data-testid="text-void-reason">{t("estimateBuilder.life.banner.voidReason", { reason: data.voidReason })}</span></>}</span>
+      </div>
+    );
+  }
+  if (v.status === "sent") {
+    return (
+      <div className={cn(box, "border-[hsl(var(--est-warn))]/40 bg-[hsl(var(--est-warn-bg))] text-[hsl(var(--est-warn))]")} data-testid="banner-read-only" data-tone="sent">
+        <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>{t("estimateBuilder.life.banner.sent")}
+          {v.sentAt && v.sentMethod && <> {t("estimateBuilder.life.banner.sentMeta", { date: formatDate(v.sentAt, lang), method: t(`estimateBuilder.life.sentMethod.${v.sentMethod}`) })}</>}
+        </span>
+      </div>
+    );
+  }
+  if (v.status === "accepted") {
+    const date = formatCalendarDate(v.acceptedOn, lang) || formatDate(v.acceptedAt, lang);
+    return (
+      <div className={cn(box, "border-emerald-700/30 bg-emerald-700/5 text-emerald-900 dark:text-emerald-200")} data-testid="banner-read-only" data-tone="accepted">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+        <span data-testid="text-accepted-meta">
+          {t("estimateBuilder.life.banner.accepted", { date, method: v.acceptanceMethod ? t(`estimateBuilder.life.acceptMethod.${v.acceptanceMethod}`) : "" })}
+          {v.poNumber && <> {t("estimateBuilder.life.banner.po", { po: v.poNumber })}</>} <strong>{t("estimateBuilder.life.banner.frozen")}</strong>
+        </span>
+      </div>
+    );
+  }
+  if (v.status === "declined") {
+    return (
+      <div className={cn(box, "bg-muted/40")} data-testid="banner-read-only" data-tone="declined">
+        <ThumbsDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <span data-testid="text-decline-reason">{t("estimateBuilder.life.banner.declined", { reason: v.declineReason ?? "" })}</span>
+      </div>
+    );
+  }
+  if (v.status === "superseded") {
+    return (
+      <div className={cn(box, "bg-muted/40 text-muted-foreground")} data-testid="banner-read-only" data-tone="superseded">
+        <History className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>{t("estimateBuilder.life.banner.superseded")}
+          {v.acceptedAt && <> {t("estimateBuilder.life.banner.accepted", {
+            date: formatCalendarDate(v.acceptedOn, lang) || formatDate(v.acceptedAt, lang),
+            method: v.acceptanceMethod ? t(`estimateBuilder.life.acceptMethod.${v.acceptanceMethod}`) : "",
+          })}{v.poNumber && <> {t("estimateBuilder.life.banner.po", { po: v.poNumber })}</>}</>}
+          {v.sentAt && v.sentMethod && <> {t("estimateBuilder.life.banner.sentMeta", { date: formatDate(v.sentAt, lang), method: t(`estimateBuilder.life.sentMethod.${v.sentMethod}`) })}</>}
+          {" "}{t("estimateBuilder.life.banner.frozen")}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className={cn(box, "bg-muted/40")} data-testid="banner-read-only" data-tone={v.status}>
+      <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+      {notCurrent ? t("estimateBuilder.life.notCurrent", { n: v.versionNumber }) : t("estimateBuilder.life.banner.draft", { status: t(`estimateBuilder.status.${v.status}`) })}
+    </div>
   );
 }
 
@@ -562,7 +798,8 @@ function TotalsRail({ data, lang }: { data: EstimateDetailDto; lang: string }) {
           })}
         </ol>
         {!inFlow && <p className="mt-2 text-xs font-medium" data-testid="text-other-status">{t("estimateBuilder.rail.otherStatus", { status: t(`estimateBuilder.status.${v.status}`) })}</p>}
-        <p className="mt-2 text-xs text-muted-foreground">{t("estimateBuilder.rail.lockNote")}</p>
+        <p className="mt-2 text-xs text-foreground/80" data-testid="text-next-step">{data.voidedAt ? t("estimateBuilder.life.next.void") : t(`estimateBuilder.life.next.${v.status}`)}</p>
+        {v.status === "draft" && !data.voidedAt && <p className="mt-1 text-xs text-muted-foreground">{t("estimateBuilder.rail.lockNote")}</p>}
       </RailCard>
     </aside>
   );

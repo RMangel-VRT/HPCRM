@@ -152,7 +152,9 @@ describe("builder rendering", () => {
     expect(screen.getByTestId("row-umbrella-landscape_labor")).toBeTruthy();
     expect(screen.queryByTestId("row-umbrella-irrigation_materials")).toBeNull();
     expect(screen.getByTestId("flow-draft").getAttribute("data-lit")).toBe("true");
-    expect(screen.queryByRole("button", { name: /mark as sent|accept|revise/i })).toBeNull();
+    expect(screen.getByTestId("button-mark-sent")).toBeTruthy();
+    expect(screen.queryByTestId("button-record-accept")).toBeNull();
+    expect(screen.queryByTestId("button-revise")).toBeNull();
     expect(screen.getByTestId("chip-version-2").getAttribute("data-current")).toBe("true");
     for (const c of calls()) expect(c.headers["X-Company-Id"]).toBe("c1");
   });
@@ -289,7 +291,8 @@ describe("read-only and lock", () => {
     const { loc } = renderAt("/dashboard/estimates/builder/e1?version=1");
     await ready();
     expect(calls().some((c) => c.url === "/api/estimates/e1?version=1")).toBe(true);
-    expect(screen.getByTestId("banner-read-only").textContent).toContain("version 1");
+    expect(screen.getByTestId("bar-not-current").textContent).toContain("version 1");
+    expect(screen.getByTestId("banner-read-only").getAttribute("data-tone")).toBe("superseded");
     expect(screen.getByTestId("chip-version-1").getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByTestId("chip-version-2").getAttribute("data-current")).toBe("true");
     expect(screen.queryByTestId("input-estimate-title")).toBeNull();

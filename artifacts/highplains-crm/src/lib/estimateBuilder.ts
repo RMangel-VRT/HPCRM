@@ -1,5 +1,6 @@
 import { apiRequest } from "@/lib/queryClient";
 import { companyHeaders } from "@/lib/hardscapeCatalog";
+import { isCalendarDate as validCalendarComponents } from "../../../../lib/db/src/estimateContracts";
 import type {
   EstimateDetailDto, EstimateListItemDto, EstimateLineDto, EstimateSectionDto, EstimateUmbrella,
 } from "@shared/schema";
@@ -65,10 +66,15 @@ export async function sendEstimate(method: string, url: string, companyId: strin
   return res.json() as Promise<EstimateDetailDto>;
 }
 
-export function listUrl(search: string, includeVoid: boolean): string {
+export const LIST_STATUSES = ["open", "sent", "accepted", "declined", "void"] as const;
+export type ListStatusFilter = typeof LIST_STATUSES[number];
+
+/** `status` is optional; an explicit "void" filter includes void estimates regardless of includeVoid (server rule). */
+export function listUrl(search: string, includeVoid: boolean, status?: ListStatusFilter | null): string {
   const q = new URLSearchParams();
   if (search) q.set("search", search);
   if (includeVoid) q.set("includeVoid", "true");
+  if (status) q.set("status", status);
   const s = q.toString();
   return s ? `${ESTIMATES_API}?${s}` : ESTIMATES_API;
 }
@@ -84,3 +90,45 @@ export const LINE_TINT: Record<EstimateLineType, string> = {
   plant: "142 45% 34%", hardscape: "25 45% 40%", irrigation: "199 70% 38%", labor: "262 35% 45%",
   equipment: "38 80% 36%", fee: "340 50% 42%", custom: "210 10% 40%",
 };
+
+export const SENT_METHODS = ["email", "hard_copy", "portal", "other"] as const;
+export const ACCEPT_METHODS = ["email_approval", "signed_pdf", "phone", "portal", "other"] as const;
+export const DECLINE_CHIPS = ["price", "timing", "competitor", "notNeeded", "other"] as const;
+export type SentMethod = typeof SENT_METHODS[number];
+export type AcceptMethod = typeof ACCEPT_METHODS[number];
+
+/** Structured 409/4xx body from apiRequest's "NNN: {json}" error message. */
+export interface LifecycleConflict { status: number; error: string; versionId?: string; lineIds?: string[]; from?: string; action?: string }
+export function conflictOf(err: unknown): LifecycleConflict | null {
+  const m = (err instanceof Error ? err.message : String(err)).match(/^(\d{3}): ([\s\S]*)$/);
+  if (!m) return null;
+  try {
+    const b = JSON.parse(m[2]);
+    if (!b || typeof b.error !== "string") return null;
+    return {
+      status: Number(m[1]), error: b.error,
+      versionId: typeof b.versionId === "string" ? b.versionId : undefined,
+      lineIds: Array.isArray(b.lineIds) ? b.lineIds.filter((x: unknown): x is string => typeof x === "string") : undefined,
+      from: typeof b.from === "string" ? b.from : undefined, action: typeof b.action === "string" ? b.action : undefined,
+    };
+  } catch { return null; }
+}
+
+/** Today in America/Denver as exact YYYY-MM-DD components. */
+export function denverToday(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const get = (k: string) => parts.find((p) => p.type === k)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+/** True only for a real calendar date in YYYY-MM-DD form. */
+export function isCalendarDate(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && validCalendarComponents(s);
+}
+/** Formats a calendar date from its components (never shifts across time zones). */
+export function formatCalendarDate(ymd: string | null | undefined, lang: string): string {
+  if (!ymd || !isCalendarDate(ymd)) return "";
+  const [y, m, d] = ymd.split("-").map(Number);
+  const date = new Date(0);
+  date.setUTCFullYear(y, m - 1, d);
+  return date.toLocaleDateString(lang === "es" ? "es-US" : "en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
+}

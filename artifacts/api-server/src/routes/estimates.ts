@@ -1,13 +1,15 @@
 import { Router, type Express, type RequestHandler } from "express";
 import { z } from "zod/v4";
 import { createEstimateSchema, patchEstimateSchema, createEstimateSectionSchema, patchEstimateSectionSchema,
-  createEstimateLineSchema, patchEstimateLineSchema, estimateListQuerySchema, estimateDetailQuerySchema, estimateIdSchema } from "@workspace/db";
+  createEstimateLineSchema, patchEstimateLineSchema, estimateListQuerySchema, estimateDetailQuerySchema, estimateIdSchema,
+  sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema } from "@workspace/db";
 import type { UserWithContext } from "../auth";
 import { estimateAccess } from "../lib/estimateAccess";
 import { logger } from "../lib/logger";
 import { EstimateError, postgresCode } from "../services/estimateErrors";
 import { listEstimates, readEstimate } from "../services/estimateReads";
 import { createEstimate, retitleEstimate, createSection, patchSection, deleteSection, createLine, patchLine, deleteLine } from "../services/estimates";
+import { transitionEstimate } from "../services/estimateLifecycle";
 
 const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) => {
   try { await fn(req, res, next); } catch (error) {
@@ -41,6 +43,25 @@ export function registerEstimateRoutes(app: Express) {
     res.json(await retitleEstimate((req.user as UserWithContext).activeCompanyId, id, patchEstimateSchema.parse(req.body).title));
   }));
   const versionPath = "/:id/versions/:versionId";
+  for (const action of ["send", "accept", "decline", "revise"] as const) {
+    router.post(`${versionPath}/${action}`, handle(async (req, res) => {
+      const { id, versionId } = pathSchema.parse(req.params);
+      const user = req.user as UserWithContext;
+      const schema = action === "send" ? sendEstimateSchema : action === "accept" ? acceptEstimateSchema
+        : action === "decline" ? estimateReasonSchema : emptyEstimateActionSchema;
+      res.json(await transitionEstimate(user.activeCompanyId, user.id, id, versionId!, action, schema.parse(req.body)));
+    }));
+  }
+  router.delete(versionPath, handle(async (req, res) => {
+    const { id, versionId } = pathSchema.parse(req.params);
+    const user = req.user as UserWithContext;
+    res.json(await transitionEstimate(user.activeCompanyId, user.id, id, versionId!, "discard", emptyEstimateActionSchema.parse(req.body ?? {})));
+  }));
+  router.post("/:id/void", handle(async (req, res) => {
+    const { id } = pathSchema.parse(req.params);
+    const user = req.user as UserWithContext;
+    res.json(await transitionEstimate(user.activeCompanyId, user.id, id, undefined, "void", estimateReasonSchema.parse(req.body)));
+  }));
   router.post(`${versionPath}/sections`, handle(async (req, res) => {
     const { id, versionId } = pathSchema.parse(req.params);
     res.status(201).json(await createSection((req.user as UserWithContext).activeCompanyId, id, versionId!, createEstimateSectionSchema.parse(req.body).name));
