@@ -1,5 +1,6 @@
 // Driver-free, explicit Estimate Builder validation shared with the API.
 export * from "../../../../lib/db/src/estimateContracts";
+export * from "../../../../lib/db/src/invoiceContracts";
 import { z } from "zod";
 
 // Real zod object, independent of the frontend's non-inferencing drizzle stub.

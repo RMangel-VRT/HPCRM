@@ -22,3 +22,16 @@ The initial rollout is feature-flagged and preserves existing Invoice tickets un
 **Why:** The design requires a staged migration without disrupting current billing or creating unsupported payment paths.
 
 **How to apply:** Retain existing ownership safety rules and require explicit approval for real pushes, sends or rollout. Open items include QBO category setup, custom-numbering confirmation, sender/reply-to, document business details/terms, and estimate PDF grouping; do not invent their answers.
+
+The separately requested IC1 data-foundation brief takes precedence over the
+broader draft wherever they conflict. Its quantity precision is `numeric(12,2)`,
+not the master's `numeric(10,2)`. Source synchronization, monthly creation and
+revisions are explicitly deferred; adding a document model does not transfer
+legacy Invoice-ticket readers or writers before IC8.
+
+**Why:** The user authorized only the fresh, narrower slice and explicitly
+corrected the master design's scope and quantity precision.
+
+**How to apply:** Read the attached IC1 brief when extending this foundation.
+Do not treat the master's slice table or old commit references as approval to
+switch existing billing ownership or implement later behavior.
