@@ -57,7 +57,8 @@ describe.each(configs)("$name shared rendering", ({ name, Page, keys, type }) =>
     expect(screen.getByTestId("text-bid-days-one").getAttribute("data-warn")).toBe("true");
     expect(screen.getByText(i18n.t(`${name}.typeLabel`))).toBeTruthy();
     for (const key of keys) expect(screen.getByRole("region", { name: i18n.t(`${name}.stage.${key}`) })).toBeTruthy();
-    expect(apiRequest).toHaveBeenCalledWith("GET", `/api/${name}/board`);
+    if (name === "estimates") expect(apiRequest).toHaveBeenCalledWith("GET", `/api/${name}/board`, undefined, { headers: { "X-Company-Id": "c1" } });
+    else expect(apiRequest).toHaveBeenCalledWith("GET", `/api/${name}/board`);
     expect(screen.queryByTestId("rail-rfp_request")).toBeNull();
     expect(screen.getByTestId(`${name}-board`).className).toContain("overflow-x-auto");
   });

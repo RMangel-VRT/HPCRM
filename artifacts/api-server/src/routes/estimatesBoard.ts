@@ -6,6 +6,8 @@ import { storage } from "../storage";
 import type { UserWithContext } from "../auth";
 import { findSeededTicketType } from "../shared/ticketCapabilities";
 import { companyDateString } from "../lib/companyDay";
+import { loadTicketEstimateSummaries } from "../services/ticketEstimates";
+import { estimateAccess } from "../lib/estimateAccess";
 
 /** Estimate-only workflow. Display names never determine membership. */
 export const ESTIMATE_STAGES = [
@@ -24,6 +26,7 @@ interface BoardTicket {
   assignee: { id: string; name: string } | null;
   owner: { sectionKey: "scheduling" | "invoicing"; label: string; href: string } | null;
   priority: string; estimateNumber: string | null; daysInStage: number;
+  estimate?: { id: string; number: string; versionNumber: number; status: string; subtotalCents: number | null } | null;
 }
 
 /** Subtract Colorado calendar day numbers, not elapsed hours or host midnights. */
@@ -89,6 +92,7 @@ export async function loadOpportunityBoard<T extends Parameters<typeof findSeede
   const assigneesById = new Map(assignees.map(row => [row.id, row]));
   const enteredById = new Map(history.map(row => [row.ticketId, row.enteredAt]));
   const linked = enrich ? await enrich(rows.map(row => row.id)) : undefined;
+  const estimates = typeKey === "estimate_request" ? await loadTicketEstimateSummaries(companyId, rows.map(row => row.id)) : null;
   for (const row of rows) {
     const status = statusMap.get(row.currentStatusId);
     if (!status || status.typeId !== row.ticketTypeId) continue;
@@ -105,6 +109,7 @@ export async function loadOpportunityBoard<T extends Parameters<typeof findSeede
         : null,
       daysInStage: estimateDaysInStage(enteredById.get(row.id) ?? row.createdAt, now),
       ...(linked ? { contracts: linked.filter(c => c.bidTicketId === row.id) } : {}),
+      ...(estimates ? { estimate: estimates.get(row.id) ?? null } : {}),
     });
   }
   for (const stage of stages) stage.tickets.sort((a, b) => b.daysInStage - a.daysInStage || a.id.localeCompare(b.id));
@@ -112,7 +117,7 @@ export async function loadOpportunityBoard<T extends Parameters<typeof findSeede
 }
 
 export function registerEstimatesBoardRoutes(app: Express): void {
-  app.get("/api/estimates/board", async (req, res) => {
+  app.get("/api/estimates/board", estimateAccess, async (req, res) => {
     if (!req.isAuthenticated?.()) {
       res.status(401).json({ message: "Not authenticated" });
       return;

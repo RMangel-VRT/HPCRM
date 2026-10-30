@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   select: vi.fn(), selectDistinct: vi.fn(), getTicketTypes: vi.fn(),
   getTicketTypeStatuses: vi.fn(), getCustomersByIds: vi.fn(),
 }));
+const estimateMocks = vi.hoisted(() => ({ loadTicketEstimateSummaries: vi.fn() }));
+vi.mock("../services/ticketEstimates", () => estimateMocks);
 vi.mock("../db", () => ({ db: { select: mocks.select, selectDistinct: mocks.selectDistinct } }));
 vi.mock("../storage", () => ({ storage: mocks }));
 import { ESTIMATE_STAGES, estimateDaysInStage, loadEstimatesBoard, registerEstimatesBoardRoutes } from "./estimatesBoard";
@@ -31,6 +33,7 @@ const ticket = (type = "estimate_request", status = "new", id = `${type}:${statu
 
 beforeEach(() => {
   vi.clearAllMocks();
+  estimateMocks.loadTicketEstimateSummaries.mockResolvedValue(new Map());
   queries = []; rows = []; histories = []; linked = [];
   mocks.getTicketTypes.mockResolvedValue(typeRows);
   mocks.getTicketTypeStatuses.mockImplementation(async type => statuses(type));
@@ -97,6 +100,17 @@ it("enriches only Bids with exact linked seasons, while Estimates has no contrac
   rows = [ticket()];
   const estimates = await loadEstimatesBoard("company-a", now);
   expect(estimates.stages.flatMap(s => s.tickets)[0]).not.toHaveProperty("contracts");
+});
+it("batches estimates once for all IDs and never adds estimate payloads to Bids", async () => {
+  rows = Array.from({ length: 1001 }, (_, i) => ticket("estimate_request", "new", String(i)));
+  estimateMocks.loadTicketEstimateSummaries.mockResolvedValue(new Map([["0", { id: "e", number: "EST-1", versionNumber: 2, status: "draft", subtotalCents: 12345 }]]));
+  const result = await loadEstimatesBoard("company-a", now);
+  expect(estimateMocks.loadTicketEstimateSummaries).toHaveBeenCalledExactlyOnceWith("company-a", rows.map(r => r.id));
+  expect(result.stages[0].tickets.find(t => t.id === "0")?.estimate?.subtotalCents).toBe(12345);
+  expect(result.stages[0].tickets.find(t => t.id === "1")?.estimate).toBeNull();
+  estimateMocks.loadTicketEstimateSummaries.mockClear(); rows = [ticket("rfp_request")];
+  expect((await loadBidsBoard("company-a", now)).stages[0].tickets[0]).not.toHaveProperty("estimate");
+  expect(estimateMocks.loadTicketEstimateSummaries).not.toHaveBeenCalled();
 });
 
 describe("Won ownership", () => {
@@ -223,11 +237,12 @@ describe.each([
       rows = Array.from({ length: count }, (_, i) => ticket(type, status, String(i)));
       const board = await load("company-a", now);
       expect(board.stages.flatMap(s => s.tickets)).toHaveLength(count);
-      // Two metadata queries, tickets, customers, assignees, grouped history = six (<= seven).
+      // Metadata, tickets, customers, assignees, grouped history + one board-specific enrichment.
       counts.push(queries.length + mocks.getTicketTypes.mock.calls.length +
-        mocks.getTicketTypeStatuses.mock.calls.length + mocks.getCustomersByIds.mock.calls.length);
+        mocks.getTicketTypeStatuses.mock.calls.length + mocks.getCustomersByIds.mock.calls.length
+        + (type === "estimate_request" ? estimateMocks.loadTicketEstimateSummaries.mock.calls.length : 0));
     }
-    expect(counts).toEqual(type === "rfp_request" ? [7, 7] : [6, 6]);
+    expect(counts).toEqual([7, 7]);
   });
   it.each(["UTC", "America/Denver"])("counts Colorado calendar days under TZ=%s across midnight and DST", timezone => {
     const previous = process.env.TZ;

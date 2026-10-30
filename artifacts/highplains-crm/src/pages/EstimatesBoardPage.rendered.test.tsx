@@ -27,6 +27,19 @@ afterEach(async () => {
 });
 
 describe("EstimatesBoardPage", () => {
+  it("links estimate number beside authoritative subtotal without nested anchors or changing ticket navigation", async () => {
+    vi.mocked(apiRequest).mockResolvedValue({ json: async () => ({
+      stages: [{ key: "new", tickets: [{ ...board.stages[0].tickets[0], estimate: { id: "e1", number: "EST-1", versionNumber: 1, status: "sent", subtotalCents: 12345 } }] }],
+    }) } as Response);
+    const loc = memoryLocation({ path: "/dashboard/estimates" });
+    const { container } = render(<QueryClientProvider client={new QueryClient()}>
+      <Router hook={loc.hook}><EstimatesBoardPage /></Router></QueryClientProvider>);
+    const link = await screen.findByRole("link", { name: "EST-1" });
+    expect(link.getAttribute("href")).toBe("/dashboard/estimates/builder/e1");
+    expect(link.parentElement?.textContent).toContain("$123.45");
+    expect(container.querySelector("a a")).toBeNull();
+    expect(screen.getByTestId("card-bid-t1").getAttribute("href")).toBe("/dashboard/tickets/t1");
+  });
   it("renders columns, card link and warning", async () => {
     const { hook } = memoryLocation({ path: "/dashboard/estimates" });
     render(
@@ -111,7 +124,7 @@ describe("EstimatesBoardPage", () => {
       <Router hook={loc.hook} searchHook={() => search}><EstimatesBoardPage /></Router>
     </QueryClientProvider>);
     await screen.findByTestId("card-bid-t1");
-    expect(apiRequest).toHaveBeenCalledWith("GET", url);
+    expect(apiRequest).toHaveBeenCalledWith("GET", url, undefined, { headers: { "X-Company-Id": "c1" } });
     expect(screen.getByTestId(`rail-${key}`).getAttribute("aria-current")).toBe("page");
     expect(screen.getByTestId("estimates-board").className).toContain("overflow-x-auto");
   });

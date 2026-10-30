@@ -1,4 +1,16 @@
 const en = {
+  estimateTicket: {
+    title: "Estimate", create: "+ Create estimate", noCustomer: "Add a customer to this ticket before creating an estimate.",
+    open: "Open estimate →", acceptedOn: "Accepted on {{date}}", po: "PO: {{number}}",
+    changeOrder: "v{{accepted}} accepted · v{{draft}} change order in draft",
+    closedLost: "This ticket is closed lost, but its estimate is still open.", void: "Void estimate",
+    loadFailed: "Could not load the linked estimate.", actionFailed: "Could not update the estimate.",
+    notAdvanced: "Ticket not advanced: {{reason}}", advance: "Advance ticket",
+    moved: "Ticket #{{number}} moved to {{status}}",
+    reason: { missingTarget: "The target status is missing from this workflow.", missingCurrent: "The current ticket status could not be resolved.",
+      behind: "The ticket has not reached the estimate's target status.", fieldsIncomplete: "The status is correct, but ticket fields are incomplete.",
+      loadFailed: "The ticket could not be checked or updated. Retry to refresh its current state.", changed: "The ticket changed during the update. Retry to refresh its current state." },
+  },
   estimateBuilder: {
     eyebrow: "Estimate builder", listTitle: "Estimates", listSubtitle: "Draft mixed landscaping estimates from captured catalog prices.",
     searchLabel: "Search estimates", searchPlaceholder: "Number, title or customer", showVoid: "Show void",

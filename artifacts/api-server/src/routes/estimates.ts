@@ -10,6 +10,7 @@ import { EstimateError, postgresCode } from "../services/estimateErrors";
 import { listEstimates, readEstimate } from "../services/estimateReads";
 import { createEstimate, retitleEstimate, createSection, patchSection, deleteSection, createLine, patchLine, deleteLine } from "../services/estimates";
 import { transitionEstimate } from "../services/estimateLifecycle";
+import { readTicketEstimate } from "../services/ticketEstimates";
 
 const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) => {
   try { await fn(req, res, next); } catch (error) {
@@ -33,6 +34,10 @@ export function registerEstimateRoutes(app: Express) {
   router.post("/", handle(async (req, res) => {
     const user = req.user as UserWithContext;
     res.status(201).json(await createEstimate(user.activeCompanyId, user.id, createEstimateSchema.parse(req.body)));
+  }));
+  router.get("/by-ticket/:ticketId", handle(async (req, res) => {
+    const ticketId = estimateIdSchema.parse(req.params.ticketId);
+    res.json(await readTicketEstimate((req.user as UserWithContext).activeCompanyId, ticketId));
   }));
   router.get("/:id", handle(async (req, res) => {
     const { id } = pathSchema.parse(req.params);

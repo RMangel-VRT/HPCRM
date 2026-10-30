@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LinkedContractRow, type LinkedContract } from "@/components/contracts/RfpContracts";
 import { resolveDisplayTypeKey } from "@shared/ticketVisuals";
+import { companyHeaders, formatCents } from "@/lib/hardscapeCatalog";
 
 export interface BoardTicket {
   contracts?: LinkedContract[];
@@ -18,11 +19,12 @@ export interface BoardTicket {
   assignee: { id: string; name: string } | null;
   owner: { sectionKey: "scheduling" | "invoicing"; label: string; href: string } | null;
   priority: string; estimateNumber: string | null; daysInStage: number;
+  estimate?: { id: string; number: string; versionNumber: number; status: string; subtotalCents: number | null } | null;
 }
 export interface BoardResponse { stages: { key: string; tickets: BoardTicket[] }[] }
 
 function OpportunityCard({ ticket, labels, readOnly }: { ticket: BoardTicket; labels: string; readOnly: boolean }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // Display resolvers project approved estimates as Projects without changing stored
   // identity; pre-approval estimates and RFPs keep their original badge and rail.
   const typeKey = resolveDisplayTypeKey(ticket.typeKey, ticket.statusKey);
@@ -42,7 +44,7 @@ function OpportunityCard({ ticket, labels, readOnly }: { ticket: BoardTicket; la
       <div className="mt-0.5 truncate text-[13px] text-muted-foreground">{ticket.customer?.name ?? ""}</div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <TicketTypeBadge type={type} />
-        {!readOnly && ticket.estimateNumber && <span className="text-xs font-medium tabular-nums">{ticket.estimateNumber}</span>}
+        {!readOnly && !ticket.estimate && ticket.estimateNumber && <span className="text-xs font-medium tabular-nums">{ticket.estimateNumber}</span>}
       </div>
       {readOnly ? (
         <div className="mt-2 text-xs text-muted-foreground" data-testid={`owner-${ticket.id}`}>
@@ -63,6 +65,10 @@ function OpportunityCard({ ticket, labels, readOnly }: { ticket: BoardTicket; la
       </div>
       </>}
     </Link>
+    {labels === "estimates" && ticket.estimate && <div className="flex items-center gap-2 px-3 py-1 text-xs tabular-nums">
+      <Link className="underline focus-visible:ring-2 focus-visible:ring-ring" href={`/dashboard/estimates/builder/${encodeURIComponent(ticket.estimate.id)}`}>{ticket.estimate.number}</Link>
+      <span>{ticket.estimate.subtotalCents === null ? "—" : formatCents(ticket.estimate.subtotalCents, i18n.language)}</span>
+    </div>}
     {labels === "bids" && <div className="space-y-1 px-1">
       {ticket.contracts?.map(c => <LinkedContractRow key={c.termId} contract={c} />)}
       {ticket.statusKey === "proposal_draft" && !ticket.contracts?.length &&
@@ -81,7 +87,9 @@ export function OpportunityBoard({ board, stages, rail }: {
   const url = `/api/${board}/board`;
   const { data, isLoading, isError, refetch } = useQuery<BoardResponse>({
     queryKey: [url, user?.activeCompanyId, user?.id, user?.activeRole],
-    queryFn: async () => (await apiRequest("GET", url)).json(),
+    queryFn: async () => (await (board === "estimates"
+      ? apiRequest("GET", url, undefined, { headers: companyHeaders(user!.activeCompanyId) })
+      : apiRequest("GET", url))).json(),
     enabled: !!user, staleTime: 30_000, refetchInterval: 60_000, refetchOnWindowFocus: true,
   });
   const content = isError ? (

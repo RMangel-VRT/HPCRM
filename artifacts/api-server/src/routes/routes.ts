@@ -95,6 +95,7 @@ import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRA
 
 import { registerCatalogRoutes } from "./catalog";
 import { registerEstimateRoutes } from "./estimates";
+import { registerTicketExpectedCompany } from "../lib/ticketExpectedCompany";
 
 // Derive runtime choices from the existing insert enum, never a second type list.
 export const NOTIFICATION_TYPES = insertTicketNotificationSchema.shape.type.options;
@@ -709,7 +710,7 @@ export async function ensureEstimateRequestTicketType(companyId: string): Promis
     {
       statusName: "Estimating",
       fields: [
-        { fieldKey: "qb_estimate_number", fieldLabel: "QuickBooks Estimate #", fieldType: "text", isRequired: "true" },
+        { fieldKey: "qb_estimate_number", fieldLabel: "Legacy QuickBooks Estimate #", fieldType: "text", isRequired: "false" },
         { fieldKey: "estimate_notes", fieldLabel: "Estimate Notes", fieldType: "textarea", isRequired: "false" },
       ]
     },
@@ -2676,6 +2677,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await backfillVisitServices();
 
   setupAuth(app);
+  registerTicketExpectedCompany(app);
   // Must precede every ticket sub-router (comments, photos, work items, etc.).
   registerCrewSupervisorTicketGuard(app, storage);
   registerTicketOwnerResponseRoutes(app);

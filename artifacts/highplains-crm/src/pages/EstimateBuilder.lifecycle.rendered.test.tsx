@@ -108,6 +108,53 @@ describe("lib helpers", () => {
 });
 
 describe("header actions per state", () => {
+  it("keeps acceptance committed after a field PUT failure, shows persistent recovery after reload and repairs without a second PATCH", async () => {
+    const statuses = [
+      { id: "sent", statusKey: "proposal_sent", displayOrder: 1, name: "Proposal sent", isFinal: "false" },
+      { id: "ready", statusKey: "ready_to_schedule", displayOrder: 3, name: "Ready to schedule", isFinal: "false" },
+    ];
+    const linked = { id: "ticket-uuid", ticketTypeId: "type", currentStatusId: "sent" };
+    const values: { fieldId: string; value: string }[] = [];
+    let fail = true;
+    detail = detailOf([{ id: "v1", n: 1, status: "sent", o: { sentAt: T0, sentMethod: "email" } }], undefined, { ticketId: linked.id });
+    handler = c => {
+      if (c.method === "POST" && c.url.endsWith("/accept")) {
+        detail = detailOf([{ id: "v1", n: 1, status: "accepted", o: { sentAt: T0, sentMethod: "email", acceptedAt: LATER, acceptedOn: "2025-04-02", acceptanceMethod: "phone" } }], undefined, { updatedAt: LATER, ticketId: linked.id });
+        return res(detail);
+      }
+      if (c.url.endsWith("/details")) return res({ ticket: linked, statuses });
+      if (c.url.endsWith("/statuses")) return res(statuses);
+      if (c.url.endsWith("/fields")) return res([{ id: "decision", fieldKey: "decision_outcome", fieldType: "select", options: ["Approved", "Denied"] }]);
+      if (c.url.endsWith("/field-values")) return res(values);
+      if (c.method === "PUT") {
+        if (fail) { fail = false; return res({ error: "field write failed" }, 500); }
+        values.push({ fieldId: "decision", value: "Approved" }); return res({});
+      }
+      if (c.url === `/api/tickets/${linked.id}`) {
+        if (c.method === "PATCH") linked.currentStatusId = (c.body as { currentStatusId: string }).currentStatusId;
+        return res(linked);
+      }
+      return undefined;
+    };
+    const first = renderAt("/dashboard/estimates/builder/e1");
+    await ready();
+    fireEvent.click(screen.getByTestId("button-record-accept"));
+    fireEvent.click(await screen.findByTestId("button-submit-accept"));
+    await waitFor(() => expect(linked.currentStatusId).toBe("ready"));
+    await waitFor(() => expect(screen.getByTestId("ticket-advance-notice").textContent).toContain("ticket fields are incomplete"));
+    expect(screen.queryByTestId("dialog-accept")).toBeNull();
+    expect(screen.getByTestId("pill-status-accepted").textContent).toContain("Accepted");
+    expect(first.client.getQueryData<{ version: { status: string } }>(["/api/estimates", "by-ticket", "c1", "u1", "office", linked.id])?.version.status).toBe("accepted");
+    const writes = mutations();
+    expect(writes.map(c => c.method)).toEqual(["POST", "PATCH", "PUT"]);
+    first.unmount(); first.client.clear();
+    renderAt("/dashboard/estimates/builder/e1"); await ready();
+    expect(await screen.findByTestId("ticket-advance-notice")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Advance ticket" }));
+    await waitFor(() => expect(screen.queryByTestId("ticket-advance-notice")).toBeNull());
+    expect(mutations().filter(c => c.method === "PATCH")).toHaveLength(1);
+    expect(mutations().filter(c => c.url.startsWith("/api/estimates/"))).toHaveLength(1);
+  });
   it("draft v1: Mark as Sent, no discard (v1 voids instead), overflow void", async () => {
     renderAt("/dashboard/estimates/builder/e1");
     await ready();

@@ -4,9 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   createEstimate: vi.fn(), retitleEstimate: vi.fn(), createSection: vi.fn(), patchSection: vi.fn(), deleteSection: vi.fn(),
   createLine: vi.fn(), patchLine: vi.fn(), deleteLine: vi.fn(), readEstimate: vi.fn(), listEstimates: vi.fn(), log: vi.fn(),
+  readTicketEstimate: vi.fn(),
 }));
 vi.mock("../services/estimates", () => mocks);
 vi.mock("../services/estimateReads", () => mocks);
+vi.mock("../services/ticketEstimates", () => mocks);
 vi.mock("../lib/logger", () => ({ logger: { error: mocks.log } }));
 import { registerEstimateRoutes } from "./estimates";
 import { EstimateError } from "../services/estimateErrors";
@@ -14,6 +16,7 @@ import { EstimateError } from "../services/estimateErrors";
 const custom = { sectionId: "s", quantity: "1", lineType: "custom", name: "Line", unit: "ea", unitPriceCents: 0, umbrellaKey: "plants" };
 const endpoints = [
   ["get", "/api/estimates", {}, "listEstimates"],
+  ["get", "/api/estimates/by-ticket/ticket", {}, "readTicketEstimate"],
   ["post", "/api/estimates", { customerId: "c", title: "T" }, "createEstimate"],
   ["get", "/api/estimates/e", {}, "readEstimate"],
   ["patch", "/api/estimates/e", { title: "T" }, "retitleEstimate"],
@@ -37,6 +40,15 @@ beforeEach(() => {
   for (const [key, fn] of Object.entries(mocks)) if (key !== "log") fn.mockResolvedValue({ id: "e", version: { totals: { subtotalCents: 0 } } });
 });
 describe("all estimate endpoint boundaries", () => {
+  it("keeps by-ticket separate from list/dynamic ID reads and returns null for no live estimate", async () => {
+    mocks.readTicketEstimate.mockResolvedValue(null);
+    expect((await request(appFor()).get("/api/estimates/by-ticket/ticket").set("X-Company-Id", "a")).body).toBeNull();
+    expect(mocks.readTicketEstimate).toHaveBeenCalledWith("a", "ticket");
+    expect(mocks.readEstimate).not.toHaveBeenCalled();
+    expect(mocks.listEstimates).not.toHaveBeenCalled();
+    mocks.readTicketEstimate.mockRejectedValue(new EstimateError(404, "NOT_FOUND"));
+    expect((await request(appFor()).get("/api/estimates/by-ticket/foreign")).status).toBe(404);
+  });
   it.each(endpoints)("gates role/auth/company/expectation on %s %s", async (method, url, body, service) => {
     for (const role of [null, "field", "field_manager", "landscape_supervisor", "crew_supervisor", "chemical_manager", "irrigation_manager", "shop_manager", "mapping"]) {
       const result = await request(appFor(role))[method](url).send(body);

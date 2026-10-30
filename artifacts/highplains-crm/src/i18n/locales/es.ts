@@ -1,4 +1,16 @@
 const es = {
+  estimateTicket: {
+    title: "Estimado", create: "+ Crear estimado", noCustomer: "Agregue un cliente a este ticket antes de crear un estimado.",
+    open: "Abrir estimado →", acceptedOn: "Aceptado el {{date}}", po: "OC: {{number}}",
+    changeOrder: "v{{accepted}} aceptada · v{{draft}} orden de cambio en borrador",
+    closedLost: "Este ticket está cerrado como perdido, pero su estimado sigue abierto.", void: "Anular estimado",
+    loadFailed: "No se pudo cargar el estimado vinculado.", actionFailed: "No se pudo actualizar el estimado.",
+    notAdvanced: "El ticket no avanzó: {{reason}}", advance: "Avanzar ticket",
+    moved: "El ticket #{{number}} pasó a {{status}}",
+    reason: { missingTarget: "Falta el estado de destino en este flujo.", missingCurrent: "No se pudo determinar el estado actual del ticket.",
+      behind: "El ticket aún no llegó al estado correspondiente al estimado.", fieldsIncomplete: "El estado es correcto, pero faltan datos del ticket.",
+      loadFailed: "No se pudo consultar o actualizar el ticket. Reintente para consultar su estado actual.", changed: "El ticket cambió durante la actualización. Reintente para consultar su estado actual." },
+  },
   estimateBuilder: {
     eyebrow: "Constructor de estimados", listTitle: "Estimados", listSubtitle: "Arme estimados de paisajismo con precios capturados del catálogo.",
     searchLabel: "Buscar estimados", searchPlaceholder: "Número, título o cliente", showVoid: "Mostrar anulados",

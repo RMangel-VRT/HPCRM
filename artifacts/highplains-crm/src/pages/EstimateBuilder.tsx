@@ -8,8 +8,11 @@ import {
   Mountain, Palette, PenLine, Plus, Receipt, Send, ThumbsDown, Tractor, Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { EstimateTicketSummaryDto } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { TicketAdvanceNotice, RECOVERY_KEY } from "@/components/estimates/TicketAdvanceNotice";
+import { advanceLinkedTicket, ticketRequest } from "@/lib/advanceLinkedTicket";
 import { centsToInput, fetchJson, formatCents, parseDollarsToCents } from "@/lib/hardscapeCatalog";
 import { RATES_PREVIEW_API, scopeOf } from "@/lib/estimateSettings";
 import {
@@ -143,7 +146,7 @@ function BuilderContent({ id }: { id: string }) {
     enabled: !!customerId,
   });
   const ticketId = data?.ticketId;
-  const ticket = useQuery<{ ticket: { ticketNumber?: string; currentStatusId?: string }; statuses: { id: string; name: string }[] }>({
+  const ticket = useQuery<{ ticket: { id: string; currentStatusId?: string }; statuses: { id: string; name: string }[] }>({
     queryKey: ["/api/tickets", user?.activeCompanyId, user?.id, user?.activeRole, ticketId, "details"],
     queryFn: ({ signal }) => fetchJson(`/api/tickets/${encodeURIComponent(ticketId!)}/details`, companyId, signal),
     enabled: !!ticketId,
@@ -201,10 +204,25 @@ function BuilderContent({ id }: { id: string }) {
 
   /** Installs an authoritative full response (current version) without clobbering a newer cached payload. */
   async function installCurrent(d: EstimateDetailDto, view: string): Promise<boolean> {
-    await qc.cancelQueries({ queryKey: [...currentKey] });
+    const panelKey = [ESTIMATES_API, "by-ticket", companyId, user?.id, user?.activeRole, d.ticketId];
+    await Promise.all([
+      qc.cancelQueries({ queryKey: [...currentKey] }),
+      ...(d.ticketId ? [qc.cancelQueries({ queryKey: panelKey })] : []),
+    ]);
     if (viewRef.current !== view) return false;
     const cached = qc.getQueryData<EstimateDetailDto>([...currentKey]);
     if (!cached || cached.id !== d.id || freshness(d) >= freshness(cached)) qc.setQueryData([...currentKey], d);
+    if (d.ticketId) {
+      // Navigation can happen before orchestration finishes. Do not briefly show
+      // the previous document status while the ticket panel's mount refetch runs.
+      const panelCached = qc.getQueryData<EstimateTicketSummaryDto | null>(panelKey);
+      if (!panelCached || d.updatedAt >= panelCached.updatedAt) {
+        qc.setQueryData<EstimateTicketSummaryDto | null>(panelKey, d.voidedAt ? null : {
+          ...d, version: { id: d.version.id, versionNumber: d.version.versionNumber, status: d.version.status },
+          subtotalCents: d.version.status === "draft" ? d.version.totals.subtotalCents : d.version.frozenSubtotalCents,
+        });
+      }
+    }
     // Version-pinned views (and the old current-by-number view) refetch; the installed current view is kept.
     void qc.invalidateQueries({ queryKey: [...scopePrefix], predicate: (q) => q.queryKey[6] !== "current" });
     if (d.ticketId) void qc.invalidateQueries({ queryKey: ["/api/tickets", user?.activeCompanyId, user?.id, user?.activeRole, d.ticketId] });
@@ -223,6 +241,15 @@ function BuilderContent({ id }: { id: string }) {
       if (!(await installCurrent(d, view))) return;
       setDialog(null); setNeedPrice(null);
       toast({ title: t(`estimateBuilder.life.done.${kind}`) });
+      if (["send", "accept", "decline"].includes(kind) && d.ticketId) {
+        const result = await advanceLinkedTicket(d, ticketRequest(companyId, () => viewRef.current === view));
+        if (viewRef.current !== view) return;
+        if (result.moved && !result.reason) toast({ title: t("estimateTicket.moved", { number: result.ticketNumber, status: result.statusName }) });
+        void qc.invalidateQueries({ queryKey: [RECOVERY_KEY] });
+        void qc.invalidateQueries({ queryKey: ["/api/tickets"] });
+      }
+      void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "by-ticket"] });
+      void qc.invalidateQueries({ queryKey: ["/api/estimates/board"] });
       if (requestedVersion) setLocation(builderPath(d.id));
     } catch (err) {
       if (viewRef.current !== view) return;
@@ -415,7 +442,7 @@ function BuilderContent({ id }: { id: string }) {
             {data.ticketId && (
               <span className="inline-flex items-center gap-1.5">
                 <Link href={`/dashboard/tickets/${data.ticketId}`} className="hover:underline" data-testid="link-ticket">
-                  {t("estimateBuilder.ticket")}{ticket.data?.ticket?.ticketNumber ? ` ${ticket.data.ticket.ticketNumber}` : ""}
+                  {t("estimateBuilder.ticket")}{ticket.data?.ticket?.id ? ` #${ticket.data.ticket.id.slice(0, 8)}` : ""}
                 </Link>
                 {ticketStatus && <span className="rounded-full border bg-muted px-2 text-[11px] font-medium" aria-label={t("estimateBuilder.ticketStatus")} data-testid="text-ticket-status">{ticketStatus}</span>}
               </span>
@@ -454,6 +481,7 @@ function BuilderContent({ id }: { id: string }) {
         {!editable && !locked && (
           <LifecycleBanner data={data} lang={lang} notCurrent={!isCurrent} />
         )}
+        <TicketAdvanceNotice key={`${companyId}|${user?.id}|${user?.activeRole}|${id}`} estimate={data} />
         {v.status === "draft" && acceptedSummary && acceptedSummary.id !== v.id && !data.voidedAt && (
           <div className="mt-3 flex items-start gap-2 rounded-md border border-emerald-700/30 bg-emerald-700/5 p-3 text-sm text-emerald-900 dark:text-emerald-200" data-testid="banner-contract">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{t("estimateBuilder.life.banner.contract", { n: acceptedSummary.versionNumber })}

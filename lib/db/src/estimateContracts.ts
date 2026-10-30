@@ -130,3 +130,13 @@ export interface EstimateListItemDto extends EstimateContainerDto {
   currentVersionStatus: typeof ESTIMATE_STATUSES[number] | null; subtotalCents: number | null;
   versions?: EstimateVersionSummaryDto[];
 }
+/** Lightweight ticket reference, with history for state-derived ticket recovery. */
+export interface EstimateTicketSummaryDto extends EstimateContainerDto {
+  versions: EstimateVersionSummaryDto[];
+  version: Pick<EstimateVersionDto, "id" | "versionNumber" | "status">;
+  subtotalCents: number | null;
+}
+export interface EstimateBoardSummaryDto {
+  id: string; number: string; versionNumber: number;
+  status: typeof ESTIMATE_STATUSES[number]; subtotalCents: number | null;
+}

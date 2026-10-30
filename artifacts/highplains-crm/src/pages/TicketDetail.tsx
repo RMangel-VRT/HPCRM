@@ -80,6 +80,7 @@ import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import { TicketWorkItemsCard } from "@/components/TicketWorkItemsCard";
 import type { Ticket, TicketFieldValue, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
 import { RfpContracts } from "@/components/contracts/RfpContracts";
+import { TicketEstimatePanel } from "@/components/estimates/TicketEstimatePanel";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
@@ -1848,6 +1849,7 @@ export default function TicketDetail() {
           )}
 
           {ticketType?.typeKey === "rfp_request" && <RfpContracts ticketId={ticket.id} statuses={statuses} statusId={ticket.currentStatusId} />}
+          <TicketEstimatePanel ticket={ticket} ticketType={ticketType} statuses={statuses} />
 
           {showProposals && (() => {
             const ticket = details?.ticket;
