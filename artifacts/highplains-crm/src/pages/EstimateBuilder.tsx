@@ -4,10 +4,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Ban, Check, CheckCircle2, Droplets, FileText, GitBranch, Hammer, History, Leaf, Lock, MoreHorizontal,
-  Mountain, Palette, PenLine, Plus, Receipt, Send, ThumbsDown, Tractor, Trash2,
+  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Ban, Check, CheckCircle2, FileText, GitBranch, History, Lock, MoreHorizontal,
+  Palette, Plus, Send, ThumbsDown, Trash2,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import type { EstimateTicketSummaryDto } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -16,13 +15,17 @@ import { advanceLinkedTicket, ticketRequest } from "@/lib/advanceLinkedTicket";
 import { centsToInput, fetchJson, formatCents, parseDollarsToCents } from "@/lib/hardscapeCatalog";
 import { RATES_PREVIEW_API, scopeOf } from "@/lib/estimateSettings";
 import {
-  ESTIMATES_API, ESTIMATE_BUILDER_PATH, FREE_UNITS, FREE_UNIT_TYPES, LINE_TINT, LINE_TYPES, UMBRELLAS, builderPath, distinctContexts,
+  ESTIMATES_API, ESTIMATE_BUILDER_PATH, FREE_UNITS, FREE_UNIT_TYPES, LINE_TINT, UMBRELLAS, builderPath, distinctContexts,
   conflictOf, errorStatus, formatCalendarDate, formatDate, isVersionLocked, sendEstimate, validQuantity,
   type EstimateDetailDto, type EstimateLineDto, type EstimateLineType, type EstimateSectionDto, type RatesPreviewWithContext,
 } from "@/lib/estimateBuilder";
 import { SectionRailLayout } from "@/components/nav/SectionRail";
 import { EstimatesRail } from "@/components/nav/estimatesRail";
-import { StatusPill } from "@/components/estimates/StatusPill";
+import { AddLineButtons, LINE_TYPE_ICON } from "@/components/estimates/AddLineButtons";
+import { PdfPreviewDialog } from "@/components/estimates/PdfPreviewDialog";
+import { DocumentBadge, EstimateStatePill, IdentityHeaderCard, MetadataCell, MetadataStrip } from "@/components/estimates/EstimateIdentityHeader";
+import "@/components/estimates/estimateBuilder.css";
+import { TicketStatusPill, type TicketStatusLike } from "@/components/TicketIdentity";
 import { AddLineDialog, type AddLineBody } from "@/components/estimates/AddLineDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,9 +40,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
-const TYPE_ICON: Record<EstimateLineType, LucideIcon> = {
-  plant: Leaf, hardscape: Mountain, irrigation: Droplets, labor: Hammer, equipment: Tractor, fee: Receipt, custom: PenLine,
-};
+const TYPE_ICON = LINE_TYPE_ICON;
+
+/** Optional display enrichment from the server (backend-owned); fields fall back to scoped reads. */
+interface EstimateDisplay {
+  companyName?: string | null; customerName?: string | null; customerAddress?: string | null; createdByName?: string | null;
+  ticket?: { id: string; title: string | null; shortId: string; status: TicketStatusLike | null } | null;
+}
+type DetailWithDisplay = EstimateDetailDto & { display?: EstimateDisplay };
 
 /** Max of container and version timestamps; ISO strings from the server. */
 function freshness(d: EstimateDetailDto): number {
@@ -143,13 +151,13 @@ function BuilderContent({ id }: { id: string }) {
   const customer = useQuery<{ name?: string }>({
     queryKey: ["/api/customers", user?.activeCompanyId, user?.id, user?.activeRole, customerId],
     queryFn: ({ signal }) => fetchJson<{ name?: string }>(`/api/customers/${encodeURIComponent(customerId!)}`, companyId, signal),
-    enabled: !!customerId,
+    enabled: !!customerId && !(data as DetailWithDisplay | undefined)?.display?.customerName,
   });
   const ticketId = data?.ticketId;
-  const ticket = useQuery<{ ticket: { id: string; currentStatusId?: string }; statuses: { id: string; name: string }[] }>({
+  const ticket = useQuery<{ ticket: { id: string; title?: string; currentStatusId?: string }; statuses: { id: string; name: string }[] }>({
     queryKey: ["/api/tickets", user?.activeCompanyId, user?.id, user?.activeRole, ticketId, "details"],
     queryFn: ({ signal }) => fetchJson(`/api/tickets/${encodeURIComponent(ticketId!)}/details`, companyId, signal),
-    enabled: !!ticketId,
+    enabled: !!ticketId && !(data as DetailWithDisplay | undefined)?.display?.ticket,
   });
 
   /** Single mutation path: scoped header, stale-view drop, newest-response-wins install. */
@@ -278,6 +286,8 @@ function BuilderContent({ id }: { id: string }) {
 
   const [addFor, setAddFor] = useState<{ type: EstimateLineType; sectionId: string } | null>(null);
   const [removeSection, setRemoveSection] = useState<EstimateSectionDto | null>(null);
+  const [pdfOpen, setPdfOpen] = useState(false);
+  useEffect(() => { setPdfOpen(false); }, [viewTag]);
 
   const rail = <EstimatesRail activeKey="builder" />;
   const back = (
@@ -342,6 +352,15 @@ function BuilderContent({ id }: { id: string }) {
   };
   const needPriceLines = needPrice?.map((lid) => ({ id: lid, name: sections.flatMap((s) => s.lines).find((l) => l.id === lid)?.name ?? null })) ?? null;
   const reviseLabel = v.status === "accepted" ? "changeOrder" : v.status === "declined" ? "revise" : "edit";
+  const display = (data as DetailWithDisplay).display;
+  const customerName = display?.customerName ?? customer.data?.name ?? null;
+  const dTicket = display?.ticket ?? null;
+  const ticketShort = dTicket?.shortId ?? (ticket.data?.ticket?.id ?? data.ticketId ?? "").slice(0, 8);
+  const ticketTitle = dTicket?.title ?? ticket.data?.ticket?.title ?? null;
+  const ticketStatusObj = dTicket?.status ?? null;
+  const ticketStatusName = ticketStatus;
+  const headerTotal = v.status === "draft" ? v.totals.subtotalCents : (v.frozenSubtotalCents ?? v.totals.subtotalCents);
+  const isChangeOrder = v.status === "draft" && !!v.createdFromVersionId && !!acceptedSummary && acceptedSummary.id !== v.id;
   const canRevise = lifeOn && (v.status === "sent" || v.status === "accepted" || v.status === "declined");
   const canVoid = !data.voidedAt && !acceptedSummary && isCurrent;
   gateRef.current = (k) => {
@@ -377,78 +396,9 @@ function BuilderContent({ id }: { id: string }) {
 
   return (
     <SectionRailLayout rail={rail}>
-      <div className="mx-auto max-w-6xl" data-testid="page-estimate-builder" data-editable={editable ? "true" : "false"}>
-        {back}
-        <header className="mt-3 border-b pb-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs font-semibold tracking-wide text-[hsl(var(--rail-active-icon))]" data-testid="text-estimate-number">{data.estimateNumber}</span>
-            <StatusPill status={v.status} label={t("estimateBuilder.versionPill", { n: v.versionNumber, status: statusLabel(v.status) })} />
-            {data.voidedAt && <StatusPill status="void" label={t("estimateBuilder.voided")} />}
-            <RatesChip q={rates} />
-          </div>
-          <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-          {editable ? (
-            <InlineInput value={data.title} disabled={false} label={t("estimateBuilder.editTitle")} testId="input-estimate-title"
-              className="mt-2 h-auto border-transparent bg-transparent px-1 -ml-1 text-2xl font-bold tracking-tight shadow-none hover:border-input focus-visible:border-input"
-              validate={(raw) => raw.trim() ? { value: raw.trim(), same: raw.trim() === data.title } : { error: t("estimateBuilder.errTitle") }}
-              onCommit={(title) => run("PATCH", base, { title })} onInvalid={invalid} />
-          ) : (
-            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-estimate-title">{data.title}</h1>
-          )}
-          </div>
-          <div role="toolbar" aria-label={t("estimateBuilder.life.actions")} className="flex flex-wrap items-center gap-1.5" data-testid="bar-lifecycle">
-            {lifeOn && v.status === "draft" && isCurrent && (
-              <Button size="sm" disabled={busy} onClick={() => openDialog("send")} data-testid="button-mark-sent"><Send className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.markSent")}</Button>
-            )}
-            {lifeOn && v.status === "sent" && (<>
-              <Button size="sm" disabled={busy} onClick={() => openDialog("accept")} data-testid="button-record-accept"><CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.recordAccept")}</Button>
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => openDialog("decline")} data-testid="button-record-decline"><ThumbsDown className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.recordDecline")}</Button>
-            </>)}
-            {v.status === "accepted" && (
-              <span className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-700/30 bg-emerald-700/5 px-2.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300"
-                aria-disabled="true" title={t("estimateBuilder.life.lockedHint")} data-testid="indicator-locked"><Lock className="h-3.5 w-3.5" />{t("estimateBuilder.life.locked")}</span>
-            )}
-            {canRevise && (draftSummary ? (
-              <Button size="sm" variant="outline" onClick={() => setLocation(draftSummary.id === data.currentVersionId ? builderPath(data.id) : builderPath(data.id, draftSummary.versionNumber))}
-                data-testid="button-open-draft"><GitBranch className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.openDraft", { n: draftSummary.versionNumber })}</Button>
-            ) : (
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => void lifecycle("revise", "POST", `${vBase}/revise`, {})} data-testid="button-revise">
-                <GitBranch className="mr-1.5 h-3.5 w-3.5" />{t(`estimateBuilder.life.${reviseLabel}`, { n: nextN })}</Button>
-            ))}
-            {lifeOn && v.status === "draft" && isCurrent && v.versionNumber > 1 && (
-              <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => openDialog("discard")} data-testid="button-discard-draft">
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.discard")}</Button>
-            )}
-            {!data.voidedAt && isCurrent && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={t("estimateBuilder.life.more")} disabled={busy} data-testid="button-overflow"><MoreHorizontal className="h-4 w-4" /></Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-64">
-                  <DropdownMenuItem disabled={!canVoid || locked} onSelect={() => openDialog("void")} className="text-destructive focus:text-destructive" data-testid="menu-void">
-                    <Ban className="mr-2 h-4 w-4" />{t("estimateBuilder.life.void")}
-                  </DropdownMenuItem>
-                  {!canVoid && <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground" data-testid="text-void-blocked">{t("estimateBuilder.life.voidBlocked")}</DropdownMenuLabel>}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <Link href={`/dashboard/customers/${data.customerId}`} className="font-medium text-foreground hover:underline" data-testid="link-customer">
-              {customer.data?.name ?? t("estimateBuilder.customer")}
-            </Link>
-            {data.ticketId && (
-              <span className="inline-flex items-center gap-1.5">
-                <Link href={`/dashboard/tickets/${data.ticketId}`} className="hover:underline" data-testid="link-ticket">
-                  {t("estimateBuilder.ticket")}{ticket.data?.ticket?.id ? ` #${ticket.data.ticket.id.slice(0, 8)}` : ""}
-                </Link>
-                {ticketStatus && <span className="rounded-full border bg-muted px-2 text-[11px] font-medium" aria-label={t("estimateBuilder.ticketStatus")} data-testid="text-ticket-status">{ticketStatus}</span>}
-              </span>
-            )}
-          </div>
-          <nav className="mt-3 flex flex-wrap items-center gap-1.5" aria-label={t("estimateBuilder.versions")} data-testid="strip-versions">
+      <div className="estimate-builder-container mx-auto w-full min-w-0 max-w-6xl" data-testid="page-estimate-builder" data-editable={editable ? "true" : "false"}>
+        <IdentityHeaderCard testId="header-estimate-identity" footer={
+          <nav className="flex flex-wrap items-end gap-1 border-t bg-muted/30 px-3 pt-1.5" aria-label={t("estimateBuilder.versions")} data-testid="strip-versions">
             {data.versions.map((s) => {
               const viewing = s.id === v.id;
               const cur = s.id === data.currentVersionId;
@@ -456,16 +406,122 @@ function BuilderContent({ id }: { id: string }) {
                 <button key={s.id} type="button" aria-pressed={viewing} aria-label={t("estimateBuilder.viewVersion", { n: s.versionNumber })}
                   onClick={() => setLocation(cur ? builderPath(data.id) : builderPath(data.id, s.versionNumber))}
                   data-testid={`chip-version-${s.versionNumber}`} data-current={cur ? "true" : "false"}
-                  className={cn("h-7 rounded-full border px-3 text-[12px] tabular-nums transition-colors",
-                    viewing ? "border-transparent bg-rail-active font-semibold text-rail-active-foreground" : "bg-background text-muted-foreground hover:bg-rail-hover",
-                    cur && !viewing && "border-[hsl(var(--rail-active-icon))]/50")}>
+                  className={cn("-mb-px h-8 rounded-t-md border border-b-0 px-3 text-[12px] tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--rail-active-icon))]",
+                    viewing ? "border-border bg-card font-semibold text-foreground" : "border-transparent text-muted-foreground hover:bg-rail-hover hover:text-foreground",
+                    cur && !viewing && "text-[hsl(var(--rail-active-icon))]")}>
                   {s.status === "accepted" && <Check className="-ml-0.5 mr-1 inline h-3 w-3" aria-label={t("estimateBuilder.life.acceptedMark")} />}
                   {versionLabel(s)}{cur ? ` · ${t("estimateBuilder.current")}` : ""}
                 </button>
               );
             })}
           </nav>
-        </header>
+        }>
+          <div className="flex flex-wrap items-start gap-2">
+            <Button variant="ghost" size="icon" aria-label={t("estimateBuilder.back")} onClick={() => setLocation(ESTIMATE_BUILDER_PATH)} data-testid="button-back">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div className="min-w-0 flex-1 basis-[260px]">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <DocumentBadge label={t("estimateBuilder.header.badge", { number: data.estimateNumber })} testId="badge-estimate" />
+                <span className="sr-only" data-testid="text-estimate-number">{data.estimateNumber}</span>
+                <EstimateStatePill status={v.status} voided={false} testId={`pill-status-${v.status}`}
+                  label={t("estimateBuilder.versionPill", { n: v.versionNumber, status: statusLabel(v.status) })} />
+                {data.voidedAt && <EstimateStatePill status="void" voided testId="pill-status-void" label={t("estimateBuilder.voided")} />}
+                {isChangeOrder && (
+                  <span className="inline-flex items-center gap-1 rounded-md border border-emerald-700/30 bg-emerald-700/5 px-2 py-0.5 text-[11.5px] font-semibold text-emerald-800 dark:text-emerald-300" data-testid="chip-change-order">
+                    <GitBranch className="h-3 w-3" />{t("estimateBuilder.header.changeOrder")}
+                  </span>
+                )}
+              </div>
+              {editable ? (
+                <InlineInput value={data.title} disabled={false} label={t("estimateBuilder.editTitle")} testId="input-estimate-title"
+                  className="h-auto -ml-1 border-transparent bg-transparent px-1 text-xl font-semibold tracking-tight shadow-none hover:border-input focus-visible:border-input md:text-2xl"
+                  validate={(raw) => raw.trim() ? { value: raw.trim(), same: raw.trim() === data.title } : { error: t("estimateBuilder.errTitle") }}
+                  onCommit={(title) => run("PATCH", base, { title })} onInvalid={invalid} />
+              ) : (
+                <h1 className="line-clamp-2 text-xl font-semibold tracking-tight md:text-2xl" data-testid="text-estimate-title">{data.title}</h1>
+              )}
+            </div>
+            <div role="toolbar" aria-label={t("estimateBuilder.life.actions")} className="flex flex-wrap items-center gap-1.5" data-testid="bar-lifecycle">
+              <Button size="sm" variant="outline" onClick={() => setPdfOpen(true)} data-testid="button-preview-pdf"><FileText className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.pdf.preview")}</Button>
+              {lifeOn && v.status === "draft" && isCurrent && (
+                <Button size="sm" disabled={busy} onClick={() => openDialog("send")} data-testid="button-mark-sent"><Send className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.markSent")}</Button>
+              )}
+              {lifeOn && v.status === "sent" && (<>
+                <Button size="sm" disabled={busy} onClick={() => openDialog("accept")} data-testid="button-record-accept"><CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.recordAccept")}</Button>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => openDialog("decline")} data-testid="button-record-decline"><ThumbsDown className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.recordDecline")}</Button>
+              </>)}
+              {v.status === "accepted" && (
+                <span className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-700/30 bg-emerald-700/5 px-2.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300"
+                  aria-disabled="true" title={t("estimateBuilder.life.lockedHint")} data-testid="indicator-locked"><Lock className="h-3.5 w-3.5" />{t("estimateBuilder.life.locked")}</span>
+              )}
+              {canRevise && (draftSummary ? (
+                <Button size="sm" variant="outline" onClick={() => setLocation(draftSummary.id === data.currentVersionId ? builderPath(data.id) : builderPath(data.id, draftSummary.versionNumber))}
+                  data-testid="button-open-draft"><GitBranch className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.openDraft", { n: draftSummary.versionNumber })}</Button>
+              ) : (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => void lifecycle("revise", "POST", `${vBase}/revise`, {})} data-testid="button-revise">
+                  <GitBranch className="mr-1.5 h-3.5 w-3.5" />{t(`estimateBuilder.life.${reviseLabel}`, { n: nextN })}</Button>
+              ))}
+              {lifeOn && v.status === "draft" && isCurrent && v.versionNumber > 1 && (
+                <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => openDialog("discard")} data-testid="button-discard-draft">
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.discard")}</Button>
+              )}
+              {!data.voidedAt && isCurrent && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={t("estimateBuilder.life.more")} disabled={busy} data-testid="button-overflow"><MoreHorizontal className="h-4 w-4" /></Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-64">
+                    <DropdownMenuItem disabled={!canVoid || locked} onSelect={() => openDialog("void")} className="text-destructive focus:text-destructive" data-testid="menu-void">
+                      <Ban className="mr-2 h-4 w-4" />{t("estimateBuilder.life.void")}
+                    </DropdownMenuItem>
+                    {!canVoid && <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground" data-testid="text-void-blocked">{t("estimateBuilder.life.voidBlocked")}</DropdownMenuLabel>}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+          </div>
+          <MetadataStrip testId="strip-metadata">
+            <MetadataCell label={t("estimateBuilder.header.customer")} testId="cell-customer">
+              <Link href={`/dashboard/customers/${data.customerId}`} className="font-medium hover:underline" data-testid="link-customer">
+                {customerName ?? t("estimateBuilder.customer")}
+              </Link>
+              {display?.customerAddress && <div className="truncate text-xs text-muted-foreground" data-testid="text-customer-address">{display.customerAddress}</div>}
+            </MetadataCell>
+            <MetadataCell label={t("estimateBuilder.header.ticket")} testId="cell-ticket" wide>
+              {data.ticketId ? (
+                <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <Link href={`/dashboard/tickets/${data.ticketId}`} className="min-w-0 max-w-full truncate hover:underline" data-testid="link-ticket">
+                    <span className="font-mono text-xs font-semibold">#{ticketShort}</span>
+                    {ticketTitle && <span className="ml-1.5" data-testid="text-ticket-title">{ticketTitle}</span>}
+                  </Link>
+                  {ticketStatusObj ? <TicketStatusPill status={ticketStatusObj} testId="text-ticket-status" />
+                    : ticketStatusName && <span className="rounded-full border bg-muted px-2 text-[11px] font-medium" aria-label={t("estimateBuilder.ticketStatus")} data-testid="text-ticket-status">{ticketStatusName}</span>}
+                </span>
+              ) : <span className="text-muted-foreground" data-testid="text-ticket-unlinked">{t("estimateBuilder.header.notLinked")}</span>}
+            </MetadataCell>
+            <MetadataCell label={t("estimateBuilder.header.rates")} testId="cell-rates"><RatesChip q={rates} /></MetadataCell>
+            <MetadataCell label={t("estimateBuilder.header.total")} testId="cell-total">
+              <span className="font-semibold tabular-nums" data-testid="text-header-total">{formatCents(headerTotal, lang)}</span>
+              {v.status !== "draft" && <span className="ml-1 text-xs text-muted-foreground" data-testid="text-total-frozen">{t("estimateBuilder.header.frozen")}</span>}
+            </MetadataCell>
+            {v.sentAt && (
+              <MetadataCell label={t("estimateBuilder.header.sent")} testId="cell-sent">
+                {formatDate(v.sentAt, lang)}{v.sentMethod && <span className="text-muted-foreground"> · {t(`estimateBuilder.life.sentMethod.${v.sentMethod}`)}</span>}
+              </MetadataCell>
+            )}
+            {v.acceptedAt && (
+              <MetadataCell label={t("estimateBuilder.header.accepted")} testId="cell-accepted">
+                {formatCalendarDate(v.acceptedOn, lang) || formatDate(v.acceptedAt, lang)}
+                {v.acceptanceMethod && <span className="text-muted-foreground"> · {t(`estimateBuilder.life.acceptMethod.${v.acceptanceMethod}`)}</span>}
+                {v.poNumber && <span className="text-muted-foreground"> · {t("estimateBuilder.header.po", { po: v.poNumber })}</span>}
+              </MetadataCell>
+            )}
+            <MetadataCell label={t("estimateBuilder.header.created")} testId="cell-created">
+              {formatDate(data.createdAt, lang)}{display?.createdByName && <span className="text-muted-foreground"> · {t("estimateBuilder.header.by", { name: display.createdByName })}</span>}
+            </MetadataCell>
+          </MetadataStrip>
+        </IdentityHeaderCard>
 
         {locked && (
           <div role="alert" className="mt-4 flex items-start gap-2 rounded-md border border-[hsl(var(--est-warn))]/40 bg-[hsl(var(--est-warn-bg))] p-3 text-sm text-[hsl(var(--est-warn))]" data-testid="banner-locked">
@@ -488,8 +544,8 @@ function BuilderContent({ id }: { id: string }) {
           </div>
         )}
 
-        <div className="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="min-w-0 space-y-4">
+        <div className="estimate-builder-grid mt-5 items-start gap-6" data-testid="layout-builder">
+          <div className="estimate-builder-sections min-w-0 space-y-4">
             {sections.map((s) => (
               <SectionCard key={s.id} section={s} sections={sections} subtotal={v.totals.bySection[s.id] ?? 0} editable={editable} lang={lang}
                 vBase={vBase} run={run} invalid={invalid} canRemove={sections.length > 1}
@@ -504,7 +560,7 @@ function BuilderContent({ id }: { id: string }) {
               </button>
             )}
           </div>
-          <TotalsRail data={data} lang={lang} />
+          <TotalsRail data={data} lang={lang} sticky={false} />
         </div>
       </div>
 
@@ -527,6 +583,8 @@ function BuilderContent({ id }: { id: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <PdfPreviewDialog open={pdfOpen} onClose={() => setPdfOpen(false)} companyId={companyId} estimateId={data.id} versionId={v.id}
+        estimateNumber={data.estimateNumber} versionNumber={v.versionNumber} draft={v.status === "draft"} />
       <SendDialog open={dialog === "send"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog} needPrice={needPriceLines}
         onSubmit={(b) => void lifecycle("send", "POST", `${vBase}/send`, b)} />
       <AcceptDialog open={dialog === "accept"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog}
@@ -661,21 +719,7 @@ function SectionCard(props: {
           ))}
         </ul>
       )}
-      {editable && (
-        <div className="flex flex-wrap items-center gap-1 border-t bg-muted/30 px-3 py-2" data-testid={`bar-add-${s.id}`}>
-          <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("estimateBuilder.addBar")}</span>
-          {LINE_TYPES.map((type) => {
-            const Icon = TYPE_ICON[type];
-            return (
-              <button key={type} type="button" onClick={() => props.onAdd(type)} data-testid={`button-add-${type}-${s.id}`}
-                className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors hover:bg-background"
-                style={{ color: `hsl(${LINE_TINT[type]})` }}>
-                <Icon className="h-3.5 w-3.5" />{t(`estimateBuilder.line.type.${type}`)}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {editable && <AddLineButtons sectionId={s.id} onAdd={props.onAdd} />}
     </section>
   );
 }
@@ -693,7 +737,7 @@ function LineRow(props: {
   const others = props.sections.filter((s) => s.id !== l.sectionId);
   const tint = LINE_TINT[l.lineType];
   return (
-    <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto]" data-testid={`row-line-${l.id}`} data-line-type={l.lineType}>
+    <li className="estimate-line-row grid gap-x-3 gap-y-2 px-3 py-2.5" data-testid={`row-line-${l.id}`} data-line-type={l.lineType}>
       <span className="mt-0.5 inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold"
         style={{ background: `hsl(${tint} / 0.12)`, color: `hsl(${tint})` }} data-testid={`chip-type-${l.id}`}>
         <Icon className="h-3.5 w-3.5" /><span className="hidden sm:inline">{t(`estimateBuilder.line.type.${l.lineType}`)}</span>
@@ -705,7 +749,7 @@ function LineRow(props: {
           {t(`estimateBuilder.line.source.${l.priceSource}`)}
         </span>
       </div>
-      <div className="col-span-2 flex flex-wrap items-center justify-end gap-2 md:col-span-1">
+      <div className="estimate-line-actions flex flex-wrap items-center justify-end gap-2">
         <div className="w-20">
           <InlineInput value={l.quantity} disabled={!editable} inputMode="decimal" label={t("estimateBuilder.line.quantity", { name: l.name })} testId={`input-quantity-${l.id}`}
             className="text-right tabular-nums"
@@ -771,7 +815,7 @@ function RailCard({ title, children, className, testId }: { title: string; child
   );
 }
 
-function TotalsRail({ data, lang }: { data: EstimateDetailDto; lang: string }) {
+function TotalsRail({ data, lang, sticky }: { data: EstimateDetailDto; lang: string; sticky: boolean }) {
   const { t } = useTranslation();
   const v = data.version;
   const tot = v.totals;
@@ -779,7 +823,7 @@ function TotalsRail({ data, lang }: { data: EstimateDetailDto; lang: string }) {
   const flow = ["draft", "sent", "accepted", "invoiced"] as const;
   const inFlow = (flow as readonly string[]).includes(v.status);
   return (
-    <aside className="space-y-3 lg:sticky lg:top-4" data-testid="rail-totals">
+    <aside className={cn("min-w-0 space-y-3", sticky && "sticky top-4")} data-testid="rail-totals">
       <RailCard title={t("estimateBuilder.rail.totals")} testId="card-totals">
         <ul className="space-y-1 text-sm">
           {v.sections.map((s) => (

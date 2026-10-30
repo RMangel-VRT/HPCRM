@@ -4,14 +4,15 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { MentionRow, type MentionNotice } from "@/components/MentionRow";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import { mentionsFilter, notificationListOptions, useMentionsCount } from "@/lib/notifications";
+import { mentionsFilter, notificationListOptions, useMentionsCount, useNotificationScope } from "@/lib/notifications";
 
 export default function MentionsPage() {
   const { t } = useTranslation();
+  const scope = useNotificationScope();
   const [notice, setNotice] = useState<MentionNotice>(null);
   useSetBreadcrumbs([{ label: t("mentions.title") }]);
   const { data: count, isError: countError } = useMentionsCount();
-  const { data = [], isLoading, isError } = useQuery(notificationListOptions(mentionsFilter));
+  const { data = [], isLoading, isError } = useQuery(notificationListOptions(mentionsFilter, scope));
   const rows = [...data].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
   const total = count?.count ?? 0;
   return (

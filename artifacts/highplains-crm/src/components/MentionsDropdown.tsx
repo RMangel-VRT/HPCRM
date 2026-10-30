@@ -8,13 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MentionRow, type MentionNotice } from "./MentionRow";
-import { mentionsFilter, notificationListOptions, useMentionsCount } from "@/lib/notifications";
+import { mentionsFilter, notificationListOptions, useMentionsCount, useNotificationScope } from "@/lib/notifications";
 
 export default function MentionsDropdown() {
   const { t } = useTranslation();
+  const scope = useNotificationScope();
   const [notice, setNotice] = useState<MentionNotice>(null);
   const { data: count, isError: countError } = useMentionsCount();
-  const { data = [], isLoading, isError } = useQuery(notificationListOptions(mentionsFilter));
+  const { data = [], isLoading, isError } = useQuery(notificationListOptions(mentionsFilter, scope));
   const unread = data.filter(row => !row.isRead).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)).slice(0, 20);
   const total = count?.count ?? 0;
   return (

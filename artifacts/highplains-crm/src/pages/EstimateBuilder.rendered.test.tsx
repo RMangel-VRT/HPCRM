@@ -127,7 +127,7 @@ describe("builder rendering", () => {
     await waitFor(() => expect(screen.getByTestId("text-ticket-status").textContent).toBe("Estimating"));
     expect(calls().some(c => c.url === "/api/tickets/t1/details" && c.headers["X-Company-Id"] === "c1")).toBe(true);
     expect(screen.getByTestId("link-ticket").getAttribute("href")).toBe("/dashboard/tickets/t1");
-    await waitFor(() => expect(screen.getByTestId("chip-rates").textContent).toBe("Rates: Contract 2025 Season"));
+    await waitFor(() => expect(screen.getByTestId("chip-rates").textContent).toBe("Contract · 2025 Season"));
     for (const ty of ["plant", "hardscape", "irrigation", "labor", "equipment", "fee", "custom"]) {
       expect(screen.getByTestId(`row-line-l-${ty}`).getAttribute("data-line-type")).toBe(ty);
       expect(screen.getByTestId(`button-add-${ty}-s1`)).toBeTruthy();
@@ -167,13 +167,13 @@ describe("builder rendering", () => {
   it("shows Rate Card when every context is the card, and both chips when they differ", async () => {
     handler = (c) => c.url.startsWith("/api/estimates/rates") ? res({ items: [], governingContexts: [{ line: "landscape", termId: null, seasonLabel: null }] }) : undefined;
     renderAt("/dashboard/estimates/builder/e1");
-    await waitFor(() => expect(screen.getByTestId("chip-rates").textContent).toBe("Rates: Rate Card"));
+    await waitFor(() => expect(screen.getByTestId("chip-rates").textContent).toBe("Rate Card"));
     cleanup();
     handler = (c) => c.url.startsWith("/api/estimates/rates") ? res({ items: [], governingContexts: [
       { line: "landscape", termId: "tm1", seasonLabel: "2025" }, { line: "irrigation", termId: null, seasonLabel: null }] }) : undefined;
     renderAt("/dashboard/estimates/builder/e1");
-    await waitFor(() => expect(screen.getByTestId("chip-rates-tm1").textContent).toContain("Rates: Contract 2025 (landscape)"));
-    expect(screen.getByTestId("chip-rates-card").textContent).toContain("Rates: Rate Card (irrigation)");
+    await waitFor(() => expect(screen.getByTestId("chip-rates-tm1").textContent).toContain("Contract · 2025 (landscape)"));
+    expect(screen.getByTestId("chip-rates-card").textContent).toContain("Rate Card (irrigation)");
   });
 });
 
@@ -412,7 +412,7 @@ describe("pickers", () => {
     await open("irrigation");
     fireEvent.click(await screen.findByTestId("chip-picker-brand-Rain Bird"));
     await waitFor(() => expect(calls().some((c) => c.url.includes("brand=Rain"))).toBe(true));
-    fireEvent.click(await screen.findByTestId("option-i1"));
+    fireEvent.doubleClick(await screen.findByTestId("option-i1"));
     await waitFor(() => expect(posted()).toEqual({ lineType: "irrigation", sectionId: "s1", quantity: "1", irrigationCatalogItemId: "i1" }));
   });
 
@@ -434,7 +434,7 @@ describe("pickers", () => {
     fireEvent.click(screen.getByTestId("option-acer-rubrum-AR5"));
     expect(screen.getByTestId("option-acer-rubrum-AR5").textContent).toContain("Size reference unavailable");
     expect(posted()).toBeUndefined();
-    fireEvent.click(row);
+    fireEvent.doubleClick(row);
     await waitFor(() => expect(posted()).toEqual({ lineType: "plant", sectionId: "s1", quantity: "1", plantCatalogItemId: "row-15" }));
   });
 
@@ -446,7 +446,7 @@ describe("pickers", () => {
     fireEvent.click(screen.getByTestId("option-ghost"));
     expect(posted()).toBeUndefined();
     expect(screen.getByTestId("option-crew").textContent).toContain("contract");
-    fireEvent.keyDown(screen.getByTestId("input-picker-search"), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByTestId("input-picker-search"), { key: "ArrowUp" });
     fireEvent.keyDown(screen.getByTestId("input-picker-search"), { key: "Enter" });
     await waitFor(() => expect(posted()).toEqual({ lineType: "labor", sectionId: "s1", quantity: "1", rateKey: "design" }));
   });
@@ -462,7 +462,7 @@ describe("pickers", () => {
     await open(kind);
     expect((await screen.findByTestId("option-q1")).textContent).toContain("no default — you set the price");
     expect(screen.queryByTestId("option-q2")).toBeNull();
-    fireEvent.click(screen.getByTestId("option-__free"));
+    fireEvent.doubleClick(screen.getByTestId("option-__free"));
     expect((screen.getByTestId("select-free-umbrella") as HTMLSelectElement).value).toBe(umbrella);
     fireEvent.change(screen.getByTestId("input-free-name"), { target: { value: "Dump run" } });
     fireEvent.change(screen.getByTestId("select-free-unit"), { target: { value: "flat" } });
@@ -479,7 +479,7 @@ describe("pickers", () => {
       return undefined;
     };
     await open("fee");
-    fireEvent.click(await screen.findByTestId("option-q1"));
+    fireEvent.doubleClick(await screen.findByTestId("option-q1"));
     await waitFor(() => expect(posted()).toEqual({ lineType: "fee", sectionId: "s1", quantity: "1", quickItemId: "q1" }));
   });
 

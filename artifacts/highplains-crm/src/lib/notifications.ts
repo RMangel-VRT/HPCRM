@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { apiRequest } from "./queryClient";
+import { useAuth } from "@/hooks/use-auth";
 
 // The frontend Drizzle stub infers notification rows as any. Keep the wire fields explicit.
 export interface Notification {
@@ -15,91 +16,108 @@ export const mentionsFilter = { type: "mentioned" } as const;
 export const generalFilter = { exclude: "mentioned" } as const;
 const lists = "/api/notifications";
 const counts = "/api/notifications/unread-count";
-export const notificationListKey = (filter: NotificationFilter) => [lists, filter] as const;
-export const notificationCountKey = (filter: NotificationFilter) => [counts, filter] as const;
-export const mentionsCountKey = notificationCountKey(mentionsFilter);
+export type NotificationScope = { userId: string; companyId: string; role: string };
+export function useNotificationScope(): NotificationScope | null {
+  const { user } = useAuth();
+  return user?.id && user.activeCompanyId
+    ? { userId: user.id, companyId: user.activeCompanyId, role: user.activeRole ?? "" } : null;
+}
+const scopeParts = (scope: NotificationScope | null) => [scope?.userId ?? "", scope?.companyId ?? "", scope?.role ?? ""] as const;
+const scopeKey = (root: string, scope: NotificationScope | null) => [root, ...scopeParts(scope)] as const;
+export const notificationListKey = (filter: NotificationFilter, scope: NotificationScope | null) => [...scopeKey(lists, scope), filter] as const;
+export const notificationCountKey = (filter: NotificationFilter, scope: NotificationScope | null) => [...scopeKey(counts, scope), filter] as const;
+export const mentionsCountKey = (scope: NotificationScope | null) => notificationCountKey(mentionsFilter, scope);
+const headers = (scope: NotificationScope | null): Record<string, string> => scope ? { "X-Company-Id": scope.companyId } : {};
 const suffix = (filter: NotificationFilter) => new URLSearchParams(filter).toString();
 
-export function notificationListOptions(filter: NotificationFilter, refetchInterval = 15_000) {
+export function notificationListOptions(filter: NotificationFilter, scope: NotificationScope | null, refetchInterval = 15_000) {
   return {
-    queryKey: notificationListKey(filter),
+    queryKey: notificationListKey(filter, scope),
+    enabled: !!scope,
     queryFn: async ({ signal }: { signal: AbortSignal }): Promise<Notification[]> =>
-      (await apiRequest("GET", `${lists}?${suffix(filter)}`, undefined, { signal })).json(),
+      scope ? (await apiRequest("GET", `${lists}?${suffix(filter)}`, undefined, { signal, headers: headers(scope) })).json() : [],
     refetchInterval,
     staleTime: 0,
   };
 }
-export function notificationCountOptions(filter: NotificationFilter) {
+export function notificationCountOptions(filter: NotificationFilter, scope: NotificationScope | null) {
   return {
-    queryKey: notificationCountKey(filter),
+    queryKey: notificationCountKey(filter, scope),
+    enabled: !!scope,
     queryFn: async ({ signal }: { signal: AbortSignal }): Promise<{ count: number }> =>
-      (await apiRequest("GET", `${counts}?${suffix(filter)}`, undefined, { signal })).json(),
+      scope ? (await apiRequest("GET", `${counts}?${suffix(filter)}`, undefined, { signal, headers: headers(scope) })).json() : { count: 0 },
     refetchInterval: 60_000,
     staleTime: 50_000,
   };
 }
 export function useMentionsCount() {
-  return useQuery(notificationCountOptions(mentionsFilter));
+  const scope = useNotificationScope();
+  return useQuery(notificationCountOptions(mentionsFilter, scope));
 }
 
 function includesType(key: QueryKey, type: string) {
-  const filter = key[1] as NotificationFilter | undefined;
+  const filter = key[4] as NotificationFilter | undefined;
   return !filter || ("type" in filter ? filter.type === type : filter.exclude !== type);
 }
-async function cancelNotifications(client: QueryClient) {
-  await Promise.all([lists, counts].map(root => client.cancelQueries({ queryKey: [root] })));
+async function cancelNotifications(client: QueryClient, scope: NotificationScope) {
+  await Promise.all([lists, counts].map(root => client.cancelQueries({ queryKey: scopeKey(root, scope) })));
 }
-function reconcile(client: QueryClient) {
+function reconcile(client: QueryClient, scope: NotificationScope) {
   // Every request started before the write has been cancelled before patching.
   // These requests therefore observe the committed server state, not a pre-write snapshot.
-  for (const root of [lists, counts]) void client.invalidateQueries({ queryKey: [root] });
+  for (const root of [lists, counts]) void client.invalidateQueries({ queryKey: scopeKey(root, scope) });
 }
-function findRow(client: QueryClient, id: string) {
-  return client.getQueriesData<Notification[]>({ queryKey: [lists] })
+function findRow(client: QueryClient, id: string, scope: NotificationScope) {
+  return client.getQueriesData<Notification[]>({ queryKey: scopeKey(lists, scope) })
     .flatMap(([, rows]) => Array.isArray(rows) ? rows : []).find(row => row.id === id);
 }
 const pending = new WeakMap<QueryClient, Map<string, Promise<void>>>();
 
-export function markNotificationRead(client: QueryClient, id: string): Promise<void> {
+export function markNotificationRead(client: QueryClient, id: string, scope: NotificationScope | null): Promise<void> {
+  if (!scope) return Promise.reject(new Error("AUTH_REQUIRED"));
   let requests = pending.get(client);
   if (!requests) { requests = new Map(); pending.set(client, requests); }
-  const existing = requests.get(id);
+  const pendingKey = JSON.stringify([...scopeParts(scope), id]);
+  const existing = requests.get(pendingKey);
   if (existing) return existing;
-  if (findRow(client, id)?.isRead) return Promise.resolve();
+  if (findRow(client, id, scope)?.isRead) return Promise.resolve();
   const request = (async () => {
-    await apiRequest("PATCH", `${lists}/${id}/read`);
-    await cancelNotifications(client);
-    const row = findRow(client, id);
+    await apiRequest("PATCH", `${lists}/${id}/read`, undefined, { headers: headers(scope) });
+    await cancelNotifications(client, scope);
+    const row = findRow(client, id, scope);
     // Resolve against current cache, not the clicked render: repeat/concurrent clicks
     // and the global read-all may already have read this row.
     if (row && !row.isRead) {
-      client.setQueriesData<Notification[]>({ queryKey: [lists] }, rows =>
+      client.setQueriesData<Notification[]>({ queryKey: scopeKey(lists, scope) }, rows =>
         rows?.map(item => item.id === id ? { ...item, isRead: true } : item));
-      for (const [key] of client.getQueriesData({ queryKey: [counts] })) {
+      for (const [key] of client.getQueriesData({ queryKey: scopeKey(counts, scope) })) {
         if (includesType(key, row.type)) client.setQueryData<{ count: number }>(key,
           data => data ? { count: Math.max(0, data.count - 1) } : data);
       }
     }
-    reconcile(client);
-  })().finally(() => requests.delete(id));
-  requests.set(id, request);
+    reconcile(client, scope);
+  })().finally(() => requests.delete(pendingKey));
+  requests.set(pendingKey, request);
   return request;
 }
-export async function markAllNotificationsRead(client: QueryClient) {
-  await apiRequest("POST", `${lists}/read-all`);
-  await cancelNotifications(client);
+export async function markAllNotificationsRead(client: QueryClient, scope: NotificationScope | null) {
+  if (!scope) throw new Error("AUTH_REQUIRED");
+  await apiRequest("POST", `${lists}/read-all`, undefined, { headers: headers(scope) });
+  await cancelNotifications(client, scope);
   // The legacy endpoint clears ALL types, including mentions unseen in the bell.
-  client.setQueriesData<Notification[]>({ queryKey: [lists] },
+  client.setQueriesData<Notification[]>({ queryKey: scopeKey(lists, scope) },
     rows => rows?.map(row => ({ ...row, isRead: true })));
-  client.setQueriesData<{ count: number }>({ queryKey: [counts] },
+  client.setQueriesData<{ count: number }>({ queryKey: scopeKey(counts, scope) },
     data => data ? { count: 0 } : data);
-  reconcile(client);
+  reconcile(client, scope);
 }
 export function useNotificationRead() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: (id: string) => markNotificationRead(client, id) });
+  const scope = useNotificationScope();
+  return useMutation({ mutationFn: (id: string) => markNotificationRead(client, id, scope) });
 }
 export function useNotificationsReadAll() {
   const client = useQueryClient();
-  return useMutation({ mutationFn: () => markAllNotificationsRead(client) });
+  const scope = useNotificationScope();
+  return useMutation({ mutationFn: () => markAllNotificationsRead(client, scope) });
 }

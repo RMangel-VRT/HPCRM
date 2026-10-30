@@ -67,6 +67,9 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
   const [qtyError, setQtyError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
+  const qtyRef = useRef<HTMLInputElement>(null);
+  // Synchronous guard: a double-click (click, click, dblclick) or Enter repeat submits exactly once.
+  const submittingRef = useRef(false);
 
   const enabled = !freeMode;
   const q = useQuery<unknown>({
@@ -143,20 +146,28 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
   async function submit(extra: Record<string, unknown>) {
     const qty = validQuantity(quantity);
     if (!qty) { setQtyError(t("estimateBuilder.err.quantity")); return; }
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setQtyError(null); setPending(true);
-    const ok = await onSubmit({ lineType: type, sectionId, quantity: qty, ...extra });
-    setPending(false);
+    let ok = false;
+    try { ok = await onSubmit({ lineType: type, sectionId, quantity: qty, ...extra }); }
+    finally { submittingRef.current = false; setPending(false); }
     if (ok) onClose();
   }
   function choose(r: Row | undefined) {
-    if (!r || pending) return;
+    if (!r || pending || submittingRef.current) return;
     if (r.free) { setFreeMode(true); return; }
     if (r.disabled || !r.body) return;
     void submit(r.body);
   }
+  /** Single click (every picker type): select the row and move focus to Quantity. Never adds. */
+  function select(i: number) {
+    setHighlight(i);
+    requestAnimationFrame(() => { qtyRef.current?.focus(); qtyRef.current?.select(); });
+  }
   function onKey(e: KeyboardEvent) {
-    if (e.key === "ArrowDown") { e.preventDefault(); setHighlight((h) => Math.min(rows.length - 1, h + 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(0, h - 1)); }
+    if (e.key === "ArrowDown") { e.preventDefault(); if (rows.length) select(Math.min(rows.length - 1, highlight + 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); if (rows.length) select(Math.max(0, highlight - 1)); }
     else if (e.key === "Enter") { e.preventDefault(); choose(rows[highlight]); }
   }
 
@@ -215,9 +226,9 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
           <ul id="picker-list" ref={listRef} role="listbox" aria-label={t("estimateBuilder.picker.results")} className="max-h-[46vh] divide-y overflow-y-auto rounded-md border bg-card" data-testid="list-picker">
             {rows.map((r, i) => (
               <li key={r.key} id={`pick-${r.key}`} data-index={i} role="option" aria-selected={i === highlight} aria-disabled={!!r.disabled}
-                onMouseEnter={() => setHighlight(i)} onClick={() => choose(r)} data-testid={`option-${r.key}`}
-                className={cn("flex cursor-pointer items-start justify-between gap-3 px-3 py-2.5 text-sm",
-                  i === highlight && "bg-rail-hover", r.disabled && "cursor-not-allowed opacity-60", r.free && "border-t-2 border-dashed")}>
+                onClick={() => select(i)} onDoubleClick={() => choose(r)} data-testid={`option-${r.key}`}
+                className={cn("flex cursor-pointer select-none items-start justify-between gap-3 border-l-2 border-l-transparent px-3 py-2.5 text-sm hover:bg-muted/50",
+                  i === highlight && "border-l-[hsl(var(--rail-active-icon))] bg-rail-hover hover:bg-rail-hover", r.disabled && "cursor-not-allowed opacity-60", r.free && "border-t-2 border-dashed")}>
                 <div className="min-w-0">
                   <div className={cn("font-semibold", r.free && "italic")}>{r.title}</div>
                   {r.detail && <div className="truncate text-xs text-muted-foreground">{r.detail}</div>}
@@ -235,7 +246,7 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
         <div className="flex items-end justify-between gap-3">
           <div className="grid w-32 gap-1">
             <Label htmlFor="picker-qty">{t("estimateBuilder.picker.quantity")}</Label>
-            <Input id="picker-qty" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); choose(rows[highlight]); } }}
+            <Input id="picker-qty" ref={qtyRef} inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} onKeyDown={onKey}
               aria-invalid={!!qtyError} className="tabular-nums" data-testid="input-picker-quantity" />
           </div>
           <DialogFooter className="gap-2">

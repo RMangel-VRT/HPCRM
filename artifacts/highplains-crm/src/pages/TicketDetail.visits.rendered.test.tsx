@@ -69,6 +69,19 @@ function mount() {
 const patchBody = () => calls.filter(c => c.method === "PATCH" && c.url === "/api/tickets/t1").at(-1)?.body;
 
 describe("TicketDetail conversation locations", () => {
+  it("retains the ticket identity header construction while estimate styles are mirrored", async () => {
+    details = detailsFor(false, "Estimate Request");
+    details.ticketType.typeKey = "estimate_request";
+    history = () => ({ json: [] });
+    mount();
+    const header = await screen.findByTestId("header-ticket-identity");
+    expect(header.className).toContain("rounded-xl");
+    expect(header.className).toContain("border-t-4");
+    expect(header.querySelector(".px-3.py-3")).toBeTruthy();
+    expect(header.querySelector('[data-testid="badge-ticket-type"]')).toBeTruthy();
+    expect(header.textContent).toContain("Aerate lawn");
+    expect(header.style.borderTopColor).toContain("var(");
+  });
   it("always offers the Overview Conversation card and opens the focused tab when empty", async () => {
     details = detailsFor(false);
     history = () => ({ json: [] });

@@ -31,6 +31,33 @@ const fresh = (company = a, customerId = customerA, title = "Verification draft"
 const versionPath = (d: Draft) => `/api/estimates/${d.id}/versions/${d.version.id}`;
 const allLines = (d: Draft): Array<EstimateLine & { needsPrice: boolean }> => d.version.sections.flatMap(s => s.lines);
 const postLine = (d: Draft, body: Record<string, unknown>, company = a) => request(appFor(company)).post(`${versionPath(d)}/lines`).send({ sectionId: d.version.sections[0].id, quantity: "1", ...body });
+
+describe("customer-safe version PDFs and display reads", () => {
+  it("enforces estimate/version/company ownership including historical versions", async () => {
+    let d = await fresh();
+    const line = await postLine(d, { lineType: "custom", name: "Customer work", unit: "ea", unitPriceCents: 1250, umbrellaKey: "landscape_labor" });
+    expect(line.status).toBe(201);
+    d = await readEstimate(a, d.id);
+    expect(d.display.customerName).toBeTruthy();
+    expect(d.display.customerAddress).toBeTruthy();
+    const sent = await request(appFor()).post(`${versionPath(d)}/send`).send({ method: "email" });
+    expect(sent.status).toBe(200);
+    const revision = await request(appFor()).post(`${versionPath(d)}/revise`).send({});
+    expect(revision.status).toBe(200);
+    const oldPdf = await request(appFor()).get(`${versionPath(d)}/pdf`).set("X-Company-Id", a);
+    expect(oldPdf.status).toBe(200);
+    expect(oldPdf.body.subarray(0, 4).toString()).toBe("%PDF");
+    expect(oldPdf.headers["content-disposition"]).toContain("-v1.pdf");
+    const currentPdf = await request(appFor()).get(`/api/estimates/${d.id}/versions/${revision.body.version.id}/pdf?download=1`);
+    expect(currentPdf.status).toBe(200);
+    expect(currentPdf.headers["content-disposition"]).toContain("attachment;");
+    expect((await request(appFor(b)).get(`${versionPath(d)}/pdf`)).status).toBe(404);
+    const other = await fresh();
+    expect((await request(appFor()).get(`/api/estimates/${other.id}/versions/${d.version.id}/pdf`)).status).toBe(404);
+    expect((await request(appFor()).get(`/api/estimates/${d.id}/versions/missing/pdf`)).status).toBe(404);
+    expect((await request(appFor(a, "field")).get(`${versionPath(d)}/pdf`)).status).toBe(403);
+  }, 20000);
+});
 async function ticket(companyId = a, customerId: string | null = customerA, typeId = typeA, currentStatusId = statusA) {
   return (await db.insert(tickets).values({ companyId, customerId, ticketTypeId: typeId, currentStatusId, title: "Disposable estimate request", createdById: actor }).returning())[0];
 }

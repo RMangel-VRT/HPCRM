@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { generalFilter, notificationListOptions, useNotificationRead, useNotificationsReadAll } from "@/lib/notifications";
+import { generalFilter, notificationListOptions, useNotificationRead, useNotificationsReadAll, useNotificationScope } from "@/lib/notifications";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -168,13 +168,14 @@ function EmptyState({ message }: { message: string }) {
 }
 
 export default function NotificationsPage() {
+  const scope = useNotificationScope();
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("all");
 
   useSetBreadcrumbs([{ label: t("notifications.title") }]);
 
   const { data: notifications = [], isLoading } = useQuery<TicketNotification[]>({
-    ...notificationListOptions(generalFilter, 15000),
+    ...notificationListOptions(generalFilter, scope, 15000),
   });
 
   const markReadMutation = useNotificationRead();

@@ -78,3 +78,41 @@ a newer payload. No totals are recomputed in the browser.
 
 No lifecycle, native mobile, schema, dependency or new-artifact work was added.
 The only additions to server reads are the metadata compatibility changes above.
+
+## Slice 3.5 — frontend (header, add buttons, PDF preview, layout, picker)
+
+### Ticket-style identity header: mirrored, not extracted
+`TicketDetail.tsx` builds `header-ticket-identity` inline, with extra ticket-only badges such as waiting/needs-action, completed, and the edit button. Pulling a shared card out of it would change TicketDetail, so the builder **mirrors** it instead and TicketDetail is untouched. Primitives are in `components/estimates/EstimateIdentityHeader.tsx` (`IdentityHeaderCard`, `DocumentBadge`, `EstimateStatePill`, `MetadataStrip`, `MetadataCell`). They use the same tokens: `rounded-xl border border-t-4`, the hue top border, a hue border at 20%, an icon-chip badge at 38%, a pill with background 13%, text 80% and border 28%, and a `text-xl md:text-2xl font-semibold` title.
+- Hue: `ticketHue({ typeKey: "estimate_request" })`. Icon: Calculator, the same as the Estimates nav.
+- Pill states: draft is needs-action (`--ts-active`), sent is waiting (dashed), accepted and invoiced are done, and declined, superseded and void are muted.
+- One deliberate difference: TicketDetail mixes the raw `var(--border)` / `var(--foreground)` HSL triplets into `color-mix`. The browser drops those declarations, so the ticket card falls back to the base border. The estimate card uses `hsl(var(--border))` so the hue tint actually shows. The ticket header's visual output is unchanged.
+- Metadata comes from `EstimateDetailDto.display` when present (customer name and address, created-by, ticket shortId, title and status). When `display` is missing it falls back to the scoped customer and ticket reads, which are disabled while `display` supplies the data. The Rates cell keeps `distinctContexts`: one chip per context ("Contract · {season}" / "Rate Card").
+- The version strip is a tab row along the bottom edge of the card. Actions: Preview PDF, the state's lifecycle action, and the overflow menu. All lifecycle and company gates are unchanged.
+
+### Add-line buttons
+`AddLineButtons.tsx` renders seven outlined `Button`s, `h-8` (32px). Each has a tinted icon chip using `LINE_TINT` and a `focus-visible` ring. They are hidden whenever the version is not editable.
+
+### Container layout
+`estimateBuilder.css` uses named native CSS container queries, not viewport breakpoints or a measured-width effect. Sections and the rail sit side by side only when the builder width is at least 640 + 24 + 320 = 984px. Below that the rail stacks under the sections. The add buttons use a two-column grid below a 560px sections width, wrapping above it. Line inputs/actions move below the description below a 640px sections width. This applies before paint and remains correct with populated rows and expanded or collapsed navigation.
+
+### Pickers
+In every picker type:
+- A single click selects the row and focuses Quantity. It never adds.
+- Enter or Add adds the selected row.
+- Double-click adds immediately at the current quantity, and a synchronous ref guard makes it add exactly once.
+- Hover no longer moves the selection.
+
+### PDF preview
+`PdfPreviewDialog.tsx` fetches `GET /api/estimates/:id/versions/:versionId/pdf` for the version being viewed, as a blob sent with the captured `X-Company-Id`. It shows the PDF in an iframe and offers Download (`{number}-v{n}.pdf`) and Open in new tab.
+- Each fetch has an AbortController and an `alive` flag. The object URL is revoked on close, retry, version change and unmount. A company, user, role or version change remounts the builder, which closes the dialog and drops any in-flight blob.
+- Drafts show the hint "Draft — the PDF is marked DRAFT".
+
+### Tests
+`pages/EstimateBuilder.slice35.rendered.test.tsx` covers:
+- Header: badge, every pill state, display-based cells with no fallback reads, the fallback path, linked and unlinked ticket, contract, rate-card and mixed rates, live and frozen totals, sent and accepted dates, created by, the change-order chip, and a historical version.
+- Add buttons: role and order, focus, and hidden when read-only.
+- Container construction and CSS thresholds; real-browser measurements at 1,041px and 1,600px are recorded in `estimate-builder-pdf.md`.
+- PDF: scoped fetch, iframe, open and download, revoke on close and unmount, error and retry, a late response after close, company/user/role switch races, and a version switch.
+- Pickers: in all six catalog/rate/quick-item types, click/arrow selection focuses Quantity, Enter adds, double-click adds exactly once, and Add line works. Custom/free-entry validation retains its existing tests.
+
+`pages/EstimateBuilder.rendered.test.tsx` was updated for the new rates copy and the double-click picker semantics.

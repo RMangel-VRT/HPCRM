@@ -124,6 +124,12 @@ export interface EstimateVersionDto extends EstimateVersionSummaryDto {
 /** Every mutation and detail read uses this envelope; version is affected/current. */
 export interface EstimateDetailDto extends EstimateContainerDto {
   versions: EstimateVersionSummaryDto[]; version: EstimateVersionDto;
+  display?: {
+    companyName: string; customerName: string; customerAddress: string; createdByName: string | null;
+    ticket: { id: string; title: string; shortId: string; status: {
+      name: string; statusKey: string | null; actionType: "needs_action" | "waiting"; isFinal: "true" | "false";
+    } | null } | null;
+  };
 }
 export interface EstimateListItemDto extends EstimateContainerDto {
   customerName: string; currentVersionNumber: number | null;

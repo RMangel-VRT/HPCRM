@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { generalFilter, notificationListOptions, notificationCountOptions, useNotificationRead, useNotificationsReadAll } from "@/lib/notifications";
+import { generalFilter, notificationListOptions, notificationCountOptions, useNotificationRead, useNotificationsReadAll, useNotificationScope } from "@/lib/notifications";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -154,14 +154,15 @@ function NotificationItem({ notification, isHigh, onMarkRead }: NotificationItem
 }
 
 export default function NotificationsDropdown() {
+  const scope = useNotificationScope();
   const { toast } = useToast();
   const previousNotificationIds = useRef<Set<string>>(new Set());
   const isInitialLoad = useRef(true);
 
   const { data: notifications = [], isLoading } = useQuery<TicketNotification[]>({
-    ...notificationListOptions(generalFilter, 10000),
+    ...notificationListOptions(generalFilter, scope, 10000),
   });
-  const { data: unreadCount } = useQuery(notificationCountOptions(generalFilter));
+  const { data: unreadCount } = useQuery(notificationCountOptions(generalFilter, scope));
 
   useEffect(() => {
     if (isLoading) return;

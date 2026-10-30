@@ -4,11 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   createEstimate: vi.fn(), retitleEstimate: vi.fn(), createSection: vi.fn(), patchSection: vi.fn(), deleteSection: vi.fn(),
   createLine: vi.fn(), patchLine: vi.fn(), deleteLine: vi.fn(), readEstimate: vi.fn(), listEstimates: vi.fn(), log: vi.fn(),
-  readTicketEstimate: vi.fn(),
+  readTicketEstimate: vi.fn(), renderEstimatePdf: vi.fn(),
 }));
 vi.mock("../services/estimates", () => mocks);
 vi.mock("../services/estimateReads", () => mocks);
 vi.mock("../services/ticketEstimates", () => mocks);
+vi.mock("../services/estimatePdf", () => mocks);
 vi.mock("../lib/logger", () => ({ logger: { error: mocks.log } }));
 import { registerEstimateRoutes } from "./estimates";
 import { EstimateError } from "../services/estimateErrors";
@@ -106,6 +107,37 @@ describe("all estimate endpoint boundaries", () => {
     expect(mocks.patchLine).toHaveBeenCalledWith("a", "e", "v", "l", { detail: null });
     await request(appFor()).patch("/api/estimates/e/versions/v/sections/s").send({ name: "Renamed" });
     expect(mocks.patchSection).toHaveBeenCalledWith("a", "e", "v", "s", { name: "Renamed" });
+  });
+  it("retrieves current and historical PDFs with guarded dispositions", async () => {
+    mocks.renderEstimatePdf.mockResolvedValue(Buffer.from("%PDF-fixture"));
+    mocks.readEstimate.mockResolvedValue({ estimateNumber: "EST-2026-0001", versions: [{ id: "v", versionNumber: 1 }, { id: "old", versionNumber: 2 }] });
+    for (const [version, n, query, mode] of [["v", 1, "", "inline"], ["old", 2, "?download=1", "attachment"]] as const) {
+      const result = await request(appFor()).get(`/api/estimates/e/versions/${version}/pdf${query}`).set("X-Company-Id", "a");
+      expect(result.status).toBe(200);
+      expect(result.headers["content-type"]).toContain("application/pdf");
+      expect(result.headers["content-disposition"]).toBe(`${mode}; filename="EST-2026-0001-v${n}.pdf"`);
+      expect(result.headers["cache-control"]).toBe("no-store");
+      expect(mocks.renderEstimatePdf).toHaveBeenCalledWith("a", "e", version);
+    }
+  });
+  it("gates PDF role, auth and expected company before rendering", async () => {
+    const path = "/api/estimates/e/versions/v/pdf";
+    expect((await request(appFor("field")).get(path)).status).toBe(403);
+    expect((await request(appFor(null)).get(path)).status).toBe(401);
+    expect((await request(appFor()).get(path).set("X-Company-Id", "b")).status).toBe(409);
+    expect(mocks.renderEstimatePdf).not.toHaveBeenCalled();
+  });
+  it("PDF hides missing/foreign records and unexpected exception details", async () => {
+    const path = "/api/estimates/e/versions/foreign/pdf";
+    mocks.renderEstimatePdf.mockRejectedValue(new EstimateError(404, "NOT_FOUND", { private: "PRIVATE" }));
+    expect((await request(appFor()).get(path)).body).toEqual({ error: "NOT_FOUND" });
+    expect((await request(appFor()).get(path)).status).toBe(404);
+    mocks.renderEstimatePdf.mockRejectedValue({ code: "PRIVATE", message: "PRIVATE" });
+    const result = await request(appFor()).get(path);
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: "INTERNAL_ERROR" });
+    expect(mocks.log).toHaveBeenCalledWith({ code: "ESTIMATE_PDF_ERROR" }, "Estimate PDF failed");
+    expect(JSON.stringify(mocks.log.mock.calls)).not.toContain("PRIVATE");
   });
   it("validates query contracts and historical version numbers", async () => {
     for (const url of ["/api/estimates?includeVoid=1", "/api/estimates?customerId=", "/api/estimates?extra=1", "/api/estimates/e?version=0", "/api/estimates/e?version=2147483648", "/api/estimates/e?version=2.5"])

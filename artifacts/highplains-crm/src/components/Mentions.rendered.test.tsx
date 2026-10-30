@@ -13,16 +13,17 @@ import { ProtectedRoute } from "@/lib/protected-route";
 import { canViewBilling } from "@/lib/billing";
 import type { NavRole } from "@/components/nav/navConfig";
 import {
-  generalFilter, mentionsFilter, mentionsCountKey, notificationCountKey, notificationCountOptions,
-  notificationListKey, notificationListOptions, markNotificationRead, markAllNotificationsRead, type Notification,
+  generalFilter, mentionsFilter, mentionsCountKey as scopedMentionsCountKey, notificationCountKey as scopedCountKey, notificationCountOptions as scopedCountOptions,
+  notificationListKey as scopedListKey, notificationListOptions as scopedListOptions, markNotificationRead as scopedMarkRead, markAllNotificationsRead as scopedMarkAllRead, type Notification, type NotificationFilter,
 } from "@/lib/notifications";
 
 const fx = vi.hoisted(() => ({
   api: vi.fn(),
-  user: { id: "recipient", activeRole: "admin" as NavRole, activeTags: [] as string[], isSuperAdminBool: false },
+  loggedIn: true,
+  user: { id: "recipient", activeCompanyId: "company-1", activeRole: "admin" as NavRole, activeTags: [] as string[], isSuperAdminBool: false },
   detailsError: null as string | null,
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: fx.user, isLoading: false }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: fx.loggedIn ? fx.user : null, isLoading: false }) }));
 vi.mock("@/lib/queryClient", async original => ({
   ...await original<typeof import("@/lib/queryClient")>(),
   apiRequest: (...args: unknown[]) => fx.api(...args),
@@ -43,9 +44,18 @@ const general: Notification = { ...mention("g1"), type: "assigned", message: "As
 let clients: QueryClient[] = [];
 let rows: Notification[] = [];
 let pauseGets = false;
+const scope = () => ({ userId: fx.user.id, companyId: fx.user.activeCompanyId, role: fx.user.activeRole });
+const notificationListKey = (filter: NotificationFilter) => scopedListKey(filter, scope());
+const notificationCountKey = (filter: NotificationFilter) => scopedCountKey(filter, scope());
+const notificationListOptions = (filter: NotificationFilter, interval?: number) => scopedListOptions(filter, scope(), interval);
+const notificationCountOptions = (filter: NotificationFilter) => scopedCountOptions(filter, scope());
+const mentionsCountKey = () => scopedMentionsCountKey(scope());
+const markNotificationRead = (cache: QueryClient, id: string) => scopedMarkRead(cache, id, scope());
+const markAllNotificationsRead = (cache: QueryClient) => scopedMarkAllRead(cache, scope());
 beforeEach(async () => {
   await i18n.changeLanguage("en");
-  fx.user = { id: "recipient", activeRole: "admin", activeTags: [], isSuperAdminBool: false };
+  fx.loggedIn = true;
+  fx.user = { id: "recipient", activeCompanyId: "company-1", activeRole: "admin", activeTags: [], isSuperAdminBool: false };
   fx.detailsError = null;
   rows = [mention(), mention("old", true), general]; pauseGets = false;
   Object.defineProperty(window, "matchMedia", { writable: true, value: vi.fn().mockReturnValue({
@@ -81,11 +91,63 @@ function mount(content: React.ReactNode, cache = client()) {
 function seed(cache: QueryClient, count = 1) {
   cache.setQueryData(notificationListKey(mentionsFilter), rows.filter(row => row.type === "mentioned"));
   cache.setQueryData(notificationListKey(generalFilter), [general]);
-  cache.setQueryData(mentionsCountKey, { count });
+  cache.setQueryData(mentionsCountKey(), { count });
   cache.setQueryData(notificationCountKey(generalFilter), { count: 1 });
 }
 
 describe("dedicated Mentions surfaces", () => {
+  it.each(["company", "user", "role", "logout-login"] as const)("never shows previous messages or counts across a %s change while requests wait", async change => {
+    const cache = client();
+    seed(cache);
+    const loc = memoryLocation({ path: "/dashboard/mentions" });
+    const tree = () => <QueryClientProvider client={cache}><Router hook={loc.hook}>
+      <TooltipProvider><MentionsPage /><NotificationsPage /><MentionsDropdown /><NotificationsDropdown /></TooltipProvider>
+    </Router></QueryClientProvider>;
+    const view = render(tree());
+    await screen.findByText("Mention m1");
+    expect(screen.getByTestId("badge-mentions-header").textContent).toBe("1");
+    expect(screen.getByTestId("badge-unread-count").textContent).toBe("1");
+    const oldScope = scope();
+    pauseGets = true;
+    if (change === "company") fx.user = { ...fx.user, activeCompanyId: "company-2" };
+    if (change === "user") fx.user = { ...fx.user, id: "other-user" };
+    if (change === "role") fx.user = { ...fx.user, activeRole: "office" };
+    if (change === "logout-login") fx.loggedIn = false;
+    view.rerender(tree());
+    const assertNoOldData = () => {
+      expect(screen.queryByText("Mention m1")).toBeNull();
+      expect(screen.queryByText(general.message)).toBeNull();
+      expect(screen.queryByTestId("badge-mentions-page")).toBeNull();
+      expect(screen.queryByTestId("badge-mentions-header")).toBeNull();
+      expect(screen.queryByTestId("badge-unread-count")).toBeNull();
+    };
+    assertNoOldData();
+    if (change === "logout-login") {
+      const requests = fx.api.mock.calls.length;
+      await act(async () => {});
+      expect(fx.api.mock.calls).toHaveLength(requests);
+      fx.user = { ...fx.user, id: "next-login" };
+      fx.loggedIn = true;
+      view.rerender(tree());
+      assertNoOldData();
+    }
+    // Old cache is still populated: isolation, not clearing it or waiting for refetch, protects the new view.
+    expect(cache.getQueryData<Notification[]>(scopedListKey(mentionsFilter, oldScope))?.[0].message).toBe("Mention m1");
+  });
+  it.each(["one", "all"] as const)("restricts %s read mutation cache updates to the initiating scope", async operation => {
+    const cache = client();
+    seed(cache, 3);
+    const oldScope = scope();
+    const request = operation === "one" ? scopedMarkRead(cache, "m1", oldScope) : scopedMarkAllRead(cache, oldScope);
+    fx.user = { ...fx.user, activeCompanyId: "company-2" };
+    rows = [mention(), mention("old", true), general];
+    seed(cache, 9);
+    await request;
+    expect(cache.getQueryData<Notification[]>(scopedListKey(mentionsFilter, oldScope))?.[0].isRead).toBe(true);
+    expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.[0].isRead).toBe(false);
+    expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 9 });
+    expect(fx.api.mock.calls[0][3]?.headers).toEqual({ "X-Company-Id": oldScope.companyId });
+  });
   it("uses explicit isolated filter requests and matching shared 60s/50s count settings", async () => {
     const cache = client();
     await cache.fetchQuery(notificationListOptions(mentionsFilter));
@@ -98,7 +160,7 @@ describe("dedicated Mentions surfaces", () => {
     ]);
     expect(cache.getQueryData(notificationListKey(mentionsFilter))).toEqual(rows.slice(0, 2));
     expect(cache.getQueryData(notificationListKey(generalFilter))).toEqual([general]);
-    expect(notificationCountOptions(mentionsFilter)).toMatchObject({ queryKey: mentionsCountKey, staleTime: 50_000, refetchInterval: 60_000 });
+    expect(notificationCountOptions(mentionsFilter)).toMatchObject({ queryKey: mentionsCountKey(), staleTime: 50_000, refetchInterval: 60_000 });
   });
   it("updates the actual sidebar, header, page and cached rows on success without waiting for refetch", async () => {
     const cache = client(); seed(cache);
@@ -114,7 +176,7 @@ describe("dedicated Mentions surfaces", () => {
     expect(cache.getQueryData(notificationCountKey(generalFilter))).toEqual({ count: 1 });
     await userEvent.click(screen.getByTestId("mention-row-m1"));
     expect(fx.api.mock.calls.filter(args => args[0] === "PATCH")).toHaveLength(1);
-    expect(cache.getQueryData(mentionsCountKey)).toEqual({ count: 0 });
+    expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 0 });
   });
   it("dropdown opens only unread mentions and reads/navigates to a ticket without comment links", async () => {
     const { loc } = mount(<MentionsDropdown />);
@@ -138,7 +200,7 @@ describe("dedicated Mentions surfaces", () => {
     await userEvent.click(screen.getByTestId("mention-row-m1"));
     expect((await screen.findAllByRole("alert")).some(node => node.textContent?.includes("Could not mark"))).toBe(true);
     expect(loc.history).toEqual(["/dashboard/mentions"]);
-    expect(cache.getQueryData(mentionsCountKey)).toEqual({ count: 1 });
+    expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 1 });
     expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.[0].isRead).toBe(false);
   });
   it("already-read rows check access and navigate without a write or decrement", async () => {
@@ -157,7 +219,7 @@ describe("dedicated Mentions surfaces", () => {
     resolve(); await first;
     await markNotificationRead(cache, "m1");
     expect(fx.api).toHaveBeenCalledTimes(1);
-    expect(cache.getQueryData(mentionsCountKey)).toEqual({ count: 4 });
+    expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 4 });
   });
   it("cancels pre-write list/count responses so they cannot restore stale unread state", async () => {
     const cache = client(); seed(cache);
@@ -165,12 +227,12 @@ describe("dedicated Mentions surfaces", () => {
     const pendingFetch = ({ signal }: { signal: AbortSignal }) => {
       signals.push(signal); return new Promise<never>(() => {});
     };
-    void cache.fetchQuery({ queryKey: mentionsCountKey, queryFn: pendingFetch }).catch(() => {});
+    void cache.fetchQuery({ queryKey: mentionsCountKey(), queryFn: pendingFetch }).catch(() => {});
     void cache.fetchQuery({ queryKey: notificationListKey(mentionsFilter), queryFn: pendingFetch }).catch(() => {});
     await markNotificationRead(cache, "m1");
     expect(signals).toHaveLength(2);
     expect(signals.every(signal => signal.aborted)).toBe(true);
-    expect(cache.getQueryData(mentionsCountKey)).toEqual({ count: 0 });
+    expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 0 });
     expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.[0].isRead).toBe(true);
   });
   it.each(["bell", "page"])("global read-all from the general %s clears unseen cached mentions immediately", async surface => {
@@ -181,7 +243,7 @@ describe("dedicated Mentions surfaces", () => {
     expect(screen.queryByText("Mention m1")).toBeNull();
     pauseGets = true;
     await userEvent.click(screen.getByTestId("button-mark-all-read"));
-    await waitFor(() => expect(cache.getQueryData(mentionsCountKey)).toEqual({ count: 0 }));
+    await waitFor(() => expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 0 }));
     expect(screen.queryByTestId("badge-mentions-header")).toBeNull();
     expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.every(row => row.isRead)).toBe(true);
     expect(cache.getQueryData(notificationCountKey(generalFilter))).toEqual({ count: 0 });
@@ -191,7 +253,7 @@ describe("dedicated Mentions surfaces", () => {
     const cache = client(); seed(cache, 3);
     fx.api.mockRejectedValue(new Error("read-all failed"));
     await expect(markAllNotificationsRead(cache)).rejects.toThrow("read-all failed");
-    expect(cache.getQueryData(mentionsCountKey)).toEqual({ count: 3 });
+    expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 3 });
     expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.[0].isRead).toBe(false);
   });
   it.each([0, 100])("all badges hide at zero and cap 100 as 99+ (count=%s)", async count => {
@@ -202,7 +264,7 @@ describe("dedicated Mentions surfaces", () => {
       expect(badge?.textContent ?? null).toBe(count === 0 ? null : "99+");
     }
     expect(screen.getByTestId("button-mentions").getAttribute("aria-label")).toBe(`Mentions, ${count} unread`);
-    expect(cache.getQueryCache().findAll({ queryKey: mentionsCountKey, exact: true })).toHaveLength(1);
+    expect(cache.getQueryCache().findAll({ queryKey: mentionsCountKey(), exact: true })).toHaveLength(1);
   });
   it("bell count comes from its non-mention count endpoint, not the visible list's priority counts", async () => {
     const cache = client(); seed(cache);
@@ -287,7 +349,7 @@ describe("mention clicks across unchanged route and API permissions", () => {
     await userEvent.click(target.getByTestId("mention-row-m1"));
     await waitFor(() => expect(target.getByRole("alert").textContent).toBe("You don’t have access to this ticket. The mention has been marked as read."));
     expect(loc.history).toEqual(["/dashboard/mentions"]);
-    expect(cache.getQueryData(mentionsCountKey)).toEqual({ count: 0 });
+    expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 0 });
     expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.[0].isRead).toBe(true);
     expect(fx.api.mock.calls.some(args => args[0] === "PATCH")).toBe(true);
     expect(fx.api.mock.calls.some(args => String(args[1]).includes("/api/tickets/"))).toBe(false);
@@ -307,7 +369,7 @@ describe("mention clicks across unchanged route and API permissions", () => {
       await userEvent.click(screen.getByTestId("mention-row-m1"));
       expect((await screen.findByRole("alert")).textContent).toContain("You don’t have access to this ticket");
       expect(loc.history).toEqual(["/dashboard/mentions"]);
-      expect(cache.getQueryData(mentionsCountKey)).toEqual({ count: 0 });
+      expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 0 });
       expect(fx.api.mock.calls.some(args => args[0] === "GET" && args[1] === "/api/tickets/ticket-m1/details")).toBe(true);
       expect(screen.queryByText("Raw access denied screen")).toBeNull();
       expect(screen.queryByText("Ticket destination")).toBeNull();
@@ -322,7 +384,7 @@ describe("mention clicks across unchanged route and API permissions", () => {
     await userEvent.click(screen.getByTestId("mention-row-m1"));
     expect((await screen.findByRole("alert")).textContent).toBe("No tienes acceso a este ticket. La mención se ha marcado como leída.");
     expect(screen.queryByTestId("mention-row-m1")).toBeNull();
-    expect(cache.getQueryData(mentionsCountKey)).toEqual({ count: 0 });
+    expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 0 });
     expect(loc.history).toEqual(["/dashboard/mentions"]);
   });
   it.each(["billing", "super-admin", "assigned-crew"])("preserves existing %s access and opens an authorized ticket", async exception => {

@@ -34,3 +34,5 @@
 - [Vite JSX verification](vite-jsx-verification.md) — dev instrumentation can reject typed JSX that passes TypeScript and rendered tests; verify the transformed module.
 - [Estimate ticket recovery](estimate-ticket-recovery.md) — at-target retries reconcile mapped fields without replaying status; newest draft is not itself a lifecycle event.
 - [Mention access policy](mention-access-policy.md) — mentions never grant ticket access; denied clicks still mark read and show an inline note.
+- [PDF decoration preservation](pdf-decoration-preservation.md) — explicitly restore PDF text state while preserving legacy proposal exhibit overflow geometry.
+- [Container query verification](container-query-verification.md) — verify populated sections and both sidebar states; mocked widths can miss clipped rails.

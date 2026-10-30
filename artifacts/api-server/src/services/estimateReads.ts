@@ -3,6 +3,7 @@ import { estimates, estimateVersions, estimateSections, estimateLines, customers
 import { db, type AppTransaction } from "../db";
 import { computeVersionTotals } from "./estimateMath";
 import { requireEstimate } from "./estimateErrors";
+import { estimateDisplay } from "./estimateDisplay";
 
 export type EstimateConnection = typeof db | AppTransaction;
 export function estimateLinePayload(line: EstimateLine) {
@@ -35,6 +36,7 @@ export async function estimatePayload(tx: EstimateConnection, companyId: string,
     .orderBy(desc(estimateVersions.versionNumber));
   const version = requireEstimate(versions.find(v => versionNumber !== undefined ? v.versionNumber === versionNumber : v.id === (affectedVersionId ?? estimate.currentVersionId)));
   return { ...estimate, versions,
+    display: await estimateDisplay(tx, companyId, estimate),
     version: await versionPayload(tx, companyId, version) };
 }
 export async function readEstimate(companyId: string, id: string, versionNumber?: number) {

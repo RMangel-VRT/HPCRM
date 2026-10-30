@@ -11,6 +11,7 @@ import { listEstimates, readEstimate } from "../services/estimateReads";
 import { createEstimate, retitleEstimate, createSection, patchSection, deleteSection, createLine, patchLine, deleteLine } from "../services/estimates";
 import { transitionEstimate } from "../services/estimateLifecycle";
 import { readTicketEstimate } from "../services/ticketEstimates";
+import { renderEstimatePdf } from "../services/estimatePdf";
 
 const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) => {
   try { await fn(req, res, next); } catch (error) {
@@ -48,6 +49,25 @@ export function registerEstimateRoutes(app: Express) {
     res.json(await retitleEstimate((req.user as UserWithContext).activeCompanyId, id, patchEstimateSchema.parse(req.body).title));
   }));
   const versionPath = "/:id/versions/:versionId";
+  router.get(`${versionPath}/pdf`, async (req, res) => {
+    try {
+      const { id, versionId } = pathSchema.parse(req.params);
+      const companyId = (req.user as UserWithContext).activeCompanyId;
+      const pdf = await renderEstimatePdf(companyId, id, versionId!);
+      // Filename comes from the already-owned version, never an untrusted request string.
+      const estimate = await readEstimate(companyId, id);
+      const version = estimate.versions.find(v => v.id === versionId);
+      if (!version) { res.status(404).json({ error: "NOT_FOUND" }); return; }
+      const number = /^EST-\d{4}-\d+$/.test(estimate.estimateNumber) ? estimate.estimateNumber : "EST";
+      res.type("application/pdf").setHeader("Content-Disposition", `${req.query.download === "1" ? "attachment" : "inline"}; filename="${number}-v${version.versionNumber}.pdf"`);
+      res.send(pdf);
+    } catch (error) {
+      if (error instanceof z.ZodError) { res.status(400).json({ error: "INVALID_REQUEST" }); return; }
+      if (error instanceof EstimateError && error.status === 404) { res.status(404).json({ error: "NOT_FOUND" }); return; }
+      (req.log ?? logger).error({ code: "ESTIMATE_PDF_ERROR" }, "Estimate PDF failed");
+      res.status(500).json({ error: "INTERNAL_ERROR" });
+    }
+  });
   for (const action of ["send", "accept", "decline", "revise"] as const) {
     router.post(`${versionPath}/${action}`, handle(async (req, res) => {
       const { id, versionId } = pathSchema.parse(req.params);

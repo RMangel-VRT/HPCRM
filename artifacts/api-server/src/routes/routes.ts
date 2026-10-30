@@ -1,4 +1,5 @@
 import { withInvoiceLinkSummaries } from "../lib/ticketLinkSummary";
+import { BRAND, LM, RM, loadBrandLogo, wirePageDecorations } from "../lib/pdfBrand";
 import express from "express";
 import type { Express } from "express";
 import { registerCrewSupervisorTicketGuard } from "../lib/crewSupervisorTicketAccess";
@@ -11756,11 +11757,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const companySettings = await storage.getSettings(companyId);
     const companyName = companySettings?.companyName || "High Plains Property Maintenance";
 
-    const logoPath = path.join(process.cwd(), 'attached_assets', 'NEW - LOGO-03_1763582979034.png');
-    let logoBuffer: Buffer | null = null;
-    try {
-      logoBuffer = await fs.readFile(logoPath);
-    } catch (_err) {}
+    const logoBuffer = await loadBrandLogo();
 
     const objectStorageService = new ObjectStorageService();
     const estimateBuffers: Buffer[] = [];
@@ -11777,70 +11774,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const PDFDocumentKit = (await import('pdfkit')).default;
 
-    const LM = 72;
-    const RM = 72;
-    const BRAND = '#1a4d1a';
-
-    function drawWatermark(d: InstanceType<typeof PDFDocumentKit>) {
-      const W = d.page.width;
-      const H = d.page.height;
-      d.save();
-      d.opacity(0.05);
-
-      d.fillColor('#6aaa6a');
-      d.moveTo(0, H * 0.55)
-        .bezierCurveTo(W * 0.20, H * 0.35, W * 0.40, H * 0.42, W * 0.55, H * 0.38)
-        .bezierCurveTo(W * 0.70, H * 0.34, W * 0.85, H * 0.44, W, H * 0.50)
-        .lineTo(W, H)
-        .lineTo(0, H)
-        .closePath()
-        .fill();
-
-      d.fillColor('#3d7a3d');
-      d.moveTo(0, H * 0.65)
-        .bezierCurveTo(W * 0.15, H * 0.50, W * 0.32, H * 0.57, W * 0.50, H * 0.52)
-        .bezierCurveTo(W * 0.68, H * 0.47, W * 0.82, H * 0.55, W, H * 0.62)
-        .lineTo(W, H)
-        .lineTo(0, H)
-        .closePath()
-        .fill();
-
-      d.fillColor('#1a4d1a');
-      d.moveTo(0, H * 0.76)
-        .bezierCurveTo(W * 0.18, H * 0.64, W * 0.36, H * 0.70, W * 0.52, H * 0.66)
-        .bezierCurveTo(W * 0.70, H * 0.62, W * 0.86, H * 0.68, W, H * 0.73)
-        .lineTo(W, H)
-        .lineTo(0, H)
-        .closePath()
-        .fill();
-
-      d.restore();
-    }
-
-    function drawFooter(d: InstanceType<typeof PDFDocumentKit>, pageNum: number, company: string) {
-      const W = d.page.width;
-      const H = d.page.height;
-      const footerY = H - 50;
-      d.save();
-      d.moveTo(LM, footerY - 10)
-        .lineTo(W - RM, footerY - 10)
-        .strokeColor('#cccccc')
-        .lineWidth(0.4)
-        .stroke();
-      const origBottom = (d.page.margins as any).bottom;
-      (d.page.margins as any).bottom = 0;
-      d.fillColor('#999999')
-        .fontSize(8)
-        .font('Helvetica')
-        .text(company, LM, footerY, { width: W - LM - RM, align: 'center' });
-      d.fillColor('#bbbbbb')
-        .fontSize(7)
-        .font('Helvetica')
-        .text(`Page ${pageNum}`, LM, footerY + 12, { width: W - LM - RM, align: 'center' });
-      (d.page.margins as any).bottom = origBottom;
-      d.restore();
-    }
-
     const chunks: Buffer[] = [];
     const doc = new PDFDocumentKit({
       size: 'LETTER',
@@ -11853,32 +11786,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       doc.on('error', reject);
     });
 
-    let brandedPageCounter = 0;
-    const brandedGuard = { active: false };
     // Track current body font state — PDFKit save()/restore() does NOT restore font state,
     // so after drawFooter sets fontSize(7) the font leaks into overflow text unless we restore it.
     let bodyFontState = { font: 'Helvetica', size: 10.5, color: '#222222' };
-    function drawPageDecorations(d: InstanceType<typeof PDFDocumentKit>, num: number) {
-      if (brandedGuard.active) return;
-      brandedGuard.active = true;
-      const savedY = d.y;
-      try {
-        drawWatermark(d);
-        drawFooter(d, num, companyName);
-      } finally {
-        d.y = savedY;
-        brandedGuard.active = false;
-      }
-    }
-    brandedPageCounter = 1;
-    drawPageDecorations(doc, brandedPageCounter);
-    doc.on('pageAdded', () => {
-      brandedPageCounter++;
-      drawPageDecorations(doc, brandedPageCounter);
-      // Restore body font after footer drawing — footer sets fontSize(7) which would otherwise
-      // leak into any text that overflows onto this new page.
-      doc.fillColor(bodyFontState.color).fontSize(bodyFontState.size).font(bodyFontState.font);
-    });
+    wirePageDecorations(doc, companyName, { bodyFont: () => bodyFontState });
+    // Exhibits historically resumed with the footer's font on overflow.
+    // Make that legacy state explicit so this mechanical extraction preserves
+    // existing caption geometry/page counts rather than silently restyling it.
+    const exhibitBodyFont = () => ({ font: 'Helvetica', size: 7, color: '#bbbbbb' });
 
     const pageWidth = doc.page.width;
     const contentWidth = pageWidth - LM - RM;
@@ -12005,18 +11920,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         psDoc.on('end', () => resolve(Buffer.concat(psChunks)));
         psDoc.on('error', reject);
       });
-      let psPageCounter = 0;
-      const psGuard = { active: false };
-      const drawPsDecorations = (d: InstanceType<typeof PDFDocumentKit>, num: number) => {
-        if (psGuard.active) return;
-        psGuard.active = true;
-        const savedY = d.y;
-        try { drawWatermark(d); drawFooter(d, num, companyName); }
-        finally { d.y = savedY; psGuard.active = false; }
-      };
-      psPageCounter = 1;
-      drawPsDecorations(psDoc, psPageCounter);
-      psDoc.on('pageAdded', () => { psPageCounter++; drawPsDecorations(psDoc, psPageCounter); });
+      wirePageDecorations(psDoc, companyName, { bodyFont: exhibitBodyFont });
 
       const psContentW = psDoc.page.width - LM - RM;
       // Vary thumbnail size: grid layout fits more rows per page, large gives more visual weight
@@ -12128,18 +12032,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         palDoc.on('end', () => resolve(Buffer.concat(palChunks)));
         palDoc.on('error', reject);
       });
-      let palPageCounter = 0;
-      const palGuard = { active: false };
-      const drawPalDecorations = (d: InstanceType<typeof PDFDocumentKit>, num: number) => {
-        if (palGuard.active) return;
-        palGuard.active = true;
-        const savedY = d.y;
-        try { drawWatermark(d); drawFooter(d, num, companyName); }
-        finally { d.y = savedY; palGuard.active = false; }
-      };
-      palPageCounter = 1;
-      drawPalDecorations(palDoc, palPageCounter);
-      palDoc.on('pageAdded', () => { palPageCounter++; drawPalDecorations(palDoc, palPageCounter); });
+      wirePageDecorations(palDoc, companyName, { bodyFont: exhibitBodyFont });
 
       const palContentW = palDoc.page.width - LM - RM;
 
@@ -12310,26 +12203,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         appendixDoc.on('error', reject);
       });
 
-      let appendixPageCounter = 0;
-      const appendixGuard = { active: false };
-      const drawAppendixDecorations = (d: InstanceType<typeof PDFDocumentKit>, num: number) => {
-        if (appendixGuard.active) return;
-        appendixGuard.active = true;
-        const savedY = d.y;
-        try {
-          drawWatermark(d);
-          drawFooter(d, num, companyName);
-        } finally {
-          d.y = savedY;
-          appendixGuard.active = false;
-        }
-      };
-      appendixPageCounter = 1;
-      drawAppendixDecorations(appendixDoc, appendixPageCounter);
-      appendixDoc.on('pageAdded', () => {
-        appendixPageCounter++;
-        drawAppendixDecorations(appendixDoc, appendixPageCounter);
-      });
+      wirePageDecorations(appendixDoc, companyName, { bodyFont: exhibitBodyFont });
 
       const appPageWidth = appendixDoc.page.width;
       const appPageHeight = appendixDoc.page.height;
@@ -12495,18 +12369,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         vsDoc.on("error", reject);
       });
 
-      let vsPageCounter = 0;
-      const vsGuard = { active: false };
-      const drawVsDecorations = (d: InstanceType<typeof PDFDocumentKit>, num: number) => {
-        if (vsGuard.active) return;
-        vsGuard.active = true;
-        const savedY = d.y;
-        try { drawWatermark(d); drawFooter(d, num, companyName); }
-        finally { d.y = savedY; vsGuard.active = false; }
-      };
-      vsPageCounter = 1;
-      drawVsDecorations(vsDoc, vsPageCounter);
-      vsDoc.on("pageAdded", () => { vsPageCounter++; drawVsDecorations(vsDoc, vsPageCounter); });
+      wirePageDecorations(vsDoc, companyName, { bodyFont: exhibitBodyFont });
 
       const vsCaption = `${vsSheet.title}  ·  ${vsSheet.scopeDate}`;
       const captionHeight = 26;
