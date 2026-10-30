@@ -27,6 +27,7 @@ import { WorkPageLayout } from "@/components/nav/WorkPageLayout";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import AppBreadcrumb from "@/components/AppBreadcrumb";
 import NotificationsDropdown from "@/components/NotificationsDropdown";
+import MentionsDropdown from "@/components/MentionsDropdown";
 import LoginPage from "@/pages/LoginPage";
 import SetupPage from "@/pages/SetupPage";
 import EulaPage from "@/pages/EulaPage";
@@ -71,6 +72,7 @@ const CrewWorksheetMaker = lazy(() => import("@/pages/CrewWorksheetMaker"));
 const CrewWorksheetDraft = lazy(() => import("@/pages/CrewWorksheetDraft"));
 const CrewWorksheetPrint = lazy(() => import("@/pages/CrewWorksheetPrint"));
 const NotificationsPage = lazy(() => import("@/pages/NotificationsPage"));
+const MentionsPage = lazy(() => import("@/pages/MentionsPage"));
 const VisualScopeList = lazy(() => import("@/pages/VisualScopeList"));
 const VisualScopeDraft = lazy(() => import("@/pages/VisualScopeDraft"));
 const CustomerRouteMap = lazy(() => import("@/pages/CustomerRouteMap"));
@@ -355,6 +357,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/contracts" component={ContractCenterPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/notifications" component={NotificationsPage} allowedRoles={["admin", "office", ...allFieldRoles]} />
+        <ProtectedRoute path="/dashboard/mentions" component={MentionsPage} />
         <ProtectedRoute path="/dashboard/flags/:id" component={FlagDetailPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/flags" component={FlagsInboxPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
@@ -449,6 +452,7 @@ function Router() {
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 <div className="flex items-center gap-1">
                   <TopbarMenus />
+                  <MentionsDropdown />
                   <NotificationsDropdown />
                 </div>
               </header>

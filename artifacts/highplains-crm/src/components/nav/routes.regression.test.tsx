@@ -14,6 +14,12 @@ const app = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
 const getRoute = (path: string) => app.match(new RegExp(`<ProtectedRoute\\s+path="${path}"[\\s\\S]*?\\/>`))?.[0] ?? "";
 
 describe("shell routes and permission boundaries", () => {
+  it("gives all signed-in recipients Mentions without broadening any other route", () => {
+    expect(getRoute("/dashboard/mentions")).toBe('<ProtectedRoute path="/dashboard/mentions" component={MentionsPage} />');
+    expect(getRoute("/dashboard/notifications")).toContain('allowedRoles={["admin", "office", ...allFieldRoles]}');
+    expect(getRoute("/dashboard/communications/:tab?")).not.toContain("crew_supervisor");
+    expect(app).toMatch(/<TopbarMenus \/>\s*<MentionsDropdown \/>\s*<NotificationsDropdown \/>/);
+  });
   it("registers all canonical plant pages with unchanged admin/office gates before Estimates", () => {
     const base = "/dashboard/estimates/catalogs/plants";
     for (const [suffix, component] of [["", "PlantLibrary"], ["/matches", "PlantMatches"], ["/palettes", "PlantPalettes"], ["/palettes/:id", "PlantPaletteDraft"]]) {

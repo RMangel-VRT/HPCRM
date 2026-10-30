@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard, Building2, Settings, Shield, DollarSign, ClipboardList, UserCheck,
-  Map, CalendarDays, FileText, FileBarChart, MessagesSquare, Flag, Receipt,
+  Map, CalendarDays, FileText, FileBarChart, MessagesSquare, MessageSquare, Flag, Receipt,
   Users, Snowflake, Megaphone, Wrench, CalendarClock, Calculator, Gavel,
 } from "lucide-react";
 import { showBillingSidebar } from "@/lib/billing";
@@ -20,7 +20,7 @@ export interface NavUser {
   lastCommsTab?: CommsTab;
 }
 
-export type NavBadge = "billing" | "scheduling" | "flags" | "unsorted";
+export type NavBadge = "billing" | "scheduling" | "flags" | "unsorted" | "mentions";
 
 export interface NavItemDef {
   key: string;
@@ -75,6 +75,8 @@ export const NAV_GROUPS: NavGroupDef[] = [
       { key: "inbox", labelKey: "nav.inbox", icon: MessagesSquare,
         href: (u) => commsTabHref(u.lastCommsTab ?? "inbox"),
         activeMatch: ["/dashboard/communications"], badge: "unsorted", visible: is(...AO) },
+      { key: "mentions", labelKey: "nav.mentions", icon: MessageSquare, href: "/dashboard/mentions",
+        badge: "mentions", visible: () => true },
       { key: "flags", labelKey: "nav.flags", icon: Flag, href: "/dashboard/flags", badge: "flags", visible: is(...AO) },
     ],
   },
@@ -146,6 +148,8 @@ const SUPER_ADMIN_GROUPS: NavGroupDef[] = [
     key: "superTop",
     labelKey: "nav.dashboard",
     items: [
+      { key: "mentions", labelKey: "nav.mentions", icon: MessageSquare, href: "/dashboard/mentions",
+        badge: "mentions", visible: () => true },
       { key: "myTickets", labelKey: "nav.myTickets", icon: UserCheck, href: "/dashboard/tickets/my", visible: (u) => showBillingSidebar(u) },
       { key: "billing", labelKey: "nav.invoicing", icon: Receipt, href: "/dashboard/invoicing", badge: "billing", visible: (u) => showBillingSidebar(u) },
     ],

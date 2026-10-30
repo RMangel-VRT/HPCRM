@@ -1,4 +1,15 @@
 const es = {
+  mentions: {
+    title: "Menciones", type: "Mención", unread: "Sin leer",
+    trigger: "Menciones, {{count}} sin leer", count: "{{count}} menciones sin leer",
+    empty: "Aún no hay menciones.", dropdownEmpty: "No hay menciones sin leer.",
+    viewAll: "Ver todas las menciones", loading: "Cargando menciones...",
+    loadFailed: "No se pudieron cargar las menciones.", readFailed: "No se pudo marcar esta mención como leída. Inténtalo de nuevo.",
+    countFailed: "No se pudo cargar el número de menciones sin leer.",
+    accessDenied: "No tienes acceso a este ticket. La mención se ha marcado como leída.",
+    ticketUnavailable: "Este ticket ya no está disponible. La mención se ha marcado como leída.",
+    openFailed: "No se pudo abrir este ticket. La mención se ha marcado como leída. Inténtalo de nuevo desde la página de Menciones.",
+  },
   estimateTicket: {
     title: "Estimado", create: "+ Crear estimado", noCustomer: "Agregue un cliente a este ticket antes de crear un estimado.",
     open: "Abrir estimado →", acceptedOn: "Aceptado el {{date}}", po: "OC: {{number}}",
@@ -472,6 +483,7 @@ const es = {
     status: { draft: "Borrador", sent: "Enviado", signed: "Firmado", active: "Activo", expired: "Vencido", renewed: "Renovado", lost: "Perdido", cancelled: "Cancelado" },
   },
   nav: {
+    mentions: "Menciones",
     bids: "Ofertas",
     estimates: "Estimados",
     adminHome: "Inicio Admin",

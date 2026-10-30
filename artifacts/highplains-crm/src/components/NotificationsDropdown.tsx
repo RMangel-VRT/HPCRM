@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
+import { generalFilter, notificationListOptions, notificationCountOptions, useNotificationRead, useNotificationsReadAll } from "@/lib/notifications";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -159,9 +159,9 @@ export default function NotificationsDropdown() {
   const isInitialLoad = useRef(true);
 
   const { data: notifications = [], isLoading } = useQuery<TicketNotification[]>({
-    queryKey: ["/api/notifications"],
-    refetchInterval: 10000,
+    ...notificationListOptions(generalFilter, 10000),
   });
+  const { data: unreadCount } = useQuery(notificationCountOptions(generalFilter));
 
   useEffect(() => {
     if (isLoading) return;
@@ -197,23 +197,8 @@ export default function NotificationsDropdown() {
     previousNotificationIds.current = currentIds;
   }, [notifications, isLoading, toast]);
 
-  const markReadMutation = useMutation({
-    mutationFn: async (notificationId: string) => {
-      await apiRequest("PATCH", `/api/notifications/${notificationId}/read`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-    },
-  });
-
-  const markAllReadMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/notifications/read-all");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-    },
-  });
+  const markReadMutation = useNotificationRead();
+  const markAllReadMutation = useNotificationsReadAll();
 
   const urgentAll = notifications.filter(n => getNotificationPriority(n.type) === "high");
   const urgentUnread = urgentAll.filter(n => !n.isRead);
@@ -221,7 +206,7 @@ export default function NotificationsDropdown() {
   const standardNotifications = notifications.filter(n => getNotificationPriority(n.type) === "normal");
   const urgentUnreadCount = urgentUnread.length;
   const standardUnreadCount = standardNotifications.filter(n => !n.isRead).length;
-  const totalUnreadCount = urgentUnreadCount + standardUnreadCount;
+  const totalUnreadCount = unreadCount?.count ?? 0;
 
   return (
     <Popover>
@@ -233,22 +218,22 @@ export default function NotificationsDropdown() {
           data-testid="button-notifications"
         >
           <Bell className={`h-5 w-5 ${totalUnreadCount > 0 ? "text-primary" : ""}`} />
-          {urgentUnreadCount > 0 && (
+          {urgentUnreadCount > 0 && totalUnreadCount > 0 && (
             <Badge
               variant="destructive"
               className="absolute -top-1 -left-1 h-5 min-w-5 px-1 text-xs flex items-center justify-center"
               data-testid="badge-unread-count"
             >
-              {urgentUnreadCount > 99 ? "99+" : urgentUnreadCount}
+              {totalUnreadCount > 99 ? "99+" : totalUnreadCount}
             </Badge>
           )}
-          {urgentUnreadCount === 0 && standardUnreadCount > 0 && (
+          {urgentUnreadCount === 0 && totalUnreadCount > 0 && (
             <Badge
               variant="secondary"
               className="absolute -top-1 -left-1 h-5 min-w-5 px-1 text-xs flex items-center justify-center"
               data-testid="badge-unread-count"
             >
-              {standardUnreadCount > 99 ? "99+" : standardUnreadCount}
+              {totalUnreadCount > 99 ? "99+" : totalUnreadCount}
             </Badge>
           )}
         </Button>

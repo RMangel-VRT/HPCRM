@@ -33,3 +33,4 @@
 - [Estimate lifecycle decisions](estimate-lifecycle-decisions.md) — declined sources can be revised; only replacement acceptance supersedes the accepted contract.
 - [Vite JSX verification](vite-jsx-verification.md) — dev instrumentation can reject typed JSX that passes TypeScript and rendered tests; verify the transformed module.
 - [Estimate ticket recovery](estimate-ticket-recovery.md) — at-target retries reconcile mapped fields without replaying status; newest draft is not itself a lifecycle event.
+- [Mention access policy](mention-access-policy.md) — mentions never grant ticket access; denied clicks still mark read and show an inline note.

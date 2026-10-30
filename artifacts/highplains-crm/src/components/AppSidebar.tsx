@@ -36,6 +36,7 @@ import { resolveCustomersRouteAsync, resolveCustomersRouteSync } from "@/lib/las
 import { getLastCommsTab, isValidCommsTab, type CommsTab } from "@/lib/last-comms-tab";
 import { useEffect, useMemo, useState } from "react";
 import { getNavForUser, navItemIsActive, type NavUser } from "@/components/nav/navConfig";
+import { useMentionsCount } from "@/lib/notifications";
 
 const CUSTOMERS_LIST_PATH = "/dashboard/customers";
 // Mirrors the notifications route allowedRoles in App.tsx (crew_supervisor and mapping excluded).
@@ -160,6 +161,7 @@ export default function AppSidebar({
     staleTime: 50_000,
   });
   const pendingUnsortedCount = Array.isArray(pendingUnsortedData) ? pendingUnsortedData.length : 0;
+  const { data: mentionsCount } = useMentionsCount();
 
   const badgeNode = (kind: string | undefined) => {
     const cap = (n: number) => (n > 99 ? "99+" : n);
@@ -170,6 +172,8 @@ export default function AppSidebar({
       return <Badge className={cls} data-testid="badge-billing-sidebar">{cap(billingBadgeCount)}</Badge>;
     if (kind === "unsorted" && pendingUnsortedCount > 0)
       return <Badge className={cls} data-testid="badge-pending-unsorted-sidebar">{cap(pendingUnsortedCount)}</Badge>;
+    if (kind === "mentions" && (mentionsCount?.count ?? 0) > 0)
+      return <Badge className={cls} data-testid="badge-mentions-sidebar">{cap(mentionsCount!.count)}</Badge>;
     if (kind === "flags" && flagUnreadCount > 0)
       return <Badge variant="destructive" className={cls} data-testid="badge-flags-unread-sidebar">{cap(flagUnreadCount)}</Badge>;
     return null;

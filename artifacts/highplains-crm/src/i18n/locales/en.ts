@@ -1,4 +1,15 @@
 const en = {
+  mentions: {
+    title: "Mentions", type: "Mentioned", unread: "Unread",
+    trigger: "Mentions, {{count}} unread", count: "{{count}} unread mentions",
+    empty: "No mentions yet.", dropdownEmpty: "No unread mentions.",
+    viewAll: "View all mentions", loading: "Loading mentions...",
+    loadFailed: "Could not load mentions.", readFailed: "Could not mark this mention as read. Please try again.",
+    countFailed: "Could not load the unread mention count.",
+    accessDenied: "You don’t have access to this ticket. The mention has been marked as read.",
+    ticketUnavailable: "This ticket is no longer available. The mention has been marked as read.",
+    openFailed: "Could not open this ticket. The mention has been marked as read. Try again from the Mentions page.",
+  },
   estimateTicket: {
     title: "Estimate", create: "+ Create estimate", noCustomer: "Add a customer to this ticket before creating an estimate.",
     open: "Open estimate →", acceptedOn: "Accepted on {{date}}", po: "PO: {{number}}",
@@ -472,6 +483,7 @@ const en = {
     status: { draft: "Draft", sent: "Sent", signed: "Signed", active: "Active", expired: "Expired", renewed: "Renewed", lost: "Lost", cancelled: "Cancelled" },
   },
   nav: {
+    mentions: "Mentions",
     bids: "Bids",
     estimates: "Estimates",
     adminHome: "Admin Home",

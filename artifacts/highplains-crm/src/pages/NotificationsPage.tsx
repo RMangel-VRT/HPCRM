@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { generalFilter, notificationListOptions, useNotificationRead, useNotificationsReadAll } from "@/lib/notifications";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -174,27 +174,11 @@ export default function NotificationsPage() {
   useSetBreadcrumbs([{ label: t("notifications.title") }]);
 
   const { data: notifications = [], isLoading } = useQuery<TicketNotification[]>({
-    queryKey: ["/api/notifications"],
-    refetchInterval: 15000,
+    ...notificationListOptions(generalFilter, 15000),
   });
 
-  const markReadMutation = useMutation({
-    mutationFn: async (notificationId: string) => {
-      await apiRequest("PATCH", `/api/notifications/${notificationId}/read`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-    },
-  });
-
-  const markAllReadMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/notifications/read-all");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-    },
-  });
+  const markReadMutation = useNotificationRead();
+  const markAllReadMutation = useNotificationsReadAll();
 
   const urgentAll = notifications.filter(n => getNotificationPriority(n.type) === "high");
   const urgentUnread = urgentAll.filter(n => !n.isRead);

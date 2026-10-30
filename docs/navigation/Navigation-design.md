@@ -39,7 +39,7 @@
 - **Dashboards:** at first, field roles get their current home content (`FieldHomeDashboard`, `ShopManagerDashboard`) at desktop width. A role-specific "Needs you" queue can follow later.
 - **Customers:** field roles see a filtered view of the one Customers page. `/dashboard/field-customers` redirects to it.
 - **My Batches** becomes a section of Tickets for the roles the route allows today: admin, office, field, field_manager and landscape_supervisor.
-- **Only admin and office** get Inbox, Flags, Contracts, Business, Settings, the Tools menu and the New button.
+- **Only admin and office** get Inbox, Flags, Contracts, Business, Settings, the Tools menu and the New button. **Mentions is the exception:** every role that can be mentioned gets Mentions, unlike Inbox and Flags.
 
 ## Mobile implications of "everyone gets the app" (checked at a77f060)
 
@@ -70,7 +70,7 @@
 
 ## Approved layout (admin view)
 
-- **Top:** Dashboard, Inbox (Inbox, Unsorted, Sent, All communications), **Flags** (its own item, red unread badge)
+- **Top:** Dashboard, Inbox (Inbox, Unsorted, Sent, All communications), **Mentions** (unread badge; in Inbox's position for roles without Inbox), **Flags** (its own item, red unread badge)
 - **Work:** Tickets (Mine / Batches / All), Scheduling, Calendar, Campaigns (with Checklists), Equipment, Snow. Snow moves to the top of Work in winter.
 - **Customers:** Customers, Contracts, Maps (Property maps + Route map)
 - **Business:** Estimates, Invoicing, Revenue, Reports
