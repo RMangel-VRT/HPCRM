@@ -32,6 +32,8 @@ const { NOTIFICATION_TYPES, parseNotificationFilter } = new Function("insertTick
   };
 const mountReads = new Function("app", "storage", "parseNotificationFilter",
   compile(between(routesSource, '  app.get("/api/notifications",', "  // Mark single notification")));
+const mountReadAll = new Function("app", "storage", "parseNotificationFilter",
+  compile(between(routesSource, '  app.post("/api/notifications/read-all",', "  // Reset for first-time setup")));
 const mountComments = new Function("app", "storage", "insertTicketCommentSchema",
   compile(between(routesSource, '  app.get("/api/tickets/:ticketId/comments",', '  app.delete("/api/ticket-comments/:id",')));
 const storageSource = readFileSync(new URL("../storage.ts", import.meta.url), "utf8");
@@ -41,9 +43,11 @@ function notificationStorage(db: unknown) {
     compile(between(storageSource, "function notificationTypePredicate", "export interface IStorage")
       + "\nclass Reads {\n"
       + between(storageSource, "  async getNotificationsByUser(", "  async createNotification(")
+      + between(storageSource, "  async markAllNotificationsRead(", "  async getNotificationsWithDueDateType(")
       + "\n}\nreturn new Reads();"))(db, ticketNotifications, eq, ne, and, desc, sql) as {
         getNotificationsByUser: (user: string, company: string, filter?: NotificationFilter) => Promise<any[]>;
         getUnreadNotificationCount: (user: string, company: string, filter?: NotificationFilter) => Promise<number>;
+        markAllNotificationsRead: (user: string, company: string, filter?: NotificationFilter) => Promise<void>;
       };
 }
 
@@ -77,9 +81,9 @@ describe("Strict notification filter helper", () => {
     });
 });
 
-describe("Notification GET routes under the application query parser", () => {
+describe("Notification GET/read-all routes under the application query parser", () => {
   let authenticated = true;
-  const storage = { getNotificationsByUser: vi.fn(), getUnreadNotificationCount: vi.fn() };
+  const storage = { getNotificationsByUser: vi.fn(), getUnreadNotificationCount: vi.fn(), markAllNotificationsRead: vi.fn() };
   const base = express();
   base.use((req, _res, next) => {
     Object.assign(req, { isAuthenticated: () => authenticated,
@@ -87,22 +91,27 @@ describe("Notification GET routes under the application query parser", () => {
     next();
   });
   mountReads(base, storage, parseNotificationFilter);
+  mountReadAll(base, storage, parseNotificationFilter);
   // application supplies the same parser used by registered routes in production.
   application.use("/__notification_contract", base);
-  const get = (endpoint: string, query = "") => request(application).get(`/__notification_contract${endpoint}${query}`);
+  const get = (endpoint: string, query = "") => {
+    const url = `/__notification_contract${endpoint}${query}`;
+    return endpoint.endsWith("read-all") ? request(application).post(url) : request(application).get(url);
+  };
   beforeEach(() => {
     authenticated = true;
     vi.clearAllMocks();
     storage.getNotificationsByUser.mockResolvedValue([{ id: "legacy", commentId: null }]);
     storage.getUnreadNotificationCount.mockResolvedValue(7);
   });
-  for (const endpoint of ["/api/notifications", "/api/notifications/unread-count"]) {
+  for (const endpoint of ["/api/notifications", "/api/notifications/unread-count", "/api/notifications/read-all"]) {
     const isCount = endpoint.endsWith("unread-count");
-    const method = isCount ? storage.getUnreadNotificationCount : storage.getNotificationsByUser;
+    const isWrite = endpoint.endsWith("read-all");
+    const method = isWrite ? storage.markAllNotificationsRead : isCount ? storage.getUnreadNotificationCount : storage.getNotificationsByUser;
     it(`${endpoint} preserves omission, response shape and scope`, async () => {
       const res = await get(endpoint);
       expect(res.status).toBe(200);
-      expect(res.body).toEqual(isCount ? { count: 7 } : [{ id: "legacy", commentId: null }]);
+      expect(res.body).toEqual(isWrite ? { success: true } : isCount ? { count: 7 } : [{ id: "legacy", commentId: null }]);
       expect(method).toHaveBeenCalledExactlyOnceWith("recipient", "company", undefined);
     });
     for (const key of ["type", "exclude"]) {
@@ -120,6 +129,7 @@ describe("Notification GET routes under the application query parser", () => {
         expect((await get(endpoint, `?${query}`)).status).toBe(400);
         expect(storage.getNotificationsByUser).not.toHaveBeenCalled();
         expect(storage.getUnreadNotificationCount).not.toHaveBeenCalled();
+        expect(storage.markAllNotificationsRead).not.toHaveBeenCalled();
       });
     }
     it.each(["type=mentioned&exclude=overdue", "type=&exclude=mentioned",
@@ -140,6 +150,27 @@ describe("Notification GET routes under the application query parser", () => {
 });
 
 describe("Notification SQL and schema preservation", () => {
+  it("read-all updates only unread rows for the recipient/company and optional type predicate", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const storage = notificationStorage(drizzle({ client: { query } as any }));
+    for (const value of NOTIFICATION_TYPES) {
+      for (const filter of [undefined, { type: value }, { exclude: value }]) {
+        query.mockClear();
+        await storage.markAllNotificationsRead("recipient", "company", filter);
+        const [statement, params] = query.mock.calls[0];
+        expect(statement.text).toContain('set "is_read" = $1');
+        expect(statement.text).toContain('"ticket_notifications"."recipient_id" = $2');
+        expect(statement.text).toContain('"ticket_notifications"."company_id" = $3');
+        expect(statement.text).toContain('"ticket_notifications"."is_read" = $4');
+        expect(params.slice(0, 4)).toEqual([true, "recipient", "company", false]);
+        if (filter) {
+          expect(statement.text).toContain(`"ticket_notifications"."type" ${"type" in filter ? "=" : "<>"} $5`);
+          expect(params[4]).toBe(value);
+        } else expect(statement.text).not.toMatch(/"type" (?:=|<>)/);
+        expect(query).toHaveBeenCalledTimes(1);
+      }
+    }
+  });
   it("uses SQL filtering and COUNT with user/company scope and unchanged list ordering", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [[3]] });
     const reads = notificationStorage(drizzle({ client: { query } as any }));
@@ -229,6 +260,7 @@ describe.skipIf(process.env.MENTIONS_DEV_VERIFY !== "yes")("Notification develop
         });
         mountComments(app, storage, insertTicketCommentSchema);
         mountReads(app, storage, parseNotificationFilter);
+        mountReadAll(app, storage, parseNotificationFilter);
         const root = await request(app).post(`/api/tickets/${ticket.id}/comments`).send({ body: `Hello @[${recipient.id}:Recipient]` });
         expect(root.status).toBe(200);
         const reply = await request(app).post(`/api/tickets/${ticket.id}/comments`).send({
@@ -256,10 +288,12 @@ describe.skipIf(process.env.MENTIONS_DEV_VERIFY !== "yes")("Notification develop
             message: "Disposable type fixture", createdAt: new Date(2026, 0, index + 1, isRead ? 1 : 0),
           })));
         }
-        await tx.insert(ticketNotifications).values([
+        const foreign = await tx.insert(ticketNotifications).values([
           { companyId: company.id, recipientId: otherUser.id, ticketId: ticket.id, type: "mentioned", message: "Foreign recipient" },
           { companyId: otherCompany.id, recipientId: recipient.id, ticketId: ticket.id, type: "mentioned", message: "Foreign company" },
-        ]);
+          { companyId: company.id, recipientId: otherUser.id, ticketId: ticket.id, type: "assigned", message: "Foreign general recipient" },
+          { companyId: otherCompany.id, recipientId: recipient.id, ticketId: ticket.id, type: "assigned", message: "Foreign general company" },
+        ]).returning();
         actorId = recipient.id;
         const all = await storage.getNotificationsByUser(recipient.id, company.id);
         expect(all).toHaveLength(15);
@@ -294,6 +328,29 @@ describe.skipIf(process.env.MENTIONS_DEV_VERIFY !== "yes")("Notification develop
           replyMention: { commentId: redactComment(mentions.find(n => n.commentId === reply.body.id)?.commentId),
             equalsActualReplyId: mentions.some(n => n.commentId === reply.body.id) },
         }) + "\n");
+        for (const query of ["?exclude=mentioned", "?type=mentioned", ""]) {
+          // Restore only this transaction's disposable recipient fixtures.
+          for (const row of after) await tx.update(ticketNotifications).set({ isRead: row.isRead })
+            .where(eq(ticketNotifications.id, row.id));
+          const beforeMentions = await storage.getUnreadNotificationCount(recipient.id, company.id, { type: "mentioned" });
+          const result = await request(app).post(`/api/notifications/read-all${query}`);
+          expect(result.status).toBe(200);
+          expect(result.body).toEqual({ success: true });
+          const updated = await storage.getNotificationsByUser(recipient.id, company.id);
+          const params = new URLSearchParams(query);
+          for (const row of after) {
+            const matches = params.has("type") ? row.type === params.get("type")
+              : !params.has("exclude") || row.type !== params.get("exclude");
+            expect(updated.find(n => n.id === row.id)).toEqual({ ...row, isRead: row.isRead || matches });
+          }
+          const afterMentions = await storage.getUnreadNotificationCount(recipient.id, company.id, { type: "mentioned" });
+          expect(afterMentions).toBe(query === "?exclude=mentioned" ? beforeMentions : 0);
+          for (const row of foreign) {
+            const [unchanged] = await tx.select().from(ticketNotifications).where(eq(ticketNotifications.id, row.id));
+            expect(unchanged).toEqual(row);
+          }
+          process.stdout.write(`Disposable database read-all ${query || "(unfiltered)"}: unread mentions ${beforeMentions} -> ${afterMentions}; foreign rows unchanged\n`);
+        }
         throw rollback;
       }));
     } catch (error) {

@@ -8991,7 +8991,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    await storage.markAllNotificationsRead(user.id, user.activeCompanyId);
+    const parsed = parseNotificationFilter(req.query);
+    if (parsed.error !== undefined) return res.status(400).json({ message: parsed.error });
+    await storage.markAllNotificationsRead(user.id, user.activeCompanyId, parsed.filter);
     res.json({ success: true });
   });
 

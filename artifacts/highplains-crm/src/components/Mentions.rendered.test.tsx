@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { Router, Route, Switch } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import i18n from "@/i18n";
@@ -51,7 +51,7 @@ const notificationListOptions = (filter: NotificationFilter, interval?: number) 
 const notificationCountOptions = (filter: NotificationFilter) => scopedCountOptions(filter, scope());
 const mentionsCountKey = () => scopedMentionsCountKey(scope());
 const markNotificationRead = (cache: QueryClient, id: string) => scopedMarkRead(cache, id, scope());
-const markAllNotificationsRead = (cache: QueryClient) => scopedMarkAllRead(cache, scope());
+const markAllNotificationsRead = (cache: QueryClient, filter?: NotificationFilter) => scopedMarkAllRead(cache, scope(), filter);
 beforeEach(async () => {
   await i18n.changeLanguage("en");
   fx.loggedIn = true;
@@ -63,17 +63,20 @@ beforeEach(async () => {
   }) });
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
   fx.api.mockImplementation(async (method: string, url: string) => {
+    const parsed = new URL(url, "http://localhost");
+    const matches = (row: Notification) => parsed.searchParams.has("type")
+      ? row.type === parsed.searchParams.get("type")
+      : !parsed.searchParams.has("exclude") || row.type !== parsed.searchParams.get("exclude");
     if (method === "GET") {
       if (/\/api\/tickets\/[^/]+\/details$/.test(url)) {
         if (fx.detailsError) throw new Error(fx.detailsError);
         return { json: async () => ({ ticket: { id: "ticket-m1", assignedToId: fx.user.id } }) };
       }
       if (pauseGets) return new Promise(() => {});
-      const parsed = new URL(url, "http://localhost");
-      const filtered = rows.filter(row => parsed.searchParams.has("type") ? row.type === "mentioned" : row.type !== "mentioned");
+      const filtered = rows.filter(matches);
       return { json: async () => structuredClone(parsed.pathname.endsWith("unread-count") ? { count: filtered.filter(row => !row.isRead).length } : filtered) };
     }
-    if (url.endsWith("read-all")) rows = rows.map(row => ({ ...row, isRead: true }));
+    if (parsed.pathname.endsWith("read-all")) rows = rows.map(row => matches(row) ? { ...row, isRead: true } : row);
     else rows = rows.map(row => url.includes(`/${row.id}/`) ? { ...row, isRead: true } : row);
     return { json: async () => ({}) };
   });
@@ -235,26 +238,122 @@ describe("dedicated Mentions surfaces", () => {
     expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 0 });
     expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.[0].isRead).toBe(true);
   });
-  it.each(["bell", "page"])("global read-all from the general %s clears unseen cached mentions immediately", async surface => {
+  it.each(["bell", "page"])("scoped read-all from the general %s preserves mention badges and rows with refetch pending", async surface => {
+    rows = [mention(), mention("m2"), mention("m3"), general];
     const cache = client(); seed(cache, 3);
-    mount(<><MentionsDropdown />{surface === "bell" ? <NotificationsDropdown /> : <NotificationsPage />}</>, cache);
+    const mentionRows = cache.getQueryData(notificationListKey(mentionsFilter));
+    const mentionCount = cache.getQueryData(mentionsCountKey());
+    mount(<><SidebarProvider><AppSidebar userRole="mapping" /></SidebarProvider><MentionsDropdown /><MentionsPage />
+      {surface === "bell" ? <NotificationsDropdown /> : <NotificationsPage />}</>, cache);
     if (surface === "bell") await userEvent.click(screen.getByTestId("button-notifications"));
     await screen.findByText("Assigned general");
-    expect(screen.queryByText("Mention m1")).toBeNull();
+    expect(screen.getByTestId("badge-mentions-header").textContent).toBe("3");
     pauseGets = true;
     await userEvent.click(screen.getByTestId("button-mark-all-read"));
-    await waitFor(() => expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 0 }));
-    expect(screen.queryByTestId("badge-mentions-header")).toBeNull();
-    expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.every(row => row.isRead)).toBe(true);
+    await waitFor(() => expect(cache.getQueryData(notificationCountKey(generalFilter))).toEqual({ count: 0 }));
+    for (const surface of ["sidebar", "header", "page"]) expect(screen.getByTestId(`badge-mentions-${surface}`).textContent).toBe("3");
+    expect(screen.getByTestId("mention-row-m1").textContent).toContain("Mention m1");
+    expect(within(screen.getByTestId("mention-row-m1")).getByLabelText("Unread")).toBeTruthy();
+    expect(cache.getQueryData(notificationListKey(mentionsFilter))).toBe(mentionRows);
+    expect(cache.getQueryData(mentionsCountKey())).toBe(mentionCount);
+    expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.every(row => !row.isRead)).toBe(true);
+    expect(cache.getQueryData<Notification[]>(notificationListKey(generalFilter))?.every(row => row.isRead)).toBe(true);
     expect(cache.getQueryData(notificationCountKey(generalFilter))).toEqual({ count: 0 });
-    expect(fx.api.mock.calls.some(args => args[0] === "POST" && args[1] === "/api/notifications/read-all")).toBe(true);
+    expect(rows.filter(row => row.type === "mentioned" && !row.isRead)).toHaveLength(3);
+    expect(fx.api.mock.calls.some(args => args[0] === "POST" && args[1] === "/api/notifications/read-all?exclude=mentioned")).toBe(true);
+    process.stdout.write(`Disposable rendered ${surface} clear: unread mentions 3 -> 3; general 1 -> 0; refetch held pending\n`);
   });
-  it("failed global reads cannot report cache success", async () => {
+  it.each([undefined, mentionsFilter, generalFilter])("failed read-all (%j) cannot report cache success", async filter => {
     const cache = client(); seed(cache, 3);
+    const snapshot = cache.getQueriesData({});
     fx.api.mockRejectedValue(new Error("read-all failed"));
-    await expect(markAllNotificationsRead(cache)).rejects.toThrow("read-all failed");
+    await expect(markAllNotificationsRead(cache, filter)).rejects.toThrow("read-all failed");
+    expect(cache.getQueriesData({})).toEqual(snapshot);
     expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 3 });
     expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.[0].isRead).toBe(false);
+  });
+  it.each([undefined, mentionsFilter, generalFilter])("read-all (%j) patches only wholly covered lists/counts and preserves mixed data", async filter => {
+    const cache = client(); seed(cache, 7);
+    const allList = scopedListKey(mentionsFilter, scope()).slice(0, 4);
+    const allCount = scopedCountKey(mentionsFilter, scope()).slice(0, 4);
+    cache.setQueryData(allList, rows);
+    cache.setQueryData(allCount, { count: 99 });
+    const keys = [notificationListKey(mentionsFilter), notificationListKey(generalFilter), allList,
+      mentionsCountKey(), notificationCountKey(generalFilter), allCount];
+    const before = keys.map(key => cache.getQueryData(key));
+    const invalidate = vi.spyOn(cache, "invalidateQueries");
+    const cancel = vi.spyOn(cache, "cancelQueries");
+    pauseGets = true;
+    const mixedList = new QueryObserver(cache, {
+      queryKey: allList, queryFn: async () => (await fx.api("GET", "/api/notifications")).json(),
+    });
+    const mixedCount = new QueryObserver(cache, {
+      queryKey: allCount, queryFn: async () => (await fx.api("GET", "/api/notifications/unread-count")).json(),
+    });
+    const unsubscribers = [mixedList.subscribe(() => {}), mixedCount.subscribe(() => {})];
+    await markAllNotificationsRead(cache, filter);
+    expect(fx.api.mock.calls.find(args => args[0] === "POST")?.[1]).toBe(`/api/notifications/read-all${filter ? `?${new URLSearchParams(filter)}` : ""}`);
+    expect(cache.getQueryState(allList)?.fetchStatus).toBe("fetching");
+    expect(cache.getQueryState(allCount)?.fetchStatus).toBe("fetching");
+    for (const [index, key] of keys.entries()) {
+      const covered = !filter || (index % 3 === (filter === mentionsFilter ? 0 : 1));
+      if (!covered) expect(cache.getQueryData(key)).toBe(before[index]);
+      else if (index < 3) expect(cache.getQueryData<Notification[]>(key)?.every(row => row.isRead)).toBe(true);
+      else expect(cache.getQueryData(key)).toEqual({ count: 0 });
+    }
+    expect(rows.filter(row => !row.isRead).map(row => row.id)).toEqual(
+      !filter ? [] : filter === mentionsFilter ? ["g1"] : ["m1"]);
+    for (const root of ["/api/notifications", "/api/notifications/unread-count"]) {
+      const prefix = { queryKey: [root, scope().userId, scope().companyId, scope().role] };
+      expect(cancel).toHaveBeenCalledWith(prefix);
+      expect(invalidate).toHaveBeenCalledWith(prefix);
+    }
+    // The mixed cache becomes accurate only when its normal fetch reconciles it.
+    unsubscribers.forEach(unsubscribe => unsubscribe());
+    await cache.cancelQueries({ queryKey: allList });
+    await cache.cancelQueries({ queryKey: allCount });
+    if (filter) {
+      pauseGets = false;
+      await cache.fetchQuery({ queryKey: allList, queryFn: async () => (await fx.api("GET", "/api/notifications")).json() });
+      await cache.fetchQuery({ queryKey: allCount, queryFn: async () => (await fx.api("GET", "/api/notifications/unread-count")).json() });
+      expect(cache.getQueryData(allList)).toEqual(rows);
+      expect(cache.getQueryData(allCount)).toEqual({ count: 1 });
+    }
+  });
+  it("filtered read-all aborts pre-write responses before patching and refetching both roots", async () => {
+    const cache = client(); seed(cache);
+    const signals: AbortSignal[] = [];
+    const pendingFetch = ({ signal }: { signal: AbortSignal }) => {
+      signals.push(signal); return new Promise<never>(() => {});
+    };
+    for (const filter of [mentionsFilter, generalFilter]) {
+      void cache.fetchQuery({ queryKey: notificationListKey(filter), queryFn: pendingFetch }).catch(() => {});
+      void cache.fetchQuery({ queryKey: notificationCountKey(filter), queryFn: pendingFetch }).catch(() => {});
+    }
+    await markAllNotificationsRead(cache, generalFilter);
+    expect(signals).toHaveLength(4);
+    expect(signals.every(signal => signal.aborted)).toBe(true);
+    expect(cache.getQueryData(mentionsCountKey())).toEqual({ count: 1 });
+    expect(cache.getQueryData(notificationCountKey(generalFilter))).toEqual({ count: 0 });
+    expect(cache.getQueryData<Notification[]>(notificationListKey(mentionsFilter))?.[0].isRead).toBe(false);
+  });
+  it.each(["user", "company", "role"] as const)("filtered read-all stays in its initiating %s scope after a switch", async change => {
+    const cache = client(); seed(cache, 4);
+    const initiating = scope();
+    let resolve!: () => void;
+    fx.api.mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
+    const request = scopedMarkAllRead(cache, initiating, generalFilter);
+    if (change === "user") fx.user.id = "other-user";
+    if (change === "company") fx.user.activeCompanyId = "other-company";
+    if (change === "role") fx.user.activeRole = "office";
+    seed(cache, 9);
+    const snapshot = cache.getQueryData(notificationListKey(generalFilter));
+    resolve(); await request;
+    expect(cache.getQueryData(notificationListKey(generalFilter))).toBe(snapshot);
+    expect(cache.getQueryData(notificationCountKey(generalFilter))).toEqual({ count: 1 });
+    expect(cache.getQueryData(scopedCountKey(generalFilter, initiating))).toEqual({ count: 0 });
+    expect(cache.getQueryData(scopedMentionsCountKey(initiating))).toEqual({ count: 4 });
+    expect(fx.api.mock.calls[0][3]?.headers).toEqual({ "X-Company-Id": initiating.companyId });
   });
   it.each([0, 100])("all badges hide at zero and cap 100 as 99+ (count=%s)", async count => {
     const cache = client(); seed(cache, count);

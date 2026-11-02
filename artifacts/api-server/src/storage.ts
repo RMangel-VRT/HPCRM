@@ -248,7 +248,7 @@ export interface IStorage {
   getUnreadNotificationCount(userId: string, companyId: string, filter?: NotificationFilter): Promise<number>;
   createNotification(notification: InsertTicketNotification): Promise<TicketNotification>;
   markNotificationRead(id: string, userId: string): Promise<TicketNotification | undefined>;
-  markAllNotificationsRead(userId: string, companyId: string): Promise<void>;
+  markAllNotificationsRead(userId: string, companyId: string, filter?: NotificationFilter): Promise<void>;
   getNotificationsWithDueDateType(ticketId: string, type: NotificationType): Promise<TicketNotification[]>;
   dismissDueDateNotificationsForTicket(ticketId: string): Promise<void>;
   
@@ -2318,10 +2318,15 @@ export class PgStorage implements IStorage {
     return result[0];
   }
 
-  async markAllNotificationsRead(userId: string, companyId: string): Promise<void> {
+  async markAllNotificationsRead(userId: string, companyId: string, filter?: NotificationFilter): Promise<void> {
     await db.update(ticketNotifications)
       .set({ isRead: true })
-      .where(and(eq(ticketNotifications.recipientId, userId), eq(ticketNotifications.companyId, companyId)));
+      .where(and(
+        eq(ticketNotifications.recipientId, userId),
+        eq(ticketNotifications.companyId, companyId),
+        eq(ticketNotifications.isRead, false),
+        notificationTypePredicate(filter)
+      ));
   }
 
   async getNotificationsWithDueDateType(ticketId: string, type: NotificationType): Promise<TicketNotification[]> {

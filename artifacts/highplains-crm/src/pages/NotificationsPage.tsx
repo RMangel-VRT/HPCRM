@@ -179,7 +179,7 @@ export default function NotificationsPage() {
   });
 
   const markReadMutation = useNotificationRead();
-  const markAllReadMutation = useNotificationsReadAll();
+  const markAllReadMutation = useNotificationsReadAll(generalFilter);
 
   const urgentAll = notifications.filter(n => getNotificationPriority(n.type) === "high");
   const urgentUnread = urgentAll.filter(n => !n.isRead);

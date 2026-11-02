@@ -100,15 +100,30 @@ export function markNotificationRead(client: QueryClient, id: string, scope: Not
   requests.set(pendingKey, request);
   return request;
 }
-export async function markAllNotificationsRead(client: QueryClient, scope: NotificationScope | null) {
+function readAllCoverage(key: QueryKey, filter?: NotificationFilter): "covered" | "disjoint" | "mixed" {
+  if (!filter) return "covered";
+  const cachedFilter = key[4] as NotificationFilter | undefined;
+  if ("type" in filter) {
+    if (!includesType(key, filter.type)) return "disjoint";
+    return cachedFilter && "type" in cachedFilter ? "covered" : "mixed";
+  }
+  if (!includesType(key, filter.exclude)) return "covered";
+  return cachedFilter && "type" in cachedFilter ? "disjoint" : "mixed";
+}
+export async function markAllNotificationsRead(client: QueryClient, scope: NotificationScope | null, filter?: NotificationFilter) {
   if (!scope) throw new Error("AUTH_REQUIRED");
-  await apiRequest("POST", `${lists}/read-all`, undefined, { headers: headers(scope) });
+  await apiRequest("POST", `${lists}/read-all${filter ? `?${suffix(filter)}` : ""}`, undefined, { headers: headers(scope) });
   await cancelNotifications(client, scope);
-  // The legacy endpoint clears ALL types, including mentions unseen in the bell.
-  client.setQueriesData<Notification[]>({ queryKey: scopeKey(lists, scope) },
-    rows => rows?.map(row => ({ ...row, isRead: true })));
-  client.setQueriesData<{ count: number }>({ queryKey: scopeKey(counts, scope) },
-    data => data ? { count: 0 } : data);
+  // Only wholly covered caches can be cleared locally. Disjoint caches retain
+  // their data; mixed lists AND counts wait for reconciliation without guessing.
+  for (const [key] of client.getQueriesData({ queryKey: scopeKey(lists, scope) })) {
+    if (readAllCoverage(key, filter) === "covered") client.setQueryData<Notification[]>(key,
+      rows => rows?.map(row => ({ ...row, isRead: true })));
+  }
+  for (const [key] of client.getQueriesData({ queryKey: scopeKey(counts, scope) })) {
+    if (readAllCoverage(key, filter) === "covered") client.setQueryData<{ count: number }>(key,
+      data => data ? { count: 0 } : data);
+  }
   reconcile(client, scope);
 }
 export function useNotificationRead() {
@@ -116,8 +131,8 @@ export function useNotificationRead() {
   const scope = useNotificationScope();
   return useMutation({ mutationFn: (id: string) => markNotificationRead(client, id, scope) });
 }
-export function useNotificationsReadAll() {
+export function useNotificationsReadAll(filter?: NotificationFilter) {
   const client = useQueryClient();
   const scope = useNotificationScope();
-  return useMutation({ mutationFn: () => markAllNotificationsRead(client, scope) });
+  return useMutation({ mutationFn: () => markAllNotificationsRead(client, scope, filter) });
 }
