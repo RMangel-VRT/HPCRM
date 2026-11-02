@@ -3,7 +3,7 @@ name: Invoice Center integration direction
 description: Uploaded draft, locked business decisions, superseded invoice plans, and open review items.
 ---
 
-Read `attached_assets/Pasted--Invoice-Center-Integration-Design-Spec-Status-Draft-fo_1793374046412.txt` before planning Invoice Center work. It is explicitly a draft for review, with identified locked decisions, not authorization to build or publish. It supersedes the earlier invoice-center brief and estimate-builder invoice trigger/push and Phase 5 slice list. Code baselines, migration numbers, and claims about existing features must be checked against current code.
+Read `attached_assets/Pasted--Invoice-Center-Integration-Design-Spec-Status-Draft-fo_1793654380991.txt` before planning Invoice Center work. This November 2 upload supersedes the previous uploaded draft, refining PDF pagination. It is explicitly a draft for review, with identified locked decisions, not authorization to build or publish. It supersedes the earlier invoice-center brief and estimate-builder invoice trigger/push and Phase 5 slice list. Code baselines, migration numbers, and claims about existing features must be checked against current code.
 
 **Why:** The user supplied a consolidated integration design rather than an implementation request.
 
@@ -35,3 +35,9 @@ corrected the master design's scope and quantity precision.
 **How to apply:** Read the attached IC1 brief when extending this foundation.
 Do not treat the master's slice table or old commit references as approval to
 switch existing billing ownership or implement later behavior.
+
+The latest PDF rules require a footer line and document/customer/page-count text on every page, but mountains on the last page only (84 px tall, 60% opacity). Count pages in a first render pass, then apply the last-page mountains and page numbering in a second pass. Keep content at least 16 px above the final-page mountains and above the footer line on other pages. Mockups show separate fixed letter-size page artboards.
+
+**Why:** The November 2 upload explicitly replaces the earlier ambiguous mountains/footer placement with page-specific requirements.
+
+**How to apply:** Use these rules when implementing or reviewing the shared estimate/invoice PDF kit; preserve the other overflow, repeating-header and unsplit totals/payment requirements. This upload alone does not authorize changes to an active task.
