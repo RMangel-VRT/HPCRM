@@ -21,6 +21,12 @@ Route season comes from the covering contract term's scope month spread, with an
 
 **How to apply:** Read the Routes pack rules at `attached_assets/Pasted--Routes-pack-rules-paste-once-at-session-start-Goal-Ran_1793378476039.txt` with applicable scheduling and ownership rules. Preserve crew and contract fact ownership, do not duplicate their names/quantities into patterns, and do not expand this pack into mobile implementation or table drops.
 
+The uploaded local Routes mockup is `attached_assets/R-mockup-routes_1793654654730.html`, titled "High Plains Routes". Use it as the visual/interaction reference alongside the Routes pack and master design; sample customers, dates, crews and simulated actions are not production facts or backend requirements.
+
+**Why:** The user supplied the standalone HTML while Routes UI implementation was underway, making the visual reference available locally rather than only through the external artifact link.
+
+**How to apply:** Inspect its weekly-pattern/Needs a route layout, stop drawer, calendar route blocks, and Rain day dialog when working on Routes UI. This reference upload alone does not authorize changes to an active task or application code.
+
 For scheduled-capable workflows, open visits own scheduling edits: an ordinary ticket edit must not resubmit crew, due date, or legacy route order. Closed/cancelled history alone does not transfer that ownership. Unknown history is not confirmed empty history.
 
 **Why:** The user requires open trips to be edited in Visits, while preserving the zero-open legacy editing path. Sending legacy route order alone can still reject an unrelated title save even if crew/date were correctly omitted.
