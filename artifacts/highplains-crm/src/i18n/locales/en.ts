@@ -1,3 +1,4 @@
+import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
   mentions: {
     title: "Mentions", type: "Mentioned", unread: "Unread",
@@ -3026,6 +3027,18 @@ const en = {
     deleteConfirmDesc: "This will permanently remove the palette and all its items.",
     deleteFailed: "Delete failed",
     categoryOrder: "Category order",
+  },
+  nonRenewal: {
+    reasons: NON_RENEWAL_LABELS.en,
+    chip: "Not renewing", strip: "Not renewing — {{reason}}, decided {{date}} by {{name}}", undo: "Undo", undoInactive: "Non-renewal undone. This customer is still inactive; undo does not reactivate them.",
+    progress: "{{renewed}} renewed · {{count}} not renewing", notRenewing: "Not renewing", action: "Mark not renewing",
+    title: "{{customer}} is not renewing", description: "Records the decision on the season that ends {{end}}. The contract keeps running until then.",
+    date: "Decided on", dateHint: "Colorado date", reason: "Reason", reasonPlaceholder: "Pick a reason", competitor: "Which contractor?", competitorOptional: "Optional",
+    note: "Note", notePlaceholder: "Anything worth remembering when they come back", customer: "Set {{customer}} inactive when this contract ends on {{end}}",
+    otherOpen: "They still have other contracts.", pending: "The {{season}} renewal will be marked lost.",
+    cancel: "Cancel", confirm: "Record not renewing", saving: "Saving", recorded: "Marked not renewing",
+    loadError: "Could not load this contract.", retry: "Retry", noSource: "This contract has no season that can be marked not renewing.",
+    errReason: "Pick a reason.", errDate: "Enter a valid date.", errLong: "Keep it under {{max}} characters.",
   },
 };
 

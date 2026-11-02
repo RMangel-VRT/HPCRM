@@ -3,7 +3,8 @@ export type BoardLine = "landscape" | "snow";
 export type AgreementForm = "ours" | "theirs";
 export interface RenewalSetInfo { firstTermId: string; firstSeason: string; lastSeason: string; year: number; length: number }
 
-export interface TermSummary {
+import type { NonRenewalFacts } from "../../../../../lib/db/src/contractNonRenewal";
+export interface TermSummary extends NonRenewalFacts {
   id: string;
   seasonLabel: string;
   startDate: string;
@@ -37,7 +38,10 @@ export interface ContractListItem {
   renewalDraft: TermSummary | null;
   latest?: TermSummary | null;
   recentSigned?: TermSummary | null;
-  renewalProgress?: { due: boolean; signed: boolean };
+  renewalSource?: TermSummary | null;
+  notRenewing?: boolean;
+  canRecordNonRenewal?: boolean;
+  renewalProgress?: { due: boolean; signed: boolean; notRenewing?: boolean };
   renewalDue: boolean;
   companyDay?: string;
 }
@@ -72,6 +76,12 @@ export interface DetailTerm extends TermSummary {
   documents: TermDocument[]; coveredBy?: TermDocument[]; history: TermHistoryRow[];
 }
 export interface ContractDetail {
+  renewalSourceId?: string | null;
+  canRecordNonRenewal?: boolean;
+  canUndoNonRenewal?: boolean;
+  notRenewing?: boolean;
+  otherOpenLines?: number;
+  companyDay?: string;
   id: string; customerId: string; line: AgreementLine; form: "ours" | "theirs";
   customer: { id: string; name: string };
   currentTermId?: string | null; renewalDue?: boolean; renewalDraftId?: string | null;

@@ -8,6 +8,7 @@
     "./schema": "./src/schema/index.ts",
     "./estimate-contracts": "./src/estimateContracts.ts",
     "./invoice-contracts": "./src/invoiceContracts.ts",
+    "./contract-non-renewal": "./src/contractNonRenewal.ts",
     "./check-drift": "./src/check-drift.ts"
   },
   "scripts": {

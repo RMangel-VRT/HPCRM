@@ -3,6 +3,7 @@ import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolea
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { isCalendarDate } from "./calendarDate";
+import { NON_RENEWAL_REASONS } from "../contractNonRenewal";
 export { routeStopBody, routeStopFields, routeDate, routeService, validRouteSeason } from "../routeContracts";
 
 export const visitFields = {
@@ -783,6 +784,12 @@ export type ContractMaster = typeof contractMasters.$inferSelect;
 export type InsertContractMaster = z.infer<typeof insertContractMasterSchema>;
 
 export const agreementTerms = pgTable("agreement_terms", {
+  nonRenewalOn: date("non_renewal_on", { mode: "string" }),
+  nonRenewalReason: text("non_renewal_reason"),
+  nonRenewalCompetitor: text("non_renewal_competitor"),
+  nonRenewalNote: text("non_renewal_note"),
+  nonRenewalBy: varchar("non_renewal_by").references(() => users.id, { onDelete: "set null" }),
+  deactivateCustomerOnEnd: boolean("deactivate_customer_on_end").notNull().default(false),
   bidTicketId: varchar("bid_ticket_id").references(() => tickets.id, { onDelete: "set null" }),
   line: text("line").notNull().$type<AgreementLine>(),
   form: text("form").notNull().default("ours").$type<AgreementForm>(),
@@ -824,6 +831,12 @@ export const agreementTerms = pgTable("agreement_terms", {
   companyEndIdx: index("agreement_terms_company_end_idx").on(t.companyId, t.endDate),
 }));
 export const insertAgreementTermSchema = createInsertSchema(agreementTerms).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  nonRenewalOn: contractCalendarDate.nullable().optional(),
+  nonRenewalReason: z.enum(NON_RENEWAL_REASONS).nullable().optional(),
+  nonRenewalCompetitor: z.string().max(120).nullable().optional(),
+  nonRenewalNote: z.string().max(1000).nullable().optional(),
+  nonRenewalBy: z.string().nullable().optional(),
+  deactivateCustomerOnEnd: z.boolean().default(false),
   bidTicketId: z.string().min(1).nullable().optional(),
   line: z.enum(AGREEMENT_LINES), form: z.enum(AGREEMENT_FORMS).default("ours"),
   companyId: z.string(), agreementId: z.string(), seasonLabel: z.string(),

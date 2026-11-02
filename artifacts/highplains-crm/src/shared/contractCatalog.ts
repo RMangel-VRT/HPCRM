@@ -1,4 +1,5 @@
 export type ScopeLine = "landscape" | "irrigation" | "snow";
+export { NON_RENEWAL_REASONS, NON_RENEWAL_LABELS, isNotRenewing, hasOpenBusiness } from "../../../../lib/db/src/contractNonRenewal";
 
 export interface ScopeService {
   key: string;

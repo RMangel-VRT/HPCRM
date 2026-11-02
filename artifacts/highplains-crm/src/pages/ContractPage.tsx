@@ -4,6 +4,9 @@ import { Link, Redirect, useLocation, useParams } from "wouter";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SeasonDocuments } from "@/components/contracts/SeasonDocuments";
+import { NotRenewingDialog } from "@/components/contracts/NotRenewingDialog";
+import { NonRenewalChip } from "@/components/contracts/NonRenewalChip";
+import { isNotRenewing, NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -54,7 +57,7 @@ const pick = (f: FieldDraft, keys: (keyof FieldDraft)[]) =>
   Object.fromEntries(Object.entries(f).filter(([k]) => keys.includes(k as keyof FieldDraft))) as FieldDraft;
 
 export function ContractView({ detail, initialHash }: { detail: ContractDetail; initialHash: string }) {
-  const { t: translate } = useTranslation();
+  const { t: translate, i18n } = useTranslation();
   const qc = useQueryClient();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -69,6 +72,8 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const [rates, setRates] = useState<RateRow[] | null>(null);
   const [payments, setPayments] = useState<PaymentLine[] | null>(null);
   const [renewOpen, setRenewOpen] = useState(false);
+  const [nonRenewalOpen, setNonRenewalOpen] = useState(false);
+  const [undoBusy, setUndoBusy] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -251,7 +256,22 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
     t.renewalSet?.firstTermId === term.id && ["signed", "active"].includes(t.status));
   const moves = (editable || signedSetOwner) && !laterYear ? term.allowedMoves ?? [] : [];
   const coveredSigned = term.coveredBy?.find(d => d.kind === "signed");
-  const showRenew = (detail.renewalDue || ["expired", "active"].includes(term.displayStatus)) && term.id === (detail.currentTermId ?? term.id);
+  const source = detail.terms.find(t => t.id === detail.renewalSourceId);
+  const marked = detail.notRenewing || isNotRenewing(source);
+  const showRenew = !marked && (detail.renewalDue || ["expired", "active"].includes(term.displayStatus)) && term.id === (detail.currentTermId ?? term.id);
+  const undoNonRenewal = async () => {
+    if (!source || undoBusy || dirty) return;
+    setUndoBusy(true);
+    try {
+      const result = await (await apiRequest("DELETE", `/api/contract-center/terms/${source.id}/non-renewal`)).json();
+      await qc.invalidateQueries({ predicate: query => {
+        const key = String(query.queryKey[0]);
+        return key.includes("contract-center") || key.includes("customer") || key.includes("dashboard") || key.includes("section") || key.includes("action") || key.includes("tickets") || key.includes("rfp");
+      } });
+      if (result.customerStillInactive) toast({ title: translate("nonRenewal.undoInactive") });
+    } catch (error) { toast({ title: errorText(error), variant: "destructive" }); }
+    finally { setUndoBusy(false); }
+  };
   const reviewItems = (term.reviewNote ?? "").split(/\n+/).map(s => s.replace(/^\s*[-*\u2022]\s*/, "").trim()).filter(Boolean);
   const snow = seasonLine !== "landscape";
   const f = fields ?? {};
@@ -274,7 +294,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
     monthly != null && monthly > 0 && <Tile key="monthly" id="monthly" label="Monthly" value={<span data-testid="text-monthly">{money(monthly)}</span>} sub={paymentPattern(term) ?? undefined} />,
     term.endDate && <Tile key="ends" id="season-ends" label="Season ends" value={dateOnly(term.endDate)}
       sub={[daysLeft >= 0 ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : "Ended",
-        renewalSigned ? "renewal already signed" : detail.renewalDue && term.id === detail.currentTermId ? "up for renewal" : null].filter(Boolean).join(" \u00b7 ")} />,
+        isNotRenewing(term) ? translate("nonRenewal.notRenewing") : renewalSigned ? "renewal already signed" : detail.renewalDue && term.id === detail.currentTermId ? "up for renewal" : null].filter(Boolean).join(" \u00b7 ")} />,
     signed && <Tile key="signed" id="signed" label="Signed" value={signed.day} sub={signed.by ?? undefined} />,
     snow && (term.snowPricing !== "flat_rate" || term.snowFlatPriceCents != null) && <Tile key="snow" id="snow" label="Snow" value={term.snowPricing === "flat_rate" ? `Flat ${money(term.snowFlatPriceCents)}` : "T&M"} />,
   ].filter(Boolean);
@@ -302,13 +322,15 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
             <LineBadge line={detail.line} />
             <span className="text-sm text-muted-foreground">{detail.form === "ours" ? "Our form" : "Their form"}</span>
             <StatusPill status={term.displayStatus} />
-            {detail.renewalDue && term.id === detail.currentTermId && <RenewalChip />}
+            {marked ? <NonRenewalChip /> : detail.renewalDue && term.id === detail.currentTermId && <RenewalChip />}
           </div>
           <p className="text-sm text-muted-foreground" data-testid="text-contract-people">
             {term.legalName ? `${term.legalName} \u00b7 ` : ""}Managing agent: {term.managingAgentName || "\u2014"} · Project contact: {term.projectContact || "\u2014"}
           </p>
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
+          {detail.canRecordNonRenewal && !marked && <Button size="sm" variant="outline" disabled={dirty || saving}
+            onClick={() => setNonRenewalOpen(true)} data-testid="button-not-renewing">{translate("nonRenewal.notRenewing")}</Button>}
           {moves.length > 0 && (
             <div className="relative">
               <Button size="sm" variant="outline" disabled={dirty} onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen} data-testid="button-status-menu">Status</Button>
@@ -349,12 +371,21 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
               <div className="mt-1 font-medium" data-testid={`text-term-status-words-${t.id}`}>{statusWords(t)}</div>
               <div className="flex flex-wrap items-center gap-1 mt-1" data-testid={`chip-term-badges-${t.id}`}>
                 <LineBadge line={termLine(t, detail.line)} />
+                {isNotRenewing(t) && <NonRenewalChip />}
                 <span className="text-muted-foreground">{termForm(t, detail.form) === "ours" ? "Our form" : "Their form"}</span>
                 {t.renewalSet && t.renewalSet.length > 1 && <span className="text-muted-foreground">Year {t.renewalSet.year} of {t.renewalSet.length}</span>}
               </div>
             </button>
           ))}
         </nav>
+        {source && isNotRenewing(source) && <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" data-testid="text-not-renewing">
+          <span>{translate("nonRenewal.strip", {
+            reason: NON_RENEWAL_LABELS[i18n.language?.startsWith("es") ? "es" : "en"][source.nonRenewalReason as keyof typeof NON_RENEWAL_LABELS.en] ?? source.nonRenewalReason,
+            date: dateOnly(source.nonRenewalOn!), name: source.nonRenewalByName ?? "—",
+          })}</span>
+          {detail.canUndoNonRenewal && <Button size="sm" variant="ghost" disabled={dirty || saving || undoBusy}
+            onClick={() => void undoNonRenewal()} data-testid="button-undo-not-renewing">{translate("nonRenewal.undo")}</Button>}
+        </div>}
         {coverage && <span className="text-sm text-muted-foreground" data-testid="text-coverage-context">{coverage}</span>}
       </div>
 
@@ -394,6 +425,8 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
         </div>
       )}
 
+      <NotRenewingDialog target={nonRenewalOpen ? { id: detail.id, customerName: detail.customer.name } : null}
+        onClose={() => setNonRenewalOpen(false)} />
       <RenewDialog target={renewOpen ? { id: detail.id, customerName: detail.customer.name } : null} onClose={() => setRenewOpen(false)}
         onCreated={termId => { resetEdits(); setSignPrompt(false); setConfirmMove(null); setMenuOpen(false); history.replaceState(null, "", `#term-${termId}`); setSelectedId(termId); }} />
 
@@ -523,7 +556,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
 
 export default function ContractPage({ initialHash }: { initialHash?: string } = {}) {
   const { id } = useParams<{ id: string }>();
-  const detailQ = useQuery<ContractDetail>({ queryKey: [LIST_KEY, id], retry: false });
+  const detailQ = useQuery<ContractDetail>({ queryKey: [LIST_KEY, id], retry: false, staleTime: 30_000, refetchOnWindowFocus: true });
   const notFound = detailQ.isError && errorStatus(detailQ.error) === 404;
   const legacyQ = useQuery<{ agreementId: string }>({ queryKey: [`${LIST_KEY}/by-legacy`, id], enabled: notFound, retry: false });
 

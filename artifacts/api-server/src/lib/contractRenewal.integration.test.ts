@@ -117,6 +117,18 @@ describe.skipIf(!enabled)("disposable renewal import database transactions", () 
     expect(result.failures).toHaveLength(1); expect(result.successes).toHaveLength(0); expect(storage.save).not.toHaveBeenCalled();
     expect((await fullDetail(db, f.companyId, s.agreement.id)).terms).toHaveLength(1);
   });
+  it("rechecks non-renewal after locking even if the preview allowed import", async () => {
+    const s = await fresh(), storage = memoryStorage(), original = persistence.lockAgreement;
+    expect(planRenewalImport(s.files, await loadAuditData(f.companyId)).errors).toEqual([]);
+    vi.spyOn(persistence, "lockAgreement").mockImplementation(async (tx, company, id) => {
+      const row = await original(tx, company, id);
+      await tx.update(agreementTerms).set({ nonRenewalOn: "2026-10-01", nonRenewalReason: "board" }).where(eq(agreementTerms.id, s.source.id));
+      return row;
+    });
+    const result = await executeRenewalImport(s.files, f.companyId, f.userId, storage.service);
+    expect(result.failures).toHaveLength(1); expect(result.successes).toHaveLength(0);
+    expect(storage.save).not.toHaveBeenCalled();
+  });
   it("rebuilds carry-forward fields from fresh source data under lock", async () => {
     const s = await fresh("sent"), storage = memoryStorage(), original = persistence.lockAgreement;
     vi.spyOn(persistence, "lockAgreement").mockImplementation(async (tx, company, id) => {

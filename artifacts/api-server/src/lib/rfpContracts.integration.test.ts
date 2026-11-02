@@ -10,6 +10,7 @@ import { guardManualRfpStatus, lockRfp } from "./rfpContracts";
 import { applyRfpDecisionLost } from "./contractCenterStatusChange";
 import { applyTicketStatus } from "./ticketStatusChange";
 import * as persistence from "./contractCenterPersistence";
+import { companyToday } from "./companyDay";
 
 const enabled = process.env.RFP_CONTRACT_DB_TEST === "1" && process.env.NODE_ENV !== "production";
 describe.skipIf(!enabled)("RFP contracts in disposable development company", () => {
@@ -36,6 +37,21 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
   const move = (termId: string, to: string) => api().post(`${base}/terms/${termId}/status`).send({ to });
   const ticket = async (id: string) => (await db.select().from(tickets).where(eq(tickets.id, id)))[0];
   const history = (id: string) => db.select().from(ticketStatusHistory).where(eq(ticketStatusHistory.ticketId, id));
+  it("closes an RFP-linked sent renewal through the common lifecycle when its source is not renewing", async () => {
+    const source = await create();
+    await db.update(agreementTerms).set({ status: "signed" }).where(eq(agreementTerms.id, source.terms[0].id));
+    const rfp = await f.createRfp(), pending = await create(rfp.id);
+    await db.update(agreementTerms).set({ agreementId: source.id, renewedFromTermId: source.terms[0].id,
+      startDate: "2028-01-01", endDate: "2028-12-31", seasonLabel: "2028" }).where(eq(agreementTerms.id, pending.terms[0].id));
+    expect((await move(pending.terms[0].id, "sent")).status).toBe(200);
+    const result = await api().post(`${base}/terms/${source.terms[0].id}/non-renewal`)
+      .send({ decidedOn: companyToday(), reason: "board", deactivateCustomer: false });
+    expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("closed_lost").id);
+    expect((await db.select().from(agreementTerms).where(eq(agreementTerms.id, pending.terms[0].id)))[0].status).toBe("lost");
+    expect((await db.select().from(agreementTerms).where(eq(agreementTerms.id, source.terms[0].id)))[0].status).toBe("signed");
+    expect((await history(rfp.id)).filter(h => h.toStatusId === f.status("closed_lost").id)).toHaveLength(1);
+  });
   it("uses the ambient ticket PATCH transaction without installing the db proxy as its own connection", async () => {
     const rfp = await f.createRfp();
     await db.transaction(tx => inTransaction(tx, async () => {

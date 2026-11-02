@@ -1,4 +1,5 @@
 import type { AgreementTerm, AgreementLine, AgreementForm, TermScopeLine } from "@workspace/db";
+import { isNotRenewing, NON_RENEWAL_CONFLICT } from "@workspace/db/contract-non-renewal";
 import type { AuditData } from "./contractAuditData";
 import type { AuditFiles, CsvRow, Diagnostic } from "./contractAuditFiles";
 import { planAuditImport, type ImportTerm } from "./contractAuditPlan";
@@ -40,6 +41,7 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
     const agreement = source && data.agreements.find(a => a.id === source.agreementId);
     const customer = agreement && data.customers.find(c => c.id === agreement.customerId);
     if (!source || !agreement || !customer) { diag(row, "Unknown renewal source in active company", "renews_term_id"); continue; }
+    if (isNotRenewing(source)) { diag(row, NON_RENEWAL_CONFLICT, "renews_term_id"); continue; }
     const renewals = data.terms.filter(t => t.renewedFromTermId === source.id);
     const skipped = renewals.some(t => t.startDate === v.start_date &&
       data.history.some(h => h.termId === t.id && h.note?.startsWith("Imported signed renewal (")));

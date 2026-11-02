@@ -10,6 +10,7 @@ import { dateOnly, dateTime, money } from "./contractFormat";
 import { termForm, termLine } from "./contractTypes";
 import type { ContractListItem } from "./contractTypes";
 import { branchPaymentHint } from "./parentContract";
+import { NonRenewalChip } from "./NonRenewalChip";
 
 export function CustomerContracts({ customerId, children }: { customerId: string; children: ReactNode }) {
   const { user } = useAuth();
@@ -19,6 +20,7 @@ export function CustomerContracts({ customerId, children }: { customerId: string
     queryKey: ["/api/contract-center/contracts", companyId, customerId],
     queryFn: async () => (await apiRequest("GET", `/api/contract-center/contracts?customerId=${encodeURIComponent(customerId)}&includeParent=true`)).json(),
     enabled: permitted && !!companyId,
+    staleTime: 30_000, refetchOnWindowFocus: true,
   });
   const copy = useQuery<{ firstCopiedAt: string | null; copiedContracts: number }>({
     queryKey: ["/api/contract-center/copy-status", companyId],
@@ -48,7 +50,7 @@ export function CustomerContracts({ customerId, children }: { customerId: string
                 <LineBadge line={termLine(contract.current ?? contract.latest ?? term, contract.line)} />
                 <span className="text-sm">{termForm(contract.current ?? contract.latest ?? term, contract.form) === "ours" ? "Our form" : "Their form"}</span>
                 {term && <StatusPill status={term.displayStatus} />}
-                {contract.renewalDue && <RenewalChip />}
+                {contract.notRenewing ? <NonRenewalChip /> : contract.renewalDue && <RenewalChip />}
               </div>
               {term && <>
                 <p className="font-medium">{term.seasonLabel}</p>

@@ -2,6 +2,8 @@ import { z } from "zod/v4";
 import type { AgreementTerm, RateCardItem, TermRate, TermBillingMonth, AgreementLine } from "@workspace/db";
 import { SCOPE_CATALOG } from "../shared/contractCatalog";
 import { addCalendarDays, companyToday } from "./companyDay";
+import { isNotRenewing, NON_RENEWAL_REASONS } from "../shared/contractCatalog";
+export { isNotRenewing } from "../shared/contractCatalog";
 
 export class ContractCenterError extends Error {
   constructor(public status: number, message: string, public allowed?: string[]) { super(message); }
@@ -11,6 +13,13 @@ const optionalText = z.string().max(10000).nullable().optional();
 const calendar = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => {
   try { return addCalendarDays(v, 0) === v; } catch { return false; }
 }, "Invalid calendar date");
+export const nonRenewalSchema = z.object({
+  decidedOn: calendar.refine(value => value <= companyToday(), "Decision date cannot be in the future"),
+  reason: z.enum(NON_RENEWAL_REASONS),
+  competitor: z.string().trim().max(120).nullable().optional(),
+  note: z.string().trim().max(1000).nullable().optional(),
+  deactivateCustomer: z.boolean(),
+}).strict();
 export const termFieldsSchema = z.object({
   seasonLabel: z.string().trim().min(1).max(100), startDate: calendar, endDate: calendar,
   legalName: optionalText, managingAgentName: optionalText, projectContact: optionalText,
@@ -151,9 +160,10 @@ export function snapshotRates(card: RateCardItem[], input: z.infer<typeof ratesS
   }
   return rows.sort((a, b) => a.sortOrder - b.sortOrder);
 }
-type StatusTerm = Pick<AgreementTerm, "id" | "status" | "startDate" | "endDate" | "renewedFromTermId">;
+type StatusTerm = Pick<AgreementTerm, "id" | "status" | "startDate" | "endDate" | "renewedFromTermId"> & { nonRenewalOn?: string | null };
 export function displayStatus(term: StatusTerm, terms: StatusTerm[] = [], today = companyToday()) {
   const signedRenewal = terms.some(t => t.renewedFromTermId === term.id && ["signed", "active", "renewed"].includes(t.status));
+  if (isNotRenewing(term) && ["signed", "active", "renewed"].includes(term.status) && term.endDate < today && !signedRenewal) return "lost";
   if (["signed", "active"].includes(term.status) && term.endDate < today && !signedRenewal) return "expired";
   if (["signed", "renewed"].includes(term.status) && term.startDate <= today && today <= term.endDate) return "active";
   if (term.status === "signed" && term.startDate <= today) return "active";
@@ -180,11 +190,12 @@ export function selectCurrent<T extends StatusTerm>(terms: T[], today = companyT
   return selectRenewalSource(inEffect) ?? selectRenewalSource(terms);
 }
 export function renewalDue(term: StatusTerm, terms: StatusTerm[] = [], today = companyToday()) {
+  if (isNotRenewing(term)) return false;
   if (terms.some(t => t.renewedFromTermId === term.id && ["signed", "active", "renewed"].includes(t.status))) return false;
   return displayStatus(term, terms, today) === "active" && addCalendarDays(term.endDate, -60) <= today;
 }
 export function allowedMoves(status: string, renewal: boolean, isBid = false) {
-  const moves: Record<string, string[]> = { draft: ["sent", "cancelled"], sent: ["signed", "draft", "lost"], signed: ["lost", "cancelled"], active: ["lost", "cancelled"] };
+  const moves: Record<string, string[]> = { draft: ["sent", "cancelled"], sent: ["signed", "draft", "lost"], signed: ["cancelled"], active: ["cancelled"] };
   return [...new Set([...(moves[status] ?? []), ...((renewal || isBid) && ["draft", "sent"].includes(status) ? ["lost"] : [])])];
 }
 export function assertMove(term: Pick<AgreementTerm, "status" | "renewedFromTermId"> & { bidTicketId?: string | null }, to: string) {

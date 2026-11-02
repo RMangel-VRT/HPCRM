@@ -10,6 +10,7 @@
 - [Ticket consolidation scope](ticket-consolidation-scope.md) — preserve Invoice tickets/scheduling; billing sidebar is narrower than access; Dashboard queue counts stay independent.
 - [Colorado calendar days](colorado-calendar-days.md) — hosting may run in UTC; Colorado business-day calculations must not silently inherit the host timezone.
 - [Contract Center boundaries](contract-center-phase-boundaries.md) — renewals preserve seasons; early slices leave legacy behavior unchanged; import old date-picker dates using UTC components.
+- [Contract outcome boundaries](contract-outcome-boundaries.md) — non-renewal does not end worked seasons; customer inactivation is the narrow authorized background-job exception.
 - [Crew table rollout](crew-table-rollout.md) — standing identity is canonical; retain planner/campaign behavior and preserve explicit None choices across restarts.
 - [Validation durability](validation-durability.md) — workspace restarts can lose temporary logs; persist long-running checks in ignored project output.
 - [Scoped dependency peer resolution](scoped-dependency-peers.md) — temporarily enabling automatic peer resolution can change unrelated workspace dependencies; preserve their baseline.

@@ -50,6 +50,13 @@ beforeEach(() => {
   };
 });
 describe("customer Contract Center switch-over", () => {
+  it("shows the non-renewal chip instead of the renewal chip on the customer tab", () => {
+    fx.responses["/api/contract-center/contracts|company|customer"] = { data: [{ ...center, notRenewing: true, renewalDue: false }] };
+    const html = tab();
+    expect(html).toContain('data-testid="chip-not-renewing"');
+    expect(html).toContain("nonRenewal.notRenewing");
+    expect(html).not.toContain("Up for renewal");
+  });
   it.each(["admin", "office"])("shows new cards first for %s and initially collapses legacy cards", role => {
     fx.user.activeRole = role;
     const html = tab();

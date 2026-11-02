@@ -1,4 +1,4 @@
-import { and, eq, asc, desc, sql, getTableColumns } from "drizzle-orm";
+import { and, eq, asc, desc, sql, getTableColumns, inArray } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   agreements, agreementTerms, customers, propertyManagementCompanies, termScopeLines,
@@ -9,6 +9,7 @@ import { db } from "../db";
 import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves, renewalSet, recoverPayments, isTermEditable } from "./contractCenterService";
 import { addCalendarDays, calendarDaysBetween, companyToday } from "./companyDay";
 import { coverageResolver } from "./contractCoverage";
+import { hasOpenBusiness, isNotRenewing } from "../shared/contractCatalog";
 
 /** Bounded company-scoped operational coverage shared by route fill/import/reporting.
  * Uses the same direct-parent relationship as the Contract Center list.
@@ -38,6 +39,7 @@ export async function loadContractList(reader: Reader, companyId: string, filter
   const rows = await reader.select().from(agreements).where(eq(agreements.companyId, companyId));
   const terms = await reader.select().from(agreementTerms).where(eq(agreementTerms.companyId, companyId));
   const owners = new Map(companyCustomers.map(c => [c.id, c]));
+  const names = await nonRenewalActorNames(reader, terms);
   const customer = filter.customerId ? owners.get(filter.customerId) : undefined;
   if (filter.customerId && !customer) throw new ContractCenterError(404, "Customer not found");
   const parent = filter.includeParent === "true" && customer?.parentCustomerId
@@ -60,7 +62,7 @@ export async function loadContractList(reader: Reader, companyId: string, filter
     const owner = owners.get(agreement.customerId);
     if (!owner || (filter.q && !owner.name.toLowerCase().includes(filter.q.toLowerCase())) ||
       (filter.customerId && agreement.customerId !== filter.customerId && agreement.customerId !== parent?.id)) return [];
-    const summary = listSummary(byAgreement.get(agreement.id) ?? [], today);
+    const summary = listSummary(byAgreement.get(agreement.id) ?? [], today, names);
     if (filter.line && ![summary.current ?? summary.latest, summary.renewalDraft]
       .some(t => t?.line === filter.line || t?.line === "both")) return [];
     const viaParent = !!parent && agreement.customerId === parent.id;
@@ -84,7 +86,7 @@ export async function loadRenewalsDue(reader: Reader, companyId: string, today =
   return items.flatMap(item => {
     const term = item.current;
     // listSummary/displayStatus already suppress signed replacements, including future years.
-    if (!term || !(item.renewalDue || term.displayStatus === "expired")) return [];
+    if (item.notRenewing || !term || !(item.renewalDue || term.displayStatus === "expired")) return [];
     const status = item.renewalDraft?.status;
     return [{ agreementId: item.id, customerId: item.customerId, customerName: item.customerName,
       line: term.line, termId: term.id, seasonLabel: term.seasonLabel, endDate: term.endDate,
@@ -114,9 +116,15 @@ export async function getTerm(reader: Reader, companyId: string, id: string) {
   return row;
 }
 export async function lockAgreement(tx: Transaction, companyId: string, id: string) {
+  await lockContractCompany(tx, companyId);
   const [row] = await tx.select().from(agreements).where(and(eq(agreements.id, id), eq(agreements.companyId, companyId))).for("update");
   if (!row) throw new ContractCenterError(404, "Contract not found");
   return row;
+}
+/** Shared with audit/import writers. Acquire after RFP locks, before agreement/customer locks.
+ * The sweep never locks RFPs, so it cannot invert the RFP -> company -> agreement order. */
+export async function lockContractCompany(tx: Transaction, companyId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`contract-audit:${companyId}`}))`);
 }
 export async function lockTerm(tx: Transaction, companyId: string, id: string) {
   const initial = await getTerm(tx, companyId, id);
@@ -132,17 +140,19 @@ export async function replaceRows(tx: Transaction, companyId: string, termId: st
 }
 
 /** All lifecycle term writes use this function, including attributable history. */
-export async function writeTerm(tx: Transaction, companyId: string, userId: string,
-  previous: AgreementTerm | null, values: Partial<typeof agreementTerms.$inferInsert>, note: string) {
+export async function writeTerm(tx: Transaction, companyId: string, userId: string | null,
+  previous: AgreementTerm | null, values: Partial<typeof agreementTerms.$inferInsert>, note: string,
+  historyMode: "edit" | "outcome" = "edit") {
+  await lockContractCompany(tx, companyId);
   const [row] = previous
     ? await tx.update(agreementTerms).set({ ...values, updatedAt: new Date() })
       .where(and(eq(agreementTerms.id, previous.id), eq(agreementTerms.companyId, companyId))).returning()
     : await tx.insert(agreementTerms).values({ ...values, companyId, createdBy: userId } as typeof agreementTerms.$inferInsert).returning();
   if (!row) throw new ContractCenterError(404, "Term not found");
-  if (!previous || previous.status !== row.status || ["signed", "active", "renewed"].includes(previous.status)) {
+  if (historyMode === "outcome" || !previous || previous.status !== row.status || ["signed", "active", "renewed"].includes(previous.status)) {
     await tx.insert(termStatusHistory).values({
       companyId, termId: row.id, oldStatus: previous?.status ?? null, newStatus: row.status,
-      changedBy: userId, note: previous && previous.status === row.status ? `Edited after signing: ${note}` : note,
+      changedBy: userId, note: historyMode === "edit" && previous && previous.status === row.status ? `Edited after signing: ${note}` : note,
     });
   }
   return row;
@@ -173,7 +183,12 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
   const [managementCompany] = managementId ? await reader.select().from(propertyManagementCompanies)
     .where(and(eq(propertyManagementCompanies.id, managementId), eq(propertyManagementCompanies.companyId, companyId))) : [];
   const terms = await agreementSeasons(reader, companyId, agreementId);
-  const today = companyToday(), summary = listSummary(terms, today);
+  const today = companyToday(), summary = listSummary(terms, today, await nonRenewalActorNames(reader, terms));
+  const customerAgreements = await reader.select().from(agreements).where(and(eq(agreements.companyId, companyId), eq(agreements.customerId, customer.id)));
+  const customerTerms = await reader.select().from(agreementTerms).where(eq(agreementTerms.companyId, companyId));
+  const otherIds = new Set(customerAgreements.filter(a => a.id !== agreementId).map(a => a.id));
+  const otherOpenLines = new Set(customerTerms.filter(t => otherIds.has(t.agreementId) && hasOpenBusiness(t, today)).map(t => t.agreementId)).size;
+  const renewalSource = selectRenewalSource(terms);
   const statusEditableIds = new Set([summary.current?.id, summary.renewalDraft?.id].filter(Boolean));
   const nested = await Promise.all(terms.map(async term => {
     const [scope, rates, billingMonths, documents, history] = await Promise.all([
@@ -183,7 +198,7 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
       reader.select().from(termDocuments).where(termWhere(termDocuments, companyId, term.id)).orderBy(desc(termDocuments.createdAt), desc(termDocuments.version)),
       reader.select().from(termStatusHistory).where(termWhere(termStatusHistory, companyId, term.id)).orderBy(desc(termStatusHistory.createdAt), desc(termStatusHistory.id)),
     ]);
-    const actorIds = [...new Set([...documents.map(d => d.uploadedBy), ...history.map(h => h.changedBy)]
+    const actorIds = [...new Set([term.nonRenewalBy, ...documents.map(d => d.uploadedBy), ...history.map(h => h.changedBy)]
       .filter((id): id is string => id !== null))];
     // Resolve only actors referenced by this company-scoped term, not a user directory.
     const actors = await Promise.all(actorIds.map(async id => {
@@ -194,7 +209,8 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
     const set = renewalSet(terms, term), first = set[0], year = set.findIndex(t => t.id === term.id) + 1;
     const editable = isTermEditable(term, today);
     const statusEditable = (statusEditableIds.has(term.id) || ["draft", "sent"].includes(term.status)) && !["renewed", "lost", "cancelled"].includes(term.status);
-    return { ...term, displayStatus: displayStatus(term, terms), editable,
+    return { ...term, nonRenewalByName: term.nonRenewalBy ? names.get(term.nonRenewalBy) ?? null : null,
+      displayStatus: displayStatus(term, terms), editable,
       renewalSet: { firstTermId: first.id, firstSeason: first.seasonLabel, lastSeason: set[set.length - 1].seasonLabel, year, length: set.length },
       allowedMoves: year === 1 && (statusEditable || set.length > 1) ? allowedMoves(set[set.length - 1].status, !!first.renewedFromTermId, !!first.bidTicketId) : [],
       scope, rates, billingMonths,
@@ -214,15 +230,29 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
     street: customer.street, city: customer.city, state: customer.state, zip: customer.zip,
     managementCompany: managementCompany ?? customer.managementCompany }, terms: withCoverage,
     currentTermId: summary.current?.id ?? null, renewalDraftId: summary.renewalDraft?.id ?? null,
-    renewalDue: summary.renewalDue };
+    renewalDue: summary.renewalDue, notRenewing: summary.notRenewing,
+    renewalSourceId: renewalSource?.id ?? null,
+    canRecordNonRenewal: !!renewalSource && ["signed", "active", "renewed"].includes(renewalSource.status) && !isNotRenewing(renewalSource)
+      && !terms.some(t => t.renewedFromTermId === renewalSource.id && ["signed", "active", "renewed"].includes(t.status)),
+    otherOpenLines, companyDay: today };
 }
-export function listSummary(terms: AgreementTerm[], today = companyToday()) {
+async function nonRenewalActorNames(reader: Reader, terms: AgreementTerm[]): Promise<Map<string, string>> {
+  const ids = [...new Set(terms.map(t => t.nonRenewalBy).filter((id): id is string => !!id))];
+  if (!ids.length) return new Map<string, string>();
+  const actors = await reader.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, ids));
+  return new Map(actors.map(actor => [actor.id, actor.name]));
+}
+export function listSummary(terms: AgreementTerm[], today = companyToday(), actorNames = new Map<string, string>()) {
   const current = selectCurrent(terms, today);
   const summarize = (t: AgreementTerm) => ({ id: t.id, seasonLabel: t.seasonLabel, line: t.line, form: t.form,
     startDate: t.startDate, endDate: t.endDate, status: t.status, displayStatus: displayStatus(t, terms, today),
     annualPriceCents: t.annualPriceCents, snowPricing: t.snowPricing, needsReview: t.needsReview,
     signedAt: t.signedAt, snowFlatPriceCents: t.snowFlatPriceCents,
-    managingAgentName: t.managingAgentName, billingType: t.billingType });
+    managingAgentName: t.managingAgentName, billingType: t.billingType,
+    nonRenewalOn: t.nonRenewalOn, nonRenewalReason: t.nonRenewalReason,
+    nonRenewalCompetitor: t.nonRenewalCompetitor, nonRenewalNote: t.nonRenewalNote,
+    nonRenewalByName: t.nonRenewalBy ? actorNames.get(t.nonRenewalBy) ?? null : null,
+    deactivateCustomerOnEnd: t.deactivateCustomerOnEnd });
   // Pending drafts belong to the final renewal source, not necessarily today's displayed season.
   const renewalSource = selectRenewalSource(terms);
   const renewal = renewalSource && [...terms].filter(t => t.renewedFromTermId === renewalSource.id && ["draft", "sent"].includes(t.status))
@@ -235,9 +265,10 @@ export function listSummary(terms: AgreementTerm[], today = companyToday()) {
   const dueSources = terms.filter(t => ["signed", "active", "renewed"].includes(t.status)
     && t.endDate >= addCalendarDays(today, -60) && addCalendarDays(t.endDate, -60) <= today);
   return { current: current ? summarize(current) : null, renewalDraft: renewal ? summarize(renewal) : null,
+    renewalSource: renewalSource ? summarize(renewalSource) : null, notRenewing: isNotRenewing(renewalSource),
     latest: latest ? summarize(latest) : null, recentSigned: recentSigned ? summarize(recentSigned) : null,
-    renewalDue: current ? renewalDue(current, terms, today) : false,
-    renewalProgress: { due: dueSources.length > 0, signed: dueSources.some(source =>
+    renewalDue: renewalSource ? renewalDue(renewalSource, terms, today) : false,
+    renewalProgress: { due: dueSources.length > 0, notRenewing: dueSources.some(isNotRenewing), signed: dueSources.some(source =>
       terms.some(t => t.renewedFromTermId === source.id && ["signed", "active", "renewed"].includes(t.status))) },
     companyDay: today };
 }

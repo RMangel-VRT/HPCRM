@@ -12,6 +12,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({ data: fx.items, isLoading: false, isError: false }),
 }));
 vi.mock("@/components/contracts/RenewDialog", () => ({ RenewDialog: () => null }));
+vi.mock("@/components/contracts/NotRenewingDialog", () => ({ NotRenewingDialog: () => null }));
 import ContractCenterPage, { ContractBoard, ContractTable } from "./ContractCenterPage";
 
 const today = "2026-10-12";

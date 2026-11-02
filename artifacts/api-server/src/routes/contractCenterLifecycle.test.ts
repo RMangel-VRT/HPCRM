@@ -88,6 +88,7 @@ beforeEach(() => {
   mock.parent.mockResolvedValue(false); mock.upload.mockResolvedValue("https://storage.googleapis.com/private/uploads/object?signature=test");
   mock.file.mockResolvedValue({}); mock.acl.mockResolvedValue("/objects/uploads/object");
   Object.assign(mock.db, {
+    execute: vi.fn(async () => []),
     select: vi.fn((selection?: any) => ({ from: (table: any) => query(table, "select", selection) })),
     insert: vi.fn((table: any) => query(table, "insert")),
     update: vi.fn((table: any) => query(table, "update")),

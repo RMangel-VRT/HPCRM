@@ -320,6 +320,7 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
           const termPlan: TermPlan = {
             report: termReport, renewedFromIndex: agreementPlan.terms.length ? agreementPlan.terms.length - 1 : null,
             term: { bidTicketId: null, line, form: "ours", seasonLabel: termReport.seasonLabel, startDate: start, endDate: end, status, billingType,
+              nonRenewalOn: null, nonRenewalReason: null, nonRenewalCompetitor: null, nonRenewalNote: null, nonRenewalBy: null, deactivateCustomerOnEnd: false,
               snowPricing: line === "landscape" ? null : "time_and_materials", snowFlatPriceCents: null,
               annualPriceCents, renewalIncreasePct: null, legalName: null, managingAgentName: manager?.name ?? customer.managementCompany ?? null,
               projectContact: null, contactPhone: null, contactEmail: null,

@@ -1,3 +1,4 @@
+import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const es = {
   mentions: {
     title: "Menciones", type: "Mención", unread: "Sin leer",
@@ -3144,6 +3145,18 @@ const es = {
     bindInstead: "Vincular a este en su lugar",
     emailLabel: "Correo electronico",
     phoneLabel: "Telefono",
+  },
+  nonRenewal: {
+    reasons: NON_RENEWAL_LABELS.es,
+    chip: "No renueva", strip: "No renueva — {{reason}}, decidido el {{date}} por {{name}}", undo: "Deshacer", undoInactive: "No renovación deshecha. El cliente sigue inactivo; deshacer no lo reactiva.",
+    progress: "{{renewed}} renovados · {{count}} no renuevan", notRenewing: "No renueva", action: "Marcar como no renueva",
+    title: "{{customer}} no renueva", description: "Registra la decisión en la temporada que termina el {{end}}. El contrato sigue vigente hasta entonces.",
+    date: "Decidido el", dateHint: "Fecha de Colorado", reason: "Motivo", reasonPlaceholder: "Elija un motivo", competitor: "¿Qué contratista?", competitorOptional: "Opcional",
+    note: "Nota", notePlaceholder: "Algo que convenga recordar si regresan", customer: "Marcar a {{customer}} como inactivo cuando este contrato termine el {{end}}",
+    otherOpen: "Todavía tiene otros contratos.", pending: "La renovación de {{season}} se marcará como perdida.",
+    cancel: "Cancelar", confirm: "Registrar no renovación", saving: "Guardando", recorded: "Marcado como no renueva",
+    loadError: "No se pudo cargar este contrato.", retry: "Reintentar", noSource: "Este contrato no tiene una temporada que se pueda marcar como no renueva.",
+    errReason: "Elija un motivo.", errDate: "Ingrese una fecha válida.", errLong: "Máximo {{max}} caracteres.",
   },
 };
 

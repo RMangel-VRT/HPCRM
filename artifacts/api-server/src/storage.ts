@@ -873,10 +873,11 @@ export class PgStorage implements IStorage {
     return result[0];
   }
 
-  async updateCustomer(id: string, companyId: string, updates: Partial<InsertCustomer>, expectedUpdatedAt?: Date): Promise<Customer | undefined | { conflict: true; current: Customer }> {
+  async updateCustomer(id: string, companyId: string, updates: Partial<InsertCustomer>, expectedUpdatedAt?: Date,
+    writer: Pick<typeof db, "select" | "update"> = db): Promise<Customer | undefined | { conflict: true; current: Customer }> {
     // If expectedUpdatedAt is provided, check for conflicts
     if (expectedUpdatedAt) {
-      const current = await db.select().from(customers)
+      const current = await writer.select().from(customers)
         .where(and(eq(customers.id, id), eq(customers.companyId, companyId)))
         .limit(1);
       
@@ -892,7 +893,7 @@ export class PgStorage implements IStorage {
       }
     }
     
-    const result = await db.update(customers)
+    const result = await writer.update(customers)
       .set({ ...updates, updatedAt: new Date() } as Partial<typeof customers.$inferInsert>)
       .where(and(eq(customers.id, id), eq(customers.companyId, companyId)))
       .returning();

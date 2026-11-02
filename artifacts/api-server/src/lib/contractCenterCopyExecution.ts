@@ -5,6 +5,7 @@ import {
 } from "@workspace/db";
 import { db } from "../db";
 import { summarizePlans, type CopyPlan, type CustomerPlan } from "./contractCenterCopy";
+import { lockContractCompany } from "./contractCenterPersistence";
 
 /** No source updates, conflict-ignore, or file operations: a duplicate link must roll back its customer. */
 export async function executeLegacyCopy(plan: CopyPlan, companyId: string, adminId: string) {
@@ -12,6 +13,7 @@ export async function executeLegacyCopy(plan: CopyPlan, companyId: string, admin
   for (const customer of plan.customers) {
     try {
       await db.transaction(async tx => {
+        await lockContractCompany(tx, companyId);
         for (const agreement of customer.agreements) {
           const agreementId = randomUUID();
           const { line: _legacyGroupingLine, ...relationship } = agreement.agreement;

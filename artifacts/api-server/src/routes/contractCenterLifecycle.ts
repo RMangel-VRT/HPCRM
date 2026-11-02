@@ -13,10 +13,12 @@ import {
   renewSchema, validateDates, validateSnow, expandPayments, recoverPayments, paymentSummary,
   buildScope, snapshotRates, assertEditable, assertMove, selectRenewalSource, displayStatus,
   renewalSet,
+  nonRenewalSchema, isNotRenewing,
 } from "../lib/contractCenterService";
 import {
   fullDetail, getTerm, getAgreement, lockAgreement, lockTerm, writeTerm, addHistory,
   activeCard, termWhere, loadContractList, replaceRows, agreementSeasons,
+  lockContractCompany,
 } from "../lib/contractCenterPersistence";
 import { planChangingRenewal } from "../lib/contractChangingRenewal";
 import { ObjectStorageService } from "../objectStorage";
@@ -24,6 +26,8 @@ import { ObjectAccessGroupType, ObjectPermission } from "../objectAcl";
 import type { Session } from "express-session";
 import { validateRfpCreation, loadLinkedContracts } from "../lib/rfpContracts";
 import { applyContractStatus } from "../lib/contractCenterStatusChange";
+import { recordNonRenewal, undoNonRenewal } from "../lib/contractNonRenewal";
+import { NON_RENEWAL_CONFLICT } from "@workspace/db/contract-non-renewal";
 
 type Authorize = (req: Request, res: Response) => UserWithContext | null;
 type UploadSession = Session & { contractCenterUploads?: Record<string, { companyId: string; termId: string }> };
@@ -54,7 +58,9 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       res.json(await loadLinkedContracts(db, companyId, [filter.bidTicketId]));
       return;
     }
-    res.json(await loadContractList(db, companyId, filter));
+    const rows = await loadContractList(db, companyId, filter);
+    res.json(rows.map(row => ({ ...row, canRecordNonRenewal: ["admin", "office"].includes(user.activeRole)
+      && !row.notRenewing && !!row.renewalSource && ["signed", "active", "renewed"].includes(row.renewalSource.status) })));
   }));
   app.get("/api/contract-center/contracts/by-legacy/:legacyContractId", handle(async (req, res, user) => {
     const [row] = await db.select({ agreementId: agreementTerms.agreementId }).from(termLegacySources)
@@ -65,7 +71,9 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     res.json(row);
   }));
   app.get("/api/contract-center/contracts/:agreementId", handle(async (req, res, user) => {
-    res.json(await fullDetail(db, user.activeCompanyId, String(req.params.agreementId)));
+    const detail = await fullDetail(db, user.activeCompanyId, String(req.params.agreementId));
+    const permitted = ["admin", "office"].includes(user.activeRole);
+    res.json({ ...detail, canRecordNonRenewal: permitted && detail.canRecordNonRenewal, canUndoNonRenewal: permitted });
   }));
   app.post("/api/contract-center/contracts", handle(async (req, res, user) => {
     const body = createContractSchema.parse(req.body), companyId = user.activeCompanyId;
@@ -74,6 +82,7 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     validateDates(body.term.startDate, body.term.endDate); validateSnow(body.line, body.term);
     const detail = await db.transaction(async tx => {
       const bid = body.bidTicketId ? await validateRfpCreation(tx, companyId, body.bidTicketId, customer) : null;
+      await lockContractCompany(tx, companyId);
       const managementId = body.propertyManagementCompanyId ?? customer.propertyManagementCompanyId;
       if (managementId) {
         const [management] = await tx.select().from(propertyManagementCompanies).where(and(eq(propertyManagementCompanies.id, managementId), eq(propertyManagementCompanies.companyId, companyId)));
@@ -136,12 +145,23 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     const row = await db.transaction(tx => applyContractStatus(tx, { companyId, userId, termId: id, to: body.to, note: body.note }));
     res.json(row);
   }));
+  app.post("/api/contract-center/terms/:termId/non-renewal", handle(async (req, res, user) => {
+    if (!["admin", "office"].includes(user.activeRole)) throw new ContractCenterError(403, "Admin or office access required");
+    const body = nonRenewalSchema.parse(req.body), { companyId, userId, id } = context(req, user);
+    res.json(await db.transaction(tx => recordNonRenewal(tx, companyId, userId, id, body)));
+  }));
+  app.delete("/api/contract-center/terms/:termId/non-renewal", handle(async (req, res, user) => {
+    if (!["admin", "office"].includes(user.activeRole)) throw new ContractCenterError(403, "Admin or office access required");
+    const { companyId, userId, id } = context(req, user);
+    res.json(await db.transaction(tx => undoNonRenewal(tx, companyId, userId, id)));
+  }));
   app.post("/api/contract-center/contracts/:agreementId/renew", handle(async (req, res, user) => {
     const body = renewSchema.parse(req.body), { companyId, userId, id } = context(req, user);
     const result = await db.transaction(async tx => {
       const agreement = body.dryRun ? await getAgreement(tx, companyId, id) : await lockAgreement(tx, companyId, id);
       const terms = await tx.select().from(agreementTerms).where(and(eq(agreementTerms.agreementId, id), eq(agreementTerms.companyId, companyId)));
       const source = selectRenewalSource(terms);
+      if (isNotRenewing(source)) throw new ContractCenterError(409, NON_RENEWAL_CONFLICT);
       if (!source || !["active", "signed", "expired"].includes(displayStatus(source, terms))) throw new ContractCenterError(409, "Current term cannot be renewed");
       if (terms.some(t => t.renewedFromTermId === source.id && ["draft", "sent"].includes(t.status))) throw new ContractCenterError(409, "A draft or sent renewal already exists");
       const scope = await tx.select().from(termScopeLines).where(termWhere(termScopeLines, companyId, source.id));

@@ -5,6 +5,9 @@ import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, FileText, Plus, Search 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RenewDialog } from "@/components/contracts/RenewDialog";
+import { NotRenewingDialog } from "@/components/contracts/NotRenewingDialog";
+import { NonRenewalChip } from "@/components/contracts/NonRenewalChip";
+import { useTranslation } from "react-i18next";
 import { BoardColumn } from "@/components/contracts/BoardColumn";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LineBadge, RenewalChip, ReviewChip, StatusPill } from "@/components/contracts/ContractBadges";
@@ -31,10 +34,11 @@ const COLUMNS: { key: ColumnKey; title: string; empty: string }[] = [
 ];
 export const COMING_SOON = { title: "Coming in the next update", description: "Creating and renewing contracts arrives with the next release." };
 
-export function ContractBoard({ items, board, q, today, onRenew, defaultOpen, onViewAllLost }: {
+export function ContractBoard({ items, board, q, today, onRenew, onNotRenewing, defaultOpen, onViewAllLost }: {
   items: ContractListItem[]; board: BoardLine; q: string; today: string; onComingSoon?: () => void; onRenew?: (item: ContractListItem) => void;
-  defaultOpen?: boolean; onViewAllLost?: () => void;
+  defaultOpen?: boolean; onViewAllLost?: () => void; onNotRenewing?: (item: ContractListItem) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(() => defaultOpen ?? readBoardOpen());
   const changeOpen = (next: boolean) => {
     setOpen(next);
@@ -64,6 +68,7 @@ export function ContractBoard({ items, board, q, today, onRenew, defaultOpen, on
         </div>
       <div className="w-full xl:ml-auto xl:w-64 xl:shrink-0" data-testid="renewal-progress">
         <p className="text-sm font-medium" data-testid="text-renewal-progress">{prog.signed} of {prog.due} renewals signed</p>
+        <p className="text-xs text-muted-foreground" data-testid="text-non-renewal-progress">{t("nonRenewal.progress", { renewed: prog.signed, count: prog.notRenewing })}</p>
         <div className="mt-1 h-1.5 w-full rounded-full bg-muted overflow-hidden flex">
           <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
           <div className="h-full" style={{ width: `${100 - pct}%`, backgroundColor: "color-mix(in srgb, var(--ts-waiting) 45%, transparent)" }} />
@@ -77,7 +82,7 @@ export function ContractBoard({ items, board, q, today, onRenew, defaultOpen, on
             footer={c.key === "lost" && onViewAllLost &&
               <button type="button" className="mt-2 text-xs underline underline-offset-2" data-testid="link-view-all-lost" onClick={onViewAllLost}>View all lost</button>}>
               {!cols[c.key].length && <p className="text-xs text-muted-foreground py-4 text-center">{c.empty}</p>}
-              {cols[c.key].map(card => <BoardCardView key={`${c.key}-${card.item.id}`} card={card} board={board} onRenew={onRenew} />)}
+              {cols[c.key].map(card => <BoardCardView key={`${c.key}-${card.item.id}`} card={card} board={board} onRenew={onRenew} onNotRenewing={onNotRenewing} />)}
           </BoardColumn>
         ))}
       </div>}
@@ -86,7 +91,8 @@ export function ContractBoard({ items, board, q, today, onRenew, defaultOpen, on
   );
 }
 
-function BoardCardView({ card, board, onRenew }: { card: BoardCard; board: BoardLine; onRenew?: (item: ContractListItem) => void }) {
+function BoardCardView({ card, board, onRenew, onNotRenewing }: { card: BoardCard; board: BoardLine; onRenew?: (item: ContractListItem) => void; onNotRenewing?: (item: ContractListItem) => void }) {
+  const { t } = useTranslation();
   const { item, term, column } = card;
   const href = `/dashboard/contracts/${item.id}${column === "renewal" ? "" : `#term-${term.id}`}`;
   return (
@@ -98,10 +104,13 @@ function BoardCardView({ card, board, onRenew }: { card: BoardCard; board: Board
           ? <Button size="sm" className="h-7 min-h-0 shrink-0 px-2.5 text-xs" onClick={() => onRenew?.(item)} data-testid={`button-renew-${item.id}`}>Renew</Button>
           : <Button size="sm" variant="outline" className="h-7 min-h-0 shrink-0 px-2.5 text-xs" asChild><Link href={href} data-testid={`link-open-${column}-${item.id}`}>Open</Link></Button>}
       </div>
+      {column === "renewal" && item.canRecordNonRenewal && <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs"
+        onClick={() => onNotRenewing?.(item)} data-testid={`button-not-renewing-${item.id}`}>{t("nonRenewal.notRenewing")}</Button>}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
         <LineBadge line={termLine(term, item.line)} />
         <span className="text-xs text-muted-foreground">{termForm(term, item.form) === "ours" ? "Our form" : "Their form"}</span>
         <StatusPill status={term.displayStatus} />
+        {item.notRenewing && <NonRenewalChip />}
         {column === "drafted" && <span className="text-xs text-muted-foreground" data-testid="text-renewal-state">Renewal {term.status}</span>}
         {column === "renewal" && item.renewalDue && <RenewalChip />}
         {term.needsReview && <ReviewChip />}
@@ -171,7 +180,7 @@ export function ContractTable({ items, board, q, onOpen, chips: controlledChips,
                   <td className="p-2">{t?.seasonLabel ?? "\u2014"}</td>
                   <td className="p-2">
                     <span className="inline-flex flex-wrap items-center gap-2">
-                      {t && <StatusPill status={t.displayStatus} />}{i.renewalDue && <RenewalChip />}{t?.needsReview && <ReviewChip />}
+                      {t && <StatusPill status={t.displayStatus} />}{i.notRenewing ? <NonRenewalChip /> : i.renewalDue && <RenewalChip />}{t?.needsReview && <ReviewChip />}
                     </span>
                   </td>
                   <td className="p-2 tabular-nums">{t ? priceLabel(i, t, money, board) : "\u2014"}</td>
@@ -197,9 +206,10 @@ export default function ContractCenterPage() {
     tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const [, navigate] = useLocation();
-  const { data, isLoading, isError, refetch } = useQuery<ContractListItem[]>({ queryKey: ["/api/contract-center/contracts"], retry: false });
+  const { data, isLoading, isError, refetch } = useQuery<ContractListItem[]>({ queryKey: ["/api/contract-center/contracts"], retry: false, staleTime: 30_000, refetchOnWindowFocus: true });
   const setBoard = (b: BoardLine) => { setBoardState(b); try { window.localStorage.setItem(STORAGE_KEY, b); } catch { /* storage unavailable */ } };
   const [renewTarget, setRenewTarget] = useState<{ id: string; customerName: string } | null>(null);
+  const [nonRenewalTarget, setNonRenewalTarget] = useState<{ id: string; customerName: string } | null>(null);
   const today = data?.find(i => i.companyDay)?.companyDay ?? coloradoToday();
 
   return (
@@ -235,13 +245,15 @@ export default function ContractCenterPage() {
         </div>
       ) : (
         <>
-          <ContractBoard items={data} board={board} q={q} today={today} onRenew={i => setRenewTarget({ id: i.id, customerName: i.customerName })} onViewAllLost={viewAllLost} />
+          <ContractBoard items={data} board={board} q={q} today={today} onRenew={i => setRenewTarget({ id: i.id, customerName: i.customerName })}
+            onNotRenewing={i => setNonRenewalTarget({ id: i.id, customerName: i.customerName })} onViewAllLost={viewAllLost} />
           <div ref={tableRef}>
             <ContractTable items={data} board={board} q={q} chips={chips} onChipsChange={setChips} onOpen={id => navigate(`/dashboard/contracts/${id}`)} />
           </div>
         </>
       )}
       <RenewDialog target={renewTarget} onClose={() => setRenewTarget(null)} />
+      <NotRenewingDialog target={nonRenewalTarget} onClose={() => setNonRenewalTarget(null)} />
       <p className="text-xs text-muted-foreground"><Link href="/dashboard/contracts/old" data-testid="link-old-page">Old contracts page</Link></p>
     </div>
   );

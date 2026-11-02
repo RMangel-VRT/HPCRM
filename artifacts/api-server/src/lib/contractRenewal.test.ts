@@ -53,6 +53,16 @@ function addRenewal(d: AuditData, status: string, imported = false) {
   if (imported) d.history.push({ termId: "existing", oldStatus: null, note: "Imported signed renewal (old.zip)" } as AuditData["history"][number]);
 }
 describe("renewal upload boundaries", () => {
+  it("rejects a marked source as a row error, including retries of an imported renewal", async () => {
+    for (const imported of [false, true]) {
+      const d = data(); d.terms[0].nonRenewalOn = "2026-10-14";
+      if (imported) addRenewal(d, "signed", true);
+      const plan = planRenewalImport(await input(), d);
+      expect(plan.errors).toEqual(expect.arrayContaining([expect.objectContaining({
+        message: "This contract is marked not renewing; undo that first", column: "renews_term_id",
+      })]));
+    }
+  });
   it("accepts renewal ZIP PDFs and CSV-only renewals without requiring optional tables", async () => {
     const f = await input(); expect(f.errors).toEqual([]); expect(f.mode).toBe("renewal"); expect(f.pdfs?.[pdf.name]).toEqual(pdf.data);
     expect((await parseAuditFiles([main(), payment])).errors).toEqual([]);

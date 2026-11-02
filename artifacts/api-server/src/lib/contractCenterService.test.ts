@@ -89,6 +89,18 @@ describe("scope and snapshots", () => {
   });
 });
 describe("renewal, status and Colorado display", () => {
+  it("keeps operating seasons active through the inclusive end date, then projects non-renewal as lost", () => {
+    const t = term({ startDate: "2026-01-01", endDate: "2026-12-31", nonRenewalOn: "2026-11-02" });
+    expect(allowedMoves("signed", false)).toEqual(["cancelled"]);
+    expect(allowedMoves("active", true, true)).toEqual(["cancelled"]);
+    expect(renewalDue(t, [], "2026-12-01")).toBe(false);
+    expect(displayStatus(t, [], "2026-12-30")).toBe("active");
+    expect(displayStatus(t, [], "2026-12-31")).toBe("active");
+    expect(displayStatus(t, [], "2027-01-01")).toBe("lost");
+    expect(displayStatus({ ...t, status: "renewed" }, [], "2027-01-01")).toBe("lost");
+    expect(displayStatus({ ...t, status: "renewed" }, [], "2026-12-31")).toBe("active");
+    expect(displayStatus(t, [term({ id: "successor", renewedFromTermId: t.id })], "2027-01-01")).not.toBe("lost");
+  });
   it("does not round exact twelve-dollar multiples up due to floating-point noise", () => {
     const after = increasedPayments([{ component: "A", months: [{ month: 1, amountCents: 12000 }] }], 10, "twelve");
     expect(after[0].months[0].amountCents).toBe(13200);

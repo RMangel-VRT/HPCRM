@@ -19,6 +19,13 @@ export interface BoardCard { item: ContractListItem; term: TermSummary; column: 
 /** Which board columns a contract belongs to (it can appear in more than one, e.g. signed renewal and next draft). */
 export function placements(item: ContractListItem, today: string): BoardCard[] {
   const out: BoardCard[] = [];
+  // A lost pending renewal must neither mask its source nor surface before the
+  // source ends. Non-renewal suppresses all operational columns, even recent signed.
+  if (item.notRenewing) {
+    const source = item.renewalSource ?? item.current;
+    return source?.displayStatus === "lost" && source.endDate < today && source.endDate >= addDays(today, -90)
+      ? [{ item, term: source, column: "lost" }] : [];
+  }
   const { current, renewalDraft } = item;
   const drafted = !!renewalDraft && ["draft", "sent"].includes(renewalDraft.status);
   if (!drafted && current && (item.renewalDue || current.displayStatus === "expired")) out.push({ item, term: current, column: "renewal" });
@@ -27,7 +34,7 @@ export function placements(item: ContractListItem, today: string): BoardCard[] {
   if (signed?.signedAt && coloradoDay(signed.signedAt) >= addDays(today, -60)
     && coloradoDay(signed.signedAt) <= today) out.push({ item, term: signed, column: "signed" });
   const latest = item.latest;
-  if (latest && latest.status === "lost" && latest.endDate >= addDays(today, -90)
+  if (latest && (latest.status === "lost" || latest.displayStatus === "lost") && latest.endDate >= addDays(today, -90)
     && latest.endDate <= today) out.push({ item, term: latest, column: "lost" });
   return out;
 }
@@ -46,13 +53,14 @@ export function boardColumns(items: ContractListItem[], board: BoardLine, q: str
 }
 
 export function renewalProgress(items: ContractListItem[], board: BoardLine, q: string) {
-  let due = 0, signed = 0;
+  let due = 0, signed = 0, notRenewing = 0;
   for (const item of items) {
     if (!onBoard(item, board) || !matchesSearch(item, q) || !item.renewalProgress?.due) continue;
     due++;
     if (item.renewalProgress.signed) signed++;
+    if (item.renewalProgress.notRenewing) notRenewing++;
   }
-  return { due, signed };
+  return { due, signed, notRenewing };
 }
 
 export type SortKey = "customer" | "type" | "form" | "season" | "status" | "price" | "agent" | "ends";
@@ -89,7 +97,8 @@ export function tableRows(items: ContractListItem[], board: BoardLine, q: string
     return (chips.includes("review") && !!t?.needsReview)
       || (chips.includes("renewal") && i.renewalDue)
       || (chips.includes("expired") && t?.displayStatus === "expired")
-      || (chips.includes("lost") && t?.displayStatus === "lost");
+      || (chips.includes("lost") && (t?.displayStatus === "lost"
+        || i.notRenewing && i.renewalSource?.displayStatus === "lost"));
   });
   const sign = dir === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
