@@ -1164,7 +1164,9 @@ components:
         companyId: { type: string }
         crewId: { type: [string, "null"] }
         visitDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
-        sourceType: { type: string, enum: [ticket, internal, maintenance, campaign_item] }
+        sourceType: { type: string, enum: [ticket, internal, route, campaign_item] }
+        routeStopId: { type: [string, "null"] }
+        routeOccurrenceDate: { type: [string, "null"] }
         serviceKey: { type: [string, "null"] }
         ticketId: { type: [string, "null"] }
         customerId: { type: [string, "null"] }

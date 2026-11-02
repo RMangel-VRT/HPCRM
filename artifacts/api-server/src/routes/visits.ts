@@ -181,7 +181,10 @@ export function registerVisitRoutes(app: Express) {
         if (identity.ticketId) await lockVisitTickets(tx, user.activeCompanyId, [identity.ticketId]);
         const [existing] = await tx.select().from(visits).where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId)));
         if (existing.status !== "planned") throw new VisitError(409, "VISIT_CLOSED", "Only planned visits can be deleted; cancel instead");
-        await tx.delete(visits).where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId)));
+        // Route occurrences are durable tombstones: deletion must not let fill recreate them.
+        if (existing.sourceType === "route") await tx.update(visits).set({ status: "cancelled", updatedAt: new Date() })
+          .where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId)));
+        else await tx.delete(visits).where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId)));
         const ticketSync = existing.ticketId ? await syncTicketFromVisits(existing.ticketId, user.activeCompanyId, user.id, tx) : { statusChanged: false, newStatusKey: null };
         return DeleteVisitResponse.parse({ ticketSync });
       });

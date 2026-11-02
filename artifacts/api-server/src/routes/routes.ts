@@ -63,6 +63,8 @@ import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
 import { linkCrewsByName } from "../lib/linkCrews";
 import { registerVisitRoutes } from "./visits";
+import { registerRouteStopRoutes } from "./routeStops";
+import { runApprovedPlannerImports } from "../lib/importPlannerRoutes";
 import { backfillVisitsFromTickets } from "../lib/backfillVisits";
 import { backfillVisitServices } from "../lib/backfillVisitServices";
 import { applySchedulingTransition } from "../lib/schedulingTransition";
@@ -2675,6 +2677,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await migrateSchedulingStatuses();
   await backfillScheduleBy();
   await linkCrewsByName();
+  await runApprovedPlannerImports();
   await backfillVisitsFromTickets();
   await backfillVisitServices();
 
@@ -2685,6 +2688,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerTicketOwnerResponseRoutes(app);
   registerCrewsAndMobileRoutes(app);
   registerVisitRoutes(app);
+  registerRouteStopRoutes(app);
   registerFlagsRoutes(app);
   registerDashboardQueueRoutes(app);
   registerEstimatesBoardRoutes(app);

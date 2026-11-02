@@ -87,7 +87,7 @@ export type VisitSourceType =
 export const VisitSourceType = {
   ticket: "ticket",
   internal: "internal",
-  maintenance: "maintenance",
+  route: "route",
   campaign_item: "campaign_item",
 } as const;
 
@@ -109,6 +109,10 @@ export interface Visit {
   /** @pattern ^\d{4}-\d{2}-\d{2}$ */
   visitDate: string;
   sourceType: VisitSourceType;
+  /** @nullable */
+  routeStopId?: string | null;
+  /** @nullable */
+  routeOccurrenceDate?: string | null;
   /** @nullable */
   serviceKey: string | null;
   /** @nullable */

@@ -8,6 +8,18 @@ import {
 import { db } from "../db";
 import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves, renewalSet, recoverPayments, isTermEditable } from "./contractCenterService";
 import { addCalendarDays, calendarDaysBetween, companyToday } from "./companyDay";
+import { coverageResolver } from "./contractCoverage";
+
+/** Bounded company-scoped operational coverage shared by route fill/import/reporting.
+ * Uses the same direct-parent relationship as the Contract Center list.
+ */
+export async function loadContractCoverage(reader: Reader, companyId: string) {
+  const properties = await reader.select().from(customers).where(eq(customers.companyId, companyId));
+  const rows = await reader.select().from(agreements).where(eq(agreements.companyId, companyId));
+  const terms = await reader.select().from(agreementTerms).where(eq(agreementTerms.companyId, companyId));
+  const scopes = await reader.select().from(termScopeLines).where(eq(termScopeLines.companyId, companyId));
+  return { properties, resolve: coverageResolver({ customers: properties, agreements: rows, terms, scopes }) };
+}
 
 export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type Reader = Pick<typeof db, "select">;

@@ -34,6 +34,7 @@ import { eq, ne, and, or, sql, desc, asc, inArray, isNull, max, type SQL, getTab
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
+import { lockVisitCompany } from "./lib/visitSync";
 
 const PostgresSessionStore = connectPg(session);
 
@@ -899,7 +900,10 @@ export class PgStorage implements IStorage {
   }
 
   async deleteCustomer(id: string, companyId: string): Promise<void> {
-    await db.delete(customers).where(and(eq(customers.id, id), eq(customers.companyId, companyId)));
+    await db.transaction(async tx => {
+      await lockVisitCompany(tx, companyId);
+      await tx.delete(customers).where(and(eq(customers.id, id), eq(customers.companyId, companyId)));
+    });
   }
 
   async getContactsByCustomerId(customerId: string, companyId: string): Promise<Contact[]> {

@@ -3,12 +3,15 @@ import { pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolea
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { isCalendarDate } from "./calendarDate";
+export { routeStopBody, routeStopFields, routeDate, routeService, validRouteSeason } from "../routeContracts";
 
 export const visitFields = {
   companyId: z.string().min(1),
   crewId: z.string().min(1).nullable().optional(),
   visitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, "Invalid calendar date"),
-  sourceType: z.enum(["ticket", "internal", "maintenance", "campaign_item"]).default("ticket"),
+  sourceType: z.enum(["ticket", "internal", "route", "campaign_item"]).default("ticket"),
+  routeStopId: z.string().min(1).nullable().optional(),
+  routeOccurrenceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, "Invalid calendar date").nullable().optional(),
   ticketId: z.string().min(1).nullable().optional(),
   customerId: z.string().min(1).nullable().optional(),
   title: z.string().trim().min(1).nullable().optional(),
@@ -25,6 +28,7 @@ export const visitFields = {
 export const insertVisitSchema = z.object(visitFields).superRefine((value, ctx) => {
   if (value.sourceType === "ticket" && !value.ticketId) ctx.addIssue({ code: "custom", path: ["ticketId"], message: "Ticket required" });
   if (value.sourceType === "internal" && !value.title) ctx.addIssue({ code: "custom", path: ["title"], message: "Title required" });
+  if (value.sourceType === "route" && (!value.routeStopId || !value.routeOccurrenceDate)) ctx.addIssue({ code: "custom", path: ["routeStopId"], message: "Route stop and occurrence date required" });
 });
 export type InsertVisit = z.infer<typeof insertVisitSchema>;
 
@@ -38,6 +42,8 @@ export const visits = pgTable("visits", {
   customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
   title: text("title"),
   serviceKey: text("service_key"),
+  routeStopId: varchar("route_stop_id").references((): AnyPgColumn => routeStops.id, { onDelete: "no action" }),
+  routeOccurrenceDate: date("route_occurrence_date"),
   routeOrder: integer("route_order"),
   startTime: text("start_time"),
   estimatedHours: real("estimated_hours"),
@@ -53,6 +59,8 @@ export const visits = pgTable("visits", {
   ticket: index("visits_ticket_idx").on(table.ticketId),
   companyCustomerDate: index("visits_company_customer_date_idx").on(table.companyId, table.customerId, table.visitDate),
   companyServiceDate: index("visits_company_service_date_idx").on(table.companyId, table.serviceKey, table.visitDate),
+  routeOccurrenceUnique: uniqueIndex("visits_route_occurrence_unique").on(table.routeStopId, table.routeOccurrenceDate).where(sql`${table.routeStopId} IS NOT NULL`),
+  routeIdentity: check("visits_route_identity_check", sql`${table.sourceType} <> 'route' OR (${table.routeStopId} IS NOT NULL AND ${table.routeOccurrenceDate} IS NOT NULL)`),
 }));
 export type Visit = typeof visits.$inferSelect;
 
@@ -66,6 +74,8 @@ export const companies = pgTable("companies", {
   phone: text("phone"),
   pesticideLicenseNumber: text("pesticide_license_number"),
   crewLinksInitializedAt: timestamp("crew_links_initialized_at"),
+  routesImportedAt: timestamp("routes_imported_at"),
+  routesLastFilledOn: date("routes_last_filled_on"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -73,6 +83,8 @@ export const companies = pgTable("companies", {
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
   crewLinksInitializedAt: true,
+  routesImportedAt: true,
+  routesLastFilledOn: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
@@ -82,6 +94,42 @@ export const insertCompanySchema = createInsertSchema(companies).omit({
 
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type Company = typeof companies.$inferSelect;
+
+// Owns recurrence only. Contract quantities remain in term_scope_lines.
+// importedFromBlockId is frozen provenance, never a live planner mirror.
+export const routeStops = pgTable("route_stops", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  // Nullable only for retired history after customer deletion; request schemas
+  // still require a property and the DB forbids active stops without one.
+  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  serviceKey: text("service_key").notNull(),
+  crewId: varchar("crew_id").notNull().references(() => crews.id, { onDelete: "restrict" }),
+  weekday: integer("weekday").notNull(),
+  everyWeeks: integer("every_weeks").notNull().default(1),
+  anchorDate: date("anchor_date").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  minutes: integer("minutes").notNull(),
+  seasonStart: date("season_start"),
+  seasonEnd: date("season_end"),
+  pausedUntil: date("paused_until"),
+  isActive: boolean("is_active").notNull().default(true),
+  notes: text("notes"),
+  importedFromBlockId: varchar("imported_from_block_id"),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => ({
+  companyCrewDay: index("route_stops_company_crew_day_idx").on(table.companyId, table.crewId, table.weekday, table.sortOrder),
+  uniqueActive: uniqueIndex("route_stops_unique_active").on(table.companyId, table.customerId, table.serviceKey).where(sql`${table.isActive}`),
+  activeCustomer: check("route_stops_active_customer_check", sql`NOT ${table.isActive} OR ${table.customerId} IS NOT NULL`),
+  weekdayCheck: check("route_stops_weekday_check", sql`${table.weekday} BETWEEN 1 AND 6`),
+  cadenceCheck: check("route_stops_cadence_check", sql`${table.everyWeeks} IN (1,2)`),
+  minutesCheck: check("route_stops_minutes_check", sql`${table.minutes} BETWEEN 5 AND 720`),
+  seasonCheck: check("route_stops_season_check", sql`(${table.seasonStart} IS NULL AND ${table.seasonEnd} IS NULL) OR (${table.seasonStart} IS NOT NULL AND ${table.seasonEnd} IS NOT NULL AND ${table.seasonStart} <= ${table.seasonEnd})`),
+}));
+export type RouteStop = typeof routeStops.$inferSelect;
+export type InsertRouteStop = typeof routeStops.$inferInsert;
 
 export const hardscapeCatalogItems = pgTable("hardscape_catalog_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

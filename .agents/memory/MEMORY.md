@@ -36,3 +36,5 @@
 - [Mention access policy](mention-access-policy.md) — mentions never grant ticket access; denied clicks still mark read and show an inline note.
 - [PDF decoration preservation](pdf-decoration-preservation.md) — explicitly restore PDF text state while preserving legacy proposal exhibit overflow geometry.
 - [Container query verification](container-query-verification.md) — verify populated sections and both sidebar states; mocked widths can miss clipped rails.
+- [Route coverage precedence](route-coverage-precedence.md) — property contracts govern; parent coverage cannot restore a service excluded by a qualifying property contract.
+- [Route occurrence retention](route-occurrence-retention.md) — keep trip identities through property deletion; outer seasonal bounds do not authorize zero-spread months.

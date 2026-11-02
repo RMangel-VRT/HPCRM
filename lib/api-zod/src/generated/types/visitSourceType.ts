@@ -12,6 +12,6 @@ export type VisitSourceType =
 export const VisitSourceType = {
   ticket: "ticket",
   internal: "internal",
-  maintenance: "maintenance",
+  route: "route",
   campaign_item: "campaign_item",
 } as const;

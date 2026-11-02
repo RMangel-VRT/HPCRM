@@ -6,6 +6,7 @@ import { COMPANY_TIME_ZONE } from "./lib/companyDay";
 import { registerRoutes } from "./routes/routes";
 import { requeueInterruptedBackfills } from "./services/mailboxBackfillService";
 import { startPlantSyncScheduler } from "./lib/plantSync";
+import { startRouteScheduler, stopRouteScheduler } from "./lib/routeScheduler";
 import { startPlantEnrichmentScheduler } from "./lib/plantEnrichment";
 import { startQboProactiveRefresh } from "./services/qboClient";
 
@@ -50,6 +51,8 @@ registerRoutes(app)
       void warnIfSchemaDrift();
       void requeueInterruptedBackfills();
       startPlantSyncScheduler();
+      startRouteScheduler();
+      server.once("close", stopRouteScheduler);
       startPlantEnrichmentScheduler();
       startQboProactiveRefresh();
     });

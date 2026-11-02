@@ -70,3 +70,17 @@ mtime_ms = 1792530703944
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/ef2ae918-f8e1-4366-ab92-69d9aacca741/0e46df6b-7161-485c-8ab3-799d4ff6ed3e"
 storage_version_token = "1792530791540816"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "qlxNaCYxzegK5pMrZHwQe"
+uri = "file://docs/routes-engine-verification.md"
+type = "text"
+title = "R1 Routes final verification report"
+description = "Production dry-run evidence, blocked approval prerequisites, winter-month and deletion safeguards, and final two-time-zone verification."
+logical_id = "92668290-1e4a-407c-9918-9b7ef447a928"
+content_hash = "sha256:be9aa1311f6f99f2990cfccec4732d4fe3005e5abdf203a0d87f50d39763e4b7"
+size = 17046
+mtime_ms = 1793651688162
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/92668290-1e4a-407c-9918-9b7ef447a928/7c575fd1-5277-4c81-8f0f-277ca088e1e6"
+storage_version_token = "1793651734052651"
+content_type = "text/markdown"
