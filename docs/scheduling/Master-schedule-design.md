@@ -36,6 +36,19 @@ Every scheduling tool produces **visits** (one crew, one Colorado day, one trip)
 
 **Contract Center** `term_scope_lines` (service key, quantity, month spread, per term) are the only "what does this property get" source. See `claude/data-ownership-map.md`.
 
+## Routes decisions (Randy, Oct 30)
+
+- **Mockup:** "High Plains Routes" artifact, https://claude.ai/artifact/MgPk5vTxWtmpoMPE9FmoV6.
+- **Slices are written:** `scheduling-slices/routes/` (00-RULES-R, R1 engine, R2 page).
+- **Rain day has both modes:**
+  - push the rest of the week back one day;
+  - move only that day to the next working day.
+- **Cadence:** every week, or every 2 weeks. Some properties are mowed every other week.
+- **The old planner's placements are imported** as the starting 2027 routes. They're imported once, after a production dry run.
+- **The season comes from the contract.** Each stop's season is derived from the covering term's scope month spread; a manual override is allowed. With no covering contract, the stop generates nothing.
+- **Contracts already carry the demand data:** the catalog defaults give each service a quantity and month spread (mowing is 26 visits, Apr–Oct).
+- **Route visits are not tickets.** They won't show on the crew app's Today until Phase 4.
+
 ## Build order (remaining)
 
 1. **Routes.** Rebuild the planner on standing crews: dated visits generated a few weeks ahead, a rain-day slide, and prefill from contract scope where it exists. One-time import of the valid planner placements, then retire `/dashboard/schedule`, `maintenance_crews`, `schedule_blocks` and `maintenance_visit_configs`.
