@@ -6,6 +6,13 @@ packages:
 
 autoInstallPeers: false
 
+# This resolver version imports Zod 3 without declaring it. A browser dependency
+# also uses Zod 4; bind the legacy resolver explicitly instead of relying on hoisting.
+packageExtensions:
+  '@hookform/resolvers@3.10.0':
+    dependencies:
+      zod: 3.25.76
+
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.1
   '@replit/vite-plugin-dev-banner': ^0.1.1

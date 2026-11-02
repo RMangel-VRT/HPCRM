@@ -15,6 +15,7 @@
 
 | Fact | Owner | Allowed copies (snapshot / mirror) | Being retired | Status |
 |---|---|---|---|---|
+| **Document contact details and boilerplate** | `company_document_settings` | **Read-only projections:** allowlisted estimate/invoice PDF models; company name remains in existing settings, never copied here | None | Shared document kit; admin-only company-scoped editing; no commercial snapshots or QBO writes during preview |
 | **Contract coverage and form** | `agreement_terms.line` / `agreement_terms.form`, independently per signed season | None | `agreements.line` / `agreements.form` removed by the separately approved cleanup | Season-only; renewals never rewrite prior seasons |
 | **A document's additional seasonal coverage** | Nullable `term_documents.covers_through_term_id`; `term_id` remains its owning season | **Read-only projection:** documents on intervening/later seasons, ordered by start date within the same agreement | None | Explicit only; no duplicated document rows, link table, or inferred imported coverage |
 | **Standing crew** (name, supervisor, color, hours, active, order) | `crews` (Settings → Crews) | **Mirror:** `tickets.crew_id` via `syncTicketFromVisits`. **Snapshots:** crew and lead on completed work and worksheets. | `maintenance_crews` name/color/hours/active (O1 freezes; the table later becomes routes), `campaign_crews` name/color (O1 derives them) | **O1 merged** |

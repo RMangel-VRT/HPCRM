@@ -4,20 +4,20 @@ import i18n from "@/i18n";
 import { SETTINGS_SECTIONS, isSettingsRailPage, settingsRailFor, settingsSectionFor } from "./settingsNav";
 
 const expected = [
-  ["Company", ["company", "seasons", "benchmarks", "crews", "property-management"]],
+  ["Company", ["company", "documents", "seasons", "benchmarks", "crews", "property-management"]],
   ["Services & catalog", ["service-plans", "work-item-templates", "chemical-products", "contracts"]],
   ["Communication", ["email-templates", "notification-templates", "shared-mailboxes"]],
   ["Integrations", ["billing", "qbo-customers"]],
   ["System", ["features", "database"]],
 ] as const;
 const labels = [
-  "Company profile", "Seasons", "Benchmarks", "Crews", "Property managers",
+  "Company profile", "Documents", "Seasons", "Benchmarks", "Crews", "Property managers",
   "Service plans", "Work item templates", "Chemical products", "Contract defaults",
   "Email templates", "Notification templates", "Shared mailboxes",
   "QuickBooks invoicing", "QuickBooks customer mapping", "Feature flags", "Database",
 ];
 const spanish = [
-  "Perfil de la empresa", "Temporadas", "Referencias", "Cuadrillas", "Administradores de propiedades",
+  "Perfil de la empresa", "Documentos", "Temporadas", "Referencias", "Cuadrillas", "Administradores de propiedades",
   "Planes de servicio", "Plantillas de trabajo", "Productos químicos", "Valores de contrato",
   "Plantillas de correo", "Plantillas de notificación", "Buzones compartidos",
   "Facturación de QuickBooks", "Vinculación de clientes de QuickBooks", "Funciones", "Base de datos",
@@ -41,7 +41,7 @@ describe("Settings navigation source of truth", () => {
     }]);
   });
   it("keeps Platform Admin visibility, with no Settings items for other roles", () => {
-    expect(settingsRailFor({ activeRole: "field", isSuperAdminBool: true }).flatMap(s => s.items)).toHaveLength(16);
+    expect(settingsRailFor({ activeRole: "field", isSuperAdminBool: true }).flatMap(s => s.items)).toHaveLength(17);
     for (const activeRole of ["field", "field_manager", "chemical_manager", "irrigation_manager",
       "shop_manager", "landscape_supervisor", "crew_supervisor", "mapping"]) {
       expect(settingsRailFor({ activeRole })).toEqual([]);

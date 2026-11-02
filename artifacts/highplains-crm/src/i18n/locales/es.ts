@@ -1,5 +1,14 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const es = {
+  documents: {
+    title: "Documentos", description: "Datos de contacto y textos para presupuestos y facturas. El nombre de la empresa se administra en Empresa. Deje los textos opcionales vacíos para omitirlos.",
+    loading: "Cargando configuración…", loadError: "No se pudo cargar la configuración.", retry: "Reintentar",
+    saveError: "No se pudo guardar la configuración.", saved: "Configuración de documentos guardada.", save: "Guardar documentos", saving: "Guardando…",
+    preview: "Vista previa del presupuesto PDF", saveFirst: "Guarde los cambios antes de ver la vista previa.", previewError: "No se pudo abrir la vista previa. Cree un presupuesto o inténtelo de nuevo.",
+    fields: { addressLine1: "Dirección, línea 1", addressLine2: "Dirección, línea 2", city: "Ciudad", state: "Estado", postalCode: "Código postal",
+      phone: "Teléfono", email: "Correo electrónico", website: "Sitio web", remitTo: "Enviar pago a", paymentInstructions: "Instrucciones de pago ({company name} usa el nombre de su empresa)",
+      estimateTerms: "Condiciones del presupuesto", warrantyText: "Garantía de plantas", invoiceFooterNote: "Nota al pie de la factura" },
+  },
   mentions: {
     title: "Menciones", type: "Mención", unread: "Sin leer",
     trigger: "Menciones, {{count}} sin leer", count: "{{count}} menciones sin leer",
@@ -1238,7 +1247,7 @@ const es = {
         integrations: "Integraciones", system: "Sistema",
       },
       items: {
-        company: "Perfil de la empresa", seasons: "Temporadas", benchmarks: "Referencias", crews: "Cuadrillas",
+        company: "Perfil de la empresa", documents: "Documentos", seasons: "Temporadas", benchmarks: "Referencias", crews: "Cuadrillas",
         "property-management": "Administradores de propiedades", "service-plans": "Planes de servicio",
         "work-item-templates": "Plantillas de trabajo", "chemical-products": "Productos químicos",
         contracts: "Valores de contrato", "email-templates": "Plantillas de correo",

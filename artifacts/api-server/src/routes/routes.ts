@@ -99,6 +99,7 @@ import { listMigrations, applyMigrations, baselineMigrations, getAuditLog, MIGRA
 import { registerCatalogRoutes } from "./catalog";
 import { registerEstimateRoutes } from "./estimates";
 import { registerInvoiceRoutes } from "./invoices";
+import { registerDocumentSettingsRoutes } from "./documentSettings";
 import { registerTicketExpectedCompany } from "../lib/ticketExpectedCompany";
 
 // Derive runtime choices from the existing insert enum, never a second type list.
@@ -2697,6 +2698,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerCatalogRoutes(app);
   registerEstimateRoutes(app);
   registerInvoiceRoutes(app);
+  registerDocumentSettingsRoutes(app);
   registerContractCenterRoutes(app);
 
   // ── Communication Center permission constants & helpers ──────────────────────

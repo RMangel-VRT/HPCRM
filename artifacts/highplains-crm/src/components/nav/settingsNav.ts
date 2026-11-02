@@ -14,7 +14,7 @@ const item = (key: string, roles: readonly string[] = admin) => ({
 /** Ordered source of truth for every Settings destination, including standalone pages. */
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   { labelKey: "settings.rail.sections.company", items: [
-    item("company"), item("seasons"), item("benchmarks"), item("crews"),
+    item("company"), item("documents"), item("seasons"), item("benchmarks"), item("crews"),
     item("property-management", ["admin", "office"]),
   ] },
   { labelKey: "settings.rail.sections.services", items: [

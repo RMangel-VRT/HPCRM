@@ -5,15 +5,18 @@ const mocks = vi.hoisted(() => ({
   createDraftInvoice: vi.fn(), patchDraftInvoice: vi.fn(), createInvoiceLine: vi.fn(), patchInvoiceLine: vi.fn(),
   deleteInvoiceLine: vi.fn(), reorderInvoiceLines: vi.fn(), cancelDraftInvoice: vi.fn(),
   listInvoices: vi.fn(), readInvoice: vi.fn(), readInvoiceEvents: vi.fn(), isInvoiceCenterEnabled: vi.fn(), log: vi.fn(),
+  renderInvoicePdf: vi.fn(),
 }));
 vi.mock("../services/invoices", () => mocks);
 vi.mock("../services/invoiceReads", () => mocks);
 vi.mock("../services/invoiceFeature", () => mocks);
+vi.mock("../services/invoicePdf", () => mocks);
 vi.mock("../lib/logger", () => ({ logger: { error: mocks.log } }));
 import { registerInvoiceRoutes } from "./invoices";
 import { InvoiceError } from "../services/invoiceErrors";
 
 const endpoints = [
+  ["get", "/api/invoices/i/pdf", {}, "renderInvoicePdf", 200],
   ["get", "/api/invoices", {}, "listInvoices", 200],
   ["post", "/api/invoices", { customerId: "c", kind: "standalone", title: "T" }, "createDraftInvoice", 201],
   ["get", "/api/invoices/i", {}, "readInvoice", 200],
@@ -38,6 +41,17 @@ beforeEach(() => {
   vi.resetAllMocks();
   for (const [key, fn] of Object.entries(mocks)) if (key !== "log") fn.mockResolvedValue({ id: "i" });
   mocks.isInvoiceCenterEnabled.mockResolvedValue(true);
+  mocks.renderInvoicePdf.mockResolvedValue({ buffer: Buffer.from("%PDF fixture"), filename: "MA-1001.pdf" });
+});
+describe("invoice PDF disposition", () => {
+  it.each([["", "inline", "MA-1001.pdf"], ["?download=1", "attachment", "MA-1001-rev1.pdf"]])("serves %s with correct no-store PDF filename", async (query, disposition, filename) => {
+    mocks.renderInvoicePdf.mockResolvedValue({ buffer: Buffer.from("%PDF fixture"), filename });
+    const res = await request(appFor()).get(`/api/invoices/i/pdf${query}`);
+    expect(res.status).toBe(200); expect(res.headers["content-type"]).toContain("application/pdf");
+    expect(res.headers["content-disposition"]).toBe(`${disposition}; filename="${filename}"`);
+    expect(res.headers["cache-control"]).toBe("no-store");
+    expect(mocks.renderInvoicePdf).toHaveBeenCalledWith("a", "i");
+  });
 });
 describe("all ten invoice route boundaries", () => {
   it.each(endpoints)("guards auth/company/roles before flag on %s %s", async (method, url, body, service, success) => {
@@ -52,7 +66,9 @@ describe("all ten invoice route boundaries", () => {
     expect(mocks[service]).not.toHaveBeenCalled();
     for (const role of ["admin", "office"]) {
       const response = await request(appFor(role))[method](url).set("X-Company-Id", "a").send(body);
-      expect(response.status).toBe(success); expect(response.body).toEqual({ id: "i" });
+      expect(response.status).toBe(success);
+      if (service === "renderInvoicePdf") expect(response.headers["content-type"]).toContain("application/pdf");
+      else expect(response.body).toEqual({ id: "i" });
       expect(response.headers["cache-control"]).toBe("no-store");
       expect(mocks[service].mock.calls.at(-1)?.[0]).toBe("a");
     }

@@ -14,13 +14,24 @@ Header styles are mirrored with ticket hue/state tokens, not extracted from Tick
 - `renderEstimateDocument(model)`: Buffer renderer, also useful for deterministic fixtures.
 - `renderEstimatePdf(companyId, estimateId, versionId)`: scoped read-only, repeatable-read resolver plus renderer. Phase 4 can call it directly without invoking an HTTP handler.
 
-The model contains only customer document facts: company, estimate/version/date/status, customer/address, project and distinct linked-ticket title, ordered sections, safe descriptions, quantities/units, captured unit prices, line/section totals and total. Reserved `terms: null` leaves room for a future terms block without inventing legal text. IDs, internal costs/margins, unknown-cost counts, pricing provenance, rate-term IDs, umbrellas and pricing flags never enter the model.
+The model contains only customer document facts: company, estimate/version/date/status, customer/address, project and distinct linked-ticket title, ordered sections, safe descriptions, quantities/units, captured unit prices, line/section totals and total. `terms: null` remains for compatibility; configured terms now come from the separate `companyDocument` owner. The model also carries customer-labeled category aggregates and available ticket work location. IDs, internal costs/margins, unknown-cost counts, pricing provenance, rate-term IDs, raw umbrellas and pricing flags never enter the model.
 
 SKU sanitation is conservative: hardscape/irrigation snapshots have a known `category · SKU` format, whose SKU segment is omitted. Explicit `SKU:` segments are omitted on other types. Ambiguous model numbers and sizes, including `5-GAL`, `2-IN` and `MP-3000`, remain. Names and plant size references remain intact.
 
 Draft totals use the live authoritative total; other versions require the frozen total. Lines use captured quantity/prices with the existing exact rounding helper; section totals come from the payload's authoritative calculations. Catalogs are never re-resolved. Draft dates use the explicitly supplied America/Denver day; sent and later versions use sentAt in Denver. Accepted-on is a calendar date, not a shifted timestamp, and optional PO text is included.
 
-The letter-sized renderer uses shared green branding and 72pt margins, a logo header, hills watermark, company/page footer and draft-only diagonal marks. Section headings/table columns repeat across row pagination. Long descriptions, including unbroken text, split safely. All monetary columns are right-aligned.
+The current renderer uses the shared HTML/Chromium two-pass document kit: Letter
+pages, 64px side padding, Inter, full first/short later green bands, repeated
+table headings, counted footer, final-page-only mountains and draft-only marks.
+Estimate sections retain their grouping and stored unit words. A customer-safe
+By category summary and optional company terms/warranty precede Acceptance.
+See `docs/document-kit.md`.
+
+The former PDFKit implementation is preserved as `renderEstimateDocumentLegacy`
+and is used only when Chromium cannot launch, with fixed diagnostic
+`DOCUMENT_RENDERER_UNAVAILABLE`. Its legacy typography/pagination tests remain;
+new real-Chromium tests verify the new output. Content/stamp failures do not
+silently select the legacy design.
 
 ## Authorization and preview
 

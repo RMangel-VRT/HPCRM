@@ -84,3 +84,45 @@ mtime_ms = 1793651688162
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/92668290-1e4a-407c-9918-9b7ef447a928/7c575fd1-5277-4c81-8f0f-277ca088e1e6"
 storage_version_token = "1793651734052651"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "RgBWzE32DrikLvGEFXxxN"
+uri = "file://generated-artifacts/ic4/png/estimate-12-all-pages.png"
+type = "image"
+title = "12-line estimate — both pages"
+description = "PNG contact sheet of the real Chromium fixture. Full-resolution pages and matching PDF are in generated-artifacts/ic4/png/. Written-spec layout; approved screenshot parity remains unverified."
+logical_id = "ce6f2421-dc2a-458d-9752-f9ed4a1d7fc1"
+content_hash = "sha256:b02ca12c005740a0c8ff9a4ea5e103828d7fbc252fa50a93ad7ef391031d7e60"
+size = 116833
+mtime_ms = 1793656468929
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/ce6f2421-dc2a-458d-9752-f9ed4a1d7fc1/9a14693d-24ac-448f-ac7f-9e001dff48e8"
+storage_version_token = "1793656481696492"
+content_type = "image/png"
+
+[[outputs]]
+id = "kJ14cBef6kOyKSTUvD9Vd"
+uri = "file://generated-artifacts/ic4/png/estimate-60-all-pages.png"
+type = "image"
+title = "60-line estimate — all five pages"
+description = "Real pagination evidence showing repeated table headers, short later bands, counted footers and final acceptance. Full-resolution per-page PNGs are retained in generated-artifacts/ic4/png/."
+logical_id = "cc3733bd-65c0-4e39-99f2-1ca57c02e187"
+content_hash = "sha256:4d7ac4d98625c25c05bb1174f730974adf690af9696a2a15f6e8c7e4362b7e17"
+size = 231566
+mtime_ms = 1793656469033
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/cc3733bd-65c0-4e39-99f2-1ca57c02e187/9226acef-bb50-4a53-be24-86e2c703c4ce"
+storage_version_token = "1793656482301060"
+content_type = "image/png"
+
+[[outputs]]
+id = "to1dcgvrv8MhUSntCwd2e"
+uri = "file://generated-artifacts/ic4/png/invoice-13-all-pages.png"
+type = "image"
+title = "Draft invoice — both pages"
+description = "13 captured lines, revision 1, one unpriced line, draft marks, subtotal-before-tax and unsplit payment block. Fictional fixture data; no issued invoice or QuickBooks changes."
+logical_id = "c5e37548-6034-44e2-bad3-9417b7549994"
+content_hash = "sha256:024fbb981f1e6a183f8d17492ea0ec6cf875b7021f56d61ad730121b8ffc1a0f"
+size = 118246
+mtime_ms = 1793656469093
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/c5e37548-6034-44e2-bad3-9417b7549994/ad6fb3b3-1455-4902-8937-e3ca92a88901"
+storage_version_token = "1793656482832400"
+content_type = "image/png"

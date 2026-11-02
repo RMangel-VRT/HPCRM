@@ -32,6 +32,7 @@ import ChemicalProductsAdmin from "@/components/ChemicalProductsAdmin";
 import CrewsAdmin from "@/pages/CrewsAdmin";
 import WorkItemTemplatesAdmin from "@/components/WorkItemTemplatesAdmin";
 import ContractSettings from "@/components/contracts/ContractSettings";
+import DocumentSettingsCard from "@/components/DocumentSettingsCard";
 import MigrationsAdmin from "@/components/MigrationsAdmin";
 import { qboConnectMutationFn } from "@/pages/qboApi";
 
@@ -603,6 +604,7 @@ export default function SettingsPage() {
 
       <Tabs value={activeTab}>
 
+        {isAdmin && <TabsContent value="documents"><DocumentSettingsCard /></TabsContent>}
         <TabsContent value="company" className="space-y-6">
           <Card>
             <CardHeader>

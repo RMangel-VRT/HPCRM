@@ -1,5 +1,14 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
+  documents: {
+    title: "Documents", description: "Contact details and boilerplate for customer estimates and invoices. Company name is managed in Company settings. Leave optional text blank to omit it.",
+    loading: "Loading document settings…", loadError: "Could not load document settings.", retry: "Retry",
+    saveError: "Could not save document settings.", saved: "Document settings saved.", save: "Save documents", saving: "Saving…",
+    preview: "Preview estimate PDF", saveFirst: "Save changes before previewing.", previewError: "Could not open a preview. Create an estimate first, or try again.",
+    fields: { addressLine1: "Address line 1", addressLine2: "Address line 2", city: "City", state: "State", postalCode: "Postal code",
+      phone: "Phone", email: "Email", website: "Website", remitTo: "Remit to", paymentInstructions: "Payment instructions ({company name} uses your company name)",
+      estimateTerms: "Estimate terms", warrantyText: "Plant warranty", invoiceFooterNote: "Invoice footer note" },
+  },
   mentions: {
     title: "Mentions", type: "Mentioned", unread: "Unread",
     trigger: "Mentions, {{count}} unread", count: "{{count}} unread mentions",
@@ -1331,7 +1340,7 @@ const en = {
         integrations: "Integrations", system: "System",
       },
       items: {
-        company: "Company profile", seasons: "Seasons", benchmarks: "Benchmarks", crews: "Crews",
+        company: "Company profile", documents: "Documents", seasons: "Seasons", benchmarks: "Benchmarks", crews: "Crews",
         "property-management": "Property managers", "service-plans": "Service plans",
         "work-item-templates": "Work item templates", "chemical-products": "Chemical products",
         contracts: "Contract defaults", "email-templates": "Email templates",

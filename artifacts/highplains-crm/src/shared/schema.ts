@@ -1,3 +1,4 @@
+export * from "../../../../lib/db/src/documentContracts";
 // Driver-free, explicit Estimate Builder validation shared with the API.
 export * from "../../../../lib/db/src/estimateContracts";
 export * from "../../../../lib/db/src/invoiceContracts";

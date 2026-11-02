@@ -7,6 +7,13 @@ import { BRAND, LM, RM, loadBrandLogo, wirePageDecorations } from "../lib/pdfBra
 import { estimatePayload } from "./estimateReads";
 import { requireEstimate } from "./estimateErrors";
 import { calculateExtendedCents } from "./estimateMath";
+import { documentSettingsModel, type DocumentSettings } from "@workspace/db/document-contracts";
+import { readDocumentSettings } from "./documentSettings";
+import { renderDocumentPdf } from "./documents/render";
+import { DocumentRendererUnavailable } from "./documents/browser";
+import { estimateDocumentHtml } from "./documents/estimate";
+import { logger } from "../lib/logger";
+import { categoryLabel } from "./documents/categories";
 
 type DateValue = Date | string;
 type Display = NonNullable<EstimateDetailDto["display"]>;
@@ -19,7 +26,7 @@ interface DocumentInput {
     totals: { subtotalCents: number; bySection: Record<string, number> };
     sections: {
       id: string; name: string; sortOrder: number;
-      lines: { name: string; detail: string | null; quantity: string; unit: string; unitPriceCents: number; sortOrder: number; lineType?: string }[];
+      lines: { name: string; detail: string | null; quantity: string; unit: string; unitPriceCents: number; sortOrder: number; lineType?: string; umbrellaKey?: string }[];
     }[];
   };
 }
@@ -30,6 +37,9 @@ export interface EstimateDocumentModel {
   sections: { name: string; lines: { name: string; detail: string | null; quantity: string; unit: string; unitPriceCents: number; lineTotalCents: number }[]; subtotalCents: number }[];
   totalCents: number;
   terms: null; // Reserved for future approved terms, not invented legal text.
+  categorySummary: { label: string; cents: number }[];
+  companyDocument: DocumentSettings;
+  workLocation: string | null;
 }
 
 /** Calendar date in Colorado; clock is supplied by the orchestration layer, never the model. */
@@ -63,7 +73,7 @@ export function customerSafeDetail(detail: string | null, lineType?: string): st
 /** Explicit allowlist: no spreads from internal records, no I/O, no implicit clock.
  * Resolved metadata and today's Colorado calendar components are required inputs.
  */
-export function buildEstimateDocumentModel(payload: DocumentInput, display: Display, coloradoDocumentDate: string): EstimateDocumentModel {
+export function buildEstimateDocumentModel(payload: DocumentInput, display: Display & { workLocation?: string | null }, coloradoDocumentDate: string, companyDocument?: Partial<DocumentSettings>): EstimateDocumentModel {
   const v = payload.version;
   const draft = v.status === "draft";
   const date = draft || !v.sentAt ? documentDate(coloradoDocumentDate) : coloradoDate(new Date(v.sentAt));
@@ -71,7 +81,16 @@ export function buildEstimateDocumentModel(payload: DocumentInput, display: Disp
     : v.status === "accepted" ? `Accepted ${prettyDate(requireEstimate(v.acceptedOn))}${v.poNumber ? ` · PO ${v.poNumber}` : ""}`
     : v.status.charAt(0).toUpperCase() + v.status.slice(1);
   const total = draft ? v.totals.subtotalCents : requireEstimate(v.frozenSubtotalCents);
+  const categories = new Map<string, number>();
+  for (const section of v.sections) for (const line of section.lines) {
+    if (line.umbrellaKey) {
+      const label = categoryLabel(line.umbrellaKey);
+      categories.set(label, (categories.get(label) ?? 0) + calculateExtendedCents(line.quantity, line.unitPriceCents));
+    }
+  }
   return {
+    categorySummary: [...categories].map(([label, cents]) => ({ label, cents })),
+    companyDocument: documentSettingsModel(companyDocument), workLocation: display.workLocation ?? null,
     companyName: display.companyName, estimateNumber: payload.estimateNumber, versionNumber: v.versionNumber,
     documentDate: date, status: v.status, statusLine, draft,
     customerName: display.customerName, customerAddress: display.customerAddress, projectTitle: payload.title,
@@ -91,7 +110,7 @@ export function buildEstimateDocumentModel(payload: DocumentInput, display: Disp
 const money = (cents: number) => (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 
 /** Render-only entry point for deterministic fixtures and future attachments. */
-export async function renderEstimateDocument(model: EstimateDocumentModel): Promise<Buffer> {
+export async function renderEstimateDocumentLegacy(model: EstimateDocumentModel): Promise<Buffer> {
   const logo = await loadBrandLogo({ searchParents: true });
   if (!logo) throw new Error("ESTIMATE_LOGO_UNAVAILABLE");
   const doc = new PDFDocument({ size: "LETTER", margins: { top: LM, bottom: LM, left: LM, right: RM } });
@@ -185,6 +204,20 @@ export async function renderEstimateDocument(model: EstimateDocumentModel): Prom
   return done;
 }
 
+export async function renderEstimateDocument(model: EstimateDocumentModel): Promise<Buffer> {
+  try {
+    return await renderDocumentPdf({
+      html: estimateDocumentHtml(model),
+      footerLabel: `Estimate ${model.estimateNumber}, version ${model.versionNumber} · ${model.customerName}`,
+      shortHeaderNumber: `${model.estimateNumber} · Version ${model.versionNumber}`, draft: model.draft,
+    });
+  } catch (error) {
+    if (!(error instanceof DocumentRendererUnavailable)) throw error;
+    logger.warn("DOCUMENT_RENDERER_UNAVAILABLE");
+    return renderEstimateDocumentLegacy(model);
+  }
+}
+
 /** Scoped, reusable Phase 4 entry point. No HTTP dependency or catalog re-resolution. */
 export async function renderEstimatePdf(companyId: string, estimateId: string, versionId: string): Promise<Buffer> {
   const model = await db.transaction(async tx => {
@@ -193,7 +226,8 @@ export async function renderEstimatePdf(companyId: string, estimateId: string, v
       eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimate.id), eq(estimateVersions.id, versionId),
     )))[0]);
     const payload = await estimatePayload(tx, companyId, estimate, version.versionNumber);
-    return buildEstimateDocumentModel(payload, payload.display, coloradoDate(new Date()));
+    const companyDocument = await readDocumentSettings(companyId, tx);
+    return buildEstimateDocumentModel(payload, payload.display, coloradoDate(new Date()), companyDocument);
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
   return renderEstimateDocument(model);
 }

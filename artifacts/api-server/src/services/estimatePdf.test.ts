@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import type { EstimateDetailDto } from "@workspace/db/estimate-contracts";
 vi.mock("../db", () => ({ db: { transaction: vi.fn() } }));
 vi.mock("./estimateReads", () => ({ estimatePayload: vi.fn() }));
-import { buildEstimateDocumentModel, coloradoDate, customerSafeDetail, renderEstimateDocument } from "./estimatePdf";
+import { buildEstimateDocumentModel, coloradoDate, customerSafeDetail, renderEstimateDocumentLegacy as renderEstimateDocument } from "./estimatePdf";
 import { computeVersionTotals } from "./estimateMath";
 
 const display: NonNullable<EstimateDetailDto["display"]> = {

@@ -9,6 +9,7 @@ import { InvoiceError } from "../services/invoiceErrors";
 import { postgresCode } from "../services/estimateErrors";
 import { isInvoiceCenterEnabled } from "../services/invoiceFeature";
 import { listInvoices, readInvoice, readInvoiceEvents } from "../services/invoiceReads";
+import { renderInvoicePdf } from "../services/invoicePdf";
 import { createDraftInvoice, patchDraftInvoice, createInvoiceLine, patchInvoiceLine,
   deleteInvoiceLine, reorderInvoiceLines, cancelDraftInvoice } from "../services/invoices";
 
@@ -44,6 +45,13 @@ export function registerInvoiceRoutes(app: Express) {
   }));
   router.get("/:id", handle(async (req, res) => {
     res.json(await readInvoice((req.user as UserWithContext).activeCompanyId, path.parse(req.params).id));
+  }));
+  router.get("/:id/pdf", handle(async (req, res) => {
+    const result = await renderInvoicePdf((req.user as UserWithContext).activeCompanyId, path.parse(req.params).id);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `${req.query.download === "1" ? "attachment" : "inline"}; filename="${result.filename.replace(/[^A-Za-z0-9_.-]/g, "_")}"`);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.send(result.buffer);
   }));
   router.patch("/:id", handle(async (req, res) => {
     const u = req.user as UserWithContext;

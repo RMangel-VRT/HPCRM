@@ -134,6 +134,7 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     );
   }
   await cp(pdfkitDataDir, path.join(distDir, "data"), { recursive: true });
+  await cp(path.join(artifactDir, "src/assets/documents"), path.join(distDir, "assets/documents"), { recursive: true });
 }
 
 buildAll().catch((err) => {

@@ -31,6 +31,22 @@ If you reverse this order, the schema-drift / required-extensions validation wil
 
 ## Stack
 
+### Shared estimate/invoice PDF runtime
+
+Chromium is provisioned as a supported Nix system package through
+`[nix].packages = ["chromium", "poppler-utils"]` in `.replit` (nodejs-24 module).
+This configuration supplies Chromium in development and in the autoscale
+build/runtime environment; retain those Nix dependencies when publishing.
+The API resolves `PUPPETEER_EXECUTABLE_PATH`, then
+`REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE`, then `chromium`/`chromium-browser` on
+PATH. Do not copy a development-only executable override into autoscale.
+`puppeteer-core` does not download a browser. Build copies the committed document
+assets/fonts into `dist/assets/documents`; keep that directory with the bundle.
+Development real-render and different-working-directory bundle checks cover
+this setup; production availability was not tested by publishing.
+See [the kit contract](docs/document-kit.md) for limits, offline behavior and
+estimate-only legacy fallback. There is no startup DDL or deploy migration hook.
+
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5 (`artifacts/api-server/`)
 - Frontend: React + Vite + Tailwind v3 (`artifacts/highplains-crm/`)

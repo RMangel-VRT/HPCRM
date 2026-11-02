@@ -8,6 +8,7 @@ export async function estimateDisplay(tx: EstimateConnection, companyId: string,
     customer: { name: customers.name, street: customers.street, city: customers.city, state: customers.state, zip: customers.zip },
     companyName: settings.companyName, createdByName: users.name,
     ticket: { id: tickets.id, title: tickets.title },
+    locationLabel: tickets.locationLabel, locationDescription: tickets.locationDescription,
     status: {
       name: ticketTypeStatuses.name, statusKey: ticketTypeStatuses.statusKey,
       actionType: ticketTypeStatuses.actionType, isFinal: ticketTypeStatuses.isFinal,
@@ -25,6 +26,7 @@ export async function estimateDisplay(tx: EstimateConnection, companyId: string,
     customerName: customer?.name ?? "",
     customerAddress: customer ? [customer.street, [customer.city, customer.state, customer.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") : "",
     createdByName: row?.createdByName ?? null,
+    workLocation: [row?.locationLabel, row?.locationDescription].filter(Boolean).join("\n") || null,
     ticket: row?.ticket ? { ...row.ticket, status: row.status, shortId: row.ticket.id.slice(0, 8) } : null,
   };
 }

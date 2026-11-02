@@ -1,5 +1,22 @@
 # Invoice Center IC1: data foundation and draft API
 
+## Shared draft PDF preview
+
+IC4 adds `GET /api/invoices/:id/pdf` under the existing access-before-flag guard.
+The response is inline PDF with no-store/nosniff; `download=1` uses attachment.
+Revision filenames are `MA-1001.pdf` / `MA-1001-rev1.pdf`. Foreign invoices
+remain 404; non-draft invoices return 409 `INVOICE_NOT_DRAFT` until issued-PDF
+storage/regeneration is implemented in the owning lifecycle slice.
+
+The read-only repeatable-read resolver projects captured lines and subtotal,
+current company-qualified customer/billing details and document settings.
+No source-feeder lookups, issue snapshots, events, QBO values or PDF storage
+are written. Tax/final payable totals are not represented as final amounts in
+drafts: the PDF says **Subtotal before tax**, shows the QuickBooks tax notice,
+uses dashes for unpriced lines and clearly marks DRAFT on every page.
+See [the shared document contract](document-kit.md) for rendering, settings,
+assets, Chromium setup, future proposal extension constraints and evidence.
+
 ## Scope and ownership
 
 IC1 adds invoice document storage and a server-only standalone draft API. No
