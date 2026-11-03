@@ -61,6 +61,7 @@ const EquipmentTicketDetail = lazy(() => import("@/pages/EquipmentTicketDetail")
 const ContractCenterPage = lazy(() => import("@/pages/ContractCenterPage"));
 const NewContractPage = lazy(() => import("@/pages/NewContractPage"));
 const ContractPage = lazy(() => import("@/pages/ContractPage"));
+const ActiveCustomersPage = lazy(() => import("@/pages/ActiveCustomersPage"));
 const ContractsOverview = lazy(() => import("@/pages/ContractsOverview"));
 const SnowEventsList = lazy(() => import("@/pages/SnowEventsList"));
 const SnowEventDetail = lazy(() => import("@/pages/SnowEventDetail"));
@@ -353,6 +354,7 @@ function Router() {
         />
         <ProtectedRoute path="/dashboard/contracts/old" component={ContractsOverview} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/contracts/new" component={NewContractPage} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/contracts/customers" component={ActiveCustomersPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/contracts/:id" component={ContractPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/contracts" component={ContractCenterPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />

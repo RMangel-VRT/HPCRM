@@ -9,6 +9,7 @@
     "./estimate-contracts": "./src/estimateContracts.ts",
     "./invoice-contracts": "./src/invoiceContracts.ts",
     "./contract-non-renewal": "./src/contractNonRenewal.ts",
+    "./active-customers": "./src/activeCustomers.ts",
     "./document-contracts": "./src/documentContracts.ts",
     "./check-drift": "./src/check-drift.ts"
   },

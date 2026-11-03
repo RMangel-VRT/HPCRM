@@ -105,6 +105,79 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("Contract Center lifecycle routes", () => {
+  it("active customers is scoped, returns customer-based counts, inherits only same-company direct parent and uses exactly three reads", async () => {
+    tables.customers = [
+      { id: "parent", companyId: "company", name: "Parent", status: "active", parentCustomerId: null },
+      { id: "branch", companyId: "company", name: "Branch", status: "inactive", parentCustomerId: "parent" },
+      { id: "orphan", companyId: "company", name: "Orphan", status: "active", parentCustomerId: "foreign" },
+      { id: "foreign", companyId: "other", name: "Hidden", status: "active" },
+    ];
+    tables.agreements = [{ id: "a", companyId: "company", customerId: "parent" },
+      { id: "f", companyId: "other", customerId: "foreign" }];
+    tables.agreement_terms = [{ id: "s", companyId: "company", agreementId: "a", line: "both", status: "signed",
+      startDate: "2026-01-01", endDate: "2027-12-31", seasonLabel: "2026–27", managingAgentName: "Agent" },
+    { id: "foreign-term", companyId: "other", agreementId: "f", line: "both", status: "signed", startDate: "2026-01-01", endDate: "2027-12-31" }];
+    vi.spyOn(companyDay, "companyToday").mockReturnValue("2026-11-03");
+    const response = await request(app()).get(`${base}/active-customers`);
+    expect(response.status).toBe(200);
+    expect(mock.db.select).toHaveBeenCalledTimes(3);
+    expect(response.body.asOf).toBe("2026-11-03");
+    expect(response.body.rows.map((r: any) => r.customerName)).toEqual(["Branch", "Orphan", "Parent"]);
+    expect(response.body.rows[0]).toMatchObject({ viaParent: true, parentName: "Parent",
+      managingAgentName: "Agent", landscape: { seasonId: "s", agreementId: "a" }, flags: ["mismatch"] });
+    expect(response.body.rows[1]).toMatchObject({ noContract: true, responsible: false, flags: [] });
+    expect(response.body.counts).toEqual({ responsible: 2, landscape: 2, snow: 2, mismatch: 1, noContract: 1,
+      ending_soon: 0, should_fall_off: 0, lapsed: 0, starting_soon: 0 });
+  });
+  it.each(["admin", "office"])("active customers allows %s", async role => {
+    expect((await request(app(role)).get(`${base}/active-customers`)).status).toBe(200);
+    expect(mock.db.select).toHaveBeenCalledTimes(3);
+  });
+  it.each(["field", "field_manager", "crew_supervisor", "shop_manager", "mapping", "chemical_manager", "landscape_supervisor", "irrigation_manager"])("active customers denies %s without reads", async role => {
+    expect((await request(app(role)).get(`${base}/active-customers`)).status).toBe(403);
+    expect(mock.db.select).not.toHaveBeenCalled();
+  });
+  it("active customers denies missing auth/company and permits super-admin", async () => {
+    const anonymous = express();
+    registerContractCenterRoutes(anonymous);
+    expect((await request(anonymous).get(`${base}/active-customers`)).status).toBe(401);
+    expect((await request(app("admin", "")).get(`${base}/active-customers`)).status).toBe(403);
+    expect((await request(app("mapping", "company", true)).get(`${base}/active-customers`)).status).toBe(200);
+  });
+  it.each(["asOf=2026-02-30", "asOf=", "asOf=2026-11-03&asOf=2026-11-04", "asOf[x]=2026-11-03",
+    "asOf=2028-01-01", "asOf=2025-01-01"])("active customers rejects invalid query %s before querying", async query => {
+    vi.spyOn(companyDay, "companyToday").mockReturnValue("2026-11-03");
+    // Express's default simple parser leaves bracketed names literal; use extended
+    // here as well to exercise non-scalar input independently of parser settings.
+    const instance = app(); instance.set("query parser", "extended");
+    expect((await request(instance).get(`${base}/active-customers?${query}`)).status).toBe(400);
+    expect(mock.db.select).not.toHaveBeenCalled();
+  });
+  it("active customers accepts +/-400, rejects +/-401, and never writes", async () => {
+    vi.spyOn(companyDay, "companyToday").mockReturnValue("2026-11-03");
+    for (const offset of [-400, 400, -401, 401]) {
+      const response = await request(app()).get(`${base}/active-customers?asOf=${companyDay.addCalendarDays("2026-11-03", offset)}`);
+      expect(response.status).toBe(Math.abs(offset) === 400 ? 200 : 400);
+    }
+    expect(writes).toBe(0);
+  });
+  it("active customers reports read failures using handle error response", async () => {
+    mock.db.select.mockImplementationOnce(() => { throw new Error("read failed"); });
+    const response = await request(app()).get(`${base}/active-customers`);
+    expect(response.status).toBe(500);
+    expect(response.body.message).toBe("Contract Center request failed");
+  });
+  it("active customers rejects an initiating-company mismatch before reads", async () => {
+    const response = await request(app()).get(`${base}/active-customers`).set("X-Company-Id", "other");
+    expect(response.status).toBe(409);
+    expect(mock.db.select).not.toHaveBeenCalled();
+  });
+  it("active customers rejects bracketed/repeated dates with Express's simple parser too", async () => {
+    for (const query of ["asOf[x]=2026-11-03", "asOf[]=2026-11-03", "asOf=2026-11-03&asOf=2026-11-03"]) {
+      expect((await request(app()).get(`${base}/active-customers?${query}`)).status).toBe(400);
+    }
+    expect(mock.db.select).not.toHaveBeenCalled();
+  });
   it("sets/clears coverage with attributable history and derives bounded covered rows", async () => {
     const agent = request(app()), { termId, agreementId } = await create(agent);
     const source = rows("agreement_terms")[0];

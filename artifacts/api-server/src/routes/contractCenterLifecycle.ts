@@ -28,6 +28,7 @@ import { validateRfpCreation, loadLinkedContracts } from "../lib/rfpContracts";
 import { applyContractStatus } from "../lib/contractCenterStatusChange";
 import { recordNonRenewal, undoNonRenewal } from "../lib/contractNonRenewal";
 import { NON_RENEWAL_CONFLICT } from "@workspace/db/contract-non-renewal";
+import { activeCustomersAsOf, loadActiveCustomers } from "../lib/activeCustomers";
 
 type Authorize = (req: Request, res: Response) => UserWithContext | null;
 type UploadSession = Session & { contractCenterUploads?: Record<string, { companyId: string; termId: string }> };
@@ -50,6 +51,18 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
         res.status(500).json({ message: "Contract Center request failed" });
       }
     };
+  app.get("/api/contract-center/active-customers", handle(async (req, res, user) => {
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      throw new ContractCenterError(409, "Active company changed. Reload and try again.");
+    }
+    res.set("Cache-Control", "private, no-store");
+    const query = new URLSearchParams(req.originalUrl.split("?")[1] ?? "");
+    if (query.getAll("asOf").length > 1 || [...query.keys()].some(key => key.startsWith("asOf["))) {
+      throw new ContractCenterError(400, "As of must be a single calendar date");
+    }
+    const asOf = activeCustomersAsOf(req.query.asOf);
+    res.json(await loadActiveCustomers(db, user.activeCompanyId, asOf));
+  }));
   app.get("/api/contract-center/contracts", handle(async (req, res, user) => {
     const filter = z.object({ bidTicketId: z.string().min(1).optional(), line: z.enum(["landscape", "snow"]).optional(), customerId: z.string().min(1).optional(),
       includeParent: z.enum(["true", "false"]).optional(), q: z.string().max(200).optional() }).parse(req.query);

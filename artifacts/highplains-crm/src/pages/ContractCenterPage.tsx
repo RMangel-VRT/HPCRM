@@ -17,6 +17,7 @@ import { termForm, termLine } from "@/components/contracts/contractTypes";
 import type { BoardCard, ColumnKey, FilterChip, SortKey } from "@/components/contracts/boardLogic";
 import type { BoardLine, ContractListItem } from "@/components/contracts/contractTypes";
 import { contractCustomerLabel } from "@/components/contracts/parentContract";
+import { ContractViewSwitch } from "@/components/contracts/ContractViewSwitch";
 
 const STORAGE_KEY = "hp-contract-center-board";
 const OPEN_STORAGE_KEY = "hp-contract-center-board-open";
@@ -214,6 +215,7 @@ export default function ContractCenterPage() {
 
   return (
     <div className="space-y-6" data-testid="page-contract-center">
+      <ContractViewSwitch active="contracts" />
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight mr-auto">Contracts</h1>
         <div className="inline-flex rounded-md border p-0.5" role="group" aria-label="Board">

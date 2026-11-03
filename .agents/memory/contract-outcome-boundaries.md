@@ -20,3 +20,9 @@ Inactivation must serialize with creation of new business as well as updates to 
 **Why:** Locking only the currently visible seasons cannot prevent a concurrent new agreement or season from invalidating the “no other open business” decision. The conservative shared company gate intentionally protects absent rows too.
 
 **How to apply:** Retain the coordinated writer/sweep lock protocol unless replacing it with an equally phantom-safe protocol; preserve RFP-before-agreement locking.
+
+Active customers is a transition-month responsibility review, not a replacement for the manually maintained customer status or the operational parent-coverage policy.
+
+**Why:** The owner wants to look backward and ahead at contract starts/endings while deciding explicitly whether to change a customer's status. A historical or future report date must not silently synchronize today's stored status.
+
+**How to apply:** Keep responsibility derived on read and status corrections deliberate. Do not expand this report into dashboard synchronization or change operational coverage inheritance without separate approval.
