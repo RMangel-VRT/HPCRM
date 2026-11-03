@@ -1,5 +1,11 @@
 # Routes R2 verification
 
+> This is the historical R2 report. The supplied mockup is now archived unchanged,
+> and named-template support intentionally replaces the old approval fingerprint
+> semantics. Current state and limitations are recorded in
+> [named import verification](routes-named-import-verification.md). This update
+> does not claim a production import, publication or authenticated visual comparison.
+
 ## Release prerequisites: do not switch production ownership yet
 
 This implementation does **not** authorize a production import, select a planner

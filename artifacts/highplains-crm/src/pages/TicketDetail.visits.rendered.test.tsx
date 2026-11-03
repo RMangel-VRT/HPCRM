@@ -82,7 +82,7 @@ describe("TicketDetail conversation locations", () => {
     expect(header.textContent).toContain("Aerate lawn");
     expect(header.style.borderTopColor).toContain("var(");
   });
-  it("always offers the Overview Conversation card and opens the focused tab when empty", async () => {
+  it("shows the empty Overview Conversation with no view-all and opens the focused conversation through its tab", async () => {
     details = detailsFor(false);
     history = () => ({ json: [] });
     mount();
@@ -90,7 +90,8 @@ describe("TicketDetail conversation locations", () => {
     expect(card.textContent).toContain("Conversation");
     expect(card.querySelector('[data-testid="input-comment"]')).toBeTruthy();
     expect(screen.getByTestId("tab-comments").textContent).toContain("Conversation (0)");
-    fireEvent.click(screen.getByTestId("button-view-all-comments"));
+    expect(screen.queryByTestId("button-view-all-comments")).toBeNull();
+    fireEvent.click(screen.getByTestId("tab-comments"));
     expect(screen.queryByTestId("card-recent-comments")).toBeNull();
     expect(screen.getByTestId("ticket-conversation").className).toContain("min-h-[60vh]");
     expect(screen.getByTestId("input-comment")).toBeTruthy();

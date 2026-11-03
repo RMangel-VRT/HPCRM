@@ -2,7 +2,7 @@ import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 import { and, eq } from "drizzle-orm";
-import { companies, routeStops, routeImportDecisions, visits, scheduleBlocks, termScopeLines } from "@workspace/db";
+import { companies, routeStops, routeImportDecisions, visits, scheduleBlocks, termScopeLines, weeklyScheduleTemplates } from "@workspace/db";
 import { db } from "../db";
 import { createRouteFixture, removeRouteFixture } from "./routeTestFixture";
 import { registerRouteStopRoutes } from "../routes/routeStops";
@@ -197,7 +197,11 @@ describe.skipIf(!enabled)("R2 real database and authorization", () => {
       ["put", `/api/customers/${f.properties[1].id}/maintenance-config`], ["post", "/api/maintenance-visit-configs"],
     ];
     expect((await request(app()).post("/api/schedule-templates").send({})).status).toBe(200);
-    await db.update(companies).set({ routesImportedAt: new Date() }).where(eq(companies.id, f.companyId));
+    await db.insert(weeklyScheduleTemplates).values({ companyId: f.companyId, name: "Retained legacy" });
+    const dry = await importPlannerRoutes(f.companyId, { dryRun: true, templateId: f.template.id });
+    if (!("fingerprint" in dry)) throw new Error("Missing fingerprint");
+    routeImportApprovals[f.companyId] = { approvedBy: "Randy", templateId: f.template.id, fingerprint: dry.fingerprint };
+    await importPlannerRoutes(f.companyId, { dryRun: false });
     for (const role of ["admin", "office", "field_manager", "irrigation_manager"]) for (const [method, url] of endpoints) {
       const response = await (request(app(role)) as any)[method](url).send({});
       expect(response.status).toBe(409);

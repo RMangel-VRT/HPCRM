@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
   companies, routeStops, routeImportDecisions, crews, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks,
@@ -13,6 +12,7 @@ import { lockCrewCompany } from "./crewLinks";
 import { routeSchemaReady } from "./routeSchema";
 import { routeImportApprovals } from "./routeImportApproval";
 import { logger } from "./logger";
+import { plannerSourceFingerprint } from "./plannerSourceFingerprint";
 
 const weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 export interface PlannerInputs {
@@ -21,10 +21,18 @@ export interface PlannerInputs {
   properties: { id: string; name: string; active: string; status: string }[];
   existing: { customerId: string | null; serviceKey: string }[];
 }
-export function planPlannerRoutes(companyId: string, data: PlannerInputs, resolve: ResolveCoverage, today = companyToday()) {
-  const templates = [...data.templates].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+export function planPlannerRoutes(companyId: string, data: PlannerInputs, resolve: ResolveCoverage, today = companyToday(), templateId?: string) {
+  const companyTemplates = data.templates.filter(t => t.companyId === companyId);
+  const templates = [...companyTemplates].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
     .map(t => ({ id: t.id, name: t.name, active: !!t.isActive, blocks: data.blocks.filter(b => b.templateId === t.id).length }));
   const active = templates.filter(t => t.active);
+  const matches = templateId !== undefined ? companyTemplates.filter(t => t.id === templateId) : [];
+  const selectedTemplateId = templateId !== undefined
+    ? (matches.length === 1 ? matches[0].id : null)
+    : (active.length === 1 ? active[0].id : null);
+  const blocked = selectedTemplateId ? null : templateId !== undefined
+    ? "Selected template must resolve uniquely within this company"
+    : "Exactly one active template is required";
   const proposed: InsertRouteStop[] = [];
   const created: { property: string; crew: string; weekday: number; minutes: number; anchorDate: string; covered2027: boolean }[] = [];
   const skipped: { property: string; crew: string; weekday: string; reason: string }[] = [];
@@ -34,20 +42,19 @@ export function planPlannerRoutes(companyId: string, data: PlannerInputs, resolv
   const configs = new Map(data.configs.map(c => [c.id, c]));
   const columns = new Map(data.columns.map(c => [c.id, c]));
   const standing = new Map(data.crews.map(c => [c.id, c]));
-  const blockById = new Map(data.blocks.map(b => [b.id, b]));
   const standingColumn = (id: string) => {
     const linked = columns.get(id)?.crewId;
     return linked ? standing.get(linked) : undefined;
   };
   const seen = new Set(data.existing.filter(s => s.serviceKey === "mowing").map(s => s.customerId));
-  if (active.length !== 1) for (const block of data.blocks) {
+  if (blocked) for (const block of data.blocks) {
     const config = configs.get(block.visitConfigId), column = columns.get(block.crewId);
     skipped.push({ property: (config && properties.get(config.customerId)?.name) ?? "Unavailable property",
       crew: (column?.crewId && standing.get(column.crewId)?.name) || column?.name || "Unavailable crew",
-      weekday: block.dayOfWeek, reason: "Template selection blocked: exactly one active template is required" });
+      weekday: block.dayOfWeek, reason: `Template selection blocked: ${blocked}` });
   }
-  if (active.length === 1) {
-    const blocks = data.blocks.filter(b => b.templateId === active[0].id).sort((a, b) =>
+  if (!blocked) {
+    const blocks = data.blocks.filter(b => b.templateId === selectedTemplateId).sort((a, b) =>
       weekdays.indexOf(a.dayOfWeek) - weekdays.indexOf(b.dayOfWeek)
       || (standingColumn(a.crewId)?.displayOrder ?? Infinity) - (standingColumn(b.crewId)?.displayOrder ?? Infinity)
       || (standingColumn(a.crewId)?.name ?? columns.get(a.crewId)?.name ?? "").localeCompare(standingColumn(b.crewId)?.name ?? columns.get(b.crewId)?.name ?? "")
@@ -92,20 +99,9 @@ export function planPlannerRoutes(companyId: string, data: PlannerInputs, resolv
     }
   }
   const covered = created.filter(c => c.covered2027).length;
-  // Customer labels and raw notes never need to leave production for approval.
-  // The SELECT-only audit supplies a notes digest, so its reviewed fingerprint
-  // still matches the real snapshot without exposing that text.
-  const reviewStops = proposed.map(p => {
-    const source = p.importedFromBlockId ? blockById.get(p.importedFromBlockId) : undefined;
-    const config = source && configs.get(source.visitConfigId);
-    const covered = resolve(p.customerId, "mowing", 2027);
-    return { ...p, notes: undefined,
-      notesDigest: config?.notesDigest ?? createHash("md5").update(config?.notes ?? "").digest("hex"),
-      coverage: covered ? { termId: covered.term.id, quantity: covered.scope.quantity, window: covered.window, months: covered.months } : null };
-  });
-  const fingerprint = createHash("sha256").update(JSON.stringify({ templates, proposed: reviewStops, skipped: skipped.length, decisions: decisions.length })).digest("hex");
+  const fingerprint = plannerSourceFingerprint(companyId, selectedTemplateId, data);
   return { summary: `Import would create ${proposed.length} route stops (${covered} with a 2027 mowing contract); ${decisions.length} need a decision.`,
-    templates, activeTemplates: active.length, blocked: active.length !== 1 ? "Exactly one active template is required" : null,
+    templates, activeTemplates: active.length, selectedTemplateId, blocked,
     created, skipped, decisions, covered2027: covered, withoutCoverage2027: created.length - covered, fingerprint, proposed, decisionSnapshots };
 }
 export async function loadPlannerInputs(reader: Reader, companyId: string, includeStops: boolean) {
@@ -119,8 +115,12 @@ export async function loadPlannerInputs(reader: Reader, companyId: string, inclu
   const existing = includeStops ? await reader.select().from(routeStops).where(and(eq(routeStops.companyId, companyId), eq(routeStops.isActive, true))) : [];
   return { data: { templates, blocks: blocks.map(b => b.block), columns, configs, crews: standing, properties: coverage.properties, existing }, resolve: coverage.resolve };
 }
-export async function importPlannerRoutes(companyId: string, opts: { dryRun: boolean }) {
-  if (!opts.dryRun && !routeImportApprovals[companyId]) return { disabled: true, reason: "Randy must approve the production dry run explicitly" };
+export async function importPlannerRoutes(companyId: string, opts: { dryRun: boolean; templateId?: string }) {
+  const approval = routeImportApprovals[companyId];
+  if (!opts.dryRun && !approval) return { disabled: true, reason: "Randy must approve the production dry run explicitly" };
+  // Writes derive selection exclusively from the approval; caller overrides are forbidden.
+  if (!opts.dryRun && opts.templateId !== undefined && opts.templateId !== approval?.templateId)
+    return { disabled: true, reason: "Template selection must match the approval" };
   const ready = await routeSchemaReady();
   if (!opts.dryRun && !ready) return { disabled: true, reason: "Routes schema not installed" };
   return db.transaction(async tx => {
@@ -133,10 +133,18 @@ export async function importPlannerRoutes(companyId: string, opts: { dryRun: boo
       if (company.imported) return { alreadyImported: true };
     }
     const { data, resolve } = await loadPlannerInputs(tx, companyId, ready);
-    const { proposed, decisionSnapshots, ...report } = planPlannerRoutes(companyId, data, resolve);
+    const { proposed, decisionSnapshots, ...report } = planPlannerRoutes(companyId, data, resolve, companyToday(),
+      opts.dryRun ? opts.templateId : approval?.templateId);
     if (opts.dryRun || report.blocked) return report;
-    if (routeImportApprovals[companyId]?.fingerprint !== report.fingerprint)
+    if (approval?.fingerprint !== report.fingerprint)
       return { ...report, disabled: true, reason: "Reviewed dry run changed; Randy must approve a fresh report" };
+    // Source-only approval intentionally excludes mutable route inventory. Still,
+    // a pre-import route write must not turn a reviewed placement into a decision
+    // and silently commit fewer stops. Recheck under the scheduling gate without
+    // putting route inventory or live contractual coverage into the source hash.
+    const existingMowing = new Set(data.existing.filter(s => s.serviceKey === "mowing").map(s => s.customerId));
+    if (approval?.templateId && decisionSnapshots.some(d => existingMowing.has(d.snapshot.customerId)))
+      return { ...report, disabled: true, reason: "Existing mowing stops conflict with the selected import; resolve them and review a fresh dry run" };
     // No ON CONFLICT here: an unexpected conflict must roll back stops AND marker.
     for (let i = 0; i < proposed.length; i += 1000) await tx.insert(routeStops).values(proposed.slice(i, i + 1000));
     // Commit review snapshots with stops and the import marker. Never write in a

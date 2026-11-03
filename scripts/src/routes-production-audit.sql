@@ -1,12 +1,14 @@
 -- Read-only input for the same planPlannerRoutes/coverageResolver used by import.
 -- Customer identities are anonymized before leaving production. No notes,
 -- addresses, contact details, documents, credentials or user records are selected.
+-- Bind $1 to the company uniquely resolved by the named-template selection query.
+-- Requires installed Routes schema; never substitute an empty existing-stop list.
 SELECT json_agg(json_build_object(
   'companyId', c.id,
   'observedAt', current_timestamp,
   'maintenanceVisits', (SELECT count(*) FROM visits v WHERE v.company_id=c.id AND v.source_type='maintenance'),
   'templates', coalesce((SELECT json_agg(json_build_object(
-    'id',t.id,'name',t.name,'isActive',t.is_active
+    'id',t.id,'companyId',t.company_id,'name',t.name,'isActive',t.is_active
   )) FROM weekly_schedule_templates t WHERE t.company_id=c.id),'[]'::json),
   'blocks', coalesce((SELECT json_agg(json_build_object(
     'id',b.id,'templateId',b.template_id,'visitConfigId',b.visit_config_id,'crewId',b.crew_id,
@@ -36,5 +38,7 @@ SELECT json_agg(json_build_object(
   'scopes', coalesce((SELECT json_agg(json_build_object(
     'termId',s.term_id,'serviceKey',s.service_key,'included',s.included,'quantity',s.quantity,'monthSpread',s.month_spread
   )) FROM term_scope_lines s WHERE s.company_id=c.id),'[]'::json),
-  'existing', '[]'::json
-)) AS route_audit_inputs FROM companies c;
+   'existing', coalesce((SELECT json_agg(json_build_object(
+     'customerId',s.customer_id,'serviceKey',s.service_key
+   )) FROM route_stops s WHERE s.company_id=c.id AND s.is_active),'[]'::json)
+)) AS route_audit_inputs FROM companies c WHERE c.id=$1;

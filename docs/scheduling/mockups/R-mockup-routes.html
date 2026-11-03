@@ -1,0 +1,454 @@
+<title>High Plains Routes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: CRM shell. The page fills the viewport and never scrolls; the queue (left) and the
+   crew-lane board (right) each scroll inside their own pane. Crew color owns the lane;
+   ticket-type hue owns the card rail, same as the ticket list. Tokens mirror highplains-crm/src/index.css. */
+:root {
+  --bg: #ffffff; --surface: hsl(80 5% 98%); --surface-2: hsl(80 8% 95%); --surface-3: hsl(80 8% 92%);
+  --line: hsl(80 8% 88%); --line-strong: hsl(80 6% 78%);
+  --fg: hsl(80 5% 15%); --fg-2: hsl(80 4% 36%); --fg-3: hsl(80 4% 50%);
+  --side: hsl(150 10% 24%); --side-2: hsl(150 8% 30%); --side-fg: hsl(150 5% 90%); --side-fg-2: hsl(150 5% 70%);
+  --primary: hsl(80 61% 42%); --primary-ink: #172006; --focus: hsl(80 61% 36%);
+  --tt-estimate: #6536b4; --tt-project: #005caa; --tt-extra: #a65a00; --tt-todo: #5b6470;
+  --ok: #4f8524; --warn: #b07d0a; --bad: #b3392a;
+  --c-hugo: #2f5fd0; --c-luciano: #2f8f4e; --c-manuel: #d4571c; --c-rolando: #b8860b; --c-sergio: #7c3aed;
+  --lane-tint: 7%; --card-shadow: 0 1px 2px rgb(20 30 10 / .06); --lift: 0 14px 34px rgb(20 30 10 / .24);
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: hsl(150 8% 9%); --surface: hsl(150 8% 11%); --surface-2: hsl(150 6% 14%); --surface-3: hsl(150 6% 17%);
+  --line: hsl(150 5% 20%); --line-strong: hsl(150 5% 29%);
+  --fg: hsl(150 10% 95%); --fg-2: hsl(150 5% 74%); --fg-3: hsl(150 4% 58%);
+  --side: hsl(150 8% 13%); --side-2: hsl(150 6% 20%); --side-fg: hsl(150 5% 88%); --side-fg-2: hsl(150 4% 64%);
+  --primary: hsl(80 61% 45%); --primary-ink: #11180a; --focus: hsl(80 61% 58%);
+  --tt-estimate: #b49aff; --tt-project: #65b2ff; --tt-extra: #ffa757; --tt-todo: #afbac7;
+  --ok: #8cc63f; --warn: #e0b23e; --bad: #ec7a68;
+  --c-hugo: #6f97ff; --c-luciano: #5fca83; --c-manuel: #ff8a52; --c-rolando: #e3b341; --c-sergio: #b28cff;
+  --lane-tint: 12%; --card-shadow: 0 1px 2px rgb(0 0 0 / .4); --lift: 0 14px 34px rgb(0 0 0 / .6);
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: hsl(150 8% 9%); --surface: hsl(150 8% 11%); --surface-2: hsl(150 6% 14%); --surface-3: hsl(150 6% 17%);
+  --line: hsl(150 5% 20%); --line-strong: hsl(150 5% 29%);
+  --fg: hsl(150 10% 95%); --fg-2: hsl(150 5% 74%); --fg-3: hsl(150 4% 58%);
+  --side: hsl(150 8% 13%); --side-2: hsl(150 6% 20%); --side-fg: hsl(150 5% 88%); --side-fg-2: hsl(150 4% 64%);
+  --primary: hsl(80 61% 45%); --primary-ink: #11180a; --focus: hsl(80 61% 58%);
+  --tt-estimate: #b49aff; --tt-project: #65b2ff; --tt-extra: #ffa757; --tt-todo: #afbac7;
+  --ok: #8cc63f; --warn: #e0b23e; --bad: #ec7a68;
+  --c-hugo: #6f97ff; --c-luciano: #5fca83; --c-manuel: #ff8a52; --c-rolando: #e3b341; --c-sergio: #b28cff;
+  --lane-tint: 12%; --card-shadow: 0 1px 2px rgb(0 0 0 / .4); --lift: 0 14px 34px rgb(0 0 0 / .6);
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 var(--font); overflow: hidden; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Shell */
+.app { display: grid; grid-template-columns: 216px minmax(0, 1fr); height: 100%; }
+.side { background: var(--side); color: var(--side-fg); display: flex; flex-direction: column; gap: 14px; padding: 16px 10px; overflow: auto; }
+.brand { display: flex; gap: 10px; align-items: center; padding: 0 6px; }
+.brand-mark { width: 30px; height: 30px; border-radius: 50%; background: var(--primary); color: var(--primary-ink); display: grid; place-items: center; font-weight: 700; font-size: 12px; flex: none; }
+.brand b { display: block; font-size: 14px; }
+.brand span { font-size: 11px; color: var(--side-fg-2); }
+.nav { display: flex; flex-direction: column; gap: 1px; }
+.nav-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--side-fg-2); padding: 10px 10px 4px; }
+.nav a { color: var(--side-fg); text-decoration: none; padding: 7px 10px; border-radius: 7px; display: flex; gap: 10px; align-items: center; font-size: 13.5px; }
+.nav a:hover { background: var(--side-2); }
+.nav a[aria-current="page"] { background: var(--side-2); box-shadow: inset 3px 0 0 var(--primary); font-weight: 600; }
+.nav .count { margin-left: auto; background: var(--primary); color: var(--primary-ink); font-size: 11px; font-weight: 700; border-radius: 99px; padding: 0 7px; }
+.ex { margin-top: auto; font-size: 11px; color: var(--side-fg-2); padding: 0 8px; }
+
+.page { min-width: 0; display: flex; flex-direction: column; height: 100%; }
+.head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-block: 12px; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); border-bottom: 1px solid var(--line); }
+.head h1 { margin: 0; font-size: 19px; letter-spacing: -.01em; }
+.weeknav { display: flex; align-items: center; gap: 6px; }
+.iconbtn, .btn { border: 1px solid var(--line-strong); background: var(--bg); border-radius: 8px; padding: 5px 10px; font-weight: 500; font-size: 13px; }
+.iconbtn { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; }
+.iconbtn:hover, .btn:hover { background: var(--surface-2); }
+
+/* ---- Routes mockup additions ---- */
+.spacer { flex: 1; }
+.btn.primary { background: var(--primary); color: var(--primary-ink); border-color: transparent; font-weight: 600; }
+.seg { display: inline-flex; background: var(--surface-3); border-radius: 9px; padding: 3px; gap: 2px; flex-wrap: wrap; }
+.seg button { border: 0; background: none; border-radius: 7px; padding: 5px 10px; font-size: 13px; font-weight: 500; color: var(--fg-2); }
+.seg button[aria-pressed="true"] { background: var(--bg); color: var(--fg); font-weight: 600; box-shadow: var(--card-shadow); }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-2); border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px; background: var(--surface); white-space: nowrap; }
+.chip b { color: var(--fg); font-weight: 600; }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.tabs2 { display: flex; gap: 2px; border-bottom: 1px solid var(--line); padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); background: var(--bg); }
+.tabs2 button { border: 0; background: none; padding: 9px 12px; font-size: 13.5px; font-weight: 500; color: var(--fg-2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs2 button[aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--primary); }
+.work { flex: 1; min-height: 0; display: grid; grid-template-columns: 320px minmax(0, 1fr); }
+.work.full { grid-template-columns: minmax(0, 1fr); }
+.queue { border-right: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+.qhead { padding: 12px 14px 10px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.qhead h2 { margin: 0; font-size: 14px; }
+.qhead p { margin: 0; font-size: 12px; color: var(--fg-3); }
+.qlist { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px 16px; display: flex; flex-direction: column; gap: 6px; }
+.group { font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--fg-3); font-weight: 600; padding: 10px 2px 2px; display: flex; justify-content: space-between; }
+.group.warn { color: var(--warn); }
+.pcard { position: relative; display: grid; grid-template-columns: 4px minmax(0,1fr); gap: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px 9px 9px; box-shadow: var(--card-shadow); cursor: grab; touch-action: none; user-select: none; }
+.pcard .rail { border-radius: 99px; background: var(--svc); }
+.pcard .prop { font-size: 13.5px; font-weight: 600; }
+.pcard .sub { font-size: 12px; color: var(--fg-2); margin-top: 2px; }
+.pcard .src { font-size: 11px; color: var(--fg-3); margin-top: 4px; }
+.pcard.ending { cursor: default; }
+.pcard.ending .sub { color: var(--warn); }
+
+.boardwrap { min-width: 0; min-height: 0; overflow: auto; background: var(--surface-2); }
+.board { --cols: 5; display: grid; grid-template-columns: 170px repeat(var(--cols), minmax(150px, 1fr)); min-width: calc(170px + var(--cols) * 150px); padding: 0 12px 16px; }
+.dayhead, .corner { position: sticky; top: 0; z-index: 3; background: var(--surface-2); border-bottom: 1px solid var(--line); padding: 10px 8px 8px; font-size: 12.5px; font-weight: 600; color: var(--fg-2); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.dayhead b { color: var(--fg); font-size: 14px; }
+.dayhead.today b { background: var(--primary); color: var(--primary-ink); border-radius: 7px; padding: 0 6px; }
+.corner { left: 0; z-index: 4; font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--fg-3); }
+.rainbtn { border: 1px solid var(--line-strong); background: var(--bg); border-radius: 7px; font-size: 11px; font-weight: 600; padding: 2px 7px; color: var(--fg-2); }
+.rainbtn:hover { background: var(--surface-3); }
+.lane { display: contents; }
+.crew { position: sticky; left: 0; z-index: 2; margin-top: 10px; background: color-mix(in srgb, var(--crew) calc(var(--lane-tint) * 2), var(--bg)); border: 1px solid color-mix(in srgb, var(--crew) 35%, var(--line)); border-right: 0; border-radius: 12px 0 0 12px; padding: 12px 12px 12px 16px; display: flex; flex-direction: column; gap: 3px; }
+.crew::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 5px; border-radius: 0 4px 4px 0; background: var(--crew); }
+.crew b { font-size: 14px; } .crew span { font-size: 12px; color: var(--fg-2); }
+.crew .wk { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; margin-top: 4px; }
+.cell { margin-top: 10px; background: color-mix(in srgb, var(--crew) var(--lane-tint), var(--bg)); border-top: 1px solid color-mix(in srgb, var(--crew) 35%, var(--line)); border-bottom: 1px solid color-mix(in srgb, var(--crew) 35%, var(--line)); border-left: 1px solid color-mix(in srgb, var(--crew) 16%, var(--line)); padding: 8px 7px 10px; min-height: 150px; display: flex; flex-direction: column; gap: 5px; }
+.cell.last { border-right: 1px solid color-mix(in srgb, var(--crew) 35%, var(--line)); border-radius: 0 12px 12px 0; }
+.cell.today { box-shadow: inset 2px 0 0 var(--primary), inset -2px 0 0 var(--primary); background: color-mix(in srgb, var(--primary) 9%, color-mix(in srgb, var(--crew) var(--lane-tint), var(--bg))); }
+.cell.over { background: color-mix(in srgb, var(--crew) 22%, var(--bg)); box-shadow: inset 0 0 0 2px var(--crew); }
+.cap { display: flex; flex-direction: column; gap: 3px; }
+.cap .bar { height: 4px; border-radius: 99px; background: color-mix(in srgb, var(--crew) 14%, var(--surface-3)); overflow: hidden; }
+.cap .bar i { display: block; height: 100%; background: var(--crew); }
+.cap.warn .bar i { background: var(--warn); } .cap.bad .bar i { background: var(--bad); }
+.cap .lbl { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.cap .lbl b { color: var(--fg-2); font-weight: 600; } .cap.warn .lbl b { color: var(--warn); } .cap.bad .lbl b { color: var(--bad); }
+
+/* A route stop: compact, service-colored rail */
+.stop { display: grid; grid-template-columns: 18px minmax(0,1fr) auto; gap: 6px; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 4px 7px 4px 5px; font-size: 12px; box-shadow: var(--card-shadow); cursor: grab; touch-action: none; user-select: none; border-left: 3px solid var(--svc); }
+.stop .n { font-family: var(--mono); font-size: 10px; color: var(--fg-3); text-align: right; }
+.stop .p { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stop .m { font-size: 10.5px; color: var(--fg-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stop .eo { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-2); background: var(--surface-3); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.stop.sel { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* Calendar view: route block + one-off cards */
+.rblock { --svc: var(--s-mow); border: 1px solid color-mix(in srgb, var(--svc) 40%, var(--line)); background: color-mix(in srgb, var(--svc) 10%, var(--bg)); border-radius: 8px; padding: 6px 8px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.rblock b { font-size: 12.5px; color: color-mix(in srgb, var(--svc) 75%, var(--fg)); }
+.rblock span { color: var(--fg-2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.rblock ol { margin: 4px 0 0; padding-left: 18px; color: var(--fg-2); font-size: 11.5px; display: none; }
+.rblock[aria-expanded="true"] ol { display: block; }
+.rblock.moved { border-style: dashed; }
+.vcard { --hue: var(--tt-extra); display: grid; grid-template-columns: 3px minmax(0,1fr); gap: 7px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 7px 6px 6px; box-shadow: var(--card-shadow); }
+.vcard .rail { background: var(--hue); border-radius: 99px; }
+.vcard .prop { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; color: var(--fg-3); }
+.vcard .title { font-size: 12.5px; font-weight: 600; line-height: 1.25; }
+
+/* Detail drawer */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 100%); background: var(--bg); border-left: 1px solid var(--line); box-shadow: var(--lift); z-index: 40; display: flex; flex-direction: column; padding: max(16px, env(safe-area-inset-top, 0px)) max(18px, env(safe-area-inset-right, 0px)) 18px 18px; gap: 14px; overflow: auto; }
+.drawer h2 { margin: 0; font-size: 17px; }
+.drawer .kv { display: grid; grid-template-columns: 120px minmax(0,1fr); gap: 8px 12px; font-size: 13px; }
+.drawer .kv dt { color: var(--fg-3); } .drawer .kv dd { margin: 0; font-weight: 500; }
+.prog { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+.prog .bar { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; } .prog .bar i { display: block; height: 100%; background: var(--ok); }
+.prog small { color: var(--fg-3); font-size: 12px; }
+.months { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; }
+.months span { font-size: 10px; text-align: center; color: var(--fg-3); }
+.months i { display: block; height: 22px; border-radius: 4px; background: var(--surface-3); position: relative; }
+.months i[data-n]::after { content: attr(data-n); position: absolute; inset: 0; display: grid; place-items: center; font-size: 10.5px; font-weight: 700; font-style: normal; color: var(--primary-ink); }
+.months i.on { background: color-mix(in srgb, var(--s-mow) 70%, var(--bg)); }
+.drawer .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.note { font-size: 12px; color: var(--fg-3); margin: 0; }
+
+.scrim { position: fixed; inset: 0; background: rgb(10 15 8 / .38); z-index: 60; display: grid; place-items: center; padding: 16px; }
+.dialog { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; width: min(460px, 100%); padding: 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--lift); }
+.dialog h2 { margin: 0; font-size: 16px; }
+.opt { display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+.opt:has(input:checked) { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 7%, var(--bg)); }
+.opt b { font-size: 13.5px; } .opt p { margin: 2px 0 0; font-size: 12.5px; color: var(--fg-2); }
+.dialog label.f { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--fg-2); }
+.dialog select { border: 1px solid var(--line-strong); background: var(--bg); border-radius: 8px; padding: 7px 9px; font-size: 14px; color: var(--fg); }
+.dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
+.toast { position: fixed; z-index: 70; bottom: max(18px, env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); border-radius: 10px; padding: 9px 14px; font-size: 13px; box-shadow: var(--lift); max-width: calc(100% - 32px); }
+.ghost { position: fixed; z-index: 50; pointer-events: none; transform: rotate(-1.5deg); box-shadow: var(--lift); width: 240px; }
+.dragging-src { opacity: .3; }
+body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
+
+:root { --s-mow: #2f8f4e; --s-pet: #a65a00; --s-winter: #2f6cad; --s-irr: #0f8a8a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --s-mow: #5fca83; --s-pet: #ffa757; --s-winter: #65b2ff; --s-irr: #4fd1d1; } }
+:root[data-theme="dark"] { --s-mow: #5fca83; --s-pet: #ffa757; --s-winter: #65b2ff; --s-irr: #4fd1d1; }
+
+@media (max-width: 860px) {
+  body { overflow: auto; }
+  .app { grid-template-columns: 1fr; height: auto; }
+  .side { display: none; }
+  .page { height: auto; }
+  .work { grid-template-columns: 1fr; }
+  .queue { border-right: 0; border-bottom: 1px solid var(--line); }
+  .qlist { max-height: 40vh; }
+  .boardwrap { height: 70vh; }
+}
+</style>
+
+<div class="app">
+  <aside class="side" aria-label="Main navigation">
+    <div class="brand"><div class="brand-mark">HP</div><div><b>High Plains</b><span>Property Maintenance</span></div></div>
+    <nav class="nav">
+      <div class="nav-label">Work</div>
+      <a href="#routes">Dashboard</a>
+      <a href="#routes">Tickets</a>
+      <a href="#routes">Scheduling</a>
+      <a href="#routes" aria-current="page">Routes</a>
+      <a href="#routes">Campaigns</a>
+      <div class="nav-label">Customers</div>
+      <a href="#routes">Customers</a>
+      <a href="#routes">Contracts</a>
+    </nav>
+    <p style="margin-top:auto;font-size:11px;color:var(--side-fg-2);padding:0 8px">Mockup · your real crews; properties and stops are examples</p>
+  </aside>
+
+  <div class="page">
+    <header class="head">
+      <h1>Routes</h1>
+      <div class="seg" role="group" aria-label="Service">
+        <button aria-pressed="true" data-svc="mow">Mowing</button>
+        <button aria-pressed="false" data-svc="pet">Pet stations</button>
+        <button aria-pressed="false" data-svc="winter">Winter visits</button>
+        <button aria-pressed="false" data-svc="irr">Irrigation checks</button>
+      </div>
+      <span class="chip">2027 season <b>Apr 5 – Oct 29</b></span>
+      <div class="spacer"></div>
+      <span class="chip"><span class="dot"></span>Calendar filled through <b>Nov 20</b></span>
+      <button class="btn" id="fill">Fill next 3 weeks</button>
+    </header>
+    <div class="tabs2" role="tablist">
+      <button role="tab" aria-selected="true" id="tPattern">Weekly pattern</button>
+      <button role="tab" aria-selected="false" id="tCal">On the calendar</button>
+    </div>
+
+    <div class="work" id="work">
+      <section class="queue" id="queue" aria-label="Properties without a route">
+        <div class="qhead">
+          <h2 id="qTitle">Needs a route</h2>
+          <p id="qSub">Properties whose 2027 contract includes mowing but have no route day yet. Drag one onto a crew and day.</p>
+        </div>
+        <div class="qlist" id="qlist"></div>
+      </section>
+      <section class="boardwrap" id="boardwrap" aria-label="Routes board"><div class="board" id="board"></div></section>
+    </div>
+  </div>
+</div>
+
+<aside class="drawer" id="drawer" hidden aria-label="Route stop"></aside>
+
+<div class="scrim" id="scrim" hidden>
+  <form class="dialog" id="rain">
+    <h2 id="rainTitle">Rain day: Tue Oct 27</h2>
+    <label class="f" for="rainCrew">Which crews<select id="rainCrew"></select></label>
+    <label class="opt"><input type="radio" name="mode" value="shift" checked><div><b>Push the rest of the week back one day</b><p>Tuesday's route moves to Wednesday, Wednesday's to Thursday, and so on. Friday's route lands on Saturday.</p></div></label>
+    <label class="opt"><input type="radio" name="mode" value="next"><div><b>Move only Tuesday to Wednesday</b><p>Wednesday doubles up. Use this when the crew can catch up in one long day.</p></div></label>
+    <p class="note">Only route stops move. One-off jobs stay where you put them. Every moved stop is marked so you can see what slid.</p>
+    <div class="row"><button type="button" class="btn" id="rainCancel">Cancel</button><button type="submit" class="btn primary">Slide</button></div>
+  </form>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const crews = [
+  { id: "hugo", name: "Hugo Crew", sup: "Hugo", hrs: 10, color: "var(--c-hugo)" },
+  { id: "luciano", name: "Luciano Crew", sup: "Luciano", hrs: 10, color: "var(--c-luciano)" },
+  { id: "manuel", name: "Manuel Crew", sup: "Manuel Cerceda", hrs: 10, color: "var(--c-manuel)" },
+  { id: "rolando", name: "Rolando Crew", sup: "Rolando Guzman", hrs: 8, color: "var(--c-rolando)" },
+  { id: "sergio", name: "Sergio Crew", sup: "Sergio", hrs: 10, color: "var(--c-sergio)" },
+];
+const WD = ["mon", "tue", "wed", "thu", "fri", "sat"];
+const WDL = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday" };
+const SVC = { mow: { name: "Mowing", color: "var(--s-mow)", unit: "visits", spread: [0,0,0,2,5,4,4,4,5,2,0,0], q: 26 },
+  pet: { name: "Pet stations", color: "var(--s-pet)", unit: "visits", spread: [0,0,0,2,5,4,4,4,5,2,0,0], q: 26 },
+  winter: { name: "Winter visits", color: "var(--s-winter)", unit: "visits", spread: [2,2,2,0,0,0,0,0,0,0,2,2], q: 10 },
+  irr: { name: "Irrigation checks", color: "var(--s-irr)", unit: "visits", spread: [0,0,0,0,1,1,1,1,1,0,0,0], q: 5 } };
+const P = ["Villas at the Boulders","Miramonte Ranch","18 at Ute Creek","Hyland Village","Vista West","Lake Isle","Chestnut Condos","Baseline – Villas at North Park","Highlands Ranch Commons","Westside Ditch HOA","Aspen Meadows","Red Rock Commons","Prairie Trails","Cottonwood Crossing","Silver Sage HOA","Ridgegate Townhomes","Willow Bend","Stone Canyon","Foothills Green","Eagle Pointe","Copper Creek","Sunflower Commons","Juniper Ridge","Blue Spruce Park","Columbine Court","Granite Falls","Bear Creek Villas","Meadowlark HOA","Larkspur Commons","Sandstone Ranch","Elk Ridge","Canyon View"];
+let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+let stops = []; let k = 0;
+for (const c of crews) for (const d of WD.slice(0, 5)) {
+  const n = 3 + Math.floor(rnd() * 4);
+  for (let i = 0; i < n && k < P.length * 3; i++) stops.push({ id: "s" + (++k), svc: "mow", crew: c.id, day: d, prop: P[(k * 7) % P.length], mins: [45, 60, 75, 90, 120, 150][Math.floor(rnd() * 6)], every: rnd() > .88 ? 2 : 1 });
+}
+stops.push({ id: "s900", svc: "pet", crew: "rolando", day: "mon", prop: "Prairie Trails", mins: 20, every: 1 }, { id: "s901", svc: "pet", crew: "rolando", day: "mon", prop: "Willow Bend", mins: 15, every: 1 }, { id: "s902", svc: "pet", crew: "rolando", day: "thu", prop: "Hyland Village", mins: 25, every: 1 });
+let needs = [
+  { id: "n1", svc: "mow", prop: "Silverthorne Commons", mins: 90, why: "New 2027 contract · 26 visits · Apr–Oct" },
+  { id: "n2", svc: "mow", prop: "Gateway Park HOA", mins: 60, why: "New 2027 contract · 26 visits · Apr–Oct" },
+  { id: "n3", svc: "mow", prop: "Monument Sign – Vista West", mins: 30, why: "Added to Vista West's 2027 scope" },
+  { id: "n4", svc: "pet", prop: "Aspen Meadows", mins: 20, why: "2027 contract · 26 visits · Apr–Oct" },
+];
+const ending = [{ prop: "Chestnut Condos", why: "Contract ends Oct 31 and isn't renewed. Its route stops end with it." }];
+let svc = "mow", view = "pattern", sel = null;
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const crewOf = (id) => crews.find((c) => c.id === id);
+const hm = (m) => (m >= 60 ? (Math.round(m / 6) / 10) + " h" : m + " min");
+function toast(m) { const t = $("#toast"); t.innerHTML = m; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 3400); }
+
+function renderQueue() {
+  const list = needs.filter((n) => n.svc === svc);
+  let h = `<div class="group"><span>From contracts</span><span class="num">${list.length}</span></div>`;
+  h += list.map((n) => `<article class="pcard" data-need="${n.id}" style="--svc:${SVC[svc].color}" tabindex="0"><div class="rail"></div><div style="min-width:0"><div class="prop">${esc(n.prop)}</div><div class="sub">${SVC[svc].name} · about ${hm(n.mins)} per visit</div><div class="src">${esc(n.why)}</div></div></article>`).join("") || `<p class="note" style="padding:8px 2px">Every property with ${SVC[svc].name.toLowerCase()} in its contract has a route day.</p>`;
+  if (svc === "mow") h += `<div class="group warn"><span>Route ends with contract</span><span class="num">${ending.length}</span></div>` + ending.map((e) => `<article class="pcard ending" style="--svc:var(--warn)"><div class="rail"></div><div><div class="prop">${esc(e.prop)}</div><div class="sub">${esc(e.why)}</div></div></article>`).join("");
+  $("#qlist").innerHTML = h;
+  $("#qTitle").textContent = `Needs a route (${list.length})`;
+  $("#qSub").textContent = `Properties whose 2027 contract includes ${SVC[svc].name.toLowerCase()} but have no route day yet. Drag one onto a crew and day.`;
+}
+
+function renderPattern() {
+  const b = $("#board"); b.style.setProperty("--cols", 5);
+  const days = WD.slice(0, 5);
+  let h = `<div class="corner">Crew</div>` + days.map((d) => `<div class="dayhead"><b>${WDL[d]}</b></div>`).join("");
+  for (const c of crews) {
+    const mine = stops.filter((s) => s.crew === c.id && s.svc === svc);
+    const wkM = mine.reduce((a, s) => a + s.mins, 0);
+    h += `<div class="lane"><div class="crew" style="--crew:${c.color}"><b>${esc(c.name)}</b><span>${esc(c.sup)}</span><span class="wk">${mine.length} ${mine.length === 1 ? "stop" : "stops"} · ${hm(wkM)} a week</span></div>`;
+    days.forEach((d, i) => {
+      const list = mine.filter((s) => s.day === d);
+      const all = stops.filter((s) => s.crew === c.id && s.day === d);
+      const m = all.reduce((a, s) => a + s.mins, 0), pct = m / (c.hrs * 60);
+      const cls = pct > 1 ? "bad" : pct >= .9 ? "warn" : "";
+      h += `<div class="cell ${i === days.length - 1 ? "last" : ""}" style="--crew:${c.color}" data-crew="${c.id}" data-day="${d}">
+        <div class="cap ${cls}"><div class="lbl"><span>${list.length} ${list.length === 1 ? "stop" : "stops"}</span><b>${hm(m)} / ${c.hrs} h</b></div><div class="bar"><i style="width:${Math.min(100, pct * 100)}%"></i></div></div>
+        ${list.map((s, j) => `<div class="stop ${sel === s.id ? "sel" : ""}" data-stop="${s.id}" style="--svc:${SVC[s.svc].color}" tabindex="0"><span class="n">${j + 1}</span><span class="p">${esc(s.prop)}${s.every === 2 ? `<span class="eo">Every 2 wks</span>` : ""}</span><span class="m">${hm(s.mins)}</span></div>`).join("")}</div>`;
+    });
+    h += `</div>`;
+  }
+  b.innerHTML = h;
+}
+
+/* Calendar view: one route block per crew-day, one-off jobs as their own cards */
+const calDays = [{ k: "mon", d: 26 }, { k: "tue", d: 27, today: true }, { k: "wed", d: 28 }, { k: "thu", d: 29 }, { k: "fri", d: 30 }, { k: "sat", d: 31 }];
+let shift = {}; // crew -> {fromDayIndex, mode}
+const oneoffs = [{ crew: "hugo", k: "tue", prop: "18 at Ute Creek", title: "Clean out Drains / Add cobble", hue: "var(--tt-extra)" }, { crew: "manuel", k: "wed", prop: "Miramonte Ranch", title: "Coloradoscape – Mailbox Area", hue: "var(--tt-project)" }];
+function calStops(crewId, idx) {
+  // Which pattern day lands on calendar day idx, after any slide
+  const s = shift[crewId]; let src = calDays[idx].k, moved = false;
+  if (s && s.mode === "shift" && idx >= s.from + 1) { src = calDays[idx - 1].k; moved = true; if (idx - 1 > 4) src = null; }
+  if (s && s.mode === "shift" && idx === s.from) src = null;
+  let list = src ? stops.filter((x) => x.crew === crewId && x.day === src && x.svc === "mow") : [];
+  if (s && s.mode === "next") {
+    if (idx === s.from) list = [];
+    if (idx === s.from + 1) { list = list.concat(stops.filter((x) => x.crew === crewId && x.day === calDays[s.from].k && x.svc === "mow").map((x) => ({ ...x, moved: true }))); }
+  }
+  return { list, moved };
+}
+function renderCal() {
+  const b = $("#board"); b.style.setProperty("--cols", calDays.length);
+  let h = `<div class="corner">Crew</div>` + calDays.map((d, i) => `<div class="dayhead ${d.today ? "today" : ""}"><span><b>${d.d}</b> ${WDL[d.k].slice(0, 3)}</span>${i < 5 ? `<button class="rainbtn" data-rain="${i}" type="button">Rain day…</button>` : ""}</div>`).join("");
+  for (const c of crews) {
+    h += `<div class="lane"><div class="crew" style="--crew:${c.color}"><b>${esc(c.name)}</b><span>${esc(c.sup)}</span><span class="wk">Week of Oct 26</span></div>`;
+    calDays.forEach((d, i) => {
+      const { list, moved } = calStops(c.id, i);
+      const oo = oneoffs.filter((o) => o.crew === c.id && o.k === d.k);
+      const m = list.reduce((a, s) => a + s.mins, 0) + oo.length * 240, pct = m / (c.hrs * 60);
+      const cls = pct > 1 ? "bad" : pct >= .9 ? "warn" : "";
+      const anyMoved = moved || list.some((s) => s.moved);
+      h += `<div class="cell ${d.today ? "today" : ""} ${i === calDays.length - 1 ? "last" : ""}" style="--crew:${c.color}">
+        <div class="cap ${cls}"><div class="lbl"><span>${list.length + oo.length} ${list.length + oo.length === 1 ? "stop" : "stops"}</span><b>${hm(m)} / ${c.hrs} h</b></div><div class="bar"><i style="width:${Math.min(100, pct * 100)}%"></i></div></div>
+        ${list.length ? `<button class="rblock ${anyMoved ? "moved" : ""}" aria-expanded="false" type="button"><b>Mowing route${anyMoved ? " · slid" : ""}</b><span>${list.length} stops · ${hm(list.reduce((a, s) => a + s.mins, 0))}</span><ol>${list.map((s) => `<li>${esc(s.prop)}</li>`).join("")}</ol></button>` : ""}
+        ${oo.map((o) => `<div class="vcard" style="--hue:${o.hue}"><div class="rail"></div><div><div class="prop">${esc(o.prop)}</div><div class="title">${esc(o.title)}</div></div></div>`).join("")}
+      </div>`;
+    });
+    h += `</div>`;
+  }
+  b.innerHTML = h;
+}
+
+function render() {
+  $("#work").classList.toggle("full", view === "cal");
+  $("#queue").hidden = view === "cal";
+  view === "cal" ? renderCal() : (renderQueue(), renderPattern());
+}
+
+function openDrawer(id) {
+  const s = stops.find((x) => x.id === id); if (!s) return; sel = id; renderPattern();
+  const sv = SVC[s.svc]; const done = s.svc === "mow" ? 25 : 24, q = sv.q;
+  const months = "JFMAMJJASOND".split("");
+  $("#drawer").innerHTML = `<div class="row" style="justify-content:space-between;align-items:center"><h2>${esc(s.prop)}</h2><button class="iconbtn" id="dClose" aria-label="Close">✕</button></div>
+    <dl class="kv"><dt>Service</dt><dd>${sv.name}</dd><dt>Crew</dt><dd>${esc(crewOf(s.crew).name)}</dd><dt>Day</dt><dd>${WDL[s.day]}${s.every === 2 ? ", every 2 weeks" : ", every week"}</dd><dt>Time on site</dt><dd>${hm(s.mins)}</dd><dt>Season</dt><dd>Apr 5 – Oct 29, 2027 <span style="color:var(--fg-3)">(from contract)</span></dd></dl>
+    <div class="prog"><b style="font-size:13px">2026 contract: ${done} of ${q} ${sv.unit} done</b><div class="bar"><i style="width:${done / q * 100}%"></i></div><small>One left this season. The route has covered it.</small></div>
+    <div><p class="note" style="margin-bottom:6px">2027 contract schedule, ${q} ${sv.unit}</p><div class="months">${sv.spread.map((n, i) => `<div><i class="${n ? "on" : ""}" ${n ? `data-n="${n}"` : ""}></i><span>${months[i]}</span></div>`).join("")}</div></div>
+    <div class="row"><button class="btn">Change day or crew</button><button class="btn">Skip a date</button><button class="btn">Pause</button></div>
+    <p class="note">Changes apply from the next fill. Visits already on the calendar stay until you move them.</p>`;
+  $("#drawer").hidden = false; $("#dClose").onclick = () => { $("#drawer").hidden = true; sel = null; renderPattern(); };
+}
+
+/* Drag: queue property → pattern cell (adds a stop); stop → another cell (moves it) */
+let drag = null;
+document.addEventListener("pointerdown", (e) => {
+  if (view !== "pattern") return;
+  const n = e.target.closest(".pcard[data-need]"), s = e.target.closest(".stop[data-stop]");
+  const el = n || s; if (!el || (e.button !== undefined && e.button !== 0)) return;
+  drag = { el, kind: n ? "need" : "stop", id: n ? n.dataset.need : s.dataset.stop, sx: e.clientX, sy: e.clientY, started: false };
+});
+document.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  if (!drag.started) {
+    if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 6) return;
+    drag.started = true; const r = drag.el.getBoundingClientRect(); drag.ox = drag.sx - r.left; drag.oy = drag.sy - r.top;
+    const g = drag.el.cloneNode(true); g.classList.add("ghost"); g.removeAttribute("data-need"); g.removeAttribute("data-stop"); document.body.appendChild(g); drag.g = g;
+    drag.el.classList.add("dragging-src"); document.body.classList.add("is-dragging");
+  }
+  drag.g.style.left = e.clientX - drag.ox + "px"; drag.g.style.top = e.clientY - drag.oy + "px";
+  const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest(".cell[data-crew]");
+  if (hit !== drag.over) { drag.over?.classList.remove("over"); hit?.classList.add("over"); drag.over = hit; }
+});
+function endDrag() {
+  if (!drag) return; const d = drag; drag = null;
+  d.g?.remove(); d.el.classList.remove("dragging-src"); document.body.classList.remove("is-dragging"); d.over?.classList.remove("over");
+  if (!d.started) { if (d.kind === "stop") openDrawer(d.id); return; }
+  if (!d.over) return;
+  const crew = d.over.dataset.crew, day = d.over.dataset.day;
+  if (d.kind === "need") {
+    const n = needs.find((x) => x.id === d.id); needs = needs.filter((x) => x.id !== d.id);
+    stops.push({ id: "s" + Date.now(), svc: n.svc, crew, day, prop: n.prop, mins: n.mins, every: 1 });
+    toast(`<b>${esc(n.prop)}</b> added to ${esc(crewOf(crew).name)}, ${WDL[day]}s. Visits start Apr 5.`);
+  } else {
+    const s = stops.find((x) => x.id === d.id); s.crew = crew; s.day = day;
+    toast(`<b>${esc(s.prop)}</b> now ${esc(crewOf(crew).name)}, ${WDL[day]}s, from the next fill.`);
+  }
+  render();
+}
+document.addEventListener("pointerup", endDrag); document.addEventListener("pointercancel", endDrag);
+document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches?.(".stop[data-stop]")) openDrawer(e.target.dataset.stop); if (e.key === "Escape") { $("#scrim").hidden = true; $("#drawer").hidden = true; } });
+
+document.addEventListener("click", (e) => {
+  const rb = e.target.closest(".rblock"); if (rb) rb.setAttribute("aria-expanded", rb.getAttribute("aria-expanded") === "true" ? "false" : "true");
+  const r = e.target.closest("[data-rain]"); if (r) {
+    rainIdx = Number(r.dataset.rain); const d = calDays[rainIdx];
+    $("#rainTitle").textContent = `Rain day: ${WDL[d.k]} Oct ${d.d}`;
+    $("#rainCrew").innerHTML = `<option value="all">All crews</option>` + crews.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+    $("#scrim").hidden = false;
+  }
+});
+let rainIdx = 1;
+$("#rain").addEventListener("submit", (e) => {
+  e.preventDefault(); const mode = new FormData(e.target).get("mode"), who = $("#rainCrew").value;
+  for (const c of crews) if (who === "all" || who === c.id) shift[c.id] = { from: rainIdx, mode };
+  $("#scrim").hidden = true; renderCal();
+  const d = calDays[rainIdx]; const n = (who === "all" ? crews : [crewOf(who)]).reduce((a, c) => a + stops.filter((s) => s.crew === c.id && s.svc === "mow").length, 0);
+  toast(mode === "shift" ? `Slid ${WDL[d.k]} onward by one day for ${who === "all" ? "all crews" : esc(crewOf(who).name)}. Moved stops are marked.` : `Moved ${WDL[d.k]}'s route to ${WDL[calDays[rainIdx + 1].k]}.`);
+});
+$("#rainCancel").onclick = () => ($("#scrim").hidden = true);
+$("#scrim").addEventListener("click", (e) => { if (e.target.id === "scrim") $("#scrim").hidden = true; });
+document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  svc = b.dataset.svc; $("#drawer").hidden = true; sel = null;
+  if (view === "cal") { view = "pattern"; $("#tPattern").setAttribute("aria-selected", "true"); $("#tCal").setAttribute("aria-selected", "false"); }
+  render();
+}));
+$("#tPattern").onclick = () => { view = "pattern"; $("#tPattern").setAttribute("aria-selected", "true"); $("#tCal").setAttribute("aria-selected", "false"); render(); };
+$("#tCal").onclick = () => { view = "cal"; $("#tCal").setAttribute("aria-selected", "true"); $("#tPattern").setAttribute("aria-selected", "false"); $("#drawer").hidden = true; render(); };
+$("#fill").onclick = () => toast("Filled the calendar through Nov 20: 214 mowing and pet-station visits. Already-placed visits were left alone.");
+render();
+</script>

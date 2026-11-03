@@ -1,3 +1,9 @@
+> Historical R1 evidence below. For the November 3 named-template selection,
+> intentional source-only fingerprint change, current access blocker and approval
+> state, see [named import verification](scheduling/routes-named-import-verification.md).
+> The old conditional alternatives and old fingerprint semantics are not current
+> production approval evidence.
+
 Import would create 0 route stops (0 with a 2027 mowing contract); 0 need a decision.
 
 ## Production dry run — read only, release blocked

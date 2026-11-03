@@ -12,7 +12,7 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => ({
     "ticketDetail.commentAdded": "Comment added",
     "ticketDetail.sendComment": "Send",
-    "tickets.noTicketsFound": "No tickets found",
+    "ticketDetail.noComments": "No comments yet — start the conversation below.",
   }[key] ?? key) }),
 }));
 
@@ -86,11 +86,11 @@ describe("Shared ticket conversation", () => {
     expect(screen.getByTestId("button-view-all-comments").textContent).toBe("View all 5");
     expect(viewAll).toHaveBeenCalledOnce();
   });
-  it("preserves the empty state and always offers the main composer and compact navigation", () => {
+  it("shows the comments empty state with a composer and no view-all", () => {
     mount([], true);
-    expect(screen.getByText("No tickets found")).toBeTruthy();
+    expect(screen.getByText("No comments yet — start the conversation below.")).toBeTruthy();
     expect(screen.getByTestId("input-comment")).toBeTruthy();
-    expect(screen.getByTestId("button-view-all-comments").textContent).toBe("View all 0");
+    expect(screen.queryByTestId("button-view-all-comments")).toBeNull();
     expect((screen.getByTestId("button-add-comment") as HTMLButtonElement).disabled).toBe(true);
   });
   it("keeps legacy multi-hop and cyclic comments visible without third-level nesting", () => {

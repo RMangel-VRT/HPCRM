@@ -5,7 +5,7 @@ import pg from "pg";
 import { and, eq, sql } from "drizzle-orm";
 import {
   routeStops, visits, companies, customers, weeklyScheduleTemplates, scheduleBlocks, maintenanceVisitConfigs, maintenanceCrews,
-  tickets, ticketTypes, ticketTypeStatuses, termScopeLines,
+  tickets, ticketTypes, ticketTypeStatuses, termScopeLines, agreementTerms, crews, routeImportDecisions,
 } from "@workspace/db";
 import { db, inTransaction } from "../db";
 import { createRouteFixture, removeRouteFixture } from "./routeTestFixture";
@@ -315,6 +315,136 @@ describe.skipIf(!enabled)("route engine real PostgreSQL/API contracts", () => {
     const results = await Promise.all([importPlannerRoutes(f.companyId, { dryRun: false }), importPlannerRoutes(f.companyId, { dryRun: false })]);
     expect(results.some(r => "alreadyImported" in r)).toBe(true);
     expect(await db.select().from(routeStops).where(eq(routeStops.companyId, f.companyId))).toHaveLength(6);
+  });
+  it("named dry run is SELECT-only and concurrent approved startups import only that source, leaving other history intact", async () => {
+    const [other] = await db.insert(weeklyScheduleTemplates).values({ companyId: f.companyId, name: "Untouched legacy" }).returning();
+    const [otherBlock] = await db.insert(scheduleBlocks).values({ templateId: other.id,
+      visitConfigId: f.configs[0].id, crewId: f.columns[1].id, dayOfWeek: "friday", sortOrder: 99 }).returning();
+    const before = await plannerSnapshot();
+    const spy = vi.spyOn(pg.Client.prototype, "query");
+    const dry = await importPlannerRoutes(f.companyId, { dryRun: true, templateId: f.template.id });
+    const commands = spy.mock.calls.map(c => typeof c[0] === "string" ? c[0] : (c[0] as { text?: string })?.text ?? "").join("\n");
+    spy.mockRestore();
+    expect(commands).toMatch(/read only/i);
+    expect(commands).not.toMatch(/\b(insert into|update |delete from|pg_advisory_xact_lock)\b/i);
+    expect(dry).toMatchObject({ selectedTemplateId: f.template.id, activeTemplates: 2, created: expect.any(Array), decisions: [] });
+    if (!("fingerprint" in dry)) throw new Error("Missing fingerprint");
+    expect(await db.select().from(routeStops).where(eq(routeStops.companyId, f.companyId))).toHaveLength(0);
+    routeImportApprovals[f.companyId] = { approvedBy: "Randy", templateId: f.template.id, fingerprint: dry.fingerprint };
+    const results = await Promise.all([importPlannerRoutes(f.companyId, { dryRun: false }), importPlannerRoutes(f.companyId, { dryRun: false })]);
+    expect(results.filter(r => "alreadyImported" in r)).toHaveLength(1);
+    const stops = await db.select().from(routeStops).where(eq(routeStops.companyId, f.companyId));
+    expect(stops).toHaveLength(6);
+    expect(stops.every(s => f.blocks.some(b => b.id === s.importedFromBlockId))).toBe(true);
+    expect(await plannerSnapshot()).toEqual(before);
+    expect((await db.select().from(scheduleBlocks).where(eq(scheduleBlocks.id, otherBlock.id)))[0]).toEqual(otherBlock);
+    expect(await importPlannerRoutes(f.companyId, { dryRun: false })).toEqual({ alreadyImported: true });
+  });
+  it("a signed renewal after approval preserves approval and fill uses its live window/months rather than a snapshot", async () => {
+    await db.update(agreementTerms).set({ status: "draft" }).where(eq(agreementTerms.id, f.term.id));
+    const dry = await importPlannerRoutes(f.companyId, { dryRun: true, templateId: f.template.id });
+    expect(dry).toMatchObject({ covered2027: 0, withoutCoverage2027: 6 });
+    if (!("fingerprint" in dry)) throw new Error("Missing fingerprint");
+    routeImportApprovals[f.companyId] = { approvedBy: "Randy", templateId: f.template.id, fingerprint: dry.fingerprint };
+    const [renewal] = await db.insert(agreementTerms).values({ companyId: f.companyId, agreementId: f.agreement.id,
+      seasonLabel: "Renewal", startDate: "2027-04-15", endDate: "2027-09-30", status: "signed",
+      line: "landscape", form: "theirs", billingType: "equal_monthly" }).returning();
+    await db.insert(termScopeLines).values({ companyId: f.companyId, termId: renewal.id, serviceKey: "mowing",
+      line: "landscape", included: true, quantity: 31, monthSpread: [0,0,0,1,3,4,5,6,7,0,0,0] });
+    expect(await importPlannerRoutes(f.companyId, { dryRun: false })).toMatchObject({ fingerprint: dry.fingerprint, covered2027: 6, blocked: null });
+    expect((await fillRouteVisits(f.companyId)).created).toBe(0); // March is not covered.
+    expect((await fillRouteVisits(f.companyId, { today: "2027-04-01", through: "2027-04-30" })).created).toBeGreaterThan(0);
+    expect((await rows()).every(v => v.routeOccurrenceDate! >= "2027-04-15")).toBe(true);
+    await db.update(termScopeLines).set({ monthSpread: [0,0,0,1,0,4,5,6,7,0,0,0] }).where(eq(termScopeLines.termId, renewal.id));
+    expect((await fillRouteVisits(f.companyId, { today: "2027-05-01", through: "2027-05-31" })).created).toBe(0);
+    expect((await db.select().from(routeStops).where(eq(routeStops.companyId, f.companyId))).every(s => s.seasonStart === null && s.seasonEnd === null)).toBe(true);
+  });
+  it.each([true, false])("named startup rechecks pre-import route inventory (selected-property collision: %s)", async collision => {
+    const dry = await importPlannerRoutes(f.companyId, { dryRun: true, templateId: f.template.id });
+    if (!("fingerprint" in dry)) throw new Error("Missing fingerprint");
+    expect(dry).toMatchObject({ created: expect.any(Array), decisions: [] });
+    expect(dry.created).toHaveLength(6);
+    routeImportApprovals[f.companyId] = { approvedBy: "Randy", templateId: f.template.id, fingerprint: dry.fingerprint };
+    // This normal API is available before cutover, and takes the scheduling gate.
+    const response = await request(app()).post("/api/routes/stops").send(stopBody(collision ? 1 : 7));
+    expect(response.status).toBe(201);
+    const [existing] = await db.select().from(routeStops).where(eq(routeStops.id, response.body.id));
+    const changed = await importPlannerRoutes(f.companyId, { dryRun: true, templateId: f.template.id });
+    if (!("fingerprint" in changed)) throw new Error("Missing changed dry-run fingerprint");
+    expect(changed).toMatchObject({ fingerprint: dry.fingerprint });
+    const imported = await importPlannerRoutes(f.companyId, { dryRun: false });
+    if (collision) {
+      expect(changed).toMatchObject({ decisions: [expect.any(Object)] });
+      expect(changed.created).toHaveLength(5);
+      expect(imported).toMatchObject({ disabled: true, reason: expect.stringContaining("Existing mowing stops conflict") });
+      expect(await db.select().from(routeStops).where(eq(routeStops.companyId, f.companyId))).toEqual([existing]);
+      expect((await db.select().from(companies).where(eq(companies.id, f.companyId)))[0].routesImportedAt).toBeNull();
+    } else {
+      expect(imported).toMatchObject({ fingerprint: dry.fingerprint, decisions: [] });
+      expect(await db.select().from(routeStops).where(eq(routeStops.companyId, f.companyId))).toHaveLength(7);
+      expect((await db.select().from(companies).where(eq(companies.id, f.companyId)))[0].routesImportedAt).not.toBeNull();
+    }
+    expect((await db.select().from(routeStops).where(eq(routeStops.id, existing.id)))[0]).toEqual(existing);
+    expect(await db.select().from(routeImportDecisions).where(eq(routeImportDecisions.companyId, f.companyId))).toHaveLength(0);
+  });
+  it.each(["missing", "foreign"])("named %s template fails closed during dry run and boot", async kind => {
+    const other = kind === "foreign" ? await createRouteFixture() : null;
+    try {
+      const templateId = other?.template.id ?? "does-not-exist";
+      routeImportApprovals[f.companyId] = { approvedBy: "Randy", templateId, fingerprint: "invalid" };
+      for (const dryRun of [true, false]) expect(await importPlannerRoutes(f.companyId, { dryRun, templateId }))
+        .toMatchObject({ selectedTemplateId: null, blocked: expect.stringContaining("within this company"), created: [] });
+      expect(await db.select().from(routeStops).where(eq(routeStops.companyId, f.companyId))).toHaveLength(0);
+      expect((await db.select().from(companies).where(eq(companies.id, f.companyId)))[0].routesImportedAt).toBeNull();
+    } finally { if (other) await removeRouteFixture(other.companyId, other.userId); }
+  });
+  it.each(["block", "property", "crew link", "crew eligibility"])("rejects a stale named approval after selected %s changes", async kind => {
+    const dry = await importPlannerRoutes(f.companyId, { dryRun: true, templateId: f.template.id });
+    if (!("fingerprint" in dry)) throw new Error("Missing fingerprint");
+    routeImportApprovals[f.companyId] = { approvedBy: "Randy", templateId: f.template.id, fingerprint: dry.fingerprint };
+    if (kind === "block") await db.update(scheduleBlocks).set({ sortOrder: 42 }).where(eq(scheduleBlocks.id, f.blocks[0].id));
+    if (kind === "property") await db.update(customers).set({ active: "false" }).where(eq(customers.id, f.properties[1].id));
+    if (kind === "crew link") await db.update(maintenanceCrews).set({ crewId: null }).where(eq(maintenanceCrews.id, f.columns[0].id));
+    if (kind === "crew eligibility") await db.update(crews).set({ isActive: false }).where(eq(crews.id, f.standing[0].id));
+    expect(await importPlannerRoutes(f.companyId, { dryRun: false })).toMatchObject({ disabled: true, reason: expect.stringContaining("changed") });
+    expect(await db.select().from(routeStops).where(eq(routeStops.companyId, f.companyId))).toHaveLength(0);
+    expect((await db.select().from(companies).where(eq(companies.id, f.companyId)))[0].routesImportedAt).toBeNull();
+  });
+  it("nonselected edits after approval do not invalidate a named boot import or overwrite that history", async () => {
+    const [legacy] = await db.insert(weeklyScheduleTemplates).values({ companyId: f.companyId, name: "Other" }).returning();
+    const [block] = await db.insert(scheduleBlocks).values({ templateId: legacy.id, visitConfigId: f.configs[0].id,
+      crewId: f.columns[0].id, dayOfWeek: "friday" }).returning();
+    const dry = await importPlannerRoutes(f.companyId, { dryRun: true, templateId: f.template.id });
+    if (!("fingerprint" in dry)) throw new Error("Missing fingerprint");
+    routeImportApprovals[f.companyId] = { approvedBy: "Randy", templateId: f.template.id, fingerprint: dry.fingerprint };
+    await db.update(weeklyScheduleTemplates).set({ name: "Edited legacy", isActive: false }).where(eq(weeklyScheduleTemplates.id, legacy.id));
+    await db.update(scheduleBlocks).set({ dayOfWeek: "saturday", sortOrder: 123 }).where(eq(scheduleBlocks.id, block.id));
+    const before = await plannerSnapshot();
+    const query = vi.spyOn(pg.Client.prototype, "query");
+    expect(await importPlannerRoutes(f.companyId, { dryRun: false })).toMatchObject({ blocked: null, fingerprint: dry.fingerprint });
+    const commands = query.mock.calls.map(c => typeof c[0] === "string" ? c[0] : (c[0] as { text?: string })?.text ?? "")
+      .filter(q => q.includes("pg_advisory_xact_lock")).join("\n");
+    query.mockRestore();
+    expect(commands.indexOf("'crew-links'")).toBeGreaterThanOrEqual(0);
+    expect(commands.indexOf("'crew-links'")).toBeLessThan(commands.indexOf("'visits'"));
+    expect(await plannerSnapshot()).toEqual(before);
+    expect((await db.select().from(scheduleBlocks).where(eq(scheduleBlocks.id, block.id)))[0]).toMatchObject({ dayOfWeek: "saturday", sortOrder: 123 });
+  });
+  it("a named import rolls back duplicate snapshots, stops and marker together", async () => {
+    await db.insert(scheduleBlocks).values({ templateId: f.template.id, visitConfigId: f.configs[0].id,
+      crewId: f.columns[1].id, dayOfWeek: "thursday", sortOrder: 99 });
+    const dry = await importPlannerRoutes(f.companyId, { dryRun: true, templateId: f.template.id });
+    if (!("fingerprint" in dry)) throw new Error("Missing fingerprint");
+    routeImportApprovals[f.companyId] = { approvedBy: "Randy", templateId: f.template.id, fingerprint: dry.fingerprint };
+    expect(dry.decisions).toHaveLength(1);
+    await expect(db.transaction(async tx => inTransaction(tx, async () => {
+      await importPlannerRoutes(f.companyId, { dryRun: false });
+      expect(await db.select().from(routeImportDecisions).where(eq(routeImportDecisions.companyId, f.companyId))).toHaveLength(1);
+      throw new Error("Injected named import failure");
+    }))).rejects.toThrow("Injected named import failure");
+    expect(await db.select().from(routeStops).where(eq(routeStops.companyId, f.companyId))).toHaveLength(0);
+    expect(await db.select().from(routeImportDecisions).where(eq(routeImportDecisions.companyId, f.companyId))).toHaveLength(0);
+    expect((await db.select().from(companies).where(eq(companies.id, f.companyId)))[0].routesImportedAt).toBeNull();
   });
   it("a rolled-back import cannot leave its stops or success marker behind", async () => {
     const before = await plannerSnapshot();
