@@ -5,6 +5,12 @@ import request from "supertest";
 // This suite exercises the original OAuth/connection routes. Item workflows
 // have their own route and transactional-service suites.
 vi.mock("./qboItems", async () => ({ default: (await import("express")).Router() }));
+vi.mock("../services/qboCustomerSync", () => ({
+  CustomerSyncError: class extends Error {},
+  customerSyncStatus: vi.fn(), ingestQboCustomers: vi.fn(), runFullCustomerPull: vi.fn(),
+  runInitialCustomerSync: vi.fn(), runIncrementalCustomerSync: vi.fn(),
+  withCustomerSyncLock: vi.fn(), writeCustomerSeedSuggestion: vi.fn(),
+}));
 
 // ── DB mock ────────────────────────────────────────────────────────────────────
 const mockWhere = vi.fn().mockResolvedValue([]);

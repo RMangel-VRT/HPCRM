@@ -4012,6 +4012,12 @@ export interface QboCustomerCache {
   companyId: string;
   qboId: string;
   displayName: string;
+  normalized: unknown;
+  syncToken: string | null;
+  parentQboId: string | null;
+  isJob: boolean;
+  qboCreatedAt: string | null;
+  qboUpdatedAt: string | null;
   companyName: string | null;
   email: string | null;
   phone: string | null;
@@ -4075,6 +4081,12 @@ export const qboCustomerCache = pgTable("qbo_customer_cache", {
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   qboId: text("qbo_id").notNull(),
   displayName: text("display_name").notNull(),
+  normalized: jsonb("normalized"),
+  syncToken: text("sync_token"),
+  parentQboId: text("parent_qbo_id"),
+  isJob: boolean("is_job").notNull().default(false),
+  qboCreatedAt: timestamp("qbo_created_at", { withTimezone: true }),
+  qboUpdatedAt: timestamp("qbo_updated_at", { withTimezone: true }),
   companyName: text("company_name"),
   email: text("email"),
   phone: text("phone"),
@@ -4097,12 +4109,46 @@ export const qboCustomerCache = pgTable("qbo_customer_cache", {
 
 export type QboCustomerCacheRecord = typeof qboCustomerCache.$inferSelect;
 
+// Intentional review evidence snapshots, never billing owners.
+export const qboCustomerReviews = pgTable("qbo_customer_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  qboId: text("qbo_id"),
+  kind: text("kind").notNull(),
+  fields: jsonb("fields"),
+  qboSnapshot: jsonb("qbo_snapshot"),
+  message: text("message"),
+  status: text("status").notNull().default("open"),
+  resolution: text("resolution"),
+  resolvedById: varchar("resolved_by_id").references(() => users.id, { onDelete: "set null" }),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t: any) => ({
+  openQbo: uniqueIndex("qbo_customer_reviews_open_qbo").on(t.companyId, t.qboId, t.kind).where(sql`${t.status} = 'open' AND ${t.qboId} IS NOT NULL`),
+  openCustomer: uniqueIndex("qbo_customer_reviews_open_customer").on(t.companyId, t.customerId, t.kind).where(sql`${t.status} = 'open' AND ${t.customerId} IS NOT NULL`),
+  kind: check("qbo_customer_reviews_kind_check", sql`${t.kind} IN ('changed_in_qbo','new_in_qbo','sub_customer','qbo_inactive','qbo_removed','name_taken','push_failed')`),
+  status: check("qbo_customer_reviews_status_check", sql`${t.status} IN ('open','resolved','dismissed')`),
+}));
+export interface QboCustomerSyncStatus {
+  baselineAt: string | null; cursor: string | null; fullPullAt: string | null;
+  lastSyncAt: string | null; nextSyncAt: string | null; openReviews: number;
+}
+export interface QboInitialSyncResult {
+  linkedUpdated: number; reviewsRaised: number; unboundCrmCustomers: number; qboCustomersNotInCrm: number;
+  branchesLinkedUnderMasterParent: { customerId: string; name: string; qboId: string }[];
+}
+
 // ==================== QBO CONNECTION ====================
 
 export interface QboConnection {
   id: string;
   companyId: string;
   realmId: string;
+  customerBaselineAt: string | null;
+  customerCdcCursor: string | null;
+  customerFullPullAt: string | null;
   accessTokenEnc: string;
   refreshTokenEnc: string;
   tokenExpiresAt: string;

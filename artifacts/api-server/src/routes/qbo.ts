@@ -5,6 +5,7 @@ import multer from "multer";
 import { parseCsvLine } from "../lib/csv";
 import type { UserWithContext } from "../auth";
 import { storage } from "../storage";
+import { inTransaction } from "../db";
 import { logger } from "../lib/logger";
 import {
   isQboConfigured,
@@ -17,6 +18,8 @@ import {
 } from "../services/qboClient";
 import { encryptToken } from "../services/qboCrypto";
 import qboItemsRouter from "./qboItems";
+import { CustomerSyncError, customerSyncStatus, ingestQboCustomers, runFullCustomerPull,
+  runInitialCustomerSync, runIncrementalCustomerSync, withCustomerSyncLock, writeCustomerSeedSuggestion } from "../services/qboCustomerSync";
 
 // ── Session type extension ──────────────────────────────────────────────────────
 declare module "express-session" {
@@ -57,6 +60,9 @@ function requireAdmin(req: Request, res: Response): UserWithContext | null {
     res.status(403).json({ message: "Forbidden" });
     return null;
   }
+  if (req.get("X-Company-Id") && req.get("X-Company-Id") !== u.activeCompanyId) {
+    res.status(409).json({ message: "Active company changed. Reload before continuing." }); return null;
+  }
   return u;
 }
 
@@ -69,6 +75,9 @@ function requireAdminOrOffice(req: Request, res: Response): UserWithContext | nu
   if (u.activeRole !== "admin" && u.activeRole !== "office" && !u.isSuperAdminBool) {
     res.status(403).json({ message: "Forbidden" });
     return null;
+  }
+  if (req.get("X-Company-Id") && req.get("X-Company-Id") !== u.activeCompanyId) {
+    res.status(409).json({ message: "Active company changed. Reload before continuing." }); return null;
   }
   return u;
 }
@@ -304,98 +313,39 @@ router.post("/customers/pull", async (req, res) => {
   if (!(await assertConnected(u.activeCompanyId, res))) return;
 
   try {
-    let pulled = 0;
-    let startPosition = 1;
-    const PAGE_SIZE = 1000;
-    const allQboRows: Array<{
-      qboId: string; displayName: string; companyName?: string | null;
-      email?: string | null; phone?: string | null; billAddrLine1?: string | null;
-      billAddrCity?: string | null; billAddrPostalCode?: string | null;
-      billAddrCountrySubDivisionCode?: string | null; active: boolean;
-    }> = [];
-
-    // Page through all QBO customers
-    while (true) {
-      const query = encodeURIComponent(
-        `SELECT * FROM Customer WHERE Active IN (true,false) STARTPOSITION ${startPosition} MAXRESULTS ${PAGE_SIZE}`,
-      );
-      const resp = await qboRequest(u.activeCompanyId, "GET", `/query?query=${query}`);
-      if (!resp.ok) {
-        const text = await resp.text();
-        logger.error({ status: resp.status, body: text }, "QBO customer query failed");
-        res.status(502).json({ message: `QBO query failed: ${resp.status}` });
-        return;
-      }
-      const data = await resp.json() as Record<string, unknown>;
-      const queryResponse = (data as { QueryResponse?: Record<string, unknown> }).QueryResponse ?? {};
-      const items = (queryResponse.Customer as unknown[] | undefined) ?? [];
-
-      for (const item of items) {
-        const c = item as Record<string, unknown>;
-        const billAddr = c["BillAddr"] as Record<string, unknown> | undefined;
-        const primaryEmail = (c["PrimaryEmailAddr"] as Record<string, unknown> | undefined)?.["Address"] as string | undefined;
-        const primaryPhone = (c["PrimaryPhone"] as Record<string, unknown> | undefined)?.["FreeFormNumber"] as string | undefined;
-        allQboRows.push({
-          qboId: String(c["Id"]),
-          displayName: String(c["DisplayName"] ?? c["FullyQualifiedName"] ?? ""),
-          companyName: (c["CompanyName"] as string | undefined) ?? null,
-          email: primaryEmail ?? null,
-          phone: primaryPhone ?? null,
-          billAddrLine1: (billAddr?.["Line1"] as string | undefined) ?? null,
-          billAddrCity: (billAddr?.["City"] as string | undefined) ?? null,
-          billAddrPostalCode: (billAddr?.["PostalCode"] as string | undefined) ?? null,
-          billAddrCountrySubDivisionCode: (billAddr?.["CountrySubDivisionCode"] as string | undefined) ?? null,
-          active: c["Active"] !== false,
-        });
-      }
-
-      if (items.length < PAGE_SIZE) break;
-      startPosition += PAGE_SIZE;
-    }
-
-    const presentQboIds = allQboRows.map((r) => r.qboId);
-    pulled = allQboRows.length;
-
-    // Upsert all rows into cache; get true insert vs update counts
-    let inserted = 0;
-    let updated = 0;
-    if (allQboRows.length > 0) {
-      const upsertResult = await storage.upsertQboCustomerCache(u.activeCompanyId, allQboRows);
-      inserted = upsertResult.inserted;
-      updated = upsertResult.updated;
-    }
-
-    // Deactivate rows not in this pull
-    const deactivated = await storage.deactivateMissingQboCustomersRaw(
-      u.activeCompanyId,
-      presentQboIds,
-    );
-
-    // Refresh display names on already-bound CRM customers whose name changed
-    const changedRows = allQboRows.filter((r) => r.displayName);
-    await storage.refreshStaleDisplayNames(u.activeCompanyId, changedRows);
-
-    // Detect stale bindings (bound CRM customers whose QBO ID is absent from the full pull)
-    const staleQboIds = await storage.getStaleBindings(u.activeCompanyId, presentQboIds);
-    const staleBindings = staleQboIds.length;
-
-    // Detect inactive bindings (bound CRM customers whose QBO customer is present but inactive)
-    const inactiveQboIds = await storage.getInactiveBindings(u.activeCompanyId);
-    const inactiveBindings = inactiveQboIds.length;
-
-    res.json({
-      pulled,
-      inserted,
-      updated,
-      deactivated,
-      staleBindings,
-      inactiveBindings,
-      lastPulledAt: new Date().toISOString(),
-    });
+    res.json(await runFullCustomerPull(u.activeCompanyId));
   } catch (err) {
     logger.error({ err }, "POST /api/qbo/customers/pull error");
-    res.status(500).json({ message: "Failed to pull customers from QuickBooks" });
+    res.status(err instanceof CustomerSyncError ? err.status : 500).json({ message: err instanceof CustomerSyncError ? err.message : "Failed to pull customers from QuickBooks" });
   }
+});
+
+router.post("/customers/initial-sync", async (req, res) => {
+  const u = requireAdmin(req, res);
+  if (!u || !(await assertConnected(u.activeCompanyId, res))) return;
+  try { res.json(await runInitialCustomerSync(u.activeCompanyId, u.id)); }
+  catch (err) {
+    logger.error({ err }, "Initial QuickBooks customer sync failed");
+    res.status(err instanceof CustomerSyncError ? err.status : 500).json({ message: err instanceof CustomerSyncError ? err.message : "Initial sync failed; no reconciliation was committed" });
+  }
+});
+router.post("/customers/sync-now", async (req, res) => {
+  const u = requireAdminOrOffice(req, res);
+  if (!u || !(await assertConnected(u.activeCompanyId, res))) return;
+  try {
+    const result = await runIncrementalCustomerSync(u.activeCompanyId);
+    if ("skipped" in result) { res.status(409).json({ message: "Run initial QuickBooks sync first" }); return; }
+    res.json(result);
+  } catch (err) {
+    logger.error({ err }, "QuickBooks customer sync failed");
+    res.status(err instanceof CustomerSyncError ? err.status : 500).json({ message: err instanceof CustomerSyncError ? err.message : "Customer sync failed" });
+  }
+});
+router.get("/customers/sync-status", async (req, res) => {
+  const u = requireAdminOrOffice(req, res);
+  if (!u) return;
+  try { res.json(await customerSyncStatus(u.activeCompanyId)); }
+  catch (err) { logger.error({ err }, "QuickBooks customer status failed"); res.status(500).json({ message: "Unable to load sync status" }); }
 });
 
 // GET /api/qbo/customers/cache — Tab 1: Full Customer List (read-only; works even if briefly disconnected)
@@ -541,6 +491,7 @@ async function liveQboCustomerQuery(
   queryStr: string,
   matchType: "exact_display_name" | "near",
 ): Promise<Array<{ qboId: string; displayName: string; city: string | null; zip: string | null; source: "live"; score: number; matchType: "exact_display_name" | "near" }>> {
+  return withCustomerSyncLock(companyId, async () => {
   const encoded = encodeURIComponent(queryStr);
   const resp = await qboRequest(companyId, "GET", `/query?query=${encoded}`);
   if (!resp.ok) {
@@ -554,9 +505,7 @@ async function liveQboCustomerQuery(
   const parsed = items.map((item) => parseQboCustomerRecord(item as Record<string, unknown>));
 
   if (parsed.length > 0) {
-    await storage.upsertQboCustomerCache(companyId, parsed).catch((err) =>
-      logger.warn({ err, companyId }, "Failed to upsert live QBO results to cache (non-fatal)"),
-    );
+    await ingestQboCustomers(companyId, items as Record<string, unknown>[]);
   }
 
   return parsed
@@ -570,6 +519,7 @@ async function liveQboCustomerQuery(
       score: 1.0,
       matchType,
     }));
+  });
 }
 
 // POST /api/qbo/customers/duplicate-check — read-only; no write gate required
@@ -694,6 +644,12 @@ router.post("/customers/create", async (req, res) => {
   }
 
   try {
+    await withCustomerSyncLock(u.activeCompanyId, async tx => {
+    const syncStatus = await customerSyncStatus(u.activeCompanyId);
+    if (!syncStatus.baselineAt) {
+      res.status(409).json({ message: "Customers are waiting to send. Run initial QuickBooks sync first.", initialSyncRequired: true });
+      return;
+    }
     const crmCustomer = await storage.getCustomerWithPrimaryContactForQbo(u.activeCompanyId, customerId);
     if (!crmCustomer) {
       res.status(404).json({ message: "CRM customer not found" });
@@ -733,6 +689,7 @@ router.post("/customers/create", async (req, res) => {
 
     // (c) Build the QBO payload using effective (override-or-original) values
     const qboPayload: Record<string, unknown> = {
+      PreferredDeliveryMethod: "None",
       DisplayName: displayName,
       CompanyName: crmCustomer.name,
       BillAddr: {
@@ -780,9 +737,9 @@ router.post("/customers/create", async (req, res) => {
 
     // (e) Upsert to cache and bind
     const parsed = parseQboCustomerRecord(created);
-    await storage.upsertQboCustomerCache(u.activeCompanyId, [parsed]);
+    await ingestQboCustomers(u.activeCompanyId, [created]);
 
-    const bindResult = await storage.bindQboCustomer(u.activeCompanyId, customerId, parsed.qboId);
+    const bindResult = await inTransaction(tx, () => storage.bindQboCustomer(u.activeCompanyId, customerId, parsed.qboId));
     if (bindResult.conflict) {
       res.status(409).json({ message: "QuickBooks customer already bound to another CRM customer" });
       return;
@@ -794,6 +751,7 @@ router.post("/customers/create", async (req, res) => {
 
     logger.info({ companyId: u.activeCompanyId, customerId, qboId: parsed.qboId }, "QBO customer created and bound");
     res.json({ ok: true, qboId: parsed.qboId, displayName: parsed.displayName });
+    });
   } catch (err) {
     logger.error({ err }, "POST /api/qbo/customers/create error");
     res.status(500).json({ message: "Failed to create customer in QuickBooks" });
@@ -944,7 +902,7 @@ router.post(
           continue;
         }
 
-        await storage.writeSeedSuggestion(
+        await writeCustomerSeedSuggestion(
           u.activeCompanyId,
           row.quickbooks_id,
           bestMatch.customerId,

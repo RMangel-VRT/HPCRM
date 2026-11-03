@@ -5527,120 +5527,6 @@ export class PgStorage implements IStorage {
 
   // ── QBO Customer Cache ────────────────────────────────────────────────────────
 
-  async upsertQboCustomerCache(
-    companyId: string,
-    rows: Array<{
-      qboId: string;
-      displayName: string;
-      companyName?: string | null;
-      email?: string | null;
-      phone?: string | null;
-      billAddrLine1?: string | null;
-      billAddrCity?: string | null;
-      billAddrPostalCode?: string | null;
-      billAddrCountrySubDivisionCode?: string | null;
-      active: boolean;
-    }>,
-  ): Promise<{ upserted: number; inserted: number; updated: number }> {
-    if (rows.length === 0) return { upserted: 0, inserted: 0, updated: 0 };
-    const now = new Date();
-    const qboIds = rows.map((r) => r.qboId);
-
-    // Count how many incoming IDs already exist so we can report insert vs update
-    const existingRes = await pool.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM qbo_customer_cache
-       WHERE company_id = $1 AND qbo_id = ANY($2::text[])`,
-      [companyId, qboIds],
-    );
-    const existing = parseInt(existingRes.rows[0]?.count ?? "0", 10);
-
-    const values = rows.map((r) => ({
-      companyId,
-      qboId: r.qboId,
-      displayName: r.displayName,
-      companyName: r.companyName ?? null,
-      email: r.email ?? null,
-      phone: r.phone ?? null,
-      billAddrLine1: r.billAddrLine1 ?? null,
-      billAddrCity: r.billAddrCity ?? null,
-      billAddrPostalCode: r.billAddrPostalCode ?? null,
-      billAddrCountrySubDivisionCode: r.billAddrCountrySubDivisionCode ?? null,
-      active: r.active,
-      syncedAt: now,
-      updatedAt: now,
-    }));
-    await db
-      .insert(qboCustomerCache)
-      .values(values)
-      .onConflictDoUpdate({
-        target: [qboCustomerCache.companyId, qboCustomerCache.qboId],
-        set: {
-          displayName: sql`excluded.display_name`,
-          companyName: sql`excluded.company_name`,
-          email: sql`excluded.email`,
-          phone: sql`excluded.phone`,
-          billAddrLine1: sql`excluded.bill_addr_line1`,
-          billAddrCity: sql`excluded.bill_addr_city`,
-          billAddrPostalCode: sql`excluded.bill_addr_postal_code`,
-          billAddrCountrySubDivisionCode: sql`excluded.bill_addr_country_sub_division_code`,
-          active: sql`excluded.active`,
-          syncedAt: sql`excluded.synced_at`,
-          updatedAt: sql`excluded.updated_at`,
-        },
-      });
-    const inserted = rows.length - existing;
-    const updated = existing;
-    return { upserted: rows.length, inserted, updated };
-  }
-
-  async deactivateMissingQboCustomers(
-    companyId: string,
-    presentQboIds: string[],
-  ): Promise<number> {
-    if (presentQboIds.length === 0) {
-      const result = await db
-        .update(qboCustomerCache)
-        .set({ active: false, updatedAt: new Date() })
-        .where(and(eq(qboCustomerCache.companyId, companyId), eq(qboCustomerCache.active, true)))
-        .returning({ id: qboCustomerCache.id });
-      return result.length;
-    }
-    const result = await db
-      .update(qboCustomerCache)
-      .set({ active: false, updatedAt: new Date() })
-      .where(
-        and(
-          eq(qboCustomerCache.companyId, companyId),
-          eq(qboCustomerCache.active, true),
-          sql`${qboCustomerCache.qboId} != ALL(${sql.raw(`ARRAY[${presentQboIds.map((_, i) => `$${i + 2}`).join(",")}]::text[]`)})`,
-        ),
-      )
-      .returning({ id: qboCustomerCache.id });
-    return result.length;
-  }
-
-  async deactivateMissingQboCustomersRaw(
-    companyId: string,
-    presentQboIds: string[],
-  ): Promise<number> {
-    if (presentQboIds.length === 0) {
-      const res = await pool.query(
-        `UPDATE qbo_customer_cache SET active = false, updated_at = NOW()
-         WHERE company_id = $1 AND active = true
-         RETURNING id`,
-        [companyId],
-      );
-      return res.rowCount ?? 0;
-    }
-    const res = await pool.query(
-      `UPDATE qbo_customer_cache SET active = false, updated_at = NOW()
-       WHERE company_id = $1 AND active = true AND qbo_id != ALL($2::text[])
-       RETURNING id`,
-      [companyId, presentQboIds],
-    );
-    return res.rowCount ?? 0;
-  }
-
   async getQboCacheRow(companyId: string, qboId: string): Promise<QboCustomerCache | undefined> {
     const [row] = await db
       .select()
@@ -5818,18 +5704,6 @@ export class PgStorage implements IStorage {
       }),
     );
     return results;
-  }
-
-  async writeSeedSuggestion(
-    companyId: string,
-    qboId: string,
-    customerId: string,
-    source: string,
-  ): Promise<void> {
-    await db
-      .update(qboCustomerCache)
-      .set({ seedCustomerId: customerId, seedSource: source, updatedAt: new Date() })
-      .where(and(eq(qboCustomerCache.companyId, companyId), eq(qboCustomerCache.qboId, qboId)));
   }
 
   async bindQboCustomer(

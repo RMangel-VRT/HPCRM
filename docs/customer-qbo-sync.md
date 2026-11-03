@@ -74,7 +74,7 @@ The pack originally proposed 0066, but explicitly allows the next unused number;
 0066 already belongs to proposal covers. Existing linked `not_linked` rows become
 `in_sync`; other states are preserved. There is no startup DDL.
 
-## Staged rollout boundaries
+## CQ1 rollout history
 
 CQ1 adds schema, validation and pure contracts only. **No new QuickBooks calls,
 no external writes and no initial sync.** `routes/qbo.ts`, `qboClient.ts` and all
@@ -82,9 +82,8 @@ their existing operational call paths are unchanged, including the existing
 create endpoint's delivery behavior. The pure `Active` representation is not
 authorization to send inactivation; the CRM must never inactivate a QBO customer.
 
-Invoice PDF bill-to still reads the existing QBO cache and falls back to the
-property address. Retire that cache reader in **CQ2**, after initial reconciliation
-populates CRM billing facts; do not switch it early.
+CQ1 deliberately retained the old invoice cache reader. CQ2 now gates that
+legacy exception on the company's initial-reconciliation baseline.
 
 CQ2–CQ5 own initial/scheduled pulls, outbound pushes/review resolution, terms UI,
 customer card/links and the wizard. Write-disabled “Waiting to send” behavior,
@@ -92,3 +91,76 @@ initial-sync outbound gating and the operational no-email guarantee belong to
 those integrations, not CQ1. Later create integration must use the pure create
 contract, gate writes with `isQboWriteEnabled()` and initial-sync readiness, use
 `qboRequest()`, and never otherwise write `PreferredDeliveryMethod`.
+
+## CQ2: initial reconciliation and mirror maintenance
+
+Migration `0068_qbo_customer_sync.sql` is additive and safely re-applicable.
+`0066_proposal_cover.sql` and CQ1's `0067_customer_billing_fields.sql` retain their
+historical filenames. The migration adds mirror metadata, connection watermarks
+and review evidence snapshots with company-scoped open-subject uniqueness.
+It contains no startup DDL, customer import, or outbound QuickBooks operation.
+
+`qboCustomerSync.ts` is the sole cache writer, including CSV seed-suggestion
+metadata. Full pulls, CDC, live duplicate-check results and existing create
+results all use it. A transaction-bound company advisory lock covers remote
+retrieval through local commit. Nested sync calls reuse the same transaction.
+Customer locks protect reconciliation from concurrent customer edits. OAuth
+credential refreshes commit independently; do not put the ambient database
+proxy into the reconciliation transaction, or a later rollback can discard a
+rotated refresh token. The existing create route explicitly joins only its
+local binding operation to the cache transaction.
+
+Before `customer_baseline_at`, ordinary ingestion is **cache-only**: no CRM
+fields, customer baselines/tokens, or reviews of any kind. A manual full pull may
+refresh the mirror/full-pull timestamp but cannot establish the baseline or CDC
+cursor. Incremental work skips unbaselined companies.
+
+The admin initial-sync action is distinct from ingestion. It fills empty billing
+slots, detects custom addresses, preserves non-empty conflicts as review
+snapshots, and records normalized remote baselines/tokens. Missing remote
+service addresses and other genuine unsent differences leave `pending_push`.
+Master-billed branches with their own bindings are skipped and returned for
+manual attention. Once the company baseline exists, retries use the review-only
+full-pull path rather than repeating hydration. They preserve deliberately
+cleared CRM values, retain unresolved baselines/tokens and merge current review
+evidence. They do not turn old unbound records into new-customer reviews.
+
+After baseline, remote changes only update the mirror and review evidence.
+Agreement on a changed field may advance that field's baseline; outstanding
+field reviews prevent token advancement. Repeated changes preserve other open
+fields while refreshing their current evidence. Inactive/deleted bound records
+receive lifecycle reviews without changing CRM status. Unbound sub-customers
+and top-level customers receive `sub_customer`/`new_in_qbo` **only** when their
+creation time is strictly greater than the original company baseline. Older,
+equal-to-baseline, and undated unbound records stay cache-only.
+
+The unreferenced, stoppable scheduler considers connected, baselined companies
+every 15 minutes. It rechecks watermarks under the company lock, uses full pulls
+when older than 24 elapsed hours, and contains each company's errors. CDC
+cursors advance to request start only after successful ingestion. Cursors older
+than 29 days and capped CDC responses recover through a full pull. No cache row
+is deactivated until the complete paged full response has validated and ingested.
+These are elapsed-time intervals, not Colorado calendar-day calculations.
+
+Routes:
+- Admin: `POST /api/qbo/customers/initial-sync`.
+- Admin/office: `POST /api/qbo/customers/sync-now`,
+  `GET /api/qbo/customers/sync-status`, existing `POST /customers/pull`.
+- Sync-now requires the initial baseline. Status exposes only timestamps/counts.
+- New controls scope browser state/cache by company, user and role, and send
+  `X-Company-Id`; mismatches with the authenticated session are rejected.
+- The existing create path retains its feature gate and additionally requires
+  initial reconciliation. Its payload now explicitly sets delivery to `None`.
+  CQ3 outbound synchronization and conflict resolution are not implemented here.
+
+Invoice draft PDFs read the legacy cache address **only before baseline**.
+After baseline they use CQ1's live bill-to resolver, billing name, management
+directory and master-parent policy. Only `BILL_TO_INCOMPLETE` permits a property
+fallback; unrelated errors propagate. Issued-document snapshot rules are unchanged.
+
+### Acceptance discrepancy
+
+The upload's final “every linked customer is in_sync” sentence conflicts with
+its detailed non-destructive initial comparison rules. CQ2 follows the detailed
+rules: it never erases non-empty billing values or marks genuinely differing
+normalized fields `in_sync` to satisfy that sentence.

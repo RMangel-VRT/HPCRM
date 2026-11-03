@@ -32,6 +32,22 @@ const mockStorage = {
   findQboCacheDuplicates: vi.fn(),
 };
 vi.mock("../storage", () => ({ storage: mockStorage }));
+vi.mock("../db", () => ({ db: {}, inTransaction: async (_tx: unknown, work: () => Promise<unknown>) => work() }));
+const sync = vi.hoisted(() => ({
+  full: vi.fn(), initial: vi.fn(), incremental: vi.fn(), status: vi.fn(), ingest: vi.fn(),
+}));
+vi.mock("../services/qboCustomerSync", () => ({
+  CustomerSyncError: class extends Error { constructor(public status: number, message: string) { super(message); } },
+  runFullCustomerPull: sync.full, runInitialCustomerSync: sync.initial,
+  runIncrementalCustomerSync: sync.incremental, customerSyncStatus: sync.status, ingestQboCustomers: sync.ingest,
+  withCustomerSyncLock: async (_company: string, work: () => Promise<unknown>) => work(),
+  writeCustomerSeedSuggestion: (...args: unknown[]) => mockStorage.writeSeedSuggestion(...args),
+}));
+beforeEach(() => {
+  mockQboRequest.mockReset();
+  sync.status.mockResolvedValue({ baselineAt: "2026-01-01T00:00:00Z", openReviews: 0 });
+  sync.ingest.mockResolvedValue({});
+});
 
 const mockQboRequest = vi.fn();
 vi.mock("../services/qboClient", () => ({
@@ -86,12 +102,64 @@ function adminUser() {
   return { id: "user-1", activeCompanyId: COMPANY_ID, activeRole: "admin", email: "admin@test.com" };
 }
 
+describe("Customer sync controls permissions and delegation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
+  });
+  it.each(["field", "field_manager", "mapping"])("denies sync/status to %s", async role => {
+    const app = await buildApp({ ...adminUser(), activeRole: role });
+    expect((await request(app).post("/api/qbo/customers/initial-sync")).status).toBe(403);
+    expect((await request(app).post("/api/qbo/customers/sync-now")).status).toBe(403);
+    expect((await request(app).get("/api/qbo/customers/sync-status")).status).toBe(403);
+    expect(sync.initial).not.toHaveBeenCalled(); expect(sync.incremental).not.toHaveBeenCalled();
+  });
+  it("initial sync is admin-only, scoped to the session company and actor", async () => {
+    const office = await buildApp({ ...adminUser(), activeRole: "office" });
+    expect((await request(office).post("/api/qbo/customers/initial-sync")).status).toBe(403);
+    sync.initial.mockResolvedValue({ linkedUpdated: 2, branchesLinkedUnderMasterParent: [] });
+    const app = await buildApp(adminUser());
+    const result = await request(app).post("/api/qbo/customers/initial-sync").send({ companyId: "other" });
+    expect(result.status).toBe(200); expect(result.body.linkedUpdated).toBe(2);
+    expect(sync.initial).toHaveBeenCalledWith(COMPANY_ID, "user-1");
+  });
+  it("office may sync and read status but sync-now cannot bypass the initial gate", async () => {
+    const app = await buildApp({ ...adminUser(), activeRole: "office" });
+    sync.incremental.mockResolvedValueOnce({ skipped: true });
+    expect((await request(app).post("/api/qbo/customers/sync-now")).status).toBe(409);
+    sync.incremental.mockResolvedValueOnce({ pulled: 4 });
+    expect((await request(app).post("/api/qbo/customers/sync-now")).body.pulled).toBe(4);
+    expect((await request(app).get("/api/qbo/customers/sync-status")).status).toBe(200);
+    expect(sync.incremental).toHaveBeenCalledWith(COMPANY_ID);
+    expect(sync.status).toHaveBeenCalledWith(COMPANY_ID);
+  });
+  it("blocks the existing customer create path before baseline even when writes are enabled", async () => {
+    const { isQboWriteEnabled } = await import("../services/qboClient");
+    vi.mocked(isQboWriteEnabled).mockResolvedValueOnce(true);
+    sync.status.mockResolvedValueOnce({ baselineAt: null });
+    const app = await buildApp(adminUser());
+    const result = await request(app).post("/api/qbo/customers/create").send({ customerId: "customer" });
+    expect(result.status).toBe(409); expect(result.body.initialSyncRequired).toBe(true);
+    expect(mockQboRequest).not.toHaveBeenCalled();
+  });
+  it("rejects queued sync requests for a different company", async () => {
+    const app = await buildApp(adminUser());
+    expect((await request(app).post("/api/qbo/customers/initial-sync").set("X-Company-Id", "other")).status).toBe(409);
+    expect((await request(app).post("/api/qbo/customers/sync-now").set("X-Company-Id", "other")).status).toBe(409);
+    expect((await request(app).get("/api/qbo/customers/sync-status").set("X-Company-Id", "other")).status).toBe(409);
+    expect(sync.initial).not.toHaveBeenCalled(); expect(sync.incremental).not.toHaveBeenCalled();
+  });
+});
+
 // ── Auth & role gate tests ────────────────────────────────────────────────────
 
 describe("Auth gates — all customer endpoints require authentication", () => {
   beforeEach(() => vi.clearAllMocks());
 
   const endpoints = [
+    ["POST", "/api/qbo/customers/initial-sync"],
+    ["POST", "/api/qbo/customers/sync-now"],
+    ["GET", "/api/qbo/customers/sync-status"],
     ["GET", "/api/qbo/customers/cache"],
     ["GET", "/api/qbo/customers/mapping"],
     ["GET", "/api/qbo/customers/unbound-count"],
@@ -607,48 +675,10 @@ describe("POST /api/qbo/customers/pull", () => {
     expect(res.status).toBe(503);
   });
 
-  it("pages through QBO and upserts all rows including inactive records", async () => {
+  it("delegates full retrieval and returns the service's reconciliation counts", async () => {
     mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
 
-    // First page: 999 active + 1 inactive customer; second page: 5 active
-    const page1 = {
-      ok: true,
-      json: async () => ({
-        QueryResponse: {
-          Customer: [
-            ...Array.from({ length: 999 }, (_, i) => ({
-              Id: String(i + 1),
-              DisplayName: `Customer ${i + 1}`,
-              Active: true,
-            })),
-            { Id: "inactive-1", DisplayName: "Inactive Corp", Active: false },
-          ],
-        },
-      }),
-      text: async () => "",
-    };
-    const page2 = {
-      ok: true,
-      json: async () => ({
-        QueryResponse: {
-          Customer: Array.from({ length: 5 }, (_, i) => ({
-            Id: String(1000 + i),
-            DisplayName: `Customer ${1000 + i}`,
-            Active: true,
-          })),
-        },
-      }),
-      text: async () => "",
-    };
-    mockQboRequest
-      .mockResolvedValueOnce(page1)
-      .mockResolvedValueOnce(page2);
-
-    mockStorage.upsertQboCustomerCache.mockResolvedValue({ upserted: 1005, inserted: 5, updated: 1000 });
-    mockStorage.deactivateMissingQboCustomersRaw.mockResolvedValue(0);
-    mockStorage.refreshStaleDisplayNames.mockResolvedValue(undefined);
-    mockStorage.getStaleBindings.mockResolvedValue([]);
-    mockStorage.getInactiveBindings.mockResolvedValue([]);
+    sync.full.mockResolvedValue({ pulled: 1005, inserted: 5, updated: 1000, deactivated: 0, staleBindings: 0, inactiveBindings: 0 });
 
     const app = await buildApp(adminUser());
     const res = await request(app).post("/api/qbo/customers/pull");
@@ -657,75 +687,26 @@ describe("POST /api/qbo/customers/pull", () => {
     expect(res.body.deactivated).toBe(0);
     expect(res.body.staleBindings).toBe(0);
     expect(res.body.inactiveBindings).toBe(0);
-    expect(mockQboRequest).toHaveBeenCalledTimes(2); // two pages
-    // Inactive customer must be included in the upsert, with active: false
-    expect(mockStorage.upsertQboCustomerCache).toHaveBeenCalledWith(
-      COMPANY_ID,
-      expect.arrayContaining([
-        expect.objectContaining({ qboId: "1" }),
-        expect.objectContaining({ qboId: "inactive-1", active: false }),
-      ]),
-    );
-    // deactivate called with all 1005 IDs including the inactive one
-    expect(mockStorage.deactivateMissingQboCustomersRaw).toHaveBeenCalledWith(
-      COMPANY_ID,
-      expect.arrayContaining(["1", "inactive-1"]),
-    );
+    // Parsing, pagination and stale deactivation now belong to the transactional service suite.
+    expect(sync.full).toHaveBeenCalledWith(COMPANY_ID);
+    expect(mockQboRequest).not.toHaveBeenCalled();
   });
 
-  it("inactive-but-present QBO customer is not stale; truly absent QBO ID is stale", async () => {
+  it("preserves distinct stale and inactive counts returned by the service", async () => {
     mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
-    // Pull returns one active and one inactive QBO customer; "missing-qbo" is absent
-    mockQboRequest.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        QueryResponse: {
-          Customer: [
-            { Id: "qbo-active", DisplayName: "Active Co", Active: true },
-            { Id: "qbo-inactive", DisplayName: "Inactive Co", Active: false },
-          ],
-        },
-      }),
-      text: async () => "",
-    });
-    mockStorage.upsertQboCustomerCache.mockResolvedValue({ upserted: 2, inserted: 0, updated: 2 });
-    mockStorage.deactivateMissingQboCustomersRaw.mockResolvedValue(0);
-    mockStorage.refreshStaleDisplayNames.mockResolvedValue(undefined);
-    // Only the truly absent binding is stale — qbo-inactive is present so it won't be here
-    mockStorage.getStaleBindings.mockResolvedValue(["missing-qbo"]);
-    mockStorage.getInactiveBindings.mockResolvedValue(["qbo-inactive"]);
+    sync.full.mockResolvedValue({ pulled: 2, inserted: 0, updated: 2, deactivated: 0, staleBindings: 1, inactiveBindings: 1 });
 
     const app = await buildApp(adminUser());
     const res = await request(app).post("/api/qbo/customers/pull");
     expect(res.status).toBe(200);
     expect(res.body.staleBindings).toBe(1);
     expect(res.body.inactiveBindings).toBe(1);
-    // getStaleBindings must have been called with both present IDs (active + inactive)
-    expect(mockStorage.getStaleBindings).toHaveBeenCalledWith(
-      COMPANY_ID,
-      expect.arrayContaining(["qbo-active", "qbo-inactive"]),
-    );
+    expect(sync.full).toHaveBeenCalledWith(COMPANY_ID);
   });
 
   it("returns inactiveBindings count in pull response", async () => {
     mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
-    mockQboRequest.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        QueryResponse: {
-          Customer: [
-            { Id: "qbo-1", DisplayName: "Acme", Active: true },
-            { Id: "qbo-2", DisplayName: "Old Corp", Active: false },
-          ],
-        },
-      }),
-      text: async () => "",
-    });
-    mockStorage.upsertQboCustomerCache.mockResolvedValue({ upserted: 2, inserted: 0, updated: 2 });
-    mockStorage.deactivateMissingQboCustomersRaw.mockResolvedValue(0);
-    mockStorage.refreshStaleDisplayNames.mockResolvedValue(undefined);
-    mockStorage.getStaleBindings.mockResolvedValue([]);
-    mockStorage.getInactiveBindings.mockResolvedValue(["qbo-2"]);
+    sync.full.mockResolvedValue({ pulled: 2, inserted: 0, updated: 2, deactivated: 0, staleBindings: 0, inactiveBindings: 1 });
 
     const app = await buildApp(adminUser());
     const res = await request(app).post("/api/qbo/customers/pull");
@@ -736,11 +717,8 @@ describe("POST /api/qbo/customers/pull", () => {
 
   it("returns 502 when QBO API responds with error status", async () => {
     mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
-    mockQboRequest.mockResolvedValue({
-      ok: false,
-      status: 401,
-      text: async () => "Unauthorized",
-    });
+    const { CustomerSyncError } = await import("../services/qboCustomerSync");
+    sync.full.mockRejectedValueOnce(new CustomerSyncError(502, "QBO query failed: 401"));
     const app = await buildApp(adminUser());
     const res = await request(app).post("/api/qbo/customers/pull");
     expect(res.status).toBe(502);
@@ -1176,7 +1154,7 @@ describe("POST /api/qbo/customers/create", () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.qboId).toBe("new-qbo-id");
     expect(mockStorage.bindQboCustomer).toHaveBeenCalledWith(COMPANY_ID, "cust-1", "new-qbo-id");
-    expect(mockStorage.upsertQboCustomerCache).toHaveBeenCalled();
+    expect(sync.ingest).toHaveBeenCalled();
   });
 
   it("uses displayNameOverride in payload and dedupe check", async () => {

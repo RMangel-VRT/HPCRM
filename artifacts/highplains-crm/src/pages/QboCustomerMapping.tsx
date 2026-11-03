@@ -31,6 +31,7 @@ import {
 import { Loader2, RefreshCw, Link2, Link2Off, AlertTriangle, CheckCircle2, Search, UserPlus, ShieldCheck, PlusCircle } from "lucide-react";
 import type { QboCacheRow, QboMappingRow, QboPullResult, QboConnectionStatus, QboCustomerCache, QboDuplicateCandidate, QboDuplicateCheckResult } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import { CustomerSyncControls } from "@/components/qbo/CustomerSyncControls";
 
 const INVALIDATE_KEYS = [
   ["/api/qbo/customers/cache"],
@@ -1097,6 +1098,7 @@ function QboCustomerMappingContent() {
         <p className="text-muted-foreground text-sm mt-1">{t("qboMapping.description")}</p>
       </div>
 
+      <CustomerSyncControls connected={connectionStatus?.status === "connected"} />
       <Tabs defaultValue="matching">
         <TabsList>
           <TabsTrigger value="matching">{t("qboMapping.tabMatching")}</TabsTrigger>

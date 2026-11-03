@@ -14,3 +14,18 @@ After CQ1–CQ2 are published, finish ambiguous customer linking in QuickBooks c
 **Why:** Initial linking and sync must precede outbound writes to avoid sending customers before reconciliation.
 
 **How to apply:** Preserve the initial-sync outbound gate independently of build order. Publishing, initial sync, and external writes require explicit authorization. When CQ3 is live, coordinate IrrigoPro's locked-field label change to “Edit in High Plains CRM”; CQ4 supplies the by-QuickBooks-ID CRM link.
+
+Before the explicit initial reconciliation establishes the company baseline,
+ordinary ingestion is cache-only: no CRM reconciliation, customer baseline/token
+changes, or review items of any kind. After baseline, unbound sub-customers follow
+the same strictly-after-baseline creation-time rule as new top-level customers;
+old and equal-to-baseline sub-customers remain cache-only.
+
+**Why:** Randy explicitly clarified these boundaries on November 3, 2026,
+overriding the original upload's unconditional sub-customer review rule.
+
+**How to apply:** Keep initial billing hydration separate from ordinary
+ingestion. Preserve the original baseline on retries, and once it exists route
+retries through review-only reconciliation rather than re-hydrating fields
+someone deliberately cleared. Do not apply CQ3 push or
+CQ4 review-queue behavior as an implicit extension of CQ2.

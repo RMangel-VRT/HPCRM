@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
-import { customers, invoices, settings, qboCustomerCache } from "@workspace/db";
+import { customers, invoices, settings } from "@workspace/db";
+import { invoiceBillTo } from "./invoiceBillTo";
 import type { InvoiceDetailDto } from "@workspace/db/invoice-contracts";
 import { documentSettingsModel, type DocumentSettings } from "@workspace/db/document-contracts";
 import { db } from "../db";
@@ -60,16 +61,12 @@ export async function renderInvoicePdf(companyId: string, invoiceId: string): Pr
     // This endpoint is a draft preview, not an issued-document regeneration mechanism.
     if (invoice.status !== "draft") throw new InvoiceError(409, "INVOICE_NOT_DRAFT");
     const detail = await invoicePayload(tx, companyId, invoice);
-    const customer = requireInvoice((await tx.select({ name: customers.name, street: customers.street, city: customers.city, state: customers.state, zip: customers.zip,
-      billingStreet: qboCustomerCache.billAddrLine1, billingCity: qboCustomerCache.billAddrCity,
-      billingState: qboCustomerCache.billAddrCountrySubDivisionCode, billingZip: qboCustomerCache.billAddrPostalCode })
-      .from(customers).leftJoin(qboCustomerCache, and(eq(qboCustomerCache.companyId, companyId), eq(qboCustomerCache.qboId, customers.qboCustomerId)))
+    const customer = requireInvoice((await tx.select().from(customers)
       .where(and(eq(customers.companyId, companyId), eq(customers.id, invoice.customerId))))[0]);
+    const billTo = await invoiceBillTo(tx, companyId, customer);
     const [company] = await tx.select({ name: settings.companyName }).from(settings).where(eq(settings.companyId, companyId));
     return buildInvoiceDocumentModel(detail, { companyName: company?.name || "High Plains Property Maintenance",
-      customerName: customer.name, customerAddress: customer.billingStreet
-        ? [customer.billingStreet, [customer.billingCity, customer.billingState, customer.billingZip].filter(Boolean).join(" ")].filter(Boolean).join("\n")
-        : [customer.street, [customer.city, customer.state, customer.zip].filter(Boolean).join(" ")].filter(Boolean).join("\n"),
+      customerName: billTo.name, customerAddress: billTo.address,
       companyDocument: await readDocumentSettings(companyId, tx) }, coloradoDate(new Date()));
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
   const number = `${model.number}${model.revision > 0 ? ` · Rev ${model.revision}` : ""}`;
