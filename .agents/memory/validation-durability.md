@@ -43,17 +43,15 @@ Do not restart the API while database integration suites have active disposable 
 
 **How to apply:** Restart before fixture-based suites begin or after they finish cleaning up; do not alter unrelated workflow data or weaken scheduling checks to make a verification server start.
 
-Pause the managed development API while real-database suites create connected
-synthetic QuickBooks companies, then restart only after fixture cleanup.
+Remote mocks are process-local; shared-database fixtures are not.
 
-**Why:** Test-local remote mocks do not affect the separate running API process.
-Its background jobs can pick up synthetic companies and contend with cascading
-cleanup; serializing Vitest files alone did not prevent those cleanup deadlocks.
-The same suite cleaned up successfully with the development API stopped.
+**Why:** A separately running development API can discover synthetic connected
+companies even while its test suite mocks all external requests. Test
+serialization does not isolate those background jobs.
 
-**How to apply:** Keep fixture IDs exact, mock remote calls inside each suite,
-and stop the existing API workflow rather than starting a second service.
-If cleanup is interrupted, remove only that run's recorded synthetic fixtures.
+**How to apply:** Account for cross-process background workers when choosing
+fixture isolation, rather than assuming test-local mocks protect the shared
+database from other processes.
 
 Historical source archives that borrow installed node_modules also need explicit aliases to their own workspace-library sources.
 

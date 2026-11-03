@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import type { Customer, InsertCustomer } from "@shared/schema";
-import { insertCustomerSchema } from "@shared/schema";
+import type { Customer } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,23 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Plus, Search, Eye, MapPin, Archive, ArchiveRestore, ArrowUpDown, ArrowUp, ArrowDown, Trash2, ChevronRight, ChevronDown, Building2, GitBranch } from "lucide-react";
@@ -56,12 +38,10 @@ import StatusBadge from "@/components/StatusBadge";
 import EmptyState from "@/components/EmptyState";
 import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitcher";
 import emptyCustomersImage from "@assets/generated_images/Empty_customers_state_illustration_84171f59.png";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 
 type SortColumn = "name" | "city" | "status" | "acres" | "complexity" | null;
 type SortDirection = "asc" | "desc";
@@ -107,7 +87,7 @@ export default function CustomersList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [, navigate] = useLocation();
   const [sortColumn, setSortColumn] = useState<SortColumn>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -122,59 +102,6 @@ export default function CustomersList() {
     queryKey: ["/api/customers?page=1&limit=200"],
   });
   const customers = customersResult?.customers ?? [];
-
-  const form = useForm<InsertCustomer>({
-    resolver: zodResolver(insertCustomerSchema.omit({ companyId: true })),
-    defaultValues: {
-      name: "",
-      street: "",
-      city: "",
-      state: "",
-      zip: "",
-      status: "active",
-      tags: [],
-      acres: "",
-      complexityScore: undefined,
-      customerType: "commercial",
-      parentCustomerId: null,
-      isParent: "false",
-      active: "true",
-    },
-  });
-
-  const parentCustomers = customers.filter(c => c.isParent === "true");
-
-  const createMutation = useMutation({
-    mutationFn: async (data: Omit<InsertCustomer, "companyId">) => {
-      return apiRequest("POST", "/api/customers", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        predicate: (q) => {
-          const key = q.queryKey[0];
-          return (
-            typeof key === "string" &&
-            (key === "/api/customers" ||
-              key.startsWith("/api/customers?") ||
-              key.startsWith("/api/customers/"))
-          );
-        },
-      });
-      toast({
-        title: t("common.success"),
-        description: t("customers.created"),
-      });
-      setIsAddDialogOpen(false);
-      form.reset();
-    },
-    onError: () => {
-      toast({
-        title: t("common.error"),
-        description: t("customers.createFailed"),
-        variant: "destructive",
-      });
-    },
-  });
 
   const archiveMutation = useMutation({
     mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
@@ -386,7 +313,7 @@ export default function CustomersList() {
             {t("customers.manage")}
           </p>
         </div>
-        <Button onClick={() => setIsAddDialogOpen(true)} data-testid="button-add-customer">
+        <Button onClick={() => navigate("/dashboard/customers/new")} data-testid="button-add-customer">
           <Plus className="w-4 h-4 mr-2" />
           {t("customers.addCustomer")}
         </Button>
@@ -439,7 +366,7 @@ export default function CustomersList() {
           title={t("customers.noCustomersFound")}
           description={t("customers.tryAdjusting")}
           actionLabel={t("customers.addCustomer")}
-          onAction={() => setIsAddDialogOpen(true)}
+          onAction={() => navigate("/dashboard/customers/new")}
         />
       ) : (
         <div className="border rounded-lg">
@@ -606,230 +533,6 @@ export default function CustomersList() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{t("customers.addCustomer")}</DialogTitle>
-            <DialogDescription>
-              {t("customers.manage")}
-            </DialogDescription>
-          </DialogHeader>
-
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="flex flex-col flex-1 min-h-0">
-              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("customers.customerName")}</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Sunset Village Apartments" {...field} data-testid="input-customer-name" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {parentCustomers.length > 0 && (
-                <FormField
-                  control={form.control}
-                  name="parentCustomerId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.parentCustomer")}</FormLabel>
-                      <Select 
-                        onValueChange={(v) => field.onChange(v === "__none__" ? null : v)} 
-                        value={field.value || "__none__"}
-                      >
-                        <FormControl>
-                          <SelectTrigger data-testid="select-parent-customer">
-                            <SelectValue placeholder={t("customers.noneStandalone")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="__none__">{t("customers.noneStandalone")}</SelectItem>
-                          {parentCustomers.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        Select a parent to make this a branch/location of an existing customer
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="street"
-                  render={({ field }) => (
-                    <FormItem className="col-span-2">
-                      <FormLabel>{t("customers.streetAddress")}</FormLabel>
-                      <FormControl>
-                        <Input placeholder="123 Main St" {...field} data-testid="input-street" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="city"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.city")}</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Springfield" {...field} data-testid="input-city" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="state"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.state")}</FormLabel>
-                      <FormControl>
-                        <Input placeholder="IL" {...field} data-testid="input-state" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="zip"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.zipCode")}</FormLabel>
-                      <FormControl>
-                        <Input placeholder="62701" {...field} data-testid="input-zip" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("common.status")}</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-status">
-                            <SelectValue placeholder={t("common.status")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="active">{t("statuses.active")}</SelectItem>
-                          <SelectItem value="prospect">{t("statuses.prospect")}</SelectItem>
-                          <SelectItem value="inactive">{t("statuses.inactive")}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="customerType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("campaigns.customerTypeLabel")}</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "commercial"}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-customer-type">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="commercial">{t("campaigns.customerTypeCommercial")}</SelectItem>
-                          <SelectItem value="hoa">{t("campaigns.customerTypeHoa")}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="acres"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.acres")} ({t("common.optional")})</FormLabel>
-                      <FormControl>
-                        <Input placeholder="5.2" {...field} value={field.value || ""} data-testid="input-acres" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="complexityScore"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.complexity")} ({t("common.optional")})</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-complexity">
-                            <SelectValue placeholder="Select level" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="1">Level 1</SelectItem>
-                          <SelectItem value="2">Level 2</SelectItem>
-                          <SelectItem value="3">Level 3</SelectItem>
-                          <SelectItem value="4">Level 4</SelectItem>
-                          <SelectItem value="5">Level 5</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              </div>
-              <DialogFooter className="pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsAddDialogOpen(false)}
-                  data-testid="button-cancel"
-                >
-                  {t("common.cancel")}
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending}
-                  data-testid="button-submit"
-                >
-                  {createMutation.isPending ? t("common.creating") : t("customers.addCustomer")}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -75,6 +75,9 @@ import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
 import { billingInputProblem, protectedBillingWrite } from "../services/customerBillingInput";
 import { customerQboReads } from "./qboCustomerReads";
+import { customerSetupRouter, createCustomerRequest, setupFailure } from "./customerSetup";
+import { assertActivationComplete } from "../services/customerSetupValidation";
+import { geocodeProperty } from "../services/propertyGeocoder";
 import { linkCrewsByName } from "../lib/linkCrews";
 import { registerVisitRoutes } from "./visits";
 import { registerRouteStopRoutes } from "./routeStops";
@@ -2777,6 +2780,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Customers routes
   // Stable by-QBO lookup must be registered before the generic customer route.
   app.use("/api/customers", customerQboReads);
+  app.use("/api/customers", customerSetupRouter);
   app.get("/api/customers", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -2993,51 +2997,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/customers", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-
-    const user = req.user as UserWithContext;
-    
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    if (protectedBillingWrite(req.body)) return res.status(400).send("QuickBooks sync metadata is server-owned");
-    const result = insertCustomerSchema.safeParse({
-      ...req.body,
-      companyId: user.activeCompanyId,
-    });
-    if (!result.success) {
-      req.log.warn(
-        {
-          issues: result.error.issues,
-          bodyKeys: Object.keys(req.body ?? {}),
-        },
-        "customer create validation failed",
-      );
-      return res.status(400).send(result.error.message);
-    }
-
-    const billingProblem = await billingInputProblem(result.data, storageBillingContext(user.activeCompanyId));
-    if (billingProblem) return res.status(400).send(billingProblem);
-
-    // Validate and auto-mark parent if parentCustomerId is being set
-    if (result.data.parentCustomerId) {
-      const parentCust = await storage.getCustomerById(result.data.parentCustomerId, user.activeCompanyId);
-      if (!parentCust) {
-        return res.status(400).send("Parent customer not found");
-      }
-      if (parentCust.parentCustomerId) {
-        return res.status(400).send("Cannot set a child customer as a parent (only one level of hierarchy allowed)");
-      }
-      if (parentCust.isParent !== "true") {
-        await storage.updateCustomer(result.data.parentCustomerId, user.activeCompanyId, { isParent: "true" });
-      }
-    }
-
-    const customer = await storage.createCustomer(result.data);
-    res.json(customer);
+    return createCustomerRequest(req, res, true);
   });
 
   app.patch("/api/customers/:id", async (req, res) => {
@@ -3065,6 +3025,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const updates = pickProvided(result.data, updateData);
     const billingExisting = await storage.getCustomerById(req.params.id, user.activeCompanyId);
     if (!billingExisting) return res.status(404).send("Customer not found");
+    if (billingExisting.status === "prospect" && updates.status === "active") {
+      const activationContext = storageBillingContext(user.activeCompanyId);
+      try { await assertActivationComplete({ ...billingExisting, ...updates } as Parameters<typeof assertActivationComplete>[0], {
+        ...activationContext, getCustomerById: async (id, companyId) => {
+          const parent = await activationContext.getCustomerById(id, companyId);
+          return parent && id === updates.parentCustomerId ? { ...parent, isParent: "true" } : parent;
+        },
+      }); }
+      catch (err) { return setupFailure(res, err); }
+    }
     const billingProblem = await billingInputProblem({ ...billingExisting, ...updates }, storageBillingContext(user.activeCompanyId),
       { provided: updates, previous: billingExisting });
     if (billingProblem) return res.status(400).send(billingProblem);
@@ -3126,25 +3096,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (parentCust.parentCustomerId) {
           return res.status(400).send("Cannot set a child customer as a parent (only one level of hierarchy allowed)");
         }
-        if (parentCust.isParent !== "true") {
-          await storage.updateCustomer(updates.parentCustomerId, user.activeCompanyId, { isParent: "true" });
-        }
       }
-      
-      // If removing parentCustomerId, check if old parent still has other children
-      const existingCust = await storage.getCustomerById(req.params.id, user.activeCompanyId);
-      if (existingCust?.parentCustomerId && existingCust.parentCustomerId !== updates.parentCustomerId) {
-        const siblings = await storage.getChildCustomers(existingCust.parentCustomerId, user.activeCompanyId);
-        if (siblings.filter(s => s.id !== req.params.id).length === 0) {
-          await storage.updateCustomer(existingCust.parentCustomerId, user.activeCompanyId, { isParent: "false" });
-        }
-      }
+      // Parent marking and last-child cleanup happen in writeCustomer's transaction.
     }
 
     // Parse expectedUpdatedAt if provided
     const expectedDate = expectedUpdatedAt ? new Date(expectedUpdatedAt) : undefined;
     
-    const customer = await storage.updateCustomer(req.params.id, user.activeCompanyId, updates, expectedDate);
+    let customer;
+    try { customer = await storage.updateCustomer(req.params.id, user.activeCompanyId, updates, expectedDate); }
+    catch (err) { return setupFailure(res, err); }
     
     if (!customer) {
       return res.status(404).send("Customer not found");
@@ -6266,28 +6227,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`,
-        {
-          headers: {
-            "User-Agent": "LandscapingCRM/1.0 (landscaping-crm@replit.app)",
-            "Accept": "application/json",
-          },
-        }
-      );
-
-      if (!response.ok) {
-        return res.status(response.status).send("Geocoding service error");
-      }
-
-      const data = await response.json();
-      
-      if (data && data.length > 0) {
-        res.json({
-          lat: parseFloat(data[0].lat),
-          lng: parseFloat(data[0].lon),
-          displayName: data[0].display_name,
-        });
+      const location = await geocodeProperty(address);
+      if (location) {
+        res.json(location);
       } else {
         res.status(404).send("Address not found");
       }

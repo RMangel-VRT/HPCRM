@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
+import { MissingFieldsNotice } from "@/components/customerWizard/FinishSetupBanner";
+import { activationError, type MissingField } from "@/components/customerWizard/wizardModel";
 import { AlertTriangle, Download, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,6 +148,7 @@ export default function ActiveCustomersPage() {
   const today = coloradoToday();
   const [asOf, setAsOf] = useState(today);
   const [target, setTarget] = useState<StatusTarget | null>(null);
+  const [activationMissing, setActivationMissing] = useState<MissingField[]>([]);
   const { user } = useAuth();
   const companyId = user?.activeCompanyId ? String(user.activeCompanyId) : null;
   const { data, isLoading, isError, refetch } = useQuery<ActiveCustomersResponse>({
@@ -154,7 +157,7 @@ export default function ActiveCustomersPage() {
     enabled: !!companyId, retry: false, staleTime: 30_000, refetchOnMount: true, refetchOnWindowFocus: true,
   });
   // A company switch drops any pending confirmation so no write lands in the wrong company.
-  useEffect(() => { setTarget(null); }, [companyId]);
+  useEffect(() => { setTarget(null); setActivationMissing([]); }, [companyId]);
   const setStatus = useMutation({
     mutationFn: async (v: StatusTarget) => {
       if (!v.companyId || v.companyId !== companyId) throw new Error("COMPANY_CHANGED");
@@ -168,9 +171,13 @@ export default function ActiveCustomersPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", v.row.customerId] });
       queryClient.invalidateQueries({ predicate: query => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/customers?") });
     },
-    onError: () => toast({ title: t("activeCustomers.statusFailed"), variant: "destructive" }),
+    onError: (err) => {
+      const activation = activationError(err);
+      if (activation) setActivationMissing(activation.missingFields);
+      else toast({ title: t("activeCustomers.statusFailed"), variant: "destructive" });
+    },
   });
-  const openStatus = (v: StatusTarget) => setTarget({ ...v, companyId: companyId ?? undefined });
+  const openStatus = (v: StatusTarget) => { setActivationMissing([]); setTarget({ ...v, companyId: companyId ?? undefined }); };
   const ended = target ? lastEnded(target.row) : null;
 
   return (
@@ -207,6 +214,8 @@ export default function ActiveCustomersPage() {
             <AlertDialogTitle>{target && t(target.status === "inactive" ? "activeCustomers.confirmInactive" : "activeCustomers.confirmActive", { name: target.row.customerName })}</AlertDialogTitle>
             <AlertDialogDescription>{target?.status === "inactive" ? (ended ? t("activeCustomers.lastEnded", { date: activeCustomerDate(ended, t) }) : t("activeCustomers.noEndedSeason")) : t("activeCustomers.inEffectNote")}</AlertDialogDescription>
           </AlertDialogHeader>
+          {target && activationMissing.length > 0 &&
+            <MissingFieldsNotice customerId={target.row.customerId} fields={activationMissing} variant="inline" />}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={setStatus.isPending}>{t("activeCustomers.cancel")}</AlertDialogCancel>
             <AlertDialogAction disabled={setStatus.isPending} data-testid="button-confirm-status"

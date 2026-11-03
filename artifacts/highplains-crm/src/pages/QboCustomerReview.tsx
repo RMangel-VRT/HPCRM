@@ -98,51 +98,11 @@ function ChangedPanel({ r }: { r: QboReview }) {
   </div>;
 }
 
-function snapshotAddr(r: QboReview) {
-  const s = r.qboSnapshot ?? {};
-  const a = s.shipAddr ?? s.billAddr ?? null;
-  return { name: s.displayName ?? r.qboName ?? "", street: a?.street ?? "", city: a?.city ?? "", state: a?.state ?? "", zip: a?.zip ?? "" };
-}
-
+/** Promotion opens the CQ5 wizard prefilled from this QuickBooks record with linkQboId set; nothing is created here. */
+export const promoteHref = (qboId: string) => `/dashboard/customers/new?fromQbo=${encodeURIComponent(qboId)}`;
 function PromoteForm({ r }: { r: QboReview }) {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const invalidate = useQboInvalidate();
-  const [open, setOpen] = useState(false);
-  const [v, setV] = useState(() => snapshotAddr(r));
-  const [error, setError] = useState<string | null>(null);
-  const [missing, setMissing] = useState<string[]>([]);
-  const [pending, setPending] = useState(false);
-  const submit = async () => {
-    setError(null); setMissing([]); setPending(true);
-    try {
-      const overrides = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x.trim()]).filter(([, x]) => x));
-      await qboJson("POST", "/api/qbo/customers/promote", user?.activeCompanyId, { qboId: r.qboId, overrides });
-      toast({ title: "CRM customer created and linked" });
-      invalidate([r.customerId]);
-    } catch (e) {
-      const raw = e instanceof Error ? e.message.replace(/^\d{3}:\s*/, "") : "";
-      try { const b = JSON.parse(raw); if (Array.isArray(b.missingFields)) setMissing(b.missingFields); } catch { /* not JSON */ }
-      setError(errorText(e));
-    } finally { setPending(false); }
-  };
-  if (!open) return <Button size="sm" onClick={() => setOpen(true)} data-testid="button-create-crm-customer">Create CRM customer</Button>;
-  return <div className="rounded-md border p-3 space-y-2" data-testid="form-promote">
-    <p className="text-xs text-muted-foreground">Creates a CRM prospect from this QuickBooks record and links it. Fill anything QuickBooks left blank.</p>
-    <div className="grid grid-cols-2 gap-2">
-      {(["name", "street", "city", "state", "zip"] as const).map(k => <div key={k} className={k === "name" || k === "street" ? "col-span-2" : ""}>
-        <Label htmlFor={`promote-${k}`} className="text-xs capitalize">{k}</Label>
-        <Input id={`promote-${k}`} value={v[k]} onChange={e => setV(s => ({ ...s, [k]: e.target.value }))}
-          aria-invalid={missing.includes(k)} className={missing.includes(k) ? "border-destructive" : ""} data-testid={`input-promote-${k}`} />
-      </div>)}
-    </div>
-    {missing.length > 0 && <p className="text-xs text-destructive" data-testid="text-missing-fields">Missing: {missing.join(", ")}</p>}
-    <Feedback error={error} testId="error-promote" />
-    <div className="flex gap-2">
-      <Button size="sm" disabled={pending} onClick={submit} data-testid="button-confirm-promote">{pending ? "Creating..." : "Create and link"}</Button>
-      <Button size="sm" variant="ghost" onClick={() => setOpen(false)} data-testid="button-cancel-promote">Cancel</Button>
-    </div>
-  </div>;
+  if (!r.qboId) return null;
+  return <Button size="sm" asChild><Link href={promoteHref(r.qboId)} data-testid="button-create-crm-customer">Create CRM customer</Link></Button>;
 }
 
 function NewPanel({ r }: { r: QboReview }) {

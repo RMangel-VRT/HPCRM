@@ -66,11 +66,15 @@ beforeEach(async () => {
 });
 afterAll(async () => {
   await flush();
-  await db.delete(companies).where(inArray(companies.id, ids));
+  // Queued post-commit pushes for earlier fixtures can still be draining.
+  // Share their company gate and avoid one multi-company cascade deadlocking
+  // with a callback holding a customer row in the opposite deletion order.
+  for (const companyId of ids)
+    await withCustomerSyncLock(companyId, tx => tx.delete(companies).where(eq(companies.id, companyId)));
   // No real user or company is ever touched.
   await db.delete(users).where(inArray(users.id, actorIds));
   await pool.end(); await schemaPool.end();
-});
+}, 60_000);
 
 describe("serialized customer outbound writes with mocked QuickBooks", () => {
   it.each(["create", "update", "send-now"] as const)(

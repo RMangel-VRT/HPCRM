@@ -72,9 +72,10 @@ beforeEach(async () => {
   })));
 });
 afterAll(async () => {
-  if (companyIds.length) await db.delete(companies).where(inArray(companies.id, companyIds));
+  for (const companyId of companyIds)
+    await withCustomerSyncLock(companyId, tx => tx.delete(companies).where(eq(companies.id, companyId)));
   await pool.end(); await schemaPool.end();
-});
+}, 60_000);
 
 describe("comparison and mirror ingestion", () => {
   it("hydrates unusual incoming postal codes during initial reconciliation and persists every mirror", async () => {

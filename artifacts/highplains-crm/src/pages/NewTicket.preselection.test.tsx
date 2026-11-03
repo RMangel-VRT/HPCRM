@@ -7,6 +7,7 @@ import { Router } from "wouter";
 const fx = vi.hoisted(() => ({ typesLoaded: false, customersLoaded: true, api: vi.fn() }));
 vi.mock("@/hooks/use-breadcrumbs", () => ({ useSetBreadcrumbs: () => {} }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u1", activeCompanyId: "co1", activeRole: "admin" } }) }));
 vi.mock("react-leaflet", () => ({
   MapContainer: () => null, TileLayer: () => null, Marker: () => null,
   useMapEvents: () => {}, useMap: () => ({ setView: () => {} }),
@@ -32,6 +33,7 @@ vi.mock("@tanstack/react-query", async original => ({
 }));
 import "@/i18n";
 import NewTicket from "./NewTicket";
+import { prospectQuickAddBody } from "@/components/customerWizard/wizardModel";
 
 beforeEach(() => {
   fx.typesLoaded = false;
@@ -50,6 +52,20 @@ function mount(search: string) {
 }
 
 describe("New menu work-type deep links", () => {
+  it("quick-add sends one prospect envelope with contact and no fabricated address keys", () => {
+    const body = prospectQuickAddBody(" Site prospect ", { street: "", city: "Denver", state: "  ", zip: "" },
+      { name: "Site contact", email: "site@example.test", phone: "" });
+    expect(body).toMatchObject({
+      customer: { name: "Site prospect", city: "Denver", status: "prospect" },
+      contacts: [{ name: "Site contact", emails: ["site@example.test"], phones: [] }],
+      siteNotes: {}, qbo: { sendNow: false },
+    });
+    expect(body.customer).not.toHaveProperty("street");
+    expect(body.customer).not.toHaveProperty("state");
+    expect(body.customer).not.toHaveProperty("zip");
+    expect(prospectQuickAddBody("No address", { street: "", city: "", state: "", zip: "" },
+      { name: "", email: "", phone: "" }).contacts).toEqual([]);
+  });
   it.each(["contract", "extra_work", "admin", "estimate_request", "shop_todo"])("preselects %s once after types load, retaining customerId", async workType => {
     const rerender = mount(`?workType=${workType}&customerId=customer`);
     expect(screen.queryByTestId("input-title")).toBeNull();

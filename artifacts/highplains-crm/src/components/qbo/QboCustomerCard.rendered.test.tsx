@@ -109,6 +109,21 @@ describe("QuickBooks customer card", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(POLL_MS * 3); });
     expect(calls.filter(c => c.url.endsWith("quickbooks-card")).length).toBe(settled);
   });
+  it("a wizard's initially pending customer polls to its name-taken review without sending again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mount(card({}, { qboSyncState: "pending_push" }));
+    await screen.findByTestId("text-qbo-state");
+    const before = calls.filter(c => c.url.endsWith("quickbooks-card")).length;
+    current = card({ reviews: [{ id: "wizard-collision", kind: "name_taken" }] }, { qboSyncState: "pending_push" });
+    await act(async () => { await vi.advanceTimersByTimeAsync(POLL_MS + 10); });
+    expect(state()).toHaveTextContent("Name already used in QuickBooks");
+    expect(screen.getByTestId("link-qbo-collision-review").getAttribute("href")).toContain("review=wizard-collision");
+    expect(calls.filter(c => c.url.endsWith("quickbooks-card")).length).toBeGreaterThan(before);
+    expect(calls.some(c => c.url.endsWith("/send-now"))).toBe(false);
+    const terminal = calls.filter(c => c.url.endsWith("quickbooks-card")).length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(POLL_MS * 3); });
+    expect(calls.filter(c => c.url.endsWith("quickbooks-card")).length).toBe(terminal);
+  });
 
   it("after 60s without change leaves Waiting with Refresh", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

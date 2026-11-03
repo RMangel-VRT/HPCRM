@@ -355,6 +355,12 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   qboLastError: true,
   qboPushedAt: true,
 }).extend({
+  // Prospects may omit service addresses. Existing NOT NULL storage uses empty
+  // values; active completeness is enforced on the effective record server-side.
+  street: z.string().default(""),
+  city: z.string().default(""),
+  state: z.string().default(""),
+  zip: z.string().default(""),
   billingName: z.string().nullable().optional(),
   billingCompanyName: z.string().nullable().optional(),
   billingContactName: z.string().nullable().optional(),

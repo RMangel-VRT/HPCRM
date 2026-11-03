@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { SettingsRailLayout } from "@/components/nav/SettingsRailLayout";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -71,103 +72,6 @@ function ConfidenceBar({ score }: { score: number }) {
   );
 }
 
-// ── Promote to CRM dialog ──────────────────────────────────────────────────────
-function PromoteDialog({
-  open,
-  cacheRow,
-  onClose,
-}: {
-  open: boolean;
-  cacheRow: QboCustomerCache | null;
-  onClose: () => void;
-}) {
-  const { t } = useTranslation();
-  const { toast } = useToast();
-  const [name, setName] = useState("");
-  const [street, setStreet] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-  const [zip, setZip] = useState("");
-
-  const reset = useCallback((row: QboCustomerCache | null) => {
-    if (!row) return;
-    setName(row.displayName);
-    setStreet(row.billAddrLine1 ?? "");
-    setCity(row.billAddrCity ?? "");
-    setState(row.billAddrCountrySubDivisionCode ?? "");
-    setZip(row.billAddrPostalCode ?? "");
-  }, []);
-
-  // Deterministically prefill whenever the dialog opens or cacheRow changes
-  useEffect(() => {
-    if (open && cacheRow) reset(cacheRow);
-  }, [open, cacheRow, reset]);
-
-  const promoteMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/qbo/customers/promote", {
-        qboId: cacheRow!.qboId,
-        overrides: { name, street, city, state, zip },
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: t("qboMapping.promoted") });
-      invalidateAll();
-      onClose();
-    },
-    onError: (err: Error) => {
-      toast({ title: err.message || t("qboMapping.promoteFailed"), variant: "destructive" });
-    },
-  });
-
-  if (!cacheRow) return null;
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); else reset(cacheRow); }}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t("qboMapping.promoteTitle")}</DialogTitle>
-          <DialogDescription>{t("qboMapping.promoteDesc")}</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3 py-2">
-          <div>
-            <Label>{t("common.name")}</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1" />
-          </div>
-          <div>
-            <Label>{t("common.address")}</Label>
-            <Input value={street} onChange={(e) => setStreet(e.target.value)} className="mt-1" placeholder={t("qboMapping.street")} />
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="col-span-1">
-              <Label>{t("qboMapping.city")}</Label>
-              <Input value={city} onChange={(e) => setCity(e.target.value)} className="mt-1" />
-            </div>
-            <div>
-              <Label>{t("qboMapping.state")}</Label>
-              <Input value={state} onChange={(e) => setState(e.target.value)} className="mt-1" />
-            </div>
-            <div>
-              <Label>{t("qboMapping.zip")}</Label>
-              <Input value={zip} onChange={(e) => setZip(e.target.value)} className="mt-1" />
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>{t("common.cancel")}</Button>
-          <Button
-            onClick={() => promoteMutation.mutate()}
-            disabled={promoteMutation.isPending || !name || !street || !city || !state || !zip}
-          >
-            {promoteMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            {t("qboMapping.promoteAction")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ── Manual picker dialog ───────────────────────────────────────────────────────
 function ManualPickerDialog({
@@ -690,7 +594,7 @@ function FullCustomerList() {
   const { toast } = useToast();
   const [filter, setFilter] = useState<"all" | "in_crm" | "not_in_crm" | "inactive">("all");
   const [search, setSearch] = useState("");
-  const [promotingRow, setPromotingRow] = useState<QboCustomerCache | null>(null);
+  const [, navigate] = useLocation();
 
   const { data: rows = [], isLoading } = useQuery<QboCacheRow[]>({
     queryKey: ["/api/qbo/customers/cache", { filter, search }],
@@ -771,7 +675,8 @@ function FullCustomerList() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setPromotingRow(row as QboCustomerCache)}
+                        onClick={() => navigate(`/dashboard/customers/new?fromQbo=${encodeURIComponent(row.qboId)}`)}
+                        data-testid={`button-promote-${row.qboId}`}
                       >
                         <UserPlus className="w-4 h-4 mr-1" />
                         {t("qboMapping.promoteToCrm")}
@@ -785,11 +690,6 @@ function FullCustomerList() {
         </div>
       )}
 
-      <PromoteDialog
-        open={promotingRow !== null}
-        cacheRow={promotingRow}
-        onClose={() => setPromotingRow(null)}
-      />
     </div>
   );
 }

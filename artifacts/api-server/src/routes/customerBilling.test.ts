@@ -6,6 +6,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { insertCustomerSchema } from "@workspace/db";
 import { pickProvided } from "../lib/patchBody";
 import { billingInputProblem, protectedBillingWrite } from "../services/customerBillingInput";
+import { assertActivationComplete } from "../services/customerSetupValidation";
+import { createCustomerRequest, setupFailure } from "./customerSetup";
+import { saveCustomerSetup } from "../services/customerSetup";
+import { CustomerSyncError } from "../services/qboCustomerSync";
+
+// The shared atomic creation service is exercised against Postgres by
+// customerSetup.integration.test.ts; this file isolates HTTP delegation/PATCH.
+vi.mock("../services/customerSetup", async importOriginal => {
+  const actual = await importOriginal<typeof import("../services/customerSetup")>();
+  return { ...actual, saveCustomerSetup: vi.fn() };
+});
 
 // Execute the actual route registrations without unrelated startup jobs.
 const source = readFileSync(new URL("./routes.ts", import.meta.url), "utf8");
@@ -14,6 +25,7 @@ const end = source.indexOf('  app.delete("/api/customers/:id",', start);
 if (start < 0 || end < 0) throw new Error("Customer handlers not found");
 const mount = new Function("app", "storage", "insertCustomerSchema", "pickProvided",
   "billingInputProblem", "protectedBillingWrite", "storageBillingContext",
+  "createCustomerRequest", "assertActivationComplete", "setupFailure",
   transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code);
 const property = { name: "Property", street: "10 Work St", city: "Denver", state: "CO", zip: "80202" };
 let current: any;
@@ -35,6 +47,14 @@ beforeEach(() => {
   storage.getPropertyManagementCompanyById.mockImplementation(async (_id, company) => ({ id: "pm", companyId: company }));
   storage.createCustomer.mockImplementation(async data => ({ ...data, id: "new" }));
   storage.updateCustomer.mockImplementation(async (_id, _company, updates) => ({ ...current, ...updates }));
+  vi.mocked(saveCustomerSetup).mockImplementation(async (companyId, _actor, input) => {
+    if (protectedBillingWrite(input.customer)) throw new CustomerSyncError(400, "SYNC_METADATA_PROTECTED");
+    const parsed = insertCustomerSchema.parse({ ...input.customer, companyId });
+    const problem = await billingInputProblem(parsed, { companyId, ...storage });
+    if (problem) throw new CustomerSyncError(400, problem);
+    const customer = await storage.createCustomer(parsed);
+    return { customer, qbo: { state: "not_linked", review: undefined } };
+  });
   app = express(); app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => authenticated) as any;
@@ -42,7 +62,7 @@ beforeEach(() => {
     req.log = { warn: vi.fn() } as any; next();
   });
   mount(app, storage, insertCustomerSchema, pickProvided, billingInputProblem, protectedBillingWrite,
-    (companyId: string) => ({ companyId, ...storage }));
+    (companyId: string) => ({ companyId, ...storage }), createCustomerRequest, assertActivationComplete, setupFailure);
 });
 describe("customer billing HTTP writes", () => {
   it.each(["8012", "CO 80123", "T2P 1J9", "abcde", "80123-456", "80123 4567"])(

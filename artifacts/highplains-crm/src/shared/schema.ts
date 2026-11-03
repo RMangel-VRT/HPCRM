@@ -346,6 +346,10 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   qboLastError: true,
   qboPushedAt: true,
 }).extend({
+  street: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zip: z.string().optional(),
   billingName: z.string().nullable().optional(),
   billingCompanyName: z.string().nullable().optional(),
   billingContactName: z.string().nullable().optional(),

@@ -64,6 +64,8 @@ import AnnualServiceRollup from "@/components/AnnualServiceRollup";
 import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
 import ParentCustomerDashboard from "@/pages/ParentCustomerDashboard";
 import QboCustomerCard from "@/components/qbo/QboCustomerCard";
+import { FinishSetupBanner, MissingFieldsNotice } from "@/components/customerWizard/FinishSetupBanner";
+import { activationError, type MissingField } from "@/components/customerWizard/wizardModel";
 import {
   setLastViewedCustomerId,
   clearLastViewedCustomerId,
@@ -596,6 +598,8 @@ export default function CustomerDetail() {
 
   // Customer edit management
   const [isEditCustomerDialogOpen, setIsEditCustomerDialogOpen] = useState(false);
+  const [activationMissing, setActivationMissing] = useState<MissingField[]>([]);
+  useEffect(() => { if (!isEditCustomerDialogOpen) setActivationMissing([]); }, [isEditCustomerDialogOpen]);
   
   const customerForm = useForm<Omit<InsertCustomer, "companyId">>({
     resolver: zodResolver(insertCustomerSchema.omit({ companyId: true })),
@@ -685,7 +689,7 @@ export default function CustomerDetail() {
       };
       const response = await fetch(`/api/customers/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Company-Id": String(customer?.companyId ?? user?.activeCompanyId ?? "") },
         body: JSON.stringify(payload),
         credentials: "include",
       });
@@ -693,6 +697,11 @@ export default function CustomerDetail() {
       if (response.status === 409) {
         const conflictData = await response.json();
         throw new Error("CONFLICT:" + JSON.stringify(conflictData));
+      }
+      if (response.status === 400) {
+        const body = await response.text();
+        // Server-enforced activation completeness (ACTIVATION_INCOMPLETE) keeps the status/code shape for parsing.
+        throw new Error(`400: ${body}`);
       }
       
       if (!response.ok) {
@@ -712,6 +721,12 @@ export default function CustomerDetail() {
       setIsEditCustomerDialogOpen(false);
     },
     onError: (error: Error) => {
+      const act = activationError(error);
+      if (act) {
+        setActivationMissing(act.missingFields);
+        toast({ title: t("customerWizard.result.activation"), description: t("customerWizard.activationBlocked", { fields: act.missingFields.map(f => t(`customerWizard.fields.${f}`)).join(", ") }), variant: "destructive" });
+        return;
+      }
       if (error.message.startsWith("CONFLICT:")) {
         toast({
           title: t("common.error"),
@@ -1012,6 +1027,7 @@ export default function CustomerDetail() {
         }}
       />
       <div className="flex-1 min-w-0 overflow-y-auto space-y-6 p-6 md:p-8">
+      <FinishSetupBanner customerId={customer.id} status={customer.status} />
       <div className="flex items-start justify-between gap-4">
       {/* Left column: name/switcher, badges */}
       <div className="flex flex-col gap-1 min-w-0">
@@ -1885,6 +1901,7 @@ export default function CustomerDetail() {
                   )}
                 />
               </div>
+              {activationMissing.length > 0 && <MissingFieldsNotice customerId={customer.id} fields={activationMissing} variant="inline" />}
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={customerForm.control}

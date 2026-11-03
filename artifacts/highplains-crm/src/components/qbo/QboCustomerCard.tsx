@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -128,6 +128,7 @@ function CardBody({ customerId, isParent }: { customerId: string; isParent: bool
   const [pollUntil, setPollUntil] = useState<number | null>(null);
   const [expired, setExpired] = useState(false);
   const [editing, setEditing] = useState(false);
+  const autoPolledCustomer = useRef<string | null>(null);
   const polling = pollUntil !== null && !expired;
   const card = useQuery<QuickBooksCard>({
     queryKey: cardKey(customerId, user),
@@ -142,6 +143,15 @@ function CardBody({ customerId, isParent }: { customerId: string; isParent: bool
   const fresh = sentAt !== null && card.dataUpdatedAt >= sentAt && !card.isFetching;
   const serverState = card.data ? cardState(card.data) : null;
   const state = sentAt !== null && !fresh && serverState !== "via_parent" ? "waiting" : serverState;
+
+  // Wizard saves acknowledge queued work. Observe its eventual result through
+  // the existing bounded status poll, without requiring another Send click.
+  useEffect(() => {
+    if (card.data?.customer.qboSyncState !== "pending_push" || autoPolledCustomer.current === customerId) return;
+    autoPolledCustomer.current = customerId;
+    setExpired(false);
+    setPollUntil(Date.now() + POLL_LIMIT_MS);
+  }, [customerId, card.data?.customer.qboSyncState]);
 
   useEffect(() => {
     if (pollUntil === null || expired) return;

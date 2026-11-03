@@ -18,6 +18,7 @@ import {
 import { encryptToken } from "../services/qboCrypto";
 import qboItemsRouter from "./qboItems";
 import qboCustomerOutboundRouter from "./qboCustomerOutbound";
+import { validateDisplayName } from "../services/qboCustomerMap";
 import { qboCustomerReads } from "./qboCustomerReads";
 import { CustomerSyncError, customerSyncStatus, ingestQboCustomers, runFullCustomerPull,
   runInitialCustomerSync, runIncrementalCustomerSync, withCustomerSyncLock, writeCustomerSeedSuggestion } from "../services/qboCustomerSync";
@@ -533,18 +534,28 @@ router.post("/customers/duplicate-check", async (req, res) => {
   if (!u) return;
   if (!(await assertConnected(u.activeCompanyId, res))) return;
 
-  const { customerId } = req.body as { customerId?: string };
-  if (!customerId) {
-    res.status(400).json({ message: "customerId is required" });
+  const { customerId, billingName, city, zip, billingEmail } = req.body as {
+    customerId?: string; billingName?: string; city?: string; zip?: string; billingEmail?: string;
+  };
+  if (!customerId && !billingName) {
+    res.status(400).json({ message: "customerId or billingName is required" });
     return;
+  }
+  if (billingName !== undefined) {
+    try { if (typeof billingName !== "string") throw new Error(); validateDisplayName(billingName); }
+    catch { res.status(400).json({ message: "DISPLAY_NAME_INVALID" }); return; }
   }
 
   try {
-    const crmCustomer = await storage.getCustomerWithPrimaryContactForQbo(u.activeCompanyId, customerId);
-    if (!crmCustomer) {
-      res.status(404).json({ message: "CRM customer not found" });
-      return;
-    }
+    // Wizard drafts share the scoped live/cache duplicate pipeline without
+    // writing a second customer record just to perform a lookup.
+    const existing = customerId ? await storage.getCustomerWithPrimaryContactForQbo(u.activeCompanyId, customerId) : undefined;
+    if (customerId && !existing) { res.status(404).json({ message: "CRM customer not found" }); return; }
+    const crmCustomer = existing ? { ...existing, name: billingName ?? existing.name } : {
+      name: billingName!, street: "", city: typeof city === "string" ? city : "",
+      state: "", zip: typeof zip === "string" ? zip : "",
+      primaryEmail: typeof billingEmail === "string" ? billingEmail : null, primaryPhone: null,
+    };
 
     const displayName = crmCustomer.name;
 

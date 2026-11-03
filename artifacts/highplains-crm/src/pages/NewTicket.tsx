@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
+import { qboJson } from "@/lib/qboReview";
+import { useAuth } from "@/hooks/use-auth";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -50,6 +52,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { extractApiErrorMessage, taskValidationMessage } from "@/lib/apiError";
+import { prospectQuickAddBody } from "@/components/customerWizard/wizardModel";
 import { DatePickerField } from "@/components/DatePickerField";
 import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import type { Customer, TicketType, CompanyUser, User, WorkType } from "@shared/schema";
@@ -127,10 +130,12 @@ export default function NewTicket() {
   // Project (No Estimate) specific state
   const [isProjectNoEstimate, setIsProjectNoEstimate] = useState(false);
   const [showCreateProspectDialog, setShowCreateProspectDialog] = useState(false);
+  const { user } = useAuth();
   const [newProspectName, setNewProspectName] = useState("");
   const [newProspectContactName, setNewProspectContactName] = useState("");
   const [newProspectContactEmail, setNewProspectContactEmail] = useState("");
   const [newProspectContactPhone, setNewProspectContactPhone] = useState("");
+  const [newProspectAddr, setNewProspectAddr] = useState({ street: "", city: "", state: "", zip: "" });
   const [serviceRequestType, setServiceRequestType] = useState<string>("");
   
   const [locationLat, setLocationLat] = useState<number | null>(null);
@@ -291,45 +296,26 @@ export default function NewTicket() {
   
   // Create prospect customer mutation
   const createProspectMutation = useMutation({
+    // Atomic prospect quick-add through the wizard endpoint: blank address parts are omitted, never sent as "".
     mutationFn: async () => {
-      return apiRequest("POST", "/api/customers", {
-        name: newProspectName,
-        status: "prospect",
-        street: "",
-        city: "",
-        state: "",
-        zip: "",
-      });
+      return qboJson<{ customer: { id: string } }>("POST", "/api/customers/wizard", user?.activeCompanyId,
+        prospectQuickAddBody(newProspectName, newProspectAddr,
+          { name: newProspectContactName, email: newProspectContactEmail, phone: newProspectContactPhone }));
     },
-    onSuccess: async (res) => {
-      const customer = await res.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
-      
-      // Create contact if provided
-      if (newProspectContactName || newProspectContactEmail || newProspectContactPhone) {
-        try {
-          await apiRequest("POST", `/api/customers/${customer.id}/contacts`, {
-            name: newProspectContactName || "Primary Contact",
-            email: newProspectContactEmail || null,
-            phone: newProspectContactPhone || null,
-            title: "Primary Contact",
-            isPrimary: "true",
-          });
-        } catch (e) {
-          console.error("Failed to create contact:", e);
-        }
-      }
-      
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" &&
+        (q.queryKey[0] === "/api/customers" || q.queryKey[0].startsWith("/api/customers?")) });
       setShowCreateProspectDialog(false);
       setNewProspectName("");
       setNewProspectContactName("");
       setNewProspectContactEmail("");
       setNewProspectContactPhone("");
-      handleSelectCustomer(customer.id);
+      setNewProspectAddr({ street: "", city: "", state: "", zip: "" });
+      handleSelectCustomer(res.customer.id);
       toast({ title: t('newTicket.prospectCreated') });
     },
     onError: (error: Error) => {
-      toast({ title: t('newTicket.createFailed'), description: extractApiErrorMessage(error) ?? error.message, variant: "destructive" });
+      toast({ title: t('customerWizard.quickAddFailed'), description: t("customerWizard.result.failed"), variant: "destructive" });
     },
   });
 
@@ -1077,6 +1063,20 @@ export default function NewTicket() {
                 </div>
               </div>
               
+              <div className="space-y-2" data-testid="prospect-address">
+                <Label>{t('customerWizard.quickAddAddress')}</Label>
+                <Input value={newProspectAddr.street} placeholder={t('customerWizard.fields.street')} aria-label={t('customerWizard.fields.street')}
+                  onChange={(e) => setNewProspectAddr(a => ({ ...a, street: e.target.value }))} data-testid="input-prospect-street" />
+                <div className="grid grid-cols-[1fr_70px_100px] gap-2">
+                  <Input value={newProspectAddr.city} placeholder={t('customerWizard.fields.city')} aria-label={t('customerWizard.fields.city')}
+                    onChange={(e) => setNewProspectAddr(a => ({ ...a, city: e.target.value }))} data-testid="input-prospect-city" />
+                  <Input value={newProspectAddr.state} placeholder={t('customerWizard.fields.state')} aria-label={t('customerWizard.fields.state')}
+                    onChange={(e) => setNewProspectAddr(a => ({ ...a, state: e.target.value }))} data-testid="input-prospect-state" />
+                  <Input value={newProspectAddr.zip} placeholder={t('customerWizard.fields.zip')} aria-label={t('customerWizard.fields.zip')}
+                    onChange={(e) => setNewProspectAddr(a => ({ ...a, zip: e.target.value }))} data-testid="input-prospect-zip" />
+                </div>
+              </div>
+
               <DialogFooter className="gap-2">
                 <Button
                   variant="outline"

@@ -875,6 +875,32 @@ describe("POST /api/qbo/customers/duplicate-check", () => {
     };
   }
 
+  it("checks an unsaved billing draft through the same scoped cache/live lookup", async () => {
+    connectedSetup();
+    mockStorage.findQboCacheDuplicates.mockResolvedValue([]);
+    mockQboRequest.mockResolvedValue({ ok: true, json: async () => ({ QueryResponse: {
+      Customer: [{ Id: "draft-qbo", DisplayName: "Draft Billing", Active: true }],
+    } }) });
+    const app = await buildApp(adminUser());
+    const res = await request(app).post("/api/qbo/customers/duplicate-check")
+      .send({ billingName: "Draft Billing", city: "Boulder", zip: "80301" });
+    expect(res.status).toBe(200);
+    expect(mockStorage.getCustomerWithPrimaryContactForQbo).not.toHaveBeenCalled();
+    expect(mockStorage.findQboCacheDuplicates).toHaveBeenCalledWith("company-1", "Draft Billing", "Boulder", "80301");
+    expect(res.body.candidates).toEqual(expect.arrayContaining([expect.objectContaining({
+      qboId: "draft-qbo", matchType: "exact_display_name",
+    })]));
+  });
+
+  it("rejects an invalid unsaved display name before cache or live queries", async () => {
+    connectedSetup();
+    const app = await buildApp(adminUser());
+    const res = await request(app).post("/api/qbo/customers/duplicate-check").send({ billingName: "Parent:Branch" });
+    expect(res.status).toBe(400);
+    expect(mockStorage.findQboCacheDuplicates).not.toHaveBeenCalled();
+    expect(mockQboRequest).not.toHaveBeenCalled();
+  });
+
   it("returns 400 when customerId is missing", async () => {
     connectedSetup();
     const app = await buildApp(adminUser());

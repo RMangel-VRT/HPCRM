@@ -41,6 +41,7 @@ const SuperAdminHome = lazy(() => import("@/pages/SuperAdminHome"));
 const QboCustomerReview = lazy(() => import("@/pages/QboCustomerReview"));
 const CustomerByQbo = lazy(() => import("@/pages/CustomerByQbo"));
 const CustomersList = lazy(() => import("@/pages/CustomersList"));
+const CustomerSetupWizard = lazy(() => import("@/pages/CustomerSetupWizard"));
 const CustomerDetail = lazy(() => import("@/pages/CustomerDetail"));
 const RevenueOverview = lazy(() => import("@/pages/RevenueOverview"));
 const ToolsPage = lazy(() => import("@/pages/ToolsPage"));
@@ -170,7 +171,9 @@ function Router() {
   const isVisualScopeDraft = /^\/dashboard\/tools\/visual-scope\/[^/]+/.test(location);
   const isCustomerDetail =
     /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
-    !/^\/dashboard\/customers\/map(\/|$)/.test(location);
+    !/^\/dashboard\/customers\/map(\/|$)/.test(location) &&
+    !/^\/dashboard\/customers\/new(\/|$)/.test(location) &&
+    !/^\/dashboard\/customers\/[^/]+\/setup(\/|$)/.test(location);
 
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -248,6 +251,8 @@ function Router() {
           component={CustomerByQbo}
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
         />
+        <ProtectedRoute path="/dashboard/customers/new" component={CustomerSetupWizard} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/customers/:id/setup" component={CustomerSetupWizard} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
           path="/dashboard/customers/:id"
           component={CustomerDetail}

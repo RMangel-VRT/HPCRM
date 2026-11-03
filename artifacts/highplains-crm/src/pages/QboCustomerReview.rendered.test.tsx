@@ -86,31 +86,17 @@ describe("QuickBooks review page", () => {
     expect(within(p).getByTestId("button-apply-choices")).toBeEnabled();
   });
 
-  it("new_in_qbo: promote through legacy route with overrides, link with customerId, ignore", async () => {
+  it("new_in_qbo: Create CRM customer opens the prefilled wizard; link with customerId, ignore", async () => {
     mount([rv("nw", "new_in_qbo", { customerId: null, qboSnapshot: { displayName: "Pine Hollow", shipAddr: { street: "1 Elm", city: "Boulder", state: "CO", zip: "80302" } } })]);
     const p = await open("nw");
-    fireEvent.click(within(p).getByTestId("button-create-crm-customer"));
-    fireEvent.click(within(p).getByTestId("button-confirm-promote"));
-    await waitFor(() => expect(posts()).toHaveLength(1));
-    expect(posts()[0]).toMatchObject({ url: "/api/qbo/customers/promote", body: { qboId: "q-nw", overrides: { name: "Pine Hollow", street: "1 Elm", city: "Boulder", state: "CO", zip: "80302" } } });
-    expect(posts()[0].headers["X-Company-Id"]).toBe("c1");
+    expect(within(p).getByTestId("button-create-crm-customer")).toHaveAttribute("href", "/dashboard/customers/new?fromQbo=q-nw");
+    expect(posts()).toHaveLength(0);
     fireEvent.click(await within(p).findByTestId("option-customer-x1"));
     fireEvent.click(within(p).getByTestId("button-link-customer"));
-    await waitFor(() => expect(posts()).toHaveLength(2));
-    expect(posts()[1].body).toEqual({ action: "link", customerId: "x1" });
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0].body).toEqual({ action: "link", customerId: "x1" });
     fireEvent.click(within(p).getByTestId("button-ignore"));
-    await waitFor(() => expect(posts()[2]?.body).toEqual({ action: "ignore" }));
-  });
-
-  it("promotion failure surfaces missing fields and keeps the form for retry", async () => {
-    mount([rv("nw", "new_in_qbo", { qboSnapshot: { displayName: "Pine Hollow" } })],
-      { promote: { status: 400, body: { message: "Missing required fields", missingFields: ["street", "zip"] } } });
-    const p = await open("nw");
-    fireEvent.click(within(p).getByTestId("button-create-crm-customer"));
-    fireEvent.click(within(p).getByTestId("button-confirm-promote"));
-    expect(await within(p).findByTestId("text-missing-fields")).toHaveTextContent("street, zip");
-    expect(within(p).getByTestId("input-promote-street")).toHaveAttribute("aria-invalid", "true");
-    expect(within(p).getByTestId("button-confirm-promote")).toBeEnabled();
+    await waitFor(() => expect(posts()[1]?.body).toEqual({ action: "ignore" }));
   });
 
   it("billing-tagged field users may link but not promote or rename", async () => {
