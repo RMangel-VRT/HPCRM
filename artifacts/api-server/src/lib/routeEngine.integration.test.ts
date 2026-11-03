@@ -227,7 +227,7 @@ describe.skipIf(!enabled)("route engine real PostgreSQL/API contracts", () => {
     expect((await request(app()).post("/api/routes/slide").send({ date: "2027-03-09", mode: "day", crewIds: ["foreign"] })).status).toBe(400);
     expect((await request(app()).post("/api/routes/fill").send({ through: "2027-04-21" })).status).toBe(400);
     expect((await request(app()).post("/api/routes/fill").send({ through: "2027-02-30" })).status).toBe(400);
-    expect((await request(app("field_manager")).post("/api/routes/fill").send({})).status).toBe(403);
+    expect((await request(app("field_manager")).post("/api/routes/fill").send({})).status).toBe(200);
     expect((await request(app("field")).get("/api/routes/stops")).status).toBe(403);
     expect((await request(app("admin", f.companyId, false)).get("/api/routes/stops")).status).toBe(401);
     expect((await request(app("office")).get("/api/routes/stops")).status).toBe(200);

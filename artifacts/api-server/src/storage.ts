@@ -2,6 +2,7 @@ import { plannerProjection, plannerJoin, campaignProjection, campaignJoin } from
 import { CrewLinkError, CrewPlacementError, validateCampaignOwner } from "./lib/crewLinks";
 import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrewWithMembers } from "@workspace/db";
 import { hardscapeStorage } from "./lib/hardscapeStorage";
+import { withPlannerWrite, withPlannerTemplateWrite, withPlannerBlockWrite } from "./lib/plannerFreeze";
 
 export interface MyExtraBillableBatch {
   campaignId: string;
@@ -2187,16 +2188,20 @@ export class PgStorage implements IStorage {
   }
 
   async createMaintenanceVisitConfig(insertConfig: InsertMaintenanceVisitConfig): Promise<MaintenanceVisitConfig> {
-    const result = await db.insert(maintenanceVisitConfigs).values([insertConfig]).returning();
-    return result[0];
+    return withPlannerWrite(insertConfig.companyId, async () => {
+      const result = await db.insert(maintenanceVisitConfigs).values([insertConfig]).returning();
+      return result[0];
+    });
   }
 
   async updateMaintenanceVisitConfig(id: string, companyId: string, updates: Partial<InsertMaintenanceVisitConfig>): Promise<MaintenanceVisitConfig | undefined> {
+    return withPlannerWrite(companyId, async () => {
     const result = await db.update(maintenanceVisitConfigs)
       .set({ ...updates, updatedAt: new Date() })
       .where(and(eq(maintenanceVisitConfigs.id, id), eq(maintenanceVisitConfigs.companyId, companyId)))
       .returning();
     return result[0];
+    });
   }
 
   async getMaintenanceVisitConfigs(companyId: string): Promise<MaintenanceVisitConfig[]> {
@@ -2218,24 +2223,31 @@ export class PgStorage implements IStorage {
   }
 
   async createWeeklyScheduleTemplate(insertTemplate: InsertWeeklyScheduleTemplate): Promise<WeeklyScheduleTemplate> {
+    return withPlannerWrite(insertTemplate.companyId, async () => {
     const result = await db.insert(weeklyScheduleTemplates).values([insertTemplate]).returning();
     return result[0];
+    });
   }
 
   async updateWeeklyScheduleTemplate(id: string, companyId: string, updates: Partial<InsertWeeklyScheduleTemplate>): Promise<WeeklyScheduleTemplate | undefined> {
+    return withPlannerWrite(companyId, async () => {
     const result = await db.update(weeklyScheduleTemplates)
       .set({ ...updates, updatedAt: new Date() })
       .where(and(eq(weeklyScheduleTemplates.id, id), eq(weeklyScheduleTemplates.companyId, companyId)))
       .returning();
     return result[0];
+    });
   }
 
   async deleteWeeklyScheduleTemplate(id: string, companyId: string): Promise<void> {
+    return withPlannerWrite(companyId, async () => {
     await db.delete(weeklyScheduleTemplates)
       .where(and(eq(weeklyScheduleTemplates.id, id), eq(weeklyScheduleTemplates.companyId, companyId)));
+    });
   }
 
   async duplicateWeeklyScheduleTemplate(id: string, companyId: string, newName: string): Promise<WeeklyScheduleTemplate> {
+    return withPlannerWrite(companyId, async () => {
     const original = await this.getWeeklyScheduleTemplateById(id, companyId);
     if (!original) throw new Error("Template not found");
     
@@ -2262,6 +2274,7 @@ export class PgStorage implements IStorage {
     }
     
     return newTemplate;
+    });
   }
 
   async getScheduleBlocks(templateId: string): Promise<ScheduleBlock[]> {
@@ -2271,24 +2284,32 @@ export class PgStorage implements IStorage {
   }
 
   async createScheduleBlock(insertBlock: InsertScheduleBlock): Promise<ScheduleBlock> {
+    return withPlannerTemplateWrite(insertBlock.templateId, async () => {
     const result = await db.insert(scheduleBlocks).values([insertBlock]).returning();
     return result[0];
+    });
   }
 
   async updateScheduleBlock(id: string, updates: Partial<InsertScheduleBlock>): Promise<ScheduleBlock | undefined> {
+    return withPlannerBlockWrite(id, async () => {
     const result = await db.update(scheduleBlocks)
       .set(updates)
       .where(eq(scheduleBlocks.id, id))
       .returning();
     return result[0];
+    });
   }
 
   async deleteScheduleBlock(id: string): Promise<void> {
-    await db.delete(scheduleBlocks).where(eq(scheduleBlocks.id, id));
+    return withPlannerBlockWrite(id, async () => {
+      await db.delete(scheduleBlocks).where(eq(scheduleBlocks.id, id));
+    });
   }
 
   async deleteScheduleBlocksByTemplate(templateId: string): Promise<void> {
-    await db.delete(scheduleBlocks).where(eq(scheduleBlocks.templateId, templateId));
+    return withPlannerTemplateWrite(templateId, async () => {
+      await db.delete(scheduleBlocks).where(eq(scheduleBlocks.templateId, templateId));
+    });
   }
 
   // Ticket Notifications

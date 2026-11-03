@@ -53,12 +53,19 @@ export async function fillRouteVisitsInTransaction(tx: VisitTransaction, company
   const standing = await tx.select().from(crews).where(eq(crews.companyId, companyId));
   const active = new Set(standing.filter(c => c.isActive).map(c => c.id));
   const coverage = await loadContractCoverage(tx, companyId);
-  // Occurrence range also finds visits moved completely outside this horizon.
+  // Include whole original weeks. A weekday edit must not generate a second
+  // occurrence for a week already put on the calendar under the old weekday,
+  // including moved/cancelled rows. Current visit dates are never the identity.
+  const occurrenceFrom = addCalendarDays(today, 1 - routeWeekday(today));
+  const occurrenceThrough = addCalendarDays(through, 7 - routeWeekday(through));
   const existing = await tx.select().from(visits).where(and(eq(visits.companyId, companyId), or(
     and(gte(visits.visitDate, today), lte(visits.visitDate, through)),
-    and(gte(visits.routeOccurrenceDate, today), lte(visits.routeOccurrenceDate, through)),
+    and(gte(visits.routeOccurrenceDate, occurrenceFrom), lte(visits.routeOccurrenceDate, occurrenceThrough)),
   )));
   const identities = new Set(existing.filter(v => v.routeStopId).map(v => `${v.routeStopId}/${v.routeOccurrenceDate}`));
+  const weekIdentity = (id: string, day: string) => `${id}/${addCalendarDays(day, 1 - routeWeekday(day))}`;
+  const occupiedWeeks = new Set(existing.filter(v => v.routeStopId && v.routeOccurrenceDate)
+    .map(v => weekIdentity(v.routeStopId!, v.routeOccurrenceDate!)));
   const maxima = new Map<string, number>();
   for (const visit of existing) {
     const key = `${visit.crewId}/${visit.visitDate}`;
@@ -78,7 +85,7 @@ export async function fillRouteVisitsInTransaction(tx: VisitTransaction, company
     }
     if (reason) { report.skipped.push({ stopId: stop.id, reason }); continue; }
     for (const date of occurrenceDates(stop, today, through, coverage.resolve)) {
-      if (identities.has(`${stop.id}/${date}`)) continue;
+      if (identities.has(`${stop.id}/${date}`) || occupiedWeeks.has(weekIdentity(stop.id, date))) continue;
       const key = `${stop.crewId}/${date}`, order = (maxima.get(key) ?? 0) + 1;
       maxima.set(key, order);
       // Frozen occurrence snapshot. Later stop edits never rewrite this visit.

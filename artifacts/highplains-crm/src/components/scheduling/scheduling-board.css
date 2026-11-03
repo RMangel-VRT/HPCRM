@@ -90,3 +90,28 @@
 @media (prefers-reduced-motion: reduce) { .sb-card, .sb-menu { transition: none; } }
 /* Pending target copy floats inside the cell: never changes lane height. */
 .sb-pending { position: absolute; left: .35rem; right: .35rem; bottom: .35rem; z-index: 5; max-height: calc(100% - .7rem); background: hsl(var(--card) / .9); }
+
+/* R2 route blocks and weekly pattern. --svc arrives inline from the service token. */
+.sb-route { border-radius: 8px; border: 1px solid color-mix(in srgb, var(--svc) 55%, hsl(var(--border))); border-left: 4px solid var(--svc);
+  background: color-mix(in srgb, var(--svc) 10%, hsl(var(--card))); color: hsl(var(--card-foreground)); font-size: 12px; }
+.sb-route[data-slid="true"] { border-style: dashed; border-left-style: solid; }
+.sb-route-head { display: flex; width: 100%; align-items: center; gap: .35rem; padding: .3rem .45rem; text-align: left; border-radius: inherit; }
+.sb-route-head:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.sb-route-name { font-weight: 600; color: color-mix(in srgb, var(--svc) 75%, hsl(var(--foreground))); }
+.sb-route-list { list-style: none; margin: 0; padding: 0 .35rem .35rem; display: flex; flex-direction: column; gap: 2px; }
+.sb-route-list li { display: flex; align-items: center; gap: .35rem; padding: 2px .25rem; border-radius: 4px; background: hsl(var(--card)); }
+.sb-routes-line { font-size: 11.5px; padding: .25rem .45rem; border-radius: 6px; border: 1px dashed hsl(var(--border)); color: hsl(var(--muted-foreground)); }
+.sb-rain { margin-left: auto; font-size: 11px; padding: 1px 6px; border-radius: 6px; color: hsl(var(--muted-foreground)); }
+.sb-rain:hover, .sb-rain:focus-visible { color: hsl(var(--foreground)); background: hsl(var(--muted)); }
+.rt-stop { position: relative; display: flex; align-items: center; gap: .4rem; border-radius: 7px; border: 1px solid hsl(var(--border));
+  border-left: 4px solid var(--svc); background: hsl(var(--card)); padding: .3rem .45rem; font-size: 12px; cursor: grab; touch-action: none; text-align: left; width: 100%; }
+.rt-stop:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.rt-stop[data-source="true"] { opacity: .35; }
+.rt-stop[data-paused="true"] { background: repeating-linear-gradient(135deg, hsl(var(--card)), hsl(var(--card)) 6px, hsl(var(--muted)) 6px, hsl(var(--muted)) 12px); }
+.rt-tag { font-size: 10px; font-weight: 600; letter-spacing: .02em; border-radius: 4px; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--svc) 50%, hsl(var(--border))); color: color-mix(in srgb, var(--svc) 75%, hsl(var(--foreground))); white-space: nowrap; }
+.rt-need { border-radius: 8px; border: 1px solid hsl(var(--border)); border-left: 4px solid var(--svc); background: hsl(var(--card)); padding: .45rem .55rem; font-size: 12px; cursor: grab; touch-action: none; }
+.rt-need:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.rt-months { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; }
+.rt-months > span { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; color: hsl(var(--muted-foreground)); }
+.rt-months > span > i { display: block; width: 100%; height: 22px; border-radius: 3px; background: hsl(var(--muted)); font-style: normal; font-size: 10px; line-height: 22px; text-align: center; color: hsl(var(--foreground)); }
+.rt-months > span[data-on="true"] > i { background: color-mix(in srgb, var(--svc) 30%, hsl(var(--card))); font-weight: 600; }

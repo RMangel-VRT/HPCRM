@@ -52,6 +52,7 @@ const UsersPage = lazy(() => import("@/pages/UsersPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const PropertyMapsPage = lazy(() => import("@/pages/PropertyMapsPage"));
 const SchedulingPage = lazy(() => import("@/pages/SchedulingPage"));
+const RoutesPage = lazy(() => import("@/pages/RoutesPage"));
 const SchedulePage = lazy(() => import("@/pages/SchedulePage"));
 const EquipmentList = lazy(() => import("@/pages/EquipmentList"));
 const EquipmentDetail = lazy(() => import("@/pages/EquipmentDetail"));
@@ -164,7 +165,7 @@ function Router() {
   const { i18n } = useTranslation();
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [location] = useLocation();
-  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags" || location === "/dashboard/scheduling" || location === "/dashboard/estimates" || location === "/dashboard/bids" || isEstimatesHubPage(location);
+  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags" || location === "/dashboard/scheduling" || location === "/dashboard/routes" || location === "/dashboard/estimates" || location === "/dashboard/bids" || isEstimatesHubPage(location);
   const isVisualScopeDraft = /^\/dashboard\/tools\/visual-scope\/[^/]+/.test(location);
   const isCustomerDetail =
     /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
@@ -288,6 +289,11 @@ function Router() {
         <ProtectedRoute
           path="/dashboard/scheduling"
           component={SchedulingPage}
+          allowedRoles={["admin", "office", "field_manager"]}
+        />
+        <ProtectedRoute
+          path="/dashboard/routes"
+          component={RoutesPage}
           allowedRoles={["admin", "office", "field_manager"]}
         />
         <Route path="/dashboard/scheduler">
@@ -457,7 +463,7 @@ function Router() {
                 </div>
               </header>
               <AppBreadcrumb />
-              <main className={`flex-1 min-h-0 relative ${location === "/dashboard/scheduling" ? "sb-main" : "overflow-y-auto"} ${isVisualScopeDraft || isCustomerDetail || isRailPage ? "" : "p-6 md:p-8"}`}>
+              <main className={`flex-1 min-h-0 relative ${location === "/dashboard/scheduling" || location === "/dashboard/routes" ? "sb-main" : "overflow-y-auto"} ${isVisualScopeDraft || isCustomerDetail || isRailPage ? "" : "p-6 md:p-8"}`}>
                 {phantomRailVisible && (
                   <div
                     aria-hidden="true"

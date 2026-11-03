@@ -1,6 +1,6 @@
 import { addDaysYmd, parseCalendarDate } from "@/lib/schedulingStatus";
 import { mondayOf, type CapacityTone, type QueueItem } from "@/lib/scheduling";
-import type { KeyboardCoordinateGetter, Modifier } from "@dnd-kit/core";
+import { pointerWithin, rectIntersection, type CollisionDetection, type KeyboardCoordinateGetter, type Modifier } from "@dnd-kit/core";
 
 export type QueueGroupKey = "past" | "week" | "later";
 export const QUEUE_GROUP_ORDER: readonly QueueGroupKey[] = ["past", "week", "later"];
@@ -114,7 +114,7 @@ export const boardKeyboardCoordinates: KeyboardCoordinateGetter = (event, { cont
   for (const c of droppableContainers.getEnabled()) {
     if (c.id === active?.id) continue;
     const id = String(c.id);
-    if (!id.startsWith("cell:") && !id.startsWith("visit:")) continue;
+    if (!id.startsWith("cell:") && !id.startsWith("visit:") && !id.startsWith("stop:")) continue;
     const r = droppableRects.get(c.id);
     if (!r) continue;
     const tx = r.left + r.width / 2, ty = r.top + r.height / 2;
@@ -128,3 +128,11 @@ export const boardKeyboardCoordinates: KeyboardCoordinateGetter = (event, { cont
   if (!best || !collisionRect) return currentCoordinates;
   return { x: currentCoordinates.x + (best.x - cx), y: currentCoordinates.y + (best.y - cy) };
 };
+
+/** Shared board collision: pointer drops follow the pointer; keyboard drags fall back to rects. Item targets win over cells. */
+export function pointerFirstCollision(itemPrefix: string): CollisionDetection {
+  return args => {
+    const list = args.pointerCoordinates ? pointerWithin(args) : rectIntersection(args);
+    return [...list].sort((a, b) => Number(String(b.id).startsWith(itemPrefix)) - Number(String(a.id).startsWith(itemPrefix)));
+  };
+}

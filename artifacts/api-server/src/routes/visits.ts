@@ -47,6 +47,33 @@ async function write<T>(companyId: string, fn: (tx: VisitTransaction) => Promise
   return db.transaction(async tx => { await lockVisitCompany(tx, companyId); return fn(tx); });
 }
 
+/** Shared PATCH behavior. Caller MUST hold the company scheduling gate.
+ * Calendar reconciliation reuses this path inside one transaction, never loops
+ * over HTTP requests that could leave a partially applied calendar.
+ */
+export async function patchVisitInTransaction(tx: VisitTransaction, companyId: string, actingUserId: string, id: string, updates: z.infer<typeof visitUpdateBody>) {
+  const body = { ...updates };
+  const [identity] = await tx.select({ ticketId: visits.ticketId }).from(visits).where(and(eq(visits.id, id), eq(visits.companyId, companyId)));
+  if (!identity) throw new VisitError(404, "NOT_FOUND");
+  if (identity.ticketId) await lockVisitTickets(tx, companyId, [identity.ticketId]);
+  const [existing] = await tx.select().from(visits).where(and(eq(visits.id, id), eq(visits.companyId, companyId)));
+  const moved = (body.crewId !== undefined && body.crewId !== existing.crewId) || (body.visitDate !== undefined && body.visitDate !== existing.visitDate);
+  if (["done", "skipped", "cancelled"].includes(existing.status) && moved) throw new VisitError(409, "VISIT_CLOSED");
+  if (existing.ticketId && (moved || (body.status !== undefined && openVisitStatuses.includes(body.status as "planned" | "in_progress") && !openVisitStatuses.includes(existing.status as "planned" | "in_progress"))))
+    await schedulableTicket(tx, companyId, existing.ticketId);
+  if (body.crewId !== undefined) await validateVisitCrew(tx, companyId, body.crewId);
+  if (moved && !Object.hasOwn(body, "routeOrder")) {
+    const crewId = body.crewId ?? existing.crewId;
+    if (!crewId) throw new VisitError(400, "INVALID_CREW");
+    await validateVisitCrew(tx, companyId, crewId);
+    body.routeOrder = await appendVisitOrder(tx, companyId, crewId, body.visitDate ?? existing.visitDate);
+  }
+  const [visit] = await tx.update(visits).set({ ...body, updatedAt: new Date() })
+    .where(and(eq(visits.id, id), eq(visits.companyId, companyId))).returning();
+  const ticketSync = existing.ticketId ? await syncTicketFromVisits(existing.ticketId, companyId, actingUserId, tx) : { statusChanged: false, newStatusKey: null };
+  return UpdateVisitResponse.parse({ ...visit, ticketSync });
+}
+
 export function registerVisitRoutes(app: Express) {
   registerSchedulingQueue(app, authorize, failure);
   app.get("/api/tickets/:id/visits", async (req, res): Promise<void> => {
@@ -145,29 +172,7 @@ export function registerVisitRoutes(app: Express) {
       if (!contract.success) throw new VisitError(400, "INVALID_VISIT", contract.error.message);
       const body = pickProvided(visitUpdateBody.parse(contract.data), req.body);
       const id = z.string().parse(req.params.id);
-      const result = await write(user.activeCompanyId, async tx => {
-        // Discover identity only, then read scheduling values under ticket lock.
-        // The company gate prevents the visit identity changing between reads.
-        const [identity] = await tx.select({ ticketId: visits.ticketId }).from(visits).where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId)));
-        if (!identity) throw new VisitError(404, "NOT_FOUND");
-        if (identity.ticketId) await lockVisitTickets(tx, user.activeCompanyId, [identity.ticketId]);
-        const [existing] = await tx.select().from(visits).where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId)));
-        const moved = (body.crewId !== undefined && body.crewId !== existing.crewId) || (body.visitDate !== undefined && body.visitDate !== existing.visitDate);
-        if (["done", "skipped", "cancelled"].includes(existing.status) && moved) throw new VisitError(409, "VISIT_CLOSED");
-        if (existing.ticketId && (moved || (body.status !== undefined && openVisitStatuses.includes(body.status as "planned" | "in_progress") && !openVisitStatuses.includes(existing.status as "planned" | "in_progress"))))
-          await schedulableTicket(tx, user.activeCompanyId, existing.ticketId);
-        if (body.crewId !== undefined) await validateVisitCrew(tx, user.activeCompanyId, body.crewId);
-        if (moved && !Object.hasOwn(body, "routeOrder")) {
-          const crewId = body.crewId ?? existing.crewId;
-          if (!crewId) throw new VisitError(400, "INVALID_CREW");
-          await validateVisitCrew(tx, user.activeCompanyId, crewId);
-          body.routeOrder = await appendVisitOrder(tx, user.activeCompanyId, crewId, body.visitDate ?? existing.visitDate);
-        }
-        const [visit] = await tx.update(visits).set({ ...body, updatedAt: new Date() })
-          .where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId))).returning();
-        const ticketSync = existing.ticketId ? await syncTicketFromVisits(existing.ticketId, user.activeCompanyId, user.id, tx) : { statusChanged: false, newStatusKey: null };
-        return UpdateVisitResponse.parse({ ...visit, ticketSync });
-      });
+      const result = await write(user.activeCompanyId, tx => patchVisitInTransaction(tx, user.activeCompanyId, user.id, id, body));
       res.json(result);
     } catch (error) { failure(res, error); }
   });

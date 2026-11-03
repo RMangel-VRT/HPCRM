@@ -1,11 +1,10 @@
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { useLocation, useSearch } from "wouter";
 import {
-  DndContext, DragOverlay, KeyboardSensor, PointerSensor, pointerWithin, rectIntersection, useDndContext, useDroppable, useSensor, useSensors,
+  DndContext, useDndContext, useDroppable,
   type CollisionDetection, type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, CalendarDays, CloudRain, EyeOff, ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,32 +14,29 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { VisitDialog, type VisitDialogMode, type VisitDialogVisit } from "@/components/scheduling/VisitDialog";
-import { CrewDaySheet, TONE_CLASS } from "@/components/scheduling/CrewDaySheet";
+import { CrewDaySheet } from "@/components/scheduling/CrewDaySheet";
 import { QueueCard, QueueCardBody, VisitCard, VisitCardBody, queueDisplayType, queueDisplayFilterIdentity, type DragData } from "@/components/scheduling/SchedulingCards";
+import { RouteBlock } from "@/components/scheduling/RouteBlock";
+import { RainDayDialog } from "@/components/scheduling/RainDayDialog";
+import { BoardDayCell, BoardOverlay, CapacityMeter, CrewLaneHeader, useBoardDnd } from "@/components/scheduling/BoardPrimitives";
 import "@/components/scheduling/scheduling-board.css";
+import { ROUTE_SERVICES, groupRouteBlocks, hideRoutesKey, isRouteVisit, readHideRoutes, writeHideRoutes } from "@/lib/routes";
 import { typeHueVar } from "@shared/ticketVisuals";
 import { useAuth } from "@/hooks/use-auth";
 import { useBoardCrews, useSchedulingQueue, useVisitActions, useWeekSummary, useWeekVisits } from "@/hooks/use-scheduling";
-import { useSchedulingDragScroll } from "@/hooks/use-scheduling-drag-scroll";
 import { useBoardLaneHeight } from "@/hooks/use-board-lane-height";
 import {
-  SERVICE_OPTIONS, capacityTone, fmtDay, fmtHours, isOpenVisit, mondayOf, moveInList, serviceLabel, sortRoute,
+  SERVICE_OPTIONS, fmtDay, fmtHours, isOpenVisit, mondayOf, moveInList, serviceLabel, sortRoute,
   weekDays, weekFromSearch, weekToSearch, type BoardCrew, type EnrichedVisit, type QueueItem,
 } from "@/lib/scheduling";
 import {
-  QUEUE_GROUP_ORDER, boardKeyboardCoordinates, capacityBarColor, capacityPct, groupQueue, isoWeekNumber, keepOverlayInViewport, prefersReducedMotion,
+  QUEUE_GROUP_ORDER, groupQueue, isoWeekNumber, pointerFirstCollision,
 } from "@/lib/schedulingBoard";
 import { addDaysYmd, companyToday, parseCalendarDate } from "@/lib/schedulingStatus";
 
 export type { DragData };
 
-const collision: CollisionDetection = args => {
-  const hits = pointerWithin(args);
-  // Pointer drops are defined by the pointer, not the wide card's rectangle.
-  // Off-board drops do nothing. Keyboard drags have no pointer: rect fallback.
-  const list = args.pointerCoordinates ? hits : rectIntersection(args);
-  return [...list].sort((a, b) => Number(String(b.id).startsWith("visit:")) - Number(String(a.id).startsWith("visit:")));
-};
+const collision: CollisionDetection = pointerFirstCollision("visit:");
 
 export interface PendingDrop { key: string; crewId: string; date: string; data: Extract<DragData, { kind: "queue" | "visit" }>; slipped: boolean; reordering?: boolean }
 
@@ -57,10 +53,9 @@ function BoardCell({ crewId, date, children, isToday, isLast, isLastLane, empty,
   const target = over?.data.current as DragData | undefined;
   const visitOver = target?.kind === "visit" && target.visit.crewId === crewId && target.visit.visitDate.slice(0, 10) === date;
   return (
-    <div ref={setNodeRef} className="sb-cell" data-over={isOver || visitOver} data-today={isToday} data-last={isLast} data-last-lane={isLastLane} aria-describedby={empty && dragging ? `hint-${crewId}-${date}` : undefined} data-testid={`cell-${crewId}-${date}`}>
+    <BoardDayCell nodeRef={setNodeRef} over={isOver || !!visitOver} empty={empty} dragging={dragging} hint={t("scheduling.dropHere", "Drop a job here")} hintId={`hint-${crewId}-${date}`} hintTestId={`empty-cell-${crewId}-${date}`} data-today={isToday} data-last={isLast} data-last-lane={isLastLane} data-testid={`cell-${crewId}-${date}`}>
       {children}
-      {empty && dragging && <div id={`hint-${crewId}-${date}`} className="sb-empty" data-testid={`empty-cell-${crewId}-${date}`}>{t("scheduling.dropHere", "Drop a job here")}</div>}
-    </div>
+    </BoardDayCell>
   );
 }
 
@@ -68,7 +63,7 @@ function BoardCell({ crewId, date, children, isToday, isLast, isLastLane, empty,
 export default function SchedulingPage() {
   const { user } = useAuth();
   // Remount on company switch so dialogs, sheet, drag and pending state never leak across companies.
-  return <SchedulingBoardPage key={user?.activeCompanyId ?? "none"} />;
+  return <SchedulingBoardPage key={`${user?.id ?? "anon"}:${user?.activeCompanyId ?? "none"}`} />;
 }
 
 function SchedulingBoardPage() {
@@ -81,7 +76,14 @@ function SchedulingBoardPage() {
   const today = companyToday();
   const week = weekFromSearch(search, today);
   const [showSun, setShowSun] = useState(false);
-  const [service, setService] = useState("");
+  const service = new URLSearchParams(search).get("service") ?? "";
+  const boardSearch = (monday: string, svc: string) => `${weekToSearch(monday)}${svc ? `&service=${encodeURIComponent(svc)}` : ""}`;
+  const setService = (svc: string) => navigate(`/dashboard/scheduling${boardSearch(week, svc)}`);
+  const hideKey = hideRoutesKey(user?.id, companyId);
+  const [hideRoutes, setHideRoutesState] = useState(() => readHideRoutes(hideKey));
+  const setHideRoutes = (v: boolean) => { setHideRoutesState(v); writeHideRoutes(hideKey, v); };
+  const [rainDate, setRainDate] = useState<string | null>(null);
+  const canRain = ["admin", "office", "field_manager"].includes(user?.activeRole ?? "");
   const [tab, setTab] = useState<"needs" | "slipped">("needs");
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -93,12 +95,7 @@ function SchedulingBoardPage() {
   const [pendingDrops, setPendingDrops] = useState<PendingDrop[]>([]);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const queueListRef = useRef<HTMLDivElement | null>(null);
-  const pointerRef = useRef<{ x: number; y: number } | null>(null);
-  useSchedulingDragScroll(!!active, pointerRef, [queueListRef, boardRef]);
-  const boardCollision: CollisionDetection = args => {
-    pointerRef.current = args.pointerCoordinates;
-    return collision(args);
-  };
+  const { sensors, boardCollision, resetPointer } = useBoardDnd(!!active, [queueListRef, boardRef], collision);
 
   const days = useMemo(() => weekDays(week, showSun), [week, showSun]);
   const from = days[0];
@@ -107,14 +104,11 @@ function SchedulingBoardPage() {
   const queue = useSchedulingQueue(companyId);
   const crewsQ = useBoardCrews(companyId);
   const visitsQ = useWeekVisits(companyId, from, to, service);
-  const summaryQ = useWeekSummary(companyId, from, to, service);
+  // Capacity counts every open visit across services; the service filter only narrows visible work.
+  const summaryQ = useWeekSummary(companyId, from, to, "");
   const actions = useVisitActions();
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: boardKeyboardCoordinates }),
-  );
-  const goWeek = (monday: string) => navigate(`/dashboard/scheduling${weekToSearch(monday)}`);
+  const goWeek = (monday: string) => navigate(`/dashboard/scheduling${boardSearch(monday, service)}`);
 
   const crews: BoardCrew[] = crewsQ.data ?? [];
   const { headerRef, gridRef, height: laneH } = useBoardLaneHeight(
@@ -171,7 +165,7 @@ function SchedulingBoardPage() {
   const onDragStart = (e: DragStartEvent) => {
     setActive((e.active.data.current as DragData | undefined) ?? null);
   };
-  const clearDrag = () => { setActive(null); pointerRef.current = null; };
+  const clearDrag = () => { setActive(null); resetPointer(); };
 
   const onDragEnd = (e: DragEndEvent) => {
     clearDrag();
@@ -214,14 +208,13 @@ function SchedulingBoardPage() {
   const weekday = (d: string) => parseCalendarDate(d).toLocaleDateString(lng, { weekday: "short" });
   const dayNum = (d: string) => parseCalendarDate(d).getDate();
   const rangeLabel = `${fmtDay(from)} – ${fmtDay(to)}, ${parseCalendarDate(to).getFullYear()}`;
-  const reduced = prefersReducedMotion();
   const groupLabel = { past: t("scheduling.groupPast", "Past schedule-by"), week: t("scheduling.groupWeek", "Due this week"), later: t("scheduling.groupLater", "Later") };
   const openSchedule = (it: QueueItem) => it.visit
     ? setDialog({ mode: "move", ticket: { id: it.id, title: it.title }, visit: { id: it.visit.id, crewId: it.visit.crewId, visitDate: it.visit.visitDate } })
     : setDialog({ mode: "schedule", ticket: { id: it.id, title: it.title } });
 
   const overlay = (
-    <DragOverlay style={{ width: 260, height: "auto" }} modifiers={[keepOverlayInViewport]} transition={reduced ? "none" : undefined} dropAnimation={reduced ? null : { duration: 160, easing: "ease-out" }} zIndex={1000}>
+    <BoardOverlay width={260}>
       {active?.kind === "queue" ? (
         <div className="sb-card" data-lifted="true" data-testid="drag-overlay">
           <QueueCardBody item={active.item} slipped={!!active.item.visit} today={today} mode="lifted" />
@@ -231,7 +224,7 @@ function SchedulingBoardPage() {
           <VisitCardBody visit={active.visit} stopNo={null} />
         </div>
       ) : null}
-    </DragOverlay>
+    </BoardOverlay>
   );
 
   return (
@@ -261,10 +254,16 @@ function SchedulingBoardPage() {
         >
           <option value="">{t("scheduling.allServices", "All services")}</option>
           {SERVICE_OPTIONS.map(s => <option key={s.key} value={s.key}>{serviceLabel(s.key, tr)}</option>)}
+          {ROUTE_SERVICES.filter(r => !SERVICE_OPTIONS.some(s => s.key === r.key)).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+          {service && !SERVICE_OPTIONS.some(s => s.key === service) && !ROUTE_SERVICES.some(s => s.key === service) && <option value={service}>{serviceLabel(service, tr)}</option>}
         </select>
         <label className="flex items-center gap-1.5 text-sm">
           <input type="checkbox" checked={showSun} onChange={e => setShowSun(e.target.checked)} data-testid="toggle-sunday" />
           {t("scheduling.sun", "Sun")}
+        </label>
+        <label className="flex items-center gap-1.5 text-sm">
+          <input type="checkbox" checked={hideRoutes} onChange={e => setHideRoutes(e.target.checked)} data-testid="toggle-hide-routes" />
+          <EyeOff className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />Hide routes
         </label>
       </div>
 
@@ -356,6 +355,11 @@ function SchedulingBoardPage() {
                     {d === today ? (
                       <span className="sb-daypill flex items-baseline gap-1"><span className="text-[15px] font-bold tabular-nums">{dayNum(d)}</span><span className="text-xs">{weekday(d)} · {t("scheduling.todayLower", "today")}</span></span>
                     ) : (<><span className="sb-daynum">{dayNum(d)}</span><span>{weekday(d)}</span></>)}
+                    {canRain && parseCalendarDate(d).getDay() !== 0 && (
+                      <button type="button" className="sb-rain flex items-center gap-1" onClick={() => setRainDate(d)} aria-label={`Rain day ${d}`} data-testid={`button-rain-day-${d}`}>
+                        <CloudRain className="h-3 w-3" aria-hidden />Rain day…
+                      </button>
+                    )}
                   </div>
                 ))}
                 {crews.map((crew, crewIndex) => {
@@ -368,13 +372,8 @@ function SchedulingBoardPage() {
                   }
                   return (
                     <div key={crew.id} className="contents" style={laneStyle} data-testid={`lane-${crew.id}`} data-crew-color={color}>
-                      <div className="sb-crew" style={laneStyle} data-testid={`row-crew-${crew.id}`}>
-                        <div className="truncate font-semibold">{crew.name}</div>
-                        {crew.supervisorName && <div className="truncate text-xs text-muted-foreground">{crew.supervisorName}</div>}
-                        <div className="mt-1 text-[11px] tabular-nums text-muted-foreground" data-testid={`text-crew-week-${crew.id}`}>
-                          {wkStops} {t("scheduling.stops", "stops")} · {fmtHours(wkHours)} / {fmtHours(wkCap)} h {t("scheduling.thisWeek", "this week")}
-                        </div>
-                      </div>
+                      <CrewLaneHeader crew={crew} style={laneStyle} testId={`row-crew-${crew.id}`} summaryTestId={`text-crew-week-${crew.id}`}
+                        summary={<>{wkStops} {t("scheduling.stops", "stops")} · {fmtHours(wkHours)} / {fmtHours(wkCap)} h {t("scheduling.thisWeek", "this week")}</>} />
                       {days.map((d, di) => {
                         const key = `${crew.id}|${d}`;
                         const list = cells.get(key) ?? [];
@@ -384,24 +383,27 @@ function SchedulingBoardPage() {
                         const s = summaries.get(key);
                         const hours = s?.plannedHours ?? 0;
                         const cap = s?.capacityHours ?? crew.defaultHoursPerDay ?? 8;
-                        const tone = capacityTone(hours, cap);
                         const stops = s?.visitCount ?? 0;
                         return (
                           <div key={d} className="contents" style={laneStyle}>
                             <BoardCell crewId={crew.id} date={d} isToday={d === today} isLast={di === days.length - 1} isLastLane={crewIndex === crews.length - 1} empty={list.length === 0} dragging={!!active}>
-                              <button
-                                type="button" onClick={() => setSheet({ crewId: crew.id, date: d })}
-                                className={`sb-cap ${TONE_CLASS[tone]}`} data-testid={`header-cell-${crew.id}-${d}`} data-tone={tone}
-                              >
-                                <span className="flex justify-between gap-2">
-                                  <span>{stops} {stops === 1 ? t("scheduling.stopOne", "stop") : t("scheduling.stops", "stops")}</span>
-                                  <span>{fmtHours(hours)} / {fmtHours(cap)} h</span>
-                                </span>
-                                <span className="sb-bar" aria-hidden>
-                                  <span style={{ width: `${capacityPct(hours, cap)}%`, background: capacityBarColor(tone, color) }} data-testid={`capacity-bar-${crew.id}-${d}`} data-tone={tone} />
-                                </span>
-                              </button>
-                              {list.map(v => (
+                              <CapacityMeter
+                                left={<>{stops} {stops === 1 ? t("scheduling.stopOne", "stop") : t("scheduling.stops", "stops")}</>}
+                                hours={hours} cap={cap} crewColor={color} fmt={fmtHours}
+                                onClick={() => setSheet({ crewId: crew.id, date: d })}
+                                testId={`header-cell-${crew.id}-${d}`} barTestId={`capacity-bar-${crew.id}-${d}`}
+                              />
+                              {(() => {
+                                const routeVisits = list.filter(v => isRouteVisit(v) && v.status !== "cancelled");
+                                if (!routeVisits.length) return null;
+                                if (hideRoutes) return <div className="sb-routes-line" data-testid={`routes-line-${crew.id}-${d}`}>Routes: {routeVisits.length} {routeVisits.length === 1 ? "stop" : "stops"}</div>;
+                                return groupRouteBlocks(routeVisits).map(b => (
+                                  <RouteBlock key={b.key} block={b}
+                                    onMove={x => setDialog({ mode: "move", ticket: null, visit: x })}
+                                    onSkip={setRemoving} />
+                                ));
+                              })()}
+                              {list.filter(v => !isRouteVisit(v)).map(v => (
                                 <VisitCard
                                   key={v.id} visit={v} index={openList.findIndex(x => x.id === v.id)} openCount={openList.length}
                                   onEdit={x => setDialog({ mode: "edit", ticket: x.ticket ? { id: x.ticket.id, title: x.ticket.title } : null, visit: x })}
@@ -430,9 +432,10 @@ function SchedulingBoardPage() {
           </div>
           </section>
         </div>
-        {typeof document !== "undefined" ? createPortal(overlay, document.body) : overlay}
+        {overlay}
       </DndContext>
 
+      <RainDayDialog date={rainDate} crews={crews} onOpenChange={o => { if (!o) setRainDate(null); }} />
       <VisitDialog
         mode={dialog?.mode ?? "schedule"} open={!!dialog} onOpenChange={o => { if (!o) setDialog(null); }}
         ticket={dialog?.ticket} visit={dialog?.visit} defaultCrewId={dialog?.crewId} defaultDate={dialog?.date}
@@ -447,7 +450,7 @@ function SchedulingBoardPage() {
       <AlertDialog open={!!removing} onOpenChange={o => { if (!o) setRemoving(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("scheduling.removeTitle", "Remove from schedule?")}</AlertDialogTitle>
+            <AlertDialogTitle>{removing && isRouteVisit(removing) ? "Skip this visit?" : t("scheduling.removeTitle", "Remove from schedule?")}</AlertDialogTitle>
             <AlertDialogDescription>{removing?.ticket?.title ?? removing?.title ?? ""}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -20,6 +20,49 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Clock, Users, Calendar, Save, Edit, X } from "lucide-react";
+import { useCustomerRouteSummary } from "@/hooks/use-routes";
+import { PlannerReplacedBanner } from "@/components/routes/PlannerReplacedBanner";
+import { fmtMinutes, routeServiceLabel, serviceColorVar, weekdayName } from "@/lib/routes";
+
+/**
+ * R2: once the company's route import is recorded, the customer page reads route stops
+ * (service, crew, day, cadence) read-only. Before that, or if the summary is unavailable,
+ * the legacy planner section is kept unchanged.
+ */
+export default function CustomerSchedulingSection({ customerId }: CustomerSchedulingSectionProps) {
+  const summary = useCustomerRouteSummary(customerId);
+  if (summary.isLoading) {
+    return <Card><CardHeader><CardTitle>Routes</CardTitle></CardHeader><CardContent><Skeleton className="h-10 w-full" /></CardContent></Card>;
+  }
+  if (!summary.data?.imported) return <LegacyCustomerSchedulingSection customerId={customerId} />;
+  const stops = summary.data.stops;
+  return (
+    <Card data-testid="card-customer-routes">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Calendar className="h-5 w-5" />Routes</CardTitle>
+        <CardDescription>Weekly route stops for this property. Edit them on the Routes page.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {stops.length === 0 ? (
+          <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground" data-testid="text-customer-routes-empty">This property is not on a route.</p>
+        ) : (
+          <ul className="divide-y rounded-md border">
+            {stops.map(s => (
+              <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-l-4 px-3 py-2 text-sm" style={{ borderLeftColor: serviceColorVar(s.serviceKey) }} data-testid={`row-customer-route-${s.id}`}>
+                <span className="font-medium">{routeServiceLabel(s.serviceKey)}</span>
+                <span className="flex items-center gap-1 text-muted-foreground"><Users className="h-3.5 w-3.5" />{s.crew?.name ?? "No crew"}</span>
+                <span>{weekdayName(s.weekday)}</span>
+                <Badge variant="outline">{s.everyWeeks === 2 ? "Every 2 weeks" : "Every week"}</Badge>
+                <span className="ml-auto flex items-center gap-1 tabular-nums text-muted-foreground"><Clock className="h-3.5 w-3.5" />{fmtMinutes(s.minutes)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <PlannerReplacedBanner showLink={false} />
+      </CardContent>
+    </Card>
+  );
+}
 
 interface CustomerSchedulingSectionProps {
   customerId: string;
@@ -34,7 +77,7 @@ const DAYS_OF_WEEK = [
   { value: "saturday", label: "Saturday" },
 ] as const;
 
-export default function CustomerSchedulingSection({ customerId }: CustomerSchedulingSectionProps) {
+function LegacyCustomerSchedulingSection({ customerId }: CustomerSchedulingSectionProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);

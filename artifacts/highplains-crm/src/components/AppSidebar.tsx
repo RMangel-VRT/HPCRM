@@ -35,6 +35,7 @@ import { pendingInvoicesKey, showBillingSidebar, type PendingInvoice } from "@/l
 import { resolveCustomersRouteAsync, resolveCustomersRouteSync } from "@/lib/last-viewed-customer";
 import { getLastCommsTab, isValidCommsTab, type CommsTab } from "@/lib/last-comms-tab";
 import { useEffect, useMemo, useState } from "react";
+import { usePlannerReadiness } from "@/hooks/use-routes";
 import { getNavForUser, navItemIsActive, type NavUser } from "@/components/nav/navConfig";
 import { useMentionsCount } from "@/lib/notifications";
 
@@ -128,9 +129,11 @@ export default function AppSidebar({
     };
   }, []);
 
+  const readiness = usePlannerReadiness();
+  const routesImported = readiness.data?.imported === true;
   const navUser: NavUser = useMemo(
-    () => ({ activeRole: userRole, activeTags, isSuperAdminBool: isSuperAdmin, lastCommsTab }),
-    [userRole, activeTags, isSuperAdmin, lastCommsTab],
+    () => ({ activeRole: userRole, activeTags, isSuperAdminBool: isSuperAdmin, lastCommsTab, routesImported }),
+    [userRole, activeTags, isSuperAdmin, lastCommsTab, routesImported],
   );
   const groups = getNavForUser(navUser);
 

@@ -535,6 +535,7 @@ const en = {
     myBatches: "My Batches",
     myWork: "My Work",
     planner: "Maintenance planner",
+    routes: "Routes",
     serviceChecklists: "Service checklists",
   },
   topbar: {

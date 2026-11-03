@@ -195,6 +195,20 @@ export const routeStops = pgTable("route_stops", {
   seasonCheck: check("route_stops_season_check", sql`(${table.seasonStart} IS NULL AND ${table.seasonEnd} IS NULL) OR (${table.seasonStart} IS NOT NULL AND ${table.seasonEnd} IS NOT NULL AND ${table.seasonStart} <= ${table.seasonEnd})`),
 }));
 export type RouteStop = typeof routeStops.$inferSelect;
+// Import-review snapshots only. route_stops remains the sole live pattern.
+export const routeImportDecisions = pgTable("route_import_decisions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  sourceBlockId: varchar("source_block_id").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  resolution: text("resolution"),
+  resolvedById: varchar("resolved_by_id").references(() => users.id, { onDelete: "set null" }),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table: any) => ({
+  sourceUnique: uniqueIndex("route_import_decisions_source_unique").on(table.companyId, table.sourceBlockId),
+  resolutionCheck: check("route_import_decisions_resolution_check", sql`${table.resolution} IS NULL OR ${table.resolution} IN ('keep','remove')`),
+}));
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

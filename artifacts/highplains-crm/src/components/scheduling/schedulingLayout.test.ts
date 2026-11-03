@@ -12,7 +12,7 @@ describe("scheduling layout boundaries", () => {
   it("exempts Scheduling alone from the padded app shell using the existing rail mechanism", () => {
     expect(app).toMatch(/const isRailPage = [^\n]+location === "\/dashboard\/scheduling"/);
     expect(app).toMatch(/isVisualScopeDraft \|\| isCustomerDetail \|\| isRailPage \? "" : "p-6 md:p-8"/);
-    expect(app).toContain('location === "/dashboard/scheduling" ? "sb-main" : "overflow-y-auto"');
+    expect(app).toContain('location === "/dashboard/scheduling" || location === "/dashboard/routes" ? "sb-main" : "overflow-y-auto"');
     expect(css).toContain("@media (min-width: 860px) { .sb-main { overflow: hidden; } }");
     expect(rule(".sb-page")).toContain("height: 100%");
     expect(rule(".sb-page")).toContain("overflow: hidden");

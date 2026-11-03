@@ -25,3 +25,17 @@ quantities while having no summer work.
 
 **How to apply:** Check the original occurrence month, never a later moved/slid
 date, when deciding whether to generate a contract-driven occurrence.
+
+A weekly/fortnightly stop has at most one generated occurrence per original
+Monday-based week, even after its weekday changes. A weekday edit preserves the
+fortnightly anchor week and aligns the anchor day to the new weekday.
+
+**Why:** Keeping only exact stop/date uniqueness after a weekday edit can generate
+a second trip for a week already on the calendar; leaving a fortnightly anchor
+on the old weekday can instead stop generation entirely. Normal pattern edits
+must neither rewrite dated trips nor duplicate already-generated weeks.
+
+**How to apply:** Retain original occurrence identities in every status. Fill
+uses original weeks for generation protection, not the current moved/slid dates.
+Explicit calendar reconciliation moves existing rows without replacing their
+identity or treating a rain-day move into another week as a new occurrence.

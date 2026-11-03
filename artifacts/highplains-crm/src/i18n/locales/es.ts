@@ -538,6 +538,7 @@ const es = {
     myBatches: "Mis lotes",
     myWork: "Mi trabajo",
     planner: "Planificador de mantenimiento",
+    routes: "Rutas",
     serviceChecklists: "Listas de servicio",
   },
   topbar: {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
-  companies, routeStops, crews, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks,
+  companies, routeStops, routeImportDecisions, crews, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks,
   type InsertRouteStop, type WeeklyScheduleTemplate, type ScheduleBlock, type MaintenanceCrew, type MaintenanceVisitConfig, type Crew,
 } from "@workspace/db";
 import { db } from "../db";
@@ -29,6 +29,7 @@ export function planPlannerRoutes(companyId: string, data: PlannerInputs, resolv
   const created: { property: string; crew: string; weekday: number; minutes: number; anchorDate: string; covered2027: boolean }[] = [];
   const skipped: { property: string; crew: string; weekday: string; reason: string }[] = [];
   const decisions: { property: string; crew: string; weekday: string; reason: string }[] = [];
+  const decisionSnapshots: (typeof routeImportDecisions.$inferInsert)[] = [];
   const properties = new Map(data.properties.map(p => [p.id, p]));
   const configs = new Map(data.configs.map(c => [c.id, c]));
   const columns = new Map(data.columns.map(c => [c.id, c]));
@@ -60,6 +61,14 @@ export function planPlannerRoutes(companyId: string, data: PlannerInputs, resolv
       // Never silently substitute a later placement for a skipped first block.
       if (property && seen.has(property.id)) {
         decisions.push({ ...item, reason: "Duplicate property/service placement; first block retained" });
+        let anchorDate = today;
+        while (weekday && routeWeekday(anchorDate) !== weekday) anchorDate = addCalendarDays(anchorDate, 1);
+        decisionSnapshots.push({ companyId, sourceBlockId: block.id, snapshot: {
+          customerId: property.id, propertyName: item.property, crewId: crew?.id ?? null,
+          crewName: item.crew, weekday, serviceKey: "mowing", minutes: config?.estimatedDurationMinutes ?? 60,
+          anchorDate, sortOrder: block.sortOrder ?? 0, notes: config?.notes ?? null,
+          reason: "Duplicate property/service placement; first block retained",
+        } });
         continue;
       }
       if (property) seen.add(property.id);
@@ -97,7 +106,7 @@ export function planPlannerRoutes(companyId: string, data: PlannerInputs, resolv
   const fingerprint = createHash("sha256").update(JSON.stringify({ templates, proposed: reviewStops, skipped: skipped.length, decisions: decisions.length })).digest("hex");
   return { summary: `Import would create ${proposed.length} route stops (${covered} with a 2027 mowing contract); ${decisions.length} need a decision.`,
     templates, activeTemplates: active.length, blocked: active.length !== 1 ? "Exactly one active template is required" : null,
-    created, skipped, decisions, covered2027: covered, withoutCoverage2027: created.length - covered, fingerprint, proposed };
+    created, skipped, decisions, covered2027: covered, withoutCoverage2027: created.length - covered, fingerprint, proposed, decisionSnapshots };
 }
 export async function loadPlannerInputs(reader: Reader, companyId: string, includeStops: boolean) {
   const templates = await reader.select().from(weeklyScheduleTemplates).where(eq(weeklyScheduleTemplates.companyId, companyId));
@@ -124,12 +133,15 @@ export async function importPlannerRoutes(companyId: string, opts: { dryRun: boo
       if (company.imported) return { alreadyImported: true };
     }
     const { data, resolve } = await loadPlannerInputs(tx, companyId, ready);
-    const { proposed, ...report } = planPlannerRoutes(companyId, data, resolve);
+    const { proposed, decisionSnapshots, ...report } = planPlannerRoutes(companyId, data, resolve);
     if (opts.dryRun || report.blocked) return report;
     if (routeImportApprovals[companyId]?.fingerprint !== report.fingerprint)
       return { ...report, disabled: true, reason: "Reviewed dry run changed; Randy must approve a fresh report" };
     // No ON CONFLICT here: an unexpected conflict must roll back stops AND marker.
     for (let i = 0; i < proposed.length; i += 1000) await tx.insert(routeStops).values(proposed.slice(i, i + 1000));
+    // Commit review snapshots with stops and the import marker. Never write in a
+    // dry run, and never recompute resolved choices from later planner edits.
+    if (decisionSnapshots.length) await tx.insert(routeImportDecisions).values(decisionSnapshots);
     await tx.update(companies).set({ routesImportedAt: new Date() }).where(eq(companies.id, companyId));
     return report;
   }, opts.dryRun ? { isolationLevel: "repeatable read", accessMode: "read only" } : undefined);

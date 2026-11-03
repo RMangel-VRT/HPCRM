@@ -598,3 +598,7 @@
    rail. Scope it here rather than recoloring Projects on other work surfaces. */
 .opportunity-won { --tt-project: #0f766e; }
 .dark .opportunity-won { --tt-project: #5eead4; }
+
+/* R2 route service colors. Distinct from ticket-type hues (--tt-*) and crew colors. */
+:root { --svc-mowing: #2f7a5f; --svc-pet: #8a6a10; --svc-winter: #4a5aa8; --svc-irrigation: #0b7d90; }
+.dark { --svc-mowing: #6fcfa8; --svc-pet: #e2c15a; --svc-winter: #9aa8f0; --svc-irrigation: #5fd0e2; }

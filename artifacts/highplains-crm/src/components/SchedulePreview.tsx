@@ -1,3 +1,6 @@
+import { usePlannerReadiness } from "@/hooks/use-routes";
+import RouteSchedulePreview from "@/components/routes/RouteSchedulePreview";
+import { PlannerReplacedBanner } from "@/components/routes/PlannerReplacedBanner";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,6 +38,15 @@ function getTodaysDayOfWeek(): DayOfWeek {
 }
 
 export default function SchedulePreview() {
+  const readiness = usePlannerReadiness();
+  if (readiness.isPending) return <Card><CardContent className="p-6"><Skeleton className="h-20 w-full" /></CardContent></Card>;
+  if (readiness.isError) return <Card><CardContent className="p-6 text-sm text-destructive" role="alert">Scheduling preview could not be loaded.</CardContent></Card>;
+  return readiness.data?.plannerReadOnly ? <RouteSchedulePreview /> : <LegacySchedulePreview />;
+}
+
+function LegacySchedulePreview() {
+  const readiness = usePlannerReadiness();
+  const frozen = readiness.data?.plannerReadOnly === true;
   const [showModal, setShowModal] = useState(false);
   const todayDay = getTodaysDayOfWeek();
 
@@ -113,6 +125,7 @@ export default function SchedulePreview() {
           </Link>
         </CardHeader>
         <CardContent>
+          {frozen && <div className="mb-3"><PlannerReplacedBanner message={readiness.data?.plannerMessage} /></div>}
           {isLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-10 w-full" />

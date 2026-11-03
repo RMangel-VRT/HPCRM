@@ -64,6 +64,7 @@ import { pickProvided } from '../lib/patchBody';
 import { linkCrewsByName } from "../lib/linkCrews";
 import { registerVisitRoutes } from "./visits";
 import { registerRouteStopRoutes } from "./routeStops";
+import { registerPlannerFreeze, registerPlannerFreezeErrors } from "../lib/plannerFreeze";
 import { runApprovedPlannerImports } from "../lib/importPlannerRoutes";
 import { backfillVisitsFromTickets } from "../lib/backfillVisits";
 import { backfillVisitServices } from "../lib/backfillVisitServices";
@@ -2690,6 +2691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerCrewsAndMobileRoutes(app);
   registerVisitRoutes(app);
   registerRouteStopRoutes(app);
+  registerPlannerFreeze(app);
   registerFlagsRoutes(app);
   registerDashboardQueueRoutes(app);
   registerEstimatesBoardRoutes(app);
@@ -19549,6 +19551,7 @@ ${pdfText.slice(0, 8000)}`;
     }
   });
 
+  registerPlannerFreezeErrors(app);
   const httpServer = createServer(app);
 
   return httpServer;

@@ -132,6 +132,26 @@ export const routeStops = pgTable("route_stops", {
 export type RouteStop = typeof routeStops.$inferSelect;
 export type InsertRouteStop = typeof routeStops.$inferInsert;
 
+// Frozen import-review evidence, NOT a second live recurring pattern.
+// The source block ID is provenance, deliberately not a cascading planner FK.
+export const routeImportDecisions = pgTable("route_import_decisions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  sourceBlockId: varchar("source_block_id").notNull(),
+  snapshot: jsonb("snapshot").$type<{
+    customerId: string; propertyName: string; crewId: string | null; crewName: string;
+    weekday: number; serviceKey: "mowing"; minutes: number; anchorDate: string;
+    sortOrder: number; notes: string | null; reason: string;
+  }>().notNull(),
+  resolution: text("resolution").$type<"keep" | "remove">(),
+  resolvedById: varchar("resolved_by_id").references(() => users.id, { onDelete: "set null" }),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, table => ({
+  sourceUnique: uniqueIndex("route_import_decisions_source_unique").on(table.companyId, table.sourceBlockId),
+  resolutionCheck: check("route_import_decisions_resolution_check", sql`${table.resolution} IS NULL OR ${table.resolution} IN ('keep','remove')`),
+}));
+
 export const hardscapeCatalogItems = pgTable("hardscape_catalog_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
