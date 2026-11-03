@@ -38,6 +38,8 @@ const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const SuperAdminHome = lazy(() => import("@/pages/SuperAdminHome"));
 
+const QboCustomerReview = lazy(() => import("@/pages/QboCustomerReview"));
+const CustomerByQbo = lazy(() => import("@/pages/CustomerByQbo"));
 const CustomersList = lazy(() => import("@/pages/CustomersList"));
 const CustomerDetail = lazy(() => import("@/pages/CustomerDetail"));
 const RevenueOverview = lazy(() => import("@/pages/RevenueOverview"));
@@ -242,6 +244,11 @@ function Router() {
           allowedRoles={["admin", "field_manager", "landscape_supervisor", "chemical_manager", "irrigation_manager", "shop_manager"]}
         />
         <ProtectedRoute
+          path="/dashboard/customers/by-qb/:qboId"
+          component={CustomerByQbo}
+          allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
+        />
+        <ProtectedRoute
           path="/dashboard/customers/:id"
           component={CustomerDetail}
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
@@ -264,6 +271,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/estimates/settings/quickbooks" component={QuickBooksSetup} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates" component={EstimatesBoardPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/bids" component={BidsBoardPage} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/invoicing/quickbooks-review" component={QboCustomerReview} access={canViewBilling} />
         <ProtectedRoute path="/dashboard/invoicing" component={BillingPage} access={canViewBilling} />
         <Route path="/dashboard/billing">
           <QueryPreservingRedirect to="/dashboard/invoicing" />

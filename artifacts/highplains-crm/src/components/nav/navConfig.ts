@@ -22,7 +22,7 @@ export interface NavUser {
   routesImported?: boolean;
 }
 
-export type NavBadge = "billing" | "scheduling" | "flags" | "unsorted" | "mentions";
+export type NavBadge = "billing" | "scheduling" | "flags" | "unsorted" | "mentions" | "qboReview";
 
 export interface NavItemDef {
   key: string;
@@ -31,6 +31,8 @@ export interface NavItemDef {
   href: string | ((user: NavUser) => string);
   visible: (user: NavUser) => boolean;
   badge?: NavBadge;
+  /** Independent second badge (never summed with badge). */
+  secondaryBadge?: NavBadge;
   activeMatch?: string[];
 }
 
@@ -47,6 +49,7 @@ export interface ResolvedNavItem {
   href: string;
   path: string;
   badge?: NavBadge;
+  secondaryBadge?: NavBadge;
   activeMatch: string[];
 }
 
@@ -89,6 +92,8 @@ export const NAV_GROUPS: NavGroupDef[] = [
       { key: "tickets",
         labelKey: (u) => (u.activeRole === "landscape_supervisor" ? "nav.myWork" : "nav.tickets"),
         icon: ClipboardList, href: "/dashboard/tickets/my",
+        // Shown only for billing-tagged users without Invoicing (AppSidebar decides).
+        secondaryBadge: "qboReview",
         activeMatch: ["/dashboard/tickets", "/dashboard/my-batches"],
         visible: (u) => workViewsFor("tickets", u.activeRole).some(item => item.key === "mine") || !!u.activeTags?.includes("billing") },
       { key: "scheduling", labelKey: "nav.scheduling", icon: CalendarDays, href: "/dashboard/scheduling",
@@ -126,7 +131,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
     items: [
       { key: "estimates", labelKey: "nav.estimates", icon: Calculator, href: "/dashboard/estimates", visible: is(...AO) },
       { key: "bids", labelKey: "nav.bids", icon: Gavel, href: "/dashboard/bids", visible: is(...AO) },
-      { key: "billing", labelKey: "nav.invoicing", icon: Receipt, href: "/dashboard/invoicing", badge: "billing",
+      { key: "billing", labelKey: "nav.invoicing", icon: Receipt, href: "/dashboard/invoicing", badge: "billing", secondaryBadge: "qboReview",
         visible: (u) => showBillingSidebar(u) },
       { key: "revenue", labelKey: "nav.revenue", icon: DollarSign, href: "/dashboard/revenue", visible: is(...AO) },
       { key: "reports", labelKey: "nav.reports", icon: FileBarChart, href: "/dashboard/reports", visible: is(...AO) },
@@ -155,7 +160,7 @@ const SUPER_ADMIN_GROUPS: NavGroupDef[] = [
       { key: "mentions", labelKey: "nav.mentions", icon: MessageSquare, href: "/dashboard/mentions",
         badge: "mentions", visible: () => true },
       { key: "myTickets", labelKey: "nav.myTickets", icon: UserCheck, href: "/dashboard/tickets/my", visible: (u) => showBillingSidebar(u) },
-      { key: "billing", labelKey: "nav.invoicing", icon: Receipt, href: "/dashboard/invoicing", badge: "billing", visible: (u) => showBillingSidebar(u) },
+      { key: "billing", labelKey: "nav.invoicing", icon: Receipt, href: "/dashboard/invoicing", badge: "billing", secondaryBadge: "qboReview", visible: (u) => showBillingSidebar(u) },
     ],
   },
 ];
@@ -182,6 +187,7 @@ function resolve(def: NavItemDef, user: NavUser): ResolvedNavItem {
     href,
     path: href.split("?")[0],
     badge: def.badge,
+    ...(def.secondaryBadge ? { secondaryBadge: def.secondaryBadge } : {}),
     activeMatch,
   };
 }

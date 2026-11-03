@@ -18,13 +18,14 @@ import type { Ticket, TicketType, TicketTypeStatus, Customer, EquipmentTicket, E
 import { useTranslation } from "react-i18next";
 import { isNeedsSchedulingStatus, useSchedulingStatusSet } from "@/lib/schedulingStatus";
 import { useAuth } from "@/hooks/use-auth";
+import QboReviewLink from "@/components/qbo/QboReviewLink";
 import TicketCard from "@/components/TicketCard";
 import type { TicketWithDetails } from "@/components/TicketCard";
 import { TicketStatusPill, TicketTypeBadge, ticketHue } from "@/components/TicketIdentity";
 import { resolveDisplayTicketType, matchesDisplayTypeFilter } from "@shared/ticketVisuals";
 import BillingView from "@/components/BillingView";
 import { apiRequest } from "@/lib/queryClient";
-import { canViewBilling, isBillingItem, isBillingPerson, pendingInvoicesKey, type PendingInvoice } from "@/lib/billing";
+import { canViewBilling, isBillingItem, isBillingPerson, pendingInvoicesKey, showBillingSidebar, type PendingInvoice } from "@/lib/billing";
 import { InvoiceLinkChip, InvoiceParentLine } from "@/components/TicketLinkDisplay";
 
 const MY_TICKETS_SCROLL_STORAGE_KEY = "myTicketsScrollPosition";
@@ -715,6 +716,9 @@ export default function MyTickets() {
                 <TabsTrigger value="other" data-testid="tab-other-tickets">Other tickets ({openTickets.length})</TabsTrigger>
               </TabsList>
             </Tabs>
+          )}
+          {hasInvoiceTabs && currentTab === "invoice" && isBillingPerson(user) && !showBillingSidebar(user) && (
+            <QboReviewLink testId="link-qbo-review-to-invoice" />
           )}
           {hasInvoiceTabs && currentTab === "invoice" ? (
             <BillingView

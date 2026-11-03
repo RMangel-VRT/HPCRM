@@ -18,6 +18,7 @@ import {
 import { encryptToken } from "../services/qboCrypto";
 import qboItemsRouter from "./qboItems";
 import qboCustomerOutboundRouter from "./qboCustomerOutbound";
+import { qboCustomerReads } from "./qboCustomerReads";
 import { CustomerSyncError, customerSyncStatus, ingestQboCustomers, runFullCustomerPull,
   runInitialCustomerSync, runIncrementalCustomerSync, withCustomerSyncLock, writeCustomerSeedSuggestion } from "../services/qboCustomerSync";
 
@@ -35,6 +36,7 @@ declare module "express-session" {
 const router = Router();
 router.use(qboItemsRouter);
 router.use(qboCustomerOutboundRouter);
+router.use(qboCustomerReads);
 
 // Multer instance: memory storage, 5 MB limit, only CSV files
 const csvUpload = multer({
@@ -416,7 +418,7 @@ router.post("/customers/bind", async (req, res) => {
       res.status(400).json({ message: "customerId and qboId are required" });
       return;
     }
-    const result = await storage.bindQboCustomer(u.activeCompanyId, customerId, qboId);
+    const result = await storage.bindQboCustomer(u.activeCompanyId, customerId, qboId, u.id);
     if (result.notFound === "qbo") {
       res.status(404).json({ message: "QuickBooks customer not found in cache for this company" });
       return;
@@ -624,6 +626,7 @@ router.post("/customers/promote", async (req, res) => {
       u.activeCompanyId,
       qboId,
       overrides ?? {},
+      u.id,
     );
     if ("conflict" in result && result.conflict) {
       res.status(409).json({ message: "This QuickBooks customer is already bound to a CRM customer" });
@@ -636,7 +639,9 @@ router.post("/customers/promote", async (req, res) => {
     res.json(result);
   } catch (err) {
     logger.error({ err }, "POST /api/qbo/customers/promote error");
-    res.status(500).json({ message: "Failed to promote customer" });
+    res.status(err instanceof CustomerSyncError ? err.status : 500).json({
+      message: err instanceof CustomerSyncError ? err.message : "Failed to promote customer",
+    });
   }
 });
 

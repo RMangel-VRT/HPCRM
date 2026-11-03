@@ -74,6 +74,7 @@ import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks
 import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
 import { billingInputProblem, protectedBillingWrite } from "../services/customerBillingInput";
+import { customerQboReads } from "./qboCustomerReads";
 import { linkCrewsByName } from "../lib/linkCrews";
 import { registerVisitRoutes } from "./visits";
 import { registerRouteStopRoutes } from "./routeStops";
@@ -2774,6 +2775,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── End Communication Center helpers ─────────────────────────────────────────
 
   // Customers routes
+  // Stable by-QBO lookup must be registered before the generic customer route.
+  app.use("/api/customers", customerQboReads);
   app.get("/api/customers", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
@@ -3043,6 +3046,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ message: "Active company changed. Reload before continuing." });
+    }
     
     if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
       return res.status(403).send("Insufficient permissions - admin or office role required");

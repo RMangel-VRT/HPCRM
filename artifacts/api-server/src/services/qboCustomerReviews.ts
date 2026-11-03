@@ -122,9 +122,12 @@ export async function resolveCustomerReview(companyId: string, reviewId: string,
             await afterCustomerEdit(tx, parent, updated);
           }
         } else if (raw.ParentRef) throw new CustomerSyncError(409, "Select a CRM branch with the matching parent");
-        const result = await bindCustomerLocked(tx, companyId, customerId, qboId);
+        const result = await bindCustomerLocked(tx, companyId, customerId, qboId, actorId);
         if (result.conflict) throw new CustomerSyncError(409, "QuickBooks customer is already bound to another CRM customer");
         if (result.notFound) throw new CustomerSyncError(404, "Customer not found");
+        // The shared link routine is the sole closer of new/sub-customer
+        // reviews, including this one. Other kinds have their own audit action.
+        if (review.kind === "new_in_qbo" || review.kind === "sub_customer") return { ok: true };
       } else if (action === "unlink") {
         if (!c || c.qboCustomerId !== review.qboId) throw new CustomerSyncError(409, "Review binding changed");
         await unlinkCustomerLocked(tx, companyId, c.id);
@@ -134,6 +137,9 @@ export async function resolveCustomerReview(companyId: string, reviewId: string,
         if (!cached) throw new CustomerSyncError(404, "QuickBooks customer not found");
         // Wizard input is explicitly a prefill snapshot, not a customer creation.
         prefill = { qboId: cached.qboId, fields: cached.normalized, parentQboId: cached.parentQboId };
+        // Prefill is not a resolution. Only a successful shared link closes this
+        // review; failed or abandoned creation must leave it actionable.
+        return { ok: true, prefill };
       } else if (action === "set_crm_inactive") {
         if (!c || c.qboCustomerId !== review.qboId) throw new CustomerSyncError(409, "Review binding changed");
         await tx.update(customers).set({ status: "inactive", updatedAt: new Date() })

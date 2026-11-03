@@ -63,6 +63,7 @@ import CustomerServiceChecklist from "@/components/CustomerServiceChecklist";
 import AnnualServiceRollup from "@/components/AnnualServiceRollup";
 import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
 import ParentCustomerDashboard from "@/pages/ParentCustomerDashboard";
+import QboCustomerCard from "@/components/qbo/QboCustomerCard";
 import {
   setLastViewedCustomerId,
   clearLastViewedCustomerId,
@@ -1439,6 +1440,7 @@ export default function CustomerDetail() {
               <CustomerVisualScopesSection customerId={params?.id!} />
             </TabsContent>
             <TabsContent value="contracts" className="space-y-4">
+                <div className="max-w-xl"><QboCustomerCard customerId={id!} isParent={isParentCustomer} /></div>
                 <CustomerContracts customerId={id!}>
                 <div className="flex justify-between items-center gap-4">
                   <div className="flex items-center gap-2">

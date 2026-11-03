@@ -31,13 +31,14 @@ import { useSchedulingQueue } from "@/hooks/use-scheduling";
 import { Badge } from "@/components/ui/badge";
 import type { Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { pendingInvoicesKey, showBillingSidebar, type PendingInvoice } from "@/lib/billing";
+import { isBillingPerson, pendingInvoicesKey, showBillingSidebar, type PendingInvoice } from "@/lib/billing";
 import { resolveCustomersRouteAsync, resolveCustomersRouteSync } from "@/lib/last-viewed-customer";
 import { getLastCommsTab, isValidCommsTab, type CommsTab } from "@/lib/last-comms-tab";
 import { useEffect, useMemo, useState } from "react";
 import { usePlannerReadiness } from "@/hooks/use-routes";
 import { getNavForUser, navItemIsActive, type NavUser } from "@/components/nav/navConfig";
 import { useMentionsCount } from "@/lib/notifications";
+import { useQboReviewCount } from "@/lib/qboReview";
 
 const CUSTOMERS_LIST_PATH = "/dashboard/customers";
 // Mirrors the notifications route allowedRoles in App.tsx (crew_supervisor and mapping excluded).
@@ -106,6 +107,8 @@ export default function AppSidebar({
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
+  const { count: qboReviewCount } = useQboReviewCount({ poll: true });
+  const billingTaggedAlternate = !showBillingEntry && isBillingPerson({ activeRole: userRole, activeTags });
   const billingBadgeCount = Array.isArray(billingBadgeRows) ? billingBadgeRows.length : 0;
 
   const canSchedule = !isSuperAdmin && (userRole === "admin" || userRole === "office" || userRole === "field_manager");
@@ -166,13 +169,16 @@ export default function AppSidebar({
   const pendingUnsortedCount = Array.isArray(pendingUnsortedData) ? pendingUnsortedData.length : 0;
   const { data: mentionsCount } = useMentionsCount();
 
-  const badgeNode = (kind: string | undefined) => {
+  const badgeNode = (kind: string | undefined, reviewBadgeId = "badge-qbo-review-sidebar") => {
     const cap = (n: number) => (n > 99 ? "99+" : n);
     const cls = "ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate";
     if (kind === "scheduling" && schedulingBadgeCount > 0)
       return <Badge className={cls} data-testid="badge-scheduling-sidebar">{cap(schedulingBadgeCount)}</Badge>;
     if (kind === "billing" && billingBadgeCount > 0)
       return <Badge className={cls} data-testid="badge-billing-sidebar">{cap(billingBadgeCount)}</Badge>;
+    if (kind === "qboReview" && qboReviewCount > 0)
+      return <Badge variant="outline" className={`${cls} border-sidebar-foreground/40 bg-transparent`}
+        aria-label={`${qboReviewCount} QuickBooks customer reviews`} data-testid={reviewBadgeId}>{cap(qboReviewCount)}</Badge>;
     if (kind === "unsorted" && pendingUnsortedCount > 0)
       return <Badge className={cls} data-testid="badge-pending-unsorted-sidebar">{cap(pendingUnsortedCount)}</Badge>;
     if (kind === "mentions" && (mentionsCount?.count ?? 0) > 0)
@@ -231,7 +237,9 @@ export default function AppSidebar({
                       >
                         <item.icon className="w-4 h-4" />
                         <span>{label}</span>
-                        {badgeNode(item.badge)}
+                        {item.badge && item.secondaryBadge ? <span className="ml-auto flex items-center gap-1">{badgeNode(item.badge)}{badgeNode(item.secondaryBadge)}</span>
+                          : badgeNode(item.badge)}
+                        {!item.badge && item.secondaryBadge && billingTaggedAlternate && badgeNode(item.secondaryBadge, "badge-qbo-review-mytickets")}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

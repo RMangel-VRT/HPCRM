@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import QboCustomerCard from "@/components/qbo/QboCustomerCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -307,6 +308,8 @@ export default function ParentCustomerDashboard({ customer }: Props) {
               </CardContent>
             </Card>
           </div>
+
+          <div className="max-w-xl"><QboCustomerCard customerId={customer.id} isParent /></div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList data-testid="tabs-parent-dashboard">

@@ -354,7 +354,7 @@ describe("POST /api/qbo/customers/bind", () => {
     const res = await request(app).post("/api/qbo/customers/bind").send({ customerId: "cust-1", qboId: "qbo-1" });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(mockStorage.bindQboCustomer).toHaveBeenCalledWith(COMPANY_ID, "cust-1", "qbo-1");
+    expect(mockStorage.bindQboCustomer).toHaveBeenCalledWith(COMPANY_ID, "cust-1", "qbo-1", "user-1");
   });
 
   it("always passes activeCompanyId from session — never trusts body for company scope", async () => {
@@ -364,7 +364,7 @@ describe("POST /api/qbo/customers/bind", () => {
     // Even if attacker sends companyId in body, storage receives COMPANY_ID from session
     await request(app).post("/api/qbo/customers/bind")
       .send({ customerId: "cust-1", qboId: "qbo-1", companyId: "other-company" });
-    expect(mockStorage.bindQboCustomer).toHaveBeenCalledWith(COMPANY_ID, "cust-1", "qbo-1");
+    expect(mockStorage.bindQboCustomer).toHaveBeenCalledWith(COMPANY_ID, "cust-1", "qbo-1", "user-1");
   });
 });
 

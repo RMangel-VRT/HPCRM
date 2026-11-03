@@ -24,7 +24,8 @@ export function compareRemote(q: QboCustomerFields, c: QboCustomerFields,
   return { fields, baseline: nextBaseline };
 }
 const empty = (v: unknown) => v == null || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && !v.length);
-/** Initial hydration only: never used by ordinary mirror ingestion. */
+/** Hydrate empty owner facts on initial reconciliation or explicit linking only,
+ * never ordinary mirror ingestion. Existing nonempty CRM facts are preserved. */
 export function initialBillingPatch(c: Customer, q: QboCustomerFields): Partial<Customer> {
   const patch: Partial<Customer> = {};
   const columns = { displayName: "billingName", companyName: "billingCompanyName", contactName: "billingContactName",

@@ -49,3 +49,18 @@ rather than inventing an unapproved attempt-ledger schema.
 
 **How to apply:** Do not claim restart-safe or distributed three-per-hour limits
 without separately approving durable attempt metadata and its ownership.
+
+Explicit customer linking is authorized to hydrate empty CRM billing facts from
+the QuickBooks mirror, preserve nonempty CRM facts, establish the agreed
+baseline/token, and close matching new/sub-customer reviews atomically.
+Requesting a promotion prefill is not a completed resolution.
+
+**Why:** Randy's November 3, 2026 decision requires all explicit linking and
+promotion paths to share one bookkeeping routine. A failed or abandoned customer
+creation must not remove the review.
+
+**How to apply:** CQ5's wizard must finish through that shared link boundary.
+Sub-customer creation/parent selection remains the wizard's responsibility;
+interim promotion handles top-level prospects only. Send-now remains
+asynchronous: acknowledge waiting, then observe status, never infer remote
+success from a queued request.

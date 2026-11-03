@@ -149,3 +149,15 @@ describe("approved ordered sidebar matrix", () => {
     }
   });
 });
+
+describe("CQ4 QuickBooks review secondary badge", () => {
+  it("Invoicing keeps billing badge and adds independent qboReview; tickets carries the alternate", async () => {
+    const { getNavForUser: nav } = await import("./navConfig");
+    const flat = (u: Parameters<typeof nav>[0]) => nav(u).flatMap(g => g.items);
+    const admin = flat({ activeRole: "admin", activeTags: [] }).find(i => i.key === "billing")!;
+    expect(admin).toMatchObject({ badge: "billing", secondaryBadge: "qboReview" });
+    const tagged = flat({ activeRole: "office", activeTags: ["billing"] });
+    expect(tagged.some(i => i.key === "billing")).toBe(false);
+    expect(tagged.find(i => i.key === "tickets")?.secondaryBadge).toBe("qboReview");
+  });
+});

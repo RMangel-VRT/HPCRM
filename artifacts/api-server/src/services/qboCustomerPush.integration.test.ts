@@ -372,7 +372,8 @@ describe("review reading and resolution", () => {
     const result = await resolveCustomerReview(a, r.id, actor, { action, ...(action === "link" ? { customerId: c.id } : {}) });
     if (action === "promote") expect(result).toHaveProperty("prefill");
     expect((await get(c.id)).qboCustomerId).toBe(action === "link" ? "q1" : null);
-    expect((await reviews()).find(x => x.id === r.id)?.resolution).toBe(action);
+    expect((await reviews()).find(x => x.id === r.id)?.resolution).toBe(action === "promote" ? null : action);
+    expect((await reviews()).find(x => x.id === r.id)?.status).toBe(action === "promote" ? "open" : action === "ignore" ? "dismissed" : "resolved");
   });
   it("requires confirmation for sub_customer link and atomically switches its parent", async () => {
     enabled.mockResolvedValue(false);
@@ -392,7 +393,9 @@ describe("review reading and resolution", () => {
     const result = await resolveCustomerReview(a, r.id, actor, { action });
     if (action === "promote") expect(result).toMatchObject({ prefill: { qboId: "q1", parentQboId: "parent" } });
     expect((await db.select().from(customers).where(eq(customers.companyId, a)))).toHaveLength(0);
-    expect((await reviews()).find(x => x.id === r.id)).toMatchObject({ resolution: action, resolvedById: actor, resolvedAt: expect.any(Date) });
+    expect((await reviews()).find(x => x.id === r.id)).toMatchObject(action === "promote"
+      ? { status: "open", resolution: null, resolvedById: null, resolvedAt: null }
+      : { resolution: action, resolvedById: actor, resolvedAt: expect.any(Date) });
   });
   it.each(["set_crm_inactive", "ignore"])("resolves qbo_inactive %s locally", async action => {
     const c = await linked(), r = await review("qbo_inactive", c);

@@ -45,6 +45,13 @@ beforeEach(() => {
     (companyId: string) => ({ companyId, ...storage }));
 });
 describe("customer billing HTTP writes", () => {
+  it("rejects a queued billing edit from the previous company before any owner write", async () => {
+    const result = await request(app).patch("/api/customers/customer")
+      .set("X-Company-Id", "previous-company").send({ billingName: "Wrong company" });
+    expect(result.status).toBe(409);
+    expect(storage.updateCustomer).not.toHaveBeenCalled();
+    expect(storage.getCustomerById).not.toHaveBeenCalled();
+  });
   it.each(["qboCustomerId", "qboDisplayName", "qboSyncedAt", "qboSyncToken", "qboBaseline", "qboSyncState", "qboLastError", "qboPushedAt"])(
     "rejects protected %s in camel and snake case on create and PATCH", async key => {
       for (const spelling of [key, key.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`)]) {

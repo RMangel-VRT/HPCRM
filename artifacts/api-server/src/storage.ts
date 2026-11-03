@@ -7,6 +7,7 @@ import { loadProposalEstimateSummaries } from "./services/proposalEstimates";
 import { withCustomerSyncLock } from "./services/qboCustomerSync";
 import { afterCustomerEdit, markPending, writeCustomer } from "./services/qboCustomerWrites";
 import { bindCustomer, unlinkCustomerLocked } from "./services/qboCustomerBinding";
+import { promoteQboCustomer } from "./services/qboCustomerPromotion";
 
 export interface MyExtraBillableBatch {
   campaignId: string;
@@ -5731,8 +5732,9 @@ export class PgStorage implements IStorage {
     companyId: string,
     customerId: string,
     qboId: string,
+    actorId?: string,
   ): Promise<{ conflict: boolean; notFound?: "qbo" | "customer" }> {
-    return bindCustomer(companyId, customerId, qboId);
+    return bindCustomer(companyId, customerId, qboId, actorId);
   }
 
   async unbindQboCustomer(companyId: string, customerId: string): Promise<void> {
@@ -5743,47 +5745,9 @@ export class PgStorage implements IStorage {
     companyId: string,
     qboId: string,
     overrides: { name?: string; street?: string; city?: string; state?: string; zip?: string },
+    actorId?: string,
   ): Promise<Customer | { conflict: boolean } | { missingFields: string[] }> {
-    const cacheRow = await this.getQboCacheRow(companyId, qboId);
-    if (!cacheRow) return { missingFields: ["qboId not found in cache"] };
-
-    // Check not already bound
-    const [existing] = await db
-      .select({ id: customers.id })
-      .from(customers)
-      .where(and(eq(customers.companyId, companyId), eq(customers.qboCustomerId, qboId)));
-    if (existing) return { conflict: true };
-
-    const street = overrides.street ?? cacheRow.billAddrLine1 ?? null;
-    const city = overrides.city ?? cacheRow.billAddrCity ?? null;
-    const state = overrides.state ?? cacheRow.billAddrCountrySubDivisionCode ?? null;
-    const zip = overrides.zip ?? cacheRow.billAddrPostalCode ?? null;
-    const name = overrides.name ?? cacheRow.displayName;
-
-    const missingFields: string[] = [];
-    if (!street) missingFields.push("street");
-    if (!city) missingFields.push("city");
-    if (!state) missingFields.push("state");
-    if (!zip) missingFields.push("zip");
-    if (missingFields.length > 0) return { missingFields };
-
-    const [newCustomer] = await db
-      .insert(customers)
-      .values({
-        companyId,
-        name,
-        street: street!,
-        city: city!,
-        state: state!,
-        zip: zip!,
-        status: "prospect",
-        customerType: "commercial",
-        qboCustomerId: qboId,
-        qboDisplayName: cacheRow.displayName,
-        qboSyncedAt: new Date(),
-      })
-      .returning();
-    return newCustomer;
+    return promoteQboCustomer(companyId, qboId, overrides, actorId);
   }
 
   async countActiveUnboundCustomers(companyId: string): Promise<number> {
