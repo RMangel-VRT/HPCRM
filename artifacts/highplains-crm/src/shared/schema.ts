@@ -2150,6 +2150,9 @@ export const proposals = pgTable("proposals", {
   status: varchar("status").notNull().default("draft"),
   visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
   plantPaletteId: varchar("plant_palette_id"),
+  includePlantSchedule: boolean("include_plant_schedule").notNull().default(true),
+  includePlantPalette: boolean("include_plant_palette").notNull().default(true),
+  paletteIntroText: text("palette_intro_text"),
   vsIncludeBase: boolean("vs_include_base").notNull().default(false),
   vsIncludeOverlay: boolean("vs_include_overlay").notNull().default(false),
   photoLayout: varchar("photo_layout").notNull().default("large"),
@@ -2165,6 +2168,9 @@ export const insertProposalSchema = createInsertSchema(proposals).omit({
   createdAt: true,
 }).extend({
   proposalNumber: z.string().optional(),
+  includePlantSchedule: z.boolean().optional(),
+  includePlantPalette: z.boolean().optional(),
+  paletteIntroText: z.string().max(10000).nullable().optional(),
 });
 
 export type InsertProposal = z.infer<typeof insertProposalSchema>;

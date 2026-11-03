@@ -1,5 +1,16 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const es = {
+  plantExhibits: {
+    schedule: "Lista de plantas", palette: "Paleta de plantas", includeSchedule: "Incluir lista de plantas", includePalette: "Incluir paleta de plantas",
+    source: "De {{number}} v{{version}}. Edite las plantas en la estimación.", editPlants: "Editar plantas en la estimación", editSelections: "Editar selección de la paleta en la estimación",
+    quantity: "Cantidad", name: "Nombre", botanical: "Nombre botánico", size: "Tamaño",
+    intro: "Introducción de la paleta", saveIntro: "Guardar introducción", defaultIntro: "Usar introducción predeterminada",
+    emptySchedule: "Esta versión de la estimación no tiene plantas.", emptyPalette: "No hay plantas seleccionadas para la paleta.",
+    loading: "Cargando anexos de plantas…", loadError: "No se pudieron cargar los anexos de plantas.", retry: "Intentar de nuevo",
+    saveError: "No se pudo guardar la configuración de anexos. Inténtelo de nuevo.", label: "Etiqueta de paleta para {{name}}", labelRequired: "Ingrese una etiqueta de 1 a 500 caracteres.",
+    reset: "Restablecer valor predeterminado", resetLabel: "Restablecer etiqueta de paleta para {{name}}",
+    category: { tree: "Árboles", shrub: "Arbustos y perennes", perennial: "Plantas perennes", shrub_rose: "Rosales", vine: "Enredaderas", ornamental_grass: "Pastos ornamentales", other: "Otros" },
+  },
   proposalEstimate: {
     title: "Presupuesto", open: "Abrir presupuesto →", preview: "Vista previa del PDF", unlink: "Desvincular",
     link: "Vincular {{number}}", linkSelected: "Vincular presupuesto", choose: "Elegir un presupuesto", create: "Crear presupuesto",

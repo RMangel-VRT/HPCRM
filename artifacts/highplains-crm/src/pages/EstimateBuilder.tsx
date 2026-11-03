@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { derivePaletteTypeLabel, EXHIBITS_KEY } from "../../../../lib/db/src/plantExhibitContracts";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -173,6 +174,7 @@ function BuilderContent({ id }: { id: string }) {
       // Server order, not request order: never replace a newer authoritative payload.
       const cached = qc.getQueryData<EstimateDetailDto>(key);
       if (!cached || freshness(d) >= freshness(cached)) qc.setQueryData(key, d);
+      void qc.invalidateQueries({ queryKey: [EXHIBITS_KEY, companyId] });
       return true;
     } catch (err) {
       if (viewRef.current !== view) return false;
@@ -220,6 +222,7 @@ function BuilderContent({ id }: { id: string }) {
     if (viewRef.current !== view) return false;
     const cached = qc.getQueryData<EstimateDetailDto>([...currentKey]);
     if (!cached || cached.id !== d.id || freshness(d) >= freshness(cached)) qc.setQueryData([...currentKey], d);
+    void qc.invalidateQueries({ queryKey: [EXHIBITS_KEY, companyId] });
     if (d.ticketId) {
       // Navigation can happen before orchestration finishes. Do not briefly show
       // the previous document status while the ticket panel's mount refetch runs.
@@ -547,7 +550,7 @@ function BuilderContent({ id }: { id: string }) {
         <div className="estimate-builder-grid mt-5 items-start gap-6" data-testid="layout-builder">
           <div className="estimate-builder-sections min-w-0 space-y-4">
             {sections.map((s) => (
-              <SectionCard key={s.id} section={s} sections={sections} subtotal={v.totals.bySection[s.id] ?? 0} editable={editable} lang={lang}
+              <SectionCard key={s.id} section={s} sections={sections} paletteDefaults={v.plantPaletteDefaults} subtotal={v.totals.bySection[s.id] ?? 0} editable={editable} lang={lang}
                 vBase={vBase} run={run} invalid={invalid} canRemove={sections.length > 1}
                 onRemove={() => setRemoveSection(s)} onAdd={(type) => setAddFor({ type, sectionId: s.id })}
                 onReorder={(from, to) => void reorder(s, from, to)} onMoveTo={moveTo} />
@@ -685,6 +688,7 @@ function RatesChip({ q }: { q: { data?: RatesPreviewWithContext; isLoading: bool
 }
 
 function SectionCard(props: {
+  paletteDefaults?: Record<string, string>;
   section: EstimateSectionDto; sections: EstimateSectionDto[]; subtotal: number; editable: boolean; lang: string; vBase: string; run: Run;
   invalid: (m: string) => void; canRemove: boolean; onRemove: () => void; onAdd: (t: EstimateLineType) => void;
   onReorder: (from: number, to: number) => void; onMoveTo: (line: EstimateLineDto, sectionId: string) => void;
@@ -725,6 +729,7 @@ function SectionCard(props: {
 }
 
 function LineRow(props: {
+  paletteDefaults?: Record<string, string>;
   line: EstimateLineDto; index: number; count: number; sections: EstimateSectionDto[]; editable: boolean; lang: string; vBase: string; run: Run;
   invalid: (m: string) => void; onReorder: (from: number, to: number) => void; onMoveTo: (line: EstimateLineDto, sectionId: string) => void;
 }) {
@@ -748,6 +753,25 @@ function LineRow(props: {
         <span className="mt-1 inline-block rounded border px-1.5 text-[10.5px] uppercase tracking-wide text-muted-foreground" data-testid={`badge-source-${l.id}`}>
           {t(`estimateBuilder.line.source.${l.priceSource}`)}
         </span>
+        {l.lineType === "plant" && (
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            <button type="button" disabled={!editable} aria-pressed={l.includeInPalette} aria-label={t("estimateBuilder.line.palette", { name: l.name })}
+              onClick={() => editable && void patch({ includeInPalette: !l.includeInPalette })} data-testid={`toggle-palette-${l.id}`}
+              className={cn("inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors disabled:cursor-default",
+                l.includeInPalette ? "bg-[hsl(var(--rail-active-icon))]/15 text-[hsl(var(--rail-active-icon))]" : "text-muted-foreground/50 hover:text-muted-foreground")}>
+              <Palette className="h-4 w-4" />
+            </button>
+            {editable ? <>
+              <InlineInput value={l.paletteTypeLabel ?? props.paletteDefaults?.[l.id] ?? derivePaletteTypeLabel("other")}
+                disabled={!editable} label={t("plantExhibits.label", { name: l.name })} testId={`palette-label-${l.id}`}
+                className={cn("w-32 max-w-full text-xs", l.paletteTypeLabel === null && "text-muted-foreground")}
+                validate={raw => raw.trim() && raw.trim().length <= 500 ? { value: raw.trim(), same: raw.trim() === (l.paletteTypeLabel ?? props.paletteDefaults?.[l.id] ?? derivePaletteTypeLabel("other")) } : { error: t("plantExhibits.labelRequired") }}
+                onCommit={paletteTypeLabel => patch({ paletteTypeLabel })} onInvalid={props.invalid} />
+              {l.paletteTypeLabel !== null && <Button variant="ghost" size="sm" disabled={!editable} onClick={() => void patch({ paletteTypeLabel: null })}
+                aria-label={t("plantExhibits.resetLabel", { name: l.name })} data-testid={`palette-reset-${l.id}`}>{t("plantExhibits.reset")}</Button>}
+            </> : <span className="text-xs text-muted-foreground" data-testid={`palette-label-readonly-${l.id}`}>{l.paletteTypeLabel ?? props.paletteDefaults?.[l.id] ?? derivePaletteTypeLabel("other")}</span>}
+          </div>
+        )}
       </div>
       <div className="estimate-line-actions flex flex-wrap items-center justify-end gap-2">
         <div className="w-20">
@@ -776,14 +800,6 @@ function LineRow(props: {
           </span>
         )}
         <span className="w-24 text-right font-semibold tabular-nums" aria-label={t("estimateBuilder.line.extended")} data-testid={`text-extended-${l.id}`}>{formatCents(l.extendedCents, lang)}</span>
-        {l.lineType === "plant" && (
-          <button type="button" disabled={!editable} aria-pressed={l.includeInPalette} aria-label={t("estimateBuilder.line.palette", { name: l.name })}
-            onClick={() => editable && void patch({ includeInPalette: !l.includeInPalette })} data-testid={`toggle-palette-${l.id}`}
-            className={cn("inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:cursor-default",
-              l.includeInPalette ? "bg-[hsl(var(--rail-active-icon))]/15 text-[hsl(var(--rail-active-icon))]" : "text-muted-foreground/50 hover:text-muted-foreground")}>
-            <Palette className="h-4 w-4" />
-          </button>
-        )}
         {editable && (
           <span className="inline-flex items-center">
             <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === 0} aria-label={t("estimateBuilder.line.moveUp", { name: l.name })}

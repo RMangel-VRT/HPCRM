@@ -41,3 +41,4 @@
 - [Route coverage precedence](route-coverage-precedence.md) — property contracts govern; parent coverage cannot restore a service excluded by a qualifying property contract.
 - [Route occurrence retention](route-occurrence-retention.md) — keep trip identities through property deletion; outer seasonal bounds do not authorize zero-spread months.
 - [Proposal/estimate boundaries](proposal-estimate-boundaries.md) — finalization sends first; PDF failures never undo send, and proposals own no commercial values or acceptance.
+- [Estimate exhibit boundaries](estimate-exhibit-boundaries.md) — live display defaults are not commercial snapshots; the approved linked-only intro distinguishes NULL from empty text.

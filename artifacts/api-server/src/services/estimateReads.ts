@@ -4,6 +4,7 @@ import { db, type AppTransaction } from "../db";
 import { computeVersionTotals } from "./estimateMath";
 import { requireEstimate } from "./estimateErrors";
 import { estimateDisplay } from "./estimateDisplay";
+import { loadPlantLinesForVersion, derivePaletteTypeLabel } from "./proposalExhibits";
 
 export type EstimateConnection = typeof db | AppTransaction;
 export function estimateLinePayload(line: EstimateLine) {
@@ -15,6 +16,9 @@ export async function versionPayload(tx: EstimateConnection, companyId: string, 
   const lines = await tx.select().from(estimateLines).where(and(eq(estimateLines.companyId, companyId), eq(estimateLines.versionId, version.id)))
     .orderBy(asc(estimateLines.sortOrder), asc(estimateLines.createdAt), asc(estimateLines.id));
   const totals = computeVersionTotals(lines);
+  const plantDefaults = new Map((lines.some(l => l.lineType === "plant")
+    ? await loadPlantLinesForVersion(companyId, version.id, tx) : [])
+    .map(l => [l.id, derivePaletteTypeLabel(l.category || "other", l.foliageType)]));
   // Aggregate snapshots are authoritative once frozen. Breakdown/margin still
   // derive from the immutable line snapshots, never from live catalog values.
   if (version.status !== "draft" && version.frozenSubtotalCents !== null) {
@@ -29,7 +33,9 @@ export async function versionPayload(tx: EstimateConnection, companyId: string, 
     const group = grouped.get(line.sectionId) ?? [];
     group.push(estimateLinePayload(line)); grouped.set(line.sectionId, group);
   }
-  return { ...version, sections: sections.map(section => ({ ...section, lines: grouped.get(section.id) ?? [] })), totals };
+  // Live presentation metadata is separate from immutable commercial line snapshots.
+  return { ...version, plantPaletteDefaults: Object.fromEntries(plantDefaults),
+    sections: sections.map(section => ({ ...section, lines: grouped.get(section.id) ?? [] })), totals };
 }
 export async function estimatePayload(tx: EstimateConnection, companyId: string, estimate: Estimate, versionNumber?: number, affectedVersionId?: string) {
   const versions = await tx.select().from(estimateVersions).where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimate.id)))

@@ -27,6 +27,10 @@ const ok = (value: unknown) => ({ ok: true, json: async () => value });
 function mount(proposal: Record<string, unknown> = base) {
   mocks.api.mockImplementation(async (method: string, url: string) => {
     if (method === "GET" && url === "/api/proposals/p") return ok(proposal);
+    if (method === "GET" && url === "/api/proposals/p/exhibits") return ok({
+      schedule: [], palette: { introText: "", groups: [] },
+      provenance: { estimateId: "e", estimateNumber: "EST-1", versionId: "v", versionNumber: 1 },
+    });
     if (method === "GET" && url === "/api/estimates/e") return ok({ version: { id: "v", sections: [{ lines: [{ id: "l", name: "Unpriced tree" }] }] } });
     return ok([]);
   });

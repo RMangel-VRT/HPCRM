@@ -113,6 +113,8 @@ export interface EstimateVersionSummaryDto extends EstimateTimestampsDto {
   frozenSubtotalCents?: number | null; frozenCostKnownCents?: number | null; frozenCostUnknownLines?: number | null;
 }
 export interface EstimateVersionDto extends EstimateVersionSummaryDto {
+  /** Live display-only catalog defaults, never part of captured commercial line values. */
+  plantPaletteDefaults?: Record<string, string>;
   companyId: string; estimateId: string; createdFromVersionId: string | null;
   sentAt: string | null; sentById: string | null; sentMethod: typeof ESTIMATE_SENT_METHODS[number] | null;
   acceptedAt: string | null; acceptedById: string | null; acceptanceMethod: typeof ESTIMATE_ACCEPTANCE_METHODS[number] | null;

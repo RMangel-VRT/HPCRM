@@ -21,6 +21,12 @@ Place extracted baseline source trees outside the workspace, or remove them imme
 
 **How to apply:** Keep comparison logs in the ignored output directory, but do not leave cloned source/config trees there when running drift checks or completing work.
 
+Do not restart the API while database integration suites have active disposable companies.
+
+**Why:** Startup scheduling backfills inspect every company, including intentionally incomplete test workflow fixtures. Restarting during those fixtures can fail bootstrap with a misleading missing-successor error even though the application builds correctly.
+
+**How to apply:** Restart before fixture-based suites begin or after they finish cleaning up; do not alter unrelated workflow data or weaken scheduling checks to make a verification server start.
+
 Historical source archives that borrow installed node_modules also need explicit aliases to their own workspace-library sources.
 
 **Why:** Workspace package symlinks can resolve to the live checkout's generated contracts, making historical routes fail on response fields that did not exist at that revision. A pristine source archive alone is not an isolated historical check.

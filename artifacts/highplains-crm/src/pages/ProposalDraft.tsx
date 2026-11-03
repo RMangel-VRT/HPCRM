@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { ProposalPlantExhibits } from "@/components/ProposalPlantExhibits";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   DndContext,
@@ -1209,6 +1210,7 @@ function ProposalDraftContent() {
       </Card>
 
       {/* ── Plant Palette ── */}
+      {proposal.estimateId ? <ProposalPlantExhibits key={`${identity}:${proposal.estimateId}`} proposal={proposal} companyId={companyId!} identity={identity} /> : <>
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -1479,7 +1481,8 @@ function ProposalDraftContent() {
         </CardContent>
       </Card>
 
-      <Sheet open={plantPickerOpen} onOpenChange={setPlantPickerOpen}>
+      </>}
+      <Sheet open={!proposal.estimateId && plantPickerOpen} onOpenChange={setPlantPickerOpen}>
         <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto p-0">
           <SheetHeader className="px-4 pt-4 pb-0">
             <SheetTitle className="flex items-center gap-2">

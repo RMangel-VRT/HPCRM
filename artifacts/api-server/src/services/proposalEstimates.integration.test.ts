@@ -16,13 +16,16 @@ import { readTicketEstimate } from "./ticketEstimates";
 import { assertProposalEstimateLink, validateProposalEstimate, loadProposalEstimateSummaries, prepareProposalEstimate } from "./proposalEstimates";
 import { EstimateError } from "./estimateErrors";
 import { estimateAccess } from "../lib/estimateAccess";
+import { loadProposalExhibits, loadPlantLinesForVersion, buildPlantScheduleModel } from "./proposalExhibits";
+import { proposalExhibitSettingsSchema, type ProposalExhibits } from "../../../../lib/db/src/plantExhibitContracts";
+import { plantCatalogItems, plantEnrichment, estimateLines, estimateSections } from "@workspace/db";
 
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 const companyId = randomUUID(), otherCompany = randomUUID(), actor = randomUUID();
 let customerId: string, otherCustomer: string, foreignCustomer: string, ticketId: string;
 let app: express.Express;
 const stored = new Map<string, Buffer>();
-const render = vi.fn(async (_p: unknown, _c: string, versionId?: string) => Buffer.from(`PDF:${versionId ?? "uploaded"}`));
+const render = vi.fn(async (_p: unknown, _c: string, versionId?: string, _exhibits?: ProposalExhibits) => Buffer.from(`PDF:${versionId ?? "uploaded"}`));
 let failStore = false;
 let recordConflicts = 0;
 const legacyUploads = new Set<string>();
@@ -58,6 +61,8 @@ async function draft() {
 beforeAll(async () => {
   const migration = await readFile(new URL("../../../../.migration-backup/migrations/0064_proposal_estimates.sql", import.meta.url), "utf8");
   await db.execute(sql.raw(migration)); await db.execute(sql.raw(migration));
+  const exhibitsMigration = await readFile(new URL("../../../../.migration-backup/migrations/0065_proposal_plant_exhibits.sql", import.meta.url), "utf8");
+  await db.execute(sql.raw(exhibitsMigration)); await db.execute(sql.raw(exhibitsMigration));
   await db.insert(companies).values([{ id: companyId, name: "Disposable proposals", slug: companyId }, { id: otherCompany, name: "Disposable foreign", slug: otherCompany }]);
   await db.insert(users).values({ id: actor, name: "Disposable proposal actor", passwordHash: "not-a-login" });
   [customerId, otherCustomer, foreignCustomer] = (await db.insert(customers).values([
@@ -89,9 +94,85 @@ beforeAll(async () => {
   }
   const deps = { app, db, storage, sql, and, eq, express, proposalZ: z, estimateAccess,
     loadProposalEstimateSummaries, readTicketEstimate, validateProposalEstimate, prepareProposalEstimate,
+    loadProposalExhibits, proposalExhibitSettingsSchema,
     EstimateError, randomUUID, ObjectStorageService, generateProposalPdf: render,
     assertNotParentCustomer: async () => false };
   new Function(...Object.keys(deps), code)(...Object.values(deps));
+});
+async function plantDraft() {
+  const d = await createEstimate(companyId, actor, { customerId, title: "Plant fixture" });
+  const varietyKey = randomUUID();
+  const items = await db.insert(plantCatalogItems).values(["5 gal", "10 gal"].map((sizeLabel, i) => ({
+    companyId, productCode: `${varietyKey}-${i}`, category: "tree" as const, varietyKey, rawDescription: "Pine",
+    commonName: "Fixture Pine", botanicalName: "Pinus fixture", sizeLabel,
+  }))).returning();
+  await db.insert(plantEnrichment).values([
+    { companyId: otherCompany, varietyKey, imageStoragePath: "/foreign-image", foliageType: "Foreign value" },
+    { companyId, varietyKey, imageStoragePath: "/own-image", foliageType: "Evergreen" },
+  ]);
+  const [second] = await db.insert(estimateSections).values({ companyId, versionId: d.version.id, name: "Second", sortOrder: 1 }).returning();
+  const common = { companyId, versionId: d.version.id, lineType: "plant" as const, priceSource: "catalog" as const,
+    name: "Snapshot Pine 5 gal", detail: "Snapshot size", unit: "ea", quantity: "1.10", unitPriceCents: 100, extendedCents: 110,
+    umbrellaKey: "plants" as const, includeInPalette: true };
+  await db.insert(estimateLines).values([
+    { ...common, sectionId: second.id, plantCatalogItemId: items[0].id, sortOrder: -5 },
+    { ...common, sectionId: d.version.sections[0].id, plantCatalogItemId: items[1].id, sortOrder: 1 },
+    { ...common, sectionId: d.version.sections[0].id, plantCatalogItemId: items[0].id, sortOrder: 0, paletteTypeLabel: "Feature tree" },
+  ]);
+  return { d, items };
+}
+describe("estimate-derived proposal exhibits", () => {
+  it("loads one ordered price-free query, isolates enrichment and preserves deleted catalog snapshots", async () => {
+    const { d, items } = await plantDraft();
+    const spy = vi.spyOn(pool, "query");
+    const lines = await loadPlantLinesForVersion(companyId, d.version.id);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+    expect(lines.map(l => l.plantCatalogItemId)).toEqual([items[0].id, items[1].id, items[0].id]);
+    expect(lines.every(l => l.imagePath === "/own-image")).toBe(true);
+    expect(JSON.stringify(lines)).not.toMatch(/price|cost|Cents|foreign/i);
+    expect(await loadPlantLinesForVersion(otherCompany, d.version.id)).toEqual([]);
+    await db.delete(plantEnrichment).where(eq(plantEnrichment.companyId, companyId));
+    expect((await loadPlantLinesForVersion(companyId, d.version.id)).every(l => l.imagePath === null)).toBe(true);
+    await db.delete(plantCatalogItems).where(eq(plantCatalogItems.id, items[0].id));
+    const rows = buildPlantScheduleModel(await loadPlantLinesForVersion(companyId, d.version.id));
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatchObject({ name: "Snapshot Pine 5 gal", size: "Snapshot size", botanicalName: null, imagePath: null });
+  });
+  it("exposes scoped lightweight previews, explicit unlinked/missing/denied cases, and omitted-setting preservation", async () => {
+    const { d } = await plantDraft(), p = await proposal(d.id), legacy = await proposal();
+    render.mockClear();
+    const preview = await request(app).get(`/api/proposals/${p.id}/exhibits`).expect(200);
+    expect(preview.body.provenance).toMatchObject({ estimateId: d.id, versionId: d.version.id, versionNumber: 1 });
+    expect(preview.body.schedule).toHaveLength(2);
+    expect(preview.body.palette.groups[0].cards[0].typeLabel).toBe("Feature tree");
+    expect(render).not.toHaveBeenCalled();
+    await request(app).get(`/api/proposals/${legacy.id}/exhibits`).expect(422);
+    await request(app).get("/api/proposals/missing/exhibits").expect(404);
+    await request(app).get(`/api/proposals/${p.id}/exhibits`).set("X-Test-Company", otherCompany).expect(404);
+    await request(app).get(`/api/proposals/${p.id}/exhibits`).set("X-Company-Id", otherCompany).expect(409);
+    await request(app).get(`/api/proposals/${p.id}/exhibits`).set("X-Test-Role", "field_manager").expect(403);
+    await request(app).get(`/api/proposals/${p.id}/exhibits`).set("X-Test-Auth", "no").expect(401);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ includePlantSchedule: false, includePlantPalette: false, paletteIntroText: "" }).expect(200);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ title: "Only title" }).expect(200);
+    expect(await storage.getProposalById(p.id, companyId)).toMatchObject({ includePlantSchedule: false, includePlantPalette: false, paletteIntroText: "" });
+    expect((await request(app).get(`/api/proposals/${p.id}/exhibits`)).body.palette.introText).toBe("");
+    await request(app).patch(`/api/proposals/${p.id}`).send({ includePlantPalette: "false" }).expect(400);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ paletteIntroText: null }).expect(200);
+    expect((await request(app).get(`/api/proposals/${p.id}/exhibits`)).body.palette.introText).toContain("Colorado-hardy");
+  });
+  it("reuses the exact pinned schedule for the PDF and snapshot despite a concurrent revision", async () => {
+    const { d } = await plantDraft(), p = await proposal(d.id);
+    const expected = buildPlantScheduleModel(await loadPlantLinesForVersion(companyId, d.version.id));
+    render.mockImplementationOnce(async (_proposal, _company, versionId) => {
+      await transitionEstimate(companyId, actor, d.id, d.version.id, "revise", {});
+      return Buffer.from(`PDF:${versionId}`);
+    });
+    const result = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "email" }).expect(201);
+    expect(result.body).toMatchObject({ estimateVersionId: d.version.id, plantItemsSnapshot: expected });
+    expect(render.mock.lastCall?.[3]).toMatchObject({ schedule: expected, provenance: { versionId: d.version.id } });
+    expect((await readEstimate(companyId, d.id)).version.id).not.toBe(d.version.id);
+  });
 });
 afterAll(async () => {
   await db.delete(tickets).where(eq(tickets.companyId, companyId));

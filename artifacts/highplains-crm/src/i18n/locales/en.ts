@@ -1,5 +1,16 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
+  plantExhibits: {
+    schedule: "Plant Schedule", palette: "Plant Palette", includeSchedule: "Include plant schedule", includePalette: "Include plant palette",
+    source: "From {{number}} v{{version}}. Edit plants in the estimate.", editPlants: "Edit plants in the estimate", editSelections: "Edit palette selections in the estimate",
+    quantity: "Quantity", name: "Name", botanical: "Botanical name", size: "Size",
+    intro: "Palette introduction", saveIntro: "Save introduction", defaultIntro: "Use default introduction",
+    emptySchedule: "This estimate version has no plant lines.", emptyPalette: "No plant lines are selected for the palette.",
+    loading: "Loading plant exhibits…", loadError: "Could not load plant exhibits.", retry: "Try again",
+    saveError: "Could not save exhibit settings. Try again.", label: "Palette label for {{name}}", labelRequired: "Enter a label of 1–500 characters.",
+    reset: "Reset to default", resetLabel: "Reset palette label for {{name}}",
+    category: { tree: "Trees", shrub: "Shrubs & Evergreens", perennial: "Perennials", shrub_rose: "Roses", vine: "Vines", ornamental_grass: "Ornamental Grasses", other: "Other" },
+  },
   proposalEstimate: {
     title: "Estimate", open: "Open estimate →", preview: "Preview estimate PDF", unlink: "Unlink",
     link: "Link {{number}}", linkSelected: "Link estimate", choose: "Choose an estimate", create: "Create estimate",

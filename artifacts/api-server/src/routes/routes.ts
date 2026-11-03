@@ -1,4 +1,6 @@
 import { z as proposalZ } from "zod/v4";
+import { loadProposalExhibits } from "../services/proposalExhibits";
+import { derivePaletteTypeLabel, proposalExhibitSettingsSchema, type ProposalExhibits } from "../../../../lib/db/src/plantExhibitContracts";
 import { estimateAccess } from "../lib/estimateAccess";
 import { EstimateError } from "../services/estimateErrors";
 import { loadProposalEstimateSummaries, validateProposalEstimate, prepareProposalEstimate, type ProposalEstimateTransition } from "../services/proposalEstimates";
@@ -11351,10 +11353,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(proposal);
   });
 
+  app.get("/api/proposals/:id/exhibits", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "NOT_AUTHENTICATED" });
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).json({ error: "ACCESS_DENIED" });
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ error: "COMPANY_CHANGED" });
+    }
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).json({ error: "PROPOSAL_NOT_FOUND" });
+    if (!proposal.estimateId) return res.status(422).json({ error: "PROPOSAL_UNLINKED" });
+    try {
+      return res.json(await loadProposalExhibits(user.activeCompanyId, proposal));
+    } catch (err: any) {
+      req.log?.error({ err }, "Proposal exhibits failed");
+      return res.status(err.statusCode ?? 500).json({ error: err.statusCode === 409 ? "ESTIMATE_VERSION_MISSING" : "EXHIBITS_FAILED" });
+    }
+  });
+
   app.patch("/api/proposals/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) return res.status(409).json({ error: "COMPANY_CHANGED" });
+    const exhibitSettings = proposalExhibitSettingsSchema.safeParse(req.body);
+    if (!exhibitSettings.success) return res.status(400).json({ error: "INVALID_REQUEST" });
     const existing = await storage.getProposalById(req.params.id, user.activeCompanyId);
     if (!existing) return res.status(404).send("Not found");
     if (await assertNotParentCustomer(existing.customerId, user.activeCompanyId, res)) return;
@@ -11389,6 +11413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!ppCheck) return res.status(403).json({ error: "Palette not found or access denied" });
     }
     const updated = await storage.updateProposal(req.params.id, user.activeCompanyId, {
+      ...exhibitSettings.data,
       ...(title !== undefined && { title }),
       ...(proposalDate !== undefined && { proposalDate }),
       ...(estimateId !== undefined && { estimateId }),
@@ -11819,8 +11844,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return estimateBuffers;
   }
 
-  async function generateProposalPdf(proposal: import("@workspace/db").ProposalWithDetails, companyId: string, selectedVersionId?: string): Promise<Buffer> {
-    const estimateBuffers = await proposalEstimatePages(proposal, companyId, selectedVersionId);
+  async function generateProposalPdf(proposal: import("@workspace/db").ProposalWithDetails, companyId: string, selectedVersionId?: string, selectedExhibits?: ProposalExhibits): Promise<Buffer> {
+    // Resolve once. Never re-read a mutable current-version pointer during this operation.
+    const exhibits = proposal.estimateId ? selectedExhibits ?? await loadProposalExhibits(companyId, proposal, selectedVersionId) : null;
+    const estimateBuffers = await proposalEstimatePages(proposal, companyId, exhibits?.provenance.versionId ?? selectedVersionId);
     const companySettings = await storage.getSettings(companyId);
     const companyName = companySettings?.companyName || "High Plains Property Maintenance";
     const logoBuffer = await loadBrandLogo();
@@ -11965,7 +11992,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // --- Plant schedule section ---
     let plantScheduleBuffer: Buffer | null = null;
-    const plantItems = (proposal.plantItems ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder);
+    const plantItems = exhibits
+      ? (proposal.includePlantSchedule === false ? [] : exhibits.schedule.map((row, displayOrder) => ({
+        nameSnapshot: row.name, botanicalSnapshot: row.botanicalName, sizeSnapshot: row.size,
+        quantity: row.quantity, imageStoragePathSnapshot: row.imagePath, notes: null, displayOrder,
+      })))
+      : (proposal.plantItems ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder);
     if (plantItems.length > 0) {
       const psDoc = new PDFDocumentKit({ size: 'LETTER', margins: { top: LM, bottom: LM, left: LM, right: RM } });
       const psChunks: Buffer[] = [];
@@ -12075,8 +12107,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // --- Plant Palette exhibit ---
     let paletteBuffer: Buffer | null = null;
-    if (proposal.plantPalette && proposal.plantPalette.items.length > 0) {
-      const palette = proposal.plantPalette;
+    const renderedPalette = exhibits
+      ? (proposal.includePlantPalette === false ? null : {
+        introText: exhibits.palette.introText,
+        items: exhibits.palette.groups.flatMap(group => group.cards.map(card => ({
+          id: card.id, nameSnapshot: card.name, typeLabel: card.typeLabel, category: group.category,
+          imageStoragePathSnapshot: card.imagePath, displayOrder: 0,
+        }))),
+      })
+      : proposal.plantPalette;
+    if (renderedPalette && renderedPalette.items.length > 0) {
+      const palette = renderedPalette;
       const paletteItems = palette.items.slice().sort((a, b) => a.displayOrder - b.displayOrder);
 
       const palDoc = new PDFDocumentKit({ size: 'LETTER', margins: { top: LM, bottom: LM, left: LM, right: RM } });
@@ -12506,13 +12547,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         estimatePages.forEach(p => mergedDoc.addPage(p));
       }
 
+      // Linked order is palette then schedule; legacy order is deliberately unchanged.
+      if (exhibits && paletteBuffer) {
+        const palettePdfDoc = await PDFDocument.load(paletteBuffer);
+        const palettePages = await mergedDoc.copyPages(palettePdfDoc, palettePdfDoc.getPageIndices());
+        palettePages.forEach(p => mergedDoc.addPage(p));
+      }
       if (plantScheduleBuffer) {
         const psPdfDoc = await PDFDocument.load(plantScheduleBuffer);
         const psPages = await mergedDoc.copyPages(psPdfDoc, psPdfDoc.getPageIndices());
         psPages.forEach(p => mergedDoc.addPage(p));
       }
 
-      if (paletteBuffer) {
+      if (!exhibits && paletteBuffer) {
         const palettePdfDoc = await PDFDocument.load(paletteBuffer);
         const palettePages = await mergedDoc.copyPages(palettePdfDoc, palettePdfDoc.getPageIndices());
         palettePages.forEach(p => mergedDoc.addPage(p));
@@ -12615,8 +12662,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ? res.status(status).json({ error: "PROPOSAL_FINALIZE_FAILED", message, estimateTransition, estimateRemainsSent: true })
       : res.status(status).send(message);
     let mergedBuffer: Buffer;
+    let selectedExhibits: ProposalExhibits | undefined;
     try {
-      mergedBuffer = await generateProposalPdf(proposal, user.activeCompanyId, estimateTransition?.versionId);
+      selectedExhibits = proposal.estimateId
+        ? await loadProposalExhibits(user.activeCompanyId, proposal, estimateTransition?.versionId) : undefined;
+      mergedBuffer = await generateProposalPdf(proposal, user.activeCompanyId, estimateTransition?.versionId, selectedExhibits);
     } catch (err: any) {
       return finalizeError(err?.statusCode ?? 500, `PDF generation failed: ${err?.message ?? "Unknown error"}`);
     }
@@ -12700,7 +12750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           estimateNumber: proposal.estimateNumber ?? null,
           finalizedById: user.id,
           pdfStoragePath: storedPath,
-          plantItemsSnapshot: (proposal.plantItems ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder) as unknown as Record<string, unknown>[],
+          plantItemsSnapshot: (selectedExhibits ? selectedExhibits.schedule : (proposal.plantItems ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder)) as unknown as Record<string, unknown>[],
           ...(vsSnapshots && proposal.visualScopeSheet ? {
             visualScopeSheetId: proposal.visualScopeSheetId!,
             visualScopeTitle: proposal.visualScopeSheet.title,
@@ -18905,6 +18955,7 @@ ${pdfText.slice(0, 8000)}`;
   app.get("/api/plant-library/photo/:varietyKey", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) return res.status(409).json({ error: "COMPANY_CHANGED" });
     if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
@@ -18929,7 +18980,7 @@ ${pdfText.slice(0, 8000)}`;
       const ext = enrichRow.imageStoragePath.split(".").pop()?.toLowerCase();
       const contentType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
       res.set("Content-Type", contentType);
-      res.set("Cache-Control", "private, max-age=86400");
+      res.set("Cache-Control", req.get("X-Company-Id") ? "private, no-store" : "private, max-age=86400");
       res.send(buffer);
     } catch (err) {
       console.error("GET /api/plant-library/photo/:varietyKey error:", err);
@@ -19244,32 +19295,6 @@ ${pdfText.slice(0, 8000)}`;
   // ─── Plant Palettes ──────────────────────────────────────────────────────────
 
   const PALETTE_ROLES = ["admin", "office"] as const;
-
-  function derivePaletteTypeLabel(category: string, foliageType?: string | null): string {
-    switch (category) {
-      case "tree":
-        if (foliageType && foliageType.toLowerCase().includes("evergreen")) return "Evergreen Tree";
-        return "Tree";
-      case "shrub":
-        return "Shrub";
-      case "shrub_rose":
-      case "rose":
-        return "Flowering Shrub";
-      case "ornamental_grass":
-        return "Ornamental Grass";
-      case "perennial":
-        return "Perennial";
-      case "vine":
-        return "Vine";
-      case "annual":
-        return "Annual";
-      default:
-        return category
-          .split(/[_\s]+/)
-          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-          .join(" ");
-    }
-  }
 
   app.get("/api/plant-palettes", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");

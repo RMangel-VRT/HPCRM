@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { BRAND, LM, RM, wirePageDecorations } from "./pdfBrand";
+import type { ProposalExhibits } from "../../../../lib/db/src/plantExhibitContracts";
 
 const logoPath = new URL("../../../../attached_assets/NEW - LOGO-03_1763582979034.png", import.meta.url);
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN1kAAAAASUVORK5CYII=", "base64");
@@ -13,7 +14,7 @@ const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 /** Executes the actual proposal helper in isolation, not a rewritten fixture renderer.
  * Storage / optional native image rendering are supplied deterministic bytes.
  */
-async function proposalHarness(source: string, options: { render?: (companyId: string, estimateId: string, versionId: string) => Promise<Buffer>; uploads?: unknown[] } = {}) {
+async function proposalHarness(source: string, options: { render?: (companyId: string, estimateId: string, versionId: string) => Promise<Buffer>; uploads?: unknown[]; exhibits?: ProposalExhibits } = {}) {
   const start = source.indexOf("  async function proposalEstimatePages(") >= 0
     ? source.indexOf("  async function proposalEstimatePages(") : source.indexOf("  async function generateProposalPdf(");
   const end = source.indexOf('  app.get("/api/proposals/:id/pdf"', start);
@@ -32,6 +33,12 @@ async function proposalHarness(source: string, options: { render?: (companyId: s
   const deps = {
     InjectedPDFKit: PDFDocumentKit, PDFLib, BRAND, LM, RM, wirePageDecorations, ObjectStorageService,
     renderEstimatePdf: options.render,
+    loadProposalExhibits: async (_company: string, _proposal: unknown, versionId?: string) => ({
+      schedule: [{ quantity: "3.00", name: "Estimate Pine", botanicalName: "Pinus", size: "5 gal", imagePath: null }],
+      palette: { introText: "", groups: [{ category: "tree", cards: [{ id: "pine", name: "Estimate Pine", typeLabel: "Tree", imagePath: null }] }] },
+      ...options.exhibits,
+      provenance: { estimateId: "estimate", estimateNumber: "EST-2026-0001", versionId: versionId ?? "draft", versionNumber: 1 },
+    }),
     loadBrandLogo: async () => logo, fs: { readFile: async () => logo }, path: { join: () => "logo" },
     storage: { getProposalEstimatePdfs: async () => options.uploads ?? [{ storageObjectPath: "estimate" }], getSettings: async () => ({ companyName: "High Plains Property Maintenance" }) },
     compressImageForPdf: async (b: Buffer) => b, renderVisualScope: async () => png,
@@ -73,10 +80,21 @@ describe("mechanical proposal branding extraction", () => {
     // Legacy cover/scope occupies two pages, then Visual Scope, then estimate.
     expect(pages.findIndex(p => p.includes("CRM DRAFT estimate"))).toBe(3);
     expect(pages.findIndex(p => p.includes("PLANT SCHEDULE"))).toBeGreaterThan(3);
+    expect(pages.findIndex(p => p.includes("PLANT PALETTE"))).toBeLessThan(pages.findIndex(p => p.includes("PLANT SCHEDULE")));
+    expect(previewText).toContain("Estimate Pine");
+    expect(previewText).not.toContain("Blue Spruce");
     const finalized = await generate(linked, "company", "sent-exact");
     expect(render).toHaveBeenLastCalledWith("company", "estimate", "sent-exact");
     expect(execFileSync("pdftotext", ["-", "-"], { input: finalized }).toString()).not.toContain("DRAFT");
     expect((await PDFLib.PDFDocument.load(finalized)).getPageCount()).toBe(8);
+    for (const [includePlantSchedule, includePlantPalette] of [[false, true], [true, false], [false, false]]) {
+      const toggled = await generate({ ...linked, includePlantSchedule, includePlantPalette }, "company", "sent-exact");
+      const text = execFileSync("pdftotext", ["-", "-"], { input: toggled }).toString();
+      expect(text.includes("PLANT SCHEDULE")).toBe(includePlantSchedule);
+      expect(text.includes("PLANT PALETTE")).toBe(includePlantPalette);
+    }
+    const empty = await (await proposalHarness(source, { render, exhibits: { schedule: [], palette: { introText: "No blank page", groups: [] }, provenance: { estimateId: "estimate", estimateNumber: "EST", versionId: "draft", versionNumber: 1 } } }))(linked, "company");
+    expect((await PDFLib.PDFDocument.load(empty)).getPageCount()).toBe(6);
   });
   it("unlinked missing-upload behavior is unchanged", async () => {
     const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");

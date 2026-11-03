@@ -178,6 +178,37 @@ describe("builder rendering", () => {
 });
 
 describe("inline edits", () => {
+  it("shows a muted effective palette label, persists an override and resets to null", async () => {
+    handler = c => {
+      if (c.method !== "PATCH") return undefined;
+      const next = makeDetail({ updatedAt: new Date(Date.now() + mutations().length * 1000).toISOString() });
+      Object.assign(next.version.sections[0].lines[0], c.body);
+      detail = next;
+      return res(next);
+    };
+    renderAt("/dashboard/estimates/builder/e1");
+    await ready();
+    const label = screen.getByTestId("palette-label-l-plant") as HTMLInputElement;
+    expect(label.value).toBe("Other");
+    expect(label.className).toContain("text-muted-foreground");
+    fireEvent.change(label, { target: { value: "Feature tree" } });
+    fireEvent.blur(label);
+    await waitFor(() => expect(screen.getByTestId("palette-reset-l-plant")).toBeTruthy());
+    expect(mutations()[0].body).toEqual({ paletteTypeLabel: "Feature tree" });
+    fireEvent.click(screen.getByTestId("palette-reset-l-plant"));
+    await waitFor(() => expect(mutations()[1].body).toEqual({ paletteTypeLabel: null }));
+    await waitFor(() => expect((screen.getByTestId("palette-label-l-plant") as HTMLInputElement).value).toBe("Other"));
+    for (const call of mutations()) expect(call.headers["X-Company-Id"]).toBe("c1");
+  });
+  it("shows labels without editing or reset controls on read-only versions", async () => {
+    detail = makeDetail({ status: "sent" });
+    Object.assign(detail.version.sections[0].lines[0], { paletteTypeLabel: "Feature tree" });
+    renderAt("/dashboard/estimates/builder/e1");
+    await ready();
+    expect(screen.getByTestId("palette-label-readonly-l-plant").textContent).toBe("Feature tree");
+    expect(screen.queryByTestId("palette-label-l-plant")).toBeNull();
+    expect(screen.queryByTestId("palette-reset-l-plant")).toBeNull();
+  });
   it("Enter then blur commits quantity exactly once and shows server totals", async () => {
     handler = (c) => c.method === "PATCH" ? res({ ...makeDetail({ subtotal: 900000, updatedAt: "2025-04-01T11:00:00.000Z" }) }) : undefined;
     renderAt("/dashboard/estimates/builder/e1");
