@@ -3065,7 +3065,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const updates = pickProvided(result.data, updateData);
     const billingExisting = await storage.getCustomerById(req.params.id, user.activeCompanyId);
     if (!billingExisting) return res.status(404).send("Customer not found");
-    const billingProblem = await billingInputProblem({ ...billingExisting, ...updates }, storageBillingContext(user.activeCompanyId));
+    const billingProblem = await billingInputProblem({ ...billingExisting, ...updates }, storageBillingContext(user.activeCompanyId),
+      { provided: updates, previous: billingExisting });
     if (billingProblem) return res.status(400).send(billingProblem);
 
     // Validate property manager belongs to property management company

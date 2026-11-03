@@ -4,6 +4,7 @@ import { db, type AppTransaction } from "../db";
 import { logger } from "../lib/logger";
 import { billsThroughParent, resolveBillTo } from "./customerBilling";
 import { equal, ownedKeys } from "./qboCustomerComparison";
+import { validateOutgoingZips } from "./customerZip";
 import { crmToQboFields, normalize, qboToFields, toQboPayload, validateDisplayName, type QboCustomerFields } from "./qboCustomerMap";
 import { isQboWriteEnabled, qboRequest } from "./qboClient";
 import { CustomerSyncError, ingestQboCustomers, onCustomerSyncCommit, raiseCustomerReview, withCustomerSyncLock } from "./qboCustomerSync";
@@ -24,7 +25,9 @@ export async function customerFields(tx: AppTransaction, companyId: string, c: C
       .where(and(eq(propertyManagementCompanies.companyId, companyId), eq(propertyManagementCompanies.id, id))))[0],
   });
   if ("problem" in bill) throw new Error(bill.problem);
-  return normalize(crmToQboFields(c, bill, parent));
+  const fields = crmToQboFields(c, bill, parent);
+  validateOutgoingZips(fields);
+  return normalize(fields);
 }
 export async function fetchQboCustomer(companyId: string, qboId: string): Promise<Raw> {
   const response = await qboRequest(companyId, "GET", `/customer/${encodeURIComponent(qboId)}`);
@@ -55,6 +58,7 @@ async function pushLocked(tx: AppTransaction, companyId: string, id: string, rea
   seen.add(id);
   let c = await lockedCustomer(tx, companyId, id);
   if (!c) throw new CustomerSyncError(404, "CRM customer not found");
+  let sent: QboCustomerFields | undefined;
   // All queued work rechecks durable state under the same lock as unlink.
   // Only activation/send-now can turn not_linked into an eligible create.
   if (!["pending_push", "error"].includes(c.qboSyncState)) return { state: c.qboSyncState, qboId: c.qboCustomerId ?? undefined };
@@ -78,7 +82,6 @@ async function pushLocked(tx: AppTransaction, companyId: string, id: string, rea
   const recent = (attempts.get(key) ?? []).filter(t => now - t < 3_600_000);
   if (recent.length >= 3) return { state: c.qboSyncState, review: "push_failed" };
   attempts.set(key, [...recent, now]);
-  let sent: QboCustomerFields | undefined;
   try {
     if (parent && !parent.qboCustomerId) {
       // Parent-first recursion is not authorization to undo an intentional unlink.
@@ -135,6 +138,10 @@ async function pushLocked(tx: AppTransaction, companyId: string, id: string, rea
       qboSyncToken: parsed.syncToken, qboBaseline: next, qboSyncState: "in_sync", qboLastError: null,
       qboPushedAt: new Date() }).where(whereCustomer(companyId, id));
     await ingestQboCustomers(companyId, [raw]);
+    await tx.update(qboCustomerReviews).set({ status: "resolved",
+      resolution: "Resolved by successful push", resolvedAt: new Date(), resolvedById: null, updatedAt: new Date() })
+      .where(and(eq(qboCustomerReviews.companyId, companyId), eq(qboCustomerReviews.customerId, id),
+        eq(qboCustomerReviews.kind, "push_failed"), eq(qboCustomerReviews.status, "open")));
     return { state: held.size ? "review" : "in_sync", qboId: parsed.id };
   } catch (err) {
     // SQL failures abort PostgreSQL transactions: let rollback/reconciliation recover.

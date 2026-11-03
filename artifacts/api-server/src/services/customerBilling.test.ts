@@ -19,6 +19,15 @@ const context = (): BillingContext => ({
   getPropertyManagementCompanyById: vi.fn().mockImplementation(async () => ({ ...pm })),
 });
 describe("live company-scoped bill-to", () => {
+  it("validates supplied ZIP changes in shared input checks, preserving legacy/empty rules", async () => {
+    const previous = { zip: "bad", billZip: "legacy", billToMode: "property" };
+    expect(await billingInputProblem(previous, context())).toMatch(/Service ZIP/);
+    expect(await billingInputProblem(previous, context(), { provided: {}, previous })).toBeNull();
+    expect(await billingInputProblem(previous, context(), { provided: previous, previous })).toBeNull();
+    expect(await billingInputProblem({ ...previous, billZip: "new bad" }, context(),
+      { provided: { billZip: "new bad" }, previous })).toMatch(/Billing ZIP/);
+    expect(await billingInputProblem({ zip: "", billZip: null }, context())).toBeNull();
+  });
   it("uses property and custom addresses, including optional line 2", async () => {
     expect(await resolveBillTo(customer(), context())).toMatchObject({ name: "Property", street: "100 Work St", street2: null });
     expect(await resolveBillTo(customer({ billToMode: "custom", billingName: "Accounts",

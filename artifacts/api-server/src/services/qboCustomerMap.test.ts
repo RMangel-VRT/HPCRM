@@ -61,10 +61,16 @@ describe("pure QuickBooks field map", () => {
     expect(() => toQboPayload(fields(), { create: false, id: "1", syncToken: "0" })).toThrow("QBO_UPDATE_KEYS_REQUIRED");
   });
   it("enforces exact email and display-name limits", () => {
-    expect(() => validateDisplayName("x".repeat(100))).not.toThrow();
-    for (const name of ["x".repeat(101), "Parent:Child", " "]) expect(() => validateDisplayName(name)).toThrow("DISPLAY_NAME_INVALID");
+    expect(() => validateDisplayName("x".repeat(500))).not.toThrow();
+    for (const name of ["x".repeat(501), "Parent:Child", " "]) expect(() => validateDisplayName(name)).toThrow("DISPLAY_NAME_INVALID");
     expect(() => toQboPayload({ ...fields(), emails: ["x".repeat(100)] }, { create: true })).not.toThrow();
     expect(() => toQboPayload({ ...fields(), emails: ["x".repeat(101)] }, { create: true })).toThrow("EMAILS_TOO_LONG");
+  });
+  it.each([
+    ["8012", "8012"], [" CO 80123 ", "80123"], [" t2p 1j9 ", "T2P 1J9"],
+    ["80123-4567", "801234567"], [" abc  def ", "ABC  DEF"], ["", null], [null, null],
+  ])("normalizes incoming postal text %j without rejecting it", (zip, expected) => {
+    expect(normalize({ ...fields(), billAddr: { ...billTo, zip } }).billAddr?.zip).toBe(expected);
   });
   it("rejects master branches and uses separate-parent reference without billing with parent", async () => {
     const parent = { ...c, id: "parent", isParent: "true", branchBillingMode: "master", qboCustomerId: "qbo-parent" } as Customer;

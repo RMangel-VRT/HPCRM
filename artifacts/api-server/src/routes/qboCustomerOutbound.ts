@@ -11,6 +11,7 @@ import { markPending } from "../services/qboCustomerWrites";
 import { countCustomerReviews, listCustomerReviews, resolveCustomerReview } from "../services/qboCustomerReviews";
 import { normalize, crmToQboFields, toQboPayload } from "../services/qboCustomerMap";
 import { resolveBillTo, billsThroughParent } from "../services/customerBilling";
+import { validateOutgoingZips } from "../services/customerZip";
 
 const router = Router();
 function access(req: Request, res: Response, billing = false) {
@@ -65,7 +66,11 @@ router.post("/customers/create", async (req, res) => {
             .where(and(eq(propertyManagementCompanies.companyId, companyId), eq(propertyManagementCompanies.id, id))))[0],
         });
         if ("problem" in bill) throw new CustomerSyncError(400, "Billing address is incomplete");
-        try { toQboPayload(normalize(crmToQboFields(next, bill, parent)), { create: true }); }
+        try {
+          const fields = crmToQboFields(next, bill, parent);
+          validateOutgoingZips(fields);
+          toQboPayload(normalize(fields), { create: true });
+        }
         catch (err) { throw new CustomerSyncError(400, err instanceof Error ? err.message : "Invalid billing facts"); }
       }
       await tx.update(customers).set({ ...patch, qboSyncState: "pending_push", updatedAt: new Date() })

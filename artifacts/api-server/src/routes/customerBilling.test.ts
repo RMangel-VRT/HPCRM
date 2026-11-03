@@ -45,6 +45,25 @@ beforeEach(() => {
     (companyId: string) => ({ companyId, ...storage }));
 });
 describe("customer billing HTTP writes", () => {
+  it.each(["8012", "CO 80123", "T2P 1J9", "abcde", "80123-456", "80123 4567"])(
+    "rejects newly supplied invalid ZIP %s without blocking unchanged legacy values", async zip => {
+      expect((await post({ ...property, zip })).status).toBe(400);
+      expect((await patch({ zip })).status).toBe(400);
+      expect((await post({ ...property, billZip: zip })).status).toBe(400);
+      expect((await patch({ billZip: zip })).status).toBe(400);
+      Object.assign(current, { zip, billZip: zip });
+      expect((await patch({ name: "Legacy edit" })).status).toBe(200);
+      expect((await patch({ zip, billZip: zip })).status).toBe(200);
+      expect((await patch({ zip: "80202", billZip: "80202-1234" })).status).toBe(200);
+    });
+  it.each(["80123", "801234567", "80123-4567"])("accepts valid ZIP %s on create and PATCH", async zip => {
+    expect((await post({ ...property, zip, billZip: zip })).status).toBe(200);
+    expect((await patch({ zip, billZip: zip })).status).toBe(200);
+  });
+  it("does not require optional service or unused billing addresses", async () => {
+    expect((await post({ ...property, zip: "", billZip: null })).status).toBe(200);
+    expect((await patch({ zip: "", billZip: null })).status).toBe(200);
+  });
   it("rejects a queued billing edit from the previous company before any owner write", async () => {
     const result = await request(app).patch("/api/customers/customer")
       .set("X-Company-Id", "previous-company").send({ billingName: "Wrong company" });

@@ -35,8 +35,10 @@ const digits = (v: string | null) => v?.replace(/\D/g, "") || null;
 const addressOnly = (a: Addr): Addr => ({ street: a.street, street2: a.street2, city: a.city, state: a.state, zip: a.zip });
 function normalizeAddr(a: Addr | null): Addr | null {
   if (!a) return null;
-  const result = { street: text(a.street), street2: text(a.street2), city: text(a.city), state: text(a.state)?.toUpperCase() ?? null, zip: digits(a.zip) };
-  if (result.zip && ![5, 9].includes(result.zip.length)) throw new Error("ZIP_INVALID");
+  const original = typeof a.zip === "string" ? a.zip.trim().toUpperCase() || null : null;
+  const numeric = digits(original);
+  const zip = numeric && [5, 9].includes(numeric.length) ? numeric : original;
+  const result = { street: text(a.street), street2: text(a.street2), city: text(a.city), state: text(a.state)?.toUpperCase() ?? null, zip };
   return Object.values(result).some(Boolean) ? result : null;
 }
 export function normalize(f: QboCustomerFields): QboCustomerFields {
@@ -77,7 +79,7 @@ export function diffFields(a: QboCustomerFields, b: QboCustomerFields): FieldKey
   return FIELD_KEYS.filter(key => JSON.stringify(left[key]) !== JSON.stringify(right[key]));
 }
 export function validateDisplayName(name: string | null): void {
-  if (!name?.trim() || name.includes(":") || name.length > 100) throw new Error("DISPLAY_NAME_INVALID");
+  if (!name?.trim() || name.includes(":") || name.length > 500) throw new Error("DISPLAY_NAME_INVALID");
 }
 const qboAddr = (a: Addr | null) => a ? {
   Line1: a.street ?? "", Line2: a.street2 ?? "", City: a.city ?? "",

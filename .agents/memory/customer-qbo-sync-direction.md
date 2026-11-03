@@ -64,3 +64,15 @@ Sub-customer creation/parent selection remains the wizard's responsibility;
 interim promotion handles top-level prospects only. Send-now remains
 asynchronous: acknowledge waiting, then observe status, never infer remote
 success from a queued request.
+
+Incoming QuickBooks postal text is not subject to the CRM's US-only ZIP policy.
+Historical and international QuickBooks addresses must remain ingestible even
+when they cannot be sent back as newly edited CRM addresses.
+
+**Why:** Randy explicitly separated tolerant incoming normalization from
+CRM/outbound validation on November 3, 2026; rejecting one customer's postal data
+must not stop a company-wide mirror batch.
+
+**How to apply:** Future customer-entry flows, including the new-customer wizard,
+must reuse the shared CRM input contract rather than making incoming QuickBooks
+normalization strict. Preserve unrelated edits to unchanged legacy ZIP values.

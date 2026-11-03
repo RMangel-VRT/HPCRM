@@ -9,6 +9,7 @@ import { billsThroughParent, resolveBillTo } from "./customerBilling";
 import { crmToQboFields, FIELD_KEYS, normalize, qboToFields, type QboCustomerFields } from "./qboCustomerMap";
 import { compareRemote, equal, initialBillingPatch, ownedKeys } from "./qboCustomerComparison";
 import { retryPendingCustomerPushes } from "./qboCustomerPush";
+import { validateOutgoingZips } from "./customerZip";
 
 type Raw = Record<string, unknown>;
 const scope = new AsyncLocalStorage<{ companyId: string; tx: AppTransaction; committed: (() => void)[] }>();
@@ -17,7 +18,7 @@ const DAY = 24 * 60 * 60_000;
 export class CustomerSyncError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
-/** Shared cross-process lock, acquired before any remote read. Nested calls reuse
+/** Shared cross-process lock for local application and bounded pushes. Nested calls reuse
  * the same transaction; never open a second connection waiting on our own lock. */
 export async function withCustomerSyncLock<T>(companyId: string, work: (tx: AppTransaction) => Promise<T>): Promise<T> {
   const current = scope.getStore();
@@ -42,8 +43,13 @@ export function onCustomerSyncCommit(callback: () => void) {
   if (!current) throw new Error("CUSTOMER_SYNC_TRANSACTION_REQUIRED");
   current.committed.push(callback);
 }
-async function connection(tx: AppTransaction, companyId: string) {
+async function connection(tx: Pick<AppTransaction, "select">, companyId: string) {
   const [conn] = await tx.select().from(qboConnections).where(eq(qboConnections.companyId, companyId));
+  if (!conn || conn.status !== "connected") throw new CustomerSyncError(409, "QuickBooks is not connected");
+  return conn;
+}
+async function applicationConnection(tx: AppTransaction, companyId: string) {
+  const [conn] = await tx.select().from(qboConnections).where(eq(qboConnections.companyId, companyId)).for("update");
   if (!conn || conn.status !== "connected") throw new CustomerSyncError(409, "QuickBooks is not connected");
   return conn;
 }
@@ -61,14 +67,23 @@ async function billing(tx: AppTransaction, companyId: string, customer: Customer
       .where(and(eq(propertyManagementCompanies.companyId, companyId), eq(propertyManagementCompanies.id, id))))[0],
   });
 }
-async function crmFields(tx: AppTransaction, companyId: string, c: Customer, parent?: Customer) {
+async function crmFields(tx: AppTransaction, companyId: string, c: Customer, parent?: Customer, validate = true) {
   const bill = await billing(tx, companyId, c);
   // Incomplete custom address remains incomplete, not a property fallback during comparison.
   const value = "problem" in bill ? { name: c.billingName ?? c.name, lines: [],
     street: c.billToMode === "custom" ? c.billStreet : null, street2: c.billStreet2,
     city: c.billToMode === "custom" ? c.billCity : null, state: c.billToMode === "custom" ? c.billState : null,
     zip: c.billToMode === "custom" ? c.billZip : null } : bill;
-  return normalize(crmToQboFields(c, value, parent));
+  const fields = crmToQboFields(c, value, parent);
+  if (validate) validateOutgoingZips(fields);
+  return normalize(fields);
+}
+async function fieldFailure(tx: AppTransaction, companyId: string, c: Customer, snapshot: unknown, err: unknown) {
+  // A database failure aborts PostgreSQL's transaction and cannot be isolated here.
+  if (err && typeof err === "object" && "query" in err) throw err;
+  const message = err instanceof Error ? err.message : String(err);
+  logger.warn({ companyId, customerId: c.id, message }, "QuickBooks customer comparison skipped");
+  await raiseCustomerReview(tx, companyId, c.id, c.qboCustomerId, "push_failed", {}, snapshot, message);
 }
 /** Merge on either partial unique subject. The company lock serializes callers
  * using this service; ON CONFLICT covers a concurrent external review producer. */
@@ -167,8 +182,11 @@ async function ingest(tx: AppTransaction, companyId: string, records: Raw[], con
       if (!parsed.active && c.status === "active") await raise("qbo_inactive");
       await tx.update(customers).set({ qboDisplayName: parsed.displayName, qboSyncedAt: now })
         .where(and(eq(customers.companyId, companyId), eq(customers.id, c.id)));
+      const q = normalized as QboCustomerFields;
+      let current: QboCustomerFields;
+      try { current = await crmFields(tx, companyId, c, parent); }
+      catch (err) { await fieldFailure(tx, companyId, c, q, err); result.reviewsRaised++; continue; }
       if (parsed.syncToken !== null && parsed.syncToken === c.qboSyncToken) continue;
-      const q = normalized as QboCustomerFields, current = await crmFields(tx, companyId, c, parent);
       const compared = compareRemote(q, current, (c.qboBaseline ?? {}) as Partial<QboCustomerFields>, ownedKeys());
       // Existing unresolved field evidence must not be bypassed on repeated pulls.
       const [open] = await tx.select().from(qboCustomerReviews).where(and(
@@ -206,8 +224,6 @@ async function fullRecords(companyId: string): Promise<Raw[]> {
     for (const row of rows) {
       if (!row || typeof row.Id !== "string" || !row.Id || all.has(row.Id))
         throw new CustomerSyncError(502, "Invalid or repeated QuickBooks customer page");
-      // Validate every page before any mirror mutation or stale deactivation.
-      normalize(qboToFields(row));
       all.set(row.Id, row);
     }
     if (rows.length < 1000) break;
@@ -236,16 +252,56 @@ async function applyFull(tx: AppTransaction, companyId: string, conn: QboConnect
     staleBindings: stale.length, inactiveBindings: bound.filter(c => c.qboCustomerId && present.get(c.qboCustomerId)?.Active === false).length,
     lastPulledAt: startedAt.toISOString(), reviewsRaised: result.reviewsRaised };
 }
+/** Reject nested pull entry: acquisition must never inherit a writer transaction. */
+function assertUnlockedFetch() {
+  if (scope.getStore()) throw new Error("CUSTOMER_PULL_REQUIRES_UNLOCKED_FETCH");
+}
+function sameConnection(a: QboConnection, b: QboConnection) {
+  return a.id === b.id && a.realmId === b.realmId && a.environment === b.environment &&
+    a.connectedAt.getTime() === b.connectedAt.getTime();
+}
+function obsolete(conn: QboConnection, startedAt: Date) {
+  return [conn.customerCdcCursor, conn.customerFullPullAt].some(t => t && t >= startedAt);
+}
+async function newerMirror(tx: AppTransaction, companyId: string, startedAt: Date) {
+  // Push echoes, explicit binding and duplicate checks also ingest mirrors, but
+  // intentionally do not advance the company's pull cursor. Do not overwrite them.
+  const [row] = await tx.select({ id: qboCustomerCache.id }).from(qboCustomerCache).where(and(
+    eq(qboCustomerCache.companyId, companyId), sql`${qboCustomerCache.syncedAt} >= ${startedAt}`)).limit(1);
+  return !!row;
+}
+async function acquireFull(companyId: string) {
+  assertUnlockedFetch();
+  const conn = await connection(db, companyId), startedAt = new Date();
+  const rows = await fullRecords(companyId);
+  return { conn, startedAt, rows };
+}
+function checkAcquisition(before: QboConnection, current: QboConnection) {
+  if (!sameConnection(before, current)) throw new CustomerSyncError(409, "QuickBooks connection changed during fetch; retry");
+}
 export async function runFullCustomerPull(companyId: string) {
+  const fetched = await acquireFull(companyId);
   return withCustomerSyncLock(companyId, async tx => {
-    const conn = await connection(tx, companyId), startedAt = new Date();
-    return applyFull(tx, companyId, conn, await fullRecords(companyId), startedAt);
+    const conn = await applicationConnection(tx, companyId);
+    checkAcquisition(fetched.conn, conn);
+    if (obsolete(conn, fetched.startedAt) || await newerMirror(tx, companyId, fetched.startedAt))
+      return { skipped: true, reason: "NEWER_PULL_APPLIED", pulled: 0, inserted: 0, updated: 0,
+        deactivated: 0, staleBindings: 0, inactiveBindings: 0, reviewsRaised: 0,
+        lastPulledAt: (conn.customerCdcCursor ?? conn.customerFullPullAt ?? fetched.startedAt).toISOString() };
+    return applyFull(tx, companyId, conn, fetched.rows, fetched.startedAt);
   });
 }
-export async function runInitialCustomerSync(companyId: string, _userId: string) {
-  return withCustomerSyncLock(companyId, async tx => {
-    const conn = await connection(tx, companyId), startedAt = new Date();
-    const rows = await fullRecords(companyId);
+export async function runInitialCustomerSync(companyId: string, _userId: string): Promise<
+  SyncResult & { linkedUpdated: number; unboundCrmCustomers: number; qboCustomersNotInCrm: number;
+    branchesLinkedUnderMasterParent: { customerId: string; name: string; qboId: string }[] }> {
+  const fetched = await acquireFull(companyId);
+  // A newer cache-only pull cannot stand in for explicit initial hydration.
+  // Reacquire outside the lock rather than hydrating an obsolete snapshot.
+  const outcome = await withCustomerSyncLock(companyId, async tx => {
+    const conn = await applicationConnection(tx, companyId), { rows, startedAt } = fetched;
+    checkAcquisition(fetched.conn, conn);
+    if (obsolete(conn, startedAt) || await newerMirror(tx, companyId, startedAt))
+      return { retryInitial: true as const };
     // Initial hydration is one-time only. Once a baseline exists, even an
     // explicit retry must respect CRM clears and outstanding review evidence.
     if (conn.customerBaselineAt) {
@@ -279,8 +335,13 @@ export async function runInitialCustomerSync(companyId: string, _userId: string)
         await raiseCustomerReview(tx, companyId, c.id, c.qboCustomerId, "qbo_removed", {}, null); reviewsRaised++; continue;
       }
       const parsed = qboToFields(raw), q = normalize(parsed);
-      const patch = initialBillingPatch(c, q), hydrated = { ...c, ...patch };
-      const current = await crmFields(tx, companyId, hydrated, parent);
+      let patch: Partial<Customer>, current: QboCustomerFields;
+      try {
+        // Validate only the existing CRM values, never newly hydrated QBO postal text.
+        await crmFields(tx, companyId, c, parent);
+        patch = initialBillingPatch(c, q);
+        current = await crmFields(tx, companyId, { ...c, ...patch }, parent, false);
+      } catch (err) { await fieldFailure(tx, companyId, c, q, err); reviewsRaised++; continue; }
       const keys = ownedKeys();
       const conflicts: QboReviewFields = {};
       // shipAddr differences are unsent CRM work, never a QuickBooks overwrite.
@@ -307,14 +368,16 @@ export async function runInitialCustomerSync(companyId: string, _userId: string)
     return { ...pull, linkedUpdated, reviewsRaised, unboundCrmCustomers: crm.filter(c => !c.qboCustomerId).length,
       qboCustomersNotInCrm: rows.filter(r => !boundIds.has(String(r.Id))).length, branchesLinkedUnderMasterParent };
   });
+  if ("retryInitial" in outcome) return runInitialCustomerSync(companyId, _userId);
+  return outcome;
 }
 export async function runIncrementalCustomerSync(companyId: string) {
-  return withCustomerSyncLock(companyId, async tx => {
-    const conn = await connection(tx, companyId);
+    assertUnlockedFetch();
+    const before = await connection(db, companyId), conn = before;
     if (!conn.customerBaselineAt) return { skipped: true, reason: "INITIAL_SYNC_REQUIRED" };
     const startedAt = new Date();
     if (!conn.customerCdcCursor || !conn.customerFullPullAt || startedAt.getTime() - conn.customerCdcCursor.getTime() > 29 * DAY)
-      return applyFull(tx, companyId, conn, await fullRecords(companyId), startedAt);
+      return runFullCustomerPull(companyId);
     const response = await qboRequest(companyId, "GET", `/cdc?entities=Customer&changedSince=${encodeURIComponent(conn.customerCdcCursor.toISOString())}`);
     if (!response.ok) throw new CustomerSyncError(502, `QBO CDC failed: ${response.status}`);
     const body = await response.json() as { CDCResponse?: { QueryResponse?: { Customer?: Raw[]; maxResults?: number }[] }[]; Fault?: unknown };
@@ -327,11 +390,17 @@ export async function runIncrementalCustomerSync(companyId: string) {
         if (query.Customer !== undefined && !Array.isArray(query.Customer)) throw new CustomerSyncError(502, "Invalid QuickBooks CDC customer list");
         // CDC cannot page: a capped response must recover with a full pull.
         if ((query.Customer?.length ?? 0) >= 1000 || (query.maxResults ?? 0) >= 1000)
-          return applyFull(tx, companyId, conn, await fullRecords(companyId), startedAt);
+          return runFullCustomerPull(companyId);
         rows.push(...query.Customer ?? []);
       }
     }
-    const result = await ingest(tx, companyId, rows, conn);
+  return withCustomerSyncLock(companyId, async tx => {
+    const current = await applicationConnection(tx, companyId);
+    checkAcquisition(before, current);
+    if (!current.customerBaselineAt) return { skipped: true, reason: "INITIAL_SYNC_REQUIRED" };
+    if (obsolete(current, startedAt) || await newerMirror(tx, companyId, startedAt))
+      return { skipped: true, reason: "NEWER_PULL_APPLIED" };
+    const result = await ingest(tx, companyId, rows, current);
     await tx.update(qboConnections).set({ customerCdcCursor: startedAt }).where(eq(qboConnections.companyId, companyId));
     return { ...result, pulled: rows.length, lastPulledAt: startedAt.toISOString() };
   });
@@ -359,14 +428,12 @@ export async function sweepQboCustomers(onlyCompanyIds?: readonly string[]) {
       onlyCompanyIds ? inArray(qboConnections.companyId, [...onlyCompanyIds]) : undefined));
   for (const { companyId } of connections) {
     try {
-      await withCustomerSyncLock(companyId, async tx => {
-        const conn = await connection(tx, companyId);
-        // Re-read under lock: multiple scheduler instances must not duplicate work.
-        if (!conn.customerBaselineAt) return;
+        const conn = await connection(db, companyId);
+        // Acquisition is unlocked; application rechecks identity and freshness.
+        if (!conn.customerBaselineAt) continue;
         const now = Date.now();
         if (!conn.customerFullPullAt || now - conn.customerFullPullAt.getTime() >= DAY) await runFullCustomerPull(companyId);
         else if (!conn.customerCdcCursor || now - conn.customerCdcCursor.getTime() >= CUSTOMER_SYNC_INTERVAL) await runIncrementalCustomerSync(companyId);
-      });
     } catch (err) { logger.warn({ err, companyId }, "QuickBooks customer sync failed"); }
     try { await retryPendingCustomerPushes(companyId); }
     catch (err) { logger.warn({ err, companyId }, "QuickBooks customer push retries failed"); }

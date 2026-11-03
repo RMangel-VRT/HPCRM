@@ -127,13 +127,20 @@ describe("Customer sync controls permissions and delegation", () => {
   });
   it("office may sync and read status but sync-now cannot bypass the initial gate", async () => {
     const app = await buildApp({ ...adminUser(), activeRole: "office" });
-    sync.incremental.mockResolvedValueOnce({ skipped: true });
+    sync.incremental.mockResolvedValueOnce({ skipped: true, reason: "INITIAL_SYNC_REQUIRED" });
     expect((await request(app).post("/api/qbo/customers/sync-now")).status).toBe(409);
     sync.incremental.mockResolvedValueOnce({ pulled: 4 });
     expect((await request(app).post("/api/qbo/customers/sync-now")).body.pulled).toBe(4);
     expect((await request(app).get("/api/qbo/customers/sync-status")).status).toBe(200);
     expect(sync.incremental).toHaveBeenCalledWith(COMPANY_ID);
     expect(sync.status).toHaveBeenCalledWith(COMPANY_ID);
+  });
+  it("does not report a missing baseline when a newer overlapping pull already applied", async () => {
+    const app = await buildApp({ ...adminUser(), activeRole: "office" });
+    sync.incremental.mockResolvedValue({ skipped: true, reason: "NEWER_PULL_APPLIED" });
+    const result = await request(app).post("/api/qbo/customers/sync-now");
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ skipped: true, reason: "NEWER_PULL_APPLIED" });
   });
   it("validates the legacy queue request before any remote call", async () => {
     const app = await buildApp(adminUser());

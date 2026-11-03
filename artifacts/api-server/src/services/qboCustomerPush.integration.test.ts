@@ -73,6 +73,76 @@ afterAll(async () => {
 });
 
 describe("serialized customer outbound writes with mocked QuickBooks", () => {
+  it.each(["create", "update", "send-now"] as const)(
+    "closes only this customer's open failure after bad ZIP correction and successful %s", async mode => {
+      const c = mode === "create" ? await customer({ zip: "8012" }) :
+        await linked({ zip: "8012", billingPhone: "3035559999" });
+      expect(await pushCustomer(a, c.id, { reason: "scheduler" })).toMatchObject({ review: "push_failed" });
+      expect(remote).not.toHaveBeenCalled();
+      const failure = (await reviews()).find(r => r.kind === "push_failed")!;
+      expect(failure).toMatchObject({ customerId: c.id, status: "open", resolvedAt: null });
+      expect(failure.message).toMatch(/Service ZIP/);
+      // Evidence for another kind/customer/company and resolved history survive.
+      const other = await customer({ name: "Other" });
+      await review("push_failed", other);
+      await review("qbo_inactive", c);
+      await db.insert(qboCustomerReviews).values([
+        { companyId: b, customerId: c.id, kind: "push_failed", message: "other company" },
+        { companyId: a, customerId: c.id, kind: "push_failed", status: "resolved",
+          resolution: "Historical", resolvedById: actor, resolvedAt: new Date(0) },
+      ]);
+      // Gate must not resolve failures, even though the call returns normally.
+      enabled.mockResolvedValue(false);
+      expect(await pushCustomer(a, c.id, { reason: "scheduler" })).toMatchObject({ state: "pending_push" });
+      expect((await reviews()).find(r => r.id === failure.id)?.status).toBe("open");
+      enabled.mockResolvedValue(true);
+      // Correct through the same locked owner-write path as PATCH. It queues a
+      // real retry only after commit; wait for it before asserting outcome.
+      remote.mockImplementation(async (_co, verb, _path, payload) => verb === "GET" ?
+        response({ QueryResponse: {} }) :
+        response({ Customer: { ...raw(), ...payload, Id: mode === "create" ? "created" : "q1", SyncToken: "2" } }));
+      if (mode === "send-now") {
+        // Explicit Send now must use exactly the same success bookkeeping.
+        await db.update(customers).set({ zip: "80000", qboSyncState: "not_linked" }).where(eq(customers.id, c.id));
+        expect((await request(app()).post(`/api/qbo/customers/${c.id}/send-now`).send({})).status).toBe(202);
+      } else {
+        await withCustomerSyncLock(a, tx => writeCustomer(tx, c.id, a, { zip: "80000" }));
+      }
+      await flush();
+      const after = (await reviews()).find(r => r.id === failure.id)!;
+      expect(after).toMatchObject({ status: "resolved", resolution: "Resolved by successful push", resolvedById: null });
+      expect(after.resolvedAt).toBeInstanceOf(Date);
+      expect(after.resolvedAt!.getTime()).toBeGreaterThanOrEqual(failure.createdAt.getTime());
+      expect(after.message).toBe(failure.message);
+      expect(after.fields).toEqual(failure.fields);
+      expect((await reviews()).find(r => r.customerId === other.id)?.status).toBe("open");
+      expect((await reviews()).find(r => r.kind === "qbo_inactive")?.status).toBe("open");
+      expect((await reviews()).find(r => r.resolution === "Historical")?.resolvedById).toBe(actor);
+      expect((await reviews(b))[0].status).toBe("open");
+    });
+  it("retains push_failed evidence for no-op, blocked, conflict and failed outcomes", async () => {
+    const c = await linked();
+    const failure = await review("push_failed", c);
+    expect(await pushCustomer(a, c.id, { reason: "scheduler" })).toMatchObject({ state: "in_sync" });
+    expect(remote).not.toHaveBeenCalled(); // no actual remote push
+    const blocked = await review("qbo_removed", c);
+    await db.update(customers).set({ qboSyncState: "pending_push", billingPhone: "3035559999" }).where(eq(customers.id, c.id));
+    expect(await pushCustomer(a, c.id, { reason: "scheduler" })).toMatchObject({ review: "qbo_removed" });
+    await db.update(qboCustomerReviews).set({ status: "resolved" }).where(eq(qboCustomerReviews.id, blocked.id));
+    remote.mockResolvedValueOnce(response({ Fault: { Error: [{ code: "5010", Message: "Stale object" }] } }, false))
+      .mockResolvedValueOnce(response({ Customer: raw({ SyncToken: "2", PrimaryPhone: { FreeFormNumber: "111" } }) }));
+    expect(await pushCustomer(a, c.id, { reason: "scheduler" })).toMatchObject({ review: "changed_in_qbo" });
+    expect((await reviews()).find(r => r.id === failure.id)?.status).toBe("open");
+    // A different customer fails independently and does not terminate retries.
+    const broken = await customer({ zip: "CO 80123" });
+    const good = await customer({ name: "Good" });
+    remote.mockImplementation(async (_co, verb, _path, payload) => verb === "GET" ?
+      response({ QueryResponse: {} }) : response({ Customer: { ...raw(), ...payload, Id: "good", SyncToken: "0" } }));
+    await retryPendingCustomerPushes(a);
+    expect((await get(broken.id)).qboSyncState).toBe("error");
+    expect((await get(good.id)).qboCustomerId).toBe("good");
+    expect((await reviews()).find(r => r.id === failure.id)?.status).toBe("open");
+  });
   it("creates all mapped fields, service address, terms and no delivery/Active writes", async () => {
     const c = await customer({ billingName: "Billing", billingCompanyName: "Company", billingContactName: "Pat Smith",
       billingEmails: ["AP@example.test"], billingPhone: "(303) 555-1111", billingMobile: "303-555-2222", qboTermId: "7" });

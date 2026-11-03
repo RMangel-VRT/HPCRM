@@ -235,6 +235,57 @@ describe("qboRequest 401 retry", () => {
       updatedAt: new Date(),
     };
   }
+  it.each([false, true])("aborts after 30 seconds and cleans timers, retry=%s", async retry => {
+    vi.useFakeTimers();
+    try {
+      (db.select as ReturnType<typeof vi.fn>).mockReturnValue(makeSelectChain([mockConnRow()]));
+      (db.update as ReturnType<typeof vi.fn>).mockReturnValue(makeUpdateChain());
+      if (retry) mockFetch.mockResolvedValueOnce({ status: 401 }).mockResolvedValueOnce({
+        ok: true, json: async () => ({ access_token: "new", refresh_token: "rotated", expires_in: 3600 }),
+      });
+      mockFetch.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+      }));
+      const { qboRequest } = await import("./qboClient");
+      const work = qboRequest("c1", "GET", "/test");
+      const checked = expect(work).rejects.toThrow(/30 seconds/);
+      await vi.advanceTimersByTimeAsync(29_999);
+      const attempt = mockFetch.mock.calls.at(-1)![1];
+      expect(attempt.signal.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await checked;
+      expect(attempt.signal.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+      if (retry) expect(db.update).toHaveBeenCalled(); // rotation committed before retry timeout
+    } finally { vi.useRealTimers(); }
+  });
+  it("cleans the deadline after success and immediate network failure", async () => {
+    vi.useFakeTimers();
+    try {
+      (db.select as ReturnType<typeof vi.fn>).mockReturnValue(makeSelectChain([mockConnRow()]));
+      const { qboRequest } = await import("./qboClient");
+      mockFetch.mockResolvedValueOnce(new Response('{"ok":true}'));
+      expect(await (await qboRequest("c1", "GET", "/test")).json()).toEqual({ ok: true });
+      expect(vi.getTimerCount()).toBe(0);
+      mockFetch.mockRejectedValueOnce(new Error("network error"));
+      await expect(qboRequest("c1", "GET", "/test")).rejects.toThrow("network error");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it("keeps the deadline active while a response body is stalled", async () => {
+    vi.useFakeTimers();
+    try {
+      (db.select as ReturnType<typeof vi.fn>).mockReturnValue(makeSelectChain([mockConnRow()]));
+      mockFetch.mockImplementationOnce((_url, init) => Promise.resolve(new Response(new ReadableStream({
+        start(controller) { init.signal.addEventListener("abort", () => controller.error(init.signal.reason)); },
+      }))));
+      const { qboRequest } = await import("./qboClient");
+      const checked = expect(qboRequest("c1", "GET", "/test")).rejects.toThrow(/30 seconds/);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await checked;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
 
   it("refreshes token on 401 and retries the request", async () => {
     (db.select as ReturnType<typeof vi.fn>).mockReturnValue(makeSelectChain([mockConnRow()]));

@@ -337,7 +337,9 @@ router.post("/customers/sync-now", async (req, res) => {
   if (!u || !(await assertConnected(u.activeCompanyId, res))) return;
   try {
     const result = await runIncrementalCustomerSync(u.activeCompanyId);
-    if ("skipped" in result) { res.status(409).json({ message: "Run initial QuickBooks sync first" }); return; }
+    if ("skipped" in result && result.reason !== "NEWER_PULL_APPLIED") {
+      res.status(409).json({ message: "Run initial QuickBooks sync first" }); return;
+    }
     res.json(result);
   } catch (err) {
     logger.error({ err }, "QuickBooks customer sync failed");

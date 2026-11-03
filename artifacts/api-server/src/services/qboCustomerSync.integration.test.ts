@@ -9,6 +9,9 @@ import { compareRemote } from "./qboCustomerComparison";
 import { crmToQboFields, normalize, qboToFields } from "./qboCustomerMap";
 import { resolveBillTo } from "./customerBilling";
 import { invoiceBillTo } from "./invoiceBillTo";
+import * as fieldMap from "./qboCustomerMap";
+import request from "supertest";
+import { customerPatchApp } from "../test/customerPatchApp";
 
 const remote = vi.hoisted(() => vi.fn());
 vi.mock("./qboClient", () => ({ qboRequest: remote, isQboWriteEnabled: vi.fn().mockResolvedValue(false) }));
@@ -74,6 +77,48 @@ afterAll(async () => {
 });
 
 describe("comparison and mirror ingestion", () => {
+  it("hydrates unusual incoming postal codes during initial reconciliation and persists every mirror", async () => {
+    const zips = ["8012", "CO 80123", "T2P 1J9", "80123-4567"];
+    const linked = await Promise.all(zips.map((_, i) => makeCustomer(a, { qboCustomerId: `zip${i}` })));
+    remote.mockResolvedValue(response(zips.map((PostalCode, i) => raw({ Id: `zip${i}`, BillAddr: { ...addr, PostalCode } }))));
+    expect(await runInitialCustomerSync(a, "synthetic")).toMatchObject({ linkedUpdated: 4 });
+    expect(await cache()).toHaveLength(4);
+    expect(await Promise.all(linked.map(async c => (await reload(c.id)).billZip)))
+      .toEqual(["8012", "80123", "T2P 1J9", "801234567"]);
+    expect(await reviews()).toEqual([]);
+  });
+  it.each([false, true])("isolates malformed CRM ZIP and unexpected field errors, initial=%s", async initial => {
+    const bad = await makeCustomer(a, { zip: "8012", qboCustomerId: "bad" });
+    const broken = await makeCustomer(a, { qboCustomerId: "broken" });
+    const good = await makeCustomer(a, { qboCustomerId: "good" });
+    const rows = ["bad", "broken", "good"].map(Id => raw({ Id, SyncToken: "2" }));
+    // Ordinary pre-baseline ingestion never builds CRM fields or raises reviews.
+    await ingestQboCustomers(a, rows);
+    expect(await reviews()).toEqual([]);
+    const original = fieldMap.crmToQboFields;
+    const spy = vi.spyOn(fieldMap, "crmToQboFields").mockImplementation((c, ...args) => {
+      if (c.id === broken.id) throw new Error("Injected CRM field-building failure");
+      return original(c, ...args);
+    });
+    try {
+      if (initial) {
+        remote.mockResolvedValue(response(rows));
+        expect(await runInitialCustomerSync(a, "synthetic")).toMatchObject({ linkedUpdated: 1, reviewsRaised: 2 });
+      } else {
+        await ready();
+        await ingestQboCustomers(a, rows);
+        await ingestQboCustomers(a, rows);
+      }
+      const failures = (await reviews()).filter(r => r.kind === "push_failed");
+      expect(failures).toHaveLength(2);
+      expect(failures.find(r => r.customerId === bad.id)?.message).toMatch(/Service ZIP/);
+      expect(failures.find(r => r.customerId === broken.id)?.message).toBe("Injected CRM field-building failure");
+      expect((await reload(bad.id)).qboBaseline).toBeNull();
+      expect((await reload(broken.id)).qboSyncToken).toBeNull();
+      expect((await reload(good.id)).qboBaseline).not.toBeNull();
+      expect(await cache()).toHaveLength(3);
+    } finally { spy.mockRestore(); }
+  });
   it("implements all four comparison cases", () => {
     const q = normalize(qboToFields(raw()));
     const b = { ...q, phone: "111", mobile: "111", companyName: "old", contactName: "old" };
@@ -373,16 +418,91 @@ describe("PostgreSQL race safety and invoice reader gate", () => {
     } finally { client.release(); release(); await first; }
     await withCustomerSyncLock(a, async () => undefined);
   });
-  it("overlapping manual full pulls serialize remote reads as well as ingestion", async () => {
+  it("overlapping manual full pulls fetch unlocked and discard the older snapshot without regressing timestamps", async () => {
     let entered!: () => void, release!: () => void;
     const started = new Promise<void>(r => { entered = r; }), gate = new Promise<void>(r => { release = r; });
-    remote.mockImplementationOnce(async () => { entered(); await gate; return response([raw()]); }).mockResolvedValue(response([raw()]));
+    remote.mockImplementationOnce(async () => { entered(); await gate; return response([raw({ DisplayName: "old" })]); })
+      .mockResolvedValue(response([raw({ DisplayName: "new" })]));
     const first = runFullCustomerPull(a); await started;
     const second = runFullCustomerPull(a);
-    await new Promise(r => setTimeout(r, 60));
-    expect(remote).toHaveBeenCalledTimes(1);
-    release(); await Promise.all([first, second]);
-    expect(remote).toHaveBeenCalledTimes(2); expect(await cache()).toHaveLength(1);
+    try {
+      await second;
+      const newer = await conn(a);
+      expect(remote).toHaveBeenCalledTimes(2);
+      release();
+      expect(await first).toMatchObject({ skipped: true });
+      expect((await cache())[0].displayName).toBe("new");
+      expect((await conn(a)).customerFullPullAt).toEqual(newer.customerFullPullAt);
+    } finally { release(); await first; }
+  });
+  it.each(["full", "initial", "cdc", "old-cursor", "capped-cdc", "scheduler"] as const)(
+    "%s fetch does not block customer PATCH bookkeeping", async kind => {
+      const c = await makeCustomer();
+      if (kind !== "initial") await ready();
+      if (kind === "old-cursor") await setConn(a, { customerCdcCursor: new Date(0) });
+      if (kind === "scheduler") await setConn(a, { customerFullPullAt: new Date(0) });
+      let entered!: () => void, release!: () => void;
+      const started = new Promise<void>(r => { entered = r; }), gate = new Promise<void>(r => { release = r; });
+      if (kind === "capped-cdc") remote.mockResolvedValueOnce({ ok: true,
+        json: async () => ({ CDCResponse: [{ QueryResponse: [{ maxResults: 1000 }] }] }) });
+      remote.mockImplementationOnce(async () => {
+        entered(); await gate;
+        return kind === "cdc" ? { ok: true, json: async () => ({ CDCResponse: [{ QueryResponse: [{ Customer: [raw()] }] }] }) }
+          : response([raw()]);
+      });
+      const work = kind === "full" ? runFullCustomerPull(a) : kind === "initial" ? runInitialCustomerSync(a, "synthetic")
+        : kind === "scheduler" ? sweepQboCustomers([a]) : runIncrementalCustomerSync(a);
+      await started;
+      try {
+        const patched = await request(customerPatchApp(a)).patch(`/api/customers/${c.id}`)
+          .send({ billingName: "Edited while fetching" }).timeout(1500);
+        expect(patched.status).toBe(200);
+        expect((await reload(c.id)).billingName).toBe("Edited while fetching");
+      } finally { release(); await work; }
+      expect((await reload(c.id)).billingName).toBe("Edited while fetching");
+    });
+  it.each(["realm", "replacement", "disconnect"] as const)("does not ingest a snapshot after %s", async change => {
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(r => { entered = r; }), gate = new Promise<void>(r => { release = r; });
+    remote.mockImplementationOnce(async () => { entered(); await gate; return response([raw()]); });
+    const work = runFullCustomerPull(a);
+    const rejected = expect(work).rejects.toMatchObject({ status: 409 });
+    await started;
+    try {
+      await setConn(a, change === "realm" ? { realmId: "different" } : change === "disconnect" ?
+        { status: "revoked" } : { id: randomUUID(), connectedAt: new Date(Date.now() + 1000) });
+    } finally { release(); }
+    await rejected;
+    expect(await cache()).toEqual([]);
+    expect((await conn(a)).customerFullPullAt).toBeNull();
+  });
+  it("reacquires an obsolete first initial snapshot but never rehydrates an established baseline", async () => {
+    const c = await makeCustomer();
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(r => { entered = r; }), gate = new Promise<void>(r => { release = r; });
+    remote.mockImplementationOnce(async () => { entered(); await gate; return response([raw({ DisplayName: "obsolete" })]); })
+      .mockResolvedValue(response([raw({ DisplayName: "fresh" })]));
+    const work = runInitialCustomerSync(a, "synthetic"); await started;
+    await ingestQboCustomers(a, [raw({ DisplayName: "newer mirror" })]);
+    release(); await work;
+    expect(remote).toHaveBeenCalledTimes(2);
+    expect((await reload(c.id)).billingName).toBe("fresh");
+  });
+  it("CDC overlapping a newer full pull discards obsolete data and keeps the newer cursor", async () => {
+    await ready();
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(r => { entered = r; }), gate = new Promise<void>(r => { release = r; });
+    remote.mockImplementationOnce(async () => { entered(); await gate; return { ok: true,
+      json: async () => ({ CDCResponse: [{ QueryResponse: [{ Customer: [raw({ DisplayName: "old CDC" })] }] }] }) }; })
+      .mockResolvedValue(response([raw({ DisplayName: "new full" })]));
+    const work = runIncrementalCustomerSync(a); await started;
+    try {
+      await runFullCustomerPull(a);
+      const fresh = await conn(a);
+      release(); expect(await work).toMatchObject({ skipped: true });
+      expect((await cache())[0].displayName).toBe("new full");
+      expect((await conn(a)).customerCdcCursor).toEqual(fresh.customerCdcCursor);
+    } finally { release(); await work; }
   });
   it("both partial unique indexes converge QBO-only and customer-only open evidence safely", async () => {
     const c = await makeCustomer();

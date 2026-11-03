@@ -307,11 +307,24 @@ export async function qboRequest(
   };
   if (body) headers["Content-Type"] = "application/json";
 
-  let resp = await fetch(url, {
-    method,
-    headers,
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
+  const attempt = async (): Promise<Response> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error("QuickBooks request timed out after 30 seconds")), 30_000);
+    try {
+      const response = await fetch(url, {
+        method, headers, signal: controller.signal,
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      // Fetch resolves at headers. Read the body inside the deadline as well so
+      // a stalled JSON body cannot indefinitely retain an in-lock push.
+      if (response instanceof Response && response.body) {
+        const bytes = await response.arrayBuffer();
+        return new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers });
+      }
+      return response;
+    } finally { clearTimeout(timeout); }
+  };
+  let resp = await attempt();
 
   // 401 → force a refresh through the single-flight guard and retry once
   if (resp.status === 401) {
@@ -320,11 +333,7 @@ export async function qboRequest(
     const retryToken = decryptToken(freshConn.accessTokenEnc);
     if (!retryToken) throw new Error("Cannot decrypt QBO access token after refresh");
     headers["Authorization"] = `Bearer ${retryToken}`;
-    resp = await fetch(url, {
-      method,
-      headers,
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
+    resp = await attempt();
     if (resp.status === 401) {
       await db
         .update(qboConnections)

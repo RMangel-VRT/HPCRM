@@ -4,8 +4,8 @@ description: Preserve independently committed OAuth rotation when customer recon
 ---
 
 Keep OAuth refresh-token rotation outside customer mirror/reconciliation
-transactions, even though customer sync holds a company advisory lock across
-remote reads. Explicitly join only the local data writes to that transaction.
+transactions. Explicitly join only the local data writes to that transaction;
+remote pull acquisition must not inherit a customer-write transaction.
 
 **Why:** QuickBooks rotates credentials remotely. Rolling back newly stored
 credentials after a later pagination/normalization/reconciliation failure can
