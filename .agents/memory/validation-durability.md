@@ -21,6 +21,12 @@ Place extracted baseline source trees outside the workspace, or remove them imme
 
 **How to apply:** Keep comparison logs in the ignored output directory, but do not leave cloned source/config trees there when running drift checks or completing work.
 
+Finish a baseline check before editing any source it can read, even when the check runs in the background.
+
+**Why:** Library emission and leaf checks read at different times; editing during an asynchronous baseline can produce a hybrid of old and new diagnostics rather than a true pre-change result.
+
+**How to apply:** Parallelize baseline checks only with reads. If edits overlap a baseline, discard it and reconstruct the baseline from a pristine source archive with isolated workspace-library links.
+
 Do not restart the API while database integration suites have active disposable companies.
 
 **Why:** Startup scheduling backfills inspect every company, including intentionally incomplete test workflow fixtures. Restarting during those fixtures can fail bootstrap with a misleading missing-successor error even though the application builds correctly.

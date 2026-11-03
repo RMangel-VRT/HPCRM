@@ -3,11 +3,11 @@ name: Customer creation and QuickBooks sync direction
 description: Uploaded CQ slice order, initial-sync safety gate, and cross-product rollout boundaries.
 ---
 
-Read `attached_assets/Pasted--Customer-creation-QuickBooks-sync-slice-pack-For-Randy_1793727866877.txt` before planning customer creation or QuickBooks customer synchronization. The November 3, 2026 overview specifies a strict chain: CQ1 billing fields/map → CQ2 initial sync and scheduled pull → CQ3 push → CQ4 review queue and links → CQ5 customer wizard. It references `claude/customer-qbo-sync-design.md`, which was not present when this overview was received; detailed slice files were not included in this upload.
+Read `attached_assets/Pasted--Customer-creation-QuickBooks-sync-slice-pack-For-Randy_1793727866877.txt` before planning customer creation or QuickBooks customer synchronization. The November 3, 2026 overview specifies a strict chain: CQ1 billing fields/map → CQ2 initial sync and scheduled pull → CQ3 push → CQ4 review queue and links → CQ5 customer wizard. Use each slice's complete supplied brief as its acceptance contract; the overview's referenced `claude/customer-qbo-sync-design.md` was not supplied.
 
-**Why:** The user supplied a reference pack overview, not authorization to implement, create tasks, or publish. Each slice depends on its predecessors' merged work.
+**Why:** The overview is not blanket authorization to implement later slices or publish. Each assigned slice supplies its own scope and depends on its predecessors' merged work.
 
-**How to apply:** Obtain the detailed design and individual slice briefs before implementation. Check current code and free migration numbers rather than trusting the dated baseline or suggested numbers.
+**How to apply:** Read the assigned slice brief before implementation. Check current code and free migration numbers rather than trusting the dated baseline or suggested numbers. Billing schema and pure payload contracts do not authorize switching invoice bill-to readers before initial reconciliation or altering existing QBO call paths.
 
 After CQ1–CQ2 are published, finish ambiguous customer linking in QuickBooks customer integration settings and manually run initial sync. CQ3–CQ5 may be built before this operational step, but no customer is sent to QuickBooks until initial sync has run; unsent customers remain “Waiting to send.” QuickBooks-side changes become review items; billing edits use sparse updates with SyncToken.
 

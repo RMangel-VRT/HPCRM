@@ -72,6 +72,7 @@ import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes
 import { getEmailFallbacks, formatReentryInterval } from '../i18n/emailFallbacks';
 import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
+import { billingInputProblem, protectedBillingWrite } from "../services/customerBillingInput";
 import { linkCrewsByName } from "../lib/linkCrews";
 import { registerVisitRoutes } from "./visits";
 import { registerRouteStopRoutes } from "./routeStops";
@@ -2673,6 +2674,14 @@ async function autoPopulateServicePlansFromContract(contract: {
   }
 }
 
+function storageBillingContext(companyId: string) {
+  return {
+    companyId,
+    getCustomerById: (id: string, scope: string) => storage.getCustomerById(id, scope),
+    getPropertyManagementCompanyById: (id: string, scope: string) => storage.getPropertyManagementCompanyById(id, scope),
+  };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Must run first — renames "Project" → "Estimate Request" and
   // "Project (No Estimate)" → "Project" before any ensure*/seed* calls look them up by name.
@@ -2990,6 +2999,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
+    if (protectedBillingWrite(req.body)) return res.status(400).send("QuickBooks sync metadata is server-owned");
     const result = insertCustomerSchema.safeParse({
       ...req.body,
       companyId: user.activeCompanyId,
@@ -3004,6 +3014,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       return res.status(400).send(result.error.message);
     }
+
+    const billingProblem = await billingInputProblem(result.data, storageBillingContext(user.activeCompanyId));
+    if (billingProblem) return res.status(400).send(billingProblem);
 
     // Validate and auto-mark parent if parentCustomerId is being set
     if (result.data.parentCustomerId) {
@@ -3034,6 +3047,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
+    if (protectedBillingWrite(req.body)) return res.status(400).send("QuickBooks sync metadata is server-owned");
     // Extract expectedUpdatedAt from body for conflict detection
     const { expectedUpdatedAt, ...updateData } = req.body;
     
@@ -3042,6 +3056,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).send(result.error.message);
     }
     const updates = pickProvided(result.data, updateData);
+    const billingExisting = await storage.getCustomerById(req.params.id, user.activeCompanyId);
+    if (!billingExisting) return res.status(404).send("Customer not found");
+    const billingProblem = await billingInputProblem({ ...billingExisting, ...updates }, storageBillingContext(user.activeCompanyId));
+    if (billingProblem) return res.status(400).send(billingProblem);
 
     // Validate property manager belongs to property management company
     const hasManagerId = updates.propertyManagerId !== undefined;

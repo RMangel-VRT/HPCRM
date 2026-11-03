@@ -293,7 +293,28 @@ export const customers = pgTable("customers", {
   locationLat: real("location_lat"),
   locationLng: real("location_lng"),
   ranking: text("ranking").$type<"standard" | "preferred" | "key_account">().notNull().default("standard"),
-  // QBO Slice 1.2: binding columns
+  // Owner: customer billing facts. Management-company addresses are read live, never copied.
+  billingName: text("billing_name"),
+  billingCompanyName: text("billing_company_name"),
+  billingContactName: text("billing_contact_name"),
+  billingEmails: text("billing_emails").array().notNull().default(sql`ARRAY[]::text[]`),
+  billingPhone: text("billing_phone"),
+  billingMobile: text("billing_mobile"),
+  billToMode: text("bill_to_mode").notNull().default("property"),
+  billStreet: text("bill_street"),
+  billStreet2: text("bill_street2"),
+  billCity: text("bill_city"),
+  billState: text("bill_state"),
+  billZip: text("bill_zip"),
+  qboTermId: text("qbo_term_id"),
+  branchBillingMode: text("branch_billing_mode").notNull().default("master"),
+  // Server-owned sync metadata; baseline is an agreed-value snapshot.
+  qboSyncToken: text("qbo_sync_token"),
+  qboBaseline: jsonb("qbo_baseline"),
+  qboSyncState: text("qbo_sync_state").notNull().default("not_linked"),
+  qboLastError: text("qbo_last_error"),
+  qboPushedAt: timestamp("qbo_pushed_at"),
+  // QBO binding; qboDisplayName remains an automatic QuickBooks mirror.
   qboCustomerId: varchar("qbo_customer_id"),
   qboDisplayName: text("qbo_display_name"),
   qboSyncedAt: timestamp("qbo_synced_at"),
@@ -307,13 +328,50 @@ export const customers = pgTable("customers", {
   customersQboCustomerIdUniq: uniqueIndex("customers_qbo_customer_id_uniq")
     .on(table.companyId, table.qboCustomerId)
     .where(sql`qbo_customer_id IS NOT NULL`),
+  billToModeCheck: check("customers_bill_to_mode_check", sql`${table.billToMode} IN ('property', 'management_company', 'custom')`),
+  branchBillingModeCheck: check("customers_branch_billing_mode_check", sql`${table.branchBillingMode} IN ('master', 'separate')`),
+  qboSyncStateCheck: check("customers_qbo_sync_state_check", sql`${table.qboSyncState} IN ('not_linked', 'in_sync', 'pending_push', 'error', 'via_parent')`),
 }));
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  qboCustomerId: true,
+  qboDisplayName: true,
+  qboSyncedAt: true,
+  qboSyncToken: true,
+  qboBaseline: true,
+  qboSyncState: true,
+  qboLastError: true,
+  qboPushedAt: true,
 }).extend({
+  billingName: z.string().nullable().optional(),
+  billingCompanyName: z.string().nullable().optional(),
+  billingContactName: z.string().nullable().optional(),
+  // Leave omitted billing fields omitted in legacy edit forms. The API and DB
+  // apply create defaults; client defaults here would reset existing billing.
+  billingEmails: z.array(z.string().trim().email()).optional(),
+  billingPhone: z.string().nullable().optional(),
+  billingMobile: z.string().nullable().optional(),
+  billToMode: z.enum(["property", "management_company", "custom"]).optional(),
+  billStreet: z.string().nullable().optional(),
+  billStreet2: z.string().nullable().optional(),
+  billCity: z.string().nullable().optional(),
+  billState: z.string().nullable().optional(),
+  billZip: z.string().nullable().optional(),
+  qboTermId: z.string().nullable().optional(),
+  branchBillingMode: z.enum(["master", "separate"]).optional(),
+  // The stub's omit is deliberately a no-op. Explicit never fields keep its
+  // passthrough behavior for legacy form fields without accepting sync writes.
+  qboCustomerId: z.never().optional(),
+  qboDisplayName: z.never().optional(),
+  qboSyncedAt: z.never().optional(),
+  qboSyncToken: z.never().optional(),
+  qboBaseline: z.never().optional(),
+  qboSyncState: z.never().optional(),
+  qboLastError: z.never().optional(),
+  qboPushedAt: z.never().optional(),
   status: z.enum(["active", "prospect", "inactive"]).default("active"),
   tags: z.array(z.string()).default([]),
   // Forms submit "" for an unselected optional Select; coerce empty/null to undefined
@@ -329,9 +387,6 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   locationLat: z.number().nullable().optional(),
   locationLng: z.number().nullable().optional(),
   ranking: z.enum(["standard", "preferred", "key_account"]).default("standard"),
-  qboCustomerId: z.string().nullable().optional(),
-  qboDisplayName: z.string().nullable().optional(),
-  qboSyncedAt: z.date().nullable().optional(),
 });
 
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
@@ -4014,6 +4069,7 @@ export interface QboPullResult {
 
 // ==================== QBO CUSTOMER CACHE ====================
 
+// Automatic QuickBooks mirror, sync-service writes only; customers owns billing.
 export const qboCustomerCache = pgTable("qbo_customer_cache", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),

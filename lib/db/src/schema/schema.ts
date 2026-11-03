@@ -302,7 +302,28 @@ export const customers = pgTable("customers", {
   irrigationControllerLocations: text("irrigation_controller_locations"),
   accessNotes: text("access_notes"),
   watchOutNotes: text("watch_out_notes"),
-  // QBO Slice 1.2: binding columns linking this CRM customer to a QBO customer record.
+  // Owner: customer billing facts. Management-company addresses remain live directory facts.
+  billingName: text("billing_name"),
+  billingCompanyName: text("billing_company_name"),
+  billingContactName: text("billing_contact_name"),
+  billingEmails: text("billing_emails").array().notNull().default(sql`ARRAY[]::text[]`),
+  billingPhone: text("billing_phone"),
+  billingMobile: text("billing_mobile"),
+  billToMode: text("bill_to_mode").notNull().default("property").$type<"property" | "management_company" | "custom">(),
+  billStreet: text("bill_street"),
+  billStreet2: text("bill_street2"),
+  billCity: text("bill_city"),
+  billState: text("bill_state"),
+  billZip: text("bill_zip"),
+  qboTermId: text("qbo_term_id"),
+  branchBillingMode: text("branch_billing_mode").notNull().default("master").$type<"master" | "separate">(),
+  // Server-owned synchronization metadata; baseline is an agreed-value snapshot.
+  qboSyncToken: text("qbo_sync_token"),
+  qboBaseline: jsonb("qbo_baseline"),
+  qboSyncState: text("qbo_sync_state").notNull().default("not_linked").$type<"not_linked" | "in_sync" | "pending_push" | "error" | "via_parent">(),
+  qboLastError: text("qbo_last_error"),
+  qboPushedAt: timestamp("qbo_pushed_at"),
+  // QBO binding; qboDisplayName remains an automatic QuickBooks mirror, not a billing owner.
   qboCustomerId: varchar("qbo_customer_id"),
   qboDisplayName: text("qbo_display_name"),
   qboSyncedAt: timestamp("qbo_synced_at"),
@@ -316,13 +337,38 @@ export const customers = pgTable("customers", {
   customersQboCustomerIdUniq: uniqueIndex("customers_qbo_customer_id_uniq")
     .on(table.companyId, table.qboCustomerId)
     .where(sql`qbo_customer_id IS NOT NULL`),
+  billToModeCheck: check("customers_bill_to_mode_check", sql`${table.billToMode} IN ('property', 'management_company', 'custom')`),
+  branchBillingModeCheck: check("customers_branch_billing_mode_check", sql`${table.branchBillingMode} IN ('master', 'separate')`),
+  qboSyncStateCheck: check("customers_qbo_sync_state_check", sql`${table.qboSyncState} IN ('not_linked', 'in_sync', 'pending_push', 'error', 'via_parent')`),
 }));
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  qboCustomerId: true,
+  qboDisplayName: true,
+  qboSyncedAt: true,
+  qboSyncToken: true,
+  qboBaseline: true,
+  qboSyncState: true,
+  qboLastError: true,
+  qboPushedAt: true,
 }).extend({
+  billingName: z.string().nullable().optional(),
+  billingCompanyName: z.string().nullable().optional(),
+  billingContactName: z.string().nullable().optional(),
+  billingEmails: z.array(z.string().trim().email()).default([]),
+  billingPhone: z.string().nullable().optional(),
+  billingMobile: z.string().nullable().optional(),
+  billToMode: z.enum(["property", "management_company", "custom"]).default("property"),
+  billStreet: z.string().nullable().optional(),
+  billStreet2: z.string().nullable().optional(),
+  billCity: z.string().nullable().optional(),
+  billState: z.string().nullable().optional(),
+  billZip: z.string().nullable().optional(),
+  qboTermId: z.string().nullable().optional(),
+  branchBillingMode: z.enum(["master", "separate"]).default("master"),
   status: z.enum(["active", "prospect", "inactive"]).default("active"),
   tags: z.array(z.string()).default([]),
   // Forms submit "" for an unselected optional Select; coerce empty/null to undefined
@@ -338,12 +384,13 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   locationLat: z.number().nullable().optional(),
   locationLng: z.number().nullable().optional(),
   ranking: z.enum(["standard", "preferred", "key_account"]).default("standard"),
-  qboCustomerId: z.string().nullable().optional(),
-  qboDisplayName: z.string().nullable().optional(),
-  qboSyncedAt: z.date().nullable().optional(),
 });
 
-export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+// Internal insert callers may rely on database defaults, just like HTTP creates
+// rely on schema defaults. Keep existing non-billing insert requirements intact.
+type ParsedCustomerInsert = z.infer<typeof insertCustomerSchema>;
+export type InsertCustomer = Omit<ParsedCustomerInsert, "billingEmails" | "billToMode" | "branchBillingMode"> &
+  Partial<Pick<ParsedCustomerInsert, "billingEmails" | "billToMode" | "branchBillingMode">>;
 export type Customer = typeof customers.$inferSelect;
 
 export const contacts = pgTable("contacts", {
@@ -4351,6 +4398,8 @@ export type InsertPlantPaletteItem = z.infer<typeof insertPlantPaletteItemSchema
 export type PlantPaletteItem = typeof plantPaletteItems.$inferSelect;
 
 // ── QuickBooks Online Customer Cache ───────────────────────────────────────────
+// Automatic QuickBooks mirror, sync-service writes only. Customer billing facts
+// are owned by customers; CQ2 retires the legacy invoice bill-to cache reader.
 export const qboCustomerCache = pgTable("qbo_customer_cache", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
