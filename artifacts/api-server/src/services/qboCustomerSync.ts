@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { and, eq, or, sql, count } from "drizzle-orm";
+import { and, eq, or, sql, count, inArray } from "drizzle-orm";
 import { customers, propertyManagementCompanies, qboConnections, qboCustomerCache, qboCustomerReviews,
   type Customer, type QboReviewFields, type QboReviewKind, type QboConnection } from "@workspace/db";
 import { db, type AppTransaction } from "../db";
@@ -8,9 +8,10 @@ import { qboRequest } from "./qboClient";
 import { billsThroughParent, resolveBillTo } from "./customerBilling";
 import { crmToQboFields, FIELD_KEYS, normalize, qboToFields, type QboCustomerFields } from "./qboCustomerMap";
 import { compareRemote, equal, initialBillingPatch, ownedKeys } from "./qboCustomerComparison";
+import { retryPendingCustomerPushes } from "./qboCustomerPush";
 
 type Raw = Record<string, unknown>;
-const scope = new AsyncLocalStorage<{ companyId: string; tx: AppTransaction }>();
+const scope = new AsyncLocalStorage<{ companyId: string; tx: AppTransaction; committed: (() => void)[] }>();
 export const CUSTOMER_SYNC_INTERVAL = 15 * 60_000;
 const DAY = 24 * 60 * 60_000;
 export class CustomerSyncError extends Error {
@@ -24,13 +25,22 @@ export async function withCustomerSyncLock<T>(companyId: string, work: (tx: AppT
     if (current.companyId !== companyId) throw new Error("CUSTOMER_SYNC_COMPANY_MISMATCH");
     return work(current.tx);
   }
-  return db.transaction(async tx => {
+  const committed: (() => void)[] = [];
+  const result = await db.transaction(async tx => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`qbo-customers:${companyId}`},0))`);
     // Do NOT bind the ambient db proxy here: qboRequest may rotate OAuth
     // credentials. Those must commit independently even if reconciliation rolls
     // back later. Mirror/review/billing writes explicitly use this transaction.
-    return scope.run({ companyId, tx }, () => work(tx));
+    return scope.run({ companyId, tx, committed }, () => work(tx));
   });
+  for (const callback of committed) callback();
+  return result;
+}
+/** Register only local post-commit work; rollback discards these callbacks. */
+export function onCustomerSyncCommit(callback: () => void) {
+  const current = scope.getStore();
+  if (!current) throw new Error("CUSTOMER_SYNC_TRANSACTION_REQUIRED");
+  current.committed.push(callback);
 }
 async function connection(tx: AppTransaction, companyId: string) {
   const [conn] = await tx.select().from(qboConnections).where(eq(qboConnections.companyId, companyId));
@@ -343,9 +353,10 @@ export async function writeCustomerSeedSuggestion(companyId: string, qboId: stri
       .where(and(eq(qboCustomerCache.companyId, companyId), eq(qboCustomerCache.qboId, qboId)));
   });
 }
-export async function sweepQboCustomers() {
+export async function sweepQboCustomers(onlyCompanyIds?: readonly string[]) {
   const connections = await db.select({ companyId: qboConnections.companyId }).from(qboConnections)
-    .where(and(eq(qboConnections.status, "connected"), sql`${qboConnections.customerBaselineAt} IS NOT NULL`));
+    .where(and(eq(qboConnections.status, "connected"), sql`${qboConnections.customerBaselineAt} IS NOT NULL`,
+      onlyCompanyIds ? inArray(qboConnections.companyId, [...onlyCompanyIds]) : undefined));
   for (const { companyId } of connections) {
     try {
       await withCustomerSyncLock(companyId, async tx => {
@@ -357,6 +368,8 @@ export async function sweepQboCustomers() {
         else if (!conn.customerCdcCursor || now - conn.customerCdcCursor.getTime() >= CUSTOMER_SYNC_INTERVAL) await runIncrementalCustomerSync(companyId);
       });
     } catch (err) { logger.warn({ err, companyId }, "QuickBooks customer sync failed"); }
+    try { await retryPendingCustomerPushes(companyId); }
+    catch (err) { logger.warn({ err, companyId }, "QuickBooks customer push retries failed"); }
   }
 }
 export function startQboCustomerSync() {

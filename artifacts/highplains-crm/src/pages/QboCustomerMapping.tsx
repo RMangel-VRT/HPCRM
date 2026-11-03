@@ -471,7 +471,7 @@ function CreateInQboDialog({
     },
     onSuccess: (data) => {
       if (!data) return;
-      toast({ title: t("qboMapping.created") });
+      toast({ title: data.state === "pending_push" ? t("qboMapping.waitingToSend") : t("qboMapping.created") });
       queryClient.invalidateQueries({ queryKey: ["/api/qbo/customers/mapping"] });
       queryClient.invalidateQueries({ queryKey: ["/api/qbo/customers/unbound-count"] });
       queryClient.invalidateQueries({ queryKey: ["/api/qbo/connection"] });
@@ -964,6 +964,9 @@ function CrmCustomerMatching({ connectionStatus }: { connectionStatus: QboConnec
                       {[row.customerCity, row.customerZip].filter(Boolean).join(", ")}
                     </div>
                     <Badge variant="outline" className="mt-1 text-xs">{row.customerStatus}</Badge>
+                    {row.qboSyncState === "pending_push" && (
+                      <Badge variant="outline" className="mt-1 ml-1 text-xs">{t("qboMapping.waitingToSend")}</Badge>
+                    )}
                   </TableCell>
                   <TableCell>
                     {row.stale && (
@@ -1026,13 +1029,12 @@ function CrmCustomerMatching({ connectionStatus }: { connectionStatus: QboConnec
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
                       {!row.bound && connected && (
-                        <div title={!qboWriteEnabled ? t("qboMapping.writeDisabledTooltip") : undefined}>
+                        <div title={!qboWriteEnabled ? t("qboMapping.queuedUntilEnabled") : undefined}>
                           <Button
                             variant="ghost"
                             size="sm"
                             className="text-xs"
                             onClick={() => setCreateInQboRow(row)}
-                            disabled={!qboWriteEnabled}
                           >
                             <PlusCircle className="w-3.5 h-3.5 mr-1" />
                             {t("qboMapping.createInQbo")}

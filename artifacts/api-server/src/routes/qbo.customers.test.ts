@@ -33,6 +33,8 @@ const mockStorage = {
 };
 vi.mock("../storage", () => ({ storage: mockStorage }));
 vi.mock("../db", () => ({ db: {}, inTransaction: async (_tx: unknown, work: () => Promise<unknown>) => work() }));
+const outboundCustomer = vi.hoisted(() => vi.fn());
+vi.mock("../services/qboCustomerPush", () => ({ lockedCustomer: outboundCustomer, queueCustomerPush: vi.fn() }));
 const sync = vi.hoisted(() => ({
   full: vi.fn(), initial: vi.fn(), incremental: vi.fn(), status: vi.fn(), ingest: vi.fn(),
 }));
@@ -133,13 +135,10 @@ describe("Customer sync controls permissions and delegation", () => {
     expect(sync.incremental).toHaveBeenCalledWith(COMPANY_ID);
     expect(sync.status).toHaveBeenCalledWith(COMPANY_ID);
   });
-  it("blocks the existing customer create path before baseline even when writes are enabled", async () => {
-    const { isQboWriteEnabled } = await import("../services/qboClient");
-    vi.mocked(isQboWriteEnabled).mockResolvedValueOnce(true);
-    sync.status.mockResolvedValueOnce({ baselineAt: null });
+  it("validates the legacy queue request before any remote call", async () => {
     const app = await buildApp(adminUser());
-    const result = await request(app).post("/api/qbo/customers/create").send({ customerId: "customer" });
-    expect(result.status).toBe(409); expect(result.body.initialSyncRequired).toBe(true);
+    const result = await request(app).post("/api/qbo/customers/create").send({ customerId: "customer", emailOverride: "invalid" });
+    expect(result.status).toBe(400);
     expect(mockQboRequest).not.toHaveBeenCalled();
   });
   it("rejects queued sync requests for a different company", async () => {
@@ -1039,49 +1038,15 @@ describe("POST /api/qbo/customers/duplicate-check", () => {
 describe("POST /api/qbo/customers/create", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  async function connectedWriteSetup() {
-    const { isQboWriteEnabled } = await import("../services/qboClient");
-    vi.mocked(isQboWriteEnabled).mockResolvedValue(true);
-    mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
-  }
-
-  function crmCustomer() {
-    return {
-      id: "cust-1",
-      name: "Acme Corp",
-      street: "123 Main St",
-      city: "Denver",
-      state: "CO",
-      zip: "80202",
-      qboCustomerId: null,
-      primaryEmail: "acme@test.com",
-      primaryPhone: "303-555-1234",
-    };
-  }
-
   it("returns 400 when customerId is missing", async () => {
-    await connectedWriteSetup();
     const app = await buildApp(adminUser());
     const res = await request(app).post("/api/qbo/customers/create").send({});
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/customerId/i);
-  });
-
-  it("returns 403 when write gate is disabled", async () => {
-    const { isQboWriteEnabled } = await import("../services/qboClient");
-    vi.mocked(isQboWriteEnabled).mockResolvedValue(false);
-    mockStorage.getQboConnection.mockResolvedValue(connectedStatus());
-    const app = await buildApp(adminUser());
-    const res = await request(app)
-      .post("/api/qbo/customers/create")
-      .send({ customerId: "cust-1" });
-    expect(res.status).toBe(403);
-    expect(res.body.writeDisabled).toBe(true);
+    expect(res.body.issues[0].path).toContain("customerId");
   });
 
   it("returns 404 when CRM customer not found", async () => {
-    await connectedWriteSetup();
-    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(null);
+    outboundCustomer.mockResolvedValueOnce(undefined);
     const app = await buildApp(adminUser());
     const res = await request(app)
       .post("/api/qbo/customers/create")
@@ -1089,143 +1054,13 @@ describe("POST /api/qbo/customers/create", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns 409 alreadyBound when CRM customer already has a QBO ID", async () => {
-    await connectedWriteSetup();
-    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue({
-      ...crmCustomer(), qboCustomerId: "existing-qbo-id",
-    });
+  it("returns 409 when CRM customer already has a QBO ID", async () => {
+    outboundCustomer.mockResolvedValueOnce({ qboCustomerId: "existing-qbo-id" });
     const app = await buildApp(adminUser());
     const res = await request(app)
       .post("/api/qbo/customers/create")
       .send({ customerId: "cust-1" });
     expect(res.status).toBe(409);
-    expect(res.body.alreadyBound).toBe(true);
-    expect(res.body.qboId).toBe("existing-qbo-id");
-  });
-
-  it("returns 409 displayNameCollision when live QBO has exact match", async () => {
-    await connectedWriteSetup();
-    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
-    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
-    mockQboRequest.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        QueryResponse: {
-          Customer: [{ Id: "qbo-existing", DisplayName: "Acme Corp", Active: true }],
-        },
-      }),
-    });
-
-    const app = await buildApp(adminUser());
-    const res = await request(app)
-      .post("/api/qbo/customers/create")
-      .send({ customerId: "cust-1" });
-
-    expect(res.status).toBe(409);
-    expect(res.body.displayNameCollision).toBe(true);
-    expect(res.body.candidate).toBeDefined();
-    expect(res.body.candidate.qboId).toBe("qbo-existing");
-  });
-
-  it("creates customer and binds it on success", async () => {
-    await connectedWriteSetup();
-    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
-    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
-    mockStorage.bindQboCustomer.mockResolvedValue({ conflict: false, notFound: false });
-    // Dedupe check: no match
-    mockQboRequest.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ QueryResponse: {} }),
-    });
-    // Create call: success
-    mockQboRequest.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        Customer: { Id: "new-qbo-id", DisplayName: "Acme Corp", Active: true },
-      }),
-    });
-
-    const app = await buildApp(adminUser());
-    const res = await request(app)
-      .post("/api/qbo/customers/create")
-      .send({ customerId: "cust-1" });
-
-    expect(res.status).toBe(200);
-    expect(res.body.ok).toBe(true);
-    expect(res.body.qboId).toBe("new-qbo-id");
-    expect(mockStorage.bindQboCustomer).toHaveBeenCalledWith(COMPANY_ID, "cust-1", "new-qbo-id");
-    expect(sync.ingest).toHaveBeenCalled();
-  });
-
-  it("uses displayNameOverride in payload and dedupe check", async () => {
-    await connectedWriteSetup();
-    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
-    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
-    mockStorage.bindQboCustomer.mockResolvedValue({ conflict: false, notFound: false });
-    mockQboRequest
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ QueryResponse: {} }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ Customer: { Id: "new-qbo-id", DisplayName: "Acme Corp Renamed", Active: true } }),
-      });
-
-    const app = await buildApp(adminUser());
-    const res = await request(app)
-      .post("/api/qbo/customers/create")
-      .send({ customerId: "cust-1", displayNameOverride: "Acme Corp Renamed" });
-
-    expect(res.status).toBe(200);
-    // The dedupe query should have used the override name (path is URL-encoded)
-    const dedupeCall = mockQboRequest.mock.calls[0];
-    expect(decodeURIComponent(dedupeCall[2] as string)).toContain("Acme Corp Renamed");
-  });
-
-  it("handles QBO error code 6240 (duplicate name) as 409", async () => {
-    await connectedWriteSetup();
-    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue(crmCustomer());
-    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
-    // Dedupe check: no match
-    mockQboRequest.mockResolvedValueOnce({ ok: true, json: async () => ({ QueryResponse: {} }) });
-    // Create call: QBO rejects with 6240
-    mockQboRequest.mockResolvedValueOnce({
-      ok: false,
-      json: async () => ({
-        Fault: {
-          Error: [{ code: "6240", Message: "Duplicate Name Exists Error", Detail: "The name already exists" }],
-          type: "ValidationFault",
-        },
-      }),
-    });
-
-    const app = await buildApp(adminUser());
-    const res = await request(app)
-      .post("/api/qbo/customers/create")
-      .send({ customerId: "cust-1" });
-
-    expect(res.status).toBe(409);
-    expect(res.body.displayNameCollision).toBe(true);
-  });
-
-  it("escapes single quotes in display name for QBO query", async () => {
-    await connectedWriteSetup();
-    mockStorage.getCustomerWithPrimaryContactForQbo.mockResolvedValue({
-      ...crmCustomer(), name: "O'Brien Holdings",
-    });
-    mockStorage.upsertQboCustomerCache.mockResolvedValue(undefined);
-    mockStorage.bindQboCustomer.mockResolvedValue({ conflict: false, notFound: false });
-    mockQboRequest
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ QueryResponse: {} }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ Customer: { Id: "qbo-obrien", DisplayName: "O'Brien Holdings", Active: true } }),
-      });
-
-    const app = await buildApp(adminUser());
-    await request(app)
-      .post("/api/qbo/customers/create")
-      .send({ customerId: "cust-1" });
-
-    const dedupeCall = mockQboRequest.mock.calls[0];
-    expect(decodeURIComponent(dedupeCall[2] as string)).toContain("O''Brien Holdings");
+    expect(mockQboRequest).not.toHaveBeenCalled();
   });
 });

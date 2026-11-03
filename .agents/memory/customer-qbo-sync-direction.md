@@ -29,3 +29,23 @@ ingestion. Preserve the original baseline on retries, and once it exists route
 retries through review-only reconciliation rather than re-hydrating fields
 someone deliberately cleared. Do not apply CQ3 push or
 CQ4 review-queue behavior as an implicit extension of CQ2.
+
+An intentional removed-customer unlink pauses all automatic sending until a new
+activation or explicit Send to QuickBooks now. Parent-first creation and branch
+mode changes are not permission to recreate an intentionally unlinked customer.
+
+**Why:** Randy's November 3, 2026 amendment makes unlink an explicit operational
+pause, not merely an empty binding eligible for automatic recovery.
+
+**How to apply:** Keep stale queued work, scheduler retries, billing edits and
+recursive parent synchronization behind this boundary. Dismiss only closes review
+evidence; linking a survivor establishes that survivor's agreed baseline.
+
+The current outbound retry quota is deliberately process-local, not a durable
+cross-instance guarantee.
+
+**Why:** The push scope explicitly directed documenting retry durability gaps
+rather than inventing an unapproved attempt-ledger schema.
+
+**How to apply:** Do not claim restart-safe or distributed three-per-hour limits
+without separately approving durable attempt metadata and its ownership.

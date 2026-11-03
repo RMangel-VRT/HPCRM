@@ -23,6 +23,7 @@ import { setupAuth, hashPassword, type UserWithContext } from "../auth";
 import { storage } from "../storage";
 import type { NotificationFilter } from "../storage";
 import { insertTicketNotificationSchema, type NotificationType } from "@workspace/db";
+import { insertPropertyManagementCompanySchema } from "@workspace/db";
 import * as extraBillableAccess from "../lib/extraBillableAccess";
 import { registerExtraBillableBillingRoutes, makeBucketCopyPhotoFn } from "./extraBillableBilling";
 import { registerCrewsAndMobileRoutes } from "./crewsAndMobile";
@@ -9195,7 +9196,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Insufficient permissions");
     }
     
-    const company = await storage.updatePropertyManagementCompany(req.params.id, user.activeCompanyId, req.body);
+    const parsed = insertPropertyManagementCompanySchema.omit({ companyId: true }).partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).send(parsed.error.message);
+    const company = await storage.updatePropertyManagementCompany(req.params.id, user.activeCompanyId, pickProvided(parsed.data, req.body));
     if (!company) {
       return res.status(404).send("Property management company not found");
     }

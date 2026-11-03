@@ -4,6 +4,9 @@ import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrew
 import { hardscapeStorage } from "./lib/hardscapeStorage";
 import { withPlannerWrite, withPlannerTemplateWrite, withPlannerBlockWrite } from "./lib/plannerFreeze";
 import { loadProposalEstimateSummaries } from "./services/proposalEstimates";
+import { withCustomerSyncLock } from "./services/qboCustomerSync";
+import { afterCustomerEdit, markPending, writeCustomer } from "./services/qboCustomerWrites";
+import { bindCustomer, unlinkCustomerLocked } from "./services/qboCustomerBinding";
 
 export interface MyExtraBillableBatch {
   campaignId: string;
@@ -871,12 +874,18 @@ export class PgStorage implements IStorage {
   }
 
   async createCustomer(insertCustomer: InsertCustomer): Promise<Customer> {
-    const result = await db.insert(customers).values([insertCustomer] as (typeof customers.$inferInsert)[]).returning();
-    return result[0];
+    return withCustomerSyncLock(insertCustomer.companyId, async tx => {
+      const [created] = await tx.insert(customers).values([insertCustomer] as (typeof customers.$inferInsert)[]).returning();
+      await afterCustomerEdit(tx, undefined, created);
+      return (await tx.select().from(customers).where(and(eq(customers.companyId, created.companyId), eq(customers.id, created.id))))[0];
+    });
   }
 
   async updateCustomer(id: string, companyId: string, updates: Partial<InsertCustomer>, expectedUpdatedAt?: Date,
     writer: Pick<typeof db, "select" | "update"> = db): Promise<Customer | undefined | { conflict: true; current: Customer }> {
+    // The non-renewal sweep supplies its own transaction for inactive-only DML.
+    // It never activates or changes billing facts, so no outbound work is needed.
+    if (writer === db) return withCustomerSyncLock(companyId, tx => writeCustomer(tx, id, companyId, updates, expectedUpdatedAt));
     // If expectedUpdatedAt is provided, check for conflicts
     if (expectedUpdatedAt) {
       const current = await writer.select().from(customers)
@@ -2391,11 +2400,21 @@ export class PgStorage implements IStorage {
   }
 
   async updatePropertyManagementCompany(id: string, companyId: string, updates: Partial<InsertPropertyManagementCompany>): Promise<PropertyManagementCompany | undefined> {
-    const result = await db.update(propertyManagementCompanies)
-      .set({ ...updates, updatedAt: new Date() })
+    return withCustomerSyncLock(companyId, async tx => {
+    // Directory PATCH must not move the owner row to a different tenant.
+    const { companyId: _ignoredCompanyId, ...provided } = updates;
+    const result = await tx.update(propertyManagementCompanies)
+      .set({ ...provided, updatedAt: new Date() })
       .where(and(eq(propertyManagementCompanies.id, id), eq(propertyManagementCompanies.companyId, companyId)))
       .returning();
+    if (result[0]) {
+      const affected = await tx.select().from(customers).where(and(eq(customers.companyId, companyId),
+        eq(customers.propertyManagementCompanyId, id), eq(customers.billToMode, "management_company"),
+        sql`${customers.qboCustomerId} IS NOT NULL`)).for("update");
+      for (const c of affected) await markPending(tx, c);
+    }
     return result[0];
+    });
   }
 
   async deletePropertyManagementCompany(id: string, companyId: string): Promise<void> {
@@ -5608,6 +5627,7 @@ export class PgStorage implements IStorage {
   ): Promise<Array<{
     customerId: string; customerName: string; customerCity: string; customerZip: string;
     customerStatus: string; bound: boolean; qboCustomerId: string | null;
+    qboSyncState: string;
     qboDisplayName: string | null; qboSyncedAt: Date | null; stale: boolean;
     suggestions: Array<{ qboId: string; displayName: string; billAddrCity: string | null;
       billAddrPostalCode: string | null; score: number; verified: boolean }>;
@@ -5628,9 +5648,10 @@ export class PgStorage implements IStorage {
 
     const custRes = await pool.query<{
       id: string; name: string; city: string; zip: string; status: string;
+      qbo_sync_state: string;
       qbo_customer_id: string | null; qbo_display_name: string | null; qbo_synced_at: Date | null;
     }>(
-      `SELECT c.id, c.name, c.city, c.zip, c.status, c.qbo_customer_id, c.qbo_display_name, c.qbo_synced_at
+      `SELECT c.id, c.name, c.city, c.zip, c.status, c.qbo_sync_state, c.qbo_customer_id, c.qbo_display_name, c.qbo_synced_at
        FROM customers c
        WHERE ${whereClauses}
        ORDER BY c.name ASC`,
@@ -5698,7 +5719,7 @@ export class PgStorage implements IStorage {
 
         return {
           customerId: c.id, customerName: c.name, customerCity: c.city, customerZip: c.zip,
-          customerStatus: c.status, bound, qboCustomerId: c.qbo_customer_id,
+          customerStatus: c.status, qboSyncState: c.qbo_sync_state, bound, qboCustomerId: c.qbo_customer_id,
           qboDisplayName: c.qbo_display_name, qboSyncedAt: c.qbo_synced_at, stale, suggestions,
         };
       }),
@@ -5711,48 +5732,11 @@ export class PgStorage implements IStorage {
     customerId: string,
     qboId: string,
   ): Promise<{ conflict: boolean; notFound?: "qbo" | "customer" }> {
-    // Check the cache row exists and belongs to this company
-    const cacheRow = await this.getQboCacheRow(companyId, qboId);
-    if (!cacheRow) return { conflict: false, notFound: "qbo" };
-
-    // Check the CRM customer exists and belongs to this company
-    const [crmCustomer] = await db
-      .select({ id: customers.id })
-      .from(customers)
-      .where(and(eq(customers.id, customerId), eq(customers.companyId, companyId)));
-    if (!crmCustomer) return { conflict: false, notFound: "customer" };
-
-    // Check if already bound to another CRM customer
-    const [existing] = await db
-      .select({ id: customers.id })
-      .from(customers)
-      .where(
-        and(
-          eq(customers.companyId, companyId),
-          eq(customers.qboCustomerId, qboId),
-        ),
-      );
-    if (existing && existing.id !== customerId) {
-      return { conflict: true };
-    }
-
-    await db
-      .update(customers)
-      .set({
-        qboCustomerId: qboId,
-        qboDisplayName: cacheRow.displayName,
-        qboSyncedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(and(eq(customers.id, customerId), eq(customers.companyId, companyId)));
-    return { conflict: false };
+    return bindCustomer(companyId, customerId, qboId);
   }
 
   async unbindQboCustomer(companyId: string, customerId: string): Promise<void> {
-    await db
-      .update(customers)
-      .set({ qboCustomerId: null, qboDisplayName: null, qboSyncedAt: null, updatedAt: new Date() })
-      .where(and(eq(customers.id, customerId), eq(customers.companyId, companyId)));
+    await withCustomerSyncLock(companyId, tx => unlinkCustomerLocked(tx, companyId, customerId));
   }
 
   async promoteQboCustomerToCrm(

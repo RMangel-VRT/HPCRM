@@ -164,3 +164,22 @@ The upload's final “every linked customer is in_sync” sentence conflicts wit
 its detailed non-destructive initial comparison rules. CQ2 follows the detailed
 rules: it never erases non-empty billing values or marks genuinely differing
 normalized fields `in_sync` to satisfy that sentence.
+
+## CQ3: safe outbound and review resolutions
+
+See [CQ3 verification and API contracts](cq3-verification.md) for the complete
+changed-file/call-site report, test and typecheck evidence, action bodies and
+the explicitly process-local retry-limit durability caveat.
+
+Active creation/activation and linked billing edits persist pending state with
+owner writes; post-commit pushes require both the initial baseline and qbo_write.
+Prospects require explicit admin/office send-now. The legacy create route now
+queues with HTTP 202 and persists validated overrides to CRM billing facts.
+Mapping displays pending state without claiming the customer was remotely created.
+
+The outbound service sends sparse SyncToken-protected updates, never writes Active,
+sets delivery None on create only, and ingests rather than blindly retrying stale
+objects. Review resolutions are billing-authorized and company-serialized.
+Intentional qbo_removed unlink suppresses background/old queued work until a new
+activation or explicit send. The exported qboCustomerRefFor helper is for future
+invoice consumers only; none were rewired in CQ3.

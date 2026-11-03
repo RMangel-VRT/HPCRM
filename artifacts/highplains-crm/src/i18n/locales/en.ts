@@ -3034,6 +3034,8 @@ const en = {
     noMatchFoundDesc: "No existing QuickBooks customer matches this name. Review the details and create.",
     displayNameLabel: "Display Name",
     createAction: "Create in QuickBooks",
+    waitingToSend: "Waiting to send to QuickBooks",
+    queuedUntilEnabled: "You can queue this customer now. Sending waits for initial sync and QuickBooks write access.",
     creating: "Creating…",
     created: "Customer created in QuickBooks",
     createFailed: "Failed to create customer in QuickBooks",

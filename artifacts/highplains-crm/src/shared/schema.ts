@@ -4051,6 +4051,7 @@ export interface QboSuggestion {
 }
 
 export interface QboMappingRow {
+  qboSyncState?: string;
   customerId: string;
   customerName: string;
   customerCity: string;

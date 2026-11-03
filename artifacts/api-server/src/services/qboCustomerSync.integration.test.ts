@@ -11,7 +11,7 @@ import { resolveBillTo } from "./customerBilling";
 import { invoiceBillTo } from "./invoiceBillTo";
 
 const remote = vi.hoisted(() => vi.fn());
-vi.mock("./qboClient", () => ({ qboRequest: remote }));
+vi.mock("./qboClient", () => ({ qboRequest: remote, isQboWriteEnabled: vi.fn().mockResolvedValue(false) }));
 import { customerSyncStatus, ingestQboCustomers, raiseCustomerReview, runFullCustomerPull,
   runIncrementalCustomerSync, runInitialCustomerSync, sweepQboCustomers, withCustomerSyncLock } from "./qboCustomerSync";
 
@@ -343,11 +343,11 @@ describe("initial, full and incremental synchronization", () => {
     await setConn(a, { status: "connected", customerBaselineAt: baseline, customerFullPullAt: new Date(0) });
     await setConn(b, { status: "connected", customerBaselineAt: baseline, customerFullPullAt: new Date(0) });
     remote.mockImplementation(async (id: string) => { if (id === a) throw new Error("synthetic failure"); return response([raw()]); });
-    await sweepQboCustomers();
+    await sweepQboCustomers([a, b]);
     expect((await conn(a)).customerCdcCursor).toBeNull();
     expect((await conn(b)).customerFullPullAt!.getTime()).toBeGreaterThan(0);
     const calls = remote.mock.calls.length;
-    await sweepQboCustomers(); // reread under lock suppresses duplicate work for B
+    await sweepQboCustomers([a, b]); // reread under lock suppresses duplicate work for B
     expect(remote.mock.calls.slice(calls).map(c => c[0])).toEqual([a]);
   });
 });

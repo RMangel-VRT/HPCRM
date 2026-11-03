@@ -5,7 +5,6 @@ import multer from "multer";
 import { parseCsvLine } from "../lib/csv";
 import type { UserWithContext } from "../auth";
 import { storage } from "../storage";
-import { inTransaction } from "../db";
 import { logger } from "../lib/logger";
 import {
   isQboConfigured,
@@ -18,6 +17,7 @@ import {
 } from "../services/qboClient";
 import { encryptToken } from "../services/qboCrypto";
 import qboItemsRouter from "./qboItems";
+import qboCustomerOutboundRouter from "./qboCustomerOutbound";
 import { CustomerSyncError, customerSyncStatus, ingestQboCustomers, runFullCustomerPull,
   runInitialCustomerSync, runIncrementalCustomerSync, withCustomerSyncLock, writeCustomerSeedSuggestion } from "../services/qboCustomerSync";
 
@@ -34,6 +34,7 @@ declare module "express-session" {
 
 const router = Router();
 router.use(qboItemsRouter);
+router.use(qboCustomerOutboundRouter);
 
 // Multer instance: memory storage, 5 MB limit, only CSV files
 const csvUpload = multer({
@@ -431,7 +432,7 @@ router.post("/customers/bind", async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     logger.error({ err }, "POST /api/qbo/customers/bind error");
-    res.status(500).json({ message: "Failed to bind customer" });
+    res.status(err instanceof CustomerSyncError ? err.status : 500).json({ message: err instanceof CustomerSyncError ? err.message : "Failed to bind customer" });
   }
 });
 
@@ -450,7 +451,7 @@ router.post("/customers/unbind", async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     logger.error({ err }, "POST /api/qbo/customers/unbind error");
-    res.status(500).json({ message: "Failed to unbind customer" });
+    res.status(err instanceof CustomerSyncError ? err.status : 500).json({ message: err instanceof CustomerSyncError ? err.message : "Failed to unbind customer" });
   }
 });
 
@@ -602,161 +603,8 @@ router.post("/customers/duplicate-check", async (req, res) => {
   }
 });
 
-// POST /api/qbo/customers/create — write-gated; creates a QBO customer and binds it
-router.post("/customers/create", async (req, res) => {
-  const u = requireAdminOrOffice(req, res);
-  if (!u) return;
-  if (!(await assertConnected(u.activeCompanyId, res))) return;
-
-  // Write gate — check feature flag server-side
-  const writeEnabled = await isQboWriteEnabled(u.activeCompanyId);
-  if (!writeEnabled) {
-    res.status(403).json({
-      message: "QuickBooks write access is disabled. Enable it in Settings → Features.",
-      writeDisabled: true,
-    });
-    return;
-  }
-
-  const {
-    customerId,
-    displayNameOverride,
-    streetOverride,
-    cityOverride,
-    stateOverride,
-    zipOverride,
-    emailOverride,
-    phoneOverride,
-  } = req.body as {
-    customerId?: string;
-    displayNameOverride?: string;
-    streetOverride?: string;
-    cityOverride?: string;
-    stateOverride?: string;
-    zipOverride?: string;
-    emailOverride?: string;
-    phoneOverride?: string;
-  };
-
-  if (!customerId) {
-    res.status(400).json({ message: "customerId is required" });
-    return;
-  }
-
-  try {
-    await withCustomerSyncLock(u.activeCompanyId, async tx => {
-    const syncStatus = await customerSyncStatus(u.activeCompanyId);
-    if (!syncStatus.baselineAt) {
-      res.status(409).json({ message: "Customers are waiting to send. Run initial QuickBooks sync first.", initialSyncRequired: true });
-      return;
-    }
-    const crmCustomer = await storage.getCustomerWithPrimaryContactForQbo(u.activeCompanyId, customerId);
-    if (!crmCustomer) {
-      res.status(404).json({ message: "CRM customer not found" });
-      return;
-    }
-
-    // (a) Idempotency guard — already bound
-    if (crmCustomer.qboCustomerId) {
-      res.status(409).json({
-        message: "CRM customer is already bound to a QuickBooks customer",
-        alreadyBound: true,
-        qboId: crmCustomer.qboCustomerId,
-      });
-      return;
-    }
-
-    const displayName = displayNameOverride?.trim() || crmCustomer.name;
-    const street = streetOverride?.trim() || crmCustomer.street;
-    const city = cityOverride?.trim() || crmCustomer.city;
-    const state = stateOverride?.trim() || crmCustomer.state;
-    const zip = zipOverride?.trim() || crmCustomer.zip;
-    const email = emailOverride?.trim() || crmCustomer.primaryEmail || null;
-    const phone = phoneOverride?.trim() || crmCustomer.primaryPhone || null;
-
-    // (b) Server-side live duplicate check — exact DisplayName match → 409
-    const dedupeQuery = `SELECT * FROM Customer WHERE DisplayName = '${escapeQboString(displayName)}' MAXRESULTS 1`;
-    const liveMatches = await liveQboCustomerQuery(u.activeCompanyId, dedupeQuery, "exact_display_name");
-    if (liveMatches.length > 0) {
-      const candidate = liveMatches[0];
-      res.status(409).json({
-        message: "A QuickBooks customer with this display name already exists",
-        displayNameCollision: true,
-        candidate,
-      });
-      return;
-    }
-
-    // (c) Build the QBO payload using effective (override-or-original) values
-    const qboPayload: Record<string, unknown> = {
-      PreferredDeliveryMethod: "None",
-      DisplayName: displayName,
-      CompanyName: crmCustomer.name,
-      BillAddr: {
-        Line1: street,
-        City: city,
-        CountrySubDivisionCode: state,
-        PostalCode: zip,
-        Country: "USA",
-      },
-    };
-    if (email) {
-      qboPayload["PrimaryEmailAddr"] = { Address: email };
-    }
-    if (phone) {
-      qboPayload["PrimaryPhone"] = { FreeFormNumber: phone };
-    }
-
-    // (d) POST /customer to QBO
-    const createResp = await qboRequest(u.activeCompanyId, "POST", "/customer", qboPayload);
-    if (!createResp.ok) {
-      const errBody = await createResp.json() as Record<string, unknown>;
-      const fault = (errBody["Fault"] as Record<string, unknown> | undefined);
-      const errors = (fault?.["Error"] as Array<Record<string, unknown>> | undefined) ?? [];
-      const firstError = errors[0];
-      // Code 6240 = Duplicate Name Exists Error
-      if (String(firstError?.["code"]) === "6240") {
-        res.status(409).json({
-          message: "A QuickBooks customer with this display name already exists",
-          displayNameCollision: true,
-        });
-        return;
-      }
-      const detail = firstError?.["Detail"] ?? firstError?.["Message"] ?? "QBO create failed";
-      logger.error({ errBody, companyId: u.activeCompanyId }, "QBO customer create failed");
-      res.status(502).json({ message: String(detail) });
-      return;
-    }
-
-    const createData = await createResp.json() as Record<string, unknown>;
-    const created = createData["Customer"] as Record<string, unknown> | undefined;
-    if (!created) {
-      res.status(502).json({ message: "QBO returned no customer in response" });
-      return;
-    }
-
-    // (e) Upsert to cache and bind
-    const parsed = parseQboCustomerRecord(created);
-    await ingestQboCustomers(u.activeCompanyId, [created]);
-
-    const bindResult = await inTransaction(tx, () => storage.bindQboCustomer(u.activeCompanyId, customerId, parsed.qboId));
-    if (bindResult.conflict) {
-      res.status(409).json({ message: "QuickBooks customer already bound to another CRM customer" });
-      return;
-    }
-    if (bindResult.notFound) {
-      res.status(500).json({ message: "Failed to bind after create — data inconsistency" });
-      return;
-    }
-
-    logger.info({ companyId: u.activeCompanyId, customerId, qboId: parsed.qboId }, "QBO customer created and bound");
-    res.json({ ok: true, qboId: parsed.qboId, displayName: parsed.displayName });
-    });
-  } catch (err) {
-    logger.error({ err }, "POST /api/qbo/customers/create error");
-    res.status(500).json({ message: "Failed to create customer in QuickBooks" });
-  }
-});
+// POST /customers/create is handled by qboCustomerOutboundRouter. Overrides
+// become CRM-owned billing facts and sending is durable/nonblocking.
 
 // POST /api/qbo/customers/promote — create a new CRM customer from a QBO cache row
 router.post("/customers/promote", async (req, res) => {

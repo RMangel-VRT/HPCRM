@@ -5,6 +5,16 @@ description: Preserve long-running verification evidence across workspace restar
 
 Save long-running validation output in an ignored project directory, not only `/tmp`.
 
+Database scheduler tests must restrict sweeps to their own synthetic companies,
+even when remote requests are mocked.
+
+**Why:** Concurrent suites share the development database. A global sweep can
+consume another suite's mocked responses, hold its advisory locks, time out and
+make unrelated overlap assertions fail.
+
+**How to apply:** Give real-database scheduler tests an explicit fixture-company
+allowlist; production/default sweeps must retain their intended full-company scan.
+
 **Why:** A workspace restart can terminate validation processes and erase their temporary logs even though source files and completed database changes persist. Unfinished checks are not passing evidence.
 
 **How to apply:** Keep generated verification outputs excluded from Git and deployment. If a restart interrupts a check, rerun only the unfinished or unconfirmed checks after restoring the relevant workflows; retain already confirmed results.

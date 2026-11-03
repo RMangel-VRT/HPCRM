@@ -3158,6 +3158,8 @@ const es = {
     noMatchFoundDesc: "Ningun cliente de QuickBooks existente coincide con este nombre. Revise los detalles y cree el cliente.",
     displayNameLabel: "Nombre de visualizacion",
     createAction: "Crear en QuickBooks",
+    waitingToSend: "Esperando para enviar a QuickBooks",
+    queuedUntilEnabled: "Puede poner este cliente en cola. El envío espera la sincronización inicial y el permiso de escritura en QuickBooks.",
     creating: "Creando...",
     created: "Cliente creado en QuickBooks",
     createFailed: "Error al crear cliente en QuickBooks",
