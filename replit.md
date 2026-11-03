@@ -134,3 +134,4 @@ If the Connect button shows a 503 toast in production, the deployment is missing
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
 - Contract Center manual freeze/import release order and Phase 7 shared-object retention: `docs/contract-center-audit-rollout.md`.
+- Standalone plant palettes are retired. Keep dormant schema and legacy proposal rendering until a separate reviewed drop: `docs/plant-palette-retirement.md` (includes Randy's read-only pre-flight SQL).

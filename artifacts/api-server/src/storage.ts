@@ -3198,13 +3198,16 @@ export class PgStorage implements IStorage {
   }
 
   async createProposal(proposal: InsertProposal): Promise<Proposal> {
-    const result = await db.insert(proposals).values([proposal] as (typeof proposals.$inferInsert)[]).returning();
+    // No new legacy attachments, including internal/automatic creation paths.
+    if (proposal.plantPaletteId != null) throw new Error("PLANT_PALETTES_RETIRED");
+    const result = await db.insert(proposals).values([{ ...proposal, plantPaletteId: null }] as (typeof proposals.$inferInsert)[]).returning();
     return result[0];
   }
 
   async updateProposal(id: string, companyId: string, updates: Partial<InsertProposal>): Promise<Proposal | undefined> {
+    if (updates.plantPaletteId != null) throw new Error("PLANT_PALETTES_RETIRED");
     const result = await db.update(proposals)
-      .set(updates)
+      .set({ ...updates, ...(updates.estimateId ? { plantPaletteId: null } : {}) })
       .where(and(eq(proposals.id, id), eq(proposals.companyId, companyId)))
       .returning();
     return result[0];

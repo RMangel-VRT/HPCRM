@@ -103,6 +103,11 @@ refresh them. Pending intro state remounts across identity/estimate boundaries.
 Photo previews use initiating-company-qualified fetches and disposable blob
 URLs; they do not reuse another company's browser-cached variety photo.
 
+**Subsequent Slice 4.3:** standalone palette attachment/editing has now been
+retired, including on unlinked proposals. Existing unlinked references remain
+render-only with an explicit removal action. See
+[retirement and dormant-schema handoff](plant-palette-retirement.md).
+
 ## Verification
 
 Verification logs are retained under ignored `generated-artifacts/slice42/`.

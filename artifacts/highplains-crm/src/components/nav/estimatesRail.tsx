@@ -11,15 +11,13 @@ export const LABOR_RATES_PATH = `${ESTIMATES_BASE}/settings/rates`;
 export const QUICKBOOKS_SETUP_PATH = `${ESTIMATES_BASE}/settings/quickbooks`;
 export const ESTIMATE_BUILDER_LIST_PATH = `${ESTIMATES_BASE}/builder`;
 export const PLANT_MATCHES_PATH = `${PLANT_LIBRARY_PATH}/matches`;
-export const PLANT_PALETTES_PATH = `${PLANT_LIBRARY_PATH}/palettes`;
 
-export type EstimatesRailKey = "all" | "builder" | "hardscape" | "irrigation" | "plant_library" | "library" | "matches" | "palettes" | "equipment_fees" | "labor_rates" | "quickbooks";
+export type EstimatesRailKey = "all" | "builder" | "hardscape" | "irrigation" | "plant_library" | "library" | "matches" | "equipment_fees" | "labor_rates" | "quickbooks";
 
 /** Only plant pages use the shared outer shell; the board and hardscape own theirs. */
 export function plantRailKey(path: string): EstimatesRailKey | undefined {
   if (path === PLANT_LIBRARY_PATH) return "library";
   if (path === PLANT_MATCHES_PATH) return "matches";
-  if (path === PLANT_PALETTES_PATH || new RegExp(`^${PLANT_PALETTES_PATH}/[^/]+$`).test(path)) return "palettes";
   return undefined;
 }
 
@@ -41,7 +39,6 @@ export function estimatesRailSections(t: (k: string) => string): RailSection[] {
       { key: "plant_library", label: t("estimates.plantLibrary"), href: PLANT_LIBRARY_PATH },
       { key: "library", label: t("workRail.library"), href: PLANT_LIBRARY_PATH, indented: true },
       { key: "matches", label: t("workRail.matches"), href: PLANT_MATCHES_PATH, indented: true },
-      { key: "palettes", label: t("workRail.palettes"), href: PLANT_PALETTES_PATH, indented: true },
       { key: "equipment_fees", label: t("estimates.equipmentFees"), href: EQUIPMENT_FEES_PATH },
     ] },
     { label: t("estimates.settings"), items: [

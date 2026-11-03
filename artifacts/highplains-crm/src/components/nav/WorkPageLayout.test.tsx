@@ -42,10 +42,10 @@ describe("work-page rails", () => {
     expect(screen.getByTestId(`rail-${active}`).getAttribute("aria-current")).toBe("page");
     expect(screen.getAllByRole("link").filter(link => link.getAttribute("aria-current"))).toHaveLength(1);
   });
-  it("palette detail keeps Palettes active", () => {
+  it("retired palette detail has no editor rail", () => {
     role = "admin";
     render(<Router><WorkPageLayout path="/dashboard/estimates/catalogs/plants/palettes/palette-id">Draft</WorkPageLayout></Router>);
-    expect(screen.getByTestId("rail-palettes").getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("navigation")).toBeNull();
   });
   it.each(["/dashboard/campaigns/c", "/dashboard/campaigns/c/items/i", "/dashboard/tickets/t",
     "/dashboard/flags/f", "/dashboard/scheduling"])("%s remains rail-free", path => {
@@ -62,7 +62,7 @@ describe("work-page rails", () => {
     expect(screen.getByRole("navigation").className).toContain("overflow-y-auto");
   });
   it("contains the exact supplied translations", () => {
-    expect(es.workRail).toEqual({ mine: "Míos", batches: "Lotes", all: "Todos", library: "Biblioteca", matches: "Coincidencias", palettes: "Paletas" });
+    expect(es.workRail).toEqual({ mine: "Míos", batches: "Lotes", all: "Todos", library: "Biblioteca", matches: "Coincidencias" });
     expect(es.comms).toEqual({ inbox: "Bandeja de entrada", unsorted: "Sin clasificar", sent: "Enviados", all: "Todas las comunicaciones" });
     expect(Object.values(es.flags.status)).toEqual(["Nuevas", "Reconocidas", "En curso", "Resueltas", "Descartadas", "Todas"]);
     expect(Object.keys(en.workRail)).toEqual(Object.keys(es.workRail));

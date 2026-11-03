@@ -2199,6 +2199,7 @@ export const proposals = pgTable("proposals", {
   scopeOfWork: text("scope_of_work").notNull().default(""),
   status: varchar("status").notNull().default("draft"),
   visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
+  /** @deprecated Dormant since Slice 4.3. Drop in a dedicated, reviewed migration once no unlinked draft proposal references a palette. */
   plantPaletteId: varchar("plant_palette_id").references(() => plantPalettes.id, { onDelete: "set null" }),
   includePlantSchedule: boolean("include_plant_schedule").notNull().default(true),
   includePlantPalette: boolean("include_plant_palette").notNull().default(true),
@@ -4278,6 +4279,7 @@ export type ProposalPlantItem = typeof proposalPlantItems.$inferSelect;
 
 // ==================== PLANT PALETTES ====================
 
+/** @deprecated Dormant since Slice 4.3. Drop in a dedicated, reviewed migration once no unlinked draft proposal references a palette. */
 export const plantPalettes = pgTable("plant_palettes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
@@ -4311,6 +4313,7 @@ export const insertPlantPaletteSchema = createInsertSchema(plantPalettes).omit({
 export type InsertPlantPalette = z.infer<typeof insertPlantPaletteSchema>;
 export type PlantPalette = typeof plantPalettes.$inferSelect;
 
+/** @deprecated Dormant since Slice 4.3. Drop in a dedicated, reviewed migration once no unlinked draft proposal references a palette. */
 export const plantPaletteItems = pgTable("plant_palette_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   paletteId: varchar("palette_id").notNull().references(() => plantPalettes.id, { onDelete: "cascade" }),

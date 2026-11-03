@@ -19,6 +19,8 @@ import { estimateAccess } from "../lib/estimateAccess";
 import { loadProposalExhibits, loadPlantLinesForVersion, buildPlantScheduleModel } from "./proposalExhibits";
 import { proposalExhibitSettingsSchema, type ProposalExhibits } from "../../../../lib/db/src/plantExhibitContracts";
 import { plantCatalogItems, plantEnrichment, estimateLines, estimateSections } from "@workspace/db";
+import { plantPalettes, plantPaletteItems } from "@workspace/db";
+import { storage as proposalStorage } from "../storage";
 
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 const companyId = randomUUID(), otherCompany = randomUUID(), actor = randomUUID();
@@ -32,8 +34,8 @@ const legacyUploads = new Set<string>();
 const storage = {
   getCustomerById: async (id: string, company: string) => (await db.select().from(customers).where(and(eq(customers.id, id), eq(customers.companyId, company))))[0],
   getTicketById: async (id: string, company: string) => (await db.select().from(tickets).where(and(eq(tickets.id, id), eq(tickets.companyId, company))))[0],
-  createProposal: async (data: typeof proposals.$inferInsert) => (await db.insert(proposals).values(data).returning())[0],
-  updateProposal: async (id: string, company: string, data: Partial<typeof proposals.$inferInsert>) => (await db.update(proposals).set(data).where(and(eq(proposals.id, id), eq(proposals.companyId, company))).returning())[0],
+  createProposal: proposalStorage.createProposal.bind(proposalStorage),
+  updateProposal: proposalStorage.updateProposal.bind(proposalStorage),
   getProposalById: async (id: string, company: string) => {
     const p = (await db.select().from(proposals).where(and(eq(proposals.id, id), eq(proposals.companyId, company))))[0];
     return p ? { ...p, files: legacyUploads.has(id) ? [{ fileType: "estimate_pdf" }] : [], plantItems: [], versions: [], customerName: "Disposable",
@@ -181,6 +183,53 @@ afterAll(async () => {
   await Promise.all([pool.end(), schemaPool.end()]);
 });
 describe("proposal relationships and scoped HTTP contracts", () => {
+  it("retires attachments on every write, preserves omission, and clears null or estimate links atomically", async () => {
+    const [palette] = await db.insert(plantPalettes).values({ companyId, title: "Read-only legacy" }).returning();
+    const p = await proposal();
+    // Historical fixtures must bypass the retired application write paths.
+    await db.update(proposals).set({ plantPaletteId: palette.id }).where(eq(proposals.id, p.id));
+    for (const value of [palette.id, "foreign", "", false, 0, [], {}]) {
+      await request(app).patch(`/api/proposals/${p.id}`).send({ plantPaletteId: value }).expect(400);
+      await request(app).post("/api/proposals").send({ customerId, plantPaletteId: value }).expect(400);
+    }
+    await request(app).patch(`/api/proposals/${p.id}`).send({ title: "Unrelated edit" }).expect(200);
+    expect((await storage.getProposalById(p.id, companyId))?.plantPaletteId).toBe(palette.id);
+    await request(app).patch(`/api/proposals/${p.id}`).set("X-Test-Company", otherCompany).send({ plantPaletteId: null }).expect(404);
+    await request(app).patch(`/api/proposals/${p.id}`).set("X-Test-Role", "field").send({ plantPaletteId: null }).expect(403);
+    await request(app).patch(`/api/proposals/${p.id}`).set("X-Company-Id", otherCompany).send({ plantPaletteId: null }).expect(409);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ plantPaletteId: null }).expect(200);
+    expect((await storage.getProposalById(p.id, companyId))?.plantPaletteId).toBeNull();
+    await db.update(proposals).set({ plantPaletteId: palette.id }).where(eq(proposals.id, p.id));
+    const d = await draft();
+    const linked = await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: d.id }).expect(200);
+    expect(linked.body).toMatchObject({ estimateId: d.id, plantPaletteId: null });
+    await expect(proposalStorage.updateProposal(p.id, companyId, { plantPaletteId: palette.id })).rejects.toThrow("PLANT_PALETTES_RETIRED");
+    await expect(proposalStorage.createProposal({ companyId, customerId, proposalDate: "2026-11-03", plantPaletteId: palette.id })).rejects.toThrow("PLANT_PALETTES_RETIRED");
+    // The internal link boundary also clears in the same SQL UPDATE.
+    await db.update(proposals).set({ plantPaletteId: palette.id, estimateId: null }).where(eq(proposals.id, p.id));
+    expect(await proposalStorage.updateProposal(p.id, companyId, { estimateId: d.id })).toMatchObject({ estimateId: d.id, plantPaletteId: null });
+  });
+
+  it("keeps legacy palette reads proposal-owned and company scoped without deleting any legacy rows", async () => {
+    const [own, foreign] = await db.insert(plantPalettes).values([
+      { companyId, title: "Own" }, { companyId: otherCompany, title: "Foreign" },
+    ]).returning();
+    await db.insert(plantPaletteItems).values([
+      { paletteId: own.id, companyId, nameSnapshot: "Own plant", typeLabel: "Tree", category: "tree" },
+      { paletteId: own.id, companyId: otherCompany, nameSnapshot: "Foreign plant", typeLabel: "Tree", category: "tree" },
+    ]);
+    const p = await proposal();
+    await db.update(proposals).set({ plantPaletteId: own.id }).where(eq(proposals.id, p.id));
+    const read = await proposalStorage.getProposalById(p.id, companyId);
+    expect(read?.plantPalette?.items.map(item => item.nameSnapshot)).toEqual(["Own plant"]);
+    expect(await proposalStorage.getProposalById(p.id, otherCompany)).toBeUndefined();
+    await db.update(proposals).set({ plantPaletteId: foreign.id }).where(eq(proposals.id, p.id));
+    expect((await proposalStorage.getProposalById(p.id, companyId))?.plantPalette).toBeNull();
+    await proposalStorage.updateProposal(p.id, companyId, { plantPaletteId: null });
+    expect((await proposalStorage.getProposalById(p.id, companyId))?.plantPalette).toBeNull();
+    expect((await db.select().from(plantPalettes).where(eq(plantPalettes.id, own.id)))).toHaveLength(1);
+    expect((await db.select().from(plantPaletteItems).where(eq(plantPaletteItems.paletteId, own.id)))).toHaveLength(2);
+  });
   it("guards invalid company, customer, ticket and void links and mirrors the number", async () => {
     const d = await draft(), p = await proposal();
     expect((await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: d.id })).status).toBe(200);
@@ -206,7 +255,7 @@ describe("proposal relationships and scoped HTTP contracts", () => {
     const d = await createEstimate(companyId, actor, { customerId, ticketId, title: "Ticket estimate" });
     const res = await request(app).post("/api/proposals").send({ customerId, ticketId, title: "Auto" });
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ estimateId: d.id, estimateNumber: d.estimateNumber, ticketId });
+    expect(res.body).toMatchObject({ estimateId: d.id, estimateNumber: d.estimateNumber, ticketId, plantPaletteId: null });
     const summary = (await request(app).get(`/api/proposals/${res.body.id}`)).body.estimate;
     expect(summary).toMatchObject({ id: d.id, subtotalCents: 0, currentVersion: { id: d.version.id, status: "draft" } });
     expect((await loadProposalEstimateSummaries(otherCompany, [d.id])).size).toBe(0);

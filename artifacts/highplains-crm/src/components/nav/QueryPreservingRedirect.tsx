@@ -1,5 +1,8 @@
 import { Redirect, useRouter } from "wouter";
-import { PLANT_PALETTES_PATH } from "./estimatesRail";
+import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { useToast } from "@/hooks/use-toast";
+import { PLANT_LIBRARY_PATH } from "./estimatesRail";
 
 /** Keep deep-link filters when retiring a navigation entry or route alias. */
 export function QueryPreservingRedirect({ to }: { to: string }) {
@@ -17,10 +20,15 @@ export function SeasonsRedirect() {
   return <QueryPreservingRedirect to="/dashboard/settings/seasons" />;
 }
 
-/** Read the raw pathname: Wouter params decode spaces but retain encoded delimiters. */
+/** One notice per bookmark navigation, including React StrictMode effect replay. */
 export function PlantPaletteRedirect() {
-  const router = useRouter();
-  const [pathname] = router.hook(router);
-  const id = pathname.slice(pathname.lastIndexOf("/") + 1);
-  return <QueryPreservingRedirect to={`${PLANT_PALETTES_PATH}/${id}`} />;
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const notified = useRef(false);
+  useEffect(() => {
+    if (notified.current) return;
+    notified.current = true;
+    toast({ description: t("paletteRetirement.redirectNotice") });
+  }, [t, toast]);
+  return <QueryPreservingRedirect to={PLANT_LIBRARY_PATH} />;
 }

@@ -101,6 +101,18 @@ describe("mechanical proposal branding extraction", () => {
     const generate = await proposalHarness(source, { uploads: [] });
     await expect(generate(fixture("Short scope."), "company")).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining("No estimate PDF attached") });
   });
+  it("explicit removal omits only the legacy palette exhibit", async () => {
+    const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
+    const generate = await proposalHarness(source);
+    const before = await generate(fixture("Short scope."), "company");
+    const after = await generate({ ...fixture("Short scope."), plantPalette: null, plantPaletteId: null }, "company");
+    const text = execFileSync("pdftotext", ["-layout", "-", "-"], { input: after }).toString();
+    expect(text).not.toContain("PLANT PALETTE");
+    expect(text).toContain("PLANT SCHEDULE");
+    expect((await PDFLib.PDFDocument.load(before)).getPageCount() - (await PDFLib.PDFDocument.load(after)).getPageCount()).toBe(1);
+    const beforePages = await fingerprints(before);
+    expect(await fingerprints(after)).toEqual(beforePages.filter((_page, i) => i !== 5));
+  });
   it.each(["Short scope.", "Scope paragraph.\n".repeat(90)])("retains real proposal page geometry and rendering including exhibits", async scope => {
     const current = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
     const after = await (await proposalHarness(current))(fixture(scope), "company");

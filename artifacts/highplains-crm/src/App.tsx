@@ -94,8 +94,6 @@ const FlagsInboxPage = lazy(() => import("@/pages/FlagsInboxPage"));
 const FlagDetailPage = lazy(() => import("@/pages/FlagDetailPage"));
 const PlantLibrary = lazy(() => import("@/pages/PlantLibrary"));
 const PlantMatches = lazy(() => import("@/pages/PlantMatches"));
-const PlantPalettes = lazy(() => import("@/pages/PlantPalettes"));
-const PlantPaletteDraft = lazy(() => import("@/pages/PlantPaletteDraft"));
 const EstimatesBoardPage = lazy(() => import("@/pages/EstimatesBoardPage"));
 const BidsBoardPage = lazy(() => import("@/pages/BidsBoardPage"));
 const EstimateBuilderList = lazy(() => import("@/pages/EstimateBuilderList"));
@@ -255,8 +253,8 @@ function Router() {
         <ProtectedRoute path="/dashboard/estimates/builder/:id" component={EstimateBuilder} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/builder" component={EstimateBuilderList} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/hardscape" component={HardscapeCatalog} allowedRoles={["admin", "office"]} />
-        <ProtectedRoute path="/dashboard/estimates/catalogs/plants/palettes/:id" component={PlantPaletteDraft} allowedRoles={["admin", "office"]} />
-        <ProtectedRoute path="/dashboard/estimates/catalogs/plants/palettes" component={PlantPalettes} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/estimates/catalogs/plants/palettes/:id" component={PlantPaletteRedirect} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/estimates/catalogs/plants/palettes" component={PlantPaletteRedirect} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/plants/matches" component={PlantMatches} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/plants" component={PlantLibrary} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/irrigation" component={IrrigationCatalog} allowedRoles={["admin", "office"]} />
@@ -327,9 +325,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/tools/visual-scope" component={VisualScopeList} allowedRoles={["admin", "office"]} />
         <Route path="/dashboard/tools/plant-library/palettes/:id" component={PlantPaletteRedirect} />
         <Route path="/dashboard/tools/plant-palette/:id" component={PlantPaletteRedirect} />
-        <Route path="/dashboard/tools/plant-library/palettes">
-          <QueryPreservingRedirect to="/dashboard/estimates/catalogs/plants/palettes" />
-        </Route>
+        <Route path="/dashboard/tools/plant-library/palettes" component={PlantPaletteRedirect} />
         <Route path="/dashboard/tools/plant-library/matches">
           <QueryPreservingRedirect to="/dashboard/estimates/catalogs/plants/matches" />
         </Route>
@@ -342,9 +338,7 @@ function Router() {
         <Route path="/dashboard/tools/plant-matches">
           <QueryPreservingRedirect to="/dashboard/estimates/catalogs/plants/matches" />
         </Route>
-        <Route path="/dashboard/tools/plant-palette">
-          <QueryPreservingRedirect to="/dashboard/estimates/catalogs/plants/palettes" />
-        </Route>
+        <Route path="/dashboard/tools/plant-palette" component={PlantPaletteRedirect} />
         <ProtectedRoute path="/dashboard/tools" component={ToolsPage} allowedRoles={["admin", "office", ...allFieldRoles, "crew_supervisor", "mapping"]} />
         <ProtectedRoute path="/dashboard/snow/new" component={NewSnowEvent} allowedRoles={["admin", "office"]} />
         <ProtectedRoute

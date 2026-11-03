@@ -22,7 +22,7 @@ describe("shell routes and permission boundaries", () => {
   });
   it("registers all canonical plant pages with unchanged admin/office gates before Estimates", () => {
     const base = "/dashboard/estimates/catalogs/plants";
-    for (const [suffix, component] of [["", "PlantLibrary"], ["/matches", "PlantMatches"], ["/palettes", "PlantPalettes"], ["/palettes/:id", "PlantPaletteDraft"]]) {
+    for (const [suffix, component] of [["", "PlantLibrary"], ["/matches", "PlantMatches"], ["/palettes", "PlantPaletteRedirect"], ["/palettes/:id", "PlantPaletteRedirect"]]) {
       const route = getRoute(`${base}${suffix}`);
       expect(route).toContain(`component={${component}}`);
       expect(route).toContain('allowedRoles={["admin", "office"]}');
@@ -39,11 +39,11 @@ describe("shell routes and permission boundaries", () => {
     ["/plant-library/library", ""],
     ["/plant-library/matches", "/matches"],
     ["/plant-matches", "/matches"],
-    ["/plant-library/palettes", "/palettes"],
-    ["/plant-palette", "/palettes"],
-    ["/plant-library/palettes/palette-42", "/palettes/palette-42"],
-    ["/plant-palette/palette-42", "/palettes/palette-42"],
-    ["/plant-palette/id%20with%26reserved%2Fparts", "/palettes/id%20with%26reserved%2Fparts"],
+    ["/plant-library/palettes", ""],
+    ["/plant-palette", ""],
+    ["/plant-library/palettes/palette-42", ""],
+    ["/plant-palette/palette-42", ""],
+    ["/plant-palette/id%20with%26reserved%2Fparts", ""],
   ];
   it.each(legacyCases)("legacy %s resolves to the canonical destination with the raw query", (suffix, destination) => {
     const path = `/dashboard/tools${suffix}`;
@@ -65,14 +65,13 @@ describe("shell routes and permission boundaries", () => {
   });
 
   it("plant frontend links use canonical paths; API URLs remain separate", () => {
-    for (const file of ["ToolsPage", "PlantPalettes", "PlantPaletteDraft", "ProposalDraft"]) {
+    for (const file of ["ToolsPage", "ProposalDraft"]) {
       const source = readFileSync(new URL(`../../pages/${file}.tsx`, import.meta.url), "utf8");
       expect(source).not.toMatch(/\/dashboard\/tools\/plant-(?:library|matches|palette)/);
-      expect(source).toContain("/dashboard/estimates/catalogs/plants");
+      expect(source).not.toContain("/palettes");
+      expect(source).not.toContain("/api/plant-palettes");
     }
-    const editor = readFileSync(new URL("../../pages/PlantPaletteDraft.tsx", import.meta.url), "utf8");
-    expect(editor).toContain('navigate("/dashboard/estimates/catalogs/plants/palettes")');
-    expect(editor).toContain("`/api/plant-palettes/${id}`");
+    expect(app).not.toContain('import("@/pages/PlantPalette');
     const menus = readFileSync(new URL("./TopbarMenus.tsx", import.meta.url), "utf8");
     expect(menus).toContain('href: "/dashboard/estimates/catalogs/plants"');
     expect(menus).not.toContain("/dashboard/tools/plant-library");

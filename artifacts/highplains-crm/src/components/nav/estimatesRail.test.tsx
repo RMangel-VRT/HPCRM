@@ -8,6 +8,7 @@ import { ProtectedRoute } from "@/lib/protected-route";
 import { WorkPageLayout } from "./WorkPageLayout";
 import { EstimatesRail, PLANT_LIBRARY_PATH, plantRailKey, isEstimatesHubPage } from "./estimatesRail";
 import { workPage } from "./workNav";
+import { PlantPaletteRedirect } from "./QueryPreservingRedirect";
 import "@/i18n";
 
 let role = "admin";
@@ -26,7 +27,7 @@ const app = readFileSync(`${process.cwd()}/src/App.tsx`, "utf8");
 const plantRoutes = [...app.matchAll(/<ProtectedRoute path="(\/dashboard\/estimates\/catalogs\/plants[^"]*)" component=\{(\w+)\} allowedRoles=\{(\[[^\]]+\])\} \/>/g)]
   .map(([, path, name, roles]) => ({
     path, roles: JSON.parse(roles) as ["admin", "office"],
-    Page: () => <p data-testid="plant-route-content">{name}:{useParams().id ?? "list"}</p>,
+    Page: name === "PlantPaletteRedirect" ? PlantPaletteRedirect : () => <p data-testid="plant-route-content">{name}:{useParams().id ?? "list"}</p>,
   }));
 function RoutedPlants() {
   const [path] = useLocation();
@@ -43,7 +44,7 @@ describe("plants inside the Estimates rail", () => {
     role = viewer;
     expect(plantRoutes).toHaveLength(4);
     for (const [suffix, page] of [["", "PlantLibrary:list"], ["/matches", "PlantMatches:list"],
-      ["/palettes", "PlantPalettes:list"], ["/palettes/palette-42", "PlantPaletteDraft:palette-42"]]) {
+      ["/palettes", "PlantLibrary:list"], ["/palettes/palette-42", "PlantLibrary:list"]]) {
       const loc = memoryLocation({ path: `${PLANT_LIBRARY_PATH}${suffix}` });
       render(<Router hook={loc.hook}><RoutedPlants /></Router>);
       if (["admin", "office"].includes(viewer)) {
@@ -62,7 +63,8 @@ describe("plants inside the Estimates rail", () => {
     const loc = memoryLocation({ path: PLANT_LIBRARY_PATH, record: true });
     render(<Router hook={loc.hook}><EstimatesRail activeKey="library" /></Router>);
     expect(screen.getByTestId("rail-plant_library").getAttribute("href")).toBe(PLANT_LIBRARY_PATH);
-    for (const [key, suffix] of [["library", ""], ["matches", "/matches"], ["palettes", "/palettes"]]) {
+    expect(screen.queryByTestId("rail-palettes")).toBeNull();
+    for (const [key, suffix] of [["library", ""], ["matches", "/matches"]]) {
       const link = screen.getByTestId(`rail-${key}`);
       expect(link.getAttribute("href")).toBe(`${PLANT_LIBRARY_PATH}${suffix}`);
       expect(link.className.includes("pl-6")).toBe(!isNarrow);
@@ -83,7 +85,7 @@ describe("plants inside the Estimates rail", () => {
     role = viewer;
     for (const isNarrow of [false, true]) {
       narrow = isNarrow;
-      for (const [suffix, active] of [["", "library"], ["/matches", "matches"], ["/palettes", "palettes"], ["/palettes/palette-42", "palettes"]]) {
+      for (const [suffix, active] of [["", "library"], ["/matches", "matches"]]) {
         const path = `${PLANT_LIBRARY_PATH}${suffix}`;
         render(<Router><WorkPageLayout path={path}><p>Unchanged content</p></WorkPageLayout></Router>);
         expect(isEstimatesHubPage(path)).toBe(true);

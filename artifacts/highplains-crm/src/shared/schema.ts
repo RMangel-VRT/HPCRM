@@ -2149,6 +2149,7 @@ export const proposals = pgTable("proposals", {
   scopeOfWork: text("scope_of_work").notNull().default(""),
   status: varchar("status").notNull().default("draft"),
   visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
+  /** @deprecated Dormant since Slice 4.3. Drop in a dedicated, reviewed migration once no unlinked draft proposal references a palette. */
   plantPaletteId: varchar("plant_palette_id"),
   includePlantSchedule: boolean("include_plant_schedule").notNull().default(true),
   includePlantPalette: boolean("include_plant_palette").notNull().default(true),
@@ -3908,6 +3909,7 @@ export interface PlantCandidateProduct {
 
 // ==================== PLANT PALETTES ====================
 
+/** @deprecated Dormant since Slice 4.3. Drop in a dedicated, reviewed migration once no unlinked draft proposal references a palette. */
 export interface PlantPalette {
   id: string;
   companyId: string;
@@ -3922,6 +3924,7 @@ export interface PlantPalette {
   updatedAt: string;
 }
 
+/** @deprecated Dormant since Slice 4.3. Drop in a dedicated, reviewed migration once no unlinked draft proposal references a palette. */
 export interface PlantPaletteItem {
   id: string;
   paletteId: string;
@@ -3937,6 +3940,7 @@ export interface PlantPaletteItem {
   createdAt: string;
 }
 
+/** @deprecated Dormant since Slice 4.3. Drop in a dedicated, reviewed migration once no unlinked draft proposal references a palette. */
 export interface PlantPaletteWithItems extends PlantPalette {
   items: PlantPaletteItem[];
   customerName?: string | null;
