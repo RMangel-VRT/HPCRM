@@ -1,5 +1,10 @@
 # Shared customer document kit
 
+Linked proposals also consume this kit. See
+[the proposal extension contract](proposal-shared-template.md) for additive
+cover-page stamping, acceptance-page detection, fragment compatibility and
+render evidence. Default estimate/invoice stamping remains unchanged.
+
 ## Ownership and boundaries
 
 Estimates and invoice **draft previews** share one HTML/Chromium → pdf-lib kit.

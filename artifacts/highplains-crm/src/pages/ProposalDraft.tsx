@@ -97,6 +97,7 @@ interface SortablePhotoRowProps {
   selected: boolean;
   onSelectChange: (checked: boolean) => void;
   selectLabel: string;
+  coverAction?: React.ReactNode;
 }
 
 function SortablePhotoRow({
@@ -110,6 +111,7 @@ function SortablePhotoRow({
   selected,
   onSelectChange,
   selectLabel,
+  coverAction,
 }: SortablePhotoRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: img.id,
@@ -159,6 +161,7 @@ function SortablePhotoRow({
       </div>
       <div className="flex-1 min-w-0 space-y-1.5">
         <p className="text-xs text-muted-foreground truncate">{img.filename}</p>
+        {coverAction}
         <Input
           placeholder={captionPlaceholder}
           value={captionDraft ?? img.caption ?? ""}
@@ -293,6 +296,18 @@ function ProposalDraftContent() {
     onError: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
       toast({ title: t("common.error"), description: t("common.saving"), variant: "destructive" });
+    },
+  });
+
+  const coverMutation = useMutation({
+    mutationFn: (updates: Record<string, string | null>) => apiRequest("PATCH", `/api/proposals/${id}`, updates),
+    onSuccess: () => {
+      if (!active()) return;
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
+    },
+    onError: () => {
+      if (active()) toast({ title: t("common.error"), description: t("proposals.coverSaveError"), variant: "destructive" });
     },
   });
 
@@ -836,6 +851,7 @@ function ProposalDraftContent() {
               <Button
                 size="sm"
                 variant="outline"
+                disabled={coverMutation.isPending}
                 onClick={() => window.open(`/api/proposals/${id}/pdf?inline=1`, '_blank')}
                 data-testid="button-preview-pdf"
               >
@@ -1326,6 +1342,31 @@ function ProposalDraftContent() {
       </Card>
 
       </>}
+      {proposal.estimateId && <Card data-testid="proposal-cover-controls">
+        <CardHeader><CardTitle>{t("proposals.coverTitle")}</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">{t("proposals.coverHelp")}</p>
+          <div role="group" aria-label={t("proposals.coverTitle")} className="flex flex-wrap gap-2">
+            {(["none", "visual_scope", "photo"] as const).map(source => (
+              <Button key={source} variant={(proposal.coverSource ?? "none") === source ? "default" : "outline"}
+                disabled={coverMutation.isPending || (source === "visual_scope" && !proposal.visualScopeSheetId) || (source === "photo" && !images.length)}
+                aria-pressed={(proposal.coverSource ?? "none") === source}
+                onClick={() => coverMutation.mutate({ coverSource: source, coverPhotoFileId: source === "photo" ? proposal.coverPhotoFileId ?? images[0]?.id : null })}>
+                {t(source === "none" ? "proposals.coverNone" : source === "photo" ? "proposals.coverPhoto" : "proposals.coverVisualScope")}
+              </Button>
+            ))}
+          </div>
+          {proposal.coverSource === "photo" && <div role="group" aria-label={t("proposals.coverChoosePhoto")} className="flex flex-wrap gap-3">
+            {images.map(img => <button key={img.id} type="button" className="rounded border p-1"
+              disabled={coverMutation.isPending} aria-label={t("proposals.coverSelectPhoto", { name: img.caption || img.filename })}
+              aria-pressed={proposal.coverPhotoFileId === img.id}
+              onClick={() => coverMutation.mutate({ coverSource: "photo", coverPhotoFileId: img.id })}>
+              <img className="h-24 w-28 object-cover" src={`/objects/${img.storageObjectPath.replace(/^\//, "")}`} alt={img.caption || img.filename} />
+              {proposal.coverPhotoFileId === img.id && <span className="block text-xs">{t("proposals.coverSelected")}</span>}
+            </button>)}
+          </div>}
+        </CardContent>
+      </Card>}
       <Sheet open={!proposal.estimateId && plantPickerOpen} onOpenChange={setPlantPickerOpen}>
         <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto p-0">
           <SheetHeader className="px-4 pt-4 pb-0">
@@ -1345,8 +1386,8 @@ function ProposalDraftContent() {
         <CardHeader>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <CardTitle className="text-base">{t("proposals.photoAppendix")}</CardTitle>
-            <div className="flex items-center gap-2" role="group" aria-label={t("proposals.photoLayout")}>
-              <span className="text-xs text-muted-foreground">{t("proposals.photoLayout")}:</span>
+            <div className="flex items-center gap-2" role="group" aria-label={t(proposal.estimateId ? "proposals.attachmentLayout" : "proposals.photoLayout")}>
+              <span className="text-xs text-muted-foreground">{t(proposal.estimateId ? "proposals.attachmentLayout" : "proposals.photoLayout")}:</span>
               <div className="inline-flex rounded-md border overflow-hidden">
                 <button
                   type="button"
@@ -1359,7 +1400,7 @@ function ProposalDraftContent() {
                   data-testid="button-photo-layout-large"
                   aria-pressed={(proposal.photoLayout ?? "large") === "large"}
                 >
-                  {t("proposals.photoLayoutLarge")}
+                  {t(proposal.estimateId ? "proposals.attachmentFullPage" : "proposals.photoLayoutLarge")}
                 </button>
                 <button
                   type="button"
@@ -1372,7 +1413,7 @@ function ProposalDraftContent() {
                   data-testid="button-photo-layout-grid"
                   aria-pressed={proposal.photoLayout === "grid"}
                 >
-                  {t("proposals.photoLayoutGrid")}
+                  {t(proposal.estimateId ? "proposals.attachmentGrid" : "proposals.photoLayoutGrid")}
                 </button>
               </div>
             </div>
@@ -1438,7 +1479,7 @@ function ProposalDraftContent() {
                 strategy={verticalListSortingStrategy}
               >
                 {(() => {
-                  const perPage = (proposal.photoLayout === "grid") ? 6 : 1;
+                  const perPage = (proposal.photoLayout === "grid") ? (proposal.estimateId ? 4 : 6) : 1;
                   const totalPages = Math.max(1, Math.ceil(images.length / perPage));
                   const rows: React.ReactNode[] = [];
                   images.forEach((img, idx) => {
@@ -1473,6 +1514,11 @@ function ProposalDraftContent() {
                           }
                         }}
                         onDelete={() => setFileToDelete(img)}
+                        coverAction={proposal.estimateId ? <Button size="sm" variant="outline" disabled={coverMutation.isPending}
+                          aria-pressed={proposal.coverSource === "photo" && proposal.coverPhotoFileId === img.id}
+                          onClick={() => coverMutation.mutate({ coverSource: "photo", coverPhotoFileId: img.id })}>
+                          {t(proposal.coverSource === "photo" && proposal.coverPhotoFileId === img.id ? "proposals.coverSelected" : "proposals.useAsCover")}
+                        </Button> : undefined}
                         captionPlaceholder={t("proposals.captionPlaceholder")}
                         dragLabel={t("proposals.dragToReorder", { defaultValue: "Drag to reorder" })}
                         selected={selectedImageIds.has(img.id)}

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { proposalCoverPatch, coverSelectionError } from "./proposalCover";
 import { readFile } from "node:fs/promises";
 import { transform } from "esbuild";
 import express from "express";
@@ -6,7 +7,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod/v4";
-import { companies, customers, users, estimates, estimateVersions, proposals, proposalVersions,
+import { companies, customers, users, estimates, estimateVersions, proposals, proposalVersions, proposalFiles, visualScopeSheets,
   tickets, ticketTypes, ticketTypeStatuses, hardscapeCatalogItems, pool as schemaPool } from "@workspace/db";
 import { db, pool } from "../db";
 import { createEstimate, createLine } from "./estimates";
@@ -36,9 +37,11 @@ const storage = {
   getTicketById: async (id: string, company: string) => (await db.select().from(tickets).where(and(eq(tickets.id, id), eq(tickets.companyId, company))))[0],
   createProposal: proposalStorage.createProposal.bind(proposalStorage),
   updateProposal: proposalStorage.updateProposal.bind(proposalStorage),
+  getVisualScopeSheet: proposalStorage.getVisualScopeSheet.bind(proposalStorage),
   getProposalById: async (id: string, company: string) => {
     const p = (await db.select().from(proposals).where(and(eq(proposals.id, id), eq(proposals.companyId, company))))[0];
-    return p ? { ...p, files: legacyUploads.has(id) ? [{ fileType: "estimate_pdf" }] : [], plantItems: [], versions: [], customerName: "Disposable",
+    const images = await db.select().from(proposalFiles).where(and(eq(proposalFiles.proposalId, id), eq(proposalFiles.companyId, company)));
+    return p ? { ...p, files: [...images, ...(legacyUploads.has(id) ? [{ fileType: "estimate_pdf" }] : [])], plantItems: [], versions: [], customerName: "Disposable",
       estimate: p.estimateId ? (await loadProposalEstimateSummaries(company, [p.estimateId])).get(p.estimateId) : null } : undefined;
   },
   getNextVersionNumber: async (id: string, company: string) => {
@@ -65,6 +68,8 @@ beforeAll(async () => {
   await db.execute(sql.raw(migration)); await db.execute(sql.raw(migration));
   const exhibitsMigration = await readFile(new URL("../../../../.migration-backup/migrations/0065_proposal_plant_exhibits.sql", import.meta.url), "utf8");
   await db.execute(sql.raw(exhibitsMigration)); await db.execute(sql.raw(exhibitsMigration));
+  const coverMigration = await readFile(new URL("../../../../.migration-backup/migrations/0066_proposal_cover.sql", import.meta.url), "utf8");
+  await db.execute(sql.raw(coverMigration)); await db.execute(sql.raw(coverMigration));
   await db.insert(companies).values([{ id: companyId, name: "Disposable proposals", slug: companyId }, { id: otherCompany, name: "Disposable foreign", slug: otherCompany }]);
   await db.insert(users).values({ id: actor, name: "Disposable proposal actor", passwordHash: "not-a-login" });
   [customerId, otherCustomer, foreignCustomer] = (await db.insert(customers).values([
@@ -96,7 +101,7 @@ beforeAll(async () => {
   }
   const deps = { app, db, storage, sql, and, eq, express, proposalZ: z, estimateAccess,
     loadProposalEstimateSummaries, readTicketEstimate, validateProposalEstimate, prepareProposalEstimate,
-    loadProposalExhibits, proposalExhibitSettingsSchema,
+    loadProposalExhibits, proposalExhibitSettingsSchema, proposalCoverPatch, coverSelectionError,
     EstimateError, randomUUID, ObjectStorageService, generateProposalPdf: render,
     assertNotParentCustomer: async () => false };
   new Function(...Object.keys(deps), code)(...Object.values(deps));
@@ -124,6 +129,34 @@ async function plantDraft() {
   return { d, items };
 }
 describe("estimate-derived proposal exhibits", () => {
+  it("validates effective cover PATCH state, tenant/photo ownership and rerunnable FK deletion", async () => {
+    const d = await draft();
+    const p = await proposal(d.id);
+    const other = await proposal(d.id);
+    const [photo, mismatch] = await db.insert(proposalFiles).values([p, other].map(v => ({
+      proposalId: v.id, companyId, fileType: "image", storageObjectPath: "/test/image.jpg",
+      filename: "image.jpg", mimeType: "image/jpeg", fileSize: 100,
+    }))).returning();
+    await request(app).patch(`/api/proposals/${p.id}`).send({ coverSource: "photo", coverPhotoFileId: mismatch.id }).expect(400);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ coverSource: "photo", coverPhotoFileId: photo.id }).expect(200);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ title: "Unrelated edit" }).expect(200);
+    let current = await storage.getProposalById(p.id, companyId);
+    expect(current?.coverSource).toBe("photo"); expect(current?.coverPhotoFileId).toBe(photo.id);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ coverPhotoFileId: null }).expect(400);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ coverSource: "visual_scope" }).expect(400);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ coverSource: "invalid" }).expect(400);
+    await request(app).patch(`/api/proposals/${p.id}`).set("X-Company-Id", otherCompany).send({ coverSource: "none" }).expect(409);
+    await db.delete(proposalFiles).where(eq(proposalFiles.id, photo.id));
+    current = await storage.getProposalById(p.id, companyId);
+    expect(current?.coverPhotoFileId).toBeNull(); expect(current?.coverSource).toBe("photo");
+    await request(app).patch(`/api/proposals/${p.id}`).send({ title: "Still editable after deletion" }).expect(200);
+    const [scope] = await db.insert(visualScopeSheets).values({ companyId, customerId, title: "Cover scope", scopeDate: "2026-11-03" }).returning();
+    await request(app).patch(`/api/proposals/${p.id}`).send({ visualScopeSheetId: scope.id, coverSource: "visual_scope" }).expect(200);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ visualScopeSheetId: null }).expect(200);
+    current = await storage.getProposalById(p.id, companyId);
+    expect(current?.coverSource).toBe("visual_scope"); expect(current?.visualScopeSheetId).toBeNull();
+    await expect(db.update(proposals).set({ coverSource: "invalid" }).where(eq(proposals.id, p.id))).rejects.toThrow();
+  });
   it("loads one ordered price-free query, isolates enrichment and preserves deleted catalog snapshots", async () => {
     const { d, items } = await plantDraft();
     const spy = vi.spyOn(pool, "query");

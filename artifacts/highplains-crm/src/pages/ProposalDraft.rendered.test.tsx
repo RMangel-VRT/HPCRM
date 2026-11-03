@@ -51,6 +51,29 @@ async function openFinalize() {
 beforeEach(() => { queryClient.clear(); mocks.api.mockReset(); mocks.toast.mockReset(); mocks.advance.mockReset(); mocks.advance.mockResolvedValue({ moved: false, reason: "loadFailed" }); });
 afterEach(async () => { cleanup(); queryClient.clear(); await i18n.changeLanguage("en"); });
 describe("proposal finalize dialog and legacy uploads", () => {
+  it("shows linked cover choices, persists scoped photo selection and keeps unlinked controls absent", async () => {
+    const photo = { id: "f", fileType: "image", storageObjectPath: "/test/photo", filename: "Entrance.jpg", caption: "Entrance", displayOrder: 0 };
+    const p = { ...base, coverSource: "none", coverPhotoFileId: null, files: [photo] };
+    const view = mount(p);
+    expect(await screen.findByTestId("proposal-cover-controls")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Visual Scope rendering" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Use as cover" }));
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith("PATCH", "/api/proposals/p",
+      { coverSource: "photo", coverPhotoFileId: "f" }, expect.objectContaining({ headers: { "X-Company-Id": "c" } })));
+    expect(screen.getByText("Attachment layout:")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Full page" })).toBeTruthy();
+    view.unmount(); queryClient.clear();
+    mount({ ...base, estimateId: null, estimate: null });
+    await screen.findByTestId("button-upload-pdf");
+    expect(screen.queryByTestId("proposal-cover-controls")).toBeNull();
+  });
+  it("renders Spanish cover and attachment copy", async () => {
+    await i18n.changeLanguage("es");
+    mount();
+    expect(await screen.findByText("Portada")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Solo logotipo" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Página completa" })).toBeTruthy();
+  });
   it("linked proposals need no upload, hide the upload control and require a method before locking", async () => {
     mount();
     const submit = await openFinalize() as HTMLButtonElement;

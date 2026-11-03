@@ -210,3 +210,17 @@ mtime_ms = 1793725966738
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/dbb902e3-b76f-411b-9070-05b610e6f25e/5dc8cb8a-4bb5-4e20-9116-16f11633e2a9"
 storage_version_token = "1793726062465302"
 content_type = "image/png"
+
+[[outputs]]
+id = "C_lmVzHtJmOFL-MZfjKHa"
+uri = "file://generated-artifacts/proposal-shared/proposal-populated.pdf"
+type = "pdf"
+title = "Linked proposal preview — merged shared layout"
+description = "Updated synthetic preview preserving the merged shared header, pricing pagination and acceptance-box corrections."
+logical_id = "7133541c-04b1-49c3-b216-11438d47aa50"
+content_hash = "sha256:ee6f6fca52db897a36f4ec223bed857b207017f816afc90309d151230f6d9a4f"
+size = 654152
+mtime_ms = 1793727263293
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/7133541c-04b1-49c3-b216-11438d47aa50/d52fe3d3-3b51-4e9f-a5ea-4c8ed68c2fa7"
+storage_version_token = "1793727376957895"
+content_type = "application/pdf"

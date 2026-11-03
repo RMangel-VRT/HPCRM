@@ -1,5 +1,8 @@
 import { z as proposalZ } from "zod/v4";
 import { loadProposalExhibits } from "../services/proposalExhibits";
+import { proposalCoverPatch, coverSelectionError } from "../services/proposalCover";
+import { renderLinkedProposal } from "../services/proposalDocument";
+import { DocumentRendererUnavailable } from "../services/documents/browser";
 import { proposalExhibitSettingsSchema, type ProposalExhibits } from "../../../../lib/db/src/plantExhibitContracts";
 import { estimateAccess } from "../lib/estimateAccess";
 import { EstimateError } from "../services/estimateErrors";
@@ -11387,6 +11390,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const existing = await storage.getProposalById(req.params.id, user.activeCompanyId);
     if (!existing) return res.status(404).send("Not found");
+    const coverInput = proposalCoverPatch.safeParse(req.body);
+    if (!coverInput.success) return res.status(400).json({ error: "INVALID_REQUEST" });
+    const coverError = coverSelectionError(coverInput.data, existing,
+      req.body.visualScopeSheetId === undefined ? existing.visualScopeSheetId : req.body.visualScopeSheetId || null, existing.files);
+    if (coverError) return res.status(400).json({ error: coverError });
+    if (req.body.visualScopeSheetId) {
+      const scope = await storage.getVisualScopeSheet(req.body.visualScopeSheetId, user.activeCompanyId);
+      if (!scope || scope.customerId !== existing.customerId) return res.status(400).json({ error: "INVALID_VISUAL_SCOPE" });
+    }
+    if (coverInput.data.coverSource === "visual_scope") {
+      const scopeId = req.body.visualScopeSheetId === undefined ? existing.visualScopeSheetId : req.body.visualScopeSheetId;
+      const scope = scopeId ? await storage.getVisualScopeSheet(scopeId, user.activeCompanyId) : null;
+      if (!scope || scope.customerId !== existing.customerId) return res.status(400).json({ error: "COVER_VISUAL_SCOPE_REQUIRED" });
+    }
     if (await assertNotParentCustomer(existing.customerId, user.activeCompanyId, res)) return;
     const linkInput = proposalZ.object({ estimateId: proposalZ.string().trim().min(1).max(200).nullable().optional() }).safeParse(req.body);
     if (!linkInput.success) return res.status(400).json({ error: "INVALID_REQUEST" });
@@ -11411,6 +11428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: "photoLayout must be 'large' or 'grid'" });
     }
     const updated = await storage.updateProposal(req.params.id, user.activeCompanyId, {
+      ...coverInput.data,
       ...exhibitSettings.data,
       ...(title !== undefined && { title }),
       ...(proposalDate !== undefined && { proposalDate }),
@@ -11845,6 +11863,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   async function generateProposalPdf(proposal: import("@workspace/db").ProposalWithDetails, companyId: string, selectedVersionId?: string, selectedExhibits?: ProposalExhibits): Promise<Buffer> {
     // Resolve once. Never re-read a mutable current-version pointer during this operation.
     const exhibits = proposal.estimateId ? selectedExhibits ?? await loadProposalExhibits(companyId, proposal, selectedVersionId) : null;
+    if (proposal.estimateId && exhibits) {
+      try {
+        return await renderLinkedProposal(companyId, proposal, exhibits);
+      } catch (error) {
+        if (!(error instanceof DocumentRendererUnavailable)) throw error;
+        console.warn("DOCUMENT_RENDERER_UNAVAILABLE");
+        // Only an unavailable browser permits legacy composition. Keep the
+        // already selected version and exhibits through this fallback.
+      }
+    }
     const estimateBuffers = await proposalEstimatePages(proposal, companyId, exhibits?.provenance.versionId ?? selectedVersionId);
     const companySettings = await storage.getSettings(companyId);
     const companyName = companySettings?.companyName || "High Plains Property Maintenance";

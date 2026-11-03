@@ -9,7 +9,12 @@ export const paginatePricing = String.raw`(() => {
   if (!source || !totals) return;
   const pageHeight = 1056, bottom = 76, laterTop = 96;
   const capacity = pageHeight - laterTop - bottom;
-  const firstCapacity = pageHeight - bottom - source.getBoundingClientRect().top;
+  // Wrapped proposal pricing begins after a cover/narrative/exhibits. Its
+  // DOM position is not a first-page print coordinate; measure its page region.
+  const region = source.closest('[data-pricing-region]');
+  const firstCapacity = region
+    ? capacity - (source.getBoundingClientRect().top - region.getBoundingClientRect().top)
+    : pageHeight - bottom - source.getBoundingClientRect().top;
   const remit = totals.querySelector('.remit');
   if (remit && remit.scrollWidth > remit.clientWidth + 1) throw new Error('DOCUMENT_REMIT_TOO_WIDE');
   const groups = Array.from(source.tBodies);

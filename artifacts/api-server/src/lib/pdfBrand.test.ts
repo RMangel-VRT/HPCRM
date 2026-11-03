@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { BRAND, LM, RM, wirePageDecorations } from "./pdfBrand";
 import type { ProposalExhibits } from "../../../../lib/db/src/plantExhibitContracts";
+import { DocumentRendererUnavailable } from "../services/documents/browser";
 
 const logoPath = new URL("../../../../attached_assets/NEW - LOGO-03_1763582979034.png", import.meta.url);
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN1kAAAAASUVORK5CYII=", "base64");
@@ -14,7 +15,7 @@ const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 /** Executes the actual proposal helper in isolation, not a rewritten fixture renderer.
  * Storage / optional native image rendering are supplied deterministic bytes.
  */
-async function proposalHarness(source: string, options: { render?: (companyId: string, estimateId: string, versionId: string) => Promise<Buffer>; uploads?: unknown[]; exhibits?: ProposalExhibits } = {}) {
+async function proposalHarness(source: string, options: { linked?: (...args: unknown[]) => Promise<Buffer>; render?: (companyId: string, estimateId: string, versionId: string) => Promise<Buffer>; uploads?: unknown[]; exhibits?: ProposalExhibits } = {}) {
   const start = source.indexOf("  async function proposalEstimatePages(") >= 0
     ? source.indexOf("  async function proposalEstimatePages(") : source.indexOf("  async function generateProposalPdf(");
   const end = source.indexOf('  app.get("/api/proposals/:id/pdf"', start);
@@ -33,6 +34,8 @@ async function proposalHarness(source: string, options: { render?: (companyId: s
   const deps = {
     InjectedPDFKit: PDFDocumentKit, PDFLib, BRAND, LM, RM, wirePageDecorations, ObjectStorageService,
     renderEstimatePdf: options.render,
+    renderLinkedProposal: options.linked ?? (async () => { throw new DocumentRendererUnavailable(); }),
+    DocumentRendererUnavailable,
     loadProposalExhibits: async (_company: string, _proposal: unknown, versionId?: string) => ({
       schedule: [{ quantity: "3.00", name: "Estimate Pine", botanicalName: "Pinus", size: "5 gal", imagePath: null }],
       palette: { introText: "", groups: [{ category: "tree", cards: [{ id: "pine", name: "Estimate Pine", typeLabel: "Tree", imagePath: null }] }] },
@@ -61,6 +64,20 @@ const fixture = (scopeOfWork: string) => ({
   visualScopeSheetId: "scope", visualScopeSheet: { title: "Site scope", scopeDate: "2026-10-30", baseImagePath: "base" },
 });
 describe("mechanical proposal branding extraction", () => {
+  it("uses the linked shared renderer with the captured version/exhibits, falling back only when unavailable", async () => {
+    const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
+    const bytes = Buffer.from("shared PDF");
+    const linked = vi.fn(async () => bytes);
+    const legacy = vi.fn();
+    const p = { ...fixture("scope"), estimateId: "estimate", estimate: { currentVersion: { id: "current" } } };
+    const render = await proposalHarness(source, { linked, render: legacy });
+    expect(await render(p, "company", "captured")).toBe(bytes);
+    expect(linked).toHaveBeenCalledWith("company", p, expect.objectContaining({ provenance: expect.objectContaining({ versionId: "captured" }) }));
+    expect(legacy).not.toHaveBeenCalled();
+    const broken = await proposalHarness(source, { linked: async () => { throw new Error("REAL_RENDER_FAILURE"); }, render: legacy });
+    await expect(broken(p, "company", "captured")).rejects.toThrow("REAL_RENDER_FAILURE");
+    expect(legacy).not.toHaveBeenCalled();
+  });
   it("linked estimates replace uploads in the exact merge slot, retain generated blank pages and use the selected version", async () => {
     const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
     const render = vi.fn(async (_company: string, _estimate: string, version: string) => {

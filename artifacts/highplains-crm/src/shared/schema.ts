@@ -2157,6 +2157,8 @@ export const proposals = pgTable("proposals", {
   vsIncludeBase: boolean("vs_include_base").notNull().default(false),
   vsIncludeOverlay: boolean("vs_include_overlay").notNull().default(false),
   photoLayout: varchar("photo_layout").notNull().default("large"),
+  coverSource: text("cover_source").notNull().default("none"),
+  coverPhotoFileId: varchar("cover_photo_file_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   proposalsCompanyIdIdx: index("proposals_company_id_idx").on(table.companyId),
@@ -2169,6 +2171,8 @@ export const insertProposalSchema = createInsertSchema(proposals).omit({
   createdAt: true,
 }).extend({
   proposalNumber: z.string().optional(),
+  coverSource: z.enum(["none", "photo", "visual_scope"]).optional(),
+  coverPhotoFileId: z.string().min(1).nullable().optional(),
   includePlantSchedule: z.boolean().optional(),
   includePlantPalette: z.boolean().optional(),
   paletteIntroText: z.string().max(10000).nullable().optional(),

@@ -219,7 +219,7 @@ export async function renderEstimateDocument(model: EstimateDocumentModel): Prom
 }
 
 /** Scoped, reusable Phase 4 entry point. No HTTP dependency or catalog re-resolution. */
-export async function renderEstimatePdf(companyId: string, estimateId: string, versionId: string): Promise<Buffer> {
+export async function loadEstimateDocumentModel(companyId: string, estimateId: string, versionId: string): Promise<EstimateDocumentModel> {
   const model = await db.transaction(async tx => {
     const estimate = requireEstimate((await tx.select().from(estimates).where(and(eq(estimates.companyId, companyId), eq(estimates.id, estimateId))))[0]);
     const version = requireEstimate((await tx.select().from(estimateVersions).where(and(
@@ -229,5 +229,8 @@ export async function renderEstimatePdf(companyId: string, estimateId: string, v
     const companyDocument = await readDocumentSettings(companyId, tx);
     return buildEstimateDocumentModel(payload, payload.display, coloradoDate(new Date()), companyDocument);
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
-  return renderEstimateDocument(model);
+  return model;
+}
+export async function renderEstimatePdf(companyId: string, estimateId: string, versionId: string): Promise<Buffer> {
+  return renderEstimateDocument(await loadEstimateDocumentModel(companyId, estimateId, versionId));
 }
