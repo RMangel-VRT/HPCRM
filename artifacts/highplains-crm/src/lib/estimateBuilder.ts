@@ -5,6 +5,7 @@ import type {
   EstimateDetailDto, EstimateListItemDto, EstimateLineDto, EstimateSectionDto, EstimateUmbrella,
 } from "@shared/schema";
 import type { RatePreviewRow } from "@/lib/estimateSettings";
+import type { ActivationResponse } from "@/components/customerWizard/CustomerActivationDialog";
 
 export type { EstimateDetailDto, EstimateListItemDto, EstimateLineDto, EstimateSectionDto, EstimateUmbrella };
 export type EstimateLineType = EstimateLineDto["lineType"];
@@ -61,7 +62,7 @@ export function errorStatus(err: unknown): number | null {
   return m ? Number(m[1]) : null;
 }
 
-export async function sendEstimate(method: string, url: string, companyId: string, body?: unknown, signal?: AbortSignal): Promise<EstimateDetailDto> {
+export async function sendEstimate(method: string, url: string, companyId: string, body?: unknown, signal?: AbortSignal): Promise<EstimateDetailDto & ActivationResponse> {
   const res = await apiRequest(method, url, body, { headers: companyHeaders(companyId), signal });
   return res.json() as Promise<EstimateDetailDto>;
 }

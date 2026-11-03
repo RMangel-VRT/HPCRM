@@ -29,6 +29,7 @@ import { applyContractStatus } from "../lib/contractCenterStatusChange";
 import { recordNonRenewal, undoNonRenewal } from "../lib/contractNonRenewal";
 import { NON_RENEWAL_CONFLICT } from "@workspace/db/contract-non-renewal";
 import { activeCustomersAsOf, loadActiveCustomers } from "../lib/activeCustomers";
+import { customerActivation } from "../services/customerActivation";
 
 type Authorize = (req: Request, res: Response) => UserWithContext | null;
 type UploadSession = Session & { contractCenterUploads?: Record<string, { companyId: string; termId: string }> };
@@ -232,7 +233,11 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       return document;
     });
     delete (req.session as UploadSession).contractCenterUploads?.[row.storageObjectPath];
-    res.status(201).json(row);
+    const activation = body.kind === "signed" ? await customerActivation(companyId, async () => {
+      const term = await getTerm(db, companyId, id);
+      return (await getAgreement(db, companyId, term.agreementId)).customerId;
+    }) : undefined;
+    res.status(201).json({ ...row, ...(activation ? { customerActivation: activation } : {}) });
   }));
   app.patch("/api/contract-center/documents/:documentId/coverage", handle(async (req, res, user) => {
     const parsed = z.object({ coversThroughTermId: z.string().trim().min(1).nullable() }).strict().parse(req.body);

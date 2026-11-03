@@ -75,6 +75,30 @@ afterAll(async () => {
   await pool.end(); await schemaPool.end();
 });
 describe("atomic customer setup", () => {
+  it("allows gate and contact edits on incomplete already-active customers without altering omitted facts", async () => {
+    const [customer] = await db.insert(customers).values({ companyId, name: "Existing active", status: "active", ...address }).returning();
+    const response = await request(app("office")).patch(`/api/customers/${customer.id}/setup`).send({
+      customer: {}, siteNotes: { gateCode: "updated gate" }, contacts: [{ name: "New contact", emails: ["site@example.test"] }],
+      expectedUpdatedAt: customer.updatedAt.toISOString(),
+    });
+    expect(response.status).toBe(200);
+    expect(response.body.customer).toMatchObject({ status: "active", billingEmails: [], gateCode: "updated gate", name: "Existing active" });
+    expect(await storage.getContactsByCustomerId(customer.id, companyId)).toMatchObject([{ name: "New contact" }]);
+    const advisory = await request(app()).get(`/api/customers/${customer.id}/setup`);
+    expect(advisory.body.missingFields).toContain("billingEmails");
+    expect(remote).not.toHaveBeenCalled();
+  });
+  it("still rejects incomplete setup transitions from any non-active persisted status", async () => {
+    for (const status of ["prospect", "inactive"] as const) {
+      const [customer] = await db.insert(customers).values({ companyId, name: "Not active", status, ...address }).returning();
+      const response = await request(app()).patch(`/api/customers/${customer.id}/setup`).send({
+        customer: { status: "active" }, siteNotes: { gateCode: "not saved" }, expectedUpdatedAt: customer.updatedAt.toISOString(),
+      });
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe("ACTIVATION_INCOMPLETE");
+      expect(await storage.getCustomerById(customer.id, companyId)).toMatchObject({ status, gateCode: null });
+    }
+  });
   it("creates a CRM-only prospect with omitted addresses, contacts and site owner fields", async () => {
     const result = await request(app()).post("/api/customers/wizard").send({
       customer: { name: "Synthetic prospect", status: "prospect" },

@@ -6,6 +6,7 @@ vi.mock("wouter", async importOriginal => ({
   ...await importOriginal<typeof import("wouter")>(),
   Redirect: ({ to }: { to: string }) => <div data-redirect={to} />,
   useLocation: () => ["/login", () => {}],
+  useSearch: () => "",
 }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: fx.user, loginMutation: { mutate: () => {}, isPending: false } }),

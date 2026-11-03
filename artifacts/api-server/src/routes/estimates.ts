@@ -12,6 +12,7 @@ import { createEstimate, retitleEstimate, createSection, patchSection, deleteSec
 import { transitionEstimate } from "../services/estimateLifecycle";
 import { readTicketEstimate } from "../services/ticketEstimates";
 import { renderEstimatePdf } from "../services/estimatePdf";
+import { customerActivation } from "../services/customerActivation";
 
 const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) => {
   try { await fn(req, res, next); } catch (error) {
@@ -74,7 +75,9 @@ export function registerEstimateRoutes(app: Express) {
       const user = req.user as UserWithContext;
       const schema = action === "send" ? sendEstimateSchema : action === "accept" ? acceptEstimateSchema
         : action === "decline" ? estimateReasonSchema : emptyEstimateActionSchema;
-      res.json(await transitionEstimate(user.activeCompanyId, user.id, id, versionId!, action, schema.parse(req.body)));
+      const result = await transitionEstimate(user.activeCompanyId, user.id, id, versionId!, action, schema.parse(req.body));
+      const activation = action === "accept" ? await customerActivation(user.activeCompanyId, async () => result.customerId) : undefined;
+      res.json({ ...result, ...(activation ? { customerActivation: activation } : {}) });
     }));
   }
   router.delete(versionPath, handle(async (req, res) => {

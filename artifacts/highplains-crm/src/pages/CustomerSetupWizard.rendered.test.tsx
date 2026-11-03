@@ -72,6 +72,25 @@ beforeEach(async () => {
 afterEach(cleanup);
 
 describe("customer wizard", () => {
+  it("saves an incomplete already-active gate/contact edit and shows a non-blocking Review advisory", async () => {
+    over["GET /api/customers/c7/setup"] = () => res({
+      customer: { id: "c7", name: "Existing active", status: "active", billingEmails: [], updatedAt: "2026-02-01T10:00:00.000Z" },
+      contacts: [{ id: "k1", name: "Site contact", emails: [], phones: [] }],
+      missingFields: ["street", "city", "state", "zip", "billingEmails"],
+    });
+    over["PATCH /api/customers/c7/setup"] = () => res({ customer: { id: "c7" }, qbo: { state: "not_linked" } });
+    const loc = mount("/dashboard/customers/c7/setup");
+    await screen.findByTestId("input-wizard-name");
+    next(); await screen.findByTestId("wizard-body-2"); next(); next();
+    await screen.findByTestId("wizard-body-4");
+    const gate = screen.getByLabelText("Gate code");
+    fireEvent.change(gate, { target: { value: "new gate" } });
+    next();
+    expect(await screen.findByTestId("review-active-missing")).toHaveTextContent("Still missing for QuickBooks:");
+    fireEvent.click(screen.getByTestId("button-wizard-submit"));
+    await waitFor(() => expect(loc.history?.at(-1)).toBe("/dashboard/customers/c7"));
+    expect(calls.find(c => c.method === "PATCH")?.body).toMatchObject({ siteNotes: { gateCode: "new gate" }, contacts: [{ id: "k1" }] });
+  });
   it("invalidates an infinitely fresh empty paginated list after a successful save", async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     const key = ["/api/customers?page=1&limit=200"];

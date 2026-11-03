@@ -20,6 +20,7 @@
 - [Scheduling specification correction](scheduling-polish-specification.md) — user chose the available-height formula over the attachment's contradictory five-crew cap example.
 - [Navigation direction](navigation-direction.md) — approved all-role desktop/mobile scope; web navigation and mobile access changes are separate projects.
 - [Auth fixture canonicalization](auth-fixture-canonicalization.md) — directly seeded sign-in fixtures need canonical identifiers; valid hashes alone do not rule out identifier mismatch.
+- [Login routing boundaries](login-routing-boundaries.md) — top-level signed-out and authenticated route trees must preserve the same login-return decision across auth cache updates.
 - [Section action-list direction](section-action-lists.md) — section ownership follows status; each section uses its own overdue clock; uploaded ground rules govern upcoming slices.
 - [Estimate and RFP boundaries](estimate-rfp-boundaries.md) — estimates deliver projects; RFPs produce contracts through Contracts › RFP Center, never a standalone Bids section.
 - [Drizzle correlated selects](drizzle-correlated-selects.md) — single-table projection formatting can strip interpolated outer-column qualifiers inside subqueries.

@@ -80,6 +80,7 @@ function WizardBody({ companyId, editId }: { companyId: string; editId: string |
   const scope = [companyId];
 
   const [d, setD] = useState<WizardDraft>(newWizardDraft);
+  const original = useRef<SetupResponse["customer"] | null>(null);
   const [step, setStep] = useState(1);
   const [maxStep, setMaxStep] = useState(1);
   const [issues, setIssues] = useState<StepIssue[]>([]);
@@ -120,7 +121,7 @@ function WizardBody({ companyId, editId }: { companyId: string; editId: string |
   const hydrated = useRef(false);
   useEffect(() => {
     if (hydrated.current) return;
-    if (edit && setup.data) { hydrated.current = true; setD(draftFromServer(setup.data.customer, setup.data.contacts)); setServerMissing(setup.data.missingFields ?? []); }
+    if (edit && setup.data) { hydrated.current = true; original.current = setup.data.customer; setD(draftFromServer(setup.data.customer, setup.data.contacts)); setServerMissing(setup.data.missingFields ?? []); }
     if (!edit && prefill.data) {
       hydrated.current = true;
       const base = draftFromServer(prefill.data.customer);
@@ -174,7 +175,7 @@ function WizardBody({ companyId, editId }: { companyId: string; editId: string |
     ? dup.candidates.filter(c => c.matchType === "exact_display_name" || c.displayName.trim().toLowerCase() === billingName.trim().toLowerCase()) : [];
   const duplicateBlocking = exactHits.length > 0 && !exactHits.some(h => h.qboId === d.linkQboId) && (d.status === "active" || d.sendNow);
 
-  const ctx = { master, pm, duplicateBlocking, requireActive: d.status === "active" };
+  const ctx = { master, pm, duplicateBlocking, requireActive: d.status === "active" && (!edit || original.current?.status !== "active") };
   const issuesFor = (n: number) => stepIssues(d, n, ctx);
   const activeMissing = d.status === "active" ? missingForActive(d, { master, pm }) : [];
 
@@ -230,7 +231,7 @@ function WizardBody({ companyId, editId }: { companyId: string; editId: string |
     const body = buildBody(d, { master, edit });
     try {
       const res = edit
-        ? await qboJson<{ customer: { id: string }; qbo: QboOutcome }>("PATCH", `/api/customers/${editId}/setup`, companyId, { ...body, expectedUpdatedAt: setup.data?.customer.updatedAt })
+        ? await qboJson<{ customer: { id: string }; qbo: QboOutcome }>("PATCH", `/api/customers/${editId}/setup`, companyId, { ...body, expectedUpdatedAt: original.current?.updatedAt })
         : await qboJson<{ customer: { id: string }; qbo: QboOutcome }>("POST", "/api/customers/wizard", companyId, body);
       if (!alive.current) return;
       const custId = res.customer.id;

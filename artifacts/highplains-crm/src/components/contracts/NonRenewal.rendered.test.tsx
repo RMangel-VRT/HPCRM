@@ -11,6 +11,7 @@ import { ContractView } from "@/pages/ContractPage";
 import { ContractBoard } from "@/pages/ContractCenterPage";
 
 const fx = vi.hoisted(() => ({ api: vi.fn(), toast: vi.fn() }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u1", activeCompanyId: "company", activeRole: "office" } }) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: fx.toast }) }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: (...args: unknown[]) => fx.api(...args) }));
 // Native select in DOM tests: exercise the form state, not Radix's pointer mechanics.

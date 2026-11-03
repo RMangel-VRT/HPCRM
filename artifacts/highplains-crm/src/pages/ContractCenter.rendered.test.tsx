@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u1", activeCompanyId: "company", activeRole: "office" } }) }));
 import { Route, Router } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 

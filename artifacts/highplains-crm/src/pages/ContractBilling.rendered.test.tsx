@@ -9,6 +9,7 @@ import { memoryLocation } from "wouter/memory-location";
 import type { ContractDetail } from "@/components/contracts/contractTypes";
 
 const fx = vi.hoisted(() => ({ api: vi.fn(), toast: vi.fn() }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u1", activeCompanyId: "company", activeRole: "office" } }) }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: (...a: unknown[]) => fx.api(...a) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: fx.toast }) }));
 import { ContractView } from "./ContractPage";

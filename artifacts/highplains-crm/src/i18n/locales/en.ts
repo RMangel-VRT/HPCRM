@@ -1,5 +1,15 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
+  customerActivation: {
+    title: "{{customer}} is still a prospect.",
+    question: "Activate it and send it to QuickBooks?",
+    activate: "Activate now", notNow: "Not now", pending: "Activating…", close: "Close",
+    missing: "Still missing for QuickBooks: {{fields}}",
+    failed: "Could not activate this customer. Check your access and company, then try again. The signed document or estimate acceptance is already saved.",
+    done: "Customer activated",
+    waiting: "Saved in CRM. QuickBooks sending is asynchronous and waits for connection, initial sync and write access. Check the customer's QuickBooks card for its current status.",
+    refreshFailed: "The document is saved, but this view could not refresh. Reload the page; do not upload it again.",
+  },
   customerWizard: {
     inactiveBlocked: "This customer is inactive. Reactivate it from the customer page before running setup.",
     reasons: {
@@ -179,7 +189,7 @@ const en = {
       qboSyncWait: "Will be sent after the first QuickBooks sync finishes.",
       qboAlreadyLinked: "Already linked to QuickBooks. Changes follow the normal sync.",
       qboOptionsError: "QuickBooks status didn't load. The customer still saves; QuickBooks follows its normal rules.",
-      activeMissing: "Active customers still need:",
+      activeMissing: "Still missing for QuickBooks:",
     },
     prefill: {
       loading: "Loading the QuickBooks record...",
@@ -208,7 +218,7 @@ const en = {
       discard: "Discard",
       stay: "Keep editing",
     },
-    finishBanner: "This prospect isn't ready to activate. Missing: {{fields}}.",
+    finishBanner: "Customer setup is incomplete. Missing: {{fields}}.",
     finishAction: "Finish setup",
     activationBlocked: "Can't activate yet. Missing: {{fields}}.",
     quickAddAddress: "Address (optional)",

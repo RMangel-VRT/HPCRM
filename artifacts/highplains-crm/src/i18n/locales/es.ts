@@ -1,5 +1,15 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const es = {
+  customerActivation: {
+    title: "{{customer}} sigue siendo un cliente potencial.",
+    question: "¿Activarlo y enviarlo a QuickBooks?",
+    activate: "Activar ahora", notNow: "Ahora no", pending: "Activando…", close: "Cerrar",
+    missing: "Aún falta para QuickBooks: {{fields}}",
+    failed: "No se pudo activar este cliente. Revisa tu acceso y empresa e inténtalo de nuevo. El documento firmado o la aceptación del presupuesto ya está guardado.",
+    done: "Cliente activado",
+    waiting: "Guardado en CRM. El envío a QuickBooks es asíncrono y espera la conexión, la sincronización inicial y el permiso de escritura. Consulta el estado actual en la tarjeta de QuickBooks del cliente.",
+    refreshFailed: "El documento está guardado, pero no se pudo actualizar esta vista. Recarga la página; no lo vuelvas a subir.",
+  },
   customerWizard: {
     inactiveBlocked: "Este cliente está inactivo. Reactívelo desde la página del cliente antes de configurarlo.",
     reasons: {
@@ -179,7 +189,7 @@ const es = {
       qboSyncWait: "Se enviará cuando termine la primera sincronización de QuickBooks.",
       qboAlreadyLinked: "Ya está vinculado a QuickBooks. Los cambios siguen la sincronización normal.",
       qboOptionsError: "No se cargó el estado de QuickBooks. El cliente se guarda igual; QuickBooks sigue sus reglas normales.",
-      activeMissing: "A los clientes activos aún les falta:",
+      activeMissing: "Aún falta para QuickBooks:",
     },
     prefill: {
       loading: "Cargando el registro de QuickBooks...",
@@ -208,7 +218,7 @@ const es = {
       discard: "Descartar",
       stay: "Seguir editando",
     },
-    finishBanner: "Este prospecto no está listo para activarse. Falta: {{fields}}.",
+    finishBanner: "La configuración del cliente está incompleta. Falta: {{fields}}.",
     finishAction: "Completar configuración",
     activationBlocked: "Aún no se puede activar. Falta: {{fields}}.",
     quickAddAddress: "Dirección (opcional)",

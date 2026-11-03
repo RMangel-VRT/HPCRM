@@ -28,6 +28,10 @@ function authorize(req: Request, res: Response, allowOffice: boolean): UserWithC
     res.status(403).json({ message: "No active company" });
     return null;
   }
+  if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+    res.status(409).json({ message: "Active company changed. Reload and try again." });
+    return null;
+  }
   return user;
 }
 

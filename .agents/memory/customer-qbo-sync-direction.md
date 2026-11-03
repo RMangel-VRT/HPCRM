@@ -76,3 +76,9 @@ must not stop a company-wide mirror batch.
 **How to apply:** Future customer-entry flows, including the new-customer wizard,
 must reuse the shared CRM input contract rather than making incoming QuickBooks
 normalization strict. Preserve unrelated edits to unchanged legacy ZIP values.
+
+Signing a prospect's contract or accepting its estimate offers explicit activation; neither win automatically activates it. Activation prerequisites remain the existing completeness contract, not a new requirement for an AP contact name.
+
+**Why:** The follow-up brief explicitly separates recording a win from consenting to activation and outbound synchronization. Existing active customers may remain incomplete without being barred from unrelated setup edits.
+
+**How to apply:** Keep the committed win independent of its optional activation advisory, preserve activation validation for active creation and non-active-to-active setup transitions, and describe missing facts on already-active edits as advisory.

@@ -24,10 +24,10 @@ export function MissingFieldsNotice({ customerId, fields, variant = "banner" }: 
   );
 }
 
-/** Shown on a prospect's page while required-for-active fields are missing. */
+/** Advisory for prospects and legacy active customers with incomplete setup. */
 export function FinishSetupBanner({ customerId, status }: { customerId: string; status: string | null | undefined }) {
   const { user } = useAuth();
-  const enabled = status === "prospect" && canPromote(user);
+  const enabled = (status === "prospect" || status === "active") && canPromote(user);
   const q = useQuery<{ missingFields: MissingField[] }>({
     queryKey: ["/api/customers", customerId, "setup", user?.activeCompanyId ?? null, ...viewerScope(user)],
     queryFn: () => qboJson("GET", `/api/customers/${customerId}/setup`, user?.activeCompanyId),

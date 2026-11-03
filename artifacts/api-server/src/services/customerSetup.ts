@@ -59,7 +59,7 @@ export async function ensureManagerContact(customer: Customer) {
 }
 
 async function validateRelationships(tx: AppTransaction, companyId: string, c: Customer,
-  edit?: Parameters<typeof billingInputProblem>[2]) {
+  edit?: NonNullable<Parameters<typeof billingInputProblem>[2]> & { previous: Customer }) {
   const ctx = setupBillingContext(tx, companyId);
   let parent: Customer | undefined;
   if (c.parentCustomerId) {
@@ -84,7 +84,7 @@ async function validateRelationships(tx: AppTransaction, companyId: string, c: C
   }
   if (c.billingEmails.join(",").length > 100) throw new CustomerSyncError(400, "BILLING_EMAILS_TOO_LONG");
   const effectiveContext = { ...ctx, getCustomerById: async (id: string) => id === parent?.id ? parent : ctx.getCustomerById(id) };
-  if (c.status === "active") await assertActivationComplete(c, effectiveContext);
+  if (c.status === "active" && edit?.previous.status !== "active") await assertActivationComplete(c, effectiveContext);
   // CQ1 requires complete custom addresses when supplied, even on prospects.
   const problem = await billingInputProblem(c, ctx, edit);
   if (problem && !billsThroughParent(c, parent)) throw new CustomerSyncError(400, problem);

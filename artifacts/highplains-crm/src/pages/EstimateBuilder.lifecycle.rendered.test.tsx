@@ -240,6 +240,47 @@ describe("header actions per state", () => {
 });
 
 describe("dialogs", () => {
+  it.each(["activate", "incomplete", "cancel", "stale", "failure", "already-active"])("acceptance offers independent activation: %s", async scenario => {
+    detail = detailOf([{ id: "v1", n: 1, status: "sent" }]);
+    let attempts = 0;
+    handler = c => {
+      if (c.method === "POST" && c.url.endsWith("/accept")) {
+        detail = detailOf([{ id: "v1", n: 1, status: "accepted" }], undefined, {
+          updatedAt: LATER,
+          ...(scenario === "already-active" ? {} : { customerActivation: { customerId: "cu1", status: "prospect", missingFields: scenario === "incomplete" ? ["billingEmails"] : [] } }),
+        });
+        return res(detail);
+      }
+      if (c.method === "PATCH" && c.url === "/api/customers/cu1") {
+        attempts++;
+        if (scenario === "stale") return res({ code: "ACTIVATION_INCOMPLETE", missingFields: ["billingEmails"] }, 400);
+        if (scenario === "failure" && attempts === 1) return res({ message: "Unavailable" }, 503);
+        return res({ status: "active" });
+      }
+      return undefined;
+    };
+    renderAt("/dashboard/estimates/builder/e1"); await ready();
+    fireEvent.click(screen.getByTestId("button-record-accept"));
+    fireEvent.click(await screen.findByTestId("button-submit-accept"));
+    await screen.findByTestId("indicator-locked");
+    if (scenario === "already-active") expect(screen.queryByText("Ridge HOA is still a prospect.")).toBeNull();
+    else {
+      await screen.findByText("Ridge HOA is still a prospect.");
+      expect(screen.queryByTestId("dialog-accept")).toBeNull();
+      if (scenario === "incomplete") expect(screen.getByRole("link", { name: "Finish setup" }).getAttribute("href")).toBe("/dashboard/customers/cu1/setup");
+      else if (scenario === "cancel") { fireEvent.click(screen.getByText("Not now")); expect(attempts).toBe(0); }
+      else {
+        fireEvent.click(screen.getByText("Activate now"));
+        if (scenario === "stale") await screen.findByRole("link", { name: "Finish setup" });
+        else {
+          if (scenario === "failure") { await screen.findByRole("alert"); fireEvent.click(screen.getByText("Activate now")); }
+          await screen.findByText("Customer activated");
+          expect(calls().find(c => c.method === "PATCH" && c.url === "/api/customers/cu1")?.headers).toMatchObject({ "X-Company-Id": "c1" });
+        }
+      }
+    }
+    expect(calls().filter(c => c.url.endsWith("/accept") && c.method === "POST")).toHaveLength(1);
+  });
   it("send: method, LINES_NEED_PRICE lists server ids only, Send anyway confirms and installs response", async () => {
     let n = 0;
     handler = (c) => {

@@ -1,18 +1,18 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
-import { LoginLandingRedirect, loginLandingPath } from "@/lib/landing";
+import { LoginLandingRedirect } from "@/lib/landing";
 import logoImage from "@assets/TRUCK_DECAL-06_1766432157419.png";
 
 export default function LoginPage() {
   const { t, i18n } = useTranslation();
   const { user, loginMutation } = useAuth();
-  const [, setLocation] = useLocation();
+  const search = useSearch();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -27,11 +27,6 @@ export default function LoginPage() {
     e.preventDefault();
     loginMutation.mutate(
       { username, password },
-      {
-        onSuccess: (loggedIn) => {
-          setLocation(loginLandingPath(loggedIn));
-        },
-      }
     );
   };
 
@@ -39,7 +34,8 @@ export default function LoginPage() {
     i18n.changeLanguage(lang);
   };
 
-  if (user) return <LoginLandingRedirect user={user} />;
+  // The auth cache update owns completion; a second imperative redirect races it.
+  if (user) return <LoginLandingRedirect user={user} search={search} />;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-muted/30 relative overflow-hidden">

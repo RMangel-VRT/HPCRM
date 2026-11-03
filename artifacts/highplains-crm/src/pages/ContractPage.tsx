@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Redirect, useLocation, useParams } from "wouter";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useAuth } from "@/hooks/use-auth";
+import { useCustomerActivation, type ActivationResponse } from "@/components/customerWizard/CustomerActivationDialog";
 import { SeasonDocuments } from "@/components/contracts/SeasonDocuments";
 import { NotRenewingDialog } from "@/components/contracts/NotRenewingDialog";
 import { NonRenewalChip } from "@/components/contracts/NonRenewalChip";
@@ -57,6 +59,8 @@ const pick = (f: FieldDraft, keys: (keyof FieldDraft)[]) =>
   Object.fromEntries(Object.entries(f).filter(([k]) => keys.includes(k as keyof FieldDraft))) as FieldDraft;
 
 export function ContractView({ detail, initialHash }: { detail: ContractDetail; initialHash: string }) {
+  const { user } = useAuth();
+  const activation = useCustomerActivation();
   const { t: translate, i18n } = useTranslation();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -468,11 +472,12 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
                   <ContractUploadButton key={kind} label={kind === "signed" ? "Signed copy" : kind === "their_form" ? "Their form" : "Other"} testId={`upload-${kind}`}
                     uploadUrlPath={`/api/contract-center/terms/${term.id}/documents/upload-url`} registerPath={`/api/contract-center/terms/${term.id}/documents`}
                     extraBody={{ kind }} options={TERM_UPLOAD_OPTIONS} accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-                    onError={setUploadError}
-                    onUploaded={async () => { setUploadError(null); await refresh(); if (kind === "signed" && term.status === "sent") setSignPrompt(true); }} />
+                    companyId={user?.activeCompanyId} onError={setUploadError}
+                    onUploaded={async result => { setUploadError(null); activation.offer(result as ActivationResponse, detail.customer.name); if (kind === "signed" && term.status === "sent") setSignPrompt(true); void refresh().catch(() => setUploadError(translate("customerActivation.refreshFailed"))); }} />
                 ))}
               </div>
             )}
+            {activation.dialog}
             {uploadError && <p className="text-sm text-destructive" role="alert" data-testid="error-upload">{uploadError}</p>}
             {signPrompt && term.status === "sent" && (
               <div className="flex items-center gap-2 rounded-md border p-3 text-sm" data-testid="prompt-mark-signed">

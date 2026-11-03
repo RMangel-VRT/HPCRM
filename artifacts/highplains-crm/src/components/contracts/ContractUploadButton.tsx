@@ -32,6 +32,7 @@ export function ContractUploadButton(props: {
   options?: ContractUploadOptions;
   accept?: string;
   disabled?: boolean;
+  companyId?: string;
   testId: string;
   onUploaded: (result: unknown) => void | Promise<void>;
   onError: (message: string) => void;
@@ -53,6 +54,7 @@ export function ContractUploadButton(props: {
       const result = await uploadContractFile({
         file, uploadUrlPath: props.uploadUrlPath, registerPath: props.registerPath,
         extraBody: props.extraBody, options: { ...props.options, putContentType: file.type || "application/octet-stream" },
+        companyId: props.companyId,
       });
       await props.onUploaded(result);
     } catch (e) {

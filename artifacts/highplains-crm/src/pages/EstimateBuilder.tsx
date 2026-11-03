@@ -3,6 +3,7 @@ import { derivePaletteTypeLabel, EXHIBITS_KEY } from "../../../../lib/db/src/pla
 import type { KeyboardEvent, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { useCustomerActivation } from "@/components/customerWizard/CustomerActivationDialog";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import {
   AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Ban, Check, CheckCircle2, FileText, GitBranch, History, Lock, MoreHorizontal,
@@ -109,6 +110,7 @@ function InlineInput(props: {
 }
 
 function BuilderContent({ id }: { id: string }) {
+  const activation = useCustomerActivation();
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const { user } = useAuth();
@@ -252,6 +254,7 @@ function BuilderContent({ id }: { id: string }) {
       if (!(await installCurrent(d, view))) return;
       setDialog(null); setNeedPrice(null);
       toast({ title: t(`estimateBuilder.life.done.${kind}`) });
+      if (kind === "accept") activation.offer(d, d.display?.customerName ?? customer.data?.name ?? t("estimateBuilder.customer"));
       if (["send", "accept", "decline"].includes(kind) && d.ticketId) {
         const result = await advanceLinkedTicket(d, ticketRequest(companyId, () => viewRef.current === view));
         if (viewRef.current !== view) return;
@@ -590,6 +593,7 @@ function BuilderContent({ id }: { id: string }) {
         estimateNumber={data.estimateNumber} versionNumber={v.versionNumber} draft={v.status === "draft"} />
       <SendDialog open={dialog === "send"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog} needPrice={needPriceLines}
         onSubmit={(b) => void lifecycle("send", "POST", `${vBase}/send`, b)} />
+      {activation.dialog}
       <AcceptDialog open={dialog === "accept"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog}
         onSubmit={(b) => void lifecycle("accept", "POST", `${vBase}/accept`, b)} />
       <DeclineDialog open={dialog === "decline"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog}

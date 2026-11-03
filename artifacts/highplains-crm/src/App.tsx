@@ -7,7 +7,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { BreadcrumbsProvider } from "@/hooks/use-breadcrumbs";
 import { canViewBilling } from "@/lib/billing";
-import { DefaultRedirect } from "@/lib/landing";
+import { DefaultRedirect, LoginRequiredRedirect } from "@/lib/landing";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { AlertTriangle } from "lucide-react";
 import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -230,6 +230,7 @@ function Router() {
 
     return (
       <Switch>
+        <Route path="/login" component={LoginPage} />
         <ProtectedRoute path="/admin" component={SuperAdminHome} superAdminOnly />
         <ProtectedRoute
           path="/dashboard"
@@ -515,7 +516,7 @@ function Router() {
               <Route path="/legal/eula" component={EulaPage} />
               <Route path="/legal/privacy" component={PrivacyPolicyPage} />
               <Route>
-                <Redirect to="/login" />
+                <LoginRequiredRedirect />
               </Route>
             </Switch>
           );
@@ -549,7 +550,7 @@ function Router() {
         <Route path="/legal/eula" component={EulaPage} />
         <Route path="/legal/privacy" component={PrivacyPolicyPage} />
         <Route>
-          <Redirect to="/login" />
+          <LoginRequiredRedirect />
         </Route>
       </Switch>
     );

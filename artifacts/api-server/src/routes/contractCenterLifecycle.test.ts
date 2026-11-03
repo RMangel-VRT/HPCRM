@@ -7,9 +7,9 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { registerContractCenterRoutes } from "./contractCenter";
 import * as rfpContracts from "../lib/rfpContracts";
 
-const mock = vi.hoisted(() => ({ db: {} as any, parent: vi.fn(), upload: vi.fn(), file: vi.fn(), acl: vi.fn() }));
+const mock = vi.hoisted(() => ({ db: {} as any, parent: vi.fn(), upload: vi.fn(), file: vi.fn(), acl: vi.fn(), customer: vi.fn(), pm: vi.fn() }));
 vi.mock("../db", () => ({ db: mock.db, inTransaction: (_tx: unknown, fn: () => unknown) => fn() }));
-vi.mock("../storage", () => ({ storage: {} }));
+vi.mock("../storage", () => ({ storage: { getCustomerById: mock.customer, getPropertyManagementCompanyById: mock.pm } }));
 vi.mock("../utils/parentGuard", () => ({ assertNotParentCustomer: mock.parent }));
 vi.mock("../objectAcl", () => ({ ObjectAccessGroupType: { COMPANY_MEMBER: "company_member" }, ObjectPermission: { READ: "read" } }));
 vi.mock("../objectStorage", () => ({ ObjectStorageService: class {
@@ -85,6 +85,7 @@ async function create(agent: ReturnType<typeof request>) {
 beforeEach(() => {
   tables = { customers: [{ id: "customer", companyId: "company", name: "Pavilion Villas", street: "1 Main", city: "Denver", state: "CO", zip: "80000", propertyManagementCompanyId: null }] };
   sequence = 0; writes = 0; failTable = null; vi.clearAllMocks();
+  mock.customer.mockImplementation(async (id: string, companyId: string) => rows("customers").find(c => c.id === id && c.companyId === companyId));
   mock.parent.mockResolvedValue(false); mock.upload.mockResolvedValue("https://storage.googleapis.com/private/uploads/object?signature=test");
   mock.file.mockResolvedValue({}); mock.acl.mockResolvedValue("/objects/uploads/object");
   Object.assign(mock.db, {
@@ -411,6 +412,33 @@ describe("Contract Center lifecycle routes", () => {
     expect((await agent.post(`${base}/terms/${termId}/documents`).send({ ...doc, kind: "other" })).body.version).toBe(1);
     expect(rows("term_status_history")).toHaveLength(oldHistory); expect(rows("agreement_terms")[0].status).toBe("draft");
     expect(mock.acl).toHaveBeenCalledWith(doc.uploadURL, { owner: "actor", visibility: "private", aclRules: [{ group: { type: "company_member", id: "company" }, permission: "read" }] });
+  });
+  it.each(["prospect", "active", "inactive"])("adds prospect-only activation metadata to signed documents for %s", async status => {
+    rows("customers")[0].status = status;
+    rows("customers")[0].billingEmails = [];
+    const agent = request(app()), { termId } = await create(agent);
+    for (const kind of ["signed", "their_form", "other"]) {
+      const upload = await agent.post(`${base}/terms/${termId}/documents/upload-url`);
+      const response = await agent.post(`${base}/terms/${termId}/documents`).send({
+        uploadURL: upload.body.uploadURL, kind, filename: "test.pdf", fileSize: 1, mimeType: "application/pdf",
+      });
+      expect(response.status).toBe(201);
+      expect(response.body.version).toBe(1);
+      if (status === "prospect" && kind === "signed") {
+        expect(response.body.customerActivation).toMatchObject({ customerId: "customer", status: "prospect", missingFields: ["billingName", "billingEmails"] });
+        expect(mock.customer).toHaveBeenCalledWith("customer", "company");
+      } else expect(response.body.customerActivation).toBeUndefined();
+    }
+  });
+  it("retains a committed signed upload and consumes its ownership binding when advisory loading fails", async () => {
+    const agent = request(app()), { termId } = await create(agent);
+    mock.customer.mockRejectedValueOnce(new Error("advisory unavailable"));
+    const upload = await agent.post(`${base}/terms/${termId}/documents/upload-url`);
+    const doc = { uploadURL: upload.body.uploadURL, kind: "signed", filename: "test.pdf", fileSize: 1, mimeType: "application/pdf" };
+    const response = await agent.post(`${base}/terms/${termId}/documents`).send(doc);
+    expect(response.status).toBe(201); expect(response.body.customerActivation).toBeUndefined();
+    expect(rows("term_documents")).toHaveLength(1);
+    expect((await agent.post(`${base}/terms/${termId}/documents`).send(doc)).status).toBe(404);
   });
   it("refuses attaching an object not issued for the term/company", async () => {
     const agent = request(app()), { termId } = await create(agent);

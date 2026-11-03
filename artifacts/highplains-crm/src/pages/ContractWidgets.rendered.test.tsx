@@ -10,13 +10,16 @@ import type { ContractDetail, DetailTerm, TermRateRow } from "@/components/contr
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import { coverageContext, daysUntil, paymentPattern, resolveTermHash, signedInfo } from "@/components/contracts/ContractWidgets";
 import { equal12, msi } from "@/components/contracts/paymentPresets";
+import * as contractUpload from "@/lib/contractUpload";
 
 const fx = vi.hoisted(() => ({ api: vi.fn(), toast: vi.fn() }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u1", activeCompanyId: "company", activeRole: "office" } }) }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: (...a: unknown[]) => fx.api(...a) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: fx.toast }) }));
 import { ContractView } from "./ContractPage";
 
 afterEach(() => {
+  vi.restoreAllMocks();
   cleanup(); fx.api.mockReset(); fx.toast.mockReset(); unsavedGuard.setDirty(false); vi.useRealTimers();
   window.history.replaceState(null, "", "/");
 });
@@ -60,6 +63,46 @@ async function changePO(value = "New PO") {
 }
 
 describe("contract widget presentation", () => {
+  it.each(["activate", "incomplete", "cancel", "stale", "failure", "already-active"])("signed upload offers independent activation: %s", async scenario => {
+    const uploaded = vi.spyOn(contractUpload, "uploadContractFile").mockResolvedValue(scenario === "already-active" ? { id: "doc1" } : {
+      id: "doc1", customerActivation: { customerId: "customer", status: "prospect", missingFields: scenario === "incomplete" ? ["billingEmails"] : [] },
+    });
+    mount(agreement([season("current", { status: "sent" })]));
+    let attempts = 0;
+    fx.api.mockImplementation(async (method, url) => {
+      if (method === "PATCH" && url === "/api/customers/customer") {
+        attempts++;
+        if (scenario === "stale") throw new Error('400: {"code":"ACTIVATION_INCOMPLETE","missingFields":["billingEmails"]}');
+        if (scenario === "failure" && attempts === 1) throw new Error("503: unavailable");
+        return { text: async () => JSON.stringify({ status: "active" }) };
+      }
+      return { json: async () => ({}) };
+    });
+    fireEvent.change(screen.getByTestId("input-upload-signed"), { target: { files: [new File(["synthetic"], "signed.pdf", { type: "application/pdf" })] } });
+    await waitFor(() => expect(uploaded).toHaveBeenCalledTimes(1));
+    if (scenario === "already-active") {
+      await waitFor(() => expect(screen.queryByText("Summerfield fixture is still a prospect.")).toBeNull());
+    } else {
+      await screen.findByText("Summerfield fixture is still a prospect.");
+      if (scenario === "incomplete") {
+        expect(screen.getByRole("link", { name: "Finish setup" }).getAttribute("href")).toBe("/dashboard/customers/customer/setup");
+      } else if (scenario === "cancel") {
+        fireEvent.click(screen.getByText("Not now")); expect(attempts).toBe(0);
+      } else {
+        fireEvent.click(screen.getByText("Activate now"));
+        if (scenario === "stale") await screen.findByRole("link", { name: "Finish setup" });
+        else {
+          if (scenario === "failure") {
+            await screen.findByRole("alert");
+            fireEvent.click(screen.getByText("Activate now"));
+          }
+          await screen.findByText("Customer activated");
+        }
+      }
+    }
+    expect(uploaded).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("button-prompt-signed-yes")).toBeTruthy();
+  });
   it("renders all six panels in fixed order, five populated tiles, and no tabs/global editor", () => {
     mount();
     expect(within(screen.getByTestId("grid-panels")).getAllByRole("region").map(e => e.getAttribute("data-testid")))

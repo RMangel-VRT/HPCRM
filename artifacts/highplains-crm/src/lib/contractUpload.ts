@@ -24,9 +24,13 @@ export async function uploadContractFile(args: {
   registerPath: string;
   extraBody?: Record<string, unknown>;
   options?: ContractUploadOptions;
+  companyId?: string;
 }): Promise<unknown> {
   const { file, uploadUrlPath, registerPath, extraBody, options } = args;
-  const urlResponse = await apiRequest("POST", uploadUrlPath);
+  const post = (url: string, body?: unknown) => args.companyId
+    ? apiRequest("POST", url, body, { headers: { "X-Company-Id": args.companyId } })
+    : body === undefined ? apiRequest("POST", url) : apiRequest("POST", url, body);
+  const urlResponse = await post(uploadUrlPath);
   const { uploadURL } = await urlResponse.json();
   const put = await fetch(uploadURL, {
     method: "PUT",
@@ -34,7 +38,7 @@ export async function uploadContractFile(args: {
     headers: { "Content-Type": options?.putContentType ?? "application/pdf" },
   });
   if (!put.ok) throw new Error("Upload failed");
-  const registered = await apiRequest("POST", registerPath, {
+  const registered = await post(registerPath, {
     uploadURL,
     filename: file.name,
     fileSize: file.size,
