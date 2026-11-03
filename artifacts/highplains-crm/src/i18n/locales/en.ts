@@ -1,5 +1,23 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
+  proposalEstimate: {
+    title: "Estimate", open: "Open estimate →", preview: "Preview estimate PDF", unlink: "Unlink",
+    link: "Link {{number}}", linkSelected: "Link estimate", choose: "Choose an estimate", create: "Create estimate",
+    loading: "Loading…", retry: "Retry", error: "Could not update or load the estimate. Please try again.",
+    unavailable: "Unavailable", total: "Estimate total", version: "v{{n}}",
+    uploadNote: "Estimate pages are generated from {{number}}. Uploaded QuickBooks PDFs aren't used.",
+    lockExplanation: "Finalizing marks {{number}} v{{n}} as Sent and locks it.",
+    partialFailure: "The estimate is already sent and remains locked, but the proposal PDF could not be finalized. Retry finalization. You can still advance the linked ticket.",
+    voidError: "This estimate is void. Unlink it or choose another estimate before finalizing.",
+    methodRequired: "Choose a delivery method before finalizing.",
+    linkErrors: {
+      ESTIMATE_NOT_FOUND: "The estimate was not found in this company.",
+      ESTIMATE_LINK_VOID: "A void estimate cannot be linked.",
+      ESTIMATE_CUSTOMER_MISMATCH: "Choose an estimate for this proposal's customer.",
+      ESTIMATE_TICKET_MISMATCH: "Choose an estimate linked to this proposal's ticket.",
+    },
+    finalizeError: "The estimate cannot be finalized in its current state. Refresh and try again, or open the estimate to review it.",
+  },
   documents: {
     title: "Documents", description: "Contact details and boilerplate for customer estimates and invoices. Company name is managed in Company settings. Leave optional text blank to omit it.",
     loading: "Loading document settings…", loadError: "Could not load document settings.", retry: "Retry",

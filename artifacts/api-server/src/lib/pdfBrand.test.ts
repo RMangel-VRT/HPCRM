@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import PDFDocumentKit from "pdfkit";
 import * as PDFLib from "pdf-lib";
 import { transform } from "esbuild";
@@ -13,8 +13,9 @@ const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 /** Executes the actual proposal helper in isolation, not a rewritten fixture renderer.
  * Storage / optional native image rendering are supplied deterministic bytes.
  */
-async function proposalHarness(source: string) {
-  const start = source.indexOf("  async function generateProposalPdf(");
+async function proposalHarness(source: string, options: { render?: (companyId: string, estimateId: string, versionId: string) => Promise<Buffer>; uploads?: unknown[] } = {}) {
+  const start = source.indexOf("  async function proposalEstimatePages(") >= 0
+    ? source.indexOf("  async function proposalEstimatePages(") : source.indexOf("  async function generateProposalPdf(");
   const end = source.indexOf('  app.get("/api/proposals/:id/pdf"', start);
   expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
   const code = source.slice(start, end).replaceAll("await import('pdfkit')", "({ default: InjectedPDFKit })")
@@ -30,8 +31,9 @@ async function proposalHarness(source: string) {
   }
   const deps = {
     InjectedPDFKit: PDFDocumentKit, PDFLib, BRAND, LM, RM, wirePageDecorations, ObjectStorageService,
+    renderEstimatePdf: options.render,
     loadBrandLogo: async () => logo, fs: { readFile: async () => logo }, path: { join: () => "logo" },
-    storage: { getProposalEstimatePdfs: async () => [{ storageObjectPath: "estimate" }], getSettings: async () => ({ companyName: "High Plains Property Maintenance" }) },
+    storage: { getProposalEstimatePdfs: async () => options.uploads ?? [{ storageObjectPath: "estimate" }], getSettings: async () => ({ companyName: "High Plains Property Maintenance" }) },
     compressImageForPdf: async (b: Buffer) => b, renderVisualScope: async () => png,
   };
   return new Function(...Object.keys(deps), `${js}\nreturn generateProposalPdf;`)(...Object.values(deps));
@@ -52,6 +54,35 @@ const fixture = (scopeOfWork: string) => ({
   visualScopeSheetId: "scope", visualScopeSheet: { title: "Site scope", scopeDate: "2026-10-30", baseImagePath: "base" },
 });
 describe("mechanical proposal branding extraction", () => {
+  it("linked estimates replace uploads in the exact merge slot, retain generated blank pages and use the selected version", async () => {
+    const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
+    const render = vi.fn(async (_company: string, _estimate: string, version: string) => {
+      const doc = await PDFLib.PDFDocument.create();
+      doc.addPage().drawText(version === "draft" ? "CRM DRAFT estimate" : "CRM frozen estimate");
+      doc.addPage(); // Filtering belongs to uploads, never generated pages.
+      return Buffer.from(await doc.save());
+    });
+    const generate = await proposalHarness(source, { render, uploads: [{ storageObjectPath: "missing" }] });
+    const linked = { ...fixture("Short scope."), estimateId: "estimate", estimate: { currentVersion: { id: "draft" } } };
+    const preview = await generate(linked, "company");
+    expect(render).toHaveBeenLastCalledWith("company", "estimate", "draft");
+    const previewText = execFileSync("pdftotext", ["-layout", "-", "-"], { input: preview }).toString();
+    expect(previewText).toContain("CRM DRAFT estimate");
+    expect(previewText).not.toContain("Uploaded QuickBooks");
+    const pages = previewText.split("\f");
+    // Legacy cover/scope occupies two pages, then Visual Scope, then estimate.
+    expect(pages.findIndex(p => p.includes("CRM DRAFT estimate"))).toBe(3);
+    expect(pages.findIndex(p => p.includes("PLANT SCHEDULE"))).toBeGreaterThan(3);
+    const finalized = await generate(linked, "company", "sent-exact");
+    expect(render).toHaveBeenLastCalledWith("company", "estimate", "sent-exact");
+    expect(execFileSync("pdftotext", ["-", "-"], { input: finalized }).toString()).not.toContain("DRAFT");
+    expect((await PDFLib.PDFDocument.load(finalized)).getPageCount()).toBe(8);
+  });
+  it("unlinked missing-upload behavior is unchanged", async () => {
+    const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
+    const generate = await proposalHarness(source, { uploads: [] });
+    await expect(generate(fixture("Short scope."), "company")).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining("No estimate PDF attached") });
+  });
   it.each(["Short scope.", "Scope paragraph.\n".repeat(90)])("retains real proposal page geometry and rendering including exhibits", async scope => {
     const current = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
     const after = await (await proposalHarness(current))(fixture(scope), "company");

@@ -1,3 +1,9 @@
+import { z as proposalZ } from "zod/v4";
+import { estimateAccess } from "../lib/estimateAccess";
+import { EstimateError } from "../services/estimateErrors";
+import { loadProposalEstimateSummaries, validateProposalEstimate, prepareProposalEstimate, type ProposalEstimateTransition } from "../services/proposalEstimates";
+import { readTicketEstimate } from "../services/ticketEstimates";
+import { renderEstimatePdf } from "../services/estimatePdf";
 import { withInvoiceLinkSummaries } from "../lib/ticketLinkSummary";
 import { BRAND, LM, RM, loadBrandLogo, wirePageDecorations } from "../lib/pdfBrand";
 import express from "express";
@@ -11281,13 +11287,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // -------------------- PROPOSAL MAKER ROUTES --------------------
 
   const canAccessProposals = (role: string) => role === "admin" || role === "office";
+  // Also reject queued requests initiated before an active-company switch.
+  app.use("/api/proposals", estimateAccess);
+  const proposalEstimates = async (list: import("@workspace/db").ProposalWithDetails[], companyId: string) => {
+    const summaries = await loadProposalEstimateSummaries(companyId, list.flatMap(p => p.estimateId ? [p.estimateId] : []));
+    return list.map(p => ({ ...p, estimate: p.estimateId ? summaries.get(p.estimateId) ?? null : null }));
+  };
 
   app.get("/api/proposals", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const list = await storage.getProposals(user.activeCompanyId);
-    res.json(list);
+    res.json(await proposalEstimates(list, user.activeCompanyId));
   });
 
   app.post("/api/proposals", async (req, res) => {
@@ -11303,6 +11315,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     if (await assertNotParentCustomer(customerId, user.activeCompanyId, res)) return;
 
+    let linkedEstimate: Awaited<ReturnType<typeof readTicketEstimate>> = null;
+    if (ticketId) {
+      const ticket = await storage.getTicketById(ticketId, user.activeCompanyId);
+      if (!ticket || ticket.customerId !== customerId) return res.status(422).json({ error: "ESTIMATE_TICKET_MISMATCH" });
+      linkedEstimate = await readTicketEstimate(user.activeCompanyId, ticketId);
+    }
     const today = new Date().toISOString().split("T")[0];
     // Use the DB sequence for atomic, concurrency-safe number assignment
     const seqRow = await db.execute(sql`SELECT NEXTVAL('proposal_number_seq') AS seq`);
@@ -11315,7 +11333,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ticketId: ticketId || null,
       title: title || "Proposal",
       proposalDate: proposalDate || today,
-      estimateNumber: estimateNumber || null,
+      estimateId: linkedEstimate?.id ?? null,
+      estimateNumber: linkedEstimate?.estimateNumber ?? (estimateNumber || null),
       scopeOfWork: scopeOfWork || "",
       status: "draft",
       proposalNumber,
@@ -11339,6 +11358,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const existing = await storage.getProposalById(req.params.id, user.activeCompanyId);
     if (!existing) return res.status(404).send("Not found");
     if (await assertNotParentCustomer(existing.customerId, user.activeCompanyId, res)) return;
+    const linkInput = proposalZ.object({ estimateId: proposalZ.string().trim().min(1).max(200).nullable().optional() }).safeParse(req.body);
+    if (!linkInput.success) return res.status(400).json({ error: "INVALID_REQUEST" });
+    const { estimateId } = linkInput.data;
+    let linkNumber: string | undefined;
+    const effectiveEstimateId = estimateId === undefined ? existing.estimateId : estimateId;
+    if (effectiveEstimateId) {
+      try {
+        const estimate = await validateProposalEstimate(user.activeCompanyId, {
+          customerId: existing.customerId, ticketId: req.body.ticketId === undefined ? existing.ticketId : req.body.ticketId || null,
+        }, effectiveEstimateId);
+        linkNumber = estimate.estimateNumber;
+      } catch (err) {
+        if (err instanceof EstimateError) return res.status(err.status).json({ error: err.error });
+        throw err;
+      }
+    }
     const { title, proposalDate, estimateNumber, scopeOfWork, ticketId,
             visualScopeSheetId, vsIncludeBase, vsIncludeOverlay, photoLayout,
             plantPaletteId } = req.body;
@@ -11356,7 +11391,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const updated = await storage.updateProposal(req.params.id, user.activeCompanyId, {
       ...(title !== undefined && { title }),
       ...(proposalDate !== undefined && { proposalDate }),
-      ...(estimateNumber !== undefined && { estimateNumber }),
+      ...(estimateId !== undefined && { estimateId }),
+      ...(linkNumber !== undefined ? { estimateNumber: linkNumber } : estimateNumber !== undefined ? { estimateNumber } : {}),
       ...(scopeOfWork !== undefined && { scopeOfWork }),
       ...(ticketId !== undefined && { ticketId: ticketId || null }),
       ...(visualScopeSheetId !== undefined && { visualScopeSheetId: visualScopeSheetId || null }),
@@ -11394,20 +11430,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
-  app.get("/api/customers/:id/proposals", async (req, res) => {
+  app.get("/api/customers/:id/proposals", estimateAccess, async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const list = await storage.getProposalsByCustomer(req.params.id, user.activeCompanyId);
-    res.json(list);
+    const list = await storage.getProposalsByCustomer(req.params.id as string, user.activeCompanyId);
+    res.json(await proposalEstimates(list, user.activeCompanyId));
   });
 
-  app.get("/api/tickets/:ticketId/proposals", async (req, res) => {
+  app.get("/api/tickets/:ticketId/proposals", estimateAccess, async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const list = await storage.getProposalsForTicket(req.params.ticketId, user.activeCompanyId);
-    res.json(list);
+    const list = await storage.getProposalsForTicket(req.params.ticketId as string, user.activeCompanyId);
+    res.json(await proposalEstimates(list, user.activeCompanyId));
   });
 
   app.post("/api/convert-heic", express.raw({ type: "*/*", limit: "50mb" }), async (req, res) => {
@@ -11758,17 +11794,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // ---- Proposal PDF helper (used by both the preview endpoint and the finalize endpoint) ----
-  async function generateProposalPdf(proposal: import("@workspace/db").ProposalWithDetails, companyId: string): Promise<Buffer> {
+  async function proposalEstimatePages(proposal: import("@workspace/db").ProposalWithDetails, companyId: string, selectedVersionId?: string): Promise<Buffer[]> {
+    if (proposal.estimateId) {
+      const versionId = selectedVersionId ?? proposal.estimate?.currentVersion?.id;
+      if (!versionId) throw Object.assign(new Error("ESTIMATE_VERSION_MISSING"), { statusCode: 409 });
+      return [await renderEstimatePdf(companyId, proposal.estimateId, versionId)];
+    }
     const estimateFiles = await storage.getProposalEstimatePdfs(proposal.id, companyId);
     if (estimateFiles.length === 0) {
       throw Object.assign(new Error("No estimate PDF attached to this proposal. Upload a QB Estimate PDF before generating."), { statusCode: 400 });
     }
-
-    const companySettings = await storage.getSettings(companyId);
-    const companyName = companySettings?.companyName || "High Plains Property Maintenance";
-
-    const logoBuffer = await loadBrandLogo();
-
     const objectStorageService = new ObjectStorageService();
     const estimateBuffers: Buffer[] = [];
     for (const estimateFile of estimateFiles) {
@@ -11781,6 +11816,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw Object.assign(new Error(`Failed to download estimate PDF "${estimateFile.filename}". The file may be missing or corrupted.`), { statusCode: 500 });
       }
     }
+    return estimateBuffers;
+  }
+
+  async function generateProposalPdf(proposal: import("@workspace/db").ProposalWithDetails, companyId: string, selectedVersionId?: string): Promise<Buffer> {
+    const estimateBuffers = await proposalEstimatePages(proposal, companyId, selectedVersionId);
+    const companySettings = await storage.getSettings(companyId);
+    const companyName = companySettings?.companyName || "High Plains Property Maintenance";
+    const logoBuffer = await loadBrandLogo();
+    const objectStorageService = new ObjectStorageService();
 
     const PDFDocumentKit = (await import('pdfkit')).default;
 
@@ -12456,7 +12500,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const estimateBuffer of estimateBuffers) {
         const estimateDoc = await PDFDocument.load(estimateBuffer);
         const allIndices = estimateDoc.getPageIndices();
-        const filteredIndices = allIndices.filter(i => !isEstimatePageBlank(estimateDoc, i));
+        const filteredIndices = proposal.estimateId ? allIndices : allIndices.filter(i => !isEstimatePageBlank(estimateDoc, i));
         const indicesToCopy = filteredIndices.length > 0 ? filteredIndices : allIndices;
         const estimatePages = await mergedDoc.copyPages(estimateDoc, indicesToCopy);
         estimatePages.forEach(p => mergedDoc.addPage(p));
@@ -12548,15 +12592,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
     if (!proposal) return res.status(404).send("Proposal not found");
 
-    if (!proposal.files.some(f => f.fileType === 'estimate_pdf')) {
+    if (!proposal.estimateId && !proposal.files.some(f => f.fileType === 'estimate_pdf')) {
       return res.status(400).send("No estimate PDF attached. Upload a QB Estimate PDF before finalizing.");
     }
 
+    const input = proposalZ.object({
+      estimateSendMethod: proposalZ.enum(["email", "hard_copy", "portal", "other"]).optional(),
+      confirmZeroPriced: proposalZ.boolean().optional(),
+      expectedEstimateVersionId: proposalZ.string().min(1).max(200).optional(),
+    }).strict().safeParse(req.body ?? {});
+    if (!input.success) return res.status(400).json({ error: "INVALID_REQUEST" });
+    let estimateTransition: ProposalEstimateTransition | null;
+    try {
+      estimateTransition = await prepareProposalEstimate(user.activeCompanyId, user.id, proposal, input.data);
+    } catch (err) {
+      if (err instanceof EstimateError) return res.status(err.status).json({ error: err.error, ...err.extra });
+      throw err;
+    }
+    // Sending is committed. A later failure is not compensated; retry finalizes
+    // the already-sent version and state-derived ticket recovery remains available.
+    const finalizeError = (status: number, message: string) => estimateTransition
+      ? res.status(status).json({ error: "PROPOSAL_FINALIZE_FAILED", message, estimateTransition, estimateRemainsSent: true })
+      : res.status(status).send(message);
     let mergedBuffer: Buffer;
     try {
-      mergedBuffer = await generateProposalPdf(proposal, user.activeCompanyId);
+      mergedBuffer = await generateProposalPdf(proposal, user.activeCompanyId, estimateTransition?.versionId);
     } catch (err: any) {
-      return res.status(err?.statusCode ?? 500).send(`PDF generation failed: ${err?.message ?? "Unknown error"}`);
+      return finalizeError(err?.statusCode ?? 500, `PDF generation failed: ${err?.message ?? "Unknown error"}`);
     }
 
     // Render VS PNGs once before the retry loop (expensive, render only once)
@@ -12570,7 +12632,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (proposal.visualScopeSheetId && proposal.visualScopeSheet) {
       const vsSheet = proposal.visualScopeSheet;
       if (!vsSheet.baseImagePath) {
-        return res.status(400).send("Attached Visual Scope Sheet has no base image. Capture or upload an image before finalizing.");
+        return finalizeError(400, "Attached Visual Scope Sheet has no base image. Capture or upload an image before finalizing.");
       }
       try {
         const combinedBuffer = await renderVisualScope(vsSheet as any, "combined", 2000);
@@ -12582,14 +12644,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : null;
         vsSnapshots = { combinedBuffer, baseBuffer, overlayBuffer };
       } catch (err: any) {
-        return res.status(400).send(`Visual Scope snapshot render failed: ${err?.message ?? "Unknown error"}`);
+        return finalizeError(400, `Visual Scope snapshot render failed: ${err?.message ?? "Unknown error"}`);
       }
     }
 
     const attemptFinalize = async (): Promise<import("@workspace/db").ProposalVersion> => {
       const nextVersion = await storage.getNextVersionNumber(proposal.id, user.activeCompanyId);
       const objectStorageService = new ObjectStorageService();
-      const relativePath = `proposal-versions/${proposal.id}/v${nextVersion}.pdf`;
+      // Never write bytes to a version-number-only key: two concurrent attempts
+      // may allocate the same number before the unique DB constraint arbitrates.
+      const attemptId = randomUUID();
+      const relativePath = `proposal-versions/${proposal.id}/${attemptId}/v${nextVersion}.pdf`;
       let storedPath: string;
       try {
         storedPath = await objectStorageService.saveBufferToPrivatePath(relativePath, mergedBuffer, 'application/pdf');
@@ -12603,7 +12668,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let vsOverlayPath: string | null = null;
 
       if (vsSnapshots) {
-        const vsPrefix = `proposal-versions/${proposal.id}/v${nextVersion}`;
+        const vsPrefix = `proposal-versions/${proposal.id}/${attemptId}/v${nextVersion}`;
         try {
           vsCombinedPath = await objectStorageService.saveBufferToPrivatePath(
             `${vsPrefix}/visual-scope-combined.png`, vsSnapshots.combinedBuffer, "image/png"
@@ -12629,6 +12694,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           proposalId: proposal.id,
           companyId: user.activeCompanyId,
           versionNumber: nextVersion,
+          estimateVersionId: estimateTransition?.versionId ?? null,
           title: proposal.title,
           proposalDate: proposal.proposalDate,
           estimateNumber: proposal.estimateNumber ?? null,
@@ -12664,15 +12730,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           version = await attemptFinalize();
         } catch (retryErr: any) {
-          return res.status(409).send("Version number conflict. Please try again.");
+          return finalizeError(409, "Version number conflict. Please try again.");
         }
       } else {
-        return res.status((err as any)?.statusCode ?? 500).send(err?.message ?? "Finalization failed");
+        return finalizeError((err as any)?.statusCode ?? 500, err?.message ?? "Finalization failed");
       }
     }
 
     const versionWithUser = await storage.getProposalVersionById(version.id, user.activeCompanyId);
-    res.status(201).json(versionWithUser);
+    res.status(201).json({ ...versionWithUser, estimateTransition });
   });
 
   // ---- List finalized versions for a proposal ----

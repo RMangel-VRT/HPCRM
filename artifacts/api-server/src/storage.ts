@@ -3,6 +3,7 @@ import { CrewLinkError, CrewPlacementError, validateCampaignOwner } from "./lib/
 import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrewWithMembers } from "@workspace/db";
 import { hardscapeStorage } from "./lib/hardscapeStorage";
 import { withPlannerWrite, withPlannerTemplateWrite, withPlannerBlockWrite } from "./lib/plannerFreeze";
+import { loadProposalEstimateSummaries } from "./services/proposalEstimates";
 
 export interface MyExtraBillableBatch {
   campaignId: string;
@@ -3186,6 +3187,7 @@ export class PgStorage implements IStorage {
 
     return {
       ...rows[0].proposal,
+      estimate: rows[0].proposal.estimateId ? (await loadProposalEstimateSummaries(companyId, [rows[0].proposal.estimateId])).get(rows[0].proposal.estimateId) ?? null : null,
       customerName: rows[0].customerName ?? "",
       files,
       plantItems,

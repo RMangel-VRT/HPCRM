@@ -66,7 +66,13 @@ import {
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest as baseApiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import { scopeOf } from "@/lib/estimateSettings";
+import { companyHeaders } from "@/lib/hardscapeCatalog";
+import { SENT_METHODS, conflictOf, type SentMethod, type EstimateDetailDto } from "@/lib/estimateBuilder";
+import { advanceLinkedTicket, ticketRequest } from "@/lib/advanceLinkedTicket";
+import { ProposalEstimateSection } from "@/components/estimates/ProposalEstimateSection";
 import { useToast } from "@/hooks/use-toast";
 import type { ProposalWithDetails, ProposalFile, ProposalPlantItem, Ticket, VisualScopeSheetWithCustomer, PlantPalette } from "@shared/schema";
 import PlantLibrary, { type PlantPickerSelection } from "@/pages/PlantLibrary";
@@ -175,7 +181,25 @@ function SortablePhotoRow({
 }
 
 export default function ProposalDraft() {
+  const { user } = useAuth();
   const { id } = useParams<{ id: string }>();
+  return <ProposalDraftContent key={`${scopeOf(user)}|${id}`} />;
+}
+
+function ProposalDraftContent() {
+  const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const companyId = user?.activeCompanyId ?? "";
+  const identity = scopeOf(user);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const active = useCallback(() => mounted.current, []);
+  const apiRequest: typeof baseApiRequest = async (method, url, body, options) => {
+    if (!active()) throw new Error("Scope changed");
+    const res = await baseApiRequest(method, url, body, { ...options, headers: { ...options?.headers, ...companyHeaders(companyId) } });
+    if (!active()) throw new Error("Scope changed");
+    return res;
+  };
   const [, navigate] = useLocation();
   const search = useSearch();
   const { toast } = useToast();
@@ -196,6 +220,10 @@ export default function ProposalDraft() {
   const [fileToDelete, setFileToDelete] = useState<ProposalFile | null>(null);
   const [deleteProposalOpen, setDeleteProposalOpen] = useState(false);
   const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false);
+  const [estimateSendMethod, setEstimateSendMethod] = useState<SentMethod | "">("");
+  const [needPrice, setNeedPrice] = useState<{ id: string; name?: string }[]>([]);
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
+  const [finalizeVersionId, setFinalizeVersionId] = useState<string | null>(null);
   const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
@@ -209,8 +237,11 @@ export default function ProposalDraft() {
   const scopeRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: proposal, isLoading } = useQuery<ProposalWithDetails>({
-    queryKey: ["/api/proposals", id],
-    enabled: !!id,
+    queryKey: ["/api/proposals", id, identity],
+    queryFn: async () => (await apiRequest("GET", `/api/proposals/${id}`)).json(),
+    enabled: !!id && !!companyId && ["admin", "office"].includes(user?.activeRole ?? ""),
+    staleTime: 0,
+    refetchInterval: 30_000,
     select: (data: ProposalWithDetails) => {
       if (!initialized) {
         setTitle(data.title ?? "Proposal");
@@ -459,22 +490,58 @@ export default function ProposalDraft() {
 
   const finalizeMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/proposals/${id}/finalize`, {});
-      if (!res.ok) {
-        const msg = await res.text();
-        throw new Error(msg || "Finalization failed");
-      }
+      const res = await apiRequest("POST", `/api/proposals/${id}/finalize`, {
+        ...(estimateSendMethod ? { estimateSendMethod } : {}),
+        ...(needPrice.length ? { confirmZeroPriced: true } : {}),
+        ...(finalizeVersionId ? { expectedEstimateVersionId: finalizeVersionId } : {}),
+      });
       return res.json();
     },
-    onSuccess: (version) => {
+    onSuccess: async (version) => {
+      if (!active()) return;
       queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
       setFinalizeDialogOpen(false);
+      setNeedPrice([]); setEstimateSendMethod(""); setFinalizeError(null);
       toast({ title: t("proposals.finalized", { version: version.versionNumber }), description: t("proposals.finalizedMsg") });
+      // Proposal success is independent of forward-only ticket orchestration.
+      if (version.estimateTransition?.sent) {
+        try {
+          const request = ticketRequest(companyId, active);
+          const estimate = await request("GET", `/api/estimates/${version.estimateTransition.estimateId}`) as EstimateDetailDto;
+          await advanceLinkedTicket(estimate, request);
+        } catch { /* State-derived recovery is mounted in the Estimate section. */ }
+      }
+      if (active()) {
+        queryClient.invalidateQueries({ queryKey: ["estimate-ticket-recovery"] });
+        queryClient.invalidateQueries({ predicate: q => q.queryKey.some(k => typeof k === "string" && /estimate/i.test(k)) });
+        queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      }
     },
-    onError: (err: Error) => {
-      setFinalizeDialogOpen(false);
-      toast({ title: t("proposals.finalizeFailed"), description: err.message, variant: "destructive" });
+    onError: async (err: Error) => {
+      if (!active()) return;
+      const conflict = conflictOf(err);
+      if (conflict?.error === "LINES_NEED_PRICE") {
+        const ids = conflict.lineIds ?? [];
+        try {
+          const detail = await (await apiRequest("GET", `/api/estimates/${proposal!.estimateId}`)).json() as EstimateDetailDto;
+          if (!active()) return;
+          if (finalizeVersionId && detail.version.id !== finalizeVersionId) {
+            setNeedPrice([]); setFinalizeError(t("proposalEstimate.finalizeError")); return;
+          }
+          const lines = detail.version.sections.flatMap(s => s.lines);
+          setNeedPrice(ids.map(id => ({ id, name: lines.find(l => l.id === id)?.name })));
+        } catch { if (active()) setNeedPrice(ids.map(id => ({ id }))); }
+        return;
+      }
+      let code = conflict?.error;
+      try { code = JSON.parse(err.message.replace(/^\d{3}: /, "")).error ?? code; } catch { /* legacy text error */ }
+      setFinalizeError(t(code === "PROPOSAL_FINALIZE_FAILED" ? "proposalEstimate.partialFailure"
+        : code === "ESTIMATE_VOID" ? "proposalEstimate.voidError"
+        : code === "ESTIMATE_SEND_METHOD_REQUIRED" ? "proposalEstimate.methodRequired"
+        : proposal?.estimateId ? "proposalEstimate.finalizeError" : "proposals.finalizeFailed"));
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+      queryClient.invalidateQueries({ predicate: q => q.queryKey.some(k => typeof k === "string" && /estimate/i.test(k)) });
     },
   });
 
@@ -665,7 +732,7 @@ export default function ProposalDraft() {
   const estimateBytes = estimatePdfs.reduce((s, f) => s + (f.fileSize ?? 0), 0);
   const imagesBytes = images.reduce((s, f) => s + (f.fileSize ?? 0), 0);
   const estimatedPdfMB = (estimateBytes + imagesBytes / 25) / 1024 / 1024;
-  const showSizeWarning = estimatePdfs.length > 0 && estimatedPdfMB > 20;
+  const showSizeWarning = !proposal?.estimateId && estimatePdfs.length > 0 && estimatedPdfMB > 20;
 
   const getStatusBadge = (status: string | null | undefined) => {
     if (status === "finalized") {
@@ -700,8 +767,8 @@ export default function ProposalDraft() {
     <Button
       size="sm"
       variant="default"
-      onClick={() => setFinalizeDialogOpen(true)}
-      disabled={estimatePdfs.length === 0 || finalizeMutation.isPending}
+      onClick={() => { setFinalizeVersionId(proposal.estimate?.currentVersion?.id ?? null); setEstimateSendMethod(""); setNeedPrice([]); setFinalizeError(null); setFinalizeDialogOpen(true); }}
+      disabled={(!proposal.estimateId && estimatePdfs.length === 0) || finalizeMutation.isPending}
       data-testid="button-finalize-proposal"
     >
       {finalizeMutation.isPending ? (
@@ -787,7 +854,7 @@ export default function ProposalDraft() {
           )}
           {getStatusBadge(proposal.status)}
           <div className="flex-1" />
-          {estimatePdfs.length > 0 ? (
+          {proposal.estimateId || estimatePdfs.length > 0 ? (
             <>
               <Button
                 size="sm"
@@ -828,7 +895,7 @@ export default function ProposalDraft() {
             </Tooltip>
           )}
         </div>
-        {estimatePdfs.length > 0 && (
+        {(proposal.estimateId || estimatePdfs.length > 0) && (
           <p className="text-xs text-muted-foreground mt-2" data-testid="text-next-version-hint">
             {t("proposals.nextVersion")} <strong>v{nextVersionNumber}</strong>
           </p>
@@ -886,6 +953,11 @@ export default function ProposalDraft() {
         </div>
       )}
 
+      <ProposalEstimateSection proposal={proposal} companyId={companyId} active={active} onLinked={() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
+      }} />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{t("common.details")}</CardTitle>
@@ -919,9 +991,10 @@ export default function ProposalDraft() {
             <Label htmlFor="field-estimate-num">{t("proposals.qbEstimateNumber")} <span className="text-muted-foreground font-normal">({t("common.optional")})</span></Label>
             <Input
               id="field-estimate-num"
-              value={estimateNumber}
+              value={proposal.estimateId ? proposal.estimate?.number ?? proposal.estimateNumber ?? "" : estimateNumber}
+              readOnly={!!proposal.estimateId}
               onChange={(e) => setEstimateNumber(e.target.value)}
-              onBlur={(e) => handleBlur("estimateNumber", e.target.value || null as any)}
+              onBlur={(e) => { if (!proposal.estimateId) handleBlur("estimateNumber", e.target.value || null as any); }}
               placeholder={t("proposals.qbEstimatePlaceholder")}
               data-testid="input-estimate-number"
             />
@@ -963,7 +1036,8 @@ export default function ProposalDraft() {
           <CardTitle className="text-base">{t("proposals.qbEstimatePdf")}</CardTitle>
         </CardHeader>
         <CardContent>
-          {estimatePdfs.length === 0 && (
+          {proposal.estimateId && <p className="text-sm text-muted-foreground mb-3">{t("proposalEstimate.uploadNote", { number: proposal.estimate?.number ?? estimateNumber })}</p>}
+          {!proposal.estimateId && estimatePdfs.length === 0 && (
             <p className="text-sm text-muted-foreground mb-3">{t("proposals.uploadQbPdf")}</p>
           )}
           {estimatePdfs.length > 0 && (
@@ -999,7 +1073,7 @@ export default function ProposalDraft() {
             </div>
           )}
 
-          <div className="mt-3">
+          {!proposal.estimateId && <div className="mt-3">
             <input
               ref={pdfInputRef}
               type="file"
@@ -1021,7 +1095,7 @@ export default function ProposalDraft() {
                 <><Upload className="w-4 h-4 mr-2" /> {t("common.upload")}</>
               )}
             </Button>
-          </div>
+          </div>}
         </CardContent>
       </Card>
 
@@ -1679,7 +1753,10 @@ export default function ProposalDraft() {
         </Button>
       </div>
 
-      <AlertDialog open={finalizeDialogOpen} onOpenChange={setFinalizeDialogOpen}>
+      <AlertDialog open={finalizeDialogOpen} onOpenChange={open => {
+        if (finalizeMutation.isPending) return;
+        setFinalizeDialogOpen(open); setEstimateSendMethod(""); setNeedPrice([]); setFinalizeError(null);
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("proposals.finalizeProposal")}</AlertDialogTitle>
@@ -1687,14 +1764,32 @@ export default function ProposalDraft() {
               {t("proposalVersion.immutableCopy")} <strong>v{nextVersionNumber}</strong>
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {proposal.estimate?.currentVersion?.status === "draft" && <div className="space-y-3">
+            <p className="text-sm">{t("proposalEstimate.lockExplanation", { number: proposal.estimate.number, n: proposal.estimate.currentVersion.versionNumber })}</p>
+            <fieldset disabled={finalizeMutation.isPending}>
+              <legend className="text-sm font-medium mb-2">{t("estimateBuilder.life.send.method")}</legend>
+              <div className="flex flex-wrap gap-3">
+                {SENT_METHODS.map(method => <label className="flex items-center gap-1 text-sm" key={method}>
+                  <input type="radio" name="proposal-send-method" checked={estimateSendMethod === method} onChange={() => { setEstimateSendMethod(method); setNeedPrice([]); }} />
+                  {t(`estimateBuilder.life.sentMethod.${method}`)}
+                </label>)}
+              </div>
+            </fieldset>
+          </div>}
+          {!!needPrice.length && <div role="alert" className="rounded-md border border-amber-400 p-3 text-sm">
+            <p className="font-medium">{t("estimateBuilder.life.send.needPriceTitle")}</p>
+            <p>{t("estimateBuilder.life.send.needPriceBody")}</p>
+            <ul className="list-disc pl-5">{needPrice.map(line => <li key={line.id}>{line.name ?? t("estimateBuilder.life.send.unknownLine", { id: line.id })}</li>)}</ul>
+          </div>}
+          {finalizeError && <p role="alert" className="text-sm text-destructive">{finalizeError}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-finalize">{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => finalizeMutation.mutate()}
-              disabled={finalizeMutation.isPending}
+              onClick={event => { event.preventDefault(); setFinalizeError(null); finalizeMutation.mutate(); }}
+              disabled={finalizeMutation.isPending || (proposal.estimate?.currentVersion?.status === "draft" && !estimateSendMethod)}
               data-testid="button-confirm-finalize"
             >
-              {finalizeMutation.isPending ? t("proposals.finalizing") : `${t("common.create")} v${nextVersionNumber}`}
+              {finalizeMutation.isPending ? t("proposals.finalizing") : needPrice.length ? t("estimateBuilder.life.send.sendAnyway") : `${t("common.create")} v${nextVersionNumber}`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -2137,6 +2137,7 @@ export type EmailLogWithDetails = Omit<EmailLog, "htmlBody"> & {
 
 export const proposals = pgTable("proposals", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  estimateId: varchar("estimate_id"),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
@@ -2155,6 +2156,7 @@ export const proposals = pgTable("proposals", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   proposalsCompanyIdIdx: index("proposals_company_id_idx").on(table.companyId),
+  proposalsCompanyEstimateIdx: index("proposals_company_estimate_idx").on(table.companyId, table.estimateId),
   proposalsCustomerIdIdx: index("proposals_customer_id_idx").on(table.customerId),
 }));
 
@@ -2192,6 +2194,7 @@ export type ProposalFile = typeof proposalFiles.$inferSelect;
 
 export const proposalVersions = pgTable("proposal_versions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  estimateVersionId: varchar("estimate_version_id"),
   proposalId: varchar("proposal_id").notNull().references(() => proposals.id, { onDelete: "cascade" }),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   versionNumber: integer("version_number").notNull(),
@@ -2248,6 +2251,7 @@ export type ProposalPlantItem = {
 };
 
 export type ProposalWithDetails = Proposal & {
+  estimate?: import("../../../../lib/db/src/proposalContracts").ProposalEstimateSummary | null;
   customerName: string;
   files: ProposalFile[];
   versions: ProposalVersionWithUser[];

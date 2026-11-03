@@ -1,5 +1,23 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const es = {
+  proposalEstimate: {
+    title: "Presupuesto", open: "Abrir presupuesto →", preview: "Vista previa del PDF", unlink: "Desvincular",
+    link: "Vincular {{number}}", linkSelected: "Vincular presupuesto", choose: "Elegir un presupuesto", create: "Crear presupuesto",
+    loading: "Cargando…", retry: "Reintentar", error: "No se pudo actualizar o cargar el presupuesto. Vuelva a intentarlo.",
+    unavailable: "No disponible", total: "Total del presupuesto", version: "v{{n}}",
+    uploadNote: "Las páginas del presupuesto se generan desde {{number}}. No se utilizan los PDF de QuickBooks cargados.",
+    lockExplanation: "Al finalizar, {{number}} v{{n}} se marca como Enviado y se bloquea.",
+    partialFailure: "El presupuesto ya está enviado y permanece bloqueado, pero no se pudo finalizar el PDF de la propuesta. Reintente la finalización. Todavía puede avanzar el ticket vinculado.",
+    voidError: "Este presupuesto está anulado. Desvincúlelo o elija otro antes de finalizar.",
+    methodRequired: "Elija un método de entrega antes de finalizar.",
+    linkErrors: {
+      ESTIMATE_NOT_FOUND: "No se encontró el presupuesto en esta empresa.",
+      ESTIMATE_LINK_VOID: "No se puede vincular un presupuesto anulado.",
+      ESTIMATE_CUSTOMER_MISMATCH: "Elija un presupuesto del cliente de esta propuesta.",
+      ESTIMATE_TICKET_MISMATCH: "Elija un presupuesto vinculado al ticket de esta propuesta.",
+    },
+    finalizeError: "No se puede finalizar el presupuesto en su estado actual. Actualice y reintente, o abra el presupuesto para revisarlo.",
+  },
   documents: {
     title: "Documentos", description: "Datos de contacto y textos para presupuestos y facturas. El nombre de la empresa se administra en Empresa. Deje los textos opcionales vacíos para omitirlos.",
     loading: "Cargando configuración…", loadError: "No se pudo cargar la configuración.", retry: "Reintentar",

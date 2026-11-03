@@ -1,5 +1,6 @@
 /** Driver-free Estimate Builder request contracts, shared by CRM and API. */
 import { z } from "zod/v4";
+export type { ProposalEstimateSummary } from "./proposalContracts";
 import { isCalendarDate } from "./schema/calendarDate";
 export { isCalendarDate } from "./schema/calendarDate";
 

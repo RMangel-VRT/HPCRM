@@ -4,6 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { isCalendarDate } from "./calendarDate";
 import { NON_RENEWAL_REASONS } from "../contractNonRenewal";
+import { estimates, estimateVersions } from "./estimates";
 export { routeStopBody, routeStopFields, routeDate, routeService, validRouteSeason } from "../routeContracts";
 
 export const visitFields = {
@@ -2190,6 +2191,7 @@ export const proposals = pgTable("proposals", {
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
   ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+  estimateId: varchar("estimate_id").references((): AnyPgColumn => estimates.id, { onDelete: "set null" }),
   title: varchar("title").notNull().default("Proposal"),
   proposalDate: varchar("proposal_date").notNull(),
   estimateNumber: varchar("estimate_number"),
@@ -2204,6 +2206,7 @@ export const proposals = pgTable("proposals", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   proposalsCompanyIdIdx: index("proposals_company_id_idx").on(table.companyId),
+  proposalsCompanyEstimateIdx: index("proposals_company_estimate_idx").on(table.companyId, table.estimateId),
   proposalsCustomerIdIdx: index("proposals_customer_id_idx").on(table.customerId),
 }));
 
@@ -2244,6 +2247,7 @@ export const proposalVersions = pgTable("proposal_versions", {
   proposalId: varchar("proposal_id").notNull().references(() => proposals.id, { onDelete: "cascade" }),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   versionNumber: integer("version_number").notNull(),
+  estimateVersionId: varchar("estimate_version_id").references((): AnyPgColumn => estimateVersions.id, { onDelete: "set null" }),
   title: varchar("title").notNull(),
   proposalDate: varchar("proposal_date").notNull(),
   estimateNumber: varchar("estimate_number"),
@@ -2280,6 +2284,7 @@ export type ProposalVersionWithUser = ProposalVersion & {
 };
 
 export type ProposalWithDetails = Proposal & {
+  estimate?: import("../proposalContracts").ProposalEstimateSummary | null;
   customerName: string;
   files: ProposalFile[];
   versions: ProposalVersionWithUser[];
