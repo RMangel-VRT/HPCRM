@@ -75,7 +75,7 @@ import { maybeAutoCreateInvoiceOnRfb } from '../lib/rfbInvoiceAutoCreate';
 import { pickProvided } from '../lib/patchBody';
 import { billingInputProblem, protectedBillingWrite } from "../services/customerBillingInput";
 import { customerQboReads } from "./qboCustomerReads";
-import { customerSetupRouter, createCustomerRequest, setupFailure } from "./customerSetup";
+import { customerSetupRouter, createCustomerRequest, setupFailure, customerSyncBusyFailure } from "./customerSetup";
 import { assertActivationComplete } from "../services/customerSetupValidation";
 import { geocodeProperty } from "../services/propertyGeocoder";
 import { linkCrewsByName } from "../lib/linkCrews";
@@ -9147,7 +9147,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     const parsed = insertPropertyManagementCompanySchema.omit({ companyId: true }).partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).send(parsed.error.message);
-    const company = await storage.updatePropertyManagementCompany(req.params.id, user.activeCompanyId, pickProvided(parsed.data, req.body));
+    let company;
+    try {
+      company = await storage.updatePropertyManagementCompany(req.params.id, user.activeCompanyId, pickProvided(parsed.data, req.body));
+    } catch (err) { return setupFailure(res, err); }
     if (!company) {
       return res.status(404).send("Property management company not found");
     }
@@ -19289,6 +19292,7 @@ ${pdfText.slice(0, 8000)}`;
   registerMobileTicketPhotosNotesRoutes(app);
 
   registerPlannerFreezeErrors(app);
+  app.use(customerSyncBusyFailure);
   const httpServer = createServer(app);
 
   return httpServer;

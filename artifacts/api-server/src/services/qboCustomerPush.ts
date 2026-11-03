@@ -7,7 +7,7 @@ import { equal, ownedKeys } from "./qboCustomerComparison";
 import { validateOutgoingZips } from "./customerZip";
 import { crmToQboFields, normalize, qboToFields, toQboPayload, validateDisplayName, type QboCustomerFields } from "./qboCustomerMap";
 import { isQboWriteEnabled, qboRequest } from "./qboClient";
-import { CustomerSyncError, ingestQboCustomers, onCustomerSyncCommit, raiseCustomerReview, withCustomerSyncLock } from "./qboCustomerSync";
+import { CustomerSyncBusyError, CustomerSyncError, ingestQboCustomers, onCustomerSyncCommit, raiseCustomerReview, withCustomerSyncLock } from "./qboCustomerSync";
 
 type Raw = Record<string, unknown>;
 export type PushResult = { state: Customer["qboSyncState"] | "review"; qboId?: string; review?: string };
@@ -70,7 +70,7 @@ async function pushLocked(tx: AppTransaction, companyId: string, id: string, rea
     return { state: "via_parent" };
   }
   const [conn] = await tx.select().from(qboConnections).where(eq(qboConnections.companyId, companyId));
-  if (!conn?.customerBaselineAt || conn.status !== "connected" || !await isQboWriteEnabled(companyId)) {
+  if (!conn?.customerBaselineAt || conn.status !== "connected" || !await isQboWriteEnabled(companyId, tx)) {
     await tx.update(customers).set({ qboSyncState: "pending_push" }).where(whereCustomer(companyId, id));
     return { state: "pending_push" };
   }
@@ -162,17 +162,54 @@ async function pushLocked(tx: AppTransaction, companyId: string, id: string, rea
     return { state: "review", review: "name_taken" };
   }
 }
+type PushWorker = { pending: Set<string>; drained: Promise<void> };
+const workers = new Map<string, PushWorker>();
+/** One transaction at a time per company, including scheduler retries. */
+function enqueueCustomerPush(companyId: string, customerId: string): Promise<void> {
+  let worker = workers.get(companyId);
+  if (!worker) {
+    let complete!: () => void;
+    worker = { pending: new Set(), drained: new Promise<void>(resolve => { complete = resolve; }) };
+    workers.set(companyId, worker);
+    const active = worker;
+    setImmediate(() => { void drain(companyId, active).finally(complete); });
+  }
+  worker.pending.add(customerId);
+  return worker.drained;
+}
+async function drain(companyId: string, worker: PushWorker) {
+  try {
+    for (const customerId of worker.pending) {
+      // Remove BEFORE awaiting: a new committed edit while this id is running
+      // must add another turn, whereas repeated waiting ids collapse in the Set.
+      worker.pending.delete(customerId);
+      try {
+        await pushCustomer(companyId, customerId, { reason: "queued" });
+      } catch (err) {
+        // Contention rolls back without changing pending_push or raising a review.
+        // No immediate requeue: the durable state remains for the next sweep.
+        logger.warn({ err, companyId, customerId }, err instanceof CustomerSyncBusyError
+          ? "Queued QuickBooks push busy; scheduler will retry" : "Queued QuickBooks push failed");
+      }
+    }
+  } finally {
+    // No await between observing empty and removing: an enqueue cannot be lost.
+    workers.delete(companyId);
+  }
+}
+/** Wait for already registered work (also useful for orderly shutdown/tests). */
+export async function waitForCustomerPushes(companyId: string): Promise<void> {
+  await workers.get(companyId)?.drained;
+}
 /** Register while the owner transaction is open; never start remote work before commit. */
 export function queueCustomerPush(companyId: string, customerId: string) {
-  onCustomerSyncCommit(() => {
-    setImmediate(() => { void pushCustomer(companyId, customerId, { reason: "queued" })
-      .catch(err => logger.warn({ err, companyId, customerId }, "Queued QuickBooks push failed")); });
-  });
+  onCustomerSyncCommit(() => { void enqueueCustomerPush(companyId, customerId); });
 }
 export async function retryPendingCustomerPushes(companyId: string) {
   const pending = await db.select({ id: customers.id }).from(customers).where(and(
     eq(customers.companyId, companyId), inArray(customers.qboSyncState, ["pending_push", "error"])));
-  for (const c of pending) await pushCustomer(companyId, c.id, { reason: "scheduler" });
+  // Enqueue the complete batch before yielding; never create a second push loop.
+  await Promise.all(pending.map(c => enqueueCustomerPush(companyId, c.id)));
 }
 /** Export for future Invoice Center use only; this slice does not change invoice consumers. */
 export async function qboCustomerRefFor(customer: Customer): Promise<string | null> {

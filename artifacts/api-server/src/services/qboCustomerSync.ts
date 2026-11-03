@@ -18,6 +18,19 @@ const DAY = 24 * 60 * 60_000;
 export class CustomerSyncError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
+export class CustomerSyncBusyError extends CustomerSyncError {
+  constructor() { super(503, "Customer sync busy, try again"); }
+}
+/** Drizzle wraps the PostgreSQL error in cause; do not match unrelated messages. */
+function isLockTimeout(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  while (err && typeof err === "object" && !seen.has(err)) {
+    seen.add(err);
+    if ("code" in err && err.code === "55P03") return true;
+    err = "cause" in err ? err.cause : undefined;
+  }
+  return false;
+}
 /** Shared cross-process lock for local application and bounded pushes. Nested calls reuse
  * the same transaction; never open a second connection waiting on our own lock. */
 export async function withCustomerSyncLock<T>(companyId: string, work: (tx: AppTransaction) => Promise<T>): Promise<T> {
@@ -27,13 +40,22 @@ export async function withCustomerSyncLock<T>(companyId: string, work: (tx: AppT
     return work(current.tx);
   }
   const committed: (() => void)[] = [];
-  const result = await db.transaction(async tx => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`qbo-customers:${companyId}`},0))`);
-    // Do NOT bind the ambient db proxy here: qboRequest may rotate OAuth
-    // credentials. Those must commit independently even if reconciliation rolls
-    // back later. Mirror/review/billing writes explicitly use this transaction.
-    return scope.run({ companyId, tx, committed }, () => work(tx));
-  });
+  let result: T;
+  try {
+    result = await db.transaction(async tx => {
+      await tx.execute(sql`SET LOCAL lock_timeout = '15s'`);
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`qbo-customers:${companyId}`},0))`);
+      // Do NOT bind the ambient db proxy here: qboRequest may rotate OAuth
+      // credentials. Those must commit independently even if reconciliation rolls
+      // back later. Mirror/review/billing writes explicitly use this transaction.
+      return scope.run({ companyId, tx, committed }, () => work(tx));
+    });
+  } catch (err) {
+    // The transaction promise rejects only after rollback and connection release.
+    if (!isLockTimeout(err)) throw err;
+    logger.warn({ companyId, err }, "Customer sync lock timed out");
+    throw new CustomerSyncBusyError();
+  }
   for (const callback of committed) callback();
   return result;
 }

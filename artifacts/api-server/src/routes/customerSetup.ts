@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { customers, qboCustomerCache } from "@workspace/db";
@@ -7,7 +7,7 @@ import type { UserWithContext } from "../auth";
 import { storage } from "../storage";
 import { saveCustomerSetup, setupEnvelope, setupMissingFields } from "../services/customerSetup";
 import { ActivationIncomplete } from "../services/customerSetupValidation";
-import { CustomerSyncError } from "../services/qboCustomerSync";
+import { CustomerSyncBusyError, CustomerSyncError } from "../services/qboCustomerSync";
 import { isQboWriteEnabled } from "../services/qboClient";
 import type { QboCustomerFields } from "../services/qboCustomerMap";
 import { logger } from "../lib/logger";
@@ -29,6 +29,15 @@ export function setupFailure(res: Response, err: unknown) {
   if (err instanceof CustomerSyncError) return res.status(err.status).json({ code: err.message, message: err.message });
   logger.error({ err }, "Customer setup failed");
   return res.status(500).json({ message: "CUSTOMER_SETUP_FAILED" });
+}
+
+/** Legacy writers that propagate errors must share the retryable busy contract. */
+export function customerSyncBusyFailure(err: unknown, _req: Request, res: Response, next: NextFunction) {
+  if (err instanceof CustomerSyncBusyError) {
+    res.status(err.status).json({ message: err.message });
+    return;
+  }
+  next(err);
 }
 export async function createCustomerRequest(req: Request, res: Response, legacy = false) {
   const user = setupAccess(req, res); if (!user) return;

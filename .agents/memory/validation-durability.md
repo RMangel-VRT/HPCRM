@@ -58,3 +58,15 @@ Historical source archives that borrow installed node_modules also need explicit
 **Why:** Workspace package symlinks can resolve to the live checkout's generated contracts, making historical routes fail on response fields that did not exist at that revision. A pristine source archive alone is not an isolated historical check.
 
 **How to apply:** Resolve workspace libraries (especially runtime API validators and schema exports) to the archived revision before treating a historical result as provenance evidence. Label incomplete comparisons as invalid, not regressions.
+
+For a same-revision API baseline where workspace libraries are unchanged, point
+the archived TypeScript project references at the same real library paths used
+by its borrowed dependency links, not at symlinked project-reference paths.
+
+**Why:** TypeScript can otherwise resolve imports to emitted declarations in one
+checkout and project references to source in another, producing different types
+and archive-only root-directory errors rather than a meaningful comparison.
+
+**How to apply:** Refresh unchanged library declarations first, align reference
+paths, compare file/error-code categories, and explicitly exclude only proven
+archive-path artifacts. Preserve the original diagnostics as evidence too.

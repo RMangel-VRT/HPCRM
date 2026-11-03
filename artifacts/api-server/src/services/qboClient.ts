@@ -1,4 +1,4 @@
-import { db } from "../db";
+import { db, type AppTransaction } from "../db";
 import { qboConnections, settings } from "@workspace/db";
 import type { QboConnection } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
@@ -361,9 +361,9 @@ export async function getCompanyInfo(companyId: string): Promise<Record<string, 
   return resp.json() as Promise<Record<string, unknown>>;
 }
 
-export async function isQboWriteEnabled(companyId: string): Promise<boolean> {
+export async function isQboWriteEnabled(companyId: string, executor: Pick<AppTransaction, "select"> = db): Promise<boolean> {
   try {
-    const [row] = await db
+    const [row] = await executor
       .select({ featureFlags: settings.featureFlags })
       .from(settings)
       .where(eq(settings.companyId, companyId));

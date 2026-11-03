@@ -614,7 +614,9 @@ router.post("/customers/duplicate-check", async (req, res) => {
     });
   } catch (err) {
     logger.error({ err }, "POST /api/qbo/customers/duplicate-check error");
-    res.status(500).json({ message: "Failed to check for duplicates" });
+    res.status(err instanceof CustomerSyncError ? err.status : 500).json({
+      message: err instanceof CustomerSyncError ? err.message : "Failed to check for duplicates",
+    });
   }
 });
 
