@@ -44,3 +44,4 @@
 - [Proposal/estimate boundaries](proposal-estimate-boundaries.md) — finalization sends first; PDF failures never undo send, and proposals own no commercial values or acceptance.
 - [Estimate exhibit boundaries](estimate-exhibit-boundaries.md) — live display defaults are not commercial snapshots; the approved linked-only intro distinguishes NULL from empty text.
 - [PDF image-size verification](pdf-image-size-verification.md) — repeated flat-color images deduplicate; use distinct high-detail synthetic images for representative size evidence.
+- [Customer QuickBooks sync](customer-qbo-sync-direction.md) — CQ1–CQ5 run in order; initial reconciliation gates all customer pushes, independently of build progress.
