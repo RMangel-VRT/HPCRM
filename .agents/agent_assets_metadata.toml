@@ -126,3 +126,87 @@ mtime_ms = 1793656469093
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/c5e37548-6034-44e2-bad3-9417b7549994/ad6fb3b3-1455-4902-8937-e3ca92a88901"
 storage_version_token = "1793656482832400"
 content_type = "image/png"
+
+[[outputs]]
+id = "Nur2JG6_uxdwaGDNCUCEZ"
+uri = "file://generated-artifacts/ic4-1/estimate-12-all-pages.png"
+type = "image"
+title = "12-line estimate — corrected continuation"
+description = "Updated review sheet: continuation labels repeat without duplicating commercial section subtotals. PDF regression checks pass."
+logical_id = "194b32e7-796c-4e28-a07f-9e1d5aa3b9c3"
+content_hash = "sha256:5b6dfcad5ebeb376ad072e6deec9b6a9d23f45738c401816622fad3d8a34d657"
+size = 175413
+mtime_ms = 1793726175434
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/194b32e7-796c-4e28-a07f-9e1d5aa3b9c3/3e2a1ae2-b3c3-4a71-88e7-029bcaaf25bc"
+storage_version_token = "1793726255356299"
+content_type = "image/png"
+
+[[outputs]]
+id = "lZzaxmOGxQGy1DUtMnvAk"
+uri = "file://generated-artifacts/ic4-1/estimate-60-all-pages.png"
+type = "image"
+title = "60-line estimate — corrected continuation"
+description = "Updated review sheet: continuation labels repeat without duplicating commercial section subtotals. PDF regression checks pass."
+logical_id = "c0afb464-4bf2-4526-b56c-3fd2ed9bf348"
+content_hash = "sha256:45c589496a1444f4d3ca2dc752a27332380c1687bea00108972caf9f56392ee7"
+size = 325564
+mtime_ms = 1793726175614
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/c0afb464-4bf2-4526-b56c-3fd2ed9bf348/4f20a2b0-9e61-4857-9a79-4eda120529a2"
+storage_version_token = "1793726256021923"
+content_type = "image/png"
+
+[[outputs]]
+id = "ObJolt-AwfonHU2NKBDlE"
+uri = "file://generated-artifacts/ic4-1/invoice-13-draft-all-pages.png"
+type = "image"
+title = "13-line draft invoice"
+description = "Full-page review sheet verified against the written IC4.1 layout rules. Reference mockups were not supplied."
+logical_id = "199f9609-e500-43d1-85ce-b990fa0764c4"
+content_hash = "sha256:3e5e5186536cc5bf9ee8548d25ca4fbd9ce7332896be63e8209907a74020208a"
+size = 160703
+mtime_ms = 1793725966018
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/199f9609-e500-43d1-85ce-b990fa0764c4/3fd65d07-087a-4771-9151-9e3af8cc5524"
+storage_version_token = "1793726060702393"
+content_type = "image/png"
+
+[[outputs]]
+id = "-8S-Wk0ja30cg8gSrILlD"
+uri = "file://generated-artifacts/ic4-1/invoice-13-issued-all-pages.png"
+type = "image"
+title = "13-line issued invoice"
+description = "Full-page review sheet verified against the written IC4.1 layout rules. Reference mockups were not supplied."
+logical_id = "8e2dfbcc-3a62-4d4d-b326-9b5e4413e264"
+content_hash = "sha256:0d26c1f1e0b803a19bad47d049b0d28f68df8b811a7a1221e58af255d172d437"
+size = 122212
+mtime_ms = 1793725966066
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/8e2dfbcc-3a62-4d4d-b326-9b5e4413e264/96634eb6-2437-427a-862e-9408d5c87d9d"
+storage_version_token = "1793726061285029"
+content_type = "image/png"
+
+[[outputs]]
+id = "UUQDv5X-Py5swOi8I49sb"
+uri = "file://generated-artifacts/ic4-1/estimate-boundary-all-pages.png"
+type = "image"
+title = "Estimate boundary — corrected continuation"
+description = "Updated review sheet: continuation labels repeat without duplicating commercial section subtotals. PDF regression checks pass."
+logical_id = "f9001c29-920b-4d07-8066-e90f2cc67d92"
+content_hash = "sha256:a0cc99ef0f1bc6b6dec710ee1f58a4e3d6f13336c91027bc01704cf1e5792fcf"
+size = 156739
+mtime_ms = 1793726175826
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/f9001c29-920b-4d07-8066-e90f2cc67d92/63ff9056-71a6-4ddc-ad2e-5425fbcc6416"
+storage_version_token = "1793726256758456"
+content_type = "image/png"
+
+[[outputs]]
+id = "ipXRj_lkHuiXc-FT-bzXx"
+uri = "file://generated-artifacts/ic4-1/invoice-boundary-all-pages.png"
+type = "image"
+title = "Invoice pagination boundary"
+description = "Full-page review sheet verified against the written IC4.1 layout rules. Reference mockups were not supplied."
+logical_id = "dbb902e3-b76f-411b-9070-05b610e6f25e"
+content_hash = "sha256:4ab0f08060b14fd0b4b6dd456c6e079d14508ccc7c172b67eeadab302a4b4f7a"
+size = 129151
+mtime_ms = 1793725966738
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/dbb902e3-b76f-411b-9070-05b610e6f25e/5dc8cb8a-4bb5-4e20-9116-16f11633e2a9"
+storage_version_token = "1793726062465302"
+content_type = "image/png"

@@ -22,7 +22,9 @@ No feature flag is required to configure documents or use estimate PDFs.
 
 1. `services/documents/layout.ts` supplies pure, escaped HTML helpers and embedded
    Inter fonts/assets. The estimate and invoice builders each produce one flow.
-   Chromium prints Letter pages using CSS pagination, not screenshots.
+   Chromium measures the embedded-font flow, then prints Letter pages, not
+   screenshots. `pagination.ts` constructs explicit table page segments before
+   printing, repeating the same column widths and group context.
 2. `stamp.ts` opens that PDF, embeds Inter TTF, and knows the final page count.
    It adds every-page footer/rule/count, short headers on pages 2..N, and
    top-cropped mountains only on N. Drafts have a first-band pill and diagonal
@@ -57,14 +59,39 @@ estimator section and show customer-labeled category aggregates. Invoices group
 by QuickBooks umbrella category, with the label only on the first group line.
 No raw category keys enter models. Null draft prices show dashes, not zero.
 
-Use `.keep` around the entire final block plus `.mountain-space` (100px), so
-totals/payment or acceptance and the mountain allowance move together.
-Estimates place their category/total summary with terms/warranty/acceptance on
-the final new page, preventing an otherwise isolated summary-only page.
+Estimate category/total summaries follow the pricing table directly. Only the
+Terms/Warranty/Acceptance block has `.terms-page` and starts a new page.
+Invoice payment instructions and totals follow the table. A measured print-width
+preflight keeps the last three line rows (all rows if fewer) with the totals;
+when necessary, it moves that tail to a new table page. Every segment repeats
+the header and its applicable estimate section or invoice category. If tail and
+prefix fit together they are a single table, never two visible same-page headers.
+Estimate continuation headings say `(continued)` and omit the monetary section
+subtotal; each section subtotal is displayed only at that section's first row.
+Actual wrapped row heights, group headings, total margins and embedded fonts
+are measured, not approximated from line counts. This trusted renderer-owned
+DOM evaluation does not enable page scripts or external resources.
+
+Mountain reserve is derived from stamp geometry: `(47 + 84 + 16) - 76 = 71px`,
+not a fixed 100px. It belongs inside invoice totals and estimate Acceptance.
+The latter is a 1.5px #37443D border, 8px-radius box with a green title bar,
+white bold 12.5pt Acceptance title and total, followed by sentence/signatures.
+Contact information appears only below the date inside the first band, 8.5pt
+#c9d6cd, middle-dot joined with empty fields omitted. Band dates/numbers have
+normal numeric/letter spacing. Calendar dates are formatted without timezone
+shifts; actual instants are projected to America/Denver. Quantities trim decimal
+zeros and group thousands for display only; money keeps two decimal places.
+Payment instructions precede a comma-joined, single-line `Mail to:` display
+without changing multiline Settings storage.
+
 Empty Terms/Warranty text creates no block. Never invent legal text.
 Very long user content can naturally require more pages. A final block taller
 than the 884px printable area fails explicitly with
-`DOCUMENT_FINAL_BLOCK_TOO_LARGE`, rather than splitting legal/payment content.
+`DOCUMENT_FINAL_BLOCK_TOO_LARGE`, rather than splitting legal content.
+An indivisible line or final-three-rows/totals group that cannot fit fails with
+`DOCUMENT_ROW_TOO_LARGE` / `DOCUMENT_TOTALS_GROUP_TOO_LARGE`. A remit line wider
+than the full content area fails with `DOCUMENT_REMIT_TOO_WIDE` rather than
+overlapping or clipping. Existing safe route error handlers remain unchanged.
 
 Future proposal work must reuse the **same estimate-version pricing HTML and
 totals**, and record acceptance on that estimate version, never duplicate
@@ -154,10 +181,14 @@ occurs when previewing.
 
 ## Evidence
 
-`generated-artifacts/ic4/` is ignored by Git and deployment. It contains
-baseline/final logs, real rendered PDFs, pdftotext output and per-page PNGs for
-12-line (two-page) and 60-line estimates and the 13-line invoice. See
+`generated-artifacts/ic4-1/` is ignored by Git and deployment. It contains
+baseline/final logs, real rendered PDFs, pdftotext text/bounding boxes,
+per-page PNGs and review sheets for the 12- and 60-line estimates, 13-line draft
+and synthetic issued invoices, and one-pixel fit/move boundary fixtures. Run
+`pagination.test.ts`, then `node artifacts/api-server/scripts/document-review-sheets.mjs`
+to reproduce these sheets. The synthetic issued fixture does not enable issued
+PDFs through the draft-only API. Earlier evidence remains in `generated-artifacts/ic4/`. See
 `docs/document-kit-verification.md` for results and file inventory.
-No approved canvas screenshots were supplied; written-spec implementation is
+Neither `pdf-fit-check.png` nor `ic4-review-*.png` was supplied; written-spec implementation is
 verified, **screenshot parity is unverified**. Randy must compare the PNGs
 with the approved mockup before treating visual approval as complete.

@@ -1,5 +1,6 @@
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { execFileSync } from "node:child_process";
+import { paginatePricing } from "./pagination";
 
 export class DocumentRendererUnavailable extends Error {
   constructor() { super("DOCUMENT_RENDERER_UNAVAILABLE"); }
@@ -55,6 +56,7 @@ export async function chromiumPdf(html: string, finish: (bytes: Buffer) => Promi
       page.on("request", request => { void (request.url().startsWith("data:") ? request.continue() : request.abort()); });
       await page.setContent(html, { waitUntil: "load", timeout: DEADLINE });
       await page.evaluate("document.fonts.ready");
+      await page.evaluate(paginatePricing);
       const oversizedFinal = await page.evaluate("Array.from(document.querySelectorAll('.final.keep')).some(node => node.getBoundingClientRect().height > 884)");
       if (oversizedFinal === true) throw new Error("DOCUMENT_FINAL_BLOCK_TOO_LARGE");
       const bytes = Buffer.from(await page.pdf({ format: "letter", printBackground: true, preferCSSPageSize: true, timeout: DEADLINE }));

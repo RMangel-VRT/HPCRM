@@ -1,4 +1,98 @@
-# IC4 delivery and verification report
+# IC4.1 PDF layout corrections — verification report
+
+## Current delivery
+
+The IC4.1 written brief supersedes the IC4 rule that put estimate pricing totals
+on the legal page and reserved a fixed 100px for mountains.
+
+- Estimate category summary/total follow the table. Terms, warranty and the
+  bordered Acceptance box remain on a separate new page.
+- Print-width embedded-font measurement explicitly paginates tables, preserving
+  the final three rows with totals, repeated headings and section/category
+  context, even across groups. Short tables retain every row. Same-page tail
+  rows merge into the existing table with no duplicate heading.
+  Continuation section headings are explicitly marked `(continued)` and omit
+  the amount; real-PDF assertions conserve each section subtotal as well as rows.
+- Invoice payment instructions are compact; the full-width single-line remit
+  display follows them without overlapping totals. Settings stay multiline.
+- Contact is in the first header below the date, not in the body. Human dates,
+  trimmed/grouped quantities and tight band numbers are display-only changes.
+- The 71px derived reserve is inside invoice totals / estimate Acceptance.
+  Every-page counts, short continuation bands, draft pill/stamps and final-only
+  mountains remain. Oversized legal blocks, indivisible rows/tails and over-wide
+  single-line remit displays fail explicitly rather than violating layout.
+- No model, route guard, schema, settings storage, proposal renderer or
+  commercial behavior changed. Issued PDFs are synthetic renderer fixtures
+  only; the live invoice PDF endpoint still rejects non-drafts.
+
+## Current checks and baseline
+
+Evidence/logs: `generated-artifacts/ic4-1/` (ignored by Git/deployment).
+
+| Check | Before | After |
+|---|---:|---:|
+| Focused shared kit/model/fallback/browser, estimate, invoice routes, proposal exhibits and raster fingerprints | 130 passed, 10 files | 147 passed, 11 files |
+| API typecheck after library declaration refresh | 721 existing diagnostics | 721 existing diagnostics |
+| Normalized typecheck file/error-code differences | — | zero |
+
+The unchanged-source baseline typecheck was run from an archived source tree
+with the same refreshed library declarations and dependencies, including the
+CRM sources imported by API tests. An initial incomplete archive was missing
+those sibling sources and was repaired before comparison. No document-kit
+diagnostics remain. Typecheck is **not** claimed green. Library declaration
+build, API bundle build and different-working-directory bundled offline render
+passed (559,493-byte portable PDF). Existing 7-/9-page proposal raster
+fingerprints still match. No focused baseline failures or skipped real-render
+tests occurred. Raw intermediate failures from layout development are retained.
+
+New real-PDF checks cover one-pixel fit/move boundaries for both types,
+0/1/2/3-row tables, wrapped multiline rows, section/category-crossing tails,
+row identity/count conservation, no duplicate same-page headings, repeated
+group context, issued one-page fit, oversized-content rejection and final-page
+body-text clearance. `pdftotext -bbox` asserts body text ends at or above
+681.75pt (mountains start at 693.75pt, a 12pt/16px separation).
+Intentional footer/count and diagonal DRAFT decoration are excluded.
+HTML checks cover Colorado instants/unshifted calendar dates and suffixes,
+precise decimal quantity formatting, escaping/contact omission, original remit
+storage, Acceptance border/title and the 71px geometry-derived reserve.
+
+## Current PDF evidence
+
+Every named fixture has a `.pdf`, `.txt`, `.bbox.html`, `.checks.json`, full-size
+96dpi page PNGs and `-all-pages.png` review sheet in `generated-artifacts/ic4-1/`.
+Both boundary fixtures also retain `-fits` PDFs/PNGs and `.boundary.json`
+identifying adjacent spacer values. `inventory.json` lists the six sheets;
+`document-review-sheets.mjs` refuses stale/missing PNG page counts.
+
+| Fixture | Pages | Review sheet |
+|---|---:|---|
+| 12-line estimate | 3 | `estimate-12-all-pages.png` |
+| 60-line estimate | 5 | `estimate-60-all-pages.png` |
+| 13-line draft invoice, one unpriced line | 2 | `invoice-13-draft-all-pages.png` |
+| 13-line issued invoice, all priced, $3,250 + $260 tax = $3,510 | 1 | `invoice-13-issued-all-pages.png` |
+| Estimate at the move boundary | 3 | `estimate-boundary-all-pages.png` |
+| Invoice at the move boundary | 2 | `invoice-boundary-all-pages.png` |
+
+The 12-line estimate now moves its final three lines with the pricing summary
+to page 2; legal/Acceptance occupies page 3. The 60-line estimate prices finish
+on page 4, legal on page 5. The draft invoice moves its final three rows with
+totals; the issued example fits all thirteen lines/totals/mountains on page 1,
+with its final body text ending at 667.30pt (35.27px above the mountain top).
+All six review sheets were inspected. All data is fictional.
+
+**Visual limitation:** `pdf-fit-check.png` and `ic4-review-*.png` were not
+included. Written geometry/behavior has been checked, but screenshot parity
+and visual approval against the missing mockups are not claimed.
+
+**Nothing was published and nothing was written to production.** No migrations,
+issuing, sending, QBO synchronization or production access were performed.
+
+---
+
+# Historical IC4 delivery and verification report
+
+The following preserves the earlier delivery record, not current IC4.1 layout
+rules or page counts.
 
 ## Delivered
 
