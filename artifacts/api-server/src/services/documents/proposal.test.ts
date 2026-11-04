@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { PDFDocument, PDFDict, PDFName, PDFRawStream } from "pdf-lib";
 import { documentAsset } from "./assets";
 import sharp from "sharp";
@@ -14,7 +14,7 @@ import { closeDocumentBrowser } from "./browser";
 import { stampDocument } from "./stamp";
 import { proposalCoverPatch, coverSelectionError } from "../proposalCover";
 
-const output = new URL("../../../../../generated-artifacts/proposal-shared/", import.meta.url).pathname;
+const output = new URL("../../../../../generated-artifacts/ic4-2/proposals/", import.meta.url).pathname;
 mkdirSync(output, { recursive: true });
 afterAll(closeDocumentBrowser);
 const image = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN1kAAAAASUVORK5CYII=`;
@@ -47,10 +47,10 @@ describe("proposal pure allowlist and shared fragments", () => {
     const m = estimateFixture(count);
     const expected = documentHtml(`${firstHeader({ title: "Estimate", number: `${m.estimateNumber} · Version ${m.versionNumber}`, dateLine: `${displayDate(m.documentDate)} · ${m.statusLine}`, draft: m.draft, settings: m.companyDocument })}<main class="content">${estimateCustomerFragment(m)}<h2>${m.projectTitle}</h2>${estimatePricingTable(m)}${estimatePricingSummary(m)}<div class="final keep terms-page">${estimateAcceptanceFragment(m)}</div></main>`);
     expect(estimateDocumentHtml(m)).toBe(expected);
-    // Captured from the original, pre-extraction renderer (not regenerated from fragments).
+    // Updated solely for the intended Acceptance reserve-outside-border change.
     expect(createHash("sha256").update(estimateDocumentHtml(m)).digest("hex")).toBe(count === 12
-      ? "7e0b682d7b42394f8c81a00ec53fce02a8f816c79d5f534865efa6bb97de71ec"
-      : "ed8607af580d6a34376172bfee934b93020ee03a186e0edcc694be313b4ea5a0");
+      ? "c656aa8e411a58dd4701bf04d4a4a25ae0229b5eed2049ddb9f167e4ab30a77c"
+      : "d0fd99d0af3ac056e39565ce8903093d0b3b238c8637f58648e85c266db32c3e");
   });
   it("drops internal fields even when added to nested models and orders valid captioned photos", () => {
     const input = proposalFixture(2);
@@ -86,12 +86,37 @@ describe("real Chromium proposal pagination", () => {
     writeFileSync(`${output}${name}.pdf`, bytes);
     writeFileSync(`${output}${name}.txt`, pages.join("\n--- PAGE ---\n"));
     execFileSync("pdftoppm", ["-scale-to", "900", "-png", `${output}${name}.pdf`, `${output}${name}`]);
+    // All non-Acceptance pages retain the pre-change raster fingerprints.
+    // Only page 4's shorter border is intentionally rebaselined.
+    if (layout === "large" && (count === 0 || count === 1)) {
+      const expected = count === 0 ? [
+        "7d57f88c9d6ae498f27b96c85612721742960b2039ff8ccb06cfa1f2d24275cf",
+        "f55fcdaa672cd62ccda1f66501843ec35184011eef126cc08caa706e1c5f99fc",
+        "8f6ab524364aac1202a6f352903d295539f881b29a5fe39078c2928f7ec9a3a0",
+        "08947aafd1be1e6bbfed66978c62c2abcf85ffbf970c0f49272232dc6bc24f92",
+      ] : [
+        "7d57f88c9d6ae498f27b96c85612721742960b2039ff8ccb06cfa1f2d24275cf",
+        "ea8e61c220d5caf66d69a50a98546712e0fdf75a903d442bab59ac9aa6f0dc41",
+        "e960079b4732850b70ed7bf5bfe7690434c26bed32eea67f08493fdb3e3510c2",
+        "4395e8a4cbd3e3899fb287b2450663e3acf7d51a2d598de974636e90fcc30a7f",
+        "edf530b0d3b78b3c69d72adb435b1fdc6dde0b54d744e1c657122bc3d81e2a3b",
+      ];
+      expect(pdf.getPageCount()).toBe(expected.length);
+      for (const [index, hash] of expected.entries())
+        expect(createHash("sha256").update(readFileSync(`${output}${name}-${index + 1}.png`)).digest("hex")).toBe(hash);
+    }
     expect(pages[0].replace(/\s+/g, " ")).toContain(model.title); expect(pages[0]).not.toContain("Page "); expect(pages[0]).not.toContain("DRAFT");
     expect(pages[1]).toContain("Scope of work");
     expect(pages[2]).toContain("Pricing");
     expect(pages.join("").match(/Signing below accepts/g)).toHaveLength(1);
     const acceptance = pages.findIndex(t => t.includes("Signing below accepts"));
     const firstPhoto = pages.findIndex(t => t.includes("Attachment A"));
+    const bbox = execFileSync("pdftotext", ["-bbox", "-", "-"], { input: bytes }).toString();
+    writeFileSync(`${output}${name}.bbox.html`, bbox);
+    const acceptancePage = bbox.split(/<page\b/)[acceptance + 1];
+    const bodyWords = [...acceptancePage.matchAll(/<word xMin="([^"]+)" yMin="([^"]+)" xMax="([^"]+)" yMax="([^"]+)"[^>]*>(.*?)<\/word>/g)]
+      .filter(w => Number(w[2]) < 745);
+    expect(Math.max(...bodyWords.map(w => Number(w[4])))).toBeLessThanOrEqual(681.75);
     expect(acceptance).toBeGreaterThan(2);
     expect(pdf.getPageCount() - acceptance - 1).toBe(Math.ceil(count / (layout === "grid" ? 4 : 1)));
     if (count) expect(firstPhoto).toBe(acceptance + 1);

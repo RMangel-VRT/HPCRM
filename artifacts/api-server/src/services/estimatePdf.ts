@@ -1,18 +1,14 @@
-import PDFDocument from "pdfkit";
 import { and, eq } from "drizzle-orm";
 import { estimates, estimateVersions } from "@workspace/db";
 import type { EstimateDetailDto } from "@workspace/db/estimate-contracts";
 import { db } from "../db";
-import { BRAND, LM, RM, loadBrandLogo, wirePageDecorations } from "../lib/pdfBrand";
 import { estimatePayload } from "./estimateReads";
 import { requireEstimate } from "./estimateErrors";
 import { calculateExtendedCents } from "./estimateMath";
 import { documentSettingsModel, type DocumentSettings } from "@workspace/db/document-contracts";
 import { readDocumentSettings } from "./documentSettings";
 import { renderDocumentPdf } from "./documents/render";
-import { DocumentRendererUnavailable } from "./documents/browser";
 import { estimateDocumentHtml } from "./documents/estimate";
-import { logger } from "../lib/logger";
 import { categoryLabel } from "./documents/categories";
 
 type DateValue = Date | string;
@@ -107,115 +103,13 @@ export function buildEstimateDocumentModel(payload: DocumentInput, display: Disp
   };
 }
 
-const money = (cents: number) => (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
-
-/** Render-only entry point for deterministic fixtures and future attachments. */
-export async function renderEstimateDocumentLegacy(model: EstimateDocumentModel): Promise<Buffer> {
-  const logo = await loadBrandLogo({ searchParents: true });
-  if (!logo) throw new Error("ESTIMATE_LOGO_UNAVAILABLE");
-  const doc = new PDFDocument({ size: "LETTER", margins: { top: LM, bottom: LM, left: LM, right: RM } });
-  const chunks: Buffer[] = [];
-  const done = new Promise<Buffer>((resolve, reject) => {
-    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
-  });
-  try {
-    wirePageDecorations(doc, model.companyName, { draft: model.draft });
-    const width = doc.page.width - LM - RM;
-    const bottom = doc.page.height - LM - 12;
-    if (logo) { doc.image(logo, LM, LM, { fit: [150, 75] }); doc.y = LM + 88; }
-    doc.fillColor(BRAND).font("Helvetica-Bold").fontSize(24).text("ESTIMATE", LM, doc.y);
-    doc.font("Helvetica").fontSize(10).fillColor("#333333")
-      .text(`${model.estimateNumber}  ·  v${model.versionNumber}  ·  ${prettyDate(model.documentDate)}`, LM, doc.y + 7, { width })
-      .text(model.statusLine, LM, doc.y + 5, { width });
-    doc.moveDown();
-    doc.font("Helvetica-Bold").text(model.customerName, LM, doc.y, { width });
-    if (model.customerAddress) doc.font("Helvetica").text(model.customerAddress, LM, doc.y + 3, { width });
-    doc.font("Helvetica-Bold").text(model.projectTitle, LM, doc.y + 12, { width });
-    if (model.linkedTicketTitle) doc.font("Helvetica").text(model.linkedTicketTitle, LM, doc.y + 4, { width });
-    doc.y += 18;
-    const starts = [LM, LM + 250, LM + 315, LM + 385];
-    const widths = [242, 57, 62, width - 385];
-    const tableHeader = (sectionName: string, continued = false) => {
-      doc.font("Helvetica-Bold").fontSize(12).fillColor(BRAND).text(sectionName + (continued ? " (continued)" : ""), LM, doc.y, { width });
-      const y = doc.y + 8;
-      doc.save().rect(LM, y - 4, width, 22).fill("#edf3ed").restore();
-      doc.fontSize(9).fillColor("#333333");
-      ["Description", "Qty / unit", "Unit price", "Amount"].forEach((text, i) => doc.text(text, starts[i], y, { width: widths[i], align: i ? "right" : "left", lineBreak: false }));
-      doc.y = y + 26;
-    };
-    const newTablePage = (name: string) => { doc.addPage(); tableHeader(name, true); };
-    // Explicit wrapping permits even a single unusually long description to span pages safely.
-    const wrap = (text: string, w: number): string[] => {
-      const lines: string[] = [];
-      for (const paragraph of text.split("\n")) {
-        let line = "";
-        for (const word of paragraph.split(/\s+/)) {
-          if (doc.widthOfString(line ? `${line} ${word}` : word) <= w) line = line ? `${line} ${word}` : word;
-          else {
-            if (line) lines.push(line);
-            line = "";
-            for (const char of word) {
-              if (doc.widthOfString(line + char) > w) { lines.push(line); line = ""; }
-              line += char;
-            }
-          }
-        }
-        lines.push(line);
-      }
-      return lines;
-    };
-    for (const section of model.sections) {
-      if (doc.y + 85 > bottom) doc.addPage();
-      tableHeader(section.name);
-      for (const line of section.lines) {
-        doc.font("Helvetica").fontSize(9).fillColor("#222222");
-        const cells = [
-          `${line.name}${line.detail ? `\n${line.detail}` : ""}`,
-          `${line.quantity} ${line.unit}`, money(line.unitPriceCents), money(line.lineTotalCents),
-        ].map((text, i) => wrap(text, widths[i]));
-        let offset = 0;
-        const count = Math.max(...cells.map(c => c.length));
-        while (offset < count) {
-          if (doc.y + 26 > bottom) newTablePage(section.name);
-          doc.font("Helvetica").fontSize(9).fillColor("#222222");
-          const available = Math.max(1, Math.floor((bottom - doc.y - 10) / 12));
-          const take = Math.min(count - offset, available);
-          const y = doc.y;
-          cells.forEach((cell, i) => cell.slice(offset, offset + take).forEach((text, n) => {
-            doc.text(text, starts[i], y + n * 12, { width: widths[i], align: i ? "right" : "left", lineBreak: false });
-          }));
-          doc.y = y + take * 12 + 10;
-          offset += take;
-        }
-        doc.moveTo(LM, doc.y - 4).lineTo(LM + width, doc.y - 4).lineWidth(0.3).strokeColor("#dddddd").stroke();
-      }
-      if (doc.y + 30 > bottom) newTablePage(section.name);
-      doc.font("Helvetica-Bold").fontSize(10).fillColor("#333333")
-        .text(`Subtotal  ${money(section.subtotalCents)}`, LM, doc.y + 4, { width, align: "right" });
-      doc.y += 22;
-    }
-    if (doc.y + 45 > bottom) doc.addPage();
-    doc.moveTo(LM, doc.y).lineTo(LM + width, doc.y).lineWidth(1).strokeColor(BRAND).stroke();
-    doc.font("Helvetica-Bold").fontSize(16).fillColor(BRAND).text(`TOTAL  ${money(model.totalCents)}`, LM, doc.y + 12, { width, align: "right" });
-    doc.end();
-  } catch (error) { doc.destroy(); throw error; }
-  return done;
-}
-
+/** Estimates have exactly one design. Renderer unavailability is handled by the route. */
 export async function renderEstimateDocument(model: EstimateDocumentModel): Promise<Buffer> {
-  try {
-    return await renderDocumentPdf({
-      html: estimateDocumentHtml(model),
-      footerLabel: `Estimate ${model.estimateNumber}, version ${model.versionNumber} · ${model.customerName}`,
-      shortHeaderNumber: `${model.estimateNumber} · Version ${model.versionNumber}`, draft: model.draft,
-    });
-  } catch (error) {
-    if (!(error instanceof DocumentRendererUnavailable)) throw error;
-    logger.warn("DOCUMENT_RENDERER_UNAVAILABLE");
-    return renderEstimateDocumentLegacy(model);
-  }
+  return renderDocumentPdf({
+    html: estimateDocumentHtml(model),
+    footerLabel: `Estimate ${model.estimateNumber}, version ${model.versionNumber} · ${model.customerName}`,
+    shortHeaderNumber: `${model.estimateNumber} · Version ${model.versionNumber}`, draft: model.draft,
+  });
 }
 
 /** Scoped, reusable Phase 4 entry point. No HTTP dependency or catalog re-resolution. */

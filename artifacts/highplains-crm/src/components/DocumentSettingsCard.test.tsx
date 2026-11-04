@@ -19,13 +19,53 @@ beforeEach(async () => {
   fx.user = { id: "actor", activeCompanyId: "a", activeRole: "admin" };
   vi.resetAllMocks(); await i18n.changeLanguage("en");
   fx.request.mockImplementation(async (method: string, url: string, body?: unknown) => ({
-    json: async () => url === "/api/estimates" ? [{ id: "estimate" }] : url === "/api/estimates/estimate" ? {
+    json: async () => url.endsWith("/renderer") ? { status: "ready", reason: null, browserVersion: "138.0" } : url === "/api/estimates" ? [{ id: "estimate" }] : url === "/api/estimates/estimate" ? {
       id: "estimate", estimateNumber: "EST-2026-0001", version: { id: "v", versionNumber: 1, status: "draft" },
     } : method === "PATCH" ? body : defaults,
   }));
 });
 afterEach(cleanup);
 describe("document settings card", () => {
+  it.each(["en", "es"])("shows readiness and refetches unavailable reasons in %s", async language => {
+    await i18n.changeLanguage(language);
+    mount();
+    await screen.findByText(i18n.t("documents.engine.ready", { version: "138.0" }));
+    fx.request.mockImplementation(async (_method, url) => ({
+      json: async () => url.endsWith("/renderer") ? { status: "unavailable", reason: "LAUNCH_FAILED", browserVersion: null } : defaults,
+    }));
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("documents.engine.checkAgain") }));
+    await screen.findByText(i18n.t("documents.engine.unavailable", { reason: i18n.t("documents.engine.reasons.LAUNCH_FAILED") }));
+    const calls = fx.request.mock.calls.filter(args => args[1].endsWith("/renderer"));
+    expect(calls).toHaveLength(2);
+    expect(calls[1][3].headers).toMatchObject({ "X-Company-Id": "a" });
+  });
+  it("shows checking and request error instead of cached readiness during a refetch", async () => {
+    mount();
+    await screen.findByText(i18n.t("documents.engine.ready", { version: "138.0" }));
+    let fail!: (error: Error) => void;
+    fx.request.mockImplementation(() => new Promise((_resolve, reject) => { fail = reject; }));
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await screen.findByText("Checking PDF engine…");
+    expect(screen.queryByText(/Ready —/)).toBeNull();
+    fail(new Error("503"));
+    await screen.findByText("Could not check the PDF engine. Try again.");
+    expect(screen.queryByText(/Ready —/)).toBeNull();
+  });
+  it("does not display late previous-company or previous-user status", async () => {
+    let resolve!: (response: unknown) => void;
+    fx.request.mockImplementation(async (_method, url, _body, options) => {
+      if (url.endsWith("/renderer") && options.headers["X-Company-Id"] === "a")
+        return new Promise(done => { resolve = done; });
+      return { json: async () => url.endsWith("/renderer") ? { status: "unavailable", reason: "RENDER_FAILED" } : defaults };
+    });
+    const { rerender, client } = mount();
+    await screen.findByText("Checking PDF engine…");
+    fx.user = { ...fx.user, id: "second", activeCompanyId: "b" };
+    rerender(<QueryClientProvider client={client}><DocumentSettingsCard /></QueryClientProvider>);
+    await screen.findByText(/The test PDF could not be rendered/);
+    resolve({ json: async () => ({ status: "ready", browserVersion: "OLD" }) });
+    await waitFor(() => expect(screen.queryByText(/OLD/)).toBeNull());
+  });
   it("edits every field, saves the exact contract with captured company and enables saved preview", async () => {
     mount();
     await screen.findByLabelText("Address line 1");

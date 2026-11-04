@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm, cp, stat } from "node:fs/promises";
+import { prepareDocumentRuntime } from "./scripts/prepare-document-runtime.mjs";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -135,6 +136,7 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   }
   await cp(pdfkitDataDir, path.join(distDir, "data"), { recursive: true });
   await cp(path.join(artifactDir, "src/assets/documents"), path.join(distDir, "assets/documents"), { recursive: true });
+  await prepareDocumentRuntime(artifactDir);
 }
 
 buildAll().catch((err) => {

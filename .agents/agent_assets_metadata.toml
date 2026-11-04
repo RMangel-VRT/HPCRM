@@ -224,3 +224,45 @@ mtime_ms = 1793727263293
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/7133541c-04b1-49c3-b216-11438d47aa50/d52fe3d3-3b51-4e9f-a5ea-4c8ed68c2fa7"
 storage_version_token = "1793727376957895"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "x4swztz3X290Zr2uPzNRA"
+uri = "file://generated-artifacts/ic4-2/estimate-12-all-pages.png"
+type = "image"
+title = "12-line estimate — updated review sheet"
+description = "All three pages, including the corrected Acceptance border and unchanged mountain clearance."
+logical_id = "b3e09a8c-7d65-4fd1-bc18-0017662c2809"
+content_hash = "sha256:36f8e6da8c0e8608efed0ff25711cc0bd0c1d163141884e1efd210bb7ee137d4"
+size = 175101
+mtime_ms = 1793813320280
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/b3e09a8c-7d65-4fd1-bc18-0017662c2809/385c03a7-aeef-4d2f-b591-40c107b929ff"
+storage_version_token = "1793813732932271"
+content_type = "image/png"
+
+[[outputs]]
+id = "axBQWbr74aozmlNP4HCCp"
+uri = "file://generated-artifacts/ic4-2/estimate-12-3.png"
+type = "image"
+title = "Estimate Acceptance — full-resolution PNG"
+description = "Page 3 of the refreshed 12-line estimate fixture."
+logical_id = "5f067c98-e9b4-4419-8bcc-d43968d328c4"
+content_hash = "sha256:4f5d51234b57997c8f014573e5b6cab649b0e21cb9c41e490e28ecf403f48665"
+size = 103206
+mtime_ms = 1793813265019
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/5f067c98-e9b4-4419-8bcc-d43968d328c4/16b363e6-1069-4c7e-9253-7c30fb8f3970"
+storage_version_token = "1793813733711429"
+content_type = "image/png"
+
+[[outputs]]
+id = "-gQ6bdhmFdpae0ENxr8NL"
+uri = "file://generated-artifacts/ic4-2/proposals/proposal-1-large-4.png"
+type = "image"
+title = "Proposal Acceptance — updated regression evidence"
+description = "Only the Acceptance border spacing changes; covers, pricing, exhibits and page structure remain unchanged."
+logical_id = "a4c67426-f4bc-42ad-a7a7-2e8658ff0f4a"
+content_hash = "sha256:4395e8a4cbd3e3899fb287b2450663e3acf7d51a2d598de974636e90fcc30a7f"
+size = 79115
+mtime_ms = 1793813405119
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/a4c67426-f4bc-42ad-a7a7-2e8658ff0f4a/e9ea5a71-39ca-4887-aeb8-7f9b4a86740d"
+storage_version_token = "1793813734267543"
+content_type = "image/png"

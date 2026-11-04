@@ -1,8 +1,9 @@
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ readDocumentSettings: vi.fn(), updateDocumentSettings: vi.fn(), log: vi.fn() }));
+const mocks = vi.hoisted(() => ({ readDocumentSettings: vi.fn(), updateDocumentSettings: vi.fn(), checkDocumentRenderer: vi.fn(), log: vi.fn() }));
 vi.mock("../services/documentSettings", () => mocks);
+vi.mock("../services/documents/health", () => mocks);
 vi.mock("../lib/logger", () => ({ logger: { error: mocks.log } }));
 import { registerDocumentSettingsRoutes } from "./documentSettings";
 function appFor(role: string | null = "admin", company: string | null = "a") {
@@ -15,6 +16,20 @@ function appFor(role: string | null = "admin", company: string | null = "a") {
 }
 beforeEach(() => { vi.resetAllMocks(); mocks.readDocumentSettings.mockResolvedValue({ phone: "a" }); mocks.updateDocumentSettings.mockResolvedValue({ phone: "new" }); });
 describe("admin document settings", () => {
+  it("guards the real renderer check with the same role/company and no-store policy", async () => {
+    for (const role of [null, "office", "field_manager", "crew_supervisor"]) {
+      const response = await request(appFor(role)).get("/api/settings/documents/renderer");
+      expect(response.status).toBe(role === null ? 401 : 403);
+      expect(response.headers["cache-control"]).toBe("no-store");
+    }
+    expect((await request(appFor("admin", null)).get("/api/settings/documents/renderer")).status).toBe(403);
+    expect((await request(appFor()).get("/api/settings/documents/renderer").set("X-Company-Id", "b")).status).toBe(409);
+    expect(mocks.checkDocumentRenderer).not.toHaveBeenCalled();
+    const status = { status: "ready", reason: null, executableSource: "PATH", browserVersion: "Chrome/138", checkedAt: new Date().toISOString() };
+    mocks.checkDocumentRenderer.mockResolvedValue(status);
+    const response = await request(appFor()).get("/api/settings/documents/renderer");
+    expect(response.headers["cache-control"]).toBe("no-store"); expect(response.body).toEqual(status);
+  });
   it.each(["get", "patch"] as const)("guards %s auth/role/company and sets no-store even on errors", async method => {
     for (const role of [null, "office", "field_manager", "crew_supervisor"]) {
       const response = await request(appFor(role))[method]("/api/settings/documents").send({ phone: "new" });

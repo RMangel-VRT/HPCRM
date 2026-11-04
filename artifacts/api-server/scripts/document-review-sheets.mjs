@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { PDFDocument } from "pdf-lib";
 
 // Run after pagination.test.ts. All inputs are fictional renderer fixtures.
-const directory = fileURLToPath(new URL("../../../generated-artifacts/ic4-1/", import.meta.url));
+const directory = fileURLToPath(new URL("../../../generated-artifacts/ic4-2/", import.meta.url));
 const names = ["estimate-12", "estimate-60", "invoice-13-draft", "invoice-13-issued", "estimate-boundary", "invoice-boundary"];
 const inventory = [];
 for (const name of names) {

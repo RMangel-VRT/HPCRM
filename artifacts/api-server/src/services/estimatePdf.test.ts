@@ -1,11 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { PDFDocument } from "pdf-lib";
-import { inflateSync } from "node:zlib";
-import { execFileSync } from "node:child_process";
 import type { EstimateDetailDto } from "@workspace/db/estimate-contracts";
 vi.mock("../db", () => ({ db: { transaction: vi.fn() } }));
 vi.mock("./estimateReads", () => ({ estimatePayload: vi.fn() }));
-import { buildEstimateDocumentModel, coloradoDate, customerSafeDetail, renderEstimateDocumentLegacy as renderEstimateDocument } from "./estimatePdf";
+import { buildEstimateDocumentModel, coloradoDate, customerSafeDetail } from "./estimatePdf";
 import { computeVersionTotals } from "./estimateMath";
 
 const display: NonNullable<EstimateDetailDto["display"]> = {
@@ -26,14 +23,6 @@ function fixture(status = "draft", count = 2) {
     },
   };
 }
-function streams(pdf: Buffer): string {
-  // PDFKit uses FlateDecode streams; inspect real rendered text operations, not mocks.
-  const raw = pdf.toString("latin1");
-  return [...raw.matchAll(/stream\n([\s\S]*?)\nendstream/g)].map(m => {
-    try { return inflateSync(Buffer.from(m[1], "latin1")).toString("latin1"); } catch { return ""; }
-  }).join("\n");
-}
-function hex(text: string) { return Buffer.from(text).toString("hex"); }
 describe("customer estimate document model", () => {
   it("allowlists fields recursively and uses exact captured prices / authoritative totals", () => {
     const input = fixture();
@@ -75,29 +64,5 @@ describe("customer estimate document model", () => {
     expect(customerSafeDetail("general · ABC-123", "hardscape")).toBe("general");
     expect(customerSafeDetail("general · ABC-123", "irrigation")).toBe("general");
     expect(customerSafeDetail("Blue Spruce · 5-GAL", "plant")).toBe("Blue Spruce · 5-GAL");
-  });
-});
-describe("real estimate PDF rendering", () => {
-  it.each(["draft", "sent", "accepted"])("renders 60-line %s with repeated headers and safe output", async status => {
-    const buffer = await renderEstimateDocument(buildEstimateDocumentModel(fixture(status, 60), display, "2026-10-30"));
-    expect(buffer.subarray(0, 4).toString()).toBe("%PDF");
-    const pdf = await PDFDocument.load(buffer);
-    expect(pdf.getPageCount()).toBeGreaterThan(1);
-    expect(pdf.getPage(0).node.Resources()?.toString()).toContain("/XObject");
-    const content = streams(buffer);
-    expect(content).not.toContain(hex("SECRET"));
-    const text = [...content.matchAll(/<([0-9a-f]+)>/g)].map(m => Buffer.from(m[1], "hex").toString("latin1")).join("");
-    expect(text).toContain("ESTIMATE");
-    const pageTexts = execFileSync("pdftotext", ["-layout", "-", "-"], { input: buffer }).toString().split("\f").filter(p => p.trim());
-    expect(text.match(/Description/g)?.length).toBeGreaterThan(1);
-    for (const page of pageTexts) if (/Plant \d/.test(page)) expect(page).toContain("Description");
-    expect(text.match(/DRAFT/g)?.length ?? 0).toBe(status === "draft" ? pdf.getPageCount() + 1 : 0);
-    expect(text.match(/Page /g)?.length).toBe(pdf.getPageCount());
-  });
-  it("splits oversized descriptions across pages without footer overflow", async () => {
-    const input = fixture("draft", 1);
-    input.version.sections[0].lines[0].detail = "Product specifications and size details. ".repeat(500);
-    const buffer = await renderEstimateDocument(buildEstimateDocumentModel(input, display, "2026-10-30"));
-    expect((await PDFDocument.load(buffer)).getPageCount()).toBeGreaterThan(3);
   });
 });

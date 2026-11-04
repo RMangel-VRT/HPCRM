@@ -48,11 +48,16 @@ combined pricing, and terms/warranty/acceptance fragments. After reconciling the
 concurrently merged shared-layout corrections, the standalone renderer retains
 that updated layout and whitespace exactly: header contact, formatted dates and
 quantities, pricing pagination hooks, summary before terms, and the single
-bordered acceptance title bar. Two pre-extraction HTML hashes (12 and 60 lines)
-captured directly from the newly merged renderer are regression oracles.
+bordered acceptance title bar. The two HTML hashes (12 and 60 lines) are updated
+only for the intended shared Acceptance spacing correction: the reserve is now
+outside the border, immediately after it in the same keep-together group.
 Proposals use the combined pricing fragment once, without an estimate header.
-The settings fragment is used once; only its existing acceptance container gains
-a proposal-only keep-together class so long terms can paginate separately.
+The settings fragment is used once; its shared `.acceptance-group.keep` wraps
+the bordered signatures and adjacent reserve, so long terms can paginate
+separately. The proposal's existing 116px clearance is retained; estimates retain
+71px. Cover, pricing, exhibits, overall page structure and legal overflow are
+unchanged. IC4.2 evidence compares all 56 fixture PNG pages against the unchanged
+source: 48 are identical and only the eight Acceptance pages change.
 No settings text is replaced with invented legal boilerplate.
 
 ## Composition and acceptance-page detection

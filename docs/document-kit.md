@@ -38,11 +38,18 @@ No feature flag is required to configure documents or use estimate PDFs.
 `renderDocumentPdf({html, footerLabel, shortHeaderNumber, draft?})` is the sole
 render interface. A lazy browser is shared, with two slots covering both passes,
 FIFO queued work, 20-second per-active-render deadlines and a five-minute idle
-shutdown. The deadline starts after admission, not during the queue wait.
+shutdown. Ordinary document deadlines start after admission. The admin health
+check instead has one overall 20-second budget, including executable resolution,
+queue wait, launch, browser version, rendering and stamping.
 Pages always close, including failures/timeouts. Only data URLs are allowed by
 request interception; JavaScript is disabled and HTML has a restrictive CSP.
-No browser error text, customer data, executable paths or SQL detail is logged
-by the new PDF fallback/settings handlers.
+Expired/cancelled queue entries are removed. Pages close on failure/expiry,
+including late-created pages. Non-cancellable launch/stamp work retains its slot
+until it settles; a caller timeout never falsely admits a third render. Chromium
+launch and protocol operations are separately bounded to 20 seconds.
+Health logs use fixed reason codes. Launch diagnostics alone additionally include
+the error name and first trimmed message line (each capped at 200 characters).
+No raw errors, stack traces, customer data or paths are returned to clients.
 
 ## Layout contract and future proposal composition
 
@@ -78,7 +85,11 @@ are measured, not approximated from line counts. This trusted renderer-owned
 DOM evaluation does not enable page scripts or external resources.
 
 Mountain reserve is derived from stamp geometry: `(47 + 84 + 16) - 76 = 71px`,
-not a fixed 100px. It belongs inside invoice totals and estimate Acceptance.
+not a fixed 100px. It belongs inside invoice totals. For estimate Acceptance it
+is immediately **after** the bordered box, inside `.acceptance-group.keep`.
+The border hugs the signature content with only its normal 14px body padding.
+Proposals reuse this same fragment and keep their existing 116px reserve outside
+the border; their Terms/Warranty text remains free to overflow before the group.
 The latter is a 1.5px #37443D border, 8px-radius box with a green title bar,
 white bold 12.5pt Acceptance title and total, followed by sentence/signatures.
 Contact information appears only below the date inside the first band, 8.5pt
@@ -104,8 +115,9 @@ commercial records or introduce a second pricing template. Future composition
 can supply a cover, narrative flow and legacy exhibit PDF merge around these
 pricing pages. Covers may deliberately omit footer/mountains; that requires an
 explicit future composition/page-range decoration option, not another template.
-No proposal page, acceptance behavior, narrative, cover or exhibit is changed
-here. `pdfBrand.ts` and the proposal generator remain legacy/pixel-sensitive.
+The sole shared proposal layout change here is Acceptance reserve placement.
+No proposal cover, exhibit, legal overflow, commercial acceptance behavior or
+page structure is changed. `pdfBrand.ts` remains untouched/pixel-sensitive.
 
 ## Assets and portability
 
@@ -144,24 +156,81 @@ Executable precedence is:
 2. `REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE`
 3. `which chromium`, then `which chromium-browser`
 
-These optional overrides must point to an executable present in that runtime.
-Development can verify `which chromium` and a real fixture render. Autoscale
-must retain the Nix packages and API runtime dependencies and copy
-`dist/assets/documents` with the API bundle. Do not assume a development
-override path exists in autoscale. No deployment was published to verify the
-production runtime; availability there is configuration-backed, not live-tested.
+Overrides must be executable regular files; an invalid override is
+`EXECUTABLE_NOT_FOUND`, not a launch failure or an invitation to silently select
+another executable. The supported Nix system dependency installer was rerun and
+confirmed both packages already installed. Current Replit configuration guidance
+supports this `[nix].packages` declaration as well as `replit.nix`; it is retained.
 
-If Chromium is unavailable **at launch**, estimates log only
-`DOCUMENT_RENDERER_UNAVAILABLE` and use the preserved
-`renderEstimateDocumentLegacy`. Content, stamping and timeout failures do not
-silently use another design. Invoice previews fail through the existing safe
-generic error handler; they never pretend to have generated an issued PDF.
-The legacy renderer's original brand-logo loading behavior is retained.
+The API build now runs `scripts/prepare-document-runtime.mjs`: it resolves
+Chromium **in that build environment**, bundles the renderer, renders/stamps two
+PDFs concurrently from `/tmp` using only copied assets, and records
+`dist/document-runtime.json`. A failed probe fails the build. The production
+artifact run command and package `start` both use `scripts/start.mjs`. Unless an
+explicit override was supplied, it sets `PUPPETEER_EXECUTABLE_PATH` to that
+build's executable before importing the API. This removes dependence on a
+different runtime shell PATH; no development store path is committed or copied
+to a deployment's settings. Keep the runtime manifest, assets, Nix closure and
+runtime dependencies with the bundle. Missing executables are still reported
+by the admin check, not silently substituted with another PDF design.
+
+**Estimates have no legacy fallback.** They use only the shared kit and live
+Documents settings. Missing/invalid executables or launch failures return 503
+`{error:"DOCUMENT_RENDERER_UNAVAILABLE"}`; content/stamp/render failures retain
+their safe 500 behavior. Invoice previews and linked proposal kit pages use the
+same design/settings. This slice does not change existing proposal route fallback
+behavior or legacy exhibits; that separate proposal code remains out of scope.
+
+### Admin readiness contract
+
+`GET /api/settings/documents/renderer` has the same active-company admin guards
+and captured `X-Company-Id` expectation as settings, with `Cache-Control: no-store`
+on success and authorization errors. It performs a real `renderDocumentPdf`
+check, launching or reusing the two-slot shared browser, not just `which`.
+Only these public fields are returned:
+
+```
+{ status: "ready" | "unavailable",
+  reason: null | "EXECUTABLE_NOT_FOUND" | "LAUNCH_FAILED" | "RENDER_FAILED",
+  executableSource: null | "PUPPETEER_EXECUTABLE_PATH" | "REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE" | "PATH",
+  browserVersion: string | null, checkedAt: ISO }
+```
+
+A configured but invalid executable retains its configured source code.
+Render/queue/deadline failures are `RENDER_FAILED`; actual launch failures are
+`LAUNCH_FAILED`. Request disconnect cancels queued/page work. The bilingual
+Documents row checks on mount, hides stale readiness while checking or on errors,
+and supplies **Check again**. Unavailable means estimates cannot be generated,
+not that they use an old design. Preview shows admin guidance and **Retry** for
+the exact 503, preserving cancellation and object-URL cleanup.
+
+### Proven versus still unobserved
+
+Read-only production logs contain two old `DOCUMENT_RENDERER_UNAVAILABLE` warnings
+on 2026-11-04 at 16:42:38Z and 16:43:31Z, but no underlying launch reason. They
+prove fallback execution, **not** missing packages, PATH, dependencies, stale
+processes or memory exhaustion as its cause. Deployment metadata reports a
+successful autoscale build. No production shell/runtime executable inspection
+was available, and no deployment was published for this slice.
+
+Development proved build-time two-render success, runtime-PATH-independent
+bundled renders and two simultaneous 60-line estimates. Sampled process-tree
+RSS was about 1502 MiB (shared mappings counted more than once), **not** a minimum
+memory requirement or a production sizing measurement. No memory setting was
+changed or invented. Randy must confirm capacity in his actual deployment.
+
+**After Randy publishes:** sign in as an active-company admin, open
+**Settings → Documents → PDF engine**, and require **Ready** with a browser
+version; use **Check again**, then preview an estimate and confirm the new design.
+If unavailable, use the fixed reason and bounded launch log to diagnose rather
+than assuming a cause. Also confirm two concurrent representative previews and
+watch the deployment's actual memory use. This is the remaining live validation.
 
 ## API and data reads
 
-Estimate URL, dialog, auth, error mappings, no-store, disposition and filename
-are unchanged. The repeatable-read read-only resolver now also loads document
+Estimate URL, auth, existing 404/403/409 behavior, no-store, disposition and filename
+are retained. Renderer-unavailable adds the safe 503 above; PDF routes also
+set nosniff. The repeatable-read read-only resolver also loads document
 settings and linked ticket location labels/descriptions, without storing copies.
 The live draft total/frozen non-draft total and safe-detail filtering are unchanged.
 
@@ -186,7 +255,7 @@ occurs when previewing.
 
 ## Evidence
 
-`generated-artifacts/ic4-1/` is ignored by Git and deployment. It contains
+`generated-artifacts/ic4-2/` is ignored by Git and deployment. It contains
 baseline/final logs, real rendered PDFs, pdftotext text/bounding boxes,
 per-page PNGs and review sheets for the 12- and 60-line estimates, 13-line draft
 and synthetic issued invoices, and one-pixel fit/move boundary fixtures. Run

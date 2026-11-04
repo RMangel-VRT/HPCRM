@@ -35,17 +35,35 @@ If you reverse this order, the schema-drift / required-extensions validation wil
 
 Chromium is provisioned as a supported Nix system package through
 `[nix].packages = ["chromium", "poppler-utils"]` in `.replit` (nodejs-24 module).
-This configuration supplies Chromium in development and in the autoscale
-build/runtime environment; retain those Nix dependencies when publishing.
+Retain those supported Nix dependencies when publishing. Their declaration alone
+is not proof that a particular deployed process can launch Chromium.
 The API resolves `PUPPETEER_EXECUTABLE_PATH`, then
 `REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE`, then `chromium`/`chromium-browser` on
 PATH. Do not copy a development-only executable override into autoscale.
 `puppeteer-core` does not download a browser. Build copies the committed document
 assets/fonts into `dist/assets/documents`; keep that directory with the bundle.
-Development real-render and different-working-directory bundle checks cover
-this setup; production availability was not tested by publishing.
-See [the kit contract](docs/document-kit.md) for limits, offline behavior and
-estimate-only legacy fallback. There is no startup DDL or deploy migration hook.
+Build now verifies two concurrent real renders from `/tmp`, records that build's
+resolved executable in `dist/document-runtime.json`, and fails if Chromium/assets
+cannot render. Package start and the production artifact run command use
+`scripts/start.mjs`, which supplies that executable via
+`PUPPETEER_EXECUTABLE_PATH` unless an explicit override already exists. Retain the
+manifest and Nix closure with the bundle; never pin a development store path in
+production settings. The bundle verifier also tests two simultaneous 60-line
+estimates with the Nix browser removed from the runtime shell PATH.
+**Estimates have no legacy fallback:** unavailable launch returns the safe 503
+`DOCUMENT_RENDERER_UNAVAILABLE`; other rendering failures remain safe 500s.
+Active-company admins can check **Settings → Documents → PDF engine** (real
+render, overall 20-second deadline, no-store, fixed diagnostic codes).
+After Randy publishes, require **Ready**, use **Check again**, preview an estimate
+and confirm two concurrent representative previews while observing actual memory.
+Development sampled about 1502 MiB summed process-tree RSS (shared pages counted
+more than once), not a proven minimum production memory size; no memory setting
+was changed. Read-only old production logs confirm fallback warnings, not their
+underlying cause. No publication/live Chromium validation was performed here.
+See [the kit contract](docs/document-kit.md) and
+[verification report](docs/document-kit-verification.md) for reproducible checks,
+deployment limitations and Acceptance spacing evidence. There is no startup DDL
+or deploy migration hook.
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5 (`artifacts/api-server/`)

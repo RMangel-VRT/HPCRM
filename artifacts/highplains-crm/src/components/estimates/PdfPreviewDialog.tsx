@@ -12,7 +12,7 @@ export function estimatePdfUrl(estimateId: string, versionId: string): string {
   return `${ESTIMATES_API}/${encodeURIComponent(estimateId)}/versions/${encodeURIComponent(versionId)}/pdf`;
 }
 
-type State = { kind: "loading" } | { kind: "error" } | { kind: "ready"; url: string };
+type State = { kind: "loading" } | { kind: "error"; unavailable?: boolean } | { kind: "ready"; url: string };
 
 /**
  * Previews the viewed version's PDF. The blob is fetched with the captured X-Company-Id; every
@@ -43,8 +43,13 @@ export function PdfPreviewDialog(props: {
         created = URL.createObjectURL(blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" }));
         urlRef.current = created;
         setState({ kind: "ready", url: created });
-      } catch {
-        if (alive) setState({ kind: "error" });
+      } catch (error) {
+        // apiRequest preserves status and JSON in its Error message.
+        let unavailable = false;
+        if (error instanceof Error && error.message.startsWith("503: ")) {
+          try { unavailable = JSON.parse(error.message.slice(5)).error === "DOCUMENT_RENDERER_UNAVAILABLE"; } catch { /* Other 503s retain the generic error. */ }
+        }
+        if (alive) setState({ kind: "error", unavailable });
       }
     })();
     return () => {
@@ -82,7 +87,7 @@ export function PdfPreviewDialog(props: {
           {state.kind === "error" && (
             <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-sm" data-testid="pdf-error">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              <p>{t("estimateBuilder.pdf.error")}</p>
+              <p>{t(state.unavailable ? "documents.engine.previewUnavailable" : "estimateBuilder.pdf.error")}</p>
               <Button size="sm" variant="outline" onClick={() => setAttempt((a) => a + 1)} data-testid="button-pdf-retry">{t("estimateBuilder.retry")}</Button>
             </div>
           )}

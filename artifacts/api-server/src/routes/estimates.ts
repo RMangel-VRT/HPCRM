@@ -12,6 +12,7 @@ import { createEstimate, retitleEstimate, createSection, patchSection, deleteSec
 import { transitionEstimate } from "../services/estimateLifecycle";
 import { readTicketEstimate } from "../services/ticketEstimates";
 import { renderEstimatePdf } from "../services/estimatePdf";
+import { DocumentRendererUnavailable } from "../services/documents/browser";
 import { customerActivation } from "../services/customerActivation";
 
 const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) => {
@@ -51,6 +52,7 @@ export function registerEstimateRoutes(app: Express) {
   }));
   const versionPath = "/:id/versions/:versionId";
   router.get(`${versionPath}/pdf`, async (req, res) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
     try {
       const { id, versionId } = pathSchema.parse(req.params);
       const companyId = (req.user as UserWithContext).activeCompanyId;
@@ -63,6 +65,10 @@ export function registerEstimateRoutes(app: Express) {
       res.type("application/pdf").setHeader("Content-Disposition", `${req.query.download === "1" ? "attachment" : "inline"}; filename="${number}-v${version.versionNumber}.pdf"`);
       res.send(pdf);
     } catch (error) {
+      if (error instanceof DocumentRendererUnavailable) {
+        (req.log ?? logger).warn({ reason: error.reason }, "DOCUMENT_RENDERER_UNAVAILABLE");
+        res.status(503).json({ error: "DOCUMENT_RENDERER_UNAVAILABLE" }); return;
+      }
       if (error instanceof z.ZodError) { res.status(400).json({ error: "INVALID_REQUEST" }); return; }
       if (error instanceof EstimateError && error.status === 404) { res.status(404).json({ error: "NOT_FOUND" }); return; }
       (req.log ?? logger).error({ code: "ESTIMATE_PDF_ERROR" }, "Estimate PDF failed");

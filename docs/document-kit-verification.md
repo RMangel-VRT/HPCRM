@@ -1,4 +1,209 @@
-# IC4.1 PDF layout corrections — verification report
+# IC4.2 PDF engine status and reliability — verification report
+
+## Delivery and findings
+
+- Added the guarded, no-store `GET /api/settings/documents/renderer`. Its real
+  shared-kit render reports only fixed status/reason/source codes, browser
+  version and ISO check time. Invalid configured paths are distinguished from
+  launch failures; render/queue/deadline failures have their own fixed code.
+  Launch logging preserves only the error name and first trimmed message line,
+  capped at 200 characters, not a stack or arbitrary error object.
+- The health check has one overall 20-second deadline, including queue wait,
+  executable discovery, launch, version, render and stamping. Cancelled queue
+  entries are removed; pages close on expiry/failure and late creation.
+  Non-cancellable work retains its slot until settled, so a timed-out caller
+  cannot admit a third background render. The two-render limit is unchanged.
+- Estimates use only the shared kit. The PDFKit estimate renderer, its fallback,
+  and its four legacy-only rendering tests were deleted. Unavailability maps
+  to safe JSON 503 `DOCUMENT_RENDERER_UNAVAILABLE`; existing guards, company
+  isolation, 404/403/409, download filename/disposition, no-store and safe generic
+  errors remain. The PDF route explicitly adds nosniff on success and failure.
+- Documents settings checks on mount with company/user/role-scoped keys,
+  cancellation and no retained old-scope result. Loading/request errors hide
+  prior readiness. EN/ES Ready, Unavailable, reasons and Check again are covered.
+  The exact 503 shows translated admin guidance and Retry in estimate preview;
+  other errors and request/object-URL cleanup remain intact.
+- Shared Acceptance now has a keep-together wrapper containing the bordered
+  signatures followed immediately by the reserve outside the border. Estimate
+  reserve remains 71px; proposal reserve remains 116px. Real DOM geometry finds
+  only 15.5px normal padding/border below signatures, zero gap before reserve,
+  no reserve inside the border, and `break-inside:avoid` on their common group.
+  Proposal legal text remains outside that group and may overflow as before.
+
+**What live evidence proves:** read-only production telemetry shows a successful
+autoscale build and two old fallback warnings on 2026-11-04, at 16:42:38Z and
+16:43:31Z. Those warnings discarded the launch cause. They do not distinguish
+missing executable, runtime PATH, missing libraries, stale processes or memory.
+No production shell/runtime executable probe was available. No deployment cause
+is claimed proven.
+
+## Provisioning correction and live limitation
+
+Replit documentation consulted:
+
+- https://docs.replit.com/features/project-setup/configuration
+- https://docs.replit.com/features/project-setup/dependency-management
+- https://docs.replit.com/features/publishing/deployment-types
+
+The first documentation response described the conventional `replit.nix` form;
+the more specific configuration query confirmed that `[nix].packages` is also
+supported. The supported system-dependency installer confirmed Chromium and
+Poppler installed, without a dependency/config change. No unsupported assertion
+that the existing Nix declaration was invalid is made.
+
+The correction is explicit **build-to-runtime executable provisioning**:
+
+1. The existing Nix dependencies stay declared.
+2. API build bundles the shared renderer, uses its own resolved executable,
+   renders two PDFs concurrently from `/tmp` using copied assets/fonts and
+   writes `dist/document-runtime.json`. A failed probe fails the build.
+3. Package start and the schema-validated production artifact command now invoke
+   `scripts/start.mjs`. Unless explicitly overridden, it sets
+   `PUPPETEER_EXECUTABLE_PATH` to the executable resolved by **that build** before
+   importing the server. No development store path is committed or configured
+   for production. The runtime no longer relies on matching the build shell PATH.
+4. Missing runtime executables remain diagnosable through the status endpoint.
+   Keep the manifest, copied assets, dependencies and Nix closure with the image.
+
+Proven in development:
+
+- Full API bundle build and normal API startup through the new wrapper passed.
+  Build probe: `Chrome/140.0.7339.16`, two valid PDFs about 560 KB each.
+- A real standalone bundled `checkDocumentRenderer()` from `/tmp` returned
+  `ready`, reason null, source `REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE`, browser
+  `Chrome/140.0.7339.16` and a valid ISO check timestamp.
+- The different-working-directory portable check produced 559,493 bytes.
+  Two simultaneous **60-line estimates** also passed with PATH set to
+  `/usr/bin:/bin`, using the build-resolved explicit executable: 666,685 bytes
+  each. No source-working-directory or attached-assets dependency is needed.
+- Sampled summed process-tree RSS peaked at about **1502 MiB**, with shared
+  mappings double-counted. This is an observation, **not** a minimum production
+  memory setting or proof of autoscale sizing. No memory setting was changed.
+- API/CRM workflows restarted and serve normally. Public preview shows the
+  expected sign-in screen. Unauthenticated status request returns 401/no-store.
+  Existing development QBO test-token decode warnings remain unrelated.
+
+**Randy's post-publish check:** sign in as an active-company admin and open
+**Settings → Documents → PDF engine**. Require **Ready** with a browser version,
+click **Check again**, and preview an estimate to confirm the new design. Then
+run two representative previews concurrently and observe actual deployment
+memory. If unavailable, use the displayed fixed reason and bounded launch log;
+do not assume PATH or memory is the cause. Live readiness/capacity remains
+unverified until Randy publishes and performs these checks.
+
+## Tests and typecheck baseline
+
+Logs and generated evidence: `generated-artifacts/ic4-2/` (ignored by Git and
+deployment). Library declarations were refreshed before the in-place typecheck
+baseline. No full-suite green/typecheck-green claim is made.
+
+| Check | Unchanged baseline | Final |
+|---|---:|---:|
+| Focused API/PDF/model/settings/estimate/invoice routes and legacy proposal exhibit/raster tests | 165 passed, 12 files | 177 passed, 14 files |
+| Focused CRM Documents/estimate builder/preview | 35 passed, 2 files | 45 passed, 3 files |
+| API typecheck diagnostics | 716 | 716 |
+| CRM typecheck diagnostics | 223 | 223 |
+| Normalized per-file/error-code diagnostic additions/removals | — | zero / zero |
+
+The API baseline is the verified union of the unchanged archived 110-test kit/
+estimate/settings run and 55-test invoice/exhibit run. Archive fixture repairs
+are explicit: a missing migration link was repaired and its 3/3 tests passed;
+a missing ignored logo attachment link was repaired and its 7/7 exhibit tests
+passed. The initial in-place test attempt overlapped file replacement and is
+not treated as a valid product baseline. The first archive UI attempt used the
+root runner's different Vite peer/JSX transform and did not collect; using the
+artifact-local runner against unchanged sources passed 35/35. Raw failed
+attempts remain in the evidence directory rather than being hidden.
+
+Final API log: `verified-api-tests.log` (177/177). After adding explicit proposal
+border-only raster/clearance assertions, `verified-proposal-regression.log`
+passed 15/15 (the same proposal cases, not additional tests to add to 177).
+CRM: `final-ui-tests.log` (45/45).
+Typechecks: `baseline-{api,crm}-types.log`, `verified-api-types.log`,
+`final-crm-types.log`; `typecheck-delta.json` records the normalized comparison.
+The archive typecheck is not used for this delta because archive dependency/
+root-directory diagnostics differ; the clean pre-edit in-place baseline is used.
+
+The completion schema guard initially found the baseline archive's copied Drizzle
+configuration, even though generated evidence is ignored. That duplicate config
+was removed after the baseline checks; the real `lib/db/drizzle.config.ts` remains
+the only active configuration. This was not database schema drift, and required
+extensions were present. No database migration or production change was needed.
+
+Coverage includes admin/role/company/no-store, safe fields and timestamps,
+invalid executable precedence, bounded launch logs, launch/render failure,
+readiness/version, real shared estimate success and no-fallback 503, existing
+estimate access/errors, FIFO/two-slot admission, queued cancellation/timeout,
+overall launch+render budget, late page cleanup, held non-cancellable stamping
+slots, bilingual UI refetch/error/scope/retry and object-URL cleanup, real DOM
+Acceptance geometry, print pagination boundaries and final-body clearance.
+
+Reproduce:
+
+```sh
+pnpm exec tsc --build --force
+pnpm --filter @workspace/api-server exec vitest run src/services/documents src/services/estimatePdf.test.ts src/routes/documentSettings.test.ts src/routes/estimates.test.ts src/routes/invoices.test.ts src/lib/pdfBrand.test.ts --maxWorkers=2
+pnpm --filter @workspace/highplains-crm exec vitest run src/components/DocumentSettingsCard.test.tsx src/components/estimates/PdfPreviewDialog.engine.test.tsx src/pages/EstimateBuilder.rendered.test.tsx --maxWorkers=2
+pnpm --filter @workspace/api-server run build
+node artifacts/api-server/scripts/verify-document-bundle.mjs
+node artifacts/api-server/scripts/document-review-sheets.mjs
+pnpm --filter @workspace/api-server typecheck
+pnpm --filter @workspace/highplains-crm typecheck
+```
+
+Authenticated UI interaction was verified by rendered component tests, not a
+signed-in live browser run. The public preview and transformed frontend are
+healthy; this is not claimed as signed-in browser coverage.
+
+## Refreshed visual evidence
+
+- `estimate-12-{1,2,3}.png`, `estimate-12.pdf`, `.txt`, `.bbox.html`,
+  `.checks.json`, `estimate-12-all-pages.png`: still three pages; final three
+  pricing lines/totals on page 2, legal/Acceptance/mountains on page 3.
+  Final body bottom 333.55pt is above the required 681.75pt limit.
+- The full pagination fixture set, including the 60-line estimate, invoices,
+  one-pixel boundaries and short tables, is refreshed here. `inventory.json`
+  lists the six review sheets and rejects stale page counts.
+- `proposals/` contains refreshed real PDFs, page PNGs and bounding boxes.
+  Comparing **56 PNG pages** against unchanged-source fixtures finds **48
+  identical** and **eight changed**, exactly the Acceptance page in each of six
+  photo-count/layout fixtures, the overflowing-legal fixture, and populated
+  cover/Visual Scope/palette/schedule fixture. Page counts and all other pages
+  are unchanged. `proposal-raster-comparison.json` retains both hash sets.
+  Committed regression hashes assert unchanged cover/pricing/photo pages and
+  the intentionally shortened border, plus real signature/mountain clearance.
+- Existing legacy 7-/9-page proposal cover/exhibit fingerprints pass unchanged;
+  `pdfBrand.ts`, legacy exhibit code and proposal page structure are untouched.
+- The estimate review sheet and proposal Acceptance PNG were inspected. Missing
+  approved mockups remain missing: screenshot parity/visual approval is not
+  invented.
+
+## Changed files
+
+- Runtime: `artifacts/api-server/.replit-artifact/artifact.toml` (validated),
+  `artifacts/api-server/{build.mjs,package.json}`,
+  `scripts/{prepare-document-runtime,start,verify-document-bundle,document-review-sheets}.mjs`
+  under the API artifact.
+- API routes: `src/routes/{documentSettings,estimates}.ts` and their tests.
+- API services: `src/services/estimatePdf.ts` and its model tests;
+  `src/services/documents/{browser,render,health,estimate,proposal}.ts`;
+  `browser.test.ts`, `health.test.ts`, `acceptanceGeometry.test.ts`,
+  `estimateEngine.test.ts`, `pagination.test.ts`, `proposal.test.ts`.
+  Deleted `documents/fallback.test.ts` and the legacy-only estimate render tests.
+- CRM: `src/components/DocumentSettingsCard.tsx` and its test;
+  `src/components/estimates/PdfPreviewDialog.tsx` and
+  `PdfPreviewDialog.engine.test.tsx`; `src/i18n/locales/{en,es}.ts`.
+- Documentation: `docs/{document-kit,document-kit-verification,proposal-shared-template}.md`,
+  `replit.md`; project memory records the non-obvious artifact-local test-runner
+  requirement for valid archive comparisons.
+
+**Nothing was published. No production records were changed and no customer
+communications were sent.** No schema, invoice lifecycle, ownership, mobile,
+cover/exhibit design, concurrency-limit or memory-setting change was made.
+
+---
+
+# Historical IC4.1 PDF layout corrections — verification report
 
 ## Current delivery
 

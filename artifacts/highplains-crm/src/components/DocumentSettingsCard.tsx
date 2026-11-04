@@ -12,6 +12,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { PdfPreviewDialog } from "@/components/estimates/PdfPreviewDialog";
+import { CheckCircle2, AlertTriangle } from "lucide-react";
+
+type RendererStatus = { status: "ready" | "unavailable"; reason: "EXECUTABLE_NOT_FOUND" | "LAUNCH_FAILED" | "RENDER_FAILED" | null; browserVersion: string | null };
 
 const API = "/api/settings/documents";
 export default function DocumentSettingsCard() {
@@ -33,6 +36,10 @@ function ScopedDocumentSettings({ companyId, scope }: { companyId: string; scope
     queryKey: key, enabled: !!companyId, staleTime: 0,
     queryFn: async ({ signal }) => (await apiRequest("GET", API, undefined, { headers: companyHeaders(companyId), signal })).json(),
   });
+  const renderer = useQuery<RendererStatus>({
+    queryKey: [API, "renderer", scope], enabled: !!companyId, staleTime: 0, gcTime: 0, retry: false, refetchOnMount: "always",
+    queryFn: async ({ signal }) => (await apiRequest("GET", `${API}/renderer`, undefined, { headers: companyHeaders(companyId), signal })).json(),
+  });
   useEffect(() => { if (query.data && !dirty) setForm(query.data); }, [query.data, dirty]);
   const save = useMutation({
     mutationFn: async (body: DocumentSettings) => (await apiRequest("PATCH", API, body, { headers: companyHeaders(companyId) })).json() as Promise<DocumentSettings>,
@@ -49,6 +56,17 @@ function ScopedDocumentSettings({ companyId, scope }: { companyId: string; scope
   }
   return <Card><CardHeader><CardTitle>{t("documents.title")}</CardTitle></CardHeader><CardContent>
     <p className="text-sm text-muted-foreground mb-4">{t("documents.description")}</p>
+    <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border p-3">
+      <strong className="text-sm">{t("documents.engine.title")}</strong>
+      <div role="status" className="flex flex-1 items-center gap-2 text-sm">
+        {renderer.isFetching || renderer.isPending ? t("documents.engine.checking")
+          : renderer.isError ? t("documents.engine.requestError")
+          : renderer.data?.status === "ready" ? <><CheckCircle2 className="h-4 w-4 shrink-0 text-green-700" aria-hidden="true" />{t("documents.engine.ready", { version: renderer.data.browserVersion })}</>
+          : renderer.data?.status === "unavailable" ? <><AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />{t("documents.engine.unavailable", { reason: t(`documents.engine.reasons.${renderer.data.reason}`) })}</>
+          : t("documents.engine.requestError")}
+      </div>
+      <Button type="button" variant="outline" disabled={renderer.isFetching} onClick={() => void renderer.refetch()}>{t("documents.engine.checkAgain")}</Button>
+    </div>
     {query.isPending ? <p>{t("documents.loading")}</p> : query.isError ? <div role="alert">{t("documents.loadError")} <Button onClick={() => query.refetch()}>{t("documents.retry")}</Button></div> : form && <form onSubmit={event => { event.preventDefault(); save.mutate(form); }} className="space-y-4">
       <div className="grid md:grid-cols-2 gap-4">{DOCUMENT_FIELDS.map(field => {
         const multiline = ["remitTo", "paymentInstructions", "estimateTerms", "warrantyText", "invoiceFooterNote"].includes(field);

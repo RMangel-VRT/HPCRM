@@ -254,6 +254,14 @@ const es = {
     finalizeError: "No se puede finalizar el presupuesto en su estado actual. Actualice y reintente, o abra el presupuesto para revisarlo.",
   },
   documents: {
+    engine: {
+      title: "Motor PDF", checking: "Comprobando el motor PDF…", checkAgain: "Comprobar de nuevo",
+      ready: "Listo — los PDF usan el nuevo diseño (Chromium {{version}}).",
+      unavailable: "No disponible — no se pueden generar los PDF de presupuestos. Motivo: {{reason}}.",
+      requestError: "No se pudo comprobar el motor PDF. Inténtelo de nuevo.",
+      previewUnavailable: "El motor PDF no está disponible en este momento. Un administrador puede revisar Configuración → Documentos → Motor PDF.",
+      reasons: { EXECUTABLE_NOT_FOUND: "No se encontró Chromium", LAUNCH_FAILED: "Chromium no pudo iniciarse", RENDER_FAILED: "No se pudo generar el PDF de prueba" },
+    },
     title: "Documentos", description: "Datos de contacto y textos para presupuestos y facturas. El nombre de la empresa se administra en Empresa. Deje los textos opcionales vacíos para omitirlos.",
     loading: "Cargando configuración…", loadError: "No se pudo cargar la configuración.", retry: "Reintentar",
     saveError: "No se pudo guardar la configuración.", saved: "Configuración de documentos guardada.", save: "Guardar documentos", saving: "Guardando…",

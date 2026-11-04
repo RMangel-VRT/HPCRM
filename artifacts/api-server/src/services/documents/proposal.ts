@@ -54,7 +54,7 @@ export function proposalDocumentHtml(m: ProposalDocumentInput, attachments = tru
   const palette = m.palette.groups.length ? `<section class="content new-page"><h2>Plant palette</h2>${m.palette.introText ? `<p>${multiline(m.palette.introText)}</p>` : ""}${m.palette.groups.map(g => `<section><h3>${e(g.label)}</h3><div class="palette">${g.cards.map(c => `<figure class="keep">${c.dataUri ? `<img alt="" src="${c.dataUri}">` : ""}<figcaption><strong>${e(c.name)}</strong><div class="secondary">${e(c.typeLabel)}</div></figcaption></figure>`).join("")}</div></section>`).join("")}</section>` : "";
   const schedule = m.schedule.length ? `<section class="content new-page"><h2>Plant schedule</h2><table>${tableHead(["Qty", "Plant", "Botanical", "Size"], [12, 33, 33, 22])}<tbody>${m.schedule.map(r => `<tr><td>${e(r.quantity)}</td><td>${e(r.name)}</td><td>${e(r.botanicalName)}</td><td>${e(r.size)}</td></tr>`).join("")}</tbody></table></section>` : "";
   // Keep acceptance/signatures/clearance together, but allow settings text to overflow.
-  const acceptance = `<section class="content new-page legal">${estimateAcceptanceFragment(m.estimate).replace('<div class="acceptance">', '<div class="acceptance keep">')}</section>`;
+  const acceptance = `<section class="content new-page legal">${estimateAcceptanceFragment(m.estimate)}</section>`;
   const perPage = m.photoLayout === "grid" ? 4 : 1;
   const photos = attachments ? Array.from({ length: Math.ceil(m.photos.length / perPage) }, (_, i) =>
     `<section class="content new-page attachment"><h2>${i ? "Attachment A: Photos (continued)" : "Attachment A: Photos"}</h2><div class="photos ${m.photoLayout}">${m.photos.slice(i * perPage, (i + 1) * perPage).map(figure).join("")}</div></section>`).join("") : "";

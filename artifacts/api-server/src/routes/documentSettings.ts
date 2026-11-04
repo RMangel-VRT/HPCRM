@@ -4,6 +4,7 @@ import type { UserWithContext } from "../auth";
 import { invoiceAccess } from "../lib/invoiceAccess";
 import { logger } from "../lib/logger";
 import { readDocumentSettings, updateDocumentSettings } from "../services/documentSettings";
+import { checkDocumentRenderer } from "../services/documents/health";
 
 export function registerDocumentSettingsRoutes(app: Express) {
   const router = Router();
@@ -12,6 +13,16 @@ export function registerDocumentSettingsRoutes(app: Express) {
     if ((req.user as UserWithContext).activeRole !== "admin") { res.status(403).json({ error: "ACCESS_DENIED" }); return; }
     next();
   }) as RequestHandler);
+  router.get("/renderer", async (_req, res): Promise<void> => {
+    res.setHeader("Cache-Control", "no-store");
+    const ctrl = new AbortController();
+    const cancel = () => { if (!res.writableEnded) ctrl.abort(); };
+    res.once("close", cancel);
+    try {
+      const result = await checkDocumentRenderer(ctrl.signal);
+      if (!res.destroyed) res.json(result);
+    } finally { res.off("close", cancel); }
+  });
   router.get("/", async (req, res): Promise<void> => {
     try { res.json(await readDocumentSettings((req.user as UserWithContext).activeCompanyId)); }
     catch { (req.log ?? logger).error("DOCUMENT_SETTINGS_READ_FAILED"); res.status(500).json({ error: "INTERNAL_ERROR" }); }

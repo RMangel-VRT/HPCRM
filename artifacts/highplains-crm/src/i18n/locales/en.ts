@@ -254,6 +254,14 @@ const en = {
     finalizeError: "The estimate cannot be finalized in its current state. Refresh and try again, or open the estimate to review it.",
   },
   documents: {
+    engine: {
+      title: "PDF engine", checking: "Checking PDF engine…", checkAgain: "Check again",
+      ready: "Ready — PDFs use the new design (Chromium {{version}}).",
+      unavailable: "Unavailable — estimate PDFs cannot be generated. Reason: {{reason}}.",
+      requestError: "Could not check the PDF engine. Try again.",
+      previewUnavailable: "The PDF engine isn't available right now. An admin can check Settings → Documents → PDF engine.",
+      reasons: { EXECUTABLE_NOT_FOUND: "Chromium could not be found", LAUNCH_FAILED: "Chromium could not start", RENDER_FAILED: "The test PDF could not be rendered" },
+    },
     title: "Documents", description: "Contact details and boilerplate for customer estimates and invoices. Company name is managed in Company settings. Leave optional text blank to omit it.",
     loading: "Loading document settings…", loadError: "Could not load document settings.", retry: "Retry",
     saveError: "Could not save document settings.", saved: "Document settings saved.", save: "Save documents", saving: "Saving…",

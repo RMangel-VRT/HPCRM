@@ -14,9 +14,9 @@ export const estimatePricingFragment = (m: EstimateDocumentModel) => estimatePri
 export function estimateAcceptanceFragment(m: EstimateDocumentModel): string {
   const settings = m.companyDocument;
   return `${settings.estimateTerms ? `<h2>Terms</h2><div class="boilerplate">${multiline(settings.estimateTerms)}</div>` : ""}${settings.warrantyText ? `<h2>Plant warranty</h2><div class="boilerplate">${multiline(settings.warrantyText)}</div>` : ""}
-     <div class="acceptance"><div class="accept-title"><strong>Acceptance</strong><span>Total ${money(m.totalCents, true)} plus applicable tax</span></div><div class="accept-body">
+     <div class="acceptance-group keep"><div class="acceptance"><div class="accept-title"><strong>Acceptance</strong><span>Total ${money(m.totalCents, true)} plus applicable tax</span></div><div class="accept-body">
     <p>Signing below accepts estimate ${e(m.estimateNumber)}, version ${m.versionNumber}, for the work and pricing shown in this estimate.</p>
-     <div class="signatures">${["Signature", "Date", "Printed name", "Title or board position"].map(label => `<div class="signature">${label}</div>`).join("")}</div><div class="mountain-space"></div></div></div>`;
+     <div class="signatures">${["Signature", "Date", "Printed name", "Title or board position"].map(label => `<div class="signature">${label}</div>`).join("")}</div></div></div><div class="mountain-space"></div></div>`;
 }
 /** Contact text lives in the full header, following the shared kit's layout correction. */
 export function estimateCustomerFragment(m: EstimateDocumentModel): string {

@@ -10,11 +10,21 @@ vi.mock("../services/estimates", () => mocks);
 vi.mock("../services/estimateReads", () => mocks);
 vi.mock("../services/ticketEstimates", () => mocks);
 vi.mock("../services/estimatePdf", () => mocks);
-vi.mock("../lib/logger", () => ({ logger: { error: mocks.log } }));
+vi.mock("../lib/logger", () => ({ logger: { error: mocks.log, warn: mocks.log } }));
 import { registerEstimateRoutes } from "./estimates";
 import { EstimateError } from "../services/estimateErrors";
+import { DocumentRendererUnavailable } from "../services/documents/browser";
 
 const custom = { sectionId: "s", quantity: "1", lineType: "custom", name: "Line", unit: "ea", unitPriceCents: 0, umbrellaKey: "plants" };
+it("returns safe 503 instead of any fallback PDF when Chromium is unavailable", async () => {
+  mocks.renderEstimatePdf.mockRejectedValue(new DocumentRendererUnavailable());
+  const response = await request(appFor()).get("/api/estimates/e/versions/v/pdf");
+  expect(response.status).toBe(503);
+  expect(response.body).toEqual({ error: "DOCUMENT_RENDERER_UNAVAILABLE" });
+  expect(response.headers["cache-control"]).toBe("no-store");
+  expect(response.headers["x-content-type-options"]).toBe("nosniff");
+  expect(response.headers["content-type"]).toContain("application/json");
+});
 const endpoints = [
   ["get", "/api/estimates", {}, "listEstimates"],
   ["get", "/api/estimates/by-ticket/ticket", {}, "readTicketEstimate"],

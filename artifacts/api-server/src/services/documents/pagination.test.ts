@@ -8,7 +8,7 @@ import { chromiumExecutable, closeDocumentBrowser } from "./browser";
 import { renderDocumentPdf } from "./render";
 import { displayDate, quantity, MOUNTAIN_RESERVE } from "./layout";
 
-const output = new URL("../../../../../generated-artifacts/ic4-1/", import.meta.url).pathname;
+const output = new URL("../../../../../generated-artifacts/ic4-2/", import.meta.url).pathname;
 let unavailable = false;
 try { chromiumExecutable(); } catch { unavailable = true; }
 afterAll(closeDocumentBrowser);
