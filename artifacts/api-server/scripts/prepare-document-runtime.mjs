@@ -4,8 +4,8 @@ import { pathToFileURL } from "node:url";
 
 /**
  * Resolve the Nix executable at build time, then actually exercise the bundled
- * renderer/assets. The start wrapper explicitly supplies that executable in
- * runtimes whose PATH differs from the build shell. No workspace path is pinned.
+ * renderer/assets. Runtime discovery reads the recorded path as an optional,
+ * distinct BUILD_MANIFEST hint. No workspace path is pinned.
  */
 export async function prepareDocumentRuntime(artifactDir) {
   const entry = `${artifactDir}/dist/document-runtime-check.mjs`;
@@ -19,17 +19,22 @@ export async function prepareDocumentRuntime(artifactDir) {
   const script = `
     import {writeFileSync} from 'node:fs';
     const {renderDocumentPdf,closeDocumentBrowser,resolveChromiumExecutable}=await import(${JSON.stringify(pathToFileURL(entry).href)});
-    const {path:executablePath}=resolveChromiumExecutable();
+    const {path:executablePath}=await resolveChromiumExecutable();
     // Simulate a runtime shell that does not have the Nix browser on PATH.
-    process.env.PUPPETEER_EXECUTABLE_PATH=executablePath;
+    writeFileSync(${JSON.stringify(`${artifactDir}/dist/document-runtime.json`)},JSON.stringify({executablePath}));
+    // Prove that the recorded hint, not a disguised override, works without PATH.
+    delete process.env.PUPPETEER_EXECUTABLE_PATH;
+    delete process.env.REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE;
+    delete process.env.CHROMIUM_PATH;
     process.env.PATH='/usr/bin:/bin';
     let browserVersion;
+    let discovery;
     try {
       const input={html:'<!doctype html><html><body><p>Concurrent portable PDF check</p></body></html>',footerLabel:'Portable check',shortHeaderNumber:'PDF check'};
-      const results=await Promise.all([1,2].map(()=>renderDocumentPdf(input,{overallTimeoutMs:20000,onBrowser:async b=>{browserVersion=await b.version()}})));
+      const results=await Promise.all([1,2].map(()=>renderDocumentPdf(input,{overallTimeoutMs:20000,onDiscovery:report=>{discovery=report},onBrowser:async b=>{browserVersion=await b.version()}})));
       if(results.some(b=>b.subarray(0,4).toString()!=='%PDF')) throw new Error('DOCUMENT_RUNTIME_CHECK_FAILED');
       writeFileSync(${JSON.stringify(`${artifactDir}/dist/document-runtime.json`)},JSON.stringify({executablePath,browserVersion}));
-      console.log(JSON.stringify({documentRuntime:'ready',browserVersion,concurrentRenders:results.length,pdfBytes:results.map(b=>b.length)}));
+      console.log(JSON.stringify({documentRuntime:'ready',browserVersion,...discovery,concurrentRenders:results.length,pdfBytes:results.map(b=>b.length)}));
     } finally { await closeDocumentBrowser(); }
   `;
   process.stdout.write(execFileSync(process.execPath, ["--input-type=module", "-e", script], {

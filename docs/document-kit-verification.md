@@ -1,4 +1,131 @@
-# IC4.2 PDF engine status and reliability — verification report
+# PDF engine status and reliability — verification report
+
+## IC4.3 — resilient discovery (2026-11-04)
+
+This section supersedes IC4.2's invalid-override and startup-manifest behavior
+below. Document templates, typography, pagination, Acceptance geometry,
+admin-entered terms/warranty, schemas, legal fixtures and production settings
+were not changed. No publishing or production database access was performed.
+
+### Current behavior
+
+- One shared resolver searches the three environment hints, build manifest,
+  four PATH command names and bounded deterministic Nix candidates. Invalid
+  hints are skipped, not terminal failures. The startup wrapper no longer turns
+  the build hint into `PUPPETEER_EXECUTABLE_PATH`; optional manifest failures
+  cannot stop API startup.
+- Existing admin/company-guarded, no-store
+  `/api/settings/documents/renderer` still renders/stamps a real PDF. Additive
+  `attempts` contains only fixed source/outcome codes. It comes from the actual
+  browser launch (including reused browsers), not a second resolution.
+  Exhaustion, launch and render failures retain their three fixed top-level
+  reasons; selecting a path alone is never Ready.
+- Discovery is bounded to 1500ms, 64 PATH directories, 8192 store entries and
+  16 sorted Nix candidates (at most 26 attempts), inside the existing overall
+  20-second readiness deadline. Shared reuse, admission, cancellation and
+  cleanup remain covered. Launch/content/render failures do not trigger another
+  executable search. Estimate failures retain 503/no legacy PDF.
+- The selected source/path is logged once per process. Exhaustion logs safe
+  attempts; launch logs retain bounded name/first-line fields and add a
+  sanitized underlying code. Public status contains no paths or raw errors.
+  See [the current contract](document-kit.md#admin-readiness-contract).
+
+### Reproducible development/build/runtime checks
+
+Evidence is local development/build evidence, **not an autoscale observation**.
+Generated logs and synthetic PDFs are ignored under `generated-artifacts/ic4-3/`.
+
+1. `pnpm --filter @workspace/api-server run build` passed, including two real
+   concurrent bundled render/stamp probes from `/tmp`. The final managed API
+   restart rebuilt and launched successfully with truthful `BUILD_MANIFEST`
+   provenance in that probe. Browser: `Chrome/156.0.8078.4`; PDFs of 560,265 and
+   560,264 bytes. No executable override is manufactured by the wrapper.
+2. `node artifacts/api-server/scripts/verify-document-bundle.mjs` passed after
+   that rebuild. It bundles an isolated synthetic entry, copies the **unchanged
+   production start wrapper** and copied document assets, then executes that
+   wrapper from `/tmp` in six separate processes. Every case performs the real
+   status render and a 12-line sample estimate render, validates the expected
+   selected source, and uses `pdftotext` to verify Acceptance and BY CATEGORY:
+
+   | Deliberately unusable hints | Recovery source | Result |
+   | --- | --- | --- |
+   | All three environment hints; restricted PATH; valid build hint | `BUILD_MANIFEST` | Ready + sample PDF |
+   | All environment hints and stale build path | `PATH` | Ready + sample PDF |
+   | All environment hints and malformed manifest | `PATH` | Ready + sample PDF |
+   | All environment hints and absent manifest | `PATH` | Ready + sample PDF |
+   | All environment hints and unreadable-as-file manifest directory | `PATH` | Ready + sample PDF |
+   | All environment hints and stale build path; restricted PATH | `NIX_STORE` | Ready + sample PDF |
+
+   Build-hint browser: `Chrome/156.0.8078.4` (624,936-byte sample). PATH/Nix
+   browser: `Chrome/138.0.7204.100` (approximately 645 KB samples).
+   `bundle-smoke.log` records the ordered safe attempts. The isolated layout
+   intentionally excludes normal API boot/database access: it proves the
+   wrapper and bundled rendering/discovery path, not signed-in production HTTP.
+3. The same verifier passed two simultaneous 60-line estimates with all three
+   explicit hints stale and PATH restricted, selecting **BUILD_MANIFEST**:
+   645,472 bytes each. Sampled summed process-tree RSS was 1519 MiB (shared
+   mappings double-counted). This is not a minimum production memory size;
+   no deployment memory setting was changed.
+4. API/document regressions:
+   `pnpm --filter @workspace/api-server exec vitest run src/services/documents src/routes/documentSettings.test.ts src/routes/estimates.test.ts src/services/proposalDocument.test.ts src/services/proposalExhibits.test.ts`
+   passed **14 files / 153 tests**, including real Chromium pagination, offline
+   resources, preserved oversized-final-block rejection, geometry, stamp,
+   fragments, estimate no-fallback and proposal regressions.
+   After the final diagnostic changes, the focused discovery/browser/health and
+   document-settings/estimate route suites passed **5 files / 95 tests**.
+   Hermetic discovery covers every source, precedence, stale hints, files,
+   permissions, symlinks, deterministic Nix selection, limits and stalled I/O.
+   Lifecycle tests cover shared selection on reuse/concurrent slow launch,
+   once-per-process logging, cancellation, deadlines and two-job admission.
+5. `pnpm --filter @workspace/highplains-crm exec vitest run --config vitest.config.ts src/components/DocumentSettingsCard.test.tsx src/components/estimates/PdfPreviewDialog.engine.test.tsx`
+   passed **2 files / 14 tests**: Ready/Unavailable, company scope, Check again,
+   exact estimate 503 guidance, Retry and cleanup. No client changes were needed
+   for the additive response field.
+6. `pnpm run typecheck:libs` passed. API-wide typecheck remains blocked by
+   unrelated diagnostics; unchanged HEAD was checked in an isolated source
+   archive against the same built libraries/dependencies for comparison.
+   Baseline/current both have 716 identical diagnostic locations/codes, with no
+   added or removed diagnostic locations/codes. Raw messages differ only in
+   equivalent inferred object-property ordering in the isolated archive.
+   There are no diagnostics in changed renderer files. See local
+   `typecheck-comparison.txt` for the baseline/current comparison.
+7. Managed API startup reached Server listening. A signed-out development
+   request to the existing status endpoint returned **401 / no-store**.
+   Startup also reports unrelated existing QuickBooks fixture token-decode
+   warnings; renderer build/startup succeeded. These warnings are not evidence
+   of a Chromium fault and no QuickBooks changes were made.
+   The running CRM's signed-out login page was also visually checked; this
+   does not claim a signed-in Settings browser test.
+
+### Production remains unverified
+
+No production executable, dependency closure, launch result or memory capacity
+was observed for this change. Prior fallback logs below do not prove its cause.
+No system package, deployment configuration or secret correction is justified
+by the successful local evidence; the existing Nix packages remain declared.
+Different installed local browsers demonstrably work via different sources,
+but this does not establish which browser a future autoscale process has.
+
+After a separately approved merge/release, Randy should sign in as an
+active-company admin and open **Settings → Documents → PDF engine**:
+
+1. Require **Ready**; click **Check again** and require Ready again.
+2. If unavailable, record only reason and safe attempt codes from the existing
+   `/api/settings/documents/renderer` response, then have an administrator
+   inspect the bounded launch log. `SELECTED` with `LAUNCH_FAILED` is not Ready.
+3. Preview the sample and an authorized representative estimate. Confirm the
+   green header, Inter, sections/category summary and the company's existing
+   Settings terms/warranty/Acceptance. Do not insert sample legal content.
+4. Confirm two representative simultaneous previews and observe actual runtime
+   memory before drawing capacity conclusions.
+5. After any approved provisioning correction, use **Check again**, then the
+   preview's **Retry**. Estimates must remain 503 while unavailable, never an
+   old-design PDF. A still-running shared browser retains its actual original
+   source until it closes/relaunches; changed hints do not rewrite its history.
+
+No new health endpoint, legacy response headers or fallback notices were added.
+
+## Historical IC4.2 evidence (superseded where noted above)
 
 ## Delivery and findings
 

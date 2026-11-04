@@ -25,7 +25,10 @@ describe("admin document settings", () => {
     expect((await request(appFor("admin", null)).get("/api/settings/documents/renderer")).status).toBe(403);
     expect((await request(appFor()).get("/api/settings/documents/renderer").set("X-Company-Id", "b")).status).toBe(409);
     expect(mocks.checkDocumentRenderer).not.toHaveBeenCalled();
-    const status = { status: "ready", reason: null, executableSource: "PATH", browserVersion: "Chrome/138", checkedAt: new Date().toISOString() };
+    const status = { status: "ready", reason: null, executableSource: "PATH", attempts: [
+      { source: "PUPPETEER_EXECUTABLE_PATH", outcome: "NOT_FOUND" },
+      { source: "BUILD_MANIFEST", outcome: "NOT_FOUND" }, { source: "PATH_CHROMIUM", outcome: "SELECTED" },
+    ], browserVersion: "Chrome/138", checkedAt: new Date().toISOString() };
     mocks.checkDocumentRenderer.mockResolvedValue(status);
     const response = await request(appFor()).get("/api/settings/documents/renderer");
     expect(response.headers["cache-control"]).toBe("no-store"); expect(response.body).toEqual(status);

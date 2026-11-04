@@ -3,9 +3,10 @@ import { execFileSync } from "node:child_process";
 import { estimateFixture } from "./fixtures";
 import { renderEstimateDocument } from "../estimatePdf";
 import { closeDocumentBrowser, DocumentRendererUnavailable } from "./browser";
-afterEach(async () => { await closeDocumentBrowser(); vi.unstubAllEnvs(); });
+import * as discovery from "./discovery";
+afterEach(async () => { await closeDocumentBrowser(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 it("never substitutes a legacy estimate when the executable is missing", async () => {
-  vi.stubEnv("PUPPETEER_EXECUTABLE_PATH", "/not-a-real-executable");
+  vi.spyOn(discovery, "discoverChromium").mockResolvedValue({ path: null, executableSource: null, attempts: [{ source: "NIX_STORE", outcome: "NOT_FOUND" }] });
   await expect(renderEstimateDocument(estimateFixture(12))).rejects.toBeInstanceOf(DocumentRendererUnavailable);
 });
 it("renders the shared estimate design", async () => {

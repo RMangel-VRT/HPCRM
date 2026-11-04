@@ -154,23 +154,34 @@ Executable precedence is:
 
 1. `PUPPETEER_EXECUTABLE_PATH`
 2. `REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE`
-3. `which chromium`, then `which chromium-browser`
+3. `CHROMIUM_PATH`
+4. The optional `dist/document-runtime.json` executable hint
+5. PATH lookup, in order: `chromium`, `chromium-browser`, `google-chrome`,
+   `google-chrome-stable` (directories retain PATH order)
+6. Existing `/nix/store/*-chromium-*/bin/chromium` candidates, sorted by store
+   directory name using deterministic code-unit ordering
 
-Overrides must be executable regular files; an invalid override is
-`EXECUTABLE_NOT_FOUND`, not a launch failure or an invitation to silently select
-another executable. The supported Nix system dependency installer was rerun and
-confirmed both packages already installed. Current Replit configuration guidance
-supports this `[nix].packages` declaration as well as `replit.nix`; it is retained.
+Every candidate must be an executable regular file (symlinks to such files are
+allowed). Missing, non-file and non-executable candidates are recorded and
+**skipped**, including explicit overrides and build hints. Missing, unreadable,
+malformed or invalid manifests are optional unusable hints, never API startup
+failures. Exhaustion is `EXECUTABLE_NOT_FOUND`; selecting an executable is not
+proof it can launch. Discovery has a single 1500ms budget, at most 64 PATH
+directories, 8192 store entries and 16 sorted Nix candidates, with at most 26
+fixed-code attempts. An oversized store listing is not partially sorted/used;
+it reports `LIMIT_REACHED`. No browser is downloaded. The supported Nix
+declaration is retained; no provisioning/dependency changes were made in IC4.3.
 
 The API build now runs `scripts/prepare-document-runtime.mjs`: it resolves
 Chromium **in that build environment**, bundles the renderer, renders/stamps two
 PDFs concurrently from `/tmp` using only copied assets, and records
 `dist/document-runtime.json`. A failed probe fails the build. The production
-artifact run command and package `start` both use `scripts/start.mjs`. Unless an
-explicit override was supplied, it sets `PUPPETEER_EXECUTABLE_PATH` to that
-build's executable before importing the API. This removes dependence on a
-different runtime shell PATH; no development store path is committed or copied
-to a deployment's settings. Keep the runtime manifest, assets, Nix closure and
+artifact run command and package `start` both use `scripts/start.mjs`. It imports
+the API without reading the optional manifest or changing executable environment
+variables. Build probes and real browser launches use the same discovery rules;
+the renderer reads the recorded executable as `BUILD_MANIFEST`, after the three
+explicit hints. A stale hint falls through to PATH/Nix. No development store
+path is committed or copied to deployment settings. Keep the manifest, assets, Nix closure and
 runtime dependencies with the bundle. Missing executables are still reported
 by the admin check, not silently substituted with another PDF design.
 
@@ -192,17 +203,42 @@ Only these public fields are returned:
 ```
 { status: "ready" | "unavailable",
   reason: null | "EXECUTABLE_NOT_FOUND" | "LAUNCH_FAILED" | "RENDER_FAILED",
-  executableSource: null | "PUPPETEER_EXECUTABLE_PATH" | "REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE" | "PATH",
+  executableSource: null | "PUPPETEER_EXECUTABLE_PATH" |
+    "REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE" | "CHROMIUM_PATH" |
+    "BUILD_MANIFEST" | "PATH" | "NIX_STORE",
+  attempts: [{ source: SOURCE_CODE, outcome: OUTCOME_CODE }],
   browserVersion: string | null, checkedAt: ISO }
 ```
 
-A configured but invalid executable retains its configured source code.
+`attempts` is additive and ordered, ending at selection or exhaustion. Source
+codes are the three environment variable **names**, `BUILD_MANIFEST`,
+`PATH_CHROMIUM`, `PATH_CHROMIUM_BROWSER`, `PATH_GOOGLE_CHROME`,
+`PATH_GOOGLE_CHROME_STABLE`, and `NIX_STORE`. Outcomes are `NOT_CONFIGURED`,
+`NOT_FOUND`, `NOT_EXECUTABLE`, `NOT_FILE`, `INVALID_HINT`, `SELECTED`,
+`LIMIT_REACHED`, and `TIMED_OUT`. Multiple Nix candidates may produce multiple
+`NIX_STORE` attempts; the list is bounded and contains no paths. An absent
+manifest is `INVALID_HINT`, as are malformed or unreadable manifests.
+`executableSource` identifies the selected executable, or is null on exhaustion.
+Invalid configured sources remain visible only in their skipped attempts.
+Health uses selection metadata from the **actual shared-browser launch**; reuse
+does not re-resolve a different executable after hints/environment change.
+Checks timing out in the queue, before selection, have null source/empty attempts.
+Once selected, attempts survive launch failures and render/deadline failures.
 Render/queue/deadline failures are `RENDER_FAILED`; actual launch failures are
 `LAUNCH_FAILED`. Request disconnect cancels queued/page work. The bilingual
 Documents row checks on mount, hides stale readiness while checking or on errors,
 and supplies **Check again**. Unavailable means estimates cannot be generated,
 not that they use an old design. Preview shows admin guidance and **Retry** for
 the exact 503, preserving cancellation and object-URL cleanup.
+
+Private process logs record the first selected source/path once per process,
+and fixed attempt codes on discovery exhaustion. Launch failures log only a
+bounded name and first message line (200 characters each), plus `errorCode`
+matching `[A-Z][A-Z0-9_]{0,39}` or `UNKNOWN`. No error object, stack, HTML,
+document contents or subsequent stderr/message lines are logged. Executable
+paths and environment **values** never appear in this status response.
+Launch flags, shared reuse, two-job admission and the overall 20-second health
+deadline are unchanged; discovery does not retry launch/content/render errors.
 
 ### Proven versus still unobserved
 

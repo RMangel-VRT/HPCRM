@@ -38,22 +38,27 @@ Chromium is provisioned as a supported Nix system package through
 Retain those supported Nix dependencies when publishing. Their declaration alone
 is not proof that a particular deployed process can launch Chromium.
 The API resolves `PUPPETEER_EXECUTABLE_PATH`, then
-`REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE`, then `chromium`/`chromium-browser` on
-PATH. Do not copy a development-only executable override into autoscale.
+`REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE`, `CHROMIUM_PATH`, the optional build
+manifest, PATH (`chromium`, `chromium-browser`, `google-chrome`,
+`google-chrome-stable`), then a bounded deterministic Nix-store probe. Stale or
+unusable hints are recorded and skipped. Do not copy a development-only
+executable override into autoscale.
 `puppeteer-core` does not download a browser. Build copies the committed document
 assets/fonts into `dist/assets/documents`; keep that directory with the bundle.
 Build now verifies two concurrent real renders from `/tmp`, records that build's
 resolved executable in `dist/document-runtime.json`, and fails if Chromium/assets
 cannot render. Package start and the production artifact run command use
-`scripts/start.mjs`, which supplies that executable via
-`PUPPETEER_EXECUTABLE_PATH` unless an explicit override already exists. Retain the
+`scripts/start.mjs`, which imports the API without modifying executable hints.
+The renderer reads the optional manifest as `BUILD_MANIFEST`, not an environment
+override; unusable/missing manifests cannot break API startup. Retain the
 manifest and Nix closure with the bundle; never pin a development store path in
 production settings. The bundle verifier also tests two simultaneous 60-line
 estimates with the Nix browser removed from the runtime shell PATH.
 **Estimates have no legacy fallback:** unavailable launch returns the safe 503
 `DOCUMENT_RENDERER_UNAVAILABLE`; other rendering failures remain safe 500s.
 Active-company admins can check **Settings → Documents → PDF engine** (real
-render, overall 20-second deadline, no-store, fixed diagnostic codes).
+render, overall 20-second deadline, no-store, ordered fixed diagnostic codes
+from the executable actually launched/reused, without paths).
 After Randy publishes, require **Ready**, use **Check again**, preview an estimate
 and confirm two concurrent representative previews while observing actual memory.
 Development sampled about 1502 MiB summed process-tree RSS (shared pages counted

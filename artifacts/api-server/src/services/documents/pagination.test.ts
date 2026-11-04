@@ -10,7 +10,7 @@ import { displayDate, quantity, MOUNTAIN_RESERVE } from "./layout";
 
 const output = new URL("../../../../../generated-artifacts/ic4-2/", import.meta.url).pathname;
 let unavailable = false;
-try { chromiumExecutable(); } catch { unavailable = true; }
+try { await chromiumExecutable(); } catch { unavailable = true; }
 afterAll(closeDocumentBrowser);
 function pageText(bytes: Buffer) {
   return execFileSync("pdftotext", ["-layout", "-", "-"], { input: bytes }).toString().split("\f").filter(p => p.trim());

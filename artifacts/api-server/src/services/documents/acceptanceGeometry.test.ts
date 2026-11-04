@@ -8,7 +8,7 @@ import type { Browser } from "puppeteer-core";
 let browser: Browser | undefined;
 afterAll(async () => { await browser?.close(); });
 it.each(["estimate", "proposal"])("%s border hugs signatures with its unchanged reserve immediately outside", async kind => {
-  browser ??= await puppeteer.launch({ executablePath: chromiumExecutable(), headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  browser ??= await puppeteer.launch({ executablePath: await chromiumExecutable(), headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
   const page = await browser.newPage();
   try {
     const estimate = estimateFixture(12);

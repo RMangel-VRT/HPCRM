@@ -2,7 +2,9 @@ import { build } from "esbuild";
 import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { cp, mkdir, writeFile, rm } from "node:fs/promises";
 const artifact = new URL("../", import.meta.url);
+await mkdir(new URL("../../generated-artifacts/ic4/", artifact), { recursive: true });
 // Run after the real API build; use the identical copied assets and a tiny export-only entry.
 await build({ entryPoints: [fileURLToPath(new URL("src/services/documents/render.ts", artifact))],
   outfile: fileURLToPath(new URL("dist/verify-documents.mjs", artifact)),
@@ -35,16 +37,19 @@ const concurrentCode = `
   const output=${JSON.stringify(fileURLToPath(new URL("../../generated-artifacts/ic4-2/", artifact)))};
   mkdirSync(output,{recursive:true});
   try {
+    let discovery;
     const results=await Promise.all([1,2].map(async n=>{
-      const bytes=await renderDocumentPdf({html:estimateDocumentHtml(estimateFixture(60)),footerLabel:'Concurrent estimate',shortHeaderNumber:'EST-42'},{overallTimeoutMs:20000});
+      const bytes=await renderDocumentPdf({html:estimateDocumentHtml(estimateFixture(60)),footerLabel:'Concurrent estimate',shortHeaderNumber:'EST-42'},{overallTimeoutMs:20000,onDiscovery:report=>{discovery=report}});
       writeFileSync(output+'concurrent-'+n+'.pdf',bytes);return bytes.length;
     }));
-    console.log(JSON.stringify({concurrent60LineEstimates:results.length,pdfBytes:results}));
+    if(discovery.executableSource!=="BUILD_MANIFEST") throw new Error("CONCURRENT_BUILD_HINT_NOT_USED");
+    console.log(JSON.stringify({concurrent60LineEstimates:results.length,...discovery,pdfBytes:results}));
   } finally { await closeDocumentBrowser(); }
 `;
 const child = spawn(process.execPath, ["--input-type=module", "-e", concurrentCode], {
   cwd: "/tmp", env: { ...process.env, NODE_ENV: "production", PATH: "/usr/bin:/bin",
-    PUPPETEER_EXECUTABLE_PATH: runtime.executablePath },
+    PUPPETEER_EXECUTABLE_PATH: "/missing/ic43-override", REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE: "/missing/ic43-playwright",
+    CHROMIUM_PATH: "/missing/ic43-chromium" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let peakTreeRssKiB = 0;
@@ -65,3 +70,63 @@ try {
   if (exit !== 0) throw new Error("CONCURRENT_DOCUMENT_BUNDLE_CHECK_FAILED");
   console.log(JSON.stringify({ peakSampledProcessTreeRssMiB: Math.round(peakTreeRssKiB / 1024), minimumProductionMemory: "not established" }));
 } finally { clearInterval(samples); clearTimeout(deadline); }
+
+// Run the unchanged production start wrapper in an isolated bundle layout.
+// Only synthetic fixtures are imported: no API boot, DB, settings or customer data.
+const smoke = new URL("dist/discovery-smoke/", artifact);
+await mkdir(new URL("scripts/", smoke), { recursive: true });
+await mkdir(new URL("dist/", smoke), { recursive: true });
+await cp(new URL("scripts/start.mjs", artifact), new URL("scripts/start.mjs", smoke));
+await cp(new URL("dist/assets/", artifact), new URL("dist/assets/", smoke), { recursive: true });
+await build({
+  stdin: {
+    contents: `
+      import {writeFileSync} from "node:fs";
+      import {checkDocumentRenderer} from "./src/services/documents/health";
+      import {renderDocumentPdf,closeDocumentBrowser} from "./src/services/documents/render";
+      import {estimateFixture} from "./src/services/documents/fixtures";
+      import {estimateDocumentHtml} from "./src/services/documents/estimate";
+      try {
+        const status=await checkDocumentRenderer();
+        if(status.status!=="ready" || status.executableSource!==process.env.EXPECTED_SOURCE)
+          throw new Error("STARTUP_DISCOVERY_SMOKE_FAILED:"+JSON.stringify(status));
+        const bytes=await renderDocumentPdf({html:estimateDocumentHtml(estimateFixture(12)),footerLabel:"Sample estimate",shortHeaderNumber:"EST-42"});
+        if(bytes.subarray(0,4).toString()!=="%PDF") throw new Error("SAMPLE_PDF_INVALID");
+        writeFileSync(process.env.SMOKE_OUTPUT,bytes);
+        console.log(JSON.stringify({startupSmoke:process.env.SMOKE_CASE,...status,pdfBytes:bytes.length}));
+      } finally { await closeDocumentBrowser(); }
+    `,
+    resolveDir: fileURLToPath(artifact), sourcefile: "discovery-smoke.ts",
+  },
+  outfile: fileURLToPath(new URL("dist/index.mjs", smoke)),
+  bundle: true, platform: "node", format: "esm", packages: "external",
+  plugins: [{ name: "bundle-workspace-sources", setup(builder) {
+    const require = createRequire(new URL("../package.json", import.meta.url));
+    builder.onResolve({ filter: /^@workspace\// }, args => ({ path: require.resolve(args.path), external: false }));
+  } }],
+});
+const smokeOutput = new URL("../../generated-artifacts/ic4-3/", artifact);
+await mkdir(smokeOutput, { recursive: true });
+const manifest = new URL("dist/document-runtime.json", smoke);
+for (const [name, hint, expected, limitedPath] of [
+  ["stale-overrides-valid-build", JSON.stringify(runtime), "BUILD_MANIFEST", true],
+  ["stale-overrides-stale-build", '{"executablePath":"/missing/ic43-build"}', "PATH", false],
+  ["stale-overrides-invalid-build", "{invalid", "PATH", false],
+  ["stale-overrides-missing-build", null, "PATH", false],
+  ["stale-overrides-unreadable-build", "directory", "PATH", false],
+  ["stale-hints-nix-probe", '{"executablePath":"/missing/ic43-build"}', "NIX_STORE", true],
+]) {
+  await rm(manifest, { recursive: true, force: true });
+  if (hint === "directory") await mkdir(manifest);
+  else if (hint !== null) await writeFile(manifest, hint);
+  const output = fileURLToPath(new URL(`${name}.pdf`, smokeOutput));
+  process.stdout.write(execFileSync(process.execPath, [fileURLToPath(new URL("scripts/start.mjs", smoke))], {
+    cwd: "/tmp", timeout: 30_000, env: { ...process.env, NODE_ENV: "production",
+      PUPPETEER_EXECUTABLE_PATH: "/missing/ic43-puppeteer", REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE: "/missing/ic43-playwright",
+      CHROMIUM_PATH: "/missing/ic43-chromium", ...(limitedPath ? { PATH: "/usr/bin:/bin" } : {}),
+      EXPECTED_SOURCE: expected, SMOKE_CASE: name, SMOKE_OUTPUT: output,
+    },
+  }));
+  const text = execFileSync("pdftotext", ["-layout", output, "-"], { encoding: "utf8" });
+  if (!text.includes("Acceptance") || !text.includes("BY CATEGORY")) throw new Error("SAMPLE_ESTIMATE_DESIGN_MISSING");
+}

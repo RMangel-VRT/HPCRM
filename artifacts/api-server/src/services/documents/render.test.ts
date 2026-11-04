@@ -11,7 +11,7 @@ import { escapeHtml } from "./layout";
 
 const output = new URL("../../../../../generated-artifacts/ic4/png/", import.meta.url).pathname;
 let unavailable = false;
-try { chromiumExecutable(); } catch { unavailable = true; }
+try { await chromiumExecutable(); } catch { unavailable = true; }
 afterAll(closeDocumentBrowser);
 describe.skipIf(unavailable)("real offline Chromium and two-pass pagination (requires Nix Chromium)", () => {
   it.each([12, 60, 13])("renders %i-line fixture with repeat headings, counted footers and last-page mountains", async count => {

@@ -1,35 +1,27 @@
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
-import { execFileSync } from "node:child_process";
-import { accessSync, constants, statSync } from "node:fs";
 import { logger } from "../../lib/logger";
 import { paginatePricing } from "./pagination";
+import { discoverChromium, type DiscoveryReport } from "./discovery";
+export type { ExecutableSource, DiscoveryReport, DiscoveryAttempt } from "./discovery";
 
-export type ExecutableSource = "PUPPETEER_EXECUTABLE_PATH" | "REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE" | "PATH";
 export type RendererFailure = "EXECUTABLE_NOT_FOUND" | "LAUNCH_FAILED" | "RENDER_FAILED";
 export class DocumentRendererUnavailable extends Error {
-  constructor(public readonly reason: RendererFailure = "EXECUTABLE_NOT_FOUND") { super("DOCUMENT_RENDERER_UNAVAILABLE"); }
+  constructor(public readonly reason: RendererFailure = "EXECUTABLE_NOT_FOUND",
+    public readonly discovery: DiscoveryReport = { executableSource: null, attempts: [] }) { super("DOCUMENT_RENDERER_UNAVAILABLE"); }
 }
-export function resolveChromiumExecutable(): { path: string; source: ExecutableSource } {
-  function checked(path: string, source: ExecutableSource) {
-    try {
-      accessSync(path, constants.X_OK);
-      if (!statSync(path).isFile()) throw new Error();
-      return { path, source };
-    } catch { throw new DocumentRendererUnavailable("EXECUTABLE_NOT_FOUND"); }
+let loggedSelection = false;
+export async function resolveChromiumExecutable() {
+  const result = await discoverChromium();
+  const { executableSource, attempts } = result;
+  if (!result.path) {
+    logger.warn({ reason: "EXECUTABLE_NOT_FOUND", attempts }, "DOCUMENT_RENDERER_UNAVAILABLE");
+    throw new DocumentRendererUnavailable("EXECUTABLE_NOT_FOUND", { executableSource, attempts });
   }
-  for (const source of ["PUPPETEER_EXECUTABLE_PATH", "REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE"] as const) {
-    if (process.env[source]) return checked(process.env[source]!, source);
-  }
-  for (const name of ["chromium", "chromium-browser"]) {
-    try {
-      const path = execFileSync("which", [name], { encoding: "utf8", timeout: 1000, stdio: ["ignore", "pipe", "ignore"] }).trim();
-      return checked(path, "PATH");
-    } catch { /* next supported name */ }
-  }
-  throw new DocumentRendererUnavailable("EXECUTABLE_NOT_FOUND");
+  return { ...result, path: result.path, source: executableSource! };
 }
-export const chromiumExecutable = () => resolveChromiumExecutable().path;
+export const chromiumExecutable = async () => (await resolveChromiumExecutable()).path;
 let browser: Promise<Browser> | undefined;
+let pendingDiscovery: Promise<DiscoveryReport> | undefined;
 let active = 0;
 const queue: (() => void)[] = [];
 let idle: ReturnType<typeof setTimeout> | undefined;
@@ -39,8 +31,14 @@ export async function closeDocumentBrowser(): Promise<void> {
   const current = browser; browser = undefined;
   if (current) await (await current.catch(() => undefined))?.close().catch(() => undefined);
 }
-async function launch(): Promise<Browser> {
-  const executablePath = chromiumExecutable();
+async function launch(onDiscovery: (report: DiscoveryReport) => void): Promise<Browser> {
+  const { path: executablePath, executableSource, attempts } = await resolveChromiumExecutable();
+  const discovery = { executableSource, attempts };
+  if (!loggedSelection) {
+    loggedSelection = true;
+    logger.info({ executableSource, executablePath }, "DOCUMENT_CHROMIUM_SELECTED");
+  }
+  onDiscovery(discovery);
   try {
     const result = await puppeteer.launch({ executablePath, headless: true, timeout: DEADLINE, protocolTimeout: DEADLINE,
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-background-networking", "--no-first-run"] });
@@ -50,9 +48,11 @@ async function launch(): Promise<Browser> {
     });
     return result;
   } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
     logger.warn({ reason: "LAUNCH_FAILED", errorName: error instanceof Error ? error.name.slice(0, 200) : "Error",
-      firstLine: error instanceof Error ? error.message.split(/[\r\n]/, 1)[0].trim().slice(0, 200) : "Unknown launch failure" }, "DOCUMENT_RENDERER_UNAVAILABLE");
-    throw new DocumentRendererUnavailable("LAUNCH_FAILED");
+      errorCode: typeof code === "string" && /^[A-Z][A-Z0-9_]{0,39}$/.test(code) ? code : "UNKNOWN",
+      firstLine: error instanceof Error ? error.message.split(/[\r\n]/, 1)[0].replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, 200) : "Unknown launch failure" }, "DOCUMENT_RENDERER_UNAVAILABLE");
+    throw new DocumentRendererUnavailable("LAUNCH_FAILED", discovery);
   }
 }
 export interface RenderOptions {
@@ -60,6 +60,7 @@ export interface RenderOptions {
   overallTimeoutMs?: number;
   signal?: AbortSignal;
   onBrowser?: (instance: Browser) => Promise<void>;
+  onDiscovery?: (report: DiscoveryReport) => void;
 }
 function admit(signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -108,12 +109,20 @@ export async function chromiumPdf(html: string, finish: (bytes: Buffer) => Promi
     try {
       signal.throwIfAborted();
       if (!browser) {
-        const pending = launch();
+        let selected!: (report: DiscoveryReport) => void;
+        pendingDiscovery = new Promise(resolve => { selected = resolve; });
+        const pending = launch(selected);
         browser = pending;
         void pending.catch(() => { if (browser === pending) browser = undefined; });
       }
+      // Capture selection even when a launch is still pending at the deadline.
+      const report = pendingDiscovery!;
+      const notify = report.then(value => { if (!signal.aborted) options.onDiscovery?.(value); });
+      // Observe callback failures; await them below on the ordinary success path.
+      void notify.catch(() => undefined);
       const instance = await browser;
       signal.throwIfAborted();
+      await notify;
       if (options.onBrowser) await step(options.onBrowser(instance));
       // newPage cannot be cancelled. Wait for it and close even if the caller expired.
       page = await instance.newPage();

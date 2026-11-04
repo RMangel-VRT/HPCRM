@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ launch: vi.fn() }));
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const mocks = vi.hoisted(() => ({ launch: vi.fn(), discover: vi.fn() }));
 vi.mock("puppeteer-core", () => ({ default: { launch: mocks.launch } }));
-vi.mock("../../lib/logger", () => ({ logger: { warn: vi.fn() } }));
+vi.mock("./discovery", () => ({ discoverChromium: mocks.discover }));
+vi.mock("../../lib/logger", () => ({ logger: { warn: vi.fn(), info: vi.fn() } }));
 import { chromiumPdf, closeDocumentBrowser, DocumentRendererUnavailable } from "./browser";
 import { logger } from "../../lib/logger";
+import type { DiscoveryReport } from "./browser";
+const report = { executableSource: "PATH" as const, attempts: [{ source: "PATH_CHROMIUM" as const, outcome: "SELECTED" as const }] };
+beforeEach(() => { mocks.discover.mockResolvedValue({ path: process.execPath, ...report }); });
 
 afterEach(async () => { await closeDocumentBrowser(); vi.useRealTimers(); vi.unstubAllEnvs(); vi.resetAllMocks(); });
 function fakeBrowser() {
@@ -28,6 +32,9 @@ describe("bounded shared document browser lifecycle", () => {
     expect(mocks.launch).toHaveBeenCalledTimes(1); expect(pages).toHaveLength(2);
     release(); await Promise.all(jobs);
     expect(browser.newPage).toHaveBeenCalledTimes(3); expect(pages.every(p => p.close.mock.calls.length === 1)).toBe(true);
+    expect(logger.info).toHaveBeenCalledExactlyOnceWith({ executableSource: "PATH", executablePath: process.execPath }, "DOCUMENT_CHROMIUM_SELECTED");
+    await closeDocumentBrowser(); fakeBrowser(); await chromiumPdf("relaunch");
+    expect(logger.info).toHaveBeenCalledOnce();
   });
   it("times out a stuck page and cleans it before serving queued work", async () => {
     vi.useFakeTimers();
@@ -46,18 +53,52 @@ describe("bounded shared document browser lifecycle", () => {
     await vi.advanceTimersByTimeAsync(299_999); expect(browser.close).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1); expect(browser.close).toHaveBeenCalledOnce();
   });
-  it("invalid executable override is absence, not launch failure, and never falls through", async () => {
-    vi.stubEnv("PUPPETEER_EXECUTABLE_PATH", "/private/missing/browser");
-    vi.stubEnv("REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE", "/other/browser");
-    mocks.launch.mockRejectedValue(new Error("secret launch detail"));
-    await expect(chromiumPdf("html")).rejects.toEqual(new DocumentRendererUnavailable());
+  it("exhausted discovery retains safe attempts and never launches", async () => {
+    const discovery: DiscoveryReport = { executableSource: null, attempts: [{ source: "NIX_STORE", outcome: "NOT_FOUND" }] };
+    mocks.discover.mockResolvedValue({ path: null, ...discovery });
+    await expect(chromiumPdf("html")).rejects.toEqual(new DocumentRendererUnavailable("EXECUTABLE_NOT_FOUND", discovery));
     expect(mocks.launch).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith({ reason: "EXECUTABLE_NOT_FOUND", attempts: discovery.attempts }, "DOCUMENT_RENDERER_UNAVAILABLE");
   });
   it("classifies a launch error without exposing it to the caller", async () => {
     vi.stubEnv("PUPPETEER_EXECUTABLE_PATH", process.execPath);
-    mocks.launch.mockRejectedValue(new TypeError(`${"x".repeat(220)}\nNEVER LOG SECOND LINE`));
-    await expect(chromiumPdf("html")).rejects.toEqual(new DocumentRendererUnavailable("LAUNCH_FAILED"));
-    expect(logger.warn).toHaveBeenCalledWith({ reason: "LAUNCH_FAILED", errorName: "TypeError", firstLine: "x".repeat(200) }, "DOCUMENT_RENDERER_UNAVAILABLE");
+    mocks.launch.mockRejectedValue(Object.assign(new TypeError(`${"x".repeat(220)}\nNEVER LOG SECOND LINE`), { code: "ENOENT" }));
+    await expect(chromiumPdf("html")).rejects.toEqual(new DocumentRendererUnavailable("LAUNCH_FAILED", report));
+    expect(logger.warn).toHaveBeenCalledWith({ reason: "LAUNCH_FAILED", errorName: "TypeError", errorCode: "ENOENT", firstLine: "x".repeat(200) }, "DOCUMENT_RENDERER_UNAVAILABLE");
+    expect(mocks.discover).toHaveBeenCalledOnce();
+  });
+  it("reports the actual shared browser selection even if hints change between jobs", async () => {
+    fakeBrowser();
+    const first = vi.fn(), second = vi.fn();
+    await chromiumPdf("one", undefined, { onDiscovery: first });
+    mocks.discover.mockResolvedValue({ path: "/new", executableSource: "CHROMIUM_PATH", attempts: [] });
+    await chromiumPdf("two", undefined, { onDiscovery: second });
+    expect(first).toHaveBeenCalledWith(report); expect(second).toHaveBeenCalledWith(report);
+    expect(mocks.discover).toHaveBeenCalledOnce();
+  });
+  it("re-resolves only after the shared browser is closed", async () => {
+    fakeBrowser(); await chromiumPdf("one"); await closeDocumentBrowser();
+    fakeBrowser(); await chromiumPdf("two");
+    expect(mocks.discover).toHaveBeenCalledTimes(2);
+  });
+  it("notifies both concurrent checks of the selected executable before a slow launch times out", async () => {
+    vi.useFakeTimers();
+    const { browser } = fakeBrowser();
+    mocks.launch.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve(browser), 200)));
+    const first = vi.fn(), second = vi.fn();
+    const jobs = [chromiumPdf("one", undefined, { overallTimeoutMs: 100, onDiscovery: first }),
+      chromiumPdf("two", undefined, { overallTimeoutMs: 100, onDiscovery: second })];
+    const rejected = jobs.map(job => expect(job).rejects.toThrow("DOCUMENT_RENDER_TIMEOUT"));
+    await vi.advanceTimersByTimeAsync(101); await Promise.all(rejected);
+    expect(first).toHaveBeenCalledWith(report); expect(second).toHaveBeenCalledWith(report);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(browser.newPage).not.toHaveBeenCalled();
+  });
+  it("sanitizes unexpected launch codes and logs no second line or raw error object", async () => {
+    mocks.launch.mockRejectedValue(Object.assign(new Error("first\nPRIVATE"), { code: "secret value\nPRIVATE" }));
+    await expect(chromiumPdf("html")).rejects.toBeInstanceOf(DocumentRendererUnavailable);
+    expect(logger.warn).toHaveBeenCalledWith({ reason: "LAUNCH_FAILED", errorName: "Error", errorCode: "UNKNOWN", firstLine: "first" }, "DOCUMENT_RENDERER_UNAVAILABLE");
+    expect(JSON.stringify(vi.mocked(logger.warn).mock.calls)).not.toContain("PRIVATE");
   });
   it("removes an expired queued check and never creates its page", async () => {
     const { browser } = fakeBrowser();
