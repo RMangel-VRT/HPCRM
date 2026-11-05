@@ -3,7 +3,7 @@ import { randomUUID, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
   companies, users, companyUsers, customers, crews, agreements, agreementTerms, termScopeLines,
-  weeklyScheduleTemplates, maintenanceCrews, maintenanceVisitConfigs, scheduleBlocks, hashPassword,
+  hashPassword,
 } from "@workspace/db";
 import { db } from "../db";
 
@@ -35,17 +35,7 @@ export async function createRouteFixture() {
       included: true, quantity: 26, monthSpread: Array(12).fill(1) });
     await db.update(customers).set({ isParent: "true" }).where(eq(customers.id, properties[0].id));
     for (const property of properties.slice(1)) await db.update(customers).set({ parentCustomerId: properties[0].id }).where(eq(customers.id, property.id));
-    const [template] = await db.insert(weeklyScheduleTemplates).values({ companyId, name: "Disposable Route Template" }).returning();
-    const columns = await db.insert(maintenanceCrews).values(standing.map(c => ({ companyId, crewId: c.id, name: c.name }))).returning();
-    const configs = await db.insert(maintenanceVisitConfigs).values(properties.slice(1, 7).map(p => ({
-      companyId, customerId: p.id, estimatedDurationMinutes: 30, notes: "Planner snapshot",
-    }))).returning();
-    const blocks = await db.insert(scheduleBlocks).values(configs.map((config, i) => ({
-      templateId: template.id, visitConfigId: config.id, crewId: columns[0].id,
-      dayOfWeek: (["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const)[i],
-      sortOrder: i, startTime: `0${i + 1}:00`,
-    }))).returning();
-    return { companyId, userId, email, password, standing, properties, agreement, term, template, columns, configs, blocks };
+    return { companyId, userId, email, password, standing, properties, agreement, term };
   } catch (error) { await removeRouteFixture(companyId, userId); throw error; }
 }
 export async function removeRouteFixture(companyId: string, userId: string) {

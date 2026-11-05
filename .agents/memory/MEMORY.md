@@ -11,7 +11,7 @@
 - [Colorado calendar days](colorado-calendar-days.md) — hosting may run in UTC; Colorado business-day calculations must not silently inherit the host timezone.
 - [Contract Center boundaries](contract-center-phase-boundaries.md) — renewals preserve seasons; early slices leave legacy behavior unchanged; import old date-picker dates using UTC components.
 - [Contract outcome boundaries](contract-outcome-boundaries.md) — non-renewal does not end worked seasons; customer inactivation is the narrow authorized background-job exception.
-- [Crew table rollout](crew-table-rollout.md) — standing identity is canonical; retain planner/campaign behavior and preserve explicit None choices across restarts.
+- [Crew table rollout](crew-table-rollout.md) — standing identity is canonical; preserve intentional campaign None choices across restarts.
 - [Validation durability](validation-durability.md) — workspace restarts can lose temporary logs; persist long-running checks in ignored project output.
 - [Scoped dependency peer resolution](scoped-dependency-peers.md) — temporarily enabling automatic peer resolution can change unrelated workspace dependencies; preserve their baseline.
 - [Visit transaction order](visit-transaction-order.md) — company scheduling gate precedes sorted ticket locks; finer-grained gates need coordinated phantom/deadlock protection.
@@ -41,7 +41,7 @@
 - [Container query verification](container-query-verification.md) — verify populated sections and both sidebar states; mocked widths can miss clipped rails.
 - [Route coverage precedence](route-coverage-precedence.md) — property contracts govern; parent coverage cannot restore a service excluded by a qualifying property contract.
 - [Route occurrence retention](route-occurrence-retention.md) — keep trip identities through property deletion; outer seasonal bounds do not authorize zero-spread months.
-- [Route import approval](route-import-approval-boundaries.md) — placement approval is independent of evolving contracts; coverage splits are informational and other template history stays intact.
+- [Recurring schedule ownership](recurring-schedule-ownership.md) — Routes is the only recurring schedule; the cancelled legacy import must not return.
 - [Proposal/estimate boundaries](proposal-estimate-boundaries.md) — finalization sends first; PDF failures never undo send, and proposals own no commercial values or acceptance.
 - [Estimate exhibit boundaries](estimate-exhibit-boundaries.md) — live display defaults are not commercial snapshots; the approved linked-only intro distinguishes NULL from empty text.
 - [PDF image-size verification](pdf-image-size-verification.md) — repeated flat-color images deduplicate; use distinct high-detail synthetic images for representative size evidence.

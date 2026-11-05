@@ -27,7 +27,6 @@ type Crew = {
   color: string | null;
   defaultHoursPerDay: number | null;
   displayOrder: number | null;
-  plannerCrew: { id: string; name: string } | null;
   campaignTeamCount: number;
   id: string;
   companyId: string;
@@ -49,7 +48,6 @@ type EligibleSupervisor = {
 };
 
 const crewSchema = standingCrewFormSchema;
-type PlannerCrew = { id: string; name: string; crewId: string | null; isActive: boolean };
 
 type CrewFormValues = z.infer<typeof crewSchema>;
 
@@ -83,10 +81,8 @@ export default function CrewsAdmin() {
   const { data: supervisors = [] } = useQuery<EligibleSupervisor[]>({
     queryKey: ["/api/crews/eligible-supervisors"],
   });
-  const { data: plannerCrews = [] } = useQuery<PlannerCrew[]>({ queryKey: ["/api/maintenance-crews"], staleTime: 30_000, refetchOnWindowFocus: true });
   const refreshCrews = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/crews"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/maintenance-crews"] });
     queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
   };
   const reorderMutation = useMutation({
@@ -102,12 +98,12 @@ export default function CrewsAdmin() {
 
   const form = useForm<CrewFormValues>({
     resolver: zodResolver(crewSchema),
-    defaultValues: { name: "", supervisorUserId: "", isActive: true, color: CREW_COLORS[0], defaultHoursPerDay: 8, plannerCrewId: null },
+    defaultValues: { name: "", supervisorUserId: "", isActive: true, color: CREW_COLORS[0], defaultHoursPerDay: 8 },
   });
 
   const openCreate = () => {
     setEditing(null);
-    form.reset({ name: "", supervisorUserId: "", isActive: true, color: CREW_COLORS[0], defaultHoursPerDay: 8, plannerCrewId: null });
+    form.reset({ name: "", supervisorUserId: "", isActive: true, color: CREW_COLORS[0], defaultHoursPerDay: 8 });
     setDialogOpen(true);
   };
 
@@ -119,7 +115,6 @@ export default function CrewsAdmin() {
       isActive: crew.isActive,
       color: crew.color ?? CREW_COLORS[crews.indexOf(crew) % CREW_COLORS.length],
       defaultHoursPerDay: crew.defaultHoursPerDay ?? 8,
-      plannerCrewId: crew.plannerCrew?.id ?? null,
     });
     setDialogOpen(true);
   };
@@ -233,7 +228,6 @@ export default function CrewsAdmin() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Hours/day</TableHead>
-                  <TableHead>Planner column</TableHead>
                   <TableHead>Supervisor</TableHead>
                   <TableHead>Active</TableHead>
                   <TableHead className="w-[120px]">Actions</TableHead>
@@ -244,7 +238,6 @@ export default function CrewsAdmin() {
                   <TableRow key={crew.id} data-testid={`row-crew-${crew.id}`}>
                     <TableCell className="font-medium"><span className="mr-2 inline-block h-3 w-3 rounded-full" style={{ backgroundColor: crew.color ?? CREW_COLORS[index % CREW_COLORS.length] }} />{crew.name}</TableCell>
                     <TableCell>{crew.defaultHoursPerDay ?? 8}</TableCell>
-                    <TableCell>{crew.plannerCrew?.name ?? "None"}</TableCell>
                     <TableCell>
                       {crew.supervisorName ?? "—"}
                       {crew.supervisorEmail ? (
@@ -317,12 +310,6 @@ export default function CrewsAdmin() {
               )} />
               <FormField control={form.control} name="defaultHoursPerDay" render={({ field }) => (
                 <FormItem><FormLabel>Hours/day</FormLabel><FormControl><Input type="number" min={0} max={24} step="0.5" value={field.value ?? ""} onChange={e => field.onChange(e.target.value === "" ? null : Number(e.target.value))} /></FormControl><FormMessage /></FormItem>
-              )} />
-              <FormField control={form.control} name="plannerCrewId" render={({ field }) => (
-                <FormItem><FormLabel>Planner crew</FormLabel><Select value={field.value ?? "none"} onValueChange={v => field.onChange(v === "none" ? null : v)}>
-                  <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                  <SelectContent><SelectItem value="none">None</SelectItem>{plannerCrews.filter(p => !p.crewId || p.id === editing?.plannerCrew?.id).map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
-                </Select><FormMessage /></FormItem>
               )} />
               <FormField
                 control={form.control}

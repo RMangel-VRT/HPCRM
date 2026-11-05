@@ -266,3 +266,31 @@ mtime_ms = 1793813405119
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/a4c67426-f4bc-42ad-a7a7-2e8658ff0f4a/e9ea5a71-39ca-4887-aeb8-7f9b4a86740d"
 storage_version_token = "1793813734267543"
 content_type = "image/png"
+
+[[outputs]]
+id = "6rY76teM_8DH6oehfBcr6"
+uri = "file://generated-artifacts/r3/R3-complete-report.md"
+type = "text"
+title = "R3 retirement report and evidence"
+description = "Inventory-first report, exact Publish warning, Randy-run production counts, complete dev inventory, baseline deltas and verbatim search appendices. No customer row exports."
+logical_id = "52a454a1-250a-4337-8a7d-4c5e73ac12a2"
+content_hash = "sha256:a7b7a8b5ea648488f9c214e254c5d2d93d2ff7dee8de8407455cee4c1aa9649b"
+size = 85619
+mtime_ms = 1793919054249
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/52a454a1-250a-4337-8a7d-4c5e73ac12a2/a27df25d-e828-40bb-bc59-b587b4040e09"
+storage_version_token = "1793919055739695"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "XNYG34suKpRzDkPb7RKt_"
+uri = "file://generated-artifacts/r3/R3-dev-tables.txt"
+type = "text"
+title = "R3 development table list"
+description = "All 134 remaining development tables for Randy’s production and Publish comparison."
+logical_id = "77e8e6ad-ab9c-4646-86f5-97457d0d0822"
+content_hash = "sha256:020945099616731067ff300230e6de8a7536ab431c805662d3f68a9156fb3f66"
+size = 3553
+mtime_ms = 1793919054777
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/77e8e6ad-ab9c-4646-86f5-97457d0d0822/6d4fc9a3-dadf-41eb-a203-b35e78175e36"
+storage_version_token = "1793919056195980"
+content_type = "text/plain"

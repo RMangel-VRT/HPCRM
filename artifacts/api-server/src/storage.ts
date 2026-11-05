@@ -1,8 +1,7 @@
-import { plannerProjection, plannerJoin, campaignProjection, campaignJoin } from "./lib/crewProjection";
-import { CrewLinkError, CrewPlacementError, validateCampaignOwner } from "./lib/crewLinks";
+import { campaignProjection, campaignJoin } from "./lib/crewProjection";
+import { CrewLinkError, validateCampaignOwner } from "./lib/crewLinks";
 import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrewWithMembers } from "@workspace/db";
 import { hardscapeStorage } from "./lib/hardscapeStorage";
-import { withPlannerWrite, withPlannerTemplateWrite, withPlannerBlockWrite } from "./lib/plannerFreeze";
 import { loadProposalEstimateSummaries } from "./services/proposalEstimates";
 import { withCustomerSyncLock } from "./services/qboCustomerSync";
 import { afterCustomerEdit, markPending, writeCustomer } from "./services/qboCustomerWrites";
@@ -27,11 +26,11 @@ export interface MyExtraBillableBatch {
   photoCount: number;
   nextDueDate: string | null;
 }
-import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type MaintenanceCrew, type InsertMaintenanceCrew, type MaintenanceVisitConfig, type InsertMaintenanceVisitConfig, type WeeklyScheduleTemplate, type InsertWeeklyScheduleTemplate, type ScheduleBlock, type InsertScheduleBlock, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct, type ChemicalNotificationTemplate, type InsertChemicalNotificationTemplate, type MailboxBackfillRun, type InsertMailboxBackfillRun } from "@workspace/db";
+import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct, type ChemicalNotificationTemplate, type InsertChemicalNotificationTemplate, type MailboxBackfillRun, type InsertMailboxBackfillRun } from "@workspace/db";
 import { db } from "./db";
 import { lockCrewCompany, validateStandingCrew, recordCrewLinkChoice } from "./lib/crewLinks";
 import { crews } from "@workspace/db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, maintenanceCrews, maintenanceVisitConfigs, weeklyScheduleTemplates, scheduleBlocks, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, proposalPlantItems, visualScopeSheets, plantPalettes, plantPaletteItems, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, mailboxAccounts, unsortedEmails, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns, crewWorksheets, crewWorksheetPhotos, crewWorksheetVersions, crewWorksheetNumberCounters, qboConnections, qboCustomerCache } from "@workspace/db";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, proposalPlantItems, visualScopeSheets, plantPalettes, plantPaletteItems, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, mailboxAccounts, unsortedEmails, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns, crewWorksheets, crewWorksheetPhotos, crewWorksheetVersions, crewWorksheetNumberCounters, qboConnections, qboCustomerCache } from "@workspace/db";
 import type { QboConnection, InsertQboConnection, QboCustomerCache } from "@workspace/db";
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@workspace/db";
 import type { VisibleMailboxes } from "./services/mailboxScope";
@@ -226,29 +225,6 @@ export interface IStorage {
   getCustomerMapDocumentById(id: string, companyId: string): Promise<CustomerMapDocument | undefined>;
   createCustomerMapDocument(document: InsertCustomerMapDocument): Promise<CustomerMapDocument>;
   deleteCustomerMapDocument(id: string, companyId: string): Promise<void>;
-  
-  // Maintenance Scheduling
-  getMaintenanceCrews(companyId: string): Promise<MaintenanceCrew[]>;
-  getMaintenanceCrewById(id: string, companyId: string): Promise<MaintenanceCrew | undefined>;
-  deleteMaintenanceCrew(id: string, companyId: string): Promise<void>;
-  
-  getMaintenanceVisitConfig(customerId: string, companyId: string): Promise<MaintenanceVisitConfig | undefined>;
-  createMaintenanceVisitConfig(config: InsertMaintenanceVisitConfig): Promise<MaintenanceVisitConfig>;
-  updateMaintenanceVisitConfig(id: string, companyId: string, updates: Partial<InsertMaintenanceVisitConfig>): Promise<MaintenanceVisitConfig | undefined>;
-  getMaintenanceVisitConfigs(companyId: string): Promise<MaintenanceVisitConfig[]>;
-  
-  getWeeklyScheduleTemplates(companyId: string): Promise<WeeklyScheduleTemplate[]>;
-  getWeeklyScheduleTemplateById(id: string, companyId: string): Promise<WeeklyScheduleTemplate | undefined>;
-  createWeeklyScheduleTemplate(template: InsertWeeklyScheduleTemplate): Promise<WeeklyScheduleTemplate>;
-  updateWeeklyScheduleTemplate(id: string, companyId: string, updates: Partial<InsertWeeklyScheduleTemplate>): Promise<WeeklyScheduleTemplate | undefined>;
-  deleteWeeklyScheduleTemplate(id: string, companyId: string): Promise<void>;
-  duplicateWeeklyScheduleTemplate(id: string, companyId: string, newName: string): Promise<WeeklyScheduleTemplate>;
-  
-  getScheduleBlocks(templateId: string): Promise<ScheduleBlock[]>;
-  createScheduleBlock(block: InsertScheduleBlock): Promise<ScheduleBlock>;
-  updateScheduleBlock(id: string, updates: Partial<InsertScheduleBlock>): Promise<ScheduleBlock | undefined>;
-  deleteScheduleBlock(id: string): Promise<void>;
-  deleteScheduleBlocksByTemplate(templateId: string): Promise<void>;
   
   // Ticket Notifications
   getNotificationsByUser(userId: string, companyId: string, filter?: NotificationFilter): Promise<TicketNotification[]>;
@@ -682,10 +658,6 @@ export class PgStorage implements IStorage {
     await db.execute(sql`DELETE FROM ticket_types`);
     
     // 3. Delete scheduling data
-    await db.execute(sql`DELETE FROM schedule_blocks`);
-    await db.execute(sql`DELETE FROM weekly_schedule_templates`);
-    await db.execute(sql`DELETE FROM maintenance_visit_configs`);
-    await db.execute(sql`DELETE FROM maintenance_crews`);
     
     // 4. Delete customer data
     await db.execute(sql`DELETE FROM customer_map_documents`);
@@ -2165,162 +2137,6 @@ export class PgStorage implements IStorage {
   async deleteCustomerMapDocument(id: string, companyId: string): Promise<void> {
     await db.delete(customerMapDocuments)
       .where(and(eq(customerMapDocuments.id, id), eq(customerMapDocuments.companyId, companyId)));
-  }
-
-  // Maintenance Scheduling
-  async getMaintenanceCrews(companyId: string): Promise<MaintenanceCrew[]> {
-    return db.select(plannerProjection).from(maintenanceCrews).leftJoin(crews, plannerJoin)
-      .where(eq(maintenanceCrews.companyId, companyId))
-      .orderBy(sql`${crews.displayOrder} ASC NULLS LAST`, plannerProjection.name);
-  }
-
-  async getMaintenanceCrewById(id: string, companyId: string): Promise<MaintenanceCrew | undefined> {
-    const result = await db.select(plannerProjection).from(maintenanceCrews).leftJoin(crews, plannerJoin)
-      .where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId)))
-      .limit(1);
-    return result[0];
-  }
-
-  async deleteMaintenanceCrew(id: string, companyId: string): Promise<void> {
-    await db.transaction(async tx => {
-      // FOR UPDATE conflicts with the FK key-share lock of concurrent block inserts.
-      await tx.select().from(maintenanceCrews).where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId))).for("update");
-      const [row] = await tx.select({ count: sql<number>`count(*)::int` }).from(scheduleBlocks).where(eq(scheduleBlocks.crewId, id));
-      if (row.count) throw new CrewPlacementError(row.count);
-      await tx.delete(maintenanceCrews).where(and(eq(maintenanceCrews.id, id), eq(maintenanceCrews.companyId, companyId)));
-    });
-  }
-
-  async getMaintenanceVisitConfig(customerId: string, companyId: string): Promise<MaintenanceVisitConfig | undefined> {
-    const result = await db.select().from(maintenanceVisitConfigs)
-      .where(and(eq(maintenanceVisitConfigs.customerId, customerId), eq(maintenanceVisitConfigs.companyId, companyId)))
-      .limit(1);
-    return result[0];
-  }
-
-  async createMaintenanceVisitConfig(insertConfig: InsertMaintenanceVisitConfig): Promise<MaintenanceVisitConfig> {
-    return withPlannerWrite(insertConfig.companyId, async () => {
-      const result = await db.insert(maintenanceVisitConfigs).values([insertConfig]).returning();
-      return result[0];
-    });
-  }
-
-  async updateMaintenanceVisitConfig(id: string, companyId: string, updates: Partial<InsertMaintenanceVisitConfig>): Promise<MaintenanceVisitConfig | undefined> {
-    return withPlannerWrite(companyId, async () => {
-    const result = await db.update(maintenanceVisitConfigs)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(and(eq(maintenanceVisitConfigs.id, id), eq(maintenanceVisitConfigs.companyId, companyId)))
-      .returning();
-    return result[0];
-    });
-  }
-
-  async getMaintenanceVisitConfigs(companyId: string): Promise<MaintenanceVisitConfig[]> {
-    return await db.select().from(maintenanceVisitConfigs)
-      .where(eq(maintenanceVisitConfigs.companyId, companyId));
-  }
-
-  async getWeeklyScheduleTemplates(companyId: string): Promise<WeeklyScheduleTemplate[]> {
-    return await db.select().from(weeklyScheduleTemplates)
-      .where(eq(weeklyScheduleTemplates.companyId, companyId))
-      .orderBy(desc(weeklyScheduleTemplates.createdAt));
-  }
-
-  async getWeeklyScheduleTemplateById(id: string, companyId: string): Promise<WeeklyScheduleTemplate | undefined> {
-    const result = await db.select().from(weeklyScheduleTemplates)
-      .where(and(eq(weeklyScheduleTemplates.id, id), eq(weeklyScheduleTemplates.companyId, companyId)))
-      .limit(1);
-    return result[0];
-  }
-
-  async createWeeklyScheduleTemplate(insertTemplate: InsertWeeklyScheduleTemplate): Promise<WeeklyScheduleTemplate> {
-    return withPlannerWrite(insertTemplate.companyId, async () => {
-    const result = await db.insert(weeklyScheduleTemplates).values([insertTemplate]).returning();
-    return result[0];
-    });
-  }
-
-  async updateWeeklyScheduleTemplate(id: string, companyId: string, updates: Partial<InsertWeeklyScheduleTemplate>): Promise<WeeklyScheduleTemplate | undefined> {
-    return withPlannerWrite(companyId, async () => {
-    const result = await db.update(weeklyScheduleTemplates)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(and(eq(weeklyScheduleTemplates.id, id), eq(weeklyScheduleTemplates.companyId, companyId)))
-      .returning();
-    return result[0];
-    });
-  }
-
-  async deleteWeeklyScheduleTemplate(id: string, companyId: string): Promise<void> {
-    return withPlannerWrite(companyId, async () => {
-    await db.delete(weeklyScheduleTemplates)
-      .where(and(eq(weeklyScheduleTemplates.id, id), eq(weeklyScheduleTemplates.companyId, companyId)));
-    });
-  }
-
-  async duplicateWeeklyScheduleTemplate(id: string, companyId: string, newName: string): Promise<WeeklyScheduleTemplate> {
-    return withPlannerWrite(companyId, async () => {
-    const original = await this.getWeeklyScheduleTemplateById(id, companyId);
-    if (!original) throw new Error("Template not found");
-    
-    const newTemplate = await this.createWeeklyScheduleTemplate({
-      companyId,
-      name: newName,
-      seasonStartMonth: original.seasonStartMonth ?? 4,
-      seasonEndMonth: original.seasonEndMonth ?? 10,
-      seasonStartWeek: original.seasonStartWeek ?? 2,
-      seasonEndWeek: original.seasonEndWeek ?? 2,
-      isActive: true,
-    });
-    
-    const blocks = await this.getScheduleBlocks(id);
-    for (const block of blocks) {
-      await this.createScheduleBlock({
-        templateId: newTemplate.id,
-        visitConfigId: block.visitConfigId,
-        crewId: block.crewId,
-        dayOfWeek: block.dayOfWeek,
-        sortOrder: block.sortOrder ?? 0,
-        startTime: block.startTime ?? undefined,
-      });
-    }
-    
-    return newTemplate;
-    });
-  }
-
-  async getScheduleBlocks(templateId: string): Promise<ScheduleBlock[]> {
-    return await db.select().from(scheduleBlocks)
-      .where(eq(scheduleBlocks.templateId, templateId))
-      .orderBy(scheduleBlocks.dayOfWeek, scheduleBlocks.sortOrder);
-  }
-
-  async createScheduleBlock(insertBlock: InsertScheduleBlock): Promise<ScheduleBlock> {
-    return withPlannerTemplateWrite(insertBlock.templateId, async () => {
-    const result = await db.insert(scheduleBlocks).values([insertBlock]).returning();
-    return result[0];
-    });
-  }
-
-  async updateScheduleBlock(id: string, updates: Partial<InsertScheduleBlock>): Promise<ScheduleBlock | undefined> {
-    return withPlannerBlockWrite(id, async () => {
-    const result = await db.update(scheduleBlocks)
-      .set(updates)
-      .where(eq(scheduleBlocks.id, id))
-      .returning();
-    return result[0];
-    });
-  }
-
-  async deleteScheduleBlock(id: string): Promise<void> {
-    return withPlannerBlockWrite(id, async () => {
-      await db.delete(scheduleBlocks).where(eq(scheduleBlocks.id, id));
-    });
-  }
-
-  async deleteScheduleBlocksByTemplate(templateId: string): Promise<void> {
-    return withPlannerTemplateWrite(templateId, async () => {
-      await db.delete(scheduleBlocks).where(eq(scheduleBlocks.templateId, templateId));
-    });
   }
 
   // Ticket Notifications

@@ -1,3 +1,5 @@
+> Planner import cancelled; planner removed in R3.
+
 > Historical R1 evidence below. For the November 3 named-template selection,
 > intentional source-only fingerprint change, current access blocker and approval
 > state, see [named import verification](scheduling/routes-named-import-verification.md).

@@ -106,7 +106,7 @@ or deploy migration hook.
 - Campaign management with checklists and progress tracking
 - Communication center (email/SMS templates, mailbox sync)
 - Visual scope mapping with markup overlays
-- Scheduling, maintenance crews, snow event tracking
+- Routes, standing crews, visit scheduling, snow event tracking
 - Equipment tracking, service plans, chemical notifications
 
 ## Mobile app & crews
@@ -114,7 +114,8 @@ or deploy migration hook.
 - Mobile app (`artifacts/highplains-mobile/`) authenticates via bearer tokens against `/api/m/auth/login` (separate from the web's express-session cookie auth). Tokens are stored on-device with `expo-secure-store` (AsyncStorage fallback on web), are SHA-256 hashed at rest in `mobile_auth_tokens`, and use a 90-day sliding-window expiry refreshed on every authenticated request.
 - Mobile access is gated to a small set of roles in `MOBILE_ALLOWED_ROLES` (see `artifacts/api-server/src/mobileAuth.ts`): `crew_supervisor`, `field_manager`, `landscape_supervisor`. A user without one of these roles gets a 403 with a friendly "Mobile access is for crew supervisors" message.
 - **Decision: added a new `crew_supervisor` role enum value** (rather than reusing `field_manager` or `landscape_supervisor`) so the supervisor-of-a-crew concept is explicit and unambiguous in the UI / RBAC. When adding the role to a new spot, search for `crew_supervisor` (or the long role tuple) and add it everywhere `landscape_supervisor` already appears.
-- `crews` table = a supervisor-owned field crew; distinct from the older `maintenance_crews` table which represents schedule-board crews. Admins manage crews under `/dashboard/settings/crews`.
+- `crews` owns standing crew identity. Admins manage crews under `/dashboard/settings/crews`; campaign teams retain nullable links and intentional None selections across restarts.
+- The Maintenance planner was removed Nov 2026; Routes (`route_stops`) is the only recurring schedule. Don't reintroduce planner tables.
 - **Mobile demo seed:** `pnpm --filter @workspace/scripts run seed-mobile-test-user` provisions a fully populated `crew_supervisor` test user against `DATABASE_URL` (dev only). Idempotent — re-running refreshes today's tickets so the demo always has a clean day. Test credentials it provisions: `mobile-test@highplainsprop.com` / `Soccer03` (role `crew_supervisor`, "Test Crew", 6 seeded customers, ~6 stops on the Today tab).
 - **Randy demo seed (preferred for live demos):** `pnpm --filter @workspace/scripts run seed-randy` does the same thing for Randy (`randy@highplainsprop.com`, existing password unchanged) — provisions "Randy's Crew", 6 customers tagged `randy-demo-seed`, and ~6 stops on the Today tab. Same idempotency + prod-safety guard as above. Fails loudly if Randy's user row doesn't exist (his account is provisioned separately and shouldn't be re-created by a seed). Randy is the preferred demo account when showing the mobile app to Mike.
 

@@ -1,3 +1,5 @@
+> Planner import cancelled; planner removed in R3.
+
 # Routes R2 verification
 
 > This is the historical R2 report. The supplied mockup is now archived unchanged,

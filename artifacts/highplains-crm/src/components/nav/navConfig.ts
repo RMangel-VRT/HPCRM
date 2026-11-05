@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard, Building2, Settings, Shield, DollarSign, ClipboardList, UserCheck,
   Map, CalendarDays, FileText, FileBarChart, MessagesSquare, MessageSquare, Flag, Receipt,
-  Users, Snowflake, Megaphone, Wrench, CalendarClock, Calculator, Gavel, Route,
+  Users, Snowflake, Megaphone, Wrench, Calculator, Gavel, Route,
 } from "lucide-react";
 import { showBillingSidebar } from "@/lib/billing";
 import { commsTabHref, type CommsTab } from "@/lib/last-comms-tab";
@@ -18,8 +18,6 @@ export interface NavUser {
   activeTags?: string[];
   isSuperAdminBool?: boolean;
   lastCommsTab?: CommsTab;
-  /** Company routes import marker. Planner leaves admin/office navigation only once confirmed true. */
-  routesImported?: boolean;
 }
 
 export type NavBadge = "billing" | "scheduling" | "flags" | "unsorted" | "mentions" | "qboReview";
@@ -99,9 +97,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
       { key: "scheduling", labelKey: "nav.scheduling", icon: CalendarDays, href: "/dashboard/scheduling",
         badge: "scheduling", visible: is("admin", "office", "field_manager") },
       { key: "routes", labelKey: "nav.routes", icon: Route, href: "/dashboard/routes",
-        visible: is("admin", "office", "field_manager") },
-      { key: "planner", labelKey: "nav.planner", icon: CalendarClock, href: "/dashboard/schedule",
-        visible: (u) => u.activeRole === "irrigation_manager" || (is("admin", "office")(u) && u.routesImported !== true) },
+        visible: is("admin", "office", "field_manager", "irrigation_manager") },
       { key: "campaigns", labelKey: "nav.campaigns", icon: Megaphone, href: "/dashboard/campaigns",
         visible: is("admin", "office", "field_manager", "chemical_manager", "irrigation_manager") },
       { key: "equipment", labelKey: "nav.equipment", icon: Wrench, href: "/dashboard/equipment",

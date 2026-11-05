@@ -18,7 +18,8 @@ export const routeStopFields = {
   isActive: z.boolean().default(true),
   notes: z.string().nullable().optional(),
 };
-export const routeStopBody = z.object(routeStopFields);
+// Only current route-owned fields are accepted, including on PATCH.
+export const routeStopBody = z.object(routeStopFields).strict();
 export function validRouteSeason(value: { seasonStart?: string | null; seasonEnd?: string | null }) {
   return Boolean(value.seasonStart) === Boolean(value.seasonEnd)
     && (!value.seasonStart || !value.seasonEnd || value.seasonStart <= value.seasonEnd);

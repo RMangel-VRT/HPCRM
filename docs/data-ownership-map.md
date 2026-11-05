@@ -11,6 +11,8 @@
 >
 > Never drop first.
 >
+> **R3 exception, Nov 5, 2026:** Randy explicitly authorized immediate removal of the five legacy scheduling tables and two import columns, cancelled import, and waived CSV backups. This exception does not authorize any other drop.
+>
 > Source: `docs/data-ownership-audit.md` (production, Oct 19, 2026). The status column is updated as slices land.
 
 | Fact | Owner | Allowed copies (snapshot / mirror) | Being retired | Status |
@@ -19,11 +21,10 @@
 | **Document contact details and boilerplate** | `company_document_settings` | **Read-only projections:** allowlisted estimate/invoice PDF models; company name remains in existing settings, never copied here | None | Shared document kit; admin-only company-scoped editing; no commercial snapshots or QBO writes during preview |
 | **Contract coverage and form** | `agreement_terms.line` / `agreement_terms.form`, independently per signed season | None | `agreements.line` / `agreements.form` removed by the separately approved cleanup | Season-only; renewals never rewrite prior seasons |
 | **A document's additional seasonal coverage** | Nullable `term_documents.covers_through_term_id`; `term_id` remains its owning season | **Read-only projection:** documents on intervening/later seasons, ordered by start date within the same agreement | None | Explicit only; no duplicated document rows, link table, or inferred imported coverage |
-| **Standing crew** (name, supervisor, color, hours, active, order) | `crews` (Settings → Crews) | **Mirror:** `tickets.crew_id` via `syncTicketFromVisits`. **Snapshots:** crew and lead on completed work and worksheets. | `maintenance_crews` name/color/hours/active (O1 freezes; the table later becomes routes), `campaign_crews` name/color (O1 derives them) | **O1 merged** |
+| **Standing crew** (name, supervisor, color, hours, active, order) | `crews` (Settings → Crews) | **Mirror:** `tickets.crew_id` via `syncTicketFromVisits`. **Snapshots:** crew and lead on completed work and worksheets. | `campaign_crews` name/color (O1 derives them) | O1 merged; **planner columns removed** |
 | **Campaign team membership** (who is on this campaign's team) | `campaign_crew_members`, with each team **linked to a standing crew** | — | — | Kept: a distinct fact |
-| **A dated crew trip** | `visits` | **Mirror:** ticket crew/date/order via `syncTicketFromVisits` | `schedule_blocks` (with the routes rebuild), `campaign_items.target_date` (with campaigns → visits) | Live (P3-2/P3-3) |
-| **Recurring weekly pattern** | `route_stops` (property/service/crew/day/cadence/minutes and manual timing) | **Snapshots:** one-time planner provenance/notes on stops; occurrence details on generated visits. Contract quantities stay in `term_scope_lines`. Deleted properties leave inactive stop tombstones to retain occurrence identity. | `weekly_schedule_templates`, `schedule_blocks`, `maintenance_visit_configs` | R2 implementation: **Frozen only for companies with a committed approved import**. Production owner switch remains blocked/unverified; no blanket freeze or production import is claimed. See `docs/scheduling/R2-verification.md`. |
-| **Planner import-review decisions** | `route_import_decisions` | **Frozen snapshot:** stable source placement and its Keep/Remove resolution; no live synchronization from legacy blocks | None; workflow state, not a second recurrence owner | R2 additive review persistence; stops and review snapshots commit with the approved import marker. Keeping a duplicate updates the single live stop. |
+| **A dated crew trip** | `visits` | **Mirror:** ticket crew/date/order via `syncTicketFromVisits` | `campaign_items.target_date` (with campaigns → visits) | Live (P3-2/P3-3) |
+| **Recurring weekly pattern** | `route_stops` (property/service/crew/day/cadence/minutes and manual timing) | **Snapshots:** occurrence details on generated visits. Contract quantities stay in `term_scope_lines`. Deleted properties leave inactive stop tombstones to retain occurrence identity. | None | **R3: planner removed** |
 | **What a property is owed** (scope, quantity, months) | Contract Center `term_scope_lines` | **Snapshot:** each term's copied scope | legacy `contracts`, `contract_services`, `contract_monthly_amounts`, `customer_service_plans`, `service_plan_*` | Legacy writes frozen. **Readers still on legacy:** revenue, dashboard, snow, tickets, mobile. |
 | **Service names** | One service-key registry (to build) | — | ~12 separate lists (audit area C) | Planned (O2) |
 | **Current default rates** | `rate_card_items` | **Snapshot:** `term_rates` (negotiated, per term) | `customer_rate_sheets` (writes frozen) | Mostly done |
@@ -49,3 +50,12 @@
 | **Dead tables** | — | — | `contract_masters`, `scope_presets`, `scope_preset_lines` (empty; nothing reads them) | Drop after confirming at a publish |
 
 **Reviewed and kept separate on purpose** (audit areas D, G–J, L, M): rates vs term snapshots, template families, message history vs mailbox import, notes and photos by source, equipment tickets, seasons vs term dates, documents. To revisit later; not contradictions today.
+
+## Removed
+
+Removed from development Nov 5, 2026; production removal awaits Randy's exact Publish comparison:
+
+- `route_import_decisions`, `schedule_blocks`, `maintenance_visit_configs`, `weekly_schedule_templates`, `maintenance_crews`.
+- `route_stops.imported_from_block_id`, `companies.routes_imported_at`.
+
+These names are retained here as historical removal evidence, not live owners or guidance.

@@ -14,6 +14,14 @@ const app = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
 const getRoute = (path: string) => app.match(new RegExp(`<ProtectedRoute\\s+path="${path}"[\\s\\S]*?\\/>`))?.[0] ?? "";
 
 describe("shell routes and permission boundaries", () => {
+  it("redirects both retired URLs to Routes while preserving the query string", () => {
+    for (const path of ["/dashboard/schedule", "/dashboard/scheduler"])
+      expect(app).toContain(`<Route path="${path}">\n          <QueryPreservingRedirect to="/dashboard/routes" />\n        </Route>`);
+    expect(getRoute("/dashboard/routes")).toContain('allowedRoles={["admin", "office", "field_manager", "irrigation_manager"]}');
+    expect(getRoute("/dashboard/scheduling")).not.toContain("irrigation_manager");
+    const html = renderToStaticMarkup(<Router ssrPath="/dashboard/scheduler?service=mowing"><QueryPreservingRedirect to="/dashboard/routes" /></Router>);
+    expect(html).toContain('/dashboard/routes?service=mowing');
+  });
   it("gives all signed-in recipients Mentions without broadening any other route", () => {
     expect(getRoute("/dashboard/mentions")).toBe('<ProtectedRoute path="/dashboard/mentions" component={MentionsPage} />');
     expect(getRoute("/dashboard/notifications")).toContain('allowedRoles={["admin", "office", ...allFieldRoles]}');

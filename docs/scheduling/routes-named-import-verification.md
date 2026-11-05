@@ -1,3 +1,5 @@
+> Planner import cancelled; planner removed in R3.
+
 # Named-template Routes import — verification and blocked approval
 
 Verified November 3, 2026. **Named-import support prepared; production approval

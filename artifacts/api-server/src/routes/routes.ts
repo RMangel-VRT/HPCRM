@@ -13,6 +13,7 @@ import { withInvoiceLinkSummaries } from "../lib/ticketLinkSummary";
 import { BRAND, LM, RM, loadBrandLogo, wirePageDecorations } from "../lib/pdfBrand";
 import express from "express";
 import type { Express } from "express";
+import { crews as standingCrews } from "@workspace/db";
 import { registerCrewSupervisorTicketGuard } from "../lib/crewSupervisorTicketAccess";
 import { createServer, type Server } from "http";
 import path from "path";
@@ -38,7 +39,7 @@ import { rejectLegacyContractWrite, hasFrozenLegacyRows } from "../lib/legacyCon
 import { db, inTransaction } from "../db";
 import { logger } from "../lib/logger";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertMaintenanceCrewSchema, insertMaintenanceVisitConfigSchema, insertWeeklyScheduleTemplateSchema, insertScheduleBlockSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema, insertChemicalNotificationTemplateSchema } from "@workspace/db";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema, insertChemicalNotificationTemplateSchema } from "@workspace/db";
 import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, InsertTicketType, InsertTicketTypeStatus, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct, InsertVisualScopeSheet } from "@workspace/db";
 import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@workspace/db";
 import { runAutomationRule, runAllAutomationRules } from "../services/automationService";
@@ -81,17 +82,14 @@ import { geocodeProperty } from "../services/propertyGeocoder";
 import { linkCrewsByName } from "../lib/linkCrews";
 import { registerVisitRoutes } from "./visits";
 import { registerRouteStopRoutes } from "./routeStops";
-import { registerPlannerFreeze, registerPlannerFreezeErrors } from "../lib/plannerFreeze";
-import { runApprovedPlannerImports } from "../lib/importPlannerRoutes";
 import { backfillVisitsFromTickets } from "../lib/backfillVisits";
 import { backfillVisitServices } from "../lib/backfillVisitServices";
 import { applySchedulingTransition } from "../lib/schedulingTransition";
 import { applyVisitTicketEdit } from "../lib/visitTicketCompatibility";
 import { transactionalTicketPatch } from "../lib/ticketPatchTransaction";
 import type { VisitTransaction } from "../lib/visitSync";
-import { CrewLinkError, lockCrewCompany, validatePlannerOwner, recordCrewLinkChoice } from "../lib/crewLinks";
-import { maintenanceCrews, crews as standingCrews, insertCampaignCrewSchema } from "@workspace/db";
-import { CrewPlacementError } from "../lib/crewLinks";
+import { CrewLinkError, lockCrewCompany, recordCrewLinkChoice } from "../lib/crewLinks";
+import { insertCampaignCrewSchema } from "@workspace/db";
 function isCrewUniqueViolation(e: unknown): boolean {
   return typeof e === "object" && e !== null &&
     (("code" in e && e.code === "23505") || ("cause" in e && typeof e.cause === "object" && e.cause !== null && "code" in e.cause && e.cause.code === "23505"));
@@ -2704,7 +2702,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await migrateSchedulingStatuses();
   await backfillScheduleBy();
   await linkCrewsByName();
-  await runApprovedPlannerImports();
   await backfillVisitsFromTickets();
   await backfillVisitServices();
 
@@ -2716,7 +2713,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerCrewsAndMobileRoutes(app);
   registerVisitRoutes(app);
   registerRouteStopRoutes(app);
-  registerPlannerFreeze(app);
   registerFlagsRoutes(app);
   registerDashboardQueueRoutes(app);
   registerEstimatesBoardRoutes(app);
@@ -8598,337 +8594,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error generating upload URL:", error);
       res.status(500).send("Failed to generate upload URL");
     }
-  });
-
-  // --------------------------------------------
-  // MAINTENANCE SCHEDULING ROUTES
-  // --------------------------------------------
-
-  // Maintenance Crews routes
-  app.get("/api/maintenance-crews", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    const crews = await storage.getMaintenanceCrews(user.activeCompanyId);
-    res.json(crews);
-  });
-
-  app.get("/api/maintenance-crews/:id", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    const crew = await storage.getMaintenanceCrewById(req.params.id, user.activeCompanyId);
-    if (!crew) {
-      return res.status(404).send("Crew not found");
-    }
-    res.json(crew);
-  });
-
-  app.post("/api/maintenance-crews", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    const result = z.object({ crewId: z.string().min(1) }).safeParse(req.body);
-    if (!result.success) {
-      return res.status(400).send(result.error.message);
-    }
-
-    try {
-      const crew = await db.transaction(async tx => {
-        await lockCrewCompany(tx, user.activeCompanyId);
-        await validatePlannerOwner(tx, user.activeCompanyId, "", result.data.crewId);
-        await recordCrewLinkChoice(tx, user.activeCompanyId);
-        const [owner] = await tx.select().from(standingCrews).where(and(eq(standingCrews.id, result.data.crewId), eq(standingCrews.companyId, user.activeCompanyId)));
-        // Frozen NOT NULL compatibility values; linked readers use the owner.
-        const [row] = await tx.insert(maintenanceCrews).values({ companyId: user.activeCompanyId, crewId: owner.id, name: owner.name, color: owner.color ?? "#2563eb", defaultHoursPerDay: owner.defaultHoursPerDay ?? 8, isActive: owner.isActive }).returning();
-        return row;
-      });
-      res.json(crew);
-    } catch (e) {
-      if (e instanceof CrewLinkError) return res.status(e.status).json({ message: e.message });
-      throw e;
-    }
-    return;
-  });
-
-  app.patch("/api/maintenance-crews/:id", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    if (["name", "color", "defaultHoursPerDay", "isActive", "displayOrder"].some(k => Object.hasOwn(req.body, k))) return res.status(409).json({ code: "CREW_FIELDS_MOVED", message: "Edit this crew in Settings → Crews." });
-    const parsed = z.object({ crewId: z.string().min(1).nullable().optional() }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: "Invalid planner crew", errors: parsed.error.flatten() });
-    const updates = pickProvided(parsed.data, req.body);
-    let crew;
-    try {
-      crew = await db.transaction(async tx => {
-        await lockCrewCompany(tx, user.activeCompanyId);
-        const [current] = await tx.select().from(maintenanceCrews).where(and(eq(maintenanceCrews.id, req.params.id), eq(maintenanceCrews.companyId, user.activeCompanyId)));
-        if (!current) return undefined;
-        if (updates.crewId !== undefined) await validatePlannerOwner(tx, user.activeCompanyId, current.id, updates.crewId);
-        if (updates.crewId !== undefined) await recordCrewLinkChoice(tx, user.activeCompanyId);
-        if (!Object.keys(updates).length) return current;
-        const [row] = await tx.update(maintenanceCrews).set(updates).where(and(eq(maintenanceCrews.id, current.id), eq(maintenanceCrews.companyId, user.activeCompanyId))).returning();
-        return row;
-      });
-    } catch (e) {
-      if (e instanceof CrewLinkError) return res.status(e.status).json({ message: e.message });
-      throw e;
-    }
-    if (!crew) {
-      return res.status(404).send("Crew not found");
-    }
-    res.json(crew);
-    return;
-  });
-
-  app.delete("/api/maintenance-crews/:id", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    try {
-      await storage.deleteMaintenanceCrew(req.params.id, user.activeCompanyId);
-    } catch (e) {
-      if (e instanceof CrewPlacementError) return res.status(409).json({ code: "CREW_HAS_PLACEMENTS", count: e.count, message: e.message });
-      throw e;
-    }
-    res.status(200).send("Deleted");
-  });
-
-  // Maintenance Visit Config routes (per-customer mowing config)
-  app.get("/api/customers/:customerId/maintenance-config", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    const config = await storage.getMaintenanceVisitConfig(req.params.customerId, user.activeCompanyId);
-    res.json(config || null);
-  });
-
-  app.put("/api/customers/:customerId/maintenance-config", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    const result = insertMaintenanceVisitConfigSchema.safeParse({
-      ...req.body,
-      customerId: req.params.customerId,
-      companyId: user.activeCompanyId,
-    });
-    if (!result.success) {
-      return res.status(400).send(result.error.message);
-    }
-
-    // Check if config exists - update or create
-    const existing = await storage.getMaintenanceVisitConfig(req.params.customerId, user.activeCompanyId);
-    let config;
-    if (existing) {
-      config = await storage.updateMaintenanceVisitConfig(existing.id, user.activeCompanyId, result.data);
-    } else {
-      config = await storage.createMaintenanceVisitConfig(result.data);
-    }
-    res.json(config);
-  });
-
-  // Get all maintenance visit configs for the company (for scheduler)
-  app.get("/api/maintenance-visit-configs", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    const configs = await storage.getMaintenanceVisitConfigs(user.activeCompanyId);
-    res.json(configs);
-  });
-
-  // Weekly Schedule Template routes
-  app.get("/api/schedule-templates", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    const templates = await storage.getWeeklyScheduleTemplates(user.activeCompanyId);
-    res.json(templates);
-  });
-
-  app.get("/api/schedule-templates/:id", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    const template = await storage.getWeeklyScheduleTemplateById(req.params.id, user.activeCompanyId);
-    if (!template) {
-      return res.status(404).send("Template not found");
-    }
-    res.json(template);
-  });
-
-  app.post("/api/schedule-templates", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    const result = insertWeeklyScheduleTemplateSchema.safeParse({
-      ...req.body,
-      companyId: user.activeCompanyId,
-    });
-    if (!result.success) {
-      return res.status(400).send(result.error.message);
-    }
-
-    const template = await storage.createWeeklyScheduleTemplate(result.data);
-    res.json(template);
-  });
-
-  app.patch("/api/schedule-templates/:id", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    const template = await storage.updateWeeklyScheduleTemplate(req.params.id, user.activeCompanyId, req.body);
-    if (!template) {
-      return res.status(404).send("Template not found");
-    }
-    res.json(template);
-  });
-
-  app.delete("/api/schedule-templates/:id", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    await storage.deleteWeeklyScheduleTemplate(req.params.id, user.activeCompanyId);
-    res.status(200).send("Deleted");
-  });
-
-  app.post("/api/schedule-templates/:id/duplicate", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    const { name } = req.body;
-    if (!name || typeof name !== "string" || name.trim().length === 0) {
-      return res.status(400).send("Name is required");
-    }
-
-    try {
-      const template = await storage.duplicateWeeklyScheduleTemplate(req.params.id, user.activeCompanyId, name.trim());
-      res.json(template);
-    } catch (error: any) {
-      if (error.message === "Template not found") {
-        return res.status(404).send("Template not found");
-      }
-      throw error;
-    }
-  });
-
-  // Schedule Blocks routes (property assignments on schedule grid)
-  app.get("/api/schedule-templates/:templateId/blocks", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    
-    // Verify template belongs to company
-    const template = await storage.getWeeklyScheduleTemplateById(req.params.templateId, user.activeCompanyId);
-    if (!template) {
-      return res.status(404).send("Template not found");
-    }
-    
-    const blocks = await storage.getScheduleBlocks(req.params.templateId);
-    res.json(blocks);
-  });
-
-  app.post("/api/schedule-templates/:templateId/blocks", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    // Verify template belongs to company
-    const template = await storage.getWeeklyScheduleTemplateById(req.params.templateId, user.activeCompanyId);
-    if (!template) {
-      return res.status(404).send("Template not found");
-    }
-
-    const result = insertScheduleBlockSchema.safeParse({
-      ...req.body,
-      templateId: req.params.templateId,
-    });
-    if (!result.success) {
-      return res.status(400).send(result.error.message);
-    }
-
-    const block = await storage.createScheduleBlock(result.data);
-    res.json(block);
-  });
-
-  app.patch("/api/schedule-blocks/:id", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    const block = await storage.updateScheduleBlock(req.params.id, req.body);
-    if (!block) {
-      return res.status(404).send("Block not found");
-    }
-    res.json(block);
-  });
-
-  app.delete("/api/schedule-blocks/:id", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions - admin or office role required");
-    }
-
-    await storage.deleteScheduleBlock(req.params.id);
-    res.status(200).send("Deleted");
   });
 
   // ---------------------
@@ -19291,7 +18956,6 @@ ${pdfText.slice(0, 8000)}`;
   registerExtraBillablePhotoRoutes(app, { storage });
   registerMobileTicketPhotosNotesRoutes(app);
 
-  registerPlannerFreezeErrors(app);
   app.use(customerSyncBusyFailure);
   const httpServer = createServer(app);
 

@@ -1,22 +1,25 @@
 import type { Express, Request, Response } from "express";
 import { z } from "zod/v4";
-import { and, eq, gte, lte, inArray, isNull, sql } from "drizzle-orm";
-import { routeStops, routeImportDecisions, companies, crews, customers, visits, routeStopBody, routeDate, routeService, validRouteSeason } from "@workspace/db";
+import { and, eq, gte, lte, inArray, sql } from "drizzle-orm";
+import { routeStops, crews, customers, visits, routeStopBody, routeDate, routeService, validRouteSeason } from "@workspace/db";
 import { db } from "../db";
-import { authorize as authorizeVisits, failure } from "./visits";
+import { failure } from "./visits";
 import { lockVisitCompany, VisitError, type VisitTransaction } from "../lib/visitSync";
 import { pickProvided } from "../lib/patchBody";
 import { companyToday, addCalendarDays } from "../lib/companyDay";
 import { fillRouteVisits, routeSeason, routeWeekday } from "../lib/routeFill";
 import { slideRouteVisits } from "../lib/routeSlide";
 import { loadContractCoverage } from "../lib/contractCenterPersistence";
-import { contractReport, reportYear, PLANNER_REPLACED_MESSAGE } from "../lib/routeReporting";
+import { contractReport, reportYear } from "../lib/routeReporting";
 import { applyRouteCalendar } from "../lib/routeCalendar";
 import type { UserWithContext } from "../auth";
 
 function authorizeRoutes(req: Request, res: Response) {
-  const user = authorizeVisits(req, res);
-  if (!user) return;
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
+  const user = req.user as UserWithContext;
+  if (!["admin", "office", "field_manager", "irrigation_manager"].includes(user.activeRole)) {
+    res.status(403).json({ error: "Insufficient permissions" }); return;
+  }
   if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
     res.status(409).json({ error: "COMPANY_CHANGED", message: "Company changed. Reload Routes and try again." });
     return;
@@ -47,7 +50,7 @@ function seasonYear(value: unknown) {
 }
 export function registerRouteStopRoutes(app: Express) {
   // The customer page has broader existing read access than Routes management.
-  // Do not expose company-wide patterns or import review to those viewers.
+  // Do not expose company-wide management data to those viewers.
   app.get("/api/customers/:id/route-summary", async (req, res): Promise<void> => {
     if (!req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
     const user = req.user as UserWithContext;
@@ -57,38 +60,24 @@ export function registerRouteStopRoutes(app: Express) {
       const result = await db.transaction(async tx => {
         const [property] = await tx.select({ id: customers.id }).from(customers).where(and(eq(customers.id, customerId), eq(customers.companyId, user.activeCompanyId)));
         if (!property) throw new VisitError(404, "NOT_FOUND");
-        const [company] = await tx.select({ imported: companies.routesImportedAt }).from(companies).where(eq(companies.id, user.activeCompanyId));
         const rows = await tx.select({ id: routeStops.id, serviceKey: routeStops.serviceKey, weekday: routeStops.weekday,
           everyWeeks: routeStops.everyWeeks, minutes: routeStops.minutes, crew: { id: crews.id, name: crews.name } })
           .from(routeStops).innerJoin(crews, and(eq(crews.id, routeStops.crewId), eq(crews.companyId, user.activeCompanyId)))
           .where(and(eq(routeStops.companyId, user.activeCompanyId), eq(routeStops.customerId, customerId), eq(routeStops.isActive, true)))
           .orderBy(routeStops.weekday, routeStops.sortOrder, routeStops.id);
-        return { imported: !!company?.imported, stops: rows };
+        return { stops: rows };
       }, { isolationLevel: "repeatable read", accessMode: "read only" });
       res.json(result);
     } catch (error) { routeFailure(res, error); }
   });
-  // Authenticated planner viewers (including irrigation managers) need readiness,
-  // but may not see Routes' contract, visit or decision data.
-  app.get("/api/planner/readiness", async (req, res): Promise<void> => {
-    if (!req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
-    const user = req.user as UserWithContext;
-    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) { res.status(409).json({ error: "COMPANY_CHANGED" }); return; }
-    try {
-      const [company] = await db.select({ imported: companies.routesImportedAt }).from(companies).where(eq(companies.id, user.activeCompanyId));
-      res.json({ imported: !!company?.imported, plannerReadOnly: !!company?.imported, plannerMessage: PLANNER_REPLACED_MESSAGE });
-    } catch (error) { routeFailure(res, error); }
-  });
-  // Read-only dashboard replacement for the old planner preview. Same company
-  // visibility as the legacy preview/customer reads, not Routes management.
-  app.get("/api/planner/route-preview", async (req, res): Promise<void> => {
+  // Read-only dashboard preview retains existing authenticated company access.
+  app.get("/api/routes/preview", async (req, res): Promise<void> => {
     if (!req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
     const user = req.user as UserWithContext;
     if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) { res.status(409).json({ error: "COMPANY_CHANGED" }); return; }
     try {
       const result = await db.transaction(async tx => {
-        const [company] = await tx.select({ imported: companies.routesImportedAt }).from(companies).where(eq(companies.id, user.activeCompanyId));
-        const rows = company?.imported ? await tx.select({
+        const rows = await tx.select({
           id: routeStops.id, customerId: customers.id, name: customers.name,
           serviceKey: routeStops.serviceKey, weekday: routeStops.weekday, everyWeeks: routeStops.everyWeeks,
           minutes: routeStops.minutes, crew: { id: crews.id, name: crews.name },
@@ -96,8 +85,8 @@ export function registerRouteStopRoutes(app: Express) {
           .innerJoin(customers, and(eq(customers.id, routeStops.customerId), eq(customers.companyId, user.activeCompanyId)))
           .innerJoin(crews, and(eq(crews.id, routeStops.crewId), eq(crews.companyId, user.activeCompanyId)))
           .where(and(eq(routeStops.companyId, user.activeCompanyId), eq(routeStops.isActive, true)))
-          .orderBy(routeStops.weekday, routeStops.crewId, routeStops.sortOrder, routeStops.id) : [];
-        return { imported: !!company?.imported, stops: rows };
+          .orderBy(routeStops.weekday, routeStops.crewId, routeStops.sortOrder, routeStops.id);
+        return { stops: rows };
       }, { isolationLevel: "repeatable read", accessMode: "read only" });
       res.json(result);
     } catch (error) { routeFailure(res, error); }
@@ -107,7 +96,6 @@ export function registerRouteStopRoutes(app: Express) {
     try {
       const service = serviceFilter(req) ?? "mowing";
       const result = await db.transaction(async tx => {
-        const [company] = await tx.select({ imported: companies.routesImportedAt }).from(companies).where(eq(companies.id, user.activeCompanyId));
         const coverage = await loadContractCoverage(tx, user.activeCompanyId);
         const windows = coverage.properties.map(p => {
           const year = reportYear(p.id, service, coverage.resolve);
@@ -119,49 +107,9 @@ export function registerRouteStopRoutes(app: Express) {
         const [latest] = await tx.select({ date: sql<string | null>`max(${visits.visitDate})` }).from(visits).where(and(
           eq(visits.companyId, user.activeCompanyId), eq(visits.sourceType, "route"), eq(visits.serviceKey, service),
         ));
-        return { imported: !!company?.imported, plannerReadOnly: !!company?.imported, plannerMessage: PLANNER_REPLACED_MESSAGE,
-          latestVisitDate: latest?.date ?? null,
+        return { latestVisitDate: latest?.date ?? null,
           season: sameYear.length ? { year, start: sameYear.map(w => w.start).sort()[0], end: sameYear.map(w => w.end).sort().at(-1)! } : null };
       }, { isolationLevel: "repeatable read", accessMode: "read only" });
-      res.json(result);
-    } catch (error) { routeFailure(res, error); }
-  });
-  app.get("/api/routes/decisions", async (req, res): Promise<void> => {
-    const user = authorizeRoutes(req, res); if (!user) return;
-    try {
-      const service = serviceFilter(req);
-      const rows = await db.select().from(routeImportDecisions).where(and(eq(routeImportDecisions.companyId, user.activeCompanyId), isNull(routeImportDecisions.resolution))).orderBy(routeImportDecisions.createdAt, routeImportDecisions.id);
-      res.json(rows.filter(r => !service || r.snapshot.serviceKey === service).map(r => ({ ...r.snapshot, id: r.id })));
-    } catch (error) { routeFailure(res, error); }
-  });
-  app.post("/api/routes/decisions/:id/resolve", async (req, res): Promise<void> => {
-    const user = authorizeRoutes(req, res); if (!user) return;
-    try {
-      const id = z.string().parse(req.params.id), { resolution } = z.object({ resolution: z.enum(["keep", "remove"]) }).parse(req.body);
-      const result = await write(user.activeCompanyId, async tx => {
-        const [decision] = await tx.select().from(routeImportDecisions).where(and(eq(routeImportDecisions.id, id), eq(routeImportDecisions.companyId, user.activeCompanyId))).for("update");
-        if (!decision) throw new VisitError(404, "NOT_FOUND");
-        if (decision.resolution) {
-          if (decision.resolution !== resolution) throw new VisitError(409, "DECISION_RESOLVED", "This import decision has already been resolved.");
-          return { id, resolution, alreadyResolved: true };
-        }
-        if (resolution === "keep") {
-          const s = decision.snapshot;
-          if (!s.crewId) throw new VisitError(409, "INVALID_CREW", "Link an active crew before keeping this placement.");
-          const body = routeStopBody.parse({ customerId: s.customerId, serviceKey: s.serviceKey, crewId: s.crewId,
-            weekday: s.weekday, minutes: s.minutes, anchorDate: s.anchorDate, sortOrder: s.sortOrder, notes: s.notes });
-          await validateReferences(tx, user.activeCompanyId, body);
-          const [existing] = await tx.select().from(routeStops).where(and(eq(routeStops.companyId, user.activeCompanyId), eq(routeStops.customerId, s.customerId), eq(routeStops.serviceKey, s.serviceKey), eq(routeStops.isActive, true)));
-          // Keeping a duplicate chooses this placement for the SINGLE pattern,
-          // not a second active stop or a mutation of the frozen planner.
-          if (existing) await tx.update(routeStops).set({ crewId: body.crewId, weekday: body.weekday, minutes: body.minutes,
-            anchorDate: addCalendarDays(existing.anchorDate, body.weekday - routeWeekday(existing.anchorDate)),
-            sortOrder: body.sortOrder, updatedAt: new Date(Math.max(Date.now(), existing.updatedAt.getTime() + 1)) }).where(eq(routeStops.id, existing.id));
-          else await tx.insert(routeStops).values({ ...body, companyId: user.activeCompanyId, importedFromBlockId: decision.sourceBlockId, createdById: user.id });
-        }
-        await tx.update(routeImportDecisions).set({ resolution, resolvedAt: new Date(), resolvedById: user.id }).where(and(eq(routeImportDecisions.id, id), eq(routeImportDecisions.companyId, user.activeCompanyId)));
-        return { id, resolution, alreadyResolved: false };
-      });
       res.json(result);
     } catch (error) { routeFailure(res, error); }
   });

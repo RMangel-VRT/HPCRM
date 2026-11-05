@@ -11,6 +11,12 @@ const term = (id: string, agreementId: string, overrides = {}) => ({ id, agreeme
 const scope = (termId: string, overrides = {}) => ({ termId, serviceKey: "mowing", included: true, quantity: 26, monthSpread: spread, ...overrides } as TermScopeLine);
 const stop = (overrides = {}) => ({ id: "stop", customerId: "child", serviceKey: "mowing", weekday: 2, everyWeeks: 1,
   anchorDate: "2027-01-01", pausedUntil: null, seasonStart: null, seasonEnd: null, ...overrides } as RouteStop);
+it("rejects undeclared stop properties on create and patch", () => {
+  const body = { customerId: "c", serviceKey: "mowing", crewId: "k", weekday: 2, anchorDate: "2027-01-05", minutes: 30 };
+  expect(routeStopBody.safeParse(body).success).toBe(true);
+  expect(routeStopBody.safeParse({ ...body, outsideContract: "retired metadata" }).success).toBe(false);
+  expect(routeStopBody.partial().safeParse({ minutes: 45, outsideContract: null }).success).toBe(false);
+});
 function resolver(terms = [term("parentTerm", "parentAgreement")], scopes = [scope("parentTerm")]) {
   return coverageResolver({ customers: [{ id: "parent", parentCustomerId: null }, { id: "child", parentCustomerId: "parent" }],
     agreements: [{ id: "parentAgreement", customerId: "parent" }, { id: "childAgreement", customerId: "child" }], terms, scopes });

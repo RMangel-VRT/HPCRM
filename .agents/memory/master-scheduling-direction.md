@@ -9,13 +9,13 @@ Read `docs/scheduling/Master-schedule-design.md` before planning or implementing
 
 **How to apply:** Use it with the existing scheduling rules and slice specifications. All scheduling tools converge on visits, Contract Center scope is the intended demand source, and work follows the documented build order. Recheck dated implementation and production observations rather than assuming they remain current.
 
-The remaining order is Routes, Campaigns onto visits, coordinated crew-app migration to visits, then fulfillment reporting. Incomplete contract scope does not block Routes: prefill where scope exists and allow manual setup elsewhere. Retiring legacy planner holders must still follow the separate ownership freeze/drop rules; this design is not approval to drop tables.
+The remaining order is Routes, Campaigns onto visits, coordinated crew-app migration to visits, then fulfillment reporting. Incomplete contract scope does not block Routes: prefill where scope exists and allow manual setup elsewhere. Unrelated retirements still require the separate ownership rules; the narrowly authorized recurring-schedule retirement does not authorize other drops.
 
 **Why:** The latest user-supplied master design changes the earlier ordering that put crew-app work ahead of Routes and explicitly resolves scope completeness as non-blocking for Routes.
 
 **How to apply:** Use the new ordering when scoping future work, coordinate the mobile boundary, and do not begin implementation merely because the updated reference was uploaded.
 
-Route season comes from the covering contract term's scope month spread, with an allowed manual override. A stop with no covering contract generates no visits. Manual route setup does not remove this coverage gate. Weekly and fortnightly cadence and both rain-day modes are required: push the remaining week one day, or move only the selected day to the next working day. Existing planner placements seed 2027 once, after a production dry run. Route visits do not create/change tickets or appear in the ticket-based mobile Today before Phase 4.
+Route season comes from the covering contract term's scope month spread, with an allowed manual override. A stop with no covering contract generates no visits. Manual route setup does not remove this coverage gate. Weekly and fortnightly cadence and both rain-day modes are required: push the remaining week one day, or move only the selected day to the next working day. Preserve handmade stops; the legacy import was cancelled. Route visits do not create/change tickets or appear in the ticket-based mobile Today before Phase 4.
 
 **Why:** The newly supplied Routes decisions make contract coverage a generation prerequisite and distinguish pattern setup from permission to generate work.
 

@@ -1,3 +1,5 @@
+> Historical audit. Recurring scheduling was superseded by the November 2026 retirement; use the current ownership map for live owners. Do not execute the legacy scheduling queries below against the retired development schema.
+
 7 areas have live duplicates; 3 tables look dead; 5 copied columns have drifted.
 
 # Data ownership audit — read-only

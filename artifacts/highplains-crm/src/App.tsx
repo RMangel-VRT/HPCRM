@@ -58,7 +58,6 @@ const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const PropertyMapsPage = lazy(() => import("@/pages/PropertyMapsPage"));
 const SchedulingPage = lazy(() => import("@/pages/SchedulingPage"));
 const RoutesPage = lazy(() => import("@/pages/RoutesPage"));
-const SchedulePage = lazy(() => import("@/pages/SchedulePage"));
 const EquipmentList = lazy(() => import("@/pages/EquipmentList"));
 const EquipmentDetail = lazy(() => import("@/pages/EquipmentDetail"));
 const NewEquipment = lazy(() => import("@/pages/NewEquipment"));
@@ -310,16 +309,14 @@ function Router() {
         <ProtectedRoute
           path="/dashboard/routes"
           component={RoutesPage}
-          allowedRoles={["admin", "office", "field_manager"]}
+          allowedRoles={["admin", "office", "field_manager", "irrigation_manager"]}
         />
         <Route path="/dashboard/scheduler">
-          <QueryPreservingRedirect to="/dashboard/schedule" />
+          <QueryPreservingRedirect to="/dashboard/routes" />
         </Route>
-        <ProtectedRoute
-          path="/dashboard/schedule"
-          component={SchedulePage}
-          allowedRoles={["admin", "office", "irrigation_manager"]}
-        />
+        <Route path="/dashboard/schedule">
+          <QueryPreservingRedirect to="/dashboard/routes" />
+        </Route>
         <ProtectedRoute path="/dashboard/equipment/new" component={NewEquipment} allowedRoles={["admin", "office", "shop_manager"]} />
         <ProtectedRoute
           path="/dashboard/equipment/:id"

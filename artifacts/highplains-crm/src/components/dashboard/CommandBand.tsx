@@ -92,7 +92,7 @@ export default function CommandBand({ pulse }: CommandBandProps) {
     { id: "build-proposal", href: "/dashboard/tools/proposals", label: t("dashboard.commandBuildProposal"), roles: ["admin", "office"], icon: FileText },
     { id: "crew-worksheet", href: "/dashboard/tools/crew-worksheets", label: t("dashboard.commandCrewWorksheet"), roles: ["admin", "office"], icon: ClipboardList },
     { id: "log-snow-event", href: "/dashboard/snow/new", label: t("dashboard.commandLogSnowEvent"), roles: ["admin", "office"], icon: Snowflake },
-    { id: "open-scheduler", href: "/dashboard/scheduler", label: t("dashboard.commandOpenScheduler"), roles: ["admin", "office"], icon: CalendarClock },
+    { id: "open-routes", href: "/dashboard/routes", label: t("dashboard.commandOpenRoutes"), roles: ["admin", "office"], icon: CalendarClock },
   ];
 
   const visibleActions = actions.filter((action) =>

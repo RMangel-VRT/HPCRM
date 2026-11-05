@@ -15,11 +15,11 @@ it("uses distinct Bids and Estimates identities and the personal, not all-ticket
 });
 const keys = (user: NavUser, now = summer) => getNavForUser(user, now).flatMap(g => g.items.map(i => i.key));
 const roleRows: [NavRole, string[]][] = [
-  ["admin", ["dashboard", "inbox", "mentions", "flags", "tickets", "scheduling", "routes", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "settings", "team"]],
-  ["office", ["dashboard", "inbox", "mentions", "flags", "tickets", "scheduling", "routes", "planner", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "settings"]],
+  ["admin", ["dashboard", "inbox", "mentions", "flags", "tickets", "scheduling", "routes", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "settings", "team"]],
+  ["office", ["dashboard", "inbox", "mentions", "flags", "tickets", "scheduling", "routes", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "settings"]],
   ["field_manager", ["dashboard", "mentions", "tickets", "scheduling", "routes", "campaigns", "snow", "customers", "maps"]],
   ["chemical_manager", ["dashboard", "mentions", "tickets", "campaigns", "customers", "maps"]],
-  ["irrigation_manager", ["dashboard", "mentions", "tickets", "planner", "campaigns", "customers", "maps"]],
+  ["irrigation_manager", ["dashboard", "mentions", "tickets", "routes", "campaigns", "customers", "maps"]],
   ["shop_manager", ["dashboard", "mentions", "tickets", "equipment", "maps"]],
   ["landscape_supervisor", ["dashboard", "mentions", "tickets", "customers", "maps"]],
   ["crew_supervisor", ["mentions", "tickets"]],
@@ -46,8 +46,7 @@ const routeRoles: Record<string, NavRole[]> = {
   "/dashboard/tickets/my": [...AO, ...field, "crew_supervisor"],
   "/dashboard/my-batches": [...AO, "field", "field_manager", "landscape_supervisor"],
   "/dashboard/scheduling": [...AO, "field_manager"],
-  "/dashboard/schedule": [...AO, "irrigation_manager"],
-  "/dashboard/routes": [...AO, "field_manager"],
+  "/dashboard/routes": [...AO, "field_manager", "irrigation_manager"],
   "/dashboard/campaigns": [...AO, "field", "field_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor"],
   "/dashboard/equipment": [...AO, "shop_manager"],
   "/dashboard/snow": [...AO, "field_manager"],
@@ -63,14 +62,13 @@ const routeRoles: Record<string, NavRole[]> = {
   "/dashboard/users": ["admin"],
 };
 
-describe("R2 Routes replaces the planner item once the company import is recorded", () => {
-  it("keeps the planner additive until imported, then only for irrigation managers", () => {
-    expect(keys({ activeRole: "admin", routesImported: true })).toContain("routes");
-    expect(keys({ activeRole: "admin", routesImported: true })).not.toContain("planner");
-    expect(keys({ activeRole: "office", routesImported: true })).not.toContain("planner");
-    expect(keys({ activeRole: "irrigation_manager", routesImported: true })).toContain("planner");
-    expect(keys({ activeRole: "irrigation_manager", routesImported: true })).not.toContain("routes");
-    expect(keys({ activeRole: "admin", routesImported: false })).toContain("planner");
+describe("Routes is the sole recurring schedule", () => {
+  it.each(roleRows)("%s has no legacy navigation", (activeRole) => {
+    expect(keys({ activeRole })).not.toContain("planner");
+  });
+  it("gives irrigation managers Routes but not the visit board", () => {
+    expect(keys({ activeRole: "irrigation_manager" })).toContain("routes");
+    expect(keys({ activeRole: "irrigation_manager" })).not.toContain("scheduling");
   });
 });
 

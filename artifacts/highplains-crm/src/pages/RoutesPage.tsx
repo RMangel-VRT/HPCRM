@@ -16,9 +16,8 @@ import { RouteStopDrawer } from "@/components/routes/RouteStopDrawer";
 import "@/components/scheduling/scheduling-board.css";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { useBoardCrews } from "@/hooks/use-scheduling";
 import { BoardDayCell, BoardOverlay, CapacityMeter, CrewLaneHeader, useBoardDnd } from "@/components/scheduling/BoardPrimitives";
-import { useRouteActions, useRouteDecisions, useRouteNeeds, useRouteStatus, useRouteStops } from "@/hooks/use-routes";
+import { useRouteActions, useRouteCrews, useRouteNeeds, useRouteStatus, useRouteStops } from "@/hooks/use-routes";
 import type { BoardCrew } from "@/lib/scheduling";
 import { pointerFirstCollision } from "@/lib/schedulingBoard";
 import {
@@ -131,8 +130,7 @@ function RoutesBoard() {
   const status = useRouteStatus(service);
   const stopsQ = useRouteStops();
   const needsQ = useRouteNeeds(service);
-  const decisionsQ = useRouteDecisions();
-  const crewsQ = useBoardCrews(companyId);
+  const crewsQ = useRouteCrews(companyId);
   const actions = useRouteActions();
 
 
@@ -141,7 +139,6 @@ function RoutesBoard() {
   const days = WEEKDAYS.filter(w => w.n <= (showSat ? 6 : 5));
   const needs = (needsQ.data ?? []).filter(n => n.reason !== "Route ends with contract");
   const ends = (needsQ.data ?? []).filter(n => n.reason === "Route ends with contract");
-  const decisions = (decisionsQ.data ?? []).filter(d => d.serviceKey === service);
   const drawerStop = drawer ? allStops.find(s => s.id === drawer) ?? null : null;
 
   const fill = async () => {
@@ -215,9 +212,9 @@ function RoutesBoard() {
       </div>
       <div className="flex items-center gap-4 border-b px-4 text-sm" role="tablist">
         <span role="tab" aria-selected="true" className="border-b-2 border-primary py-2 font-medium" data-testid="tab-weekly">Weekly pattern</span>
-        <Link href={`/dashboard/scheduling?service=${service}`} className="flex items-center gap-1 py-2 text-muted-foreground hover:text-foreground" data-testid="link-on-calendar">
+        {user?.activeRole !== "irrigation_manager" && <Link href={`/dashboard/scheduling?service=${service}`} className="flex items-center gap-1 py-2 text-muted-foreground hover:text-foreground" data-testid="link-on-calendar">
           <CalendarDays className="h-4 w-4" />On the calendar
-        </Link>
+        </Link>}
         <span className="flex-1" />
         <label className="flex items-center gap-1.5"><input type="checkbox" checked={showSat} onChange={e => setShowSat(e.target.checked)} data-testid="toggle-saturday" />Saturday</label>
       </div>
@@ -243,20 +240,6 @@ function RoutesBoard() {
                       {n.stopId && <Button size="sm" variant="outline" className="h-6 px-2 text-xs text-destructive" onClick={() => setRemoveEnd({ stopId: n.stopId!, name: n.name })} data-testid={`button-remove-end-${n.customerId}`}>Remove</Button>}
                       {n.contract ? <Link href={`/dashboard/contracts/${n.contract.agreementId}`} className="inline-flex items-center gap-0.5 text-xs text-primary hover:underline" data-testid={`link-end-contract-${n.customerId}`}>Contract<ExternalLink className="h-3 w-3" /></Link>
                         : <Link href={`/dashboard/customers/${n.customerId}`} className="text-xs text-primary hover:underline" data-testid={`link-end-contract-${n.customerId}`}>Property contracts</Link>}
-                    </div>
-                  </div>
-                ))}
-              </section>
-              <section data-testid="section-decisions">
-                <h3 className="mb-1.5 flex justify-between text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"><span>Needs a decision</span><span className="tabular-nums">{decisions.length}</span></h3>
-                {decisionsQ.isError ? <ErrorRow onRetry={() => void decisionsQ.refetch()} /> : decisions.length === 0 ? <p className="text-xs text-muted-foreground">Nothing from the import.</p> : decisions.map(d => (
-                  <div key={d.id} className="rt-need mb-1.5 cursor-default" style={svcStyle(d.serviceKey)} data-testid={`card-decision-${d.id}`}>
-                    <div className="truncate font-semibold">{d.propertyName}</div>
-                    <div className="text-[11px] text-muted-foreground">{d.crewName ?? "No crew"} · {weekdayName(d.weekday)}{d.minutes != null ? ` · ${fmtMinutes(d.minutes)}` : ""}</div>
-                    <div className="text-[11px]">{d.reason}</div>
-                    <div className="mt-1 flex gap-1">
-                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={actions.pending} onClick={() => void actions.resolveDecision(d.id, "keep")} data-testid={`button-keep-${d.id}`}>Keep</Button>
-                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs text-destructive" disabled={actions.pending} onClick={() => void actions.resolveDecision(d.id, "remove")} data-testid={`button-dismiss-${d.id}`}>Remove</Button>
                     </div>
                   </div>
                 ))}

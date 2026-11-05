@@ -37,11 +37,10 @@ beforeEach(() => {
     const method = init?.method ?? "GET";
     calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined, headers: init?.headers });
     const json = (() => {
-      if (url.startsWith("/api/routes/status")) return { imported: true, plannerReadOnly: true, latestVisitDate: "2027-11-20", season: { year: 2027, start: "2027-04-05", end: "2027-10-29" }, plannerMessage: "" };
+      if (url.startsWith("/api/routes/status")) return { latestVisitDate: "2027-11-20", season: { year: 2027, start: "2027-04-05", end: "2027-10-29" } };
       if (url === "/api/routes/stops" && method === "GET") return stops;
       if (url.startsWith("/api/routes/needs")) return [need];
-      if (url.startsWith("/api/routes/decisions")) return [{ id: "d1", customerId: "cu-a", propertyName: "Dup Prop", crewId: "k1", crewName: "Crew 1", weekday: 3, serviceKey: "mowing", minutes: 45, reason: "Duplicate property" }];
-      if (url.startsWith("/api/crews/board")) return [{ id: "k1", name: "Crew 1", color: "#336699", defaultHoursPerDay: 8, supervisorName: "Sam" }, { id: "k2", name: "Crew 2", color: "#993366", defaultHoursPerDay: 8 }];
+      if (url.startsWith("/api/routes/crews")) return [{ id: "k1", name: "Crew 1", color: "#336699", defaultHoursPerDay: 8, supervisorName: "Sam" }, { id: "k2", name: "Crew 2", color: "#993366", defaultHoursPerDay: 8 }];
       if (url.startsWith("/api/routes/progress")) return { customerId: "cu-a", serviceKey: "mowing", season: 2027, quantity: 26, contractStatus: "covered", termId: "t1", done: 25, planned: 1, skipped: 3, inProgress: 0, cancelled: 1 };
       if (url === "/api/routes/fill") return { created: 14, through: "2027-11-20" };
       if (url.endsWith("/apply-calendar")) return { moved: 2, cancelled: 1, unchanged: 4 };
@@ -123,10 +122,11 @@ describe("RoutesPage", () => {
     await waitFor(() => expect(toast.mock.calls.some(([a]) => String(a.description).startsWith("14 route visits added"))).toBe(true));
   });
 
-  it("decisions resolve with Keep or Remove", async () => {
+  it("has no retired review section or requests", async () => {
     mount();
-    fireEvent.click(await screen.findByTestId("button-keep-d1"));
-    await waitFor(() => expect(calls.find(c => c.url === "/api/routes/decisions/d1/resolve")?.body).toEqual({ resolution: "keep" }));
+    await screen.findByTestId("row-stop-a");
+    expect(screen.queryByTestId("section-decisions")).toBeNull();
+    expect(calls.some(c => c.url.includes("/decisions"))).toBe(false);
   });
 
   it("drawer progress comes from the API; calendar update is explicit and confirmed", async () => {

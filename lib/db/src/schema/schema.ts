@@ -76,7 +76,6 @@ export const companies = pgTable("companies", {
   phone: text("phone"),
   pesticideLicenseNumber: text("pesticide_license_number"),
   crewLinksInitializedAt: timestamp("crew_links_initialized_at"),
-  routesImportedAt: timestamp("routes_imported_at"),
   routesLastFilledOn: date("routes_last_filled_on"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -85,7 +84,6 @@ export const companies = pgTable("companies", {
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
   crewLinksInitializedAt: true,
-  routesImportedAt: true,
   routesLastFilledOn: true,
   createdAt: true,
   updatedAt: true,
@@ -98,7 +96,6 @@ export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type Company = typeof companies.$inferSelect;
 
 // Owns recurrence only. Contract quantities remain in term_scope_lines.
-// importedFromBlockId is frozen provenance, never a live planner mirror.
 export const routeStops = pgTable("route_stops", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
@@ -117,7 +114,6 @@ export const routeStops = pgTable("route_stops", {
   pausedUntil: date("paused_until"),
   isActive: boolean("is_active").notNull().default(true),
   notes: text("notes"),
-  importedFromBlockId: varchar("imported_from_block_id"),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -132,26 +128,6 @@ export const routeStops = pgTable("route_stops", {
 }));
 export type RouteStop = typeof routeStops.$inferSelect;
 export type InsertRouteStop = typeof routeStops.$inferInsert;
-
-// Frozen import-review evidence, NOT a second live recurring pattern.
-// The source block ID is provenance, deliberately not a cascading planner FK.
-export const routeImportDecisions = pgTable("route_import_decisions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  sourceBlockId: varchar("source_block_id").notNull(),
-  snapshot: jsonb("snapshot").$type<{
-    customerId: string; propertyName: string; crewId: string | null; crewName: string;
-    weekday: number; serviceKey: "mowing"; minutes: number; anchorDate: string;
-    sortOrder: number; notes: string | null; reason: string;
-  }>().notNull(),
-  resolution: text("resolution").$type<"keep" | "remove">(),
-  resolvedById: varchar("resolved_by_id").references(() => users.id, { onDelete: "set null" }),
-  resolvedAt: timestamp("resolved_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, table => ({
-  sourceUnique: uniqueIndex("route_import_decisions_source_unique").on(table.companyId, table.sourceBlockId),
-  resolutionCheck: check("route_import_decisions_resolution_check", sql`${table.resolution} IS NULL OR ${table.resolution} IN ('keep','remove')`),
-}));
 
 export const hardscapeCatalogItems = pgTable("hardscape_catalog_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1617,10 +1593,6 @@ export type CustomerMapDocument = typeof customerMapDocuments.$inferSelect;
 
 // ==================== SCHEDULING SYSTEM ====================
 
-// Day of week type for scheduling
-export type DayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday";
-
-// Maintenance Crews
 // Preset crew colors for visual differentiation
 export const CREW_COLORS = [
   "#2563eb", // blue
@@ -1634,120 +1606,6 @@ export const CREW_COLORS = [
   "#059669", // emerald
   "#6366f1", // indigo
 ] as const;
-
-export const maintenanceCrews = pgTable("maintenance_crews", {
-  crewId: varchar("crew_id").references((): AnyPgColumn => crews.id, { onDelete: "set null" }),
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  // Frozen compatibility values for unlinked planner columns and required inserts.
-  // Linked identity is always projected from crews; do not edit these again.
-  name: text("name").notNull(),
-  color: text("color").default("#2563eb"), // Crew color for schedule display
-  defaultHoursPerDay: real("default_hours_per_day").default(8),
-  isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  standingCrewUnique: uniqueIndex("maintenance_crews_crew_id_unique").on(table.crewId).where(sql`${table.crewId} IS NOT NULL`),
-}));
-
-export const insertMaintenanceCrewSchema = createInsertSchema(maintenanceCrews).omit({
-  id: true,
-  createdAt: true,
-}).extend({
-  crewId: z.string().min(1).nullable().optional(),
-  color: z.string().default("#2563eb"),
-  defaultHoursPerDay: z.number().min(0).max(24).default(8),
-  isActive: z.boolean().default(true),
-});
-
-export type InsertMaintenanceCrew = z.infer<typeof insertMaintenanceCrewSchema>;
-export type MaintenanceCrew = typeof maintenanceCrews.$inferSelect;
-
-// Per-property mowing/maintenance visit configuration
-export const maintenanceVisitConfigs = pgTable("maintenance_visit_configs", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  estimatedDurationMinutes: integer("estimated_duration_minutes").notNull(),
-  crewSize: integer("crew_size").notNull().default(2),
-  preferredDay: text("preferred_day").$type<DayOfWeek>(),
-  preferredCrewId: varchar("preferred_crew_id").references(() => maintenanceCrews.id, { onDelete: "set null" }),
-  notes: text("notes"),
-  isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  customerUnique: unique(
-    "maintenance_visit_configs_customer_id_company_id_unique",
-  ).on(table.customerId, table.companyId),
-}));
-
-export const insertMaintenanceVisitConfigSchema = createInsertSchema(maintenanceVisitConfigs).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-}).extend({
-  estimatedDurationMinutes: z.number().int().min(1),
-  crewSize: z.number().int().min(1).max(10).default(2),
-  preferredDay: z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]).optional(),
-  isActive: z.boolean().default(true),
-});
-
-export type InsertMaintenanceVisitConfig = z.infer<typeof insertMaintenanceVisitConfigSchema>;
-export type MaintenanceVisitConfig = typeof maintenanceVisitConfigs.$inferSelect;
-
-// Weekly schedule template (repeats April-October by default)
-export const weeklyScheduleTemplates = pgTable("weekly_schedule_templates", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  name: text("name").notNull().default("Season Template"),
-  seasonStartMonth: integer("season_start_month").default(4), // April
-  seasonStartWeek: integer("season_start_week").default(2),
-  seasonEndMonth: integer("season_end_month").default(10), // October
-  seasonEndWeek: integer("season_end_week").default(2),
-  isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const insertWeeklyScheduleTemplateSchema = createInsertSchema(weeklyScheduleTemplates).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-}).extend({
-  seasonStartMonth: z.number().int().min(1).max(12).default(4),
-  seasonStartWeek: z.number().int().min(1).max(5).default(2),
-  seasonEndMonth: z.number().int().min(1).max(12).default(10),
-  seasonEndWeek: z.number().int().min(1).max(5).default(2),
-  isActive: z.boolean().default(true),
-});
-
-export type InsertWeeklyScheduleTemplate = z.infer<typeof insertWeeklyScheduleTemplateSchema>;
-export type WeeklyScheduleTemplate = typeof weeklyScheduleTemplates.$inferSelect;
-
-// Schedule blocks - property placements on the weekly grid
-export const scheduleBlocks = pgTable("schedule_blocks", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  templateId: varchar("template_id").notNull().references(() => weeklyScheduleTemplates.id, { onDelete: "cascade" }),
-  visitConfigId: varchar("visit_config_id").notNull().references(() => maintenanceVisitConfigs.id, { onDelete: "cascade" }),
-  crewId: varchar("crew_id").notNull().references(() => maintenanceCrews.id, { onDelete: "cascade" }),
-  dayOfWeek: text("day_of_week").notNull().$type<DayOfWeek>(),
-  sortOrder: integer("sort_order").default(0),
-  startTime: text("start_time"), // Optional HH:MM format
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-export const insertScheduleBlockSchema = createInsertSchema(scheduleBlocks).omit({
-  id: true,
-  createdAt: true,
-}).extend({
-  dayOfWeek: z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]),
-  sortOrder: z.number().int().default(0),
-  startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
-});
-
-export type InsertScheduleBlock = z.infer<typeof insertScheduleBlockSchema>;
-export type ScheduleBlock = typeof scheduleBlocks.$inferSelect;
 
 // Notification types for the ticket notification system
 export type NotificationType = "assigned" | "completed" | "due_tomorrow" | "due_today" | "overdue" | "mentioned";
@@ -3863,7 +3721,7 @@ export type InsertMailboxBackfillRun = z.infer<typeof insertMailboxBackfillRunSc
 export type MailboxBackfillRun = typeof mailboxBackfillRuns.$inferSelect;
 
 // Mobile v1 Slice 0: Crews — represents a field crew owned by a supervisor user.
-// Distinct from `maintenance_crews` which is the schedule-board crew concept.
+// Canonical standing crew identity for Routes, visits and campaign teams.
 export const crews = pgTable("crews", {
   color: text("color"),
   defaultHoursPerDay: real("default_hours_per_day"),

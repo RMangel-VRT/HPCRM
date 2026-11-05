@@ -55,7 +55,7 @@ export interface TermPlan {
 export interface CustomerPlan {
   report: CustomerReport;
   agreements: Array<{
-    // Disabled planner-only grouping hint, never an agreements column.
+    // Disabled legacy grouping hint, never an agreements column.
     agreement: Pick<Agreement, "customerId" | "propertyManagementCompanyId"> & { line: AgreementTerm["line"] };
     terms: TermPlan[];
   }>;

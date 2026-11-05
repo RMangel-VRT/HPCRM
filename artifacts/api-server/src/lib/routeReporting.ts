@@ -1,8 +1,6 @@
 import type { ResolveCoverage } from "./routeFill";
 import { companyToday } from "./companyDay";
 
-export const PLANNER_REPLACED_MESSAGE = "The Maintenance planner was replaced by Routes. This is a read-only record of the 2026 planner.";
-
 export function reportYear(customerId: string | null, service: string, resolve: ResolveCoverage, today = companyToday()) {
   const year = Number(today.slice(0, 4)), current = resolve(customerId, service, year);
   return current && current.term.endDate >= today && (!current.window || current.window.end >= today) ? year : year + 1;

@@ -15,7 +15,6 @@ export const isRouteService = (k: string | null | undefined): k is RouteServiceK
 export const routeServiceLabel = (k: string | null | undefined) => ROUTE_SERVICES.find(s => s.key === k)?.label ?? (k ?? "").replace(/_/g, " ");
 export const serviceColorVar = (k: string | null | undefined) => `var(${ROUTE_SERVICES.find(s => s.key === k)?.token ?? "--svc-mowing"})`;
 
-export const PLANNER_REPLACED_MESSAGE = "The Maintenance planner was replaced by Routes. This is a read-only record of the 2026 planner.";
 export const WEEKDAYS = [
   { n: 1, short: "Mon", long: "Monday" }, { n: 2, short: "Tue", long: "Tuesday" }, { n: 3, short: "Wed", long: "Wednesday" },
   { n: 4, short: "Thu", long: "Thursday" }, { n: 5, short: "Fri", long: "Friday" }, { n: 6, short: "Sat", long: "Saturday" },
@@ -44,19 +43,15 @@ export interface RouteNeed {
   contract?: RouteContract | null; minutes?: number | null;
 }
 export interface RouteStatus {
-  imported: boolean; plannerReadOnly: boolean; latestVisitDate: string | null;
-  season: { year: number; start: string; end: string } | null; plannerMessage: string;
-}
-export interface RouteDecision {
-  id: string; customerId: string | null; propertyName: string; crewId: string | null; crewName: string | null;
-  weekday: number; serviceKey: string; minutes: number | null; reason: string;
+  latestVisitDate: string | null;
+  season: { year: number; start: string; end: string } | null;
 }
 export interface RouteProgress {
   customerId: string; serviceKey: string; season: number; quantity: number | null; contractStatus: string; termId: string | null;
   done: number; planned: number; skipped: number; inProgress: number; cancelled: number;
   contract?: RouteContract | null;
 }
-export interface RouteSummary { imported: boolean; stops: { id: string; serviceKey: string; crew: { id: string; name: string } | null; weekday: number; everyWeeks: number; minutes: number }[] }
+export interface RouteSummary { stops: { id: string; serviceKey: string; crew: { id: string; name: string } | null; weekday: number; everyWeeks: number; minutes: number }[] }
 export interface FillResult { created: number; from?: string; through?: string; byService?: Record<string, number>; byCrew?: Record<string, number>; skipped?: unknown[] }
 export interface SlideResult { moved: number; byCrew?: Record<string, number> }
 export interface ApplyCalendarResult { moved: number; cancelled: number; unchanged: number }
@@ -67,9 +62,7 @@ export const routeKeys = {
   status: (c: string | null | undefined, service: string) => ["/api/routes", "status", c ?? "none", service] as const,
   stops: (c: string | null | undefined) => ["/api/routes", "stops", c ?? "none"] as const,
   needs: (c: string | null | undefined, service: string) => ["/api/routes", "needs", c ?? "none", service] as const,
-  decisions: (c: string | null | undefined) => ["/api/routes", "decisions", c ?? "none"] as const,
   progress: (c: string | null | undefined, customerId: string, service: string, season?: number) => ["/api/routes", "progress", c ?? "none", customerId, service, season ?? "current"] as const,
-  readiness: (c: string | null | undefined) => ["/api/planner/readiness", c ?? "none"] as const,
   summary: (c: string | null | undefined, customerId: string) => ["/api/customers", customerId, "route-summary", c ?? "none"] as const,
 };
 
@@ -77,19 +70,16 @@ async function getJson<T>(url: string, companyId?: string): Promise<T> {
   return (await (await apiRequest("GET", url, undefined, { headers: companyId ? { "X-Company-Id": companyId } : {} })).json()) as T;
 }
 export const fetchRouteStatus = (service: string, companyId?: string) => getJson<RouteStatus>(`/api/routes/status?service=${encodeURIComponent(service)}`, companyId);
-export interface PlannerReadiness { imported: boolean; plannerReadOnly: boolean; plannerMessage: string }
-export const fetchPlannerReadiness = (companyId?: string) => getJson<PlannerReadiness>("/api/planner/readiness", companyId);
 export const fetchRouteStops = (companyId?: string) => getJson<RouteStop[]>("/api/routes/stops", companyId);
 export const fetchRouteNeeds = (service: string, companyId?: string) => getJson<RouteNeed[]>(`/api/routes/needs?service=${encodeURIComponent(service)}`, companyId);
-export const fetchRouteDecisions = (companyId?: string) => getJson<RouteDecision[]>("/api/routes/decisions", companyId);
 export const fetchRouteProgress = (customerId: string, service: string, season?: number, companyId?: string) =>
   getJson<RouteProgress>(`/api/routes/progress?customerId=${encodeURIComponent(customerId)}&service=${encodeURIComponent(service)}${season ? `&season=${season}` : ""}`, companyId);
 export const fetchRouteSummary = (customerId: string, companyId?: string) => getJson<RouteSummary>(`/api/customers/${encodeURIComponent(customerId)}/route-summary`, companyId);
-export interface RoutePreview { imported: boolean; stops: (RouteSummary["stops"][number] & { customerId: string; name: string })[] }
-export const fetchRoutePreview = (companyId?: string) => getJson<RoutePreview>("/api/planner/route-preview", companyId);
+export interface RoutePreview { stops: (RouteSummary["stops"][number] & { customerId: string; name: string })[] }
+export const fetchRoutePreview = (companyId?: string) => getJson<RoutePreview>("/api/routes/preview", companyId);
 
 export function invalidateRoutes(qc: QueryClient) {
-  for (const queryKey of [["/api/routes"], ["/api/visits"], ["/api/visits/summary"], ["/api/scheduling/queue"], ["/api/planner/route-preview"], ["/api/customers"]]) void qc.invalidateQueries({ queryKey });
+  for (const queryKey of [["/api/routes"], ["/api/visits"], ["/api/visits/summary"], ["/api/scheduling/queue"], ["/api/customers"]]) void qc.invalidateQueries({ queryKey });
 }
 
 /* ---------- formatting ---------- */
