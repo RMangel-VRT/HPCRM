@@ -568,6 +568,10 @@ export default function SettingsPage() {
   });
 
   const handleFeatureFlagToggle = (flag: keyof typeof featureFlags) => {
+    if (flag === "qbo_write") {
+      if (!isAdmin) return;
+      if (!featureFlags.qbo_write && !window.confirm("Customers waiting to send will be updated in QuickBooks within 15 minutes.")) return;
+    }
     setFeatureFlags((prev) => ({ ...prev, [flag]: !prev[flag] }));
   };
 
@@ -1081,7 +1085,7 @@ export default function SettingsPage() {
                 <div className="space-y-0.5">
                   <Label htmlFor="qbo-write" className="text-base">QuickBooks Write Access</Label>
                   <p className="text-sm text-muted-foreground">
-                    Allow creating and updating QuickBooks records (requires approval)
+                    {isAdmin ? "Allow creating and updating QuickBooks records (requires approval)" : "Only admins can change this"}
                   </p>
                 </div>
                 <Switch
@@ -1089,7 +1093,7 @@ export default function SettingsPage() {
                   checked={featureFlags.qbo_write}
                   onCheckedChange={() => handleFeatureFlagToggle("qbo_write")}
                   data-testid="switch-qbo-write"
-                  disabled
+                  disabled={!isAdmin}
                 />
               </div>
 
