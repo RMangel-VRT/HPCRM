@@ -49,3 +49,4 @@
 - [QBO sync transactions](qbo-sync-transaction-boundary.md) — OAuth rotation must commit independently of customer reconciliation rollback.
 - [Artifact test runner context](artifact-test-runner.md) — archived baselines need the artifact-local launcher; identical Vitest versions can resolve different Vite peers.
 - [Browser checks and hot reload](browser-hot-reload-verification.md) — freeze app/locale edits during draft checks; distinguish HMR remounts from repeatable navigation failures.
+- [Customer pages direction](customer-pages-direction.md) — AM1→CP1–CP4 are sequential; contract-owned snow coverage needs production comparison before CP1 release.
