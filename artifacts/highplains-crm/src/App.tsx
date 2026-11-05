@@ -42,6 +42,8 @@ const QboCustomerReview = lazy(() => import("@/pages/QboCustomerReview"));
 const CustomerByQbo = lazy(() => import("@/pages/CustomerByQbo"));
 const CustomersList = lazy(() => import("@/pages/CustomersList"));
 const CustomerSetupWizard = lazy(() => import("@/pages/CustomerSetupWizard"));
+const CustomerEdit = lazy(() => import("@/pages/CustomerEdit"));
+const CustomerSetupRedirect = lazy(() => import("@/pages/CustomerEdit").then(m => ({ default: m.CustomerSetupRedirect })));
 const CustomerDetail = lazy(() => import("@/pages/CustomerDetail"));
 const RevenueOverview = lazy(() => import("@/pages/RevenueOverview"));
 const ToolsPage = lazy(() => import("@/pages/ToolsPage"));
@@ -173,7 +175,7 @@ function Router() {
     /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
     !/^\/dashboard\/customers\/map(\/|$)/.test(location) &&
     !/^\/dashboard\/customers\/new(\/|$)/.test(location) &&
-    !/^\/dashboard\/customers\/[^/]+\/setup(\/|$)/.test(location);
+    !/^\/dashboard\/customers\/[^/]+\/(setup|edit)(\/|$)/.test(location);
 
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -253,7 +255,8 @@ function Router() {
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
         />
         <ProtectedRoute path="/dashboard/customers/new" component={CustomerSetupWizard} allowedRoles={["admin", "office"]} />
-        <ProtectedRoute path="/dashboard/customers/:id/setup" component={CustomerSetupWizard} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/customers/:id/edit" component={CustomerEdit} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/customers/:id/setup" component={CustomerSetupRedirect} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
           path="/dashboard/customers/:id"
           component={CustomerDetail}

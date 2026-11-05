@@ -5,8 +5,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation, Link } from "wouter";
 import { useTabParam } from "@/hooks/useTabParam";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertContact, InsertNote, InsertCustomer, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact, ProposalWithDetails, CustomerServicePlan } from "@shared/schema";
-import { insertContactSchema, insertNoteSchema, insertCustomerSchema } from "@shared/schema";
+import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertNote, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact, ProposalWithDetails, CustomerServicePlan } from "@shared/schema";
+import { insertNoteSchema } from "@shared/schema";
 import { CustomerContracts } from "@/components/contracts/CustomerContracts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,7 +36,6 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Edit, Plus, Users, FileText, MessageSquare, MapPin, BarChart3, Upload, Download, Eye, Paperclip, History, RefreshCw, DollarSign, Map, Layers, Trash2, X, Ticket as TicketIcon, Building, Building2, Check, Loader2, Copy, Mail, Clock, AlertCircle, CheckCircle2, GitBranch, Snowflake, ChevronDown, Settings, Wrench } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -64,8 +63,8 @@ import AnnualServiceRollup from "@/components/AnnualServiceRollup";
 import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
 import ParentCustomerDashboard from "@/pages/ParentCustomerDashboard";
 import QboCustomerCard from "@/components/qbo/QboCustomerCard";
-import { FinishSetupBanner, MissingFieldsNotice } from "@/components/customerWizard/FinishSetupBanner";
-import { activationError, type MissingField } from "@/components/customerWizard/wizardModel";
+import SiteDetailsCard from "@/components/customer/SiteDetailsCard";
+import { FinishSetupBanner } from "@/components/customerWizard/FinishSetupBanner";
 import {
   setLastViewedCustomerId,
   clearLastViewedCustomerId,
@@ -596,61 +595,8 @@ export default function CustomerDetail() {
 
   useSetBreadcrumbs(breadcrumbItems, [customer?.name, customer?.id, activeTab, activeTabLabel, breadcrumbIsChild, breadcrumbParent?.id, breadcrumbParent?.name]);
 
-  // Customer edit management
-  const [isEditCustomerDialogOpen, setIsEditCustomerDialogOpen] = useState(false);
-  const [activationMissing, setActivationMissing] = useState<MissingField[]>([]);
-  useEffect(() => { if (!isEditCustomerDialogOpen) setActivationMissing([]); }, [isEditCustomerDialogOpen]);
-  
-  const customerForm = useForm<Omit<InsertCustomer, "companyId">>({
-    resolver: zodResolver(insertCustomerSchema.omit({ companyId: true })),
-    defaultValues: {
-      name: customer?.name || "",
-      customerNumber: customer?.customerNumber || "",
-      street: customer?.street || "",
-      city: customer?.city || "",
-      state: customer?.state || "",
-      zip: customer?.zip || "",
-      status: customer?.status || "active",
-      tags: customer?.tags || [],
-      acres: customer?.acres || "",
-      complexityScore: customer?.complexityScore || undefined,
-      active: customer?.active || "true",
-      customerType: customer?.customerType || "commercial",
-      snowEnabled: customer?.snowEnabled || false,
-      includeInRoute: customer?.includeInRoute || false,
-      propertyManagementCompanyId: customer?.propertyManagementCompanyId || null,
-      propertyManagerId: customer?.propertyManagerId || null,
-      parentCustomerId: customer?.parentCustomerId || null,
-      ranking: customer?.ranking || "standard",
-    },
-  });
+  const canEditCustomer = user?.activeRole === "admin" || user?.activeRole === "office";
 
-  // Update form when customer data loads
-  useEffect(() => {
-    if (customer && isEditCustomerDialogOpen) {
-      customerForm.reset({
-        name: customer.name,
-        customerNumber: customer.customerNumber || "",
-        street: customer.street,
-        city: customer.city,
-        state: customer.state,
-        zip: customer.zip,
-        status: customer.status,
-        tags: customer.tags || [],
-        acres: customer.acres || "",
-        complexityScore: customer.complexityScore || undefined,
-        active: customer.active,
-        customerType: customer.customerType || "commercial",
-        snowEnabled: customer.snowEnabled,
-        includeInRoute: customer.includeInRoute,
-        propertyManagementCompanyId: customer.propertyManagementCompanyId || null,
-        propertyManagerId: customer.propertyManagerId || null,
-        parentCustomerId: customer.parentCustomerId || null,
-        ranking: customer.ranking || "standard",
-      });
-    }
-  }, [customer, customerForm, isEditCustomerDialogOpen]);
-  
   // Scroll to and briefly highlight a contract card after navigating from the dashboard
   useEffect(() => {
     if (activeTab === "contracts" && highlightContractId) {
@@ -667,168 +613,6 @@ export default function CustomerDetail() {
       return () => clearTimeout(timer);
     }
   }, [activeTab, highlightContractId]);
-
-  // Clear property manager when company changes
-  const watchedPmCompanyId = customerForm.watch("propertyManagementCompanyId");
-  const prevPmCompanyIdRef = useRef(watchedPmCompanyId);
-  useEffect(() => {
-    // Only clear if the company ID actually changed (not on initial load)
-    if (prevPmCompanyIdRef.current !== undefined && prevPmCompanyIdRef.current !== watchedPmCompanyId) {
-      // Always clear manager when company changes to prevent stale data
-      customerForm.setValue("propertyManagerId", null);
-    }
-    prevPmCompanyIdRef.current = watchedPmCompanyId;
-  }, [watchedPmCompanyId, customerForm]);
-
-  const updateCustomerMutation = useMutation({
-    mutationFn: async (data: Omit<InsertCustomer, "companyId">) => {
-      // Include the expectedUpdatedAt to detect conflicts
-      const payload = {
-        ...data,
-        expectedUpdatedAt: customer?.updatedAt,
-      };
-      const response = await fetch(`/api/customers/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", "X-Company-Id": String(customer?.companyId ?? user?.activeCompanyId ?? "") },
-        body: JSON.stringify(payload),
-        credentials: "include",
-      });
-      
-      if (response.status === 409) {
-        const conflictData = await response.json();
-        throw new Error("CONFLICT:" + JSON.stringify(conflictData));
-      }
-      if (response.status === 400) {
-        const body = await response.text();
-        // Server-enforced activation completeness (ACTIVATION_INCOMPLETE) keeps the status/code shape for parsing.
-        throw new Error(`400: ${body}`);
-      }
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || "Failed to update customer");
-      }
-      
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
-      toast({
-        title: t("common.success"),
-        description: t("customers.updated"),
-      });
-      setIsEditCustomerDialogOpen(false);
-    },
-    onError: (error: Error) => {
-      const act = activationError(error);
-      if (act) {
-        setActivationMissing(act.missingFields);
-        toast({ title: t("customerWizard.result.activation"), description: t("customerWizard.activationBlocked", { fields: act.missingFields.map(f => t(`customerWizard.fields.${f}`)).join(", ") }), variant: "destructive" });
-        return;
-      }
-      if (error.message.startsWith("CONFLICT:")) {
-        toast({
-          title: t("common.error"),
-          description: t("customers.updateFailed"),
-          variant: "destructive",
-        });
-        // Refresh the data
-        queryClient.invalidateQueries({ queryKey: ["/api/customers", id] });
-        setIsEditCustomerDialogOpen(false);
-      } else {
-        toast({
-          title: t("common.error"),
-          description: extractApiErrorMessage(error) ?? error.message,
-          variant: "destructive",
-        });
-      }
-    },
-  });
-
-  // Contact management
-  const [isAddContactDialogOpen, setIsAddContactDialogOpen] = useState(false);
-  const [editingContact, setEditingContact] = useState<Contact | null>(null);
-  const [selectedPmCompanyForContact, setSelectedPmCompanyForContact] = useState<string | null>(null);
-
-  const contactForm = useForm<Omit<InsertContact, "companyId" | "customerId">>({
-    resolver: zodResolver(insertContactSchema.omit({ companyId: true, customerId: true })),
-    defaultValues: {
-      name: "",
-      phones: [],
-      emails: [],
-      role: "",
-      isPrimary: "false",
-      notes: "",
-    },
-  });
-
-  const createContactMutation = useMutation({
-    mutationFn: async (data: Omit<InsertContact, "companyId" | "customerId">) => {
-      return apiRequest("POST", `/api/customers/${id}/contacts`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contacts"] });
-      toast({
-        title: t("common.success"),
-        description: t("customerDetail.contactCreated"),
-      });
-      setIsAddContactDialogOpen(false);
-      setSelectedPmCompanyForContact(null);
-      contactForm.reset();
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t("common.error"),
-        description: extractApiErrorMessage(error) ?? error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const updateContactMutation = useMutation({
-    mutationFn: async ({ contactId, data }: { contactId: string; data: Omit<InsertContact, "companyId" | "customerId"> }) => {
-      return apiRequest("PATCH", `/api/contacts/${contactId}`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contacts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/property-managers"] });
-      toast({
-        title: t("common.success"),
-        description: t("customerDetail.contactUpdated"),
-      });
-      setEditingContact(null);
-      setSelectedPmCompanyForContact(null);
-      contactForm.reset();
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t("common.error"),
-        description: extractApiErrorMessage(error) ?? error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const deleteContactMutation = useMutation({
-    mutationFn: async (contactId: string) => {
-      return apiRequest("DELETE", `/api/contacts/${contactId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "contacts"] });
-      toast({
-        title: t("common.success"),
-        description: t("customerDetail.contactDeleted"),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t("common.error"),
-        description: extractApiErrorMessage(error) ?? error.message,
-        variant: "destructive",
-      });
-    },
-  });
 
   // Note management
   const [isAddNoteDialogOpen, setIsAddNoteDialogOpen] = useState(false);
@@ -1145,15 +929,14 @@ export default function CustomerDetail() {
             {t("customerDetail.addTicket")}
           </Button>
         )}
-        <Button 
-          size="sm"
-          variant="default"
-          data-testid="button-edit-customer"
-          onClick={() => setIsEditCustomerDialogOpen(true)}
-        >
-          <Edit className="w-4 h-4 mr-2" />
-          {t("common.edit")}
-        </Button>
+        {canEditCustomer && (
+          <Button size="sm" variant="default" asChild>
+            <Link href={`/dashboard/customers/${customer.id}/edit`} data-testid="button-edit-customer">
+              <Edit className="w-4 h-4 mr-2" />
+              {t("customerEdit.eyebrow")}
+            </Link>
+          </Button>
+        )}
       </div>
       </div>
 
@@ -1177,6 +960,7 @@ export default function CustomerDetail() {
               setHighlightContractId(contractId);
             }}
           />
+          <SiteDetailsCard customer={customer} canEdit={canEditCustomer} />
         </TabsContent>
 
         <TabsContent value="contacts" className="space-y-4">
@@ -1203,14 +987,14 @@ export default function CustomerDetail() {
                 {t("common.email")}
               </Button>
             )}
-            <Button 
-              size="sm" 
-              onClick={() => setIsAddContactDialogOpen(true)}
-              data-testid="button-add-contact"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              {t("customerDetail.addContact")}
-            </Button>
+            {canEditCustomer && (
+              <Button size="sm" asChild>
+                <Link href={`/dashboard/customers/${customer.id}/edit#contacts`} data-testid="button-edit-contacts">
+                  <Edit className="w-4 h-4 mr-2" />
+                  {t("customerEdit.editContacts")}
+                </Link>
+              </Button>
+            )}
           </div>
           {isLoadingContacts ? (
             <div className="space-y-3">
@@ -1277,54 +1061,6 @@ export default function CustomerDetail() {
                       {contact.notes && (
                         <p className="text-sm text-muted-foreground mt-2">{contact.notes}</p>
                       )}
-                    </div>
-                    <div className="flex gap-1">
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => {
-                          setEditingContact(contact);
-                          contactForm.reset({
-                            name: contact.name,
-                            phones: contact.phones || [],
-                            emails: contact.emails || [],
-                            role: contact.role || "",
-                            isPrimary: contact.isPrimary,
-                            notes: contact.notes || "",
-                          });
-                        }}
-                        data-testid={`button-edit-contact-${contact.id}`}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button 
-                            variant="ghost" 
-                            size="icon"
-                            data-testid={`button-delete-contact-${contact.id}`}
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>{t("common.delete")} {t("customerDetail.tabs.contacts")}</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {t("ticketDetail.cannotUndo")}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => deleteContactMutation.mutate(contact.id)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              {t("common.delete")}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
                     </div>
                   </CardContent>
                 </Card>
@@ -1571,242 +1307,6 @@ export default function CustomerDetail() {
       </Tabs>
 
 
-      <Dialog open={isAddContactDialogOpen || !!editingContact} onOpenChange={(open) => {
-        if (!open) {
-          setIsAddContactDialogOpen(false);
-          setEditingContact(null);
-          setSelectedPmCompanyForContact(null);
-          contactForm.reset();
-        }
-      }}>
-        <DialogContent className="max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{editingContact ? t("customerDetail.editContact") : t("customerDetail.addContact")}</DialogTitle>
-            <DialogDescription>
-              {editingContact ? t("customerDetail.updateContactInfo") : t("customerDetail.addContactDesc")}
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...contactForm}>
-            <form onSubmit={contactForm.handleSubmit((data) => {
-              const payload = {
-                ...data,
-                selectedPmCompanyId: data.role === "Property Manager" ? selectedPmCompanyForContact : null,
-              };
-              if (editingContact) {
-                updateContactMutation.mutate({ contactId: editingContact.id, data: payload });
-              } else {
-                createContactMutation.mutate(payload);
-              }
-            })} className="flex flex-col flex-1 min-h-0">
-              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-              <FormField
-                control={contactForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("common.name")} *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="John Doe" {...field} data-testid="input-contact-name" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={contactForm.control}
-                name="phones"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("common.phone")}</FormLabel>
-                    <div className="space-y-2">
-                      {(field.value || []).map((phone: string, index: number) => (
-                        <div key={index} className="flex gap-2">
-                          <Input
-                            placeholder="555-1234"
-                            value={phone}
-                            onChange={(e) => {
-                              const newPhones = [...(field.value || [])];
-                              newPhones[index] = e.target.value;
-                              field.onChange(newPhones);
-                            }}
-                            data-testid={`input-contact-phone-${index}`}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              const newPhones = (field.value || []).filter((_: string, i: number) => i !== index);
-                              field.onChange(newPhones);
-                            }}
-                            data-testid={`button-remove-phone-${index}`}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      ))}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => field.onChange([...(field.value || []), ""])}
-                        data-testid="button-add-phone"
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        {t("common.add")} {t("common.phone")}
-                      </Button>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={contactForm.control}
-                name="emails"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("common.email")}</FormLabel>
-                    <div className="space-y-2">
-                      {(field.value || []).map((email: string, index: number) => (
-                        <div key={index} className="flex gap-2">
-                          <Input
-                            type="email"
-                            placeholder="john@example.com"
-                            value={email}
-                            onChange={(e) => {
-                              const newEmails = [...(field.value || [])];
-                              newEmails[index] = e.target.value;
-                              field.onChange(newEmails);
-                            }}
-                            data-testid={`input-contact-email-${index}`}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              const newEmails = (field.value || []).filter((_: string, i: number) => i !== index);
-                              field.onChange(newEmails);
-                            }}
-                            data-testid={`button-remove-email-${index}`}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      ))}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => field.onChange([...(field.value || []), ""])}
-                        data-testid="button-add-email"
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        {t("common.add")} {t("common.email")}
-                      </Button>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={contactForm.control}
-                name="role"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("customerDetail.contactRole")}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ""}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-contact-role">
-                          <SelectValue placeholder={t("customerDetail.contactRole")} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="Property Manager">{t("customerDetail.propertyManager")}</SelectItem>
-                        <SelectItem value="Board President">{t("customerDetail.boardPresident")}</SelectItem>
-                        <SelectItem value="HOA Contact">{t("customerDetail.hoaContact")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              {contactForm.watch("role") === "Property Manager" && (
-                <FormItem>
-                  <FormLabel>{t("customerDetail.propertyManagement")}</FormLabel>
-                  <Select 
-                    value={selectedPmCompanyForContact || ""} 
-                    onValueChange={setSelectedPmCompanyForContact}
-                  >
-                    <FormControl>
-                      <SelectTrigger data-testid="select-pm-company-for-contact">
-                        <SelectValue placeholder={t("customerDetail.propertyManagement")} />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {pmCompanies.map((company) => (
-                        <SelectItem key={company.id} value={company.id}>
-                          {company.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    {t("customerDetail.propertyManagement")}
-                  </FormDescription>
-                </FormItem>
-              )}
-              <FormField
-                control={contactForm.control}
-                name="isPrimary"
-                render={({ field }) => (
-                  <FormItem className="flex items-center gap-2 space-y-0">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value === "true"}
-                        onCheckedChange={(checked) => field.onChange(checked ? "true" : "false")}
-                        data-testid="checkbox-contact-primary"
-                      />
-                    </FormControl>
-                    <FormLabel className="!mt-0">{t("customers.primaryContact")}</FormLabel>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={contactForm.control}
-                name="notes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("common.notes")}</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder={t("common.notes")} {...field} value={field.value || ""} rows={3} data-testid="textarea-contact-notes" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => {
-                  setIsAddContactDialogOpen(false);
-                  setEditingContact(null);
-                  setSelectedPmCompanyForContact(null);
-                  contactForm.reset();
-                }} data-testid="button-cancel-contact">
-                  {t("common.cancel")}
-                </Button>
-                <Button type="submit" disabled={createContactMutation.isPending || updateContactMutation.isPending} data-testid="button-save-contact">
-                  {editingContact 
-                    ? (updateContactMutation.isPending ? t("common.saving") : t("common.save"))
-                    : (createContactMutation.isPending ? t("common.creating") : t("common.create"))
-                  }
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={isAddNoteDialogOpen || !!editingNote} onOpenChange={(open) => {
         if (!open) {
           setIsAddNoteDialogOpen(false);
@@ -1862,357 +1362,6 @@ export default function CustomerDetail() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isEditCustomerDialogOpen} onOpenChange={setIsEditCustomerDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{t("customerDetail.editCustomer")}</DialogTitle>
-            <DialogDescription>
-              {t("customerDetail.updateCustomerInfo")}
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...customerForm}>
-            <form onSubmit={customerForm.handleSubmit((data) => updateCustomerMutation.mutate(data))} className="flex flex-col flex-1 min-h-0">
-              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={customerForm.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.customerName")} *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="ABC Corporation" {...field} data-testid="input-customer-name" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={customerForm.control}
-                  name="customerNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.customerNumber")}</FormLabel>
-                      <FormControl>
-                        <Input placeholder="CUST-001" {...field} value={field.value || ""} data-testid="input-customer-number" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              {activationMissing.length > 0 && <MissingFieldsNotice customerId={customer.id} fields={activationMissing} variant="inline" />}
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={customerForm.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("common.status")} *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-customer-status">
-                            <SelectValue placeholder={t("common.status")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="active">{t("statuses.active")}</SelectItem>
-                          <SelectItem value="prospect">{t("statuses.prospect")}</SelectItem>
-                          <SelectItem value="inactive">{t("statuses.inactive")}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={customerForm.control}
-                  name="acres"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.acres")}</FormLabel>
-                      <FormControl>
-                        <Input placeholder="1.5" {...field} value={field.value || ""} data-testid="input-customer-acres" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={customerForm.control}
-                name="street"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("customers.streetAddress")} *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="123 Main St" {...field} data-testid="input-customer-street" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid grid-cols-3 gap-4">
-                <FormField
-                  control={customerForm.control}
-                  name="city"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.city")} *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Cityville" {...field} data-testid="input-customer-city" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={customerForm.control}
-                  name="state"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.state")} *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="TX" {...field} data-testid="input-customer-state" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={customerForm.control}
-                  name="zip"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customers.zipCode")} *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="12345" {...field} data-testid="input-customer-zip" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={customerForm.control}
-                name="complexityScore"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("customers.complexity")}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-customer-complexity">
-                          <SelectValue placeholder={t("customers.complexity")} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="1">{t("customerDetail.complexitySimple")}</SelectItem>
-                        <SelectItem value="2">{t("customerDetail.complexityBelowAvg")}</SelectItem>
-                        <SelectItem value="3">{t("customerDetail.complexityAverage")}</SelectItem>
-                        <SelectItem value="4">{t("customerDetail.complexityAboveAvg")}</SelectItem>
-                        <SelectItem value="5">{t("customerDetail.complexityComplex")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={customerForm.control}
-                  name="customerType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("campaigns.customerTypeLabel")}</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "commercial"}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-customer-type-edit">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="commercial">{t("campaigns.customerTypeCommercial")}</SelectItem>
-                          <SelectItem value="hoa">{t("campaigns.customerTypeHoa")}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={customerForm.control}
-                  name="ranking"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Ranking</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "standard"}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-customer-ranking">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="standard" data-testid="option-ranking-standard">Standard</SelectItem>
-                          <SelectItem value="preferred" data-testid="option-ranking-preferred">Preferred</SelectItem>
-                          <SelectItem value="key_account" data-testid="option-ranking-key-account">Key Account</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={customerForm.control}
-                name="snowEnabled"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
-                    <div className="space-y-0.5">
-                      <FormLabel>{t("customerDetail.snowEnabled")}</FormLabel>
-                      <p className="text-xs text-muted-foreground">
-                        {t("customerDetail.snowEnabledDesc")}
-                      </p>
-                    </div>
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        data-testid="checkbox-snow-enabled"
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={customerForm.control}
-                name="includeInRoute"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
-                    <div className="space-y-0.5">
-                      <FormLabel>{t("customerDetail.includeInRoute")}</FormLabel>
-                      <p className="text-xs text-muted-foreground">
-                        {t("customerDetail.includeInRouteDesc")}
-                      </p>
-                    </div>
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        data-testid="checkbox-include-in-route"
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={customerForm.control}
-                name="parentCustomerId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("customerDetail.parentAccount")}</FormLabel>
-                    <FormControl>
-                      <CustomerSearchInput
-                        selectedId={field.value || undefined}
-                        selectedCustomerName={field.value ? (customer?.parentCustomer?.name ?? "") : ""}
-                        onSelect={(c) => field.onChange(c.id || null)}
-                        placeholder={t("customerDetail.parentAccount")}
-                        testId="input-customer-parent"
-                        mode="any"
-                        excludeIds={[
-                          customer.id,
-                          ...(customer.childCustomers?.map(c => c.id) ?? []),
-                        ]}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={customerForm.control}
-                  name="propertyManagementCompanyId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("customerDetail.propertyManagement")}</FormLabel>
-                      <Select 
-                        onValueChange={(value) => field.onChange(value === "_none" ? null : value)} 
-                        value={field.value || "_none"}
-                      >
-                        <FormControl>
-                          <SelectTrigger data-testid="select-customer-pm-company">
-                            <SelectValue placeholder={t("customerDetail.propertyManagement")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="_none">{t("common.none")}</SelectItem>
-                          {pmCompanies.map((company) => (
-                            <SelectItem key={company.id} value={company.id}>
-                              {company.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={customerForm.control}
-                  name="propertyManagerId"
-                  render={({ field }) => {
-                    const selectedPmCompanyId = customerForm.watch("propertyManagementCompanyId");
-                    const filteredManagers = selectedPmCompanyId 
-                      ? pmManagers.filter(m => m.propertyManagementCompanyId === selectedPmCompanyId)
-                      : pmManagers;
-                    return (
-                      <FormItem>
-                        <FormLabel>{t("customerDetail.propertyManager")}</FormLabel>
-                        <Select 
-                          onValueChange={(value) => field.onChange(value === "_none" ? null : value)} 
-                          value={field.value || "_none"}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-customer-pm-manager">
-                              <SelectValue placeholder={t("customerDetail.propertyManager")} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="_none">{t("common.none")}</SelectItem>
-                            {filteredManagers.map((manager) => (
-                              <SelectItem key={manager.id} value={manager.id}>
-                                {manager.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    );
-                  }}
-                />
-              </div>
-              </div>
-              <DialogFooter className="pt-4">
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  onClick={() => {
-                    setIsEditCustomerDialogOpen(false);
-                    customerForm.reset();
-                  }} 
-                  data-testid="button-cancel-customer"
-                >
-                  {t("common.cancel")}
-                </Button>
-                <Button type="submit" disabled={updateCustomerMutation.isPending} data-testid="button-save-customer">
-                  {updateCustomerMutation.isPending ? t("common.saving") : t("common.save")}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
       </div>
     </div>
   );

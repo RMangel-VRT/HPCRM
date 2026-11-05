@@ -17,7 +17,7 @@ export function MissingFieldsNotice({ customerId, fields, variant = "banner" }: 
         <ClipboardList className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
         {t(variant === "inline" ? "customerWizard.activationBlocked" : "customerWizard.finishBanner", { fields: labels })}
       </span>
-      <Link href={`/dashboard/customers/${customerId}/setup`} className="rounded-md border border-amber-600/40 bg-background px-3 py-1 text-xs font-medium hover:bg-muted" data-testid="link-finish-setup">
+      <Link href={`/dashboard/customers/${customerId}/edit`} className="rounded-md border border-amber-600/40 bg-background px-3 py-1 text-xs font-medium hover:bg-muted" data-testid="link-finish-setup">
         {t("customerWizard.finishAction")}
       </Link>
     </div>

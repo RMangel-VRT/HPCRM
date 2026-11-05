@@ -2,17 +2,42 @@
 type Listener = () => void;
 let dirty = false;
 let pendingHref: string | null = null;
+let pendingHistory = false;
+let protectedHistoryHref: string | null = null;
 const listeners = new Set<Listener>();
 const emit = () => listeners.forEach(l => l());
 
 export const unsavedGuard = {
   isDirty: () => dirty,
-  setDirty(value: boolean) { if (dirty !== value) { dirty = value; if (!value) pendingHref = null; emit(); } },
+  setDirty(value: boolean, options?: { protectHistory: boolean }) {
+    if (options?.protectHistory && value && !protectedHistoryHref) protectedHistoryHref = window.location.href;
+    if (!value) { protectedHistoryHref = null; pendingHistory = false; }
+    if (dirty !== value) { dirty = value; if (!value) pendingHref = null; emit(); }
+  },
   getPending: () => pendingHref,
-  requestLeave(href: string) { pendingHref = href; emit(); },
-  clearPending() { if (pendingHref !== null) { pendingHref = null; emit(); } },
+  isHistoryPending: () => pendingHistory,
+  requestLeave(href: string) { pendingHistory = false; pendingHref = href; emit(); },
+  clearPending() { if (pendingHref !== null) { pendingHref = null; pendingHistory = false; emit(); } },
   subscribe(l: Listener) { listeners.add(l); return () => { listeners.delete(l); }; },
 };
+
+// Install once, before mounted router subscribers. A page-owned listener can be
+// removed by a synchronous route commit while the same popstate is dispatching.
+// History protection is opt-in; existing other form guards keep their behavior.
+function protectHistoryNavigation() {
+  if (!dirty || !protectedHistoryHref) return;
+  const target = new URL(window.location.href);
+  const editor = new URL(protectedHistoryHref);
+  if (target.pathname === editor.pathname && target.search === editor.search) return;
+  window.history.pushState(window.history.state, "", protectedHistoryHref);
+  pendingHistory = true;
+  pendingHref = hrefToPath(target.pathname + target.search + target.hash);
+  emit();
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("popstate", protectHistoryNavigation, true);
+  import.meta.hot?.dispose(() => window.removeEventListener("popstate", protectHistoryNavigation, true));
+}
 
 /** Strip the router base so the value can be passed to wouter's navigate. */
 export function hrefToPath(href: string): string {

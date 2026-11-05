@@ -28,3 +28,23 @@ were ordering within inferred type descriptions, not new diagnostics.
 then inspect changed message meanings before claiming a regression or a clean
 baseline. Do not treat raw diagnostic-text set differences alone as new errors,
 and do not ignore semantic message changes just because locations match.
+
+An API typecheck baseline archive must include source imported by its tests from
+other artifacts, not just the API and composite libraries.
+
+**Why:** Some existing API tests import frontend shared modules. Omitting those
+sources changes missing-module and root-directory diagnostics, making an
+unchanged baseline appear to have fewer errors than the working tree.
+
+**How to apply:** Build the archived composite library declarations, mirror the
+cross-artifact source imports and artifact-local dependency links, then compare
+normalized diagnostic locations/codes with archive prefixes stripped.
+
+Exclude active Drizzle configuration files from unchanged-source archives.
+
+**Why:** Schema-discovery validation scans ignored generated folders too; a
+copied configuration can fail the single-config check even when no schema
+change or database drift exists.
+
+**How to apply:** Preserve source and TypeScript build inputs needed for the
+baseline, but omit the archive's Drizzle config before completion validation.

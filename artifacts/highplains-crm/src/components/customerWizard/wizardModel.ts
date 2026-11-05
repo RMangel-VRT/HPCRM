@@ -1,7 +1,12 @@
 /* CQ5 customer setup wizard: one form state, pure validation and request shaping.
    The CRM customer row owns every billing fact below; nothing here is a second owner. */
 
-export type WizardStatus = "prospect" | "active";
+/** Creation offers prospect/active only. "inactive" exists only for edit-safe hydration of existing records. */
+export type WizardStatus = "prospect" | "active" | "inactive";
+export type Ranking = "standard" | "preferred" | "key_account";
+export const RANKINGS: Ranking[] = ["standard", "preferred", "key_account"];
+export const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"] as const;
+export const isStateCode = (v: string) => (US_STATES as readonly string[]).includes(v.trim().toUpperCase()) && v.trim() === v.trim().toUpperCase();
 export type BillToMode = "property" | "management_company" | "custom";
 export type BranchMode = "master" | "separate";
 export type MissingField = "street" | "city" | "state" | "zip" | "billingName" | "billingEmails" | "billTo";
@@ -12,6 +17,7 @@ export const STEP_COUNT = 5;
 export interface ContactRow {
   key: string; id?: string; name: string; role: string; emails: string; phones: string; isPrimary: boolean;
   propertyManagerId?: string | null;
+  notes?: string;
   /** "ap" marks a one-time snapshot copied from the AP contact at creation. It is never re-synced. */
   source?: "ap";
 }
@@ -22,7 +28,7 @@ export interface SiteFacts {
 }
 
 export interface WizardDraft {
-  name: string; street: string; city: string; state: string; zip: string;
+  name: string; customerNumber: string; ranking: Ranking; street: string; city: string; state: string; zip: string;
   customerType: "commercial" | "hoa"; status: WizardStatus;
   parentCustomerId: string | null; isParent: boolean; branchBillingMode: BranchMode;
   snowEnabled: boolean; acres: string; complexityScore: string;
@@ -49,7 +55,7 @@ export const blankSite = (): SiteFacts => ({
 
 export function newWizardDraft(): WizardDraft {
   return {
-    name: "", street: "", city: "", state: "", zip: "", customerType: "commercial", status: "prospect",
+    name: "", customerNumber: "", ranking: "standard", street: "", city: "", state: "CO", zip: "", customerType: "commercial", status: "prospect",
     parentCustomerId: null, isParent: false, branchBillingMode: "master", snowEnabled: false, acres: "", complexityScore: "",
     billToMode: "property", propertyManagementCompanyId: null, propertyManagerId: null,
     billStreet: "", billStreet2: "", billCity: "", billState: "", billZip: "",
@@ -63,13 +69,16 @@ const s = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 const arr = (v: unknown): string[] => (Array.isArray(v) ? v.filter(x => typeof x === "string" && x.trim()).map(String) : []);
 
 /** Server record (setup or prefill) to draft. Unknown keys are ignored. */
-export function draftFromServer(c: Record<string, unknown>, contacts: Record<string, unknown>[] = []): WizardDraft {
+export function draftFromServer(c: Record<string, unknown>, contacts: Record<string, unknown>[] = [], opts: { edit?: boolean } = {}): WizardDraft {
   const base = newWizardDraft();
-  const status = c.status === "active" ? "active" : "prospect";
+  // Edit keeps inactive as inactive; creation (prefill) is prospect/active only.
+  const status: WizardStatus = c.status === "active" ? "active" : opts.edit && c.status === "inactive" ? "inactive" : "prospect";
   const billingName = s(c.billingName);
   return {
     ...base,
-    name: s(c.name), street: s(c.street), city: s(c.city), state: s(c.state), zip: s(c.zip),
+    name: s(c.name), customerNumber: s(c.customerNumber),
+    ranking: (RANKINGS as string[]).includes(String(c.ranking)) ? c.ranking as Ranking : "standard",
+    street: s(c.street), city: s(c.city), state: s(c.state), zip: s(c.zip),
     customerType: c.customerType === "hoa" ? "hoa" : "commercial", status,
     parentCustomerId: (c.parentCustomerId as string) || null,
     isParent: c.isParent === true || c.isParent === "true",
@@ -79,14 +88,15 @@ export function draftFromServer(c: Record<string, unknown>, contacts: Record<str
     propertyManagementCompanyId: (c.propertyManagementCompanyId as string) || null,
     propertyManagerId: (c.propertyManagerId as string) || null,
     billStreet: s(c.billStreet), billStreet2: s(c.billStreet2), billCity: s(c.billCity), billState: s(c.billState), billZip: s(c.billZip),
-    billingName, billingNameTouched: !!billingName && billingName !== s(c.name),
+    billingName, // In edit, any stored billing name is explicit; a null one keeps following the name (never fabricated).
+    billingNameTouched: opts.edit ? !!billingName : !!billingName && billingName !== s(c.name),
     billingCompanyName: s(c.billingCompanyName), billingContactName: s(c.billingContactName),
     billingEmails: arr(c.billingEmails), billingPhone: s(c.billingPhone), billingMobile: s(c.billingMobile),
     qboTermId: s(c.qboTermId), termTouched: !!c.qboTermId,
     contacts: contacts.map(ct => ({
       key: rowKey(), id: ct.id ? String(ct.id) : undefined, name: s(ct.name), role: s(ct.role),
       emails: arr(ct.emails).join(", "), phones: arr(ct.phones).join(", "),
-      isPrimary: ct.isPrimary === true || ct.isPrimary === "true", propertyManagerId: (ct.propertyManagerId as string) || null,
+      isPrimary: ct.isPrimary === true || ct.isPrimary === "true", propertyManagerId: (ct.propertyManagerId as string) || null, notes: s(ct.notes),
     })),
     site: {
       gateCode: s(c.gateCode), accessNotes: s(c.accessNotes), watchOutNotes: s(c.watchOutNotes),
@@ -203,10 +213,12 @@ export interface WizardBody {
 export function buildBody(d: WizardDraft, opts: { master: boolean; edit: boolean }): WizardBody {
   const clear = (v: string) => (opts.edit ? (v.trim() ? v.trim() : null) : opt(v));
   const customer: Record<string, unknown> = {
-    name: d.name.trim(), customerType: d.customerType, status: d.status,
+    name: d.name.trim(), customerType: d.customerType, status: d.status === "inactive" ? "prospect" : d.status,
     parentCustomerId: d.parentCustomerId, isParent: d.isParent ? "true" : "false",
     snowEnabled: d.snowEnabled, includeInRoute: d.site.includeInRoute,
   };
+  const num = opt(d.customerNumber); if (num) customer.customerNumber = num;
+  if (d.ranking !== "standard") customer.ranking = d.ranking;
   if (d.isParent) customer.branchBillingMode = d.branchBillingMode;
   // Create omits blank address parts. Setup sends "" for a cleared part (columns are NOT NULL), never null.
   for (const k of ["street", "city", "state", "zip"] as const) { const v = opt(d[k]); if (v) customer[k] = v; else if (opts.edit) customer[k] = ""; }
@@ -230,6 +242,7 @@ export function buildBody(d: WizardDraft, opts: { master: boolean; edit: boolean
   const contacts = d.contacts.map(c => ({
     ...(c.id ? { id: c.id } : {}), name: c.name.trim(), role: opt(c.role) ?? null,
     emails: list(c.emails), phones: list(c.phones), isPrimary: c.isPrimary ? "true" : "false",
+    ...(c.notes?.trim() ? { notes: c.notes.trim() } : {}),
   }));
   const site: Record<string, unknown> = {};
   for (const k of ["gateCode", "accessNotes", "watchOutNotes", "petStationLocations", "irrigationControllerLocations"] as const) {
@@ -286,3 +299,58 @@ export function activationError(err: unknown): { missingFields: MissingField[]; 
 }
 
 export interface DuplicateCandidate { qboId: string; displayName: string; city?: string | null; zip?: string | null; matchType?: string; source?: string }
+
+/* ---------- Edit page: baseline diff (provided-field PATCH) ---------- */
+
+const CUSTOMER_TEXT = ["name", "customerNumber", "street", "city", "state", "zip", "acres", "complexityScore",
+  "billingCompanyName", "billingContactName", "billingPhone", "billingMobile", "qboTermId",
+  "billStreet", "billStreet2", "billCity", "billState", "billZip"] as const;
+/** NOT NULL columns clear to "", nullable ones to null. */
+const NOT_NULL = new Set(["name", "street", "city", "state", "zip"]);
+const SITE_TEXT = ["gateCode", "accessNotes", "watchOutNotes", "petStationLocations", "irrigationControllerLocations"] as const;
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+export interface EditPatch {
+  customer: Record<string, unknown>; contacts: Record<string, unknown>[]; siteNotes: Record<string, unknown>; deletedContactIds: string[];
+}
+export const patchIsEmpty = (p: EditPatch) =>
+  !Object.keys(p.customer).length && !p.contacts.length && !Object.keys(p.siteNotes).length && !p.deletedContactIds.length;
+
+/** Only facts that differ from the loaded baseline. Untouched legacy values (null billing name, odd ZIPs) are never resent. */
+export function buildEditPatch(base: WizardDraft, d: WizardDraft): EditPatch {
+  const customer: Record<string, unknown> = {};
+  for (const k of CUSTOMER_TEXT) if (d[k] !== base[k]) customer[k] = d[k].trim() ? d[k].trim() : NOT_NULL.has(k) ? "" : null;
+  for (const k of ["customerType", "status", "ranking", "billToMode", "parentCustomerId", "propertyManagementCompanyId", "propertyManagerId", "snowEnabled"] as const)
+    if (d[k] !== base[k]) customer[k] = d[k];
+  if (d.isParent !== base.isParent) customer.isParent = d.isParent ? "true" : "false";
+  if (d.isParent && (d.branchBillingMode !== base.branchBillingMode || d.isParent !== base.isParent)) customer.branchBillingMode = d.branchBillingMode;
+  if (!sameList(d.billingEmails, base.billingEmails)) customer.billingEmails = d.billingEmails;
+  if (d.billingNameTouched && d.billingName !== base.billingName) customer.billingName = d.billingName.trim() || null;
+  if (d.propertyManagementCompanyId !== base.propertyManagementCompanyId && !d.propertyManagementCompanyId) customer.propertyManagerId = null;
+  const siteNotes: Record<string, unknown> = {};
+  for (const k of SITE_TEXT) if (d.site[k] !== base.site[k]) siteNotes[k] = d.site[k].trim() || null;
+  if (d.site.petStationCount !== base.site.petStationCount) siteNotes.petStationCount = d.site.petStationCount.trim() ? Number(d.site.petStationCount.trim()) : null;
+  if (d.site.includeInRoute !== base.site.includeInRoute) siteNotes.includeInRoute = d.site.includeInRoute;
+  const before = new Map(base.contacts.filter(c => c.id).map(c => [c.id!, c]));
+  const contacts = d.contacts.filter(c => {
+    if (!c.id) return true;
+    const b = before.get(c.id);
+    return !b || b.name !== c.name || b.role !== c.role || b.emails !== c.emails || b.phones !== c.phones || b.isPrimary !== c.isPrimary || (b.notes ?? "") !== (c.notes ?? "");
+  }).map(c => ({
+    ...(c.id ? { id: c.id } : {}), name: c.name.trim(), role: opt(c.role) ?? null, emails: list(c.emails), phones: list(c.phones),
+    isPrimary: c.isPrimary ? "true" : "false", notes: c.notes?.trim() ? c.notes.trim() : null,
+  }));
+  const deletedContactIds = d.deletedContactIds.filter(id => before.has(id));
+  return { customer, contacts, siteNotes, deletedContactIds };
+}
+
+const QBO_KEYS = ["billingName", "billingCompanyName", "billingContactName", "billingEmails", "billingPhone", "billingMobile", "qboTermId",
+  "billToMode", "billStreet", "billStreet2", "billCity", "billState", "billZip", "street", "city", "state", "zip",
+  "parentCustomerId", "isParent", "branchBillingMode"];
+/** Would this customer patch change what QuickBooks receives? Contacts and site facts never do. */
+export function qboRelevantChange(patch: Record<string, unknown>, d: WizardDraft) {
+  if (QBO_KEYS.some(k => Object.hasOwn(patch, k))) return true;
+  if (Object.hasOwn(patch, "name") && !d.billingName.trim()) return true;
+  if (d.billToMode === "management_company" && (Object.hasOwn(patch, "propertyManagementCompanyId"))) return true;
+  return false;
+}

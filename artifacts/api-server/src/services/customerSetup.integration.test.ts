@@ -75,6 +75,61 @@ afterAll(async () => {
   await pool.end(); await schemaPool.end();
 });
 describe("atomic customer setup", () => {
+  it("round-trips customer number and ranking through setup GET/PATCH while preserving inactive and omitted facts", async () => {
+    const [customer] = await db.insert(customers).values({
+      companyId, name: "Inactive setup fixture", status: "inactive", ...address,
+      customerNumber: "HP-OLD", ranking: "preferred", billingName: null,
+      billingEmails: ["unchanged@example.test"], tags: ["retain"],
+    }).returning();
+    const setup = await request(app("office")).get(`/api/customers/${customer.id}/setup`);
+    expect(setup.status).toBe(200);
+    expect(setup.body.customer).toMatchObject({ customerNumber: "HP-OLD", ranking: "preferred", status: "inactive" });
+    const updated = await request(app("office")).patch(`/api/customers/${customer.id}/setup`).send({
+      customer: { customerNumber: "HP-NEW", ranking: "key_account" },
+      siteNotes: { gateCode: "1234", petStationCount: 0, includeInRoute: false },
+      expectedUpdatedAt: setup.body.customer.updatedAt,
+    });
+    expect(updated.status).toBe(200);
+    expect(updated.body.customer).toMatchObject({
+      customerNumber: "HP-NEW", ranking: "key_account", status: "inactive", name: customer.name,
+      billingName: null, billingEmails: ["unchanged@example.test"], tags: ["retain"],
+      gateCode: "1234", petStationCount: 0, includeInRoute: false,
+    });
+    const cleared = await request(app()).patch(`/api/customers/${customer.id}/setup`).send({
+      customer: { customerNumber: null, status: "inactive" }, siteNotes: { gateCode: null },
+      expectedUpdatedAt: updated.body.customer.updatedAt,
+    });
+    expect(cleared.status).toBe(200);
+    const fetched = await request(app()).get(`/api/customers/${customer.id}/setup`);
+    expect(fetched.body.customer).toMatchObject({ customerNumber: null, ranking: "key_account", status: "inactive", gateCode: null });
+    expect(remote).not.toHaveBeenCalled();
+  });
+  it("commits contact updates, additions, removals and site changes atomically, and rolls them back on conflict", async () => {
+    const saved = await saveCustomerSetup(companyId, "", parse({ name: "Atomic edit", status: "inactive" },
+      { contacts: [{ name: "Keep", notes: "Preserved note" }, { name: "Remove" }] }));
+    const existing = await storage.getContactsByCustomerId(saved.customer.id, companyId);
+    const keep = existing.find(c => c.name === "Keep")!;
+    const remove = existing.find(c => c.name === "Remove")!;
+    const body = {
+      customer: { customerNumber: "EDIT-1" }, siteNotes: { accessNotes: "Unsaved if stale" },
+      contacts: [{ id: keep.id, name: "Updated", emails: ["updated@example.test"], isPrimary: "true" }, { name: "Added" }],
+      deletedContactIds: [remove.id], expectedUpdatedAt: "2000-01-01T00:00:00.000Z",
+    };
+    const conflict = await request(app()).patch(`/api/customers/${saved.customer.id}/setup`).send(body);
+    expect(conflict.status).toBe(409);
+    expect(await storage.getCustomerById(saved.customer.id, companyId)).toMatchObject({ customerNumber: null, accessNotes: null });
+    expect((await storage.getContactsByCustomerId(saved.customer.id, companyId)).map(c => c.name).sort()).toEqual(["Keep", "Remove"]);
+    const updated = await request(app()).patch(`/api/customers/${saved.customer.id}/setup`).send({
+      ...body, expectedUpdatedAt: saved.customer.updatedAt.toISOString(),
+    });
+    expect(updated.status).toBe(200);
+    expect(updated.body.customer).toMatchObject({ status: "inactive", customerNumber: "EDIT-1", accessNotes: "Unsaved if stale" });
+    const people = await storage.getContactsByCustomerId(saved.customer.id, companyId);
+    expect(people).toHaveLength(2);
+    expect(people.find(c => c.id === keep.id)).toMatchObject({ name: "Updated", notes: "Preserved note", isPrimary: "true" });
+    expect(people.some(c => c.id === remove.id)).toBe(false);
+    expect(remote).not.toHaveBeenCalled();
+  });
   it("allows gate and contact edits on incomplete already-active customers without altering omitted facts", async () => {
     const [customer] = await db.insert(customers).values({ companyId, name: "Existing active", status: "active", ...address }).returning();
     const response = await request(app("office")).patch(`/api/customers/${customer.id}/setup`).send({

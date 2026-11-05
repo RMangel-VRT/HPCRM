@@ -59,7 +59,7 @@ export function useCustomerActivation() {
       {error && <p role="alert">{error}</p>}
       <DialogFooter>
         <Button variant="outline" disabled={pending} onClick={close}>{t(done ? "customerActivation.close" : "customerActivation.notNow")}</Button>
-        {!done && (missing.length ? <Button asChild><Link href={`/dashboard/customers/${prompt?.activation.customerId}/setup`} onClick={close}>{t("customerWizard.finishAction")}</Link></Button>
+        {!done && (missing.length ? <Button asChild><Link href={`/dashboard/customers/${prompt?.activation.customerId}/edit`} onClick={close}>{t("customerWizard.finishAction")}</Link></Button>
           : <Button disabled={pending} onClick={() => void activate()}>{t(pending ? "customerActivation.pending" : "customerActivation.activate")}</Button>)}
       </DialogFooter>
     </DialogContent>

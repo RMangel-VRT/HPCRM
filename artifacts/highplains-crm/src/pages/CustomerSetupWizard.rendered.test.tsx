@@ -53,7 +53,6 @@ function mount(path = "/dashboard/customers/new", client?: QueryClient) {
   const qc = client ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<QueryClientProvider client={qc}><Router hook={loc.hook}><Switch>
     <Route path="/dashboard/customers/new" component={CustomerSetupWizard} />
-    <Route path="/dashboard/customers/:id/setup" component={CustomerSetupWizard} />
     <Route>{() => <div data-testid="landed" />}</Route>
   </Switch></Router></QueryClientProvider>);
   return loc;
@@ -72,24 +71,12 @@ beforeEach(async () => {
 afterEach(cleanup);
 
 describe("customer wizard", () => {
-  it("saves an incomplete already-active gate/contact edit and shows a non-blocking Review advisory", async () => {
-    over["GET /api/customers/c7/setup"] = () => res({
-      customer: { id: "c7", name: "Existing active", status: "active", billingEmails: [], updatedAt: "2026-02-01T10:00:00.000Z" },
-      contacts: [{ id: "k1", name: "Site contact", emails: [], phones: [] }],
-      missingFields: ["street", "city", "state", "zip", "billingEmails"],
-    });
-    over["PATCH /api/customers/c7/setup"] = () => res({ customer: { id: "c7" }, qbo: { state: "not_linked" } });
-    const loc = mount("/dashboard/customers/c7/setup");
+  it("defaults a new customer's state to CO and offers creation statuses only", async () => {
+    mount();
     await screen.findByTestId("input-wizard-name");
-    next(); await screen.findByTestId("wizard-body-2"); next(); next();
-    await screen.findByTestId("wizard-body-4");
-    const gate = screen.getByLabelText("Gate code");
-    fireEvent.change(gate, { target: { value: "new gate" } });
-    next();
-    expect(await screen.findByTestId("review-active-missing")).toHaveTextContent("Still missing for QuickBooks:");
-    fireEvent.click(screen.getByTestId("button-wizard-submit"));
-    await waitFor(() => expect(loc.history?.at(-1)).toBe("/dashboard/customers/c7"));
-    expect(calls.find(c => c.method === "PATCH")?.body).toMatchObject({ siteNotes: { gateCode: "new gate" }, contacts: [{ id: "k1" }] });
+    expect(screen.getByTestId("input-wizard-state")).toHaveValue("CO");
+    expect(screen.queryByTestId("button-status-inactive")).toBeNull();
+    expect(screen.getByTestId("button-status-prospect")).toBeInTheDocument();
   });
   it("invalidates an infinitely fresh empty paginated list after a successful save", async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
@@ -272,29 +259,6 @@ describe("customer wizard", () => {
     await waitFor(() => expect(posted("/api/customers/wizard")).toHaveLength(1));
     const b = posted("/api/customers/wizard")[0].body as { contacts: Record<string, unknown>[] };
     expect(b.contacts[0]).toMatchObject({ name: "Lee Park", phones: ["303-555-0142"], isPrimary: "true" });
-  });
-
-  it("edit mode PATCHes setup with expectedUpdatedAt, ids and deletions; activation errors link back", async () => {
-    over["GET /api/customers/c7/setup"] = () => res({
-      customer: { id: "c7", name: "Willow Bend", status: "prospect", updatedAt: "2026-02-01T10:00:00.000Z", billingEmails: [] },
-      contacts: [{ id: "k1", name: "Ann Ode", emails: ["ann@wb.co"], phones: [], isPrimary: "true" }, { id: "k2", name: "Old Contact", emails: [], phones: [] }],
-      missingFields: ["street"],
-    });
-    over["PATCH /api/customers/c7/setup"] = () => fail(400, { code: "ACTIVATION_INCOMPLETE", missingFields: ["street", "billingEmails"], message: "x" });
-    mount("/dashboard/customers/c7/setup");
-    expect(await screen.findByTestId("input-wizard-name")).toHaveValue("Willow Bend");
-    expect(screen.getByTestId("text-wizard-title")).toHaveTextContent("Finish setup");
-    next(); await screen.findByTestId("wizard-body-2"); next();
-    await screen.findByTestId("wizard-body-3");
-    fireEvent.click(screen.getByTestId("button-remove-contact-1"));
-    next(); next();
-    fireEvent.click(await screen.findByTestId("button-wizard-submit"));
-    expect(await screen.findByTestId("error-submit")).toHaveTextContent("Activation needs more information");
-    const p = calls.find(c => c.method === "PATCH")!;
-    expect(posted("/api/customers/wizard")).toHaveLength(0);
-    expect(p.body).toMatchObject({ expectedUpdatedAt: "2026-02-01T10:00:00.000Z", deletedContactIds: ["k2"], contacts: [{ id: "k1", name: "Ann Ode" }] });
-    fireEvent.click(screen.getByTestId("button-missing-billingEmails"));
-    expect(screen.getByTestId("wizard-body-2")).toBeInTheDocument();
   });
 
   it("QuickBooks prefill links on create and reports name_taken with a review link", async () => {

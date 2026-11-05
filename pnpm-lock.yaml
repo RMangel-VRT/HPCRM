@@ -189,6 +189,9 @@ importers:
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
+      '@workspace/customer-billing':
+        specifier: workspace:*
+        version: link:../../lib/customer-billing
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
@@ -503,6 +506,9 @@ importers:
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
+      '@workspace/customer-billing':
+        specifier: workspace:*
+        version: link:../../lib/customer-billing
       autoprefixer:
         specifier: ^10.5.0
         version: 10.5.0(postcss@8.5.14)
@@ -957,6 +963,8 @@ importers:
       zod:
         specifier: 'catalog:'
         version: 3.25.76
+
+  lib/customer-billing: {}
 
   lib/db:
     dependencies:

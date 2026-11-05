@@ -52,7 +52,7 @@ describe("explicit customer activation", () => {
   it("leads incomplete prospects to their existing setup route without activating", () => {
     mount(["billingEmails"]);
     expect(screen.getByTestId("activation-missing")).toHaveTextContent("Billing emails");
-    expect(screen.getByRole("link", { name: "Finish setup" }).getAttribute("href")).toBe("/dashboard/customers/cu1/setup");
+    expect(screen.getByRole("link", { name: "Finish setup" }).getAttribute("href")).toBe("/dashboard/customers/cu1/edit");
     expect(screen.queryByText("Activate now")).toBeNull();
     expect(fx.api).not.toHaveBeenCalled();
   });
@@ -94,7 +94,7 @@ describe("Finish setup banner", () => {
     fx.api.mockResolvedValue(response({ missingFields: ["billingEmails"] }));
     render(<QueryClientProvider client={new QueryClient()}><FinishSetupBanner customerId="cu1" status={status} /></QueryClientProvider>);
     expect(await screen.findByTestId("banner-finish-setup")).toBeTruthy();
-    expect(screen.getByRole("link").getAttribute("href")).toBe("/dashboard/customers/cu1/setup");
+    expect(screen.getByRole("link").getAttribute("href")).toBe("/dashboard/customers/cu1/edit");
   });
   it("does not load setup details for a role without setup permission", () => {
     fx.user.activeRole = "field";

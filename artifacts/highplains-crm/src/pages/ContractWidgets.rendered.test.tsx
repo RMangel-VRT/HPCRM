@@ -85,7 +85,7 @@ describe("contract widget presentation", () => {
     } else {
       await screen.findByText("Summerfield fixture is still a prospect.");
       if (scenario === "incomplete") {
-        expect(screen.getByRole("link", { name: "Finish setup" }).getAttribute("href")).toBe("/dashboard/customers/customer/setup");
+        expect(screen.getByRole("link", { name: "Finish setup" }).getAttribute("href")).toBe("/dashboard/customers/customer/edit");
       } else if (scenario === "cancel") {
         fireEvent.click(screen.getByText("Not now")); expect(attempts).toBe(0);
       } else {

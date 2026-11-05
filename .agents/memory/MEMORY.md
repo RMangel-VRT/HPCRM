@@ -48,3 +48,4 @@
 - [Customer QuickBooks sync](customer-qbo-sync-direction.md) — CQ1–CQ5 run in order; initial reconciliation gates all customer pushes, independently of build progress.
 - [QBO sync transactions](qbo-sync-transaction-boundary.md) — OAuth rotation must commit independently of customer reconciliation rollback.
 - [Artifact test runner context](artifact-test-runner.md) — archived baselines need the artifact-local launcher; identical Vitest versions can resolve different Vite peers.
+- [Browser checks and hot reload](browser-hot-reload-verification.md) — freeze app/locale edits during draft checks; distinguish HMR remounts from repeatable navigation failures.

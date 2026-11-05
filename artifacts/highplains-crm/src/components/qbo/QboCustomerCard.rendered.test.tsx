@@ -140,27 +140,13 @@ describe("QuickBooks customer card", () => {
     expect(calls.filter(c => c.url.endsWith("quickbooks-card")).length).toBe(n);
   });
 
-  it("billing edit validates custom address and email client-side, PATCHes owner fields only", async () => {
-    mount(card(), {}, (url, init) => url === "/api/customers/k1" && init.method === "PATCH" ? { body: {} } : undefined);
-    fireEvent.click(await screen.findByTestId("button-edit-billing"));
-    fireEvent.change(screen.getByTestId("input-billingEmails"), { target: { value: "ap@cottonwood.org, nope" } });
-    fireEvent.click(screen.getByTestId("button-save-billing"));
-    expect(await screen.findByText("Enter valid email addresses, separated by commas")).toBeInTheDocument();
+  it("Edit billing links to the full customer editor billing section; no dialog", async () => {
+    mount(card());
+    const link = await screen.findByTestId("button-edit-billing");
+    expect(link.getAttribute("href")).toBe("/dashboard/customers/k1/edit#billing");
+    fireEvent.click(link);
+    expect(screen.queryByTestId("button-save-billing")).toBeNull();
     expect(calls.some(c => c.method === "PATCH")).toBe(false);
-    fireEvent.change(screen.getByTestId("input-billingEmails"), { target: { value: "ap@cottonwood.org; mgr@cottonwood.org" } });
-    fireEvent.click(screen.getByTestId("button-save-billing"));
-    await waitFor(() => expect(calls.some(c => c.method === "PATCH")).toBe(true));
-    const patch = calls.find(c => c.method === "PATCH")!;
-    expect(patch.headers["X-Company-Id"]).toBe("c1");
-    expect(patch.body).toMatchObject({ billingEmails: ["ap@cottonwood.org", "mgr@cottonwood.org"], billToMode: "property", qboTermId: "3" });
-    expect(Object.keys(patch.body as object).some(k => /^qbo(Sync|Baseline|Customer|Display|Last|Pushed)/.test(k))).toBe(false);
-  });
-
-  it("server validation error stays in the dialog", async () => {
-    mount(card(), {}, (url, init) => init.method === "PATCH" ? { status: 400, body: { message: "Billing address is incomplete" } } : undefined);
-    fireEvent.click(await screen.findByTestId("button-edit-billing"));
-    fireEvent.click(screen.getByTestId("button-save-billing"));
-    expect(await screen.findByTestId("error-billing-save")).toHaveTextContent("Billing address is incomplete");
   });
 
   it("load failure offers retry", async () => {

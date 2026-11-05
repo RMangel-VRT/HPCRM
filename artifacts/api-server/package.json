@@ -17,6 +17,7 @@
     "@sendgrid/mail": "^8.1.6",
     "@types/busboy": "^1.5.4",
     "@workspace/api-zod": "workspace:*",
+    "@workspace/customer-billing": "workspace:*",
     "@workspace/db": "workspace:*",
     "archiver": "7.0.1",
     "busboy": "^1.6.0",

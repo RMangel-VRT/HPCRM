@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { AlertTriangle, CheckCircle2, Clock, Link2, RefreshCw, Send, Pencil, CircleDashed, GitBranch } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -14,11 +11,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Customer } from "@shared/schema";
 
 export const POLL_MS = 5_000;
 export const POLL_LIMIT_MS = 60_000;
@@ -36,86 +28,6 @@ export function cardState(d: QuickBooksCard): StateKind {
 const TERMINAL: StateKind[] = ["linked", "collision", "error"];
 const fmt = (s: unknown) => { if (!s) return null; const d = new Date(s as string); return Number.isNaN(d.getTime()) ? null : d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }); };
 
-const ZIP = /^\d{5}(-?\d{4})?$/;
-const billingSchema = z.object({
-  billingName: z.string().trim().max(100, "100 characters max"),
-  billingCompanyName: z.string().trim(), billingContactName: z.string().trim(),
-  billingEmails: z.string().refine(s => s.split(/[\s,;]+/).filter(Boolean).every(e => z.string().email().safeParse(e).success), "Enter valid email addresses, separated by commas"),
-  billingPhone: z.string().trim(), billingMobile: z.string().trim(),
-  billToMode: z.enum(["property", "management_company", "custom"]),
-  billStreet: z.string().trim(), billStreet2: z.string().trim(), billCity: z.string().trim(), billState: z.string().trim(), billZip: z.string().trim(),
-  qboTermId: z.string(), branchBillingMode: z.enum(["master", "separate"]),
-}).superRefine((v, ctx) => {
-  if (v.billToMode !== "custom") return;
-  for (const k of ["billStreet", "billCity", "billState", "billZip"] as const) if (!v[k]) ctx.addIssue({ code: "custom", path: [k], message: "Required for another address" });
-  if (v.billZip && !ZIP.test(v.billZip)) ctx.addIssue({ code: "custom", path: ["billZip"], message: "ZIP must be 12345 or 12345-6789" });
-});
-type BillingForm = z.infer<typeof billingSchema>;
-const nul = (s: string) => (s.trim() ? s.trim() : null);
-
-function BillingDialog({ customer, isParent, open, onOpenChange, onSaved }: { customer: Customer; isParent: boolean; open: boolean; onOpenChange: (o: boolean) => void; onSaved: () => void }) {
-  const { user } = useAuth();
-  const terms = useQboTerms();
-  const [serverError, setServerError] = useState<string | null>(null);
-  const form = useForm<BillingForm>({
-    resolver: zodResolver(billingSchema),
-    defaultValues: {
-      billingName: customer.billingName ?? "", billingCompanyName: customer.billingCompanyName ?? "", billingContactName: customer.billingContactName ?? "",
-      billingEmails: (customer.billingEmails ?? []).join(", "), billingPhone: customer.billingPhone ?? "", billingMobile: customer.billingMobile ?? "",
-      billToMode: (customer.billToMode as BillingForm["billToMode"]) ?? "property", billStreet: customer.billStreet ?? "", billStreet2: customer.billStreet2 ?? "",
-      billCity: customer.billCity ?? "", billState: customer.billState ?? "", billZip: customer.billZip ?? "", qboTermId: customer.qboTermId ?? "",
-      branchBillingMode: (customer.branchBillingMode as BillingForm["branchBillingMode"]) ?? "master",
-    },
-  });
-  const save = useMutation({
-    mutationFn: (v: BillingForm) => {
-      // CQ1 owner fields only; sync metadata is never sent.
-      const body: Record<string, unknown> = {
-        billingName: nul(v.billingName), billingCompanyName: nul(v.billingCompanyName), billingContactName: nul(v.billingContactName),
-        billingEmails: v.billingEmails.split(/[\s,;]+/).filter(Boolean), billingPhone: nul(v.billingPhone), billingMobile: nul(v.billingMobile),
-        billToMode: v.billToMode, qboTermId: nul(v.qboTermId),
-        ...(v.billToMode === "custom" ? { billStreet: v.billStreet, billStreet2: nul(v.billStreet2), billCity: v.billCity, billState: v.billState, billZip: v.billZip } : {}),
-        ...(isParent ? { branchBillingMode: v.branchBillingMode } : {}),
-      };
-      return qboJson("PATCH", `/api/customers/${encodeURIComponent(customer.id)}`, user?.activeCompanyId, body);
-    },
-    onSuccess: () => { onSaved(); onOpenChange(false); },
-    onError: e => setServerError(errorText(e)),
-  });
-  const mode = form.watch("billToMode");
-  const text = (name: keyof BillingForm, label: string, cls = "") => <FormField control={form.control} name={name} render={({ field }) =>
-    <FormItem className={cls}><FormLabel>{label}</FormLabel><FormControl><Input {...field} value={field.value as string} data-testid={`input-${name}`} /></FormControl><FormMessage /></FormItem>} />;
-  return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto" data-testid="dialog-edit-billing">
-      <DialogHeader><DialogTitle>Edit billing</DialogTitle><DialogDescription>The CRM owns these details. QuickBooks receives them on the next send.</DialogDescription></DialogHeader>
-      <Form {...form}><form onSubmit={form.handleSubmit(v => { setServerError(null); save.mutate(v); })} className="grid grid-cols-2 gap-3">
-        {text("billingName", "Billing name", "col-span-2")}
-        {text("billingCompanyName", "Company")}{text("billingContactName", "Contact")}
-        {text("billingEmails", "Billing emails", "col-span-2")}
-        {text("billingPhone", "Phone")}{text("billingMobile", "Mobile")}
-        <FormField control={form.control} name="billToMode" render={({ field }) => <FormItem className="col-span-2"><FormLabel>Bill to</FormLabel>
-          <Select value={field.value} onValueChange={field.onChange}><FormControl><SelectTrigger data-testid="select-billToMode"><SelectValue /></SelectTrigger></FormControl>
-            <SelectContent><SelectItem value="property">Property</SelectItem>
-              <SelectItem value="management_company" disabled={!customer.propertyManagementCompanyId}>Management company</SelectItem>
-              <SelectItem value="custom">Other address</SelectItem></SelectContent></Select><FormMessage /></FormItem>} />
-        {mode === "custom" && <>{text("billStreet", "Street", "col-span-2")}{text("billStreet2", "Street 2", "col-span-2")}
-          {text("billCity", "City")}{text("billState", "State")}{text("billZip", "ZIP")}</>}
-        <FormField control={form.control} name="qboTermId" render={({ field }) => <FormItem><FormLabel>Terms</FormLabel>
-          {terms.data?.length ? <Select value={field.value || "none"} onValueChange={v => field.onChange(v === "none" ? "" : v)}>
-            <FormControl><SelectTrigger data-testid="select-qboTermId"><SelectValue /></SelectTrigger></FormControl>
-            <SelectContent><SelectItem value="none">No terms</SelectItem>{terms.data.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select>
-            : <FormControl><Input {...field} placeholder="QuickBooks term ID" data-testid="input-qboTermId" /></FormControl>}<FormMessage /></FormItem>} />
-        {isParent && <FormField control={form.control} name="branchBillingMode" render={({ field }) => <FormItem><FormLabel>Branch billing</FormLabel>
-          <Select value={field.value} onValueChange={field.onChange}><FormControl><SelectTrigger data-testid="select-branchBillingMode"><SelectValue /></SelectTrigger></FormControl>
-            <SelectContent><SelectItem value="master">Master (branches bill here)</SelectItem><SelectItem value="separate">Separate per branch</SelectItem></SelectContent></Select></FormItem>} />}
-        {serverError && <p role="alert" className="col-span-2 text-sm text-destructive" data-testid="error-billing-save">{serverError}</p>}
-        <DialogFooter className="col-span-2"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" disabled={save.isPending} data-testid="button-save-billing">{save.isPending ? "Saving..." : "Save billing"}</Button></DialogFooter>
-      </form></Form>
-    </DialogContent>
-  </Dialog>;
-}
-
 function Row({ label, children, testId }: { label: string; children: React.ReactNode; testId: string }) {
   return <div className="grid grid-cols-[6.5rem_1fr] gap-2 text-sm"><dt className="text-muted-foreground">{label}</dt><dd className="min-w-0 break-words" data-testid={testId}>{children}</dd></div>;
 }
@@ -127,7 +39,6 @@ function CardBody({ customerId, isParent }: { customerId: string; isParent: bool
   const billing = canViewBilling(user);
   const [pollUntil, setPollUntil] = useState<number | null>(null);
   const [expired, setExpired] = useState(false);
-  const [editing, setEditing] = useState(false);
   const autoPolledCustomer = useRef<string | null>(null);
   const polling = pollUntil !== null && !expired;
   const card = useQuery<QuickBooksCard>({
@@ -234,12 +145,10 @@ function CardBody({ customerId, isParent }: { customerId: string; isParent: bool
       {canSend && <Button size="sm" onClick={() => send.mutate()} disabled={sendBlocked} aria-describedby={sendBlocked ? "qbo-send-hint" : undefined} data-testid="button-send-to-qbo">
         <Send className="w-3.5 h-3.5 mr-1" />{send.isPending ? "Sending..." : "Send to QuickBooks now"}</Button>}
       {d.billsThroughParent ? (d.parent && <Link href={`/dashboard/customers/${d.parent.id}`} className="text-xs text-muted-foreground underline self-center" data-testid="link-edit-parent-billing">Billing is edited on {d.parent.name}</Link>)
-        : <Button size="sm" variant="outline" onClick={() => setEditing(true)} data-testid="button-edit-billing"><Pencil className="w-3.5 h-3.5 mr-1" />Edit billing</Button>}
+        : <Button size="sm" variant="outline" asChild><Link href={`/dashboard/customers/${encodeURIComponent(customerId)}/edit#billing`} data-testid="button-edit-billing"><Pencil className="w-3.5 h-3.5 mr-1" />Edit billing</Link></Button>}
     </div>}
     {canSend && sendBlocked && !send.isPending && <p id="qbo-send-hint" className="text-xs text-muted-foreground" data-testid="text-qbo-send-hint">
       {d.writeEnabled ? "Already waiting to send. The CRM will report back when QuickBooks answers." : "QuickBooks write access is off. This customer will send once it is turned on."}</p>}
-    {editing && <BillingDialog customer={c} isParent={isParent} open={editing} onOpenChange={setEditing}
-      onSaved={() => { toast({ title: "Billing saved" }); invalidate([customerId]); }} />}
   </CardContent>;
 }
 

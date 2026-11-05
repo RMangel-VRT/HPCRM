@@ -267,7 +267,7 @@ describe("dialogs", () => {
     else {
       await screen.findByText("Ridge HOA is still a prospect.");
       expect(screen.queryByTestId("dialog-accept")).toBeNull();
-      if (scenario === "incomplete") expect(screen.getByRole("link", { name: "Finish setup" }).getAttribute("href")).toBe("/dashboard/customers/cu1/setup");
+      if (scenario === "incomplete") expect(screen.getByRole("link", { name: "Finish setup" }).getAttribute("href")).toBe("/dashboard/customers/cu1/edit");
       else if (scenario === "cancel") { fireEvent.click(screen.getByText("Not now")); expect(attempts).toBe(0); }
       else {
         fireEvent.click(screen.getByText("Activate now"));
