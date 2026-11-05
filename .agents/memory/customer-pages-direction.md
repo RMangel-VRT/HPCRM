@@ -20,3 +20,9 @@ CP2 uses eleven consistently named pages, redirects old links, and gives parent 
 **Why:** The pack separates the page redesign from campaign fulfillment and destructive customer lifecycle decisions.
 
 **How to apply:** Preserve these boundaries when scoping subsequent slices; do not add archive/delete or invent fulfillment figures.
+
+The Contract chip and This season KPI must support multiple in-effect terms from CP1's actual contract-summary interface. Sum annual amounts of priced terms, show the term label(s) and combined lines, for example “2026–27 · $13,536 · Landscape + Snow”. A time-and-materials snow term contributes “+ snow T&M”, not a fabricated amount. The Contract chip links to Contracts.
+
+**Why:** Separate landscape and snow agreements can be in effect simultaneously; selecting one term would omit coverage or understate the priced total.
+
+**How to apply:** Consume CP1's actual interface after its merge, not an assumed singular-term model. Cover multiple priced terms and mixed priced/T&M terms in both displays while preserving existing null, inheritance and permission rules.
