@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
-import { Edit, Layers, Maximize2, Trash2, Upload, X, MapPin } from "lucide-react";
+import { Edit, Layers, Maximize2, Ruler, Trash2, Upload, X, MapPin } from "lucide-react";
 import type { Customer, CustomerMapLayer } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
 import { useCustomerScope } from "@/lib/customerScope";
@@ -181,7 +181,7 @@ export default function PropertyPage({ customer, canEditLocation, canEditLayers,
           </Card>
 
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Layers className="w-4 h-4" />{t("customerPages.property.layers")}</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-[13.5px] font-semibold flex items-center gap-2"><Layers className="h-4 w-4 text-muted-foreground" />{t("customerPages.property.layers")}</CardTitle></CardHeader>
             <CardContent className="p-0">
               {isLoading ? <div className="p-4"><Skeleton className="h-20 w-full" /></div> : layers.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-layers">{t("customerPages.property.noLayers")}</p>
@@ -244,7 +244,7 @@ export default function PropertyPage({ customer, canEditLocation, canEditLayers,
           </div>
           <Card data-testid="card-property-size">
             <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">{t("customerPages.property.size")}</CardTitle>
+              <CardTitle className="text-[13.5px] font-semibold flex items-center gap-2"><Ruler className="h-4 w-4 text-muted-foreground" aria-hidden="true" data-testid="icon-property-size" />{t("customerPages.property.size")}</CardTitle>
               {canEditCustomer && (
                 <Link href={`/dashboard/customers/${customerId}/edit#property`} className="text-xs text-primary underline" data-testid="link-edit-size">
                   <Edit className="w-3 h-3 inline mr-1" />{t("common.edit")}

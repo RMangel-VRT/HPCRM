@@ -82,6 +82,10 @@ import { billingInputProblem, protectedBillingWrite } from "../services/customer
 import { customerQboReads } from "./qboCustomerReads";
 import { customerSetupRouter, createCustomerRequest, setupFailure, customerSyncBusyFailure } from "./customerSetup";
 import { registerCustomerContractSummary } from "./customerContractSummary";
+import { registerCustomerNotePins } from "./customerNotePins";
+import { registerCustomerListSummary } from "./customerListSummary";
+import { loadCustomerListMetadata } from "../services/customerListSummary";
+import { isLoggedCustomerCommunication } from "../services/customerCommunicationPresentation";
 import { registerContractQuestionReconciliation } from "../lib/contractQuestionFlags";
 import { snowCoveredCustomerIds, loadCustomerContractInputs, customerContractProjector } from "../lib/customerContractSummary";
 import { rejectLegacySnowCoverageWrite } from "../lib/snowCoverageInput";
@@ -2721,6 +2725,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     rejectLegacySnowCoverageWrite(req, res, next);
   });
   registerCustomerContractSummary(app);
+  registerCustomerNotePins(app, storage);
+  registerCustomerListSummary(app);
   registerTicketExpectedCompany(app);
   // Must precede every ticket sub-router (comments, photos, work items, etc.).
   registerCrewSupervisorTicketGuard(app, storage);
@@ -2811,7 +2817,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const counts = await db.select({ parentId: customersTable.parentCustomerId, count: sql<number>`count(*)::int` })
       .from(customersTable).where(eq(customersTable.companyId, user.activeCompanyId)).groupBy(customersTable.parentCustomerId);
     const branches = new Map(counts.map(c => [c.parentId, c.count]));
-    return res.json({ ...result, customers: result.customers.map(c => ({ ...c, branchCount: branches.get(c.id) ?? 0 })) });
+    // Opt-in metadata supports client filters without commercial/per-row reads.
+    // Existing pickers and field readers retain their original response boundary.
+    const metadata = req.query.listMetadata === "true" && ["admin", "office"].includes(user.accessRole)
+      ? await loadCustomerListMetadata(db, user.activeCompanyId, result.customers) : new Map();
+    return res.json({ ...result, customers: result.customers.map(c => ({ ...c, branchCount: branches.get(c.id) ?? 0,
+      ...metadata.get(c.id) })) });
   });
 
   // Search endpoint — returns up to 20 matching customers for typeahead pickers
@@ -3461,7 +3472,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ message: "Active company changed. Reload and try again." });
+    }
     const notes = await storage.getNotesByCustomerId(req.params.customerId, user.activeCompanyId);
+    res.set("Cache-Control", "private, no-store");
     res.json(notes);
   });
 
@@ -3471,6 +3486,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ message: "Active company changed. Reload and try again." });
+    }
     
     if (user.activeRole === "field") {
       return res.status(403).send("Insufficient permissions - field role cannot create notes");
@@ -3498,6 +3516,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ message: "Active company changed. Reload and try again." });
+    }
     
     if (user.activeRole === "field") {
       return res.status(403).send("Insufficient permissions - field role cannot edit notes");
@@ -3524,6 +3545,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ message: "Active company changed. Reload and try again." });
+    }
     
     if (user.activeRole === "field") {
       return res.status(403).send("Insufficient permissions - field role cannot delete notes");
@@ -10042,6 +10066,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Admin or office role required");
     }
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ message: "Active company changed. Reload and try again." });
+    }
     const customer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
     if (!customer) return res.status(404).send("Customer not found");
     const filters: { type?: string; status?: string; customerId?: string; fromDate?: string; toDate?: string } = { customerId: req.params.id };
@@ -10053,6 +10080,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (req.query.direction && req.query.direction !== "all") {
       items = items.filter(c => c.direction === req.query.direction);
     }
+    // Filter before pagination so totals and later pages reflect actual logs.
+    // Deliberately no change to the existing customer mailbox visibility policy.
+    if (req.query.source === "logged") items = items.filter(isLoggedCustomerCommunication);
     if (req.query.mailboxAccountId) {
       items = items.filter(c => c.mailboxAccountId === req.query.mailboxAccountId);
     }

@@ -122,10 +122,10 @@ describe("CP2 customer pages", () => {
     expect(html).not.toContain('data-testid="nav-item-property"');
   });
 
-  it("parent tickets shows the unsupported-aggregate notice with per-branch links", () => {
+  it("parent tickets renders the CP4 branch ticket table (no per-branch link list)", () => {
     const html = page("p1", "tab=tickets");
-    expect(html).toContain('data-testid="parent-tickets-notice"');
-    expect(html).toContain('href="/dashboard/customers/b1?tab=tickets"');
+    expect(html).toContain('data-testid="parent-tickets-page"');
+    expect(html).not.toContain('data-testid="parent-tickets-notice"');
   });
 
   it("billing badge flags a non-name review even when the card state is fine; finalized proposals and final tickets don't count", () => {

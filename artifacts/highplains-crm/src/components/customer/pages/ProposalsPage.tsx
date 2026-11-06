@@ -9,21 +9,11 @@ import { useCustomerScope } from "@/lib/customerScope";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
+import { DisplayStatusBadge, PageEmptyState, TableSkeleton, displayStatus, useCustomerDates } from "@/components/customer/page";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 
 export type ProposalsView = "proposals" | "worksheets" | "scopes";
-
-const ymd = (d?: string | null) => {
-  if (!d) return "";
-  const [y, m, day] = d.slice(0, 10).split("-");
-  return y && m && day ? `${m}/${day}/${y}` : d;
-};
-const fmtDate = (d?: string | Date | null) => {
-  if (!d) return "";
-  const x = new Date(d);
-  return Number.isNaN(x.getTime()) ? "" : x.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-};
 
 function useCreate(fn: () => Promise<string>) {
   const [busy, setBusy] = useState(false);
@@ -31,40 +21,25 @@ function useCreate(fn: () => Promise<string>) {
   return { busy, run };
 }
 
-function Rows({ loading, empty, emptyIcon, children }: { loading: boolean; empty: string | null; emptyIcon: React.ReactNode; children: React.ReactNode }) {
-  if (loading) return <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-14 w-full" />)}</div>;
-  if (empty) return <div className="text-center py-10 text-muted-foreground text-sm">{emptyIcon}{empty}</div>;
-  return <div className="rounded-md border bg-card divide-y">{children}</div>;
+function Rows({ loading, empty, emptyIcon, children }: { loading: boolean; empty: string | null; emptyIcon: LucideIcon; children: React.ReactNode }) {
+  if (loading) return <TableSkeleton rows={3} cols={3} testId="proposals-skeleton" />;
+  if (empty) return <PageEmptyState icon={emptyIcon} message={empty} />;
+  return <div className="rounded-[10px] border bg-card divide-y">{children}</div>;
 }
 
 function ProposalsList({ customerId }: { customerId: string }) {
   const { t } = useTranslation();
+  const dates = useCustomerDates();
   const [, navigate] = useLocation();
-  const { toast } = useToast();
   const scope = useCustomerScope();
   const { data: proposals = [], isLoading } = useQuery<ProposalWithDetails[]>({
     queryKey: ["/api/customers", customerId, "proposals", ...scope.scope], enabled: scope.enabled,
     queryFn: ({ signal }) => scope.getJson<ProposalWithDetails[]>(`/api/customers/${customerId}/proposals`, signal),
   });
-  const create = useCreate(async () => {
-    try {
-      const started = scope.companyId;
-      const res = await scope.request("POST", "/api/proposals", { customerId, title: t("customerPages.pages.proposals"), proposalDate: new Date().toISOString().split("T")[0] });
-      const p = await res.json();
-      scope.assertSameCompany(started);
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "proposals"] });
-      navigate(`/dashboard/tools/proposals/${p.id}`);
-      return p.id;
-    } catch { toast({ title: t("common.error"), description: t("customerPages.proposals.createFailed"), variant: "destructive" }); return ""; }
-  });
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <Button size="sm" onClick={create.run} disabled={create.busy} data-testid="button-new-proposal-customer">
-          {create.busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}{t("customerPages.proposals.newProposal")}
-        </Button>
-      </div>
-      <Rows loading={isLoading} empty={proposals.length ? null : t("customerDetail.noProposals")} emptyIcon={<FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />}>
+      {/* New proposal lives only in the header Add menu (no duplicate primary action). */}
+      <Rows loading={isLoading} empty={proposals.length ? null : t("customerDetail.noProposals")} emptyIcon={FileText}>
         {proposals.map(p => {
           const version = p.versions?.length ? p.versions[p.versions.length - 1].versionNumber : null;
           return (
@@ -74,7 +49,7 @@ function ProposalsList({ customerId }: { customerId: string }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-sm" data-testid={`text-proposal-title-${p.id}`}>{p.title}</span>
-                  <Badge variant="secondary" className="text-xs" data-testid={`badge-proposal-status-${p.id}`}>{t(`statuses.${p.status}`, { defaultValue: p.status })}</Badge>
+                  <DisplayStatusBadge status={displayStatus("proposal", p.status)} testId={`badge-proposal-status-${p.id}`} />
                   <Badge variant="outline" className="text-xs" data-testid={`badge-version-${p.id}`}>
                     {version != null ? `v${version}` : t("customerPages.proposals.noVersion")}
                   </Badge>
@@ -89,7 +64,7 @@ function ProposalsList({ customerId }: { customerId: string }) {
                 </p>
               </div>
               <span className="text-xs text-muted-foreground whitespace-nowrap" data-testid={`text-proposal-updated-${p.id}`}>
-                {t("customerPages.proposals.updated")} {fmtDate((p as { updatedAt?: string | Date | null }).updatedAt ?? p.createdAt)}
+                {t("customerPages.proposals.updated")} {dates.day((p as { updatedAt?: string | Date | null }).updatedAt ?? p.createdAt)}
               </span>
             </div>
           );
@@ -101,6 +76,7 @@ function ProposalsList({ customerId }: { customerId: string }) {
 
 function WorksheetsList({ customerId }: { customerId: string }) {
   const { t } = useTranslation();
+  const dates = useCustomerDates();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const scope = useCustomerScope();
@@ -130,15 +106,15 @@ function WorksheetsList({ customerId }: { customerId: string }) {
           </Button>
         </div>
       )}
-      <Rows loading={isLoading} empty={worksheets.length ? null : t("crewWorksheets.noWorksheetsForCustomer")} emptyIcon={<FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />}>
+      <Rows loading={isLoading} empty={worksheets.length ? null : t("crewWorksheets.noWorksheetsForCustomer")} emptyIcon={FileText}>
         {worksheets.map(w => (
           <div key={w.id} role="link" tabIndex={0} onClick={() => navigate(`/dashboard/tools/crew-worksheets/${w.id}`)}
             onKeyDown={e => { if (e.key === "Enter") navigate(`/dashboard/tools/crew-worksheets/${w.id}`); }}
             className="flex items-center gap-2 px-3 py-2.5 hover-elevate cursor-pointer" data-testid={`row-crew-worksheet-${w.id}`}>
             <span className="text-xs font-mono text-muted-foreground">{w.worksheetNumber}</span>
             <span className="font-medium text-sm flex-1 min-w-0 truncate">{w.title}</span>
-            <Badge variant={w.status === "finalized" ? "outline" : "secondary"} className="text-xs">{t(`statuses.${w.status === "finalized" ? "finalized" : "draft"}`)}</Badge>
-            <span className="text-xs text-muted-foreground">{ymd(w.worksheetDate)}</span>
+            <DisplayStatusBadge status={displayStatus("proposal", w.status === "finalized" ? "finalized" : "draft")} />
+            <span className="text-xs text-muted-foreground">{dates.day(w.worksheetDate)}</span>
           </div>
         ))}
       </Rows>
@@ -148,6 +124,7 @@ function WorksheetsList({ customerId }: { customerId: string }) {
 
 function ScopesList({ customerId }: { customerId: string }) {
   const { t } = useTranslation();
+  const dates = useCustomerDates();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const scope = useCustomerScope();
@@ -173,15 +150,15 @@ function ScopesList({ customerId }: { customerId: string }) {
           {create.busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}{t("customerPages.proposals.newScope")}
         </Button>
       </div>
-      <Rows loading={isLoading} empty={sheets.length ? null : t("customerDetail.noVisualScopes")} emptyIcon={<MapIcon className="w-8 h-8 mx-auto mb-2 opacity-40" />}>
+      <Rows loading={isLoading} empty={sheets.length ? null : t("customerDetail.noVisualScopes")} emptyIcon={MapIcon}>
         {sheets.map(s => (
           <div key={s.id} role="link" tabIndex={0} onClick={() => navigate(`/dashboard/tools/visual-scope/${s.id}`)}
             onKeyDown={e => { if (e.key === "Enter") navigate(`/dashboard/tools/visual-scope/${s.id}`); }}
             className="flex items-center gap-2 px-3 py-2.5 hover-elevate cursor-pointer" data-testid={`row-visual-scope-${s.id}`}>
             <span className="font-medium text-sm flex-1 min-w-0 truncate">{s.title}</span>
-            <Badge variant="secondary" className="text-xs">{t(`statuses.${s.status}`, { defaultValue: s.status })}</Badge>
+            <Badge variant="secondary" className="text-xs">{t(`statuses.${s.status}`, { defaultValue: t("cp4.status.pending") })}</Badge>
             {s.baseImagePath && <Badge variant="outline" className="text-xs">{t("customerDetail.baseImageCaptured")}</Badge>}
-            <span className="text-xs text-muted-foreground">{ymd(s.scopeDate)}</span>
+            <span className="text-xs text-muted-foreground">{dates.day(s.scopeDate)}</span>
           </div>
         ))}
       </Rows>

@@ -63,7 +63,7 @@ export default function FieldCustomerList() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-3">
+        <div className="space-y-1.5">
           {[1, 2, 3, 4, 5].map((i) => (
             <Skeleton key={i} className="h-28 w-full rounded-lg" />
           ))}
@@ -80,31 +80,31 @@ export default function FieldCustomerList() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="overflow-hidden rounded-[10px] border" data-testid="field-customer-rows">
           {activeCustomers.map((customer) => {
             const address = getFullAddress(customer);
             return (
-              <Card
+              <div
                 key={customer.id}
+                className="flex min-h-[44px] flex-col gap-2 border-b px-3 py-2 last:border-b-0 hover:bg-muted/50 sm:flex-row sm:items-center"
                 data-testid={`card-customer-${customer.id}`}
               >
-                <CardContent className="p-4 space-y-3">
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <p
-                      className="font-medium"
+                      className="truncate text-sm font-medium"
                       data-testid={`text-customer-name-${customer.id}`}
                     >
                       {customer.name}
                     </p>
                     <p
-                      className="text-sm text-muted-foreground"
+                      className="truncate text-xs text-muted-foreground"
                       data-testid={`text-customer-address-${customer.id}`}
                     >
                       {address}
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex shrink-0 flex-wrap gap-1.5">
                     <Button
                       variant="outline"
                       size="sm"
@@ -145,8 +145,7 @@ export default function FieldCustomerList() {
                       </a>
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
+              </div>
             );
           })}
         </div>

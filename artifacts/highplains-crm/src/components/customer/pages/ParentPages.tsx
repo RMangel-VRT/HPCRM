@@ -1,10 +1,13 @@
 import { useState } from "react";
+import CustomerTicketsPage from "@/components/customer/pages/CustomerTicketsPage";
+import { PageEmptyState, TableSkeleton } from "@/components/customer/page";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import {
   AlertCircle, AlertTriangle, ArrowRight, Building2, Edit2, Info, Loader2, Plus, UserMinus, UserPlus, Users, X,
+  Link2,
 } from "lucide-react";
 import type { QuickBooksCard } from "@/lib/qboReview";
 import { companyToday } from "@/lib/schedulingStatus";
@@ -182,7 +185,7 @@ export function ParentDashboardPage({ customer, pages, privileged, qboCard, qboS
             )}
           </div>
           {d.children.length === 0
-            ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground" data-testid="branches-empty">{t("customerPages.parent.noBranches")}</CardContent></Card>
+            ? <PageEmptyState icon={Building2} message={t("customerPages.parent.noBranches")} testId="branches-empty" />
             : <BranchesTable children={d.children} compact showMoney={privileged} />}
         </div>
         <div className="flex min-w-0 flex-col gap-4">
@@ -272,9 +275,7 @@ export function BranchesPage({ customer, canManage }: { customer: ParentCustomer
       )}
 
       {children.length === 0 ? (
-        <Card><CardContent className="py-12 text-center text-sm text-muted-foreground" data-testid="branches-empty">
-          <Building2 className="w-10 h-10 mx-auto mb-2 opacity-40" />{t("customerPages.parent.noBranches")}
-        </CardContent></Card>
+        <PageEmptyState icon={Building2} message={t("customerPages.parent.noBranches")} testId="branches-empty" />
       ) : (
         <BranchesTable children={children} cityOf={cityOf} showMoney
           renderActions={canManage ? c => (
@@ -302,7 +303,7 @@ export function BranchesPage({ customer, canManage }: { customer: ParentCustomer
 
       {canManage && (
         <Card className="max-w-xl">
-          <CardHeader className="pb-2"><CardTitle className="text-base">{t("customerPages.parent.linkExisting")}</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-[13.5px] font-semibold"><Link2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />{t("customerPages.parent.linkExisting")}</CardTitle></CardHeader>
           <CardContent className="pt-0 space-y-2">
             <CustomerSearchInput mode="any" placeholder={t("customerPages.parent.searchPlaceholder")} testId="input-link-child-search"
               excludeIds={[customer.id, ...children.map(c => c.id), ...candidates.map(c => c.id)]}
@@ -379,22 +380,9 @@ export function ParentTicketsPage({ customer }: { customer: ParentCustomer }) {
   const rollup = useParentRollup(customer.id);
   return (
     <div className="space-y-4" data-testid="parent-tickets-page">
-      <div className="rounded-md border bg-muted/40 p-3 text-sm flex gap-2" data-testid="parent-tickets-notice">
-        <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
-        <span>{t("customerPages.parent.ticketsNotice")}</span>
-      </div>
-      {rollup.isLoading ? <Skeleton className="h-32 w-full" /> : rollup.error || !rollup.data ? <RollupError onRetry={() => rollup.refetch()} /> : (
-        <Card className="divide-y">
-          {rollup.data.children.length === 0 ? <p className="p-4 text-sm text-muted-foreground">{t("customerPages.parent.noBranches")}</p>
-            : rollup.data.children.map(c => (
-              <Link key={c.id} href={`/dashboard/customers/${c.id}?tab=tickets`} className="flex items-center gap-3 px-4 py-2.5 text-sm hover-elevate" data-testid={`link-branch-tickets-${c.id}`}>
-                <span className="flex-1 truncate font-medium">{c.name}</span>
-                <span className="text-muted-foreground tabular-nums">{t("customerPages.parent.openTicketsCount", { count: c.openTickets })}</span>
-                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />
-              </Link>
-            ))}
-        </Card>
-      )}
+      {rollup.isLoading ? <TableSkeleton rows={5} cols={6} /> : rollup.error || !rollup.data ? <RollupError onRetry={() => rollup.refetch()} />
+        : rollup.data.children.length === 0 ? <PageEmptyState icon={Building2} message={t("customerPages.parent.noBranches")} testId="branches-empty" />
+        : <CustomerTicketsPage customerId={customer.id} branches={rollup.data.children.map(c => ({ id: c.id, name: c.name }))} />}
     </div>
   );
 }

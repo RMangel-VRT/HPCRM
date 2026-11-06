@@ -101,8 +101,9 @@ export interface IStorage {
   updateContact(id: string, companyId: string, contact: Partial<InsertContact>): Promise<Contact | undefined>;
   deleteContact(id: string, companyId: string): Promise<void>;
   
-  getNotesByCustomerId(customerId: string, companyId: string): Promise<Note[]>;
+  getNotesByCustomerId(customerId: string, companyId: string): Promise<(Note & { authorName: string | null })[]>;
   createNote(note: InsertNote): Promise<Note>;
+  pinNote(id: string, companyId: string, pinned: boolean): Promise<Note | undefined>;
   updateNote(id: string, companyId: string, body: string): Promise<Note | undefined>;
   deleteNote(id: string, companyId: string): Promise<void>;
   
@@ -925,10 +926,17 @@ export class PgStorage implements IStorage {
     await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
   }
 
-  async getNotesByCustomerId(customerId: string, companyId: string): Promise<Note[]> {
-    return await db.select().from(notes)
+  async getNotesByCustomerId(customerId: string, companyId: string): Promise<(Note & { authorName: string | null })[]> {
+    return await db.select({ ...getTableColumns(notes), authorName: users.name }).from(notes)
+      .leftJoin(users, eq(users.id, notes.authorId))
       .where(and(eq(notes.customerId, customerId), eq(notes.companyId, companyId)))
-      .orderBy(desc(notes.createdAt));
+      .orderBy(sql`${notes.pinnedAt} DESC NULLS LAST`, desc(notes.createdAt), desc(notes.id));
+  }
+
+  async pinNote(id: string, companyId: string, pinned: boolean): Promise<Note | undefined> {
+    const [note] = await db.update(notes).set({ pinnedAt: pinned ? new Date() : null })
+      .where(and(eq(notes.id, id), eq(notes.companyId, companyId))).returning();
+    return note;
   }
 
   async createNote(insertNote: InsertNote): Promise<Note> {

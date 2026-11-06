@@ -9,7 +9,6 @@ import {
   Phone, StickyNote, Ticket as TicketIcon, Users, RefreshCw,
 } from "lucide-react";
 import type { Contact, Customer, CustomerMapLayer, Note, PropertyManagementCompany, PropertyManager, ProposalWithDetails, Ticket } from "@shared/schema";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -25,6 +24,8 @@ import type { CustomerContractSummary } from "@/hooks/useCustomerContractSummary
 import type { CustomerService } from "@/hooks/useCustomerServices";
 import type { QuickBooksCard } from "@/lib/qboReview";
 import { aggregateTerms, calendarAge, evaluateAttention, serviceDashboardRows, type AttentionItem } from "./dashboardModel";
+import { CustomerCard } from "@/components/customer/page";
+import { dashboardNote } from "@/hooks/useCustomerNotes";
 import { QBO_TONE, type Loadable, type QboStateKind } from "@/components/customer/header/CustomerHeader";
 import type { SetupState } from "@/components/customerWizard/FinishSetupBanner";
 
@@ -41,23 +42,11 @@ export function useDateFns() {
   };
 }
 
-export function DashCard({ icon: Icon, title, link, children, testId, className = "" }: {
+/** CP3 Dashboard card, now the shared CP4 CustomerCard (icon + title + optional link). */
+export function DashCard({ icon, title, link, children, testId, className = "" }: {
   icon: typeof Clock; title: string; link?: { href: string; label: string; testId: string }; children: ReactNode; testId: string; className?: string;
 }) {
-  return (
-    <Card className={`min-w-0 ${className}`} data-testid={testId}>
-      <CardHeader className="flex flex-row items-center gap-2 space-y-0 px-4 pt-3 pb-0">
-        <Icon className="h-4 w-4 text-muted-foreground" />
-        <CardTitle className="text-[13.5px] font-semibold">{title}</CardTitle>
-        {link && (
-          <Link href={link.href} className="ml-auto inline-flex items-center gap-1 text-[12.5px] font-medium text-muted-foreground hover:text-foreground" data-testid={link.testId}>
-            {link.label}<ArrowRight className="h-3 w-3" />
-          </Link>
-        )}
-      </CardHeader>
-      <CardContent className="px-4 pt-2.5 pb-3.5">{children}</CardContent>
-    </Card>
-  );
+  return <CustomerCard icon={icon} title={title} link={link} testId={testId} className={className}>{children}</CustomerCard>;
 }
 export function CardError({ onRetry, testId }: { onRetry: () => void; testId: string }) {
   const { t } = useTranslation();
@@ -217,8 +206,8 @@ export default function CustomerDashboard(p: CustomerDashboardProps) {
       href: p.pages.includes("communications") ? customerPageHref(id, "communications") : undefined })),
   ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5);
 
-  const notes = [...(p.notes.data ?? [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const newestNote = notes[0] ?? null;
+  // CP4: first pinned note, otherwise the newest.
+  const newestNote = dashboardNote(p.notes.data as (Note & { pinnedAt?: Date | string | null })[] | undefined);
   const contacts = p.contacts.data ?? [];
   const copy = (text: string) => { void navigator.clipboard?.writeText(text); toast({ title: t("cp3.copied") }); };
 
@@ -268,7 +257,7 @@ export default function CustomerDashboard(p: CustomerDashboardProps) {
           sub={!p.tickets.isLoading && !p.tickets.error ? (oldestAge != null ? t("cp3.kpi.oldest", { count: oldestAge }) : t("cp3.kpi.noneOpen")) : undefined} />
         {p.privileged && (
           <Kpi testId="kpi-last-contact" label={t("cp3.kpi.lastContact")}
-            value={activity.isLoading ? <Skeleton className="h-7 w-24" /> : activity.error ? t("cp3.unavailable") : last ? dates.ago(last.at) : t("cp3.kpi.noContact")}
+            value={activity.isLoading ? <Skeleton className="h-7 w-24" /> : activity.error ? t("cp3.unavailable") : last ? <span data-testid="text-kpi-last-contact-date">{dates.day(last.at)}</span> : t("cp3.kpi.noContact")}
             sub={last && !activity.error ? [dates.day(last.at), last.person, t(`cp3.channel.${channelKey(last.channel)}`)].filter(Boolean).join(" \u00b7 ") : undefined} />
         )}
       </div>

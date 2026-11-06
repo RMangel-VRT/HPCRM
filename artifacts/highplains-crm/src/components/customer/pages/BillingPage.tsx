@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { CardListSkeleton, CustomerCardHeader, useCustomerDates } from "@/components/customer/page";
+import { Receipt } from "lucide-react";
 import { Link } from "wouter";
 import { Info } from "lucide-react";
 import { useCustomerContractSummary, type ContractSummaryTerm } from "@/hooks/useCustomerContractSummary";
 import { contractTermHref } from "@/components/customer/CustomerContractPanels";
 import QboCustomerCard from "@/components/qbo/QboCustomerCard";
 import { formatCurrency } from "@/lib/currency";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export type BillingView = "rates" | "revenue";
@@ -29,15 +30,16 @@ export function contractByMonth(term: ContractSummaryTerm | undefined) {
   return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([month, cents]) => ({ month, cents }));
 }
 
-function TermPicker({ rows, value, onChange }: { rows: { term: ContractSummaryTerm; period: string }[]; value: string; onChange: (v: string) => void }) {
+export function TermPicker({ rows, value, onChange }: { rows: { term: ContractSummaryTerm; period: string }[]; value: string; onChange: (v: string) => void }) {
   const { t } = useTranslation();
+  const dates = useCustomerDates();
   return (
     <label className="flex gap-2 items-center text-sm min-w-0 max-w-full">
       <span className="text-muted-foreground shrink-0">{t("cp1.term")}</span>
       <select value={value} onChange={e => onChange(e.target.value)} className="border rounded-md h-8 px-2 bg-background min-w-0 max-w-full flex-1" aria-label={t("cp1.term")} data-testid="select-billing-term">
         {rows.map(({ term, period }) => (
           <option key={`${period}:${term.termId}`} value={term.termId ?? ""}>
-            {t(`cp1.${period}`)} · {term.label} · {t(`cp1.${term.line}`)} · {term.startDate} – {term.endDate}
+            {t(`cp1.${period}`)} · {term.label} · {t(`cp1.${term.line}`)} · {dates.day(term.startDate)} – {dates.day(term.endDate)}
           </option>
         ))}
       </select>
@@ -74,7 +76,7 @@ export default function BillingPage({ customerId, isParent, view, onViewChange, 
 
   const renderRateTable = (title: string, list: NonNullable<ContractSummaryTerm["rates"]>, id: string) => (
     <Card key={id} data-testid={`rates-${id}`}>
-      <CardHeader className="pb-2"><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+      <CustomerCardHeader icon={Receipt} title={title} className="pb-2" />
       <CardContent className="p-0">
         {list.length === 0 ? <p className="text-sm text-muted-foreground px-6 pb-4">{t("customerPages.billing.noRates")}</p> : (
           <Table>
@@ -115,7 +117,7 @@ export default function BillingPage({ customerId, isParent, view, onViewChange, 
         ))}
       </div>
 
-      {summary.isLoading ? <Skeleton className="h-40 w-full" /> : summary.error ? (
+      {summary.isLoading ? <CardListSkeleton count={2} testId="billing-skeleton" /> : summary.error ? (
         <p role="alert" className="text-sm text-destructive">{t("cp1.loadFailed")}</p>
       ) : !term ? (
         <p className="text-sm text-muted-foreground" data-testid="billing-no-contract">{t("cp1.noContract")}</p>

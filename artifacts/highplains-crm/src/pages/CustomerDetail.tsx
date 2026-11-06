@@ -3,21 +3,18 @@ import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation, useSearch, Link } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
-import type { Customer, Contact, Note, InsertNote, Ticket, ProposalWithDetails, PropertyManagementCompany, PropertyManager } from "@shared/schema";
+import type { Customer, Contact, InsertNote, Ticket, ProposalWithDetails, PropertyManagementCompany, PropertyManager } from "@shared/schema";
 import { insertNoteSchema } from "@shared/schema";
 import { CustomerContracts } from "@/components/contracts/CustomerContracts";
 import { useCustomerContractSummary, openSnowTriggerFlagCount } from "@/hooks/useCustomerContractSummary";
 import { useCustomerServices } from "@/hooks/useCustomerServices";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Edit, Plus, Users, MessageSquare, Copy, Mail, Lock } from "lucide-react";
+import { Edit, Plus, Mail, Lock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { extractApiErrorMessage } from "@/lib/apiError";
@@ -30,7 +27,11 @@ import {
   CUSTOMER_PAGES, LEGACY_TAB_ALIASES, canonicalCustomerSearch, isPrivilegedRole, resolveView, visibleCustomerPages,
   type CustomerPageKey,
 } from "@/components/customer/customerPages";
-import TicketListView from "@/components/TicketListView";
+import CustomerTicketsPage from "@/components/customer/pages/CustomerTicketsPage";
+import ContactsPage, { allContactEmails, copyText } from "@/components/customer/pages/ContactsPage";
+import NotesPage from "@/components/customer/pages/NotesPage";
+import { canWriteNotes, invalidateCustomerNotes, type CustomerNote } from "@/hooks/useCustomerNotes";
+import { NARROW_PAGES, PageWidth, SectionTitle, type SectionAction } from "@/components/customer/page";
 import CommunicationListTab from "@/components/CommunicationListTab";
 import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
 import { cardState } from "@/components/qbo/QboCustomerCard";
@@ -110,12 +111,11 @@ export default function CustomerDetail() {
   });
   const contacts = contactsQuery.data ?? [];
   const isLoadingContacts = contactsQuery.isLoading;
-  const notesQuery = useQuery<Note[]>({
+  const notesQuery = useQuery<CustomerNote[]>({
     queryKey: ["/api/customers", id, "notes", ...scope.scope],
-    queryFn: ({ signal }) => scope.getJson<Note[]>(`/api/customers/${id}/notes`, signal),
+    queryFn: ({ signal }) => scope.getJson<CustomerNote[]>(`/api/customers/${id}/notes`, signal),
     enabled: !!id && scope.enabled && (activeTab === "notes" || activeTab === "dashboard"),
   });
-  const notes = notesQuery.data ?? [];
   const isLoadingNotes = notesQuery.isLoading;
 
   const summary = useCustomerContractSummary(customer && !isParent ? id : undefined);
@@ -148,7 +148,7 @@ export default function CustomerDetail() {
   });
 
   // Header "Managed by" chip appears on every regular/branch page.
-  const needsPm = !!customer && !isParent && (!!customer.propertyManagementCompanyId || !!customer.propertyManagerId);
+  const needsPm = !!customer && !isParent && (!!customer.propertyManagementCompanyId || !!customer.propertyManagerId || (activeTab === "contacts" && contacts.some(c => !!c.propertyManagerId)));
   const pmCompaniesQuery = useQuery<PropertyManagementCompany[]>({
     queryKey: ["/api/property-management-companies", ...scope.scope], enabled: needsPm && scope.enabled,
     queryFn: ({ signal }) => scope.getJson<PropertyManagementCompany[]>("/api/property-management-companies", signal),
@@ -212,16 +212,20 @@ export default function CustomerDetail() {
 
   // Notes
   const [isAddNoteDialogOpen, setIsAddNoteDialogOpen] = useState(false);
-  const [editingNote, setEditingNote] = useState<Note | null>(null);
+  const [editingNote, setEditingNote] = useState<CustomerNote | null>(null);
   const noteForm = useForm<Omit<InsertNote, "companyId" | "customerId" | "authorId">>({
     resolver: zodResolver(insertNoteSchema.omit({ companyId: true, customerId: true, authorId: true })),
     defaultValues: { body: "" },
   });
   const onNoteError = (error: Error) => toast({ title: t("common.error"), description: extractApiErrorMessage(error) ?? error.message, variant: "destructive" });
   const createNoteMutation = useMutation({
-    mutationFn: async (data: Omit<InsertNote, "companyId" | "customerId" | "authorId">) => apiRequest("POST", `/api/customers/${id}/notes`, data),
+    mutationFn: async (data: Omit<InsertNote, "companyId" | "customerId" | "authorId">) => {
+      const started = scope.companyId;
+      await scope.request("POST", `/api/customers/${id}/notes`, data);
+      scope.assertSameCompany(started);
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "notes"] });
+      invalidateCustomerNotes(id!);
       toast({ title: t("common.success"), description: t("customerDetail.noteCreated") });
       setIsAddNoteDialogOpen(false);
       noteForm.reset();
@@ -229,23 +233,20 @@ export default function CustomerDetail() {
     onError: onNoteError,
   });
   const updateNoteMutation = useMutation({
-    mutationFn: async ({ noteId, data }: { noteId: string; data: Omit<InsertNote, "companyId" | "customerId" | "authorId"> }) => apiRequest("PATCH", `/api/notes/${noteId}`, data),
+    mutationFn: async ({ noteId, data }: { noteId: string; data: Omit<InsertNote, "companyId" | "customerId" | "authorId"> }) => {
+      const started = scope.companyId;
+      await scope.request("PATCH", `/api/notes/${noteId}`, data);
+      scope.assertSameCompany(started);
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "notes"] });
+      invalidateCustomerNotes(id!);
       toast({ title: t("common.success"), description: t("customerDetail.noteUpdated") });
       setEditingNote(null);
       noteForm.reset();
     },
     onError: onNoteError,
   });
-  const deleteNoteMutation = useMutation({
-    mutationFn: async (noteId: string) => apiRequest("DELETE", `/api/notes/${noteId}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "notes"] });
-      toast({ title: t("common.success"), description: t("customerDetail.noteDeleted") });
-    },
-    onError: onNoteError,
-  });
+
 
   const [isLogCommOpen, setIsLogCommOpen] = useState(false);
   const createProposal = useMutation({
@@ -283,7 +284,6 @@ export default function CustomerDetail() {
     return <div className="flex items-center justify-center h-96"><p className="text-muted-foreground">{t("customers.noCustomersFound")}</p></div>;
   }
 
-  const sortedNotes = [...notes].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const isChildCustomer = !!customer.parentCustomerId;
   const childCustomers = customer.childCustomers || [];
   const parentCustomer = customer.parentCustomer || null;
@@ -306,6 +306,33 @@ export default function CustomerDetail() {
       : { status: "ready" as const, value: summary.data?.current.length ? aggregateTerms(summary.data.current) : null });
 
   const openNoteDialog = () => { noteForm.reset({ body: "" }); setEditingNote(null); setIsAddNoteDialogOpen(true); };
+
+  const emailList = allContactEmails(contacts);
+  // Server rejects field-role note writes and note creation on parents (assertNotParentCustomer).
+  const canAddNote = canWriteNotes(accessRole) && !isParent;
+  const titleActions = (): SectionAction[] => {
+    switch (activeTab) {
+      case "contacts": return [
+        ...(emailList.length ? [{ node: (
+          <Button size="sm" variant="outline" data-testid="button-copy-all-emails" onClick={async () => {
+            const ok = await copyText(emailList.join(", "));
+            toast(ok ? { title: t("cp4.contacts.copiedAll", { count: emailList.length }) } : { title: t("cp4.contacts.copyFailed"), variant: "destructive" });
+          }}><Mail className="mr-2 h-4 w-4" />{t("cp4.contacts.copyAll")}</Button>) }] : []),
+        ...(canEditCustomer ? [{ primary: true, node: (
+          <Button size="sm" asChild><Link href={`/dashboard/customers/${customer.id}/edit#contacts`} data-testid="button-edit-contacts">
+            <Edit className="mr-2 h-4 w-4" />{t("customerEdit.editContacts")}</Link></Button>) }] : []),
+      ];
+      case "notes": return canAddNote ? [{ primary: true, node: (
+        <Button size="sm" onClick={openNoteDialog} data-testid="button-add-note"><Plus className="mr-2 h-4 w-4" />{t("customerDetail.addNote")}</Button>) }] : [];
+      case "communications": return isPrivilegedUser ? [{ node: (
+        <Button size="sm" variant="outline" onClick={() => setIsLogCommOpen(true)} data-testid="button-log-new-comm"><Plus className="mr-2 h-4 w-4" />{t("emailTracking.logCommunication")}</Button>) }] : [];
+      // New contract is a section-title action (not a header Add action); same admin/office gate as the contract center.
+      case "contracts": return isPrivilegedUser ? [{ primary: true, node: (
+        <Button size="sm" asChild><Link href={`/dashboard/contracts/new?customerId=${encodeURIComponent(customer.id)}`} data-testid="button-new-contract">
+          <Plus className="mr-2 h-4 w-4" />{t("cp1.newContract")}</Link></Button>) }] : [];
+      default: return [];
+    }
+  };
 
   const renderPage = () => {
     if (snowPending) return <Skeleton className="h-48 w-full" />;
@@ -337,216 +364,18 @@ export default function CustomerDetail() {
       case "branches":
         return <BranchesPage customer={customer} canManage={isPrivilegedUser} />;
       case "contacts":
-        return <div className="space-y-4" data-testid="contacts-page">
-          <div className="flex justify-end gap-2">
-            {contacts.length > 0 && contacts.some(c => c.emails && c.emails.length > 0) && (
-              <Button 
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  const allEmails = contacts
-                    .flatMap(c => c.emails || [])
-                    .filter(Boolean);
-                  if (allEmails.length > 0) {
-                    navigator.clipboard.writeText(allEmails.join(", "));
-                    toast({
-                      title: t("common.success"),
-                      description: `${allEmails.length} email${allEmails.length > 1 ? 's' : ''}`,
-                    });
-                  }
-                }}
-                data-testid="button-copy-all-emails"
-              >
-                <Mail className="w-4 h-4 mr-2" />
-                {t("common.email")}
-              </Button>
-            )}
-            {canEditCustomer && (
-              <Button size="sm" asChild>
-                <Link href={`/dashboard/customers/${customer.id}/edit#contacts`} data-testid="button-edit-contacts">
-                  <Edit className="w-4 h-4 mr-2" />
-                  {t("customerEdit.editContacts")}
-                </Link>
-              </Button>
-            )}
-          </div>
-          {isLoadingContacts ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-24 w-full" />
-              ))}
-            </div>
-          ) : contacts.length === 0 ? (
-            <Card>
-              <CardContent className="flex items-center justify-center p-12">
-                <div className="text-center">
-                  <Users className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                  <p className="text-sm text-muted-foreground">{t("customerDetail.noContacts")}</p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {contacts.map((contact) => (
-                <Card key={contact.id} data-testid={`card-contact-${contact.id}`}>
-                  <CardContent className="flex items-center justify-between p-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">{contact.name}</p>
-                        {contact.isPrimary === "true" && (
-                          <Badge variant="secondary" className="text-xs">{t("customerDetail.isPrimary")}</Badge>
-                        )}
-                      </div>
-                      {contact.role && (
-                        <p className="text-sm text-muted-foreground">{contact.role}</p>
-                      )}
-                      {contact.phones && contact.phones.length > 0 && (
-                        <div className="text-sm text-muted-foreground">
-                          {contact.phones.map((phone: string, idx: number) => (
-                            <span key={idx}>{phone}{idx < contact.phones!.length - 1 ? ", " : ""}</span>
-                          ))}
-                        </div>
-                      )}
-                      {contact.emails && contact.emails.length > 0 && (
-                        <div className="text-sm text-muted-foreground flex items-center flex-wrap gap-x-2">
-                          {contact.emails.map((email: string, idx: number) => (
-                            <span key={idx} className="inline-flex items-center gap-1">
-                              {email}
-                              <button
-                                type="button"
-                                className="text-muted-foreground hover:text-foreground p-0.5 rounded hover-elevate"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigator.clipboard.writeText(email);
-                                  toast({
-                                    title: t("common.success"),
-                                    description: t("common.email"),
-                                  });
-                                }}
-                                data-testid={`button-copy-email-${contact.id}-${idx}`}
-                              >
-                                <Copy className="w-3 h-3" />
-                              </button>
-                              {idx < contact.emails!.length - 1 && ","}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {contact.notes && (
-                        <p className="text-sm text-muted-foreground mt-2">{contact.notes}</p>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>;
+        return <ContactsPage contacts={contacts} isLoading={isLoadingContacts} error={contactsQuery.error} onRetry={() => void contactsQuery.refetch()}
+          pmManagers={pmManagers} pmCompanies={pmCompanies} />;
       case "notes":
-        return <div className="space-y-4" data-testid="notes-page">
-          <div className="flex justify-end">
-            <Button 
-              size="sm"
-              onClick={() => {
-                noteForm.reset({ body: "" });
-                setEditingNote(null);
-                setIsAddNoteDialogOpen(true);
-              }}
-              data-testid="button-add-note-tab"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              {t("customerDetail.addNote")}
-            </Button>
-          </div>
-          {isLoadingNotes ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-32 w-full" />
-              ))}
-            </div>
-          ) : sortedNotes.length === 0 ? (
-            <Card>
-              <CardContent className="flex items-center justify-center p-12">
-                <div className="text-center">
-                  <MessageSquare className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                  <p className="text-sm text-muted-foreground">{t("customerDetail.noNotes")}</p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {sortedNotes.map((note) => (
-                <Card key={note.id} data-testid={`card-note-${note.id}`}>
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start gap-4 mb-2">
-                      <div className="flex-1">
-                        <div className="flex justify-between items-center mb-1">
-                          <p className="text-sm font-medium">{t("customerPages.pages.notes")}</p>
-                          <p className="text-xs text-muted-foreground" data-testid={`text-note-date-${note.id}`}>
-                            {format(new Date(note.createdAt), "MMM d, yyyy")}
-                          </p>
-                        </div>
-                        <p className="text-sm" data-testid={`text-note-body-${note.id}`}>{note.body}</p>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button 
-                          variant="ghost" 
-                          size="icon"
-                          onClick={() => {
-                            setEditingNote(note);
-                            noteForm.reset({
-                              body: note.body,
-                            });
-                          }}
-                          data-testid={`button-edit-note-${note.id}`}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button 
-                              variant="ghost" 
-                              size="icon"
-                              data-testid={`button-delete-note-${note.id}`}
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>{t("common.delete")} {t("customerPages.pages.notes")}</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                {t("ticketDetail.cannotUndo")}
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => deleteNoteMutation.mutate(note.id)}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              >
-                                {t("common.delete")}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>;
+        return <NotesPage customerId={customer.id} notes={notesQuery.data} isLoading={isLoadingNotes} error={notesQuery.error}
+          onRetry={() => void notesQuery.refetch()} canWrite={canWriteNotes(accessRole)}
+          onEdit={note => { setEditingNote(note); noteForm.reset({ body: note.body }); }} />;
       case "communications":
-        return <CommunicationListTab queryKey={["/api/customers", customer.id, "communications"]} customerId={customer.id} />;
+        return <CommunicationListTab queryKey={["/api/customers", customer.id, "communications"]} customerId={customer.id} showLogButton={false} />;
       case "services":
         return <ServicesPage customerId={customer.id} />;
       case "tickets":
-        return isParent ? <ParentTicketsPage customer={customer} /> : (
-          <TicketListView customerId={customer.id} showHeader={false} showCustomerColumn={false}
-            showBatchActions={false} showQuickAdd={false} showNewTicketButton={true} />
-        );
+        return isParent ? <ParentTicketsPage customer={customer} /> : <CustomerTicketsPage customerId={customer.id} />;
       case "snow":
         return <SnowPage customerId={customer.id} summary={summary.data} canOpenContract={isPrivilegedUser} />;
       case "property":
@@ -574,7 +403,7 @@ export default function CustomerDetail() {
           accountManager={accountManagers.isLoading ? { status: "loading" } : !amLoaded ? { status: "error" } : { status: "ready", value: amName }}
           branchCount={parentRollup.data?.children.length ?? childCustomers.length}
           canEdit={canEditCustomer}
-          actions={{ note: true, ticket: isPrivilegedUser && !isParent, proposal: isPrivilegedUser && !isParent, logCommunication: isPrivilegedUser }}
+          actions={{ note: canAddNote, ticket: isPrivilegedUser && !isParent, proposal: isPrivilegedUser && !isParent, logCommunication: isPrivilegedUser }}
           onAddNote={openNoteDialog} onAddProposal={() => createProposal.mutate()} proposalPending={createProposal.isPending}
           onLogCommunication={() => setIsLogCommOpen(true)} />
 
@@ -583,8 +412,10 @@ export default function CustomerDetail() {
         <CustomerPageChips pages={pages} activeTab={activeTab} onTabChange={setActiveTab} badges={badges} />
 
         <section aria-labelledby="customer-page-heading" className="space-y-4">
-          <h2 id="customer-page-heading" className="text-xl font-semibold tracking-tight" data-testid="text-customer-page-heading">{pageLabel}</h2>
-          {renderPage()}
+          <PageWidth narrow={(NARROW_PAGES as readonly string[]).includes(activeTab)}>
+            <SectionTitle title={pageLabel} actions={isAllowed ? titleActions() : []} />
+            {renderPage()}
+          </PageWidth>
         </section>
 
       <Dialog open={isLogCommOpen} onOpenChange={setIsLogCommOpen}>

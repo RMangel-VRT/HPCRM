@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import i18n from "@/i18n";
 import CustomersList from "./CustomersList";
 const fx = vi.hoisted(() => ({ company: "co", api: vi.fn(), toast: vi.fn(), fail: false }));
@@ -26,6 +26,7 @@ beforeEach(() => {
   assignments = { p: null, s: { id: "am", name: "Manager Test" }, b: null };
   fx.api.mockImplementation(async (method: string, url: string, body: any, opts: any) => {
     if (url === "/api/customer-account-managers") return { json: async () => ({ managers: [{ id: "am", name: "Manager Test" }], assignments }) };
+    if (url.startsWith("/api/customers/list-summary")) return { json: async () => ({ summaries: {} }) };
     if (url.startsWith("/api/customers?page")) return { json: async () => ({ customers: rows, total: rows.length }) };
     if (method === "POST" && url === "/api/customers/account-manager") {
       if (fx.fail) throw new Error("synthetic 422");
@@ -53,11 +54,13 @@ describe("resolved customer assignment list", () => {
     await act(async () => { finish!({ json: async () => ({ changedCount: 1 }) }); });
     await waitFor(() => expect(queryClient.getMutationCache().getAll().every(m => m.state.status !== "pending")).toBe(true));
     expect(fx.toast).not.toHaveBeenCalled();
-    expect((screen.getByTestId("bulk-set-account-manager") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("bulk-set-account-manager")).toBeNull();
   });
   it.each(["en", "es"])("filters resolved unassigned and atomically selects only eligible rows in %s", async language => {
     await i18n.changeLanguage(language); page();
     await screen.findByTestId("row-customer-p");
+    expect(screen.queryByTestId("row-customer-b")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-expand-p"));
     const branch = await screen.findByRole("checkbox", { name: i18n.t("accountManagers.select", { name: "Branch Test" }) }) as HTMLInputElement;
     expect(branch.disabled).toBe(true); expect(branch.parentElement?.title).toBe(i18n.t("accountManagers.branchHelp"));
     fireEvent.change(screen.getByTestId("filter-account-manager"), { target: { value: "none" } });
@@ -68,7 +71,7 @@ describe("resolved customer assignment list", () => {
     await waitFor(() => expect(fx.toast).toHaveBeenCalledWith({ title: i18n.t("accountManagers.changed", { count: 1 }) }));
     expect(fx.api).toHaveBeenCalledWith("POST", "/api/customers/account-manager", { customerIds: ["p"], accountManagerId: "am" }, { headers: { "X-Company-Id": "co" } });
     await waitFor(() => expect(screen.queryByTestId("row-customer-p")).toBeNull());
-    expect((screen.getByTestId("bulk-set-account-manager") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("bulk-set-account-manager")).toBeNull();
   });
   it("keeps selection on a rejected request but resets on company/viewer switches", async () => {
     fx.fail = true; const view = page(); await screen.findByTestId("row-customer-p");
@@ -78,6 +81,6 @@ describe("resolved customer assignment list", () => {
     expect((screen.getByTestId("bulk-set-account-manager") as HTMLButtonElement).disabled).toBe(false);
     fx.company = "other"; view.rerender(<QueryClientProvider client={queryClient}><CustomersList /></QueryClientProvider>);
     await screen.findByTestId("row-customer-p");
-    expect((screen.getByTestId("bulk-set-account-manager") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("bulk-set-account-manager")).toBeNull();
   });
 });

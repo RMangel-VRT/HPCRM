@@ -3,6 +3,12 @@ name: Customer pages direction
 description: Customer-page ownership, sequential integration, snow rollout gates, and display rules.
 ---
 
+Customer notes are shared company notes about a customer, not author-private notes. Do not turn the layout or pinning feature into author-only visibility or editing.
+
+**Why:** The user explicitly described notes as company notes available to anyone viewing that customer in the CRM; authorship is provenance, not ownership-based access.
+
+**How to apply:** Preserve the existing role-based read/write boundary when presenting, editing or pinning notes. A stricter privacy or author-ownership policy requires separate approval.
+
 Read `attached_assets/Pasted--Customer-pages-slice-pack-For-Randy-paste-into-the-Rep_1793920482888.txt` before planning customer-page work. Account-manager ownership precedes correctness, navigation, header/dashboard and layout work. Overlapping customer-page changes must be integrated sequentially; use current task state rather than treating the overview as an implementation authorization.
 
 **Why:** All slices touch the same customer-page files, so parallel implementation would conflict. Uploading this reference does not authorize implementation or publishing.

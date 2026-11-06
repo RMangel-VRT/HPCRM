@@ -8,7 +8,8 @@ import { canViewBilling } from "@/lib/billing";
 import {
   canPromote, cardKey, errorText, qboJson, reviewHref, scopeKey, useQboInvalidate, useQboTerms, type QuickBooksCard,
 } from "@/lib/qboReview";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { CustomerCardHeader } from "@/components/customer/page";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -157,7 +158,7 @@ export default function QboCustomerCard({ customerId, isParent = false }: { cust
   const { user } = useAuth();
   if (!user) return null;
   return <Card data-testid="card-qbo-customer" className="border-l-4 border-l-primary/60">
-    <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">QuickBooks</CardTitle></CardHeader>
+    <CustomerCardHeader icon={Link2} title="QuickBooks" className="pb-2" />
     <CardBody key={`${scopeKey(user)}:${customerId}`} customerId={customerId} isParent={isParent} />
   </Card>;
 }

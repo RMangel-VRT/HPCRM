@@ -2,14 +2,12 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
-import { format } from "date-fns";
 import { AlertCircle, CheckCircle2, Clock, CalendarClock, MinusCircle } from "lucide-react";
 import type { Season } from "@shared/schema";
 import { useCustomerServices, type CustomerService, type ServiceState } from "@/hooks/useCustomerServices";
 import { useCustomerScope } from "@/lib/customerScope";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DisplayStatusBadge, PageEmptyState, TableSkeleton, displayStatus, fromNestedControl, rowKeyOpen, useCustomerDates } from "@/components/customer/page";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -27,12 +25,6 @@ interface Row {
 }
 
 const groupOf = (state: ServiceState): GroupKey => (state === "skipped" ? "done" : state);
-
-function fmtDay(value: string | null | undefined, pattern = "MMM d") {
-  if (!value) return "";
-  const d = new Date(value.length === 10 ? `${value}T12:00:00` : value);
-  return Number.isNaN(d.getTime()) ? value : format(d, pattern);
-}
 
 export function buildServiceRows(services: CustomerService[], items: any[]): Row[] {
   const byId = new Map(items.map(i => [`campaign:${i.id}`, i]));
@@ -72,6 +64,7 @@ function StateIcon({ state }: { state: ServiceState }) {
 export default function ServicesPage({ customerId }: { customerId: string }) {
   const { t } = useTranslation();
   const { services, items, isLoading, error } = useCustomerServices(customerId);
+  const fmtDay = useCustomerDates().day;
   const [groupBy, setGroupBy] = useState<"status" | "season">("status");
   const [selected, setSelected] = useState<Row | null>(null);
   const scope = useCustomerScope();
@@ -108,10 +101,10 @@ export default function ServicesPage({ customerId }: { customerId: string }) {
   }, [groupBy, inContract, seasons, t]);
 
   if (isLoading) {
-    return <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>;
+    return <TableSkeleton rows={5} cols={3} testId="services-skeleton" />;
   }
   if (error) {
-    return <p role="alert" className="text-sm text-destructive" data-testid="services-error">{t("cp1.loadFailed")}</p>;
+    return <div role="alert"><PageEmptyState icon={AlertCircle} message={t("cp1.loadFailed")} testId="services-error" /></div>;
   }
 
   const statusPill = (r: Row) => {
@@ -120,15 +113,15 @@ export default function ServicesPage({ customerId }: { customerId: string }) {
     if (s === "skipped") return t("cp1.serviceStates.skipped");
     return t(`customerPages.services.groups.${s}`);
   };
-  const pillVariant = (s: ServiceState): "destructive" | "secondary" | "outline" | "default" =>
-    s === "overdue" ? "destructive" : s === "done" ? "default" : s === "in_window" ? "secondary" : "outline";
 
   const renderRow = (r: Row) => (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       key={r.service.id}
-      onClick={() => setSelected(r)}
-      className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover-elevate border-b last:border-b-0"
+      onClick={e => { if (!fromNestedControl(e)) setSelected(r); }}
+      onKeyDown={rowKeyOpen(() => setSelected(r))}
+      className="w-full min-h-[44px] cursor-pointer flex items-center gap-3 px-3 py-2 text-left hover:bg-muted/50 border-b last:border-b-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
       data-testid={`row-service-${r.service.id}`}
     >
       <StateIcon state={r.service.state} />
@@ -141,10 +134,8 @@ export default function ServicesPage({ customerId }: { customerId: string }) {
           </span>
         </span>
       </span>
-      <Badge variant={pillVariant(r.service.state)} className="text-xs whitespace-nowrap" data-testid={`status-service-${r.service.id}`}>
-        {statusPill(r)}
-      </Badge>
-    </button>
+      <DisplayStatusBadge status={displayStatus("service", r.service.state)} label={statusPill(r)} testId={`status-service-${r.service.id}`} />
+    </div>
   );
 
   return (
@@ -177,15 +168,12 @@ export default function ServicesPage({ customerId }: { customerId: string }) {
       </div>
 
       {rows.length === 0 ? (
-        <Card><CardContent className="py-10 text-center text-sm text-muted-foreground" data-testid="services-empty">
-          <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          {t("customerPages.services.empty")}
-        </CardContent></Card>
+        <PageEmptyState icon={CheckCircle2} message={t("customerPages.services.empty")} testId="services-empty" />
       ) : (
         <>
           {groups.map(g => (
             <section key={g.key} data-testid={`services-group-${g.key}`}>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+              <h3 className="text-[13px] font-semibold text-muted-foreground mb-1.5">
                 {g.label} <span className="tabular-nums">({g.rows.length})</span>
               </h3>
               <div className="rounded-md border bg-card">{g.rows.map(renderRow)}</div>
@@ -219,13 +207,13 @@ export default function ServicesPage({ customerId }: { customerId: string }) {
                 campaignCategory: selected.category,
               }} onClose={() => setSelected(null)} /> : <div className="space-y-4 text-sm">
                 <div className="flex gap-2 flex-wrap">
-                  <Badge variant={pillVariant(selected.service.state)} data-testid="drawer-status">{statusPill(selected)}</Badge>
+                  <DisplayStatusBadge status={displayStatus("service", selected.service.state)} label={statusPill(selected)} testId="drawer-status" />
                   <Badge variant="outline" data-testid="drawer-category">{categoryLabel(selected.category)}</Badge>
                   {!selected.service.inContract && <Badge variant="secondary">{t("customerPages.services.notInContract")}</Badge>}
                 </div>
                 <p className="text-muted-foreground" data-testid="drawer-window">
-                  {t("customerPages.services.window")}: {fmtDay(selected.service.start, "MMM d, yyyy")}
-                  {selected.service.end !== selected.service.start && ` – ${fmtDay(selected.service.end, "MMM d, yyyy")}`}
+                  {t("customerPages.services.window")}: {fmtDay(selected.service.start)}
+                  {selected.service.end !== selected.service.start && ` – ${fmtDay(selected.service.end)}`}
                 </p>
                 {selected.service.source === "route" && (
                   <Button asChild variant="outline" size="sm">

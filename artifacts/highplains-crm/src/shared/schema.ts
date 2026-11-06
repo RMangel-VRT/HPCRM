@@ -417,6 +417,8 @@ export const notes = pgTable("notes", {
   body: text("body").notNull(),
   authorId: varchar("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  /** CP4: server-owned pin instant; null = unpinned. */
+  pinnedAt: timestamp("pinned_at"),
 }, (table) => ({
   notesCompanyIdIdx: index("notes_company_id_idx").on(table.companyId),
   notesCustomerIdIdx: index("notes_customer_id_idx").on(table.customerId),
@@ -425,6 +427,7 @@ export const notes = pgTable("notes", {
 export const insertNoteSchema = createInsertSchema(notes).omit({
   id: true,
   createdAt: true,
+  pinnedAt: true,
 }).extend({
   body: z.string().min(1).max(5000),
 });

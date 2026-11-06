@@ -92,7 +92,8 @@ describe("CP3 header", () => {
       expect(html).not.toContain(`data-testid="${id}"`);
     expect(html).not.toContain("WB Secret Billing LLC");
     expect(html).not.toContain("QBO Billing Name");
-    expect(html).toContain('data-testid="button-header-add"');
+    // CP4: field role has no allowed Add actions (server rejects field note writes), so no Add menu.
+    expect(html).not.toContain('data-testid="button-header-add"');
   });
 
   it("parent field: quiet line never reveals the billed-as name", () => {
@@ -161,6 +162,8 @@ describe("CP3 dashboards", () => {
     expect(html).toContain("Gate opens at 7");
     expect(html).toContain('data-testid="text-people-tags"');
     expect(html).toContain("dana@peak.test");
+    // CP4: KPI shows an absolute date; relative "ago" is reserved for the activity feed.
+    expect(html).toMatch(/data-testid="text-kpi-last-contact-date"[^>]*>May 2, 2026</);
   });
 
   it("services KPI counts skipped in the denominator but not as done; overdue drives attention", () => {

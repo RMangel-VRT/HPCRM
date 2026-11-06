@@ -20,14 +20,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Mail,
   Plus,
   Search,
@@ -53,10 +45,14 @@ import { DatePickerField } from "@/components/DatePickerField";
 import LogCommunicationForm from "@/components/customer/communications/LogCommunicationForm";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useCustomerScope } from "@/lib/customerScope";
+import { PageEmptyState, TableSkeleton, useCustomerDates } from "@/components/customer/page";
 
 interface CommunicationListTabProps {
   queryKey: string[];
   customerId?: string;
+  /** Customer pages move Log communication into the section title; other hosts keep the inline button. */
+  showLogButton?: boolean;
 }
 
 // ── Unsorted Candidates Panel ────────────────────────────────────────────────
@@ -65,19 +61,17 @@ function UnsortedCandidatesPanel({ customerId }: { customerId: string }) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const scope = useCustomerScope();
 
   const { data: candidates = [], isLoading } = useQuery<UnsortedEmail[]>({
-    queryKey: ["/api/unsorted-emails", "candidate", customerId],
-    queryFn: async () => {
-      const res = await fetch(
-        `/api/unsorted-emails?candidateCustomerId=${encodeURIComponent(customerId)}&status=pending&limit=20`,
-        { credentials: "include" }
-      );
-      if (!res.ok) return [];
-      return res.json();
+    queryKey: ["/api/unsorted-emails", "candidate", customerId, ...scope.scope],
+    queryFn: async ({ signal }) => {
+      try {
+        return await scope.getJson<UnsortedEmail[]>(`/api/unsorted-emails?candidateCustomerId=${encodeURIComponent(customerId)}&status=pending&limit=20`, signal);
+      } catch { return []; }
     },
     staleTime: 30_000,
-    enabled: open,
+    enabled: open && scope.enabled,
   });
 
   const routeMutation = useMutation({
@@ -94,17 +88,19 @@ function UnsortedCandidatesPanel({ customerId }: { customerId: string }) {
   });
 
   return (
-    <Card className="border-dashed">
+    <Card className="rounded-[10px]" data-testid="card-unsorted-candidates">
       <CardHeader className="pb-2 pt-3 px-4">
-        <div
-          className="flex items-center gap-2 cursor-pointer"
+        <button
+          type="button"
+          aria-expanded={open}
+          className="flex w-full items-center gap-2 text-left"
           onClick={() => setOpen(!open)}
           data-testid="button-unsorted-candidates-toggle"
         >
           {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
           <CardTitle className="text-sm font-medium">{t("emailTracking.unsortedCandidates")}</CardTitle>
           <Inbox className="w-3.5 h-3.5 text-muted-foreground" />
-        </div>
+        </button>
       </CardHeader>
       {open && (
         <CardContent className="px-4 pb-3 pt-0">
@@ -170,6 +166,7 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 const PAGE_LIMIT = 50;
+const DAY_GROUP_THRESHOLD = 8;
 
 interface PaginatedResponse {
   data: CommunicationWithDetails[];
@@ -188,12 +185,6 @@ function DirectionIcon({ direction }: { direction: string | null }) {
   if (direction === "inbound") return <ArrowDownLeft className="w-3.5 h-3.5 text-blue-500 shrink-0" />;
   if (direction === "outbound") return <ArrowUpRight className="w-3.5 h-3.5 text-green-600 shrink-0" />;
   return <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" />;
-}
-
-interface CommRowProps {
-  comm: CommunicationWithDetails;
-  onClick: () => void;
-  indent?: boolean;
 }
 
 function SourceBadge({ comm }: { comm: CommunicationWithDetails }) {
@@ -221,141 +212,89 @@ function SourceBadge({ comm }: { comm: CommunicationWithDetails }) {
   );
 }
 
-function CommRow({ comm, onClick, indent }: CommRowProps) {
-  const timestamp = comm.receivedAt ?? comm.sentAt ?? comm.createdAt;
-  const fromAddr = comm.fromAddress ?? comm.sentByName;
-  return (
-    <TableRow
-      className={`cursor-pointer hover-elevate ${indent ? "bg-muted/20" : ""}`}
-      onClick={onClick}
-      data-testid={`row-comm-${comm.id}`}
-    >
-      <TableCell className={`${indent ? "pl-8" : "pl-3"} pr-0`}>
-        <DirectionIcon direction={comm.direction} />
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
-          <span className="font-medium text-sm truncate max-w-[200px]" data-testid={`text-comm-subject-${comm.id}`}>
-            {comm.subject}
-          </span>
-          <SourceBadge comm={comm} />
-        </div>
-      </TableCell>
-      <TableCell className="hidden sm:table-cell">
-        <Badge variant="secondary" className={`text-xs ${TYPE_COLORS[comm.type] || ""}`} data-testid={`badge-type-${comm.id}`}>
-          {comm.type}
-        </Badge>
-      </TableCell>
-      <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
-        <span data-testid={`text-sender-${comm.id}`}>{fromAddr || "—"}</span>
-      </TableCell>
-      <TableCell>
-        <Badge variant="secondary" className={`text-xs ${STATUS_COLORS[comm.status] || ""}`} data-testid={`badge-status-${comm.id}`}>
-          {comm.status}
-        </Badge>
-      </TableCell>
-      <TableCell className="hidden lg:table-cell text-sm text-muted-foreground" data-testid={`text-comm-date-${comm.id}`}>
-        {format(new Date(timestamp || comm.createdAt), "MMM d, yyyy h:mm a")}
-      </TableCell>
-    </TableRow>
-  );
+
+const COMM_TYPES = ["email", "sms", "note", "letter"] as const;
+/** Labels for stored communication type/status values; never shows raw codes. */
+export function commTypeLabel(t: (k: string) => string, type: string | null | undefined) {
+  return (COMM_TYPES as readonly string[]).includes(type ?? "") ? t(`cp4.comm.type.${type}`) : t("cp4.comm.type.other");
 }
-
-interface ThreadGroupRowProps {
-  group: ThreadGroup;
-  onSelectComm: (c: CommunicationWithDetails) => void;
+export function commStatusLabel(t: (k: string) => string, status: string | null | undefined) {
+  const k = { sent: "commStatusSent", scheduled: "commStatusScheduled", draft: "commStatusDraft", failed: "commStatusFailed" }[status ?? ""];
+  return k ? t(`emailTracking.${k}`) : t("cp4.comm.statusOther");
 }
-
-function ThreadGroupRow({ group, onSelectComm }: ThreadGroupRowProps) {
-  const [expanded, setExpanded] = useState(false);
-  const { latestMessage, messages } = group;
-  const timestamp = latestMessage.receivedAt ?? latestMessage.sentAt ?? latestMessage.createdAt;
-
-  // Unique participant addresses (from all messages in the thread)
-  const participantAddresses = Array.from(
-    new Set(
-      messages.flatMap(m => [
-        m.fromAddress,
-        ...(Array.isArray(m.toAddresses) ? (m.toAddresses as string[]) : []),
-      ]).filter(Boolean)
-    )
-  ) as string[];
-
-  const participantSummary = participantAddresses.slice(0, 2).join(", ") +
-    (participantAddresses.length > 2 ? ` +${participantAddresses.length - 2}` : "");
-
-  const bodyPreview = latestMessage.bodyText
-    ? latestMessage.bodyText.slice(0, 60) + (latestMessage.bodyText.length > 60 ? "…" : "")
-    : latestMessage.body
-      ? latestMessage.body.slice(0, 60) + (latestMessage.body.length > 60 ? "…" : "")
-      : "";
-
-  return (
-    <>
-      <TableRow
-        className="cursor-pointer hover-elevate"
-        onClick={() => setExpanded(!expanded)}
-        data-testid={`row-thread-${group.threadId}`}
-      >
-        <TableCell className="pl-3 pr-0">
-          {expanded
-            ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-            : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
-        </TableCell>
-        <TableCell>
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-muted-foreground shrink-0" />
-              <span className="font-medium text-sm truncate max-w-[180px]">
-                {latestMessage.subject}
-              </span>
-              <Badge variant="secondary" className="text-xs shrink-0" data-testid={`badge-thread-count-${group.threadId}`}>
-                {messages.length}
-              </Badge>
-            </div>
-            {bodyPreview && (
-              <p className="text-xs text-muted-foreground truncate max-w-[240px] pl-6">{bodyPreview}</p>
-            )}
-          </div>
-        </TableCell>
-        <TableCell className="hidden sm:table-cell">
-          <Badge variant="secondary" className={`text-xs ${TYPE_COLORS[latestMessage.type] || ""}`}>
-            {latestMessage.type}
-          </Badge>
-        </TableCell>
-        <TableCell className="hidden md:table-cell text-xs text-muted-foreground max-w-[160px]">
-          <span className="truncate block" title={participantAddresses.join(", ")} data-testid={`text-participants-${group.threadId}`}>
-            {participantSummary || "—"}
-          </span>
-        </TableCell>
-        <TableCell>
-          <Badge variant="secondary" className={`text-xs ${STATUS_COLORS[latestMessage.status] || ""}`}>
-            {latestMessage.status}
-          </Badge>
-        </TableCell>
-        <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
-          {format(new Date(timestamp || latestMessage.createdAt), "MMM d, yyyy h:mm a")}
-        </TableCell>
-      </TableRow>
-      {expanded && messages.map(msg => (
-        <CommRow
-          key={msg.id}
-          comm={msg}
-          onClick={() => onSelectComm(msg)}
-          indent
-        />
-      ))}
-    </>
-  );
+export type CommChip = "all" | "from_us" | "from_them" | "logged";
+/**
+ * Logged = recorded locally by a user (Log communication). Mirrors the server's source=logged predicate:
+ * no mailbox, no provider message id, no delivery provider and no automation rule. Imported mail whose
+ * mailbox was later deleted (keeps providerMessageId) and automated SendGrid mail are never "logged".
+ */
+export type LoggedCommFields = { mailboxAccountId?: string | null; providerMessageId?: string | null; deliveryProvider?: string | null; automationRuleId?: string | null };
+export const isLoggedComm = (c: LoggedCommFields) =>
+  !c.mailboxAccountId && !c.providerMessageId && !c.deliveryProvider && !c.automationRuleId;
+export function matchesCommChip(c: CommunicationWithDetails, chip: CommChip) {
+  if (chip === "from_us") return c.direction === "outbound";
+  if (chip === "from_them") return c.direction === "inbound";
+  if (chip === "logged") return isLoggedComm(c);
+  return true;
 }
+const commTime = (c: CommunicationWithDetails) => c.receivedAt ?? c.sentAt ?? c.createdAt;
+const firstLine = (c: CommunicationWithDetails) => ((c.bodyText || c.body || "").split(/\r?\n/).map((s: string) => s.trim()).find(Boolean) ?? "");
+const senderOf = (c: CommunicationWithDetails) => c.direction === "outbound" ? (c.sentByName || c.fromAddress || "") : (c.contactName || c.fromAddress || c.sentByName || "");
 
-export default function CommunicationListTab({ queryKey, customerId }: CommunicationListTabProps) {
+function ThreadRow({ group, onSelectComm }: { group: ThreadGroup; onSelectComm: (c: CommunicationWithDetails) => void }) {
   const { t } = useTranslation();
+  const dates = useCustomerDates();
+  const [expanded, setExpanded] = useState(false);
+  const { latestMessage: m, messages } = group;
+  const multi = messages.length > 1;
+  const open = () => (multi ? setExpanded(v => !v) : onSelectComm(m));
+  const sender = senderOf(m) || t("cp4.comm.unknownSender");
+  const preview = firstLine(m);
+  return (
+    <li className="border-b last:border-b-0">
+      <div role="button" tabIndex={0} aria-expanded={multi ? expanded : undefined}
+        className="flex min-h-[44px] cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+        onClick={open} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }}
+        data-testid={multi ? `row-thread-${group.threadId}` : `row-comm-${m.id}`}>
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground"><Mail className="h-3.5 w-3.5" aria-hidden="true" /></span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium" data-testid={`text-comm-subject-${m.id}`}>{m.subject || t("cp3.activity.noSubject")}</span>
+            {multi && <span className="shrink-0 rounded-full bg-muted px-1.5 text-[11px] font-semibold tabular-nums" data-testid={`badge-thread-count-${group.threadId}`}>{messages.length}</span>}
+            {isLoggedComm(m) && <span className="shrink-0 rounded-full border px-1.5 text-[11px] text-muted-foreground" data-testid={`chip-logged-${m.id}`}>{t("cp4.comm.logged")}</span>}
+          </span>
+          <span className="block truncate text-xs text-muted-foreground" data-testid={`text-comm-preview-${m.id}`}>
+            <span className="inline-flex items-center gap-1 align-middle"><DirectionIcon direction={m.direction} /></span> {sender}{preview ? ` \u00b7 ${preview}` : ""}
+          </span>
+        </span>
+        <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground" data-testid={`text-comm-date-${m.id}`}>{dates.day(commTime(m))}</span>
+      </div>
+      {multi && expanded && (
+        <ul className="border-t bg-muted/20">
+          {[...messages].reverse().map(msg => (
+            <li key={msg.id}>
+              <button type="button" className="flex min-h-[40px] w-full items-center gap-3 py-1.5 pl-12 pr-3 text-left hover:bg-muted/50" onClick={() => onSelectComm(msg)} data-testid={`row-comm-${msg.id}`}>
+                <DirectionIcon direction={msg.direction} />
+                <span className="min-w-0 flex-1 truncate text-xs"><span className="font-medium">{senderOf(msg) || t("cp4.comm.unknownSender")}</span>{firstLine(msg) ? ` \u00b7 ${firstLine(msg)}` : ""}</span>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{dates.day(commTime(msg))}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+export default function CommunicationListTab({ queryKey, customerId, showLogButton = true }: CommunicationListTabProps) {
+  const { t } = useTranslation();
+  const dates = useCustomerDates();
+  const scope = useCustomerScope();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [directionFilter, setDirectionFilter] = useState("all");
+  const [chip, setChip] = useState<CommChip>("all");
+  const directionFilter = chip === "from_us" ? "outbound" : chip === "from_them" ? "inbound" : "all";
   const [selectedMailboxIds, setSelectedMailboxIds] = useState<Set<string>>(new Set());
   const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
   const [toDate, setToDate] = useState<Date | undefined>(undefined);
@@ -370,6 +309,7 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
     const params = new URLSearchParams({ page: String(page), limit: String(PAGE_LIMIT) });
     if (search) params.set("search", search);
     if (directionFilter !== "all") params.set("direction", directionFilter);
+    if (chip === "logged") params.set("source", "logged");
     if (typeFilter !== "all") params.set("type", typeFilter);
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (fromDate) params.set("fromDate", fromDate.toISOString().split("T")[0]);
@@ -380,18 +320,18 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
 
   const mailboxIdsKey = Array.from(selectedMailboxIds).sort().join(",");
 
+  // Company/viewer/role scoped: key carries scope.scope, request sends X-Company-Id.
   const { data: response, isLoading } = useQuery<PaginatedResponse>({
-    queryKey: [...queryKey, page, search, directionFilter, mailboxIdsKey, typeFilter, statusFilter, fromDate?.toISOString(), toDate?.toISOString()],
-    queryFn: async () => {
-      const res = await fetch(buildUrl(), { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch communications");
-      return res.json();
-    },
+    queryKey: [...queryKey, page, search, chip, mailboxIdsKey, typeFilter, statusFilter, fromDate?.toISOString(), toDate?.toISOString(), ...scope.scope],
+    queryFn: ({ signal }) => scope.getJson<PaginatedResponse>(buildUrl(), signal),
+    enabled: scope.enabled,
     staleTime: 30_000,
   });
 
   const { data: mailboxAccounts = [] } = useQuery<MailboxAccount[]>({
-    queryKey: ["/api/mailbox-accounts"],
+    queryKey: ["/api/mailbox-accounts", ...scope.scope],
+    queryFn: ({ signal }) => scope.getJson<MailboxAccount[]>("/api/mailbox-accounts", signal),
+    enabled: scope.enabled,
     retry: false,
   });
 
@@ -399,7 +339,7 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
   const total = response?.total ?? 0;
   const totalPages = Math.ceil(total / PAGE_LIMIT);
 
-  const communications = rawCommunications;
+  const communications = useMemo(() => rawCommunications.filter(c => matchesCommChip(c, chip)), [rawCommunications, chip]);
 
   // Group communications by threadId or providerThreadId for thread view
   const { threads, standalone } = useMemo(() => {
@@ -442,12 +382,25 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
   }, [communications]);
 
   const hasResults = threads.length > 0 || standalone.length > 0;
+  /** One row per thread (single messages are one-message threads), newest activity first; day groups when the list is long. */
+  const groupedRows = useMemo(() => {
+    const rows: ThreadGroup[] = [...threads, ...standalone.map(c => ({ threadId: `single-${c.id}`, messages: [c], latestMessage: c }))]
+      .sort((a, b) => new Date(commTime(b.latestMessage)).getTime() - new Date(commTime(a.latestMessage)).getTime());
+    if (rows.length <= DAY_GROUP_THRESHOLD) return [{ key: "all", label: null as string | null, rows }];
+    const out: { key: string; label: string | null; rows: ThreadGroup[] }[] = [];
+    for (const r of rows) {
+      const key = dates.dayKey(commTime(r.latestMessage));
+      const last = out[out.length - 1];
+      if (last && last.key === key) last.rows.push(r); else out.push({ key, label: dates.day(commTime(r.latestMessage)), rows: [r] });
+    }
+    return out;
+  }, [threads, standalone, dates]);
 
   const activeFilterCount = [
     search,
     typeFilter !== "all" ? typeFilter : "",
     statusFilter !== "all" ? statusFilter : "",
-    directionFilter !== "all" ? directionFilter : "",
+    chip !== "all" ? chip : "",
     selectedMailboxIds.size > 0 ? "mailbox" : "",
     fromDate,
     toDate,
@@ -468,43 +421,36 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
     setPage(1);
   };
 
+  const chips: CommChip[] = ["all", "from_us", "from_them", "logged"];
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2 flex-1">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder={t("emailTracking.searchEmails")}
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="pl-9"
-              data-testid="input-comm-search"
-            />
-          </div>
-          <Button
-            variant="outline"
-            size="default"
-            onClick={() => setShowFilters(!showFilters)}
-            data-testid="button-comm-filters"
-            className="gap-2"
-          >
-            <Filter className="w-4 h-4" />
-            {t("common.filter")}
-            {activeFilterCount > 0 && (
-              <Badge variant="secondary" className="bg-primary text-primary-foreground">
-                {activeFilterCount}
-              </Badge>
-            )}
-          </Button>
+    <div className="space-y-3" data-testid="communications-list">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[200px] flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder={t("emailTracking.searchEmails")}
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            className="h-9 pl-9"
+            data-testid="input-comm-search"
+          />
         </div>
-        {customerId && (
-          <Button
-            size="default"
-            onClick={() => setShowLogForm(true)}
-            data-testid="button-log-new-comm"
-            className="gap-2"
-          >
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("cp4.comm.filterLabel")}>
+          {chips.map(c => (
+            <button key={c} type="button" aria-pressed={chip === c} onClick={() => { setChip(c); setPage(1); }}
+              className={`rounded-full border px-3 py-1 text-[12.5px] ${chip === c ? "border-transparent bg-[hsl(var(--rail-active))] font-semibold text-[hsl(var(--rail-heading))]" : "bg-background hover:bg-muted"}`}
+              data-testid={`chip-comm-${c}`}>
+              {t(`cp4.comm.chips.${c}`)}
+            </button>
+          ))}
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)} data-testid="button-comm-filters" className="h-9 gap-2">
+          <Filter className="w-4 h-4" />
+          {t("common.filter")}
+          {activeFilterCount > 0 && <Badge variant="secondary" className="bg-primary text-primary-foreground">{activeFilterCount}</Badge>}
+        </Button>
+        {customerId && showLogButton && (
+          <Button variant="outline" size="sm" onClick={() => setShowLogForm(true)} data-testid="button-log-new-comm" className="h-9 gap-2">
             <Plus className="w-4 h-4" />
             {t("emailTracking.logCommunication")}
           </Button>
@@ -525,16 +471,6 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
 
       {showFilters && (
         <div className="flex gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
-          <Select value={directionFilter} onValueChange={handleFilterChange(setDirectionFilter)}>
-            <SelectTrigger className="w-[140px]" data-testid="select-comm-direction">
-              <SelectValue placeholder={t("emailTracking.filterDirection")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("emailTracking.allDirections")}</SelectItem>
-              <SelectItem value="inbound">{t("emailTracking.directionInbound")}</SelectItem>
-              <SelectItem value="outbound">{t("emailTracking.directionOutbound")}</SelectItem>
-            </SelectContent>
-          </Select>
           <Select value={typeFilter} onValueChange={handleFilterChange(setTypeFilter)}>
             <SelectTrigger className="w-[130px]" data-testid="select-comm-type">
               <SelectValue placeholder={t("emailTracking.filterType")} />
@@ -634,83 +570,27 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
       )}
 
       {isLoading ? (
-        <div className="space-y-2">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-14 bg-muted animate-pulse rounded-md" />
-          ))}
-        </div>
+        <TableSkeleton rows={5} cols={3} testId="comm-skeleton" />
       ) : !hasResults ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <Inbox className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-medium mb-1">{t("emailTracking.noCommFound")}</h3>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              {activeFilterCount > 0
-                ? t("emailTracking.noCommFiltered")
-                : t("emailTracking.communicationsNone")}
-            </p>
-          </CardContent>
-        </Card>
+        <PageEmptyState icon={Inbox} testId="comm-empty"
+          message={activeFilterCount > 0 ? t("emailTracking.noCommFiltered") : t("emailTracking.communicationsNone")} />
       ) : (
         <>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-6"></TableHead>
-                  <TableHead>{t("emailTracking.colSubject")}</TableHead>
-                  <TableHead className="hidden sm:table-cell">{t("emailTracking.colType")}</TableHead>
-                  <TableHead className="hidden md:table-cell">{t("emailTracking.colFromCount")}</TableHead>
-                  <TableHead>{t("common.status")}</TableHead>
-                  <TableHead className="hidden lg:table-cell">{t("emailTracking.colDate")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {threads.map(group => (
-                  <ThreadGroupRow
-                    key={group.threadId}
-                    group={group}
-                    onSelectComm={setSelectedComm}
-                  />
-                ))}
-                {standalone.map(comm => (
-                  <CommRow
-                    key={comm.id}
-                    comm={comm}
-                    onClick={() => setSelectedComm(comm)}
-                  />
-                ))}
-              </TableBody>
-            </Table>
+          <div className="overflow-hidden rounded-[10px] border" data-testid="comm-thread-list">
+            {groupedRows.map(g => (
+              <div key={g.key}>
+                {g.label && <div className="border-b bg-[hsl(var(--table-header))] px-3 py-1.5 text-xs font-medium text-muted-foreground" data-testid={`comm-day-${g.key}`}>{g.label}</div>}
+                <ul>{g.rows.map(group => <ThreadRow key={group.threadId} group={group} onSelectComm={setSelectedComm} />)}</ul>
+              </div>
+            ))}
           </div>
-
           {totalPages > 1 && (
             <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>
-                {t("emailTracking.showing", { from: (page - 1) * PAGE_LIMIT + 1, to: Math.min(page * PAGE_LIMIT, total), total })}
-              </span>
+              <span>{t("emailTracking.showing", { from: (page - 1) * PAGE_LIMIT + 1, to: Math.min(page * PAGE_LIMIT, total), total })}</span>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage(p => p - 1)}
-                  data-testid="button-comm-prev-page"
-                >
-                  {t("common.previous")}
-                </Button>
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)} data-testid="button-comm-prev-page">{t("common.previous")}</Button>
                 <span className="text-xs">{t("emailTracking.pageOf", { page, total: totalPages })}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage(p => p + 1)}
-                  data-testid="button-comm-next-page"
-                >
-                  {t("common.next")}
-                </Button>
+                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} data-testid="button-comm-next-page">{t("common.next")}</Button>
               </div>
             </div>
           )}
@@ -739,7 +619,7 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
                   <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.fieldDirection")}</p>
                   <div className="flex items-center gap-1.5" data-testid="text-detail-direction">
                     <DirectionIcon direction={selectedComm.direction} />
-                    <span className="capitalize">{selectedComm.direction ?? "—"}</span>
+                    <span>{selectedComm.direction === "inbound" ? t("emailTracking.directionInbound") : selectedComm.direction === "outbound" ? t("emailTracking.directionOutbound") : "\u2014"}</span>
                   </div>
                 </div>
                 <div>
@@ -759,13 +639,13 @@ export default function CommunicationListTab({ queryKey, customerId }: Communica
                 <div>
                   <p className="text-muted-foreground font-medium mb-1">{t("emailTracking.colType")}</p>
                   <Badge variant="secondary" className={TYPE_COLORS[selectedComm.type] || ""} data-testid="badge-detail-type">
-                    {selectedComm.type}
+                    {commTypeLabel(t, selectedComm.type)}
                   </Badge>
                 </div>
                 <div>
                   <p className="text-muted-foreground font-medium mb-1">{t("common.status")}</p>
                   <Badge variant="secondary" className={STATUS_COLORS[selectedComm.status] || ""} data-testid="badge-detail-status">
-                    {selectedComm.status}
+                    {commStatusLabel(t, selectedComm.status)}
                   </Badge>
                 </div>
                 {selectedComm.fromAddress && (
