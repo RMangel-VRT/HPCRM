@@ -1,4 +1,6 @@
 import { z as proposalZ } from "zod/v4";
+import { registerAccountManagerRoutes } from "./accountManagers";
+import { accessRole, ROLE_VALUES, type Role } from "../../../../lib/db/src/accessRole";
 import { loadProposalExhibits } from "../services/proposalExhibits";
 import { proposalCoverPatch, coverSelectionError } from "../services/proposalCover";
 import { renderLinkedProposal } from "../services/proposalDocument";
@@ -2714,6 +2716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerVisitRoutes(app);
   registerRouteStopRoutes(app);
   registerFlagsRoutes(app);
+  registerAccountManagerRoutes(app);
   registerDashboardQueueRoutes(app);
   registerEstimatesBoardRoutes(app);
   registerBidsBoardRoutes(app);
@@ -2741,7 +2744,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return (req: any, res: any, next: any) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
       const user = req.user as UserWithContext;
-      if (!allowed.includes(user.activeRole)) {
+      if (!allowed.includes(user.accessRole)) {
         return res.status(403).json({
           error: "Access denied",
           message: `You do not have permission to perform this action. Required permission: ${level}.`,
@@ -2784,6 +2787,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     // Always-paginated — callers must handle { customers, total }
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ message: "Active company changed. Reload and try again." });
+    }
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 200));
     const search = (req.query.search as string) || undefined;
@@ -3005,6 +3011,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
       return res.status(409).json({ message: "Active company changed. Reload before continuing." });
     }
+    // The legacy editor permits some additional roles for unrelated facts.
+    // Providing this new assignment fact always requires the same policy as setup/bulk.
+    if (Object.hasOwn(req.body, "accountManagerId") && !["admin", "office"].includes(user.accessRole))
+      return res.status(403).json({ message: "Account manager assignment requires admin or office access." });
     
     if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
@@ -3013,14 +3023,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (protectedBillingWrite(req.body)) return res.status(400).send("QuickBooks sync metadata is server-owned");
     // Extract expectedUpdatedAt from body for conflict detection
     const { expectedUpdatedAt, ...updateData } = req.body;
-    
+    const billingExisting = await storage.getCustomerById(req.params.id, user.activeCompanyId);
+    if (!billingExisting) return res.status(404).send("Customer not found");
+    const proposedParent = Object.hasOwn(updateData, "parentCustomerId") ? updateData.parentCustomerId : billingExisting.parentCustomerId;
+    if (Object.hasOwn(updateData, "accountManagerId") && proposedParent)
+      return res.status(422).json({ message: "Account manager is set on the parent customer." });
+
     const result = insertCustomerSchema.partial().omit({ companyId: true }).safeParse(updateData);
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
     const updates = pickProvided(result.data, updateData);
-    const billingExisting = await storage.getCustomerById(req.params.id, user.activeCompanyId);
-    if (!billingExisting) return res.status(404).send("Customer not found");
     if (billingExisting.status === "prospect" && updates.status === "active") {
       const activationContext = storageBillingContext(user.activeCompanyId);
       try { await assertActivationComplete({ ...billingExisting, ...updates } as Parameters<typeof assertActivationComplete>[0], {
@@ -3730,7 +3743,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -4176,7 +4189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).send("Forbidden");
     }
 
@@ -4201,11 +4214,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const currentUser = req.user as UserWithContext;
-    if (currentUser.activeRole !== "admin" && !currentUser.isSuperAdminBool) {
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== currentUser.activeCompanyId)
+      return res.status(409).json({ error: "COMPANY_CHANGED" });
+    if (currentUser.accessRole !== "admin" && !currentUser.isSuperAdminBool) {
       return res.status(403).send("Forbidden");
     }
 
     const { phone, email, name, password, role, language } = req.body;
+    if (!ROLE_VALUES.includes(role)) return res.status(400).json({ message: "Invalid role" });
 
     if (!name || !password || !role) {
       return res.status(400).json({ message: "Name, password, and role are required" });
@@ -4255,7 +4271,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createCompanyUser({
         userId: newUser.id,
         companyId: currentUser.activeCompanyId,
-        role: role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor",
+        role: role as Role,
         status: "active",
         tags: [],
       });
@@ -4337,7 +4353,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Forbidden");
     }
 
@@ -4359,7 +4375,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId)
+      return res.status(409).json({ error: "COMPANY_CHANGED" });
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Forbidden");
     }
 
@@ -4370,7 +4388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // values (status: "active", tags: []) are still applied when the key is
     // absent, which silently reset status/tags on every PATCH.
     const companyUserUpdateSchema = z.object({
-      role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]).optional(),
+      role: z.enum(["admin", "account_manager", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]).optional(),
       status: z.enum(["active", "invited", "suspended"]).optional(),
       tags: z.array(z.string()).optional(),
     });
@@ -4433,7 +4451,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId)
+      return res.status(409).json({ error: "COMPANY_CHANGED" });
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Forbidden");
     }
 
@@ -4447,7 +4467,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Forbidden");
     }
     const company = await storage.getCompanyById(user.activeCompanyId);
@@ -4462,7 +4482,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).send("Not authenticated");
     }
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Forbidden");
     }
     const allowed = z.object({
@@ -4486,7 +4506,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Forbidden");
     }
 
@@ -4504,7 +4524,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Forbidden");
     }
 
@@ -4526,7 +4546,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/settings/mail", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
     const settings = await storage.getSettings(user.activeCompanyId);
@@ -4540,7 +4560,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/settings/mail", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
     const { z } = await import("zod");
@@ -4566,7 +4586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/mailbox-accounts/personal", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
     try {
@@ -4709,7 +4729,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
 
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -4731,7 +4751,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
 
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -4771,7 +4791,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   function isAdminOrSuperAdmin(user: UserWithContext): boolean {
-    return user.activeRole === "admin" || user.isSuperAdminBool === true;
+    return user.accessRole === "admin" || user.isSuperAdminBool === true;
   }
 
   // Resolve and authorize the target companyId for export endpoints.
@@ -5166,7 +5186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
 
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5763,7 +5783,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5788,7 +5808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5813,7 +5833,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -5840,7 +5860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -5902,7 +5922,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -5930,7 +5950,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -5966,7 +5986,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -5991,7 +6011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -6025,7 +6045,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -6084,7 +6104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -6118,7 +6138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -6141,7 +6161,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -6167,7 +6187,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) {
       return res.status(403).send("Insufficient permissions - admin role required");
     }
 
@@ -6179,7 +6199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/customers/geocode-missing", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!["admin", "office"].includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!["admin", "office"].includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const mapboxToken = process.env.MAPBOX_PUBLIC_KEY;
     if (!mapboxToken) return res.status(500).send("Mapbox token not configured");
 
@@ -6408,7 +6428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     
     // Ticket creation is limited to admin and office.
-    if (!["admin", "office"].includes(user.activeRole)) {
+    if (!["admin", "office"].includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -6631,7 +6651,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     
     // Ticket creation is limited to admin and office.
-    if (!["admin", "office"].includes(user.activeRole)) {
+    if (!["admin", "office"].includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions - admin or office role required");
     }
 
@@ -6860,7 +6880,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Manual date inputs from non-office roles are ignored before parsing.
     // They must not suppress legitimate priority/status-entry recomputation.
-    if (user.activeRole !== "admin" && user.activeRole !== "office") delete req.body.scheduleBy;
+    if (user.accessRole !== "admin" && user.accessRole !== "office") delete req.body.scheduleBy;
     else if (req.body.scheduleBy === "" || req.body.scheduleBy === undefined) delete req.body.scheduleBy;
 
     // Guard against operational records being on a parent customer
@@ -7382,7 +7402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     
     // Only admin can batch delete tickets (destructive operation)
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Insufficient permissions - admin role required for batch deletion");
     }
 
@@ -7933,7 +7953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/company-users/:id/tags", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin") return res.status(403).send("Admin only");
+    if (user.accessRole !== "admin") return res.status(403).send("Admin only");
     
     const { tags } = req.body;
     if (!Array.isArray(tags)) return res.status(400).send("Tags must be an array");
@@ -8038,7 +8058,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/migrate-invoices", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin") return res.status(403).send("Admin only");
+    if (user.accessRole !== "admin") return res.status(403).send("Admin only");
     
     const dryRun = req.body.dryRun !== false; // default to dry-run
     
@@ -8166,7 +8186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/parent-customer-audit", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).send("Admin or office role required");
     }
 
@@ -8658,7 +8678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     
     // Must be admin role
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Only admins can reset for setup");
     }
     
@@ -8687,7 +8707,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Only admins can run migrations");
     }
     
@@ -8788,7 +8808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -8806,7 +8826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -8829,7 +8849,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -8890,7 +8910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -8908,7 +8928,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -8926,7 +8946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -8965,7 +8985,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -8983,7 +9003,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -9000,7 +9020,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -9025,7 +9045,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -9043,7 +9063,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -9060,7 +9080,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -9075,7 +9095,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const user = req.user as UserWithContext;
     
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     
@@ -9130,11 +9150,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // -----------------------------------------------------------------------------
   
   // Helper function to check equipment access permissions
-  const canAccessEquipment = (role: string) => ["admin", "shop_manager", "office"].includes(role);
+  const canAccessEquipment = (role: string) => ["admin", "shop_manager", "office"].includes(accessRole(role));
   // Office can create and edit equipment
-  const canEditEquipment = (role: string) => ["admin", "shop_manager", "office"].includes(role);
+  const canEditEquipment = (role: string) => ["admin", "shop_manager", "office"].includes(accessRole(role));
   // Admin, Office, and Shop Manager can retire or delete equipment
-  const canRetireOrDeleteEquipment = (role: string) => ["admin", "office", "shop_manager"].includes(role);
+  const canRetireOrDeleteEquipment = (role: string) => ["admin", "office", "shop_manager"].includes(accessRole(role));
 
   // Get all equipment (Admin, Shop Manager, Office)
   app.get("/api/equipment", async (req, res) => {
@@ -9430,7 +9450,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     
     const managerRoles = ["field_manager", "chemical_manager", "irrigation_manager"];
-    const isManager = managerRoles.includes(user.activeRole);
+    const isManager = managerRoles.includes(user.accessRole);
     
     if (!canAccessEquipment(user.activeRole) && !isManager) {
       return res.status(403).send("Insufficient permissions");
@@ -9596,8 +9616,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Snow Events ──────────────────────────────────────────────────────
-  const canAccessSnow = (role: string) => ["admin", "office", "field_manager"].includes(role);
-  const canEditSnow = (role: string) => ["admin", "office"].includes(role);
+  const canAccessSnow = (role: string) => ["admin", "office", "field_manager"].includes(accessRole(role));
+  const canEditSnow = (role: string) => ["admin", "office"].includes(accessRole(role));
 
   app.get("/api/snow-events", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
@@ -9883,7 +9903,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/email-templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Admin or office role required");
     }
     const templates = await storage.getEmailTemplates(user.activeCompanyId);
@@ -9894,7 +9914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/email-templates/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Admin role required");
     }
     const result = insertEmailTemplateSchema.partial().omit({ companyId: true }).safeParse(req.body);
@@ -9940,7 +9960,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/email-logs", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Admin or office role required");
     }
     const filters: any = {};
@@ -9967,7 +9987,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/customers/:id/communications", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Admin or office role required");
     }
     const customer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
@@ -10014,7 +10034,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/customers/:id/annual-service-rollup", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Admin or office role required");
     }
     const customer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
@@ -10145,7 +10165,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/properties/:id/communications", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Admin or office role required");
     }
     const filters: { type?: string; status?: string; fromDate?: string; toDate?: string } = {};
@@ -10161,7 +10181,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tickets/:id/send-completion-email", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Admin or office role required");
     }
     try {
@@ -10640,7 +10660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/email-logs/:id/resend", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Admin role required");
     }
     try {
@@ -10707,7 +10727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const user = req.user as UserWithContext;
     const companyId = user.activeCompanyId;
-    const role = user.activeRole;
+    const role = user.accessRole;
 
     if (!["admin", "office"].includes(role || "")) {
       return res.status(403).json({ error: "Reports are available to Admin and Office roles" });
@@ -10929,7 +10949,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // -------------------- PROPOSAL MAKER ROUTES --------------------
 
-  const canAccessProposals = (role: string) => role === "admin" || role === "office";
+  const canAccessProposals = (role: string) => accessRole(role) === "admin" || accessRole(role) === "office";
   // Also reject queued requests initiated before an active-company switch.
   app.use("/api/proposals", estimateAccess);
   const proposalEstimates = async (list: import("@workspace/db").ProposalWithDetails[], companyId: string) => {
@@ -12548,9 +12568,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor",
   ]);
   const CW_FINALIZE_ROLES = new Set(["admin", "office"]);
-  const canReadCrewWorksheets = (role: string) => CW_READ_ROLES.has(role);
-  const canWriteCrewWorksheets = (role: string) => CW_WRITE_ROLES.has(role);
-  const canFinalizeCrewWorksheets = (role: string) => CW_FINALIZE_ROLES.has(role);
+  const canReadCrewWorksheets = (role: string) => CW_READ_ROLES.has(accessRole(role));
+  const canWriteCrewWorksheets = (role: string) => CW_WRITE_ROLES.has(accessRole(role));
+  const canFinalizeCrewWorksheets = (role: string) => CW_FINALIZE_ROLES.has(accessRole(role));
 
   function sanitizeFilenamePart(s: string, maxLen: number): string {
     return (s || "").replace(/[/\\:*?"<>|]/g, "-").trim().substring(0, maxLen);
@@ -13266,7 +13286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── Visual Scope Sheets ────────────────────────────────────────────────────
-  const canAccessVisualScope = (role: string) => role === "admin" || role === "office";
+  const canAccessVisualScope = (role: string) => accessRole(role) === "admin" || accessRole(role) === "office";
 
   app.get("/api/config/mapbox-token", (_req, res) => {
     res.json({ token: process.env.MAPBOX_PUBLIC_KEY ?? null });
@@ -13739,12 +13759,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!campaignAllowedRoles.includes(user.activeRole)) {
+    if (!campaignAllowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     // Admin and office staff see every campaign in their company; the per-user
     // assignment filter only applies to field-level roles.
-    if (user.activeRole === "admin" || user.activeRole === "office") {
+    if (user.accessRole === "admin" || user.accessRole === "office") {
       const allCampaigns = await storage.getCampaigns(user.activeCompanyId);
       return res.json(allCampaigns);
     }
@@ -13766,7 +13786,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/me/extra-billable-batches", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!campaignAllowedRoles.includes(user.activeRole)) {
+    if (!campaignAllowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     const batches = await storage.getMyExtraBillableBatches(user.id, user.activeRole, user.activeCompanyId);
@@ -13776,7 +13796,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/campaigns", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Only admin/office can create campaigns");
     }
     const rawBody = req.body as {
@@ -13905,7 +13925,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!campaignAllowedRoles.includes(user.activeRole)) {
+    if (!campaignAllowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -14036,7 +14056,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id/items/:itemId/notification-recipient", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const user = req.user as UserWithContext;
-    if (!["admin", "office", "chemical_manager"].includes(user.activeRole)) {
+    if (!["admin", "office", "chemical_manager"].includes(user.accessRole)) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -14051,7 +14071,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const emailRoles = ["admin", "office", "chemical_manager"];
-    if (!emailRoles.includes(user.activeRole)) {
+    if (!emailRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     try {
@@ -14208,7 +14228,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const emailRoles = ["admin", "office", "chemical_manager"];
-    if (!emailRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!emailRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     try {
       const kindRaw = String(req.query.kind || 'pre');
       const kind: 'pre' | 'post' = kindRaw === 'post' ? 'post' : 'pre';
@@ -14297,7 +14317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/campaigns/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Only admin/office can update campaigns");
     }
     const rawPatch = req.body as {
@@ -14381,7 +14401,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/campaigns/:id/items", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Only admin can add campaign items");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -14442,7 +14462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/campaigns/:id/items/:itemId", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin") {
+    if (user.accessRole !== "admin") {
       return res.status(403).send("Only admin can remove campaign items");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -14460,7 +14480,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/campaigns/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Only admin/office can delete campaigns");
     }
     await storage.deleteCampaign(req.params.id, user.activeCompanyId);
@@ -14477,7 +14497,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id/crews", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!campaignAllowedRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!campaignAllowedRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     if (
@@ -14496,7 +14516,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/campaigns/:id/crews", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Only admin/office can create crews");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -14535,7 +14555,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/campaigns/:id/crews/:crewId", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Only admin/office can edit crews");
     }
     const crew = await storage.getCampaignCrewById(req.params.crewId, user.activeCompanyId);
@@ -14566,7 +14586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/campaigns/:id/crews/:crewId", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Only admin/office can delete crews");
     }
     const crew = await storage.getCampaignCrewById(req.params.crewId, user.activeCompanyId);
@@ -14582,7 +14602,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/campaigns/:id/crews/:crewId/members", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Only admin/office can manage crew members");
     }
     const crew = await storage.getCampaignCrewById(req.params.crewId, user.activeCompanyId);
@@ -14600,7 +14620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/campaigns/:id/crews/:crewId/members/:userId", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Only admin/office can manage crew members");
     }
     const crew = await storage.getCampaignCrewById(req.params.crewId, user.activeCompanyId);
@@ -14615,7 +14635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/campaigns/:id/items/:itemId/crew", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Only admin/office can reassign properties");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -14708,7 +14728,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/operations/customer-service-summaries", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!campaignAllowedRoles.includes(user.activeRole)) {
+    if (!campaignAllowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
 
@@ -14811,7 +14831,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/operations/items", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!campaignAllowedRoles.includes(user.activeRole)) {
+    if (!campaignAllowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     const items = await storage.getCampaignItemsGlobal(user.activeCompanyId);
@@ -14821,7 +14841,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/customers/:customerId/campaign-items", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!campaignAllowedRoles.includes(user.activeRole)) {
+    if (!campaignAllowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     const items = await storage.getCampaignItemsByCustomer(req.params.customerId, user.activeCompanyId);
@@ -14831,7 +14851,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id/checklist-tasks", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!campaignAllowedRoles.includes(user.activeRole)) {
+    if (!campaignAllowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -14844,7 +14864,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const allowedRoles = ["admin", "office", "field_manager", "field", "irrigation_manager"];
-    if (!allowedRoles.includes(user.activeRole)) {
+    if (!allowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -14915,7 +14935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const allowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor", "irrigation_manager"];
-    if (!allowedRoles.includes(user.activeRole)) {
+    if (!allowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -14934,7 +14954,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const allowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor", "crew_supervisor"];
-    if (!allowedRoles.includes(user.activeRole)) {
+    if (!allowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -14982,7 +15002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const chemUpdates: Partial<InsertCampaignItem & { updatedAt: Date }> = { updatedAt: new Date() };
 
       if (chemAction === "send_pre_communication") {
-        if (!chemEmailRoles.includes(user.activeRole)) {
+        if (!chemEmailRoles.includes(user.accessRole)) {
           return res.status(403).send("Only admin, office, or chemical manager can send communications");
         }
         if ((targetItem.workflowStep ?? "pre_communication") !== "pre_communication") {
@@ -15074,7 +15094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ error: "Failed to send pre-work notification email" });
         }
       } else if (chemAction === "complete_work") {
-        if (!chemWorkRoles.includes(user.activeRole)) {
+        if (!chemWorkRoles.includes(user.accessRole)) {
           return res.status(403).send("Insufficient permissions to complete work");
         }
         if (targetItem.workflowStep !== "work_in_progress") {
@@ -15089,7 +15109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chemUpdates.workCompletedAt = workCompletedAtDate;
         chemUpdates.workCompletedById = user.id;
       } else if (chemAction === "send_post_communication") {
-        if (!chemEmailRoles.includes(user.activeRole)) {
+        if (!chemEmailRoles.includes(user.accessRole)) {
           return res.status(403).send("Only admin, office, or chemical manager can send communications");
         }
         if (targetItem.workflowStep !== "work_completed") {
@@ -15173,7 +15193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ error: "Failed to send post-completion notification email" });
         }
       } else if (chemAction === "send_notification") {
-        if (!chemEmailRoles.includes(user.activeRole)) {
+        if (!chemEmailRoles.includes(user.accessRole)) {
           return res.status(403).send("Only admin, office, or chemical manager can send notifications");
         }
         // Validate required chemical fields before sending notification
@@ -15263,7 +15283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } else if (chemAction === "finish_without_comms") {
         const finishRoles = ["admin", "office", "chemical_manager"];
-        if (!finishRoles.includes(user.activeRole)) {
+        if (!finishRoles.includes(user.accessRole)) {
           return res.status(403).send("Only admin, office, or chemical manager can finish without communications");
         }
         if (targetItem.status === "completed" || targetItem.status === "skipped") {
@@ -15303,7 +15323,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (notes !== undefined) chemUpdates.notes = (notes || "") + "\n[Completed without communications by " + user.name + "]";
       } else if (chemAction === "reset") {
         const resetRoles = ["admin", "office", "chemical_manager"];
-        if (!resetRoles.includes(user.activeRole)) {
+        if (!resetRoles.includes(user.accessRole)) {
           return res.status(403).send("Only admin, office, or chemical manager can reset chemical workflow");
         }
         chemUpdates.workflowStep = "pre_communication";
@@ -15351,10 +15371,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: "Invalid status value" });
     }
     const skipResetRoles = ["admin", "office", "chemical_manager"];
-    if (status === "pending" && !skipResetRoles.includes(user.activeRole)) {
+    if (status === "pending" && !skipResetRoles.includes(user.accessRole)) {
       return res.status(403).send("Only admin, office, or chemical manager can reset items to pending");
     }
-    if (status === "skipped" && !skipResetRoles.includes(user.activeRole)) {
+    if (status === "skipped" && !skipResetRoles.includes(user.accessRole)) {
       return res.status(403).send("Only admin, office, or chemical manager can skip campaign items");
     }
     if (status === "skipped" && (!skipReason || !skipReason.trim())) {
@@ -15460,7 +15480,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const chemEmailRoles = ["admin", "office", "chemical_manager"];
-    if (!chemEmailRoles.includes(user.activeRole)) {
+    if (!chemEmailRoles.includes(user.accessRole)) {
       return res.status(403).send("Only admin, office, or chemical manager can send communications");
     }
     try {
@@ -15600,7 +15620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const chemWorkRoles = ["admin", "office", "field_manager", "field", "chemical_manager"];
-    if (!chemWorkRoles.includes(user.activeRole)) {
+    if (!chemWorkRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions to complete work");
     }
     try {
@@ -15639,7 +15659,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const chemEmailRoles = ["admin", "office", "chemical_manager"];
-    if (!chemEmailRoles.includes(user.activeRole)) {
+    if (!chemEmailRoles.includes(user.accessRole)) {
       return res.status(403).send("Only admin, office, or chemical manager can send communications");
     }
     try {
@@ -15782,7 +15802,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const campaignUser = req.user as UserWithContext;
     const campaignRoles = ["admin", "office", "field_manager", "field", "chemical_manager"];
-    if (!campaignRoles.includes(campaignUser.activeRole)) {
+    if (!campaignRoles.includes(campaignUser.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     try {
@@ -15975,7 +15995,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/campaigns/:id/items/:itemId/weather", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!campaignAllowedRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!campaignAllowedRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     if (campaign.category !== "chemical") return res.status(400).json({ error: "Weather capture is only available for chemical campaigns" });
@@ -16010,7 +16030,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!["admin", "office"].includes(user.activeRole) && !user.isSuperAdminBool) {
+    if (!["admin", "office"].includes(user.accessRole) && !user.isSuperAdminBool) {
       return res.status(403).send("Only admin or office can upload visit label overrides");
     }
     try {
@@ -16048,7 +16068,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/campaigns/:id/items/:itemId/label", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!["admin", "office"].includes(user.activeRole) && !user.isSuperAdminBool) {
+    if (!["admin", "office"].includes(user.accessRole) && !user.isSuperAdminBool) {
       return res.status(403).send("Only admin or office can remove visit label overrides");
     }
     try {
@@ -16075,7 +16095,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!["admin", "office"].includes(user.activeRole) && !user.isSuperAdminBool) {
+    if (!["admin", "office"].includes(user.accessRole) && !user.isSuperAdminBool) {
       return res.status(403).send("Only admin or office can upload visit label overrides");
     }
     try {
@@ -16109,7 +16129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/campaign-visits/:id/label", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!["admin", "office"].includes(user.activeRole) && !user.isSuperAdminBool) {
+    if (!["admin", "office"].includes(user.accessRole) && !user.isSuperAdminBool) {
       return res.status(403).send("Only admin or office can remove visit label overrides");
     }
     try {
@@ -16133,7 +16153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/seasons", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!seasonManagerRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const allSeasons = await storage.getSeasons(user.activeCompanyId);
     res.json(allSeasons);
   });
@@ -16141,7 +16161,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/seasons", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!seasonManagerRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const { name, description, startDate, endDate } = req.body as {
       name?: string; description?: string; startDate?: string; endDate?: string;
     };
@@ -16159,7 +16179,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/seasons/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!seasonManagerRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const existing = await storage.getSeasonById(req.params.id, user.activeCompanyId);
     if (!existing) return res.status(404).json({ error: "Season not found" });
     const { name, description, startDate, endDate } = req.body as {
@@ -16177,7 +16197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/seasons/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!seasonManagerRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const existing = await storage.getSeasonById(req.params.id, user.activeCompanyId);
     if (!existing) return res.status(404).json({ error: "Season not found" });
     await storage.deleteSeason(req.params.id, user.activeCompanyId);
@@ -16187,7 +16207,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/campaigns/:id/season", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!seasonManagerRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     const { seasonId } = req.body as { seasonId?: string | null };
@@ -16202,7 +16222,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/seasons/:id/report", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!seasonManagerRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!seasonManagerRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const season = await storage.getSeasonById(req.params.id, user.activeCompanyId);
     if (!season) return res.status(404).json({ error: "Season not found" });
     const allCampaigns = await storage.getCampaigns(user.activeCompanyId);
@@ -16308,7 +16328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communications", (req, res, next) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const user = req.user as UserWithContext;
-    if (!COMM_LIST_ROLES_SET.includes(user.activeRole)) return res.status(403).json({ error: "Access denied" });
+    if (!COMM_LIST_ROLES_SET.includes(user.accessRole)) return res.status(403).json({ error: "Access denied" });
     next();
   }, async (req, res) => {
     const user = req.user as UserWithContext;
@@ -16372,7 +16392,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communications/templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const templates = await storage.getCommunicationTemplates(user.activeCompanyId);
     res.json(templates);
   });
@@ -16380,7 +16400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/communications/templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const { insertCommunicationTemplateSchema } = await import("@workspace/db");
     const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, createdById: user.id });
     if (!parsed.success) return res.status(400).json({ error: parsed.error });
@@ -16391,7 +16411,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communications/stats", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const stats = await storage.getCommunicationStats(user.activeCompanyId);
     res.json(stats);
   });
@@ -16567,7 +16587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communication-templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const templates = await storage.getCommunicationTemplates(user.activeCompanyId);
     res.json(templates);
   });
@@ -16576,7 +16596,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/communication-templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const { insertCommunicationTemplateSchema } = await import("@workspace/db");
     const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, createdById: user.id });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -16588,7 +16608,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communication-threads", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const { customerId } = req.query;
     const threads = await storage.getCommunicationThreads(user.activeCompanyId, {
       customerId: customerId as string | undefined,
@@ -16600,7 +16620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/communication-threads", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     if (req.body.customerId) {
       if (await assertNotParentCustomer(req.body.customerId, user.activeCompanyId, res)) return;
     }
@@ -16615,7 +16635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communication-threads/:id/messages", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const messages = await storage.getThreadMessages(req.params.id, user.activeCompanyId);
     res.json(messages);
   });
@@ -16623,7 +16643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communication-templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const includeInactive = req.query.includeInactive === "true";
     const items = await storage.getCommunicationTemplates(user.activeCompanyId, includeInactive);
     res.json(items);
@@ -16632,7 +16652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/communication-templates/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const item = await storage.getCommunicationTemplateById(req.params.id, user.activeCompanyId);
     if (!item) return res.status(404).json({ error: "Not found" });
     res.json(item);
@@ -16641,7 +16661,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/communication-templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const item = await storage.createCommunicationTemplate(parsed.data);
@@ -16651,7 +16671,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/communication-templates/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const parsed = insertCommunicationTemplateSchema.partial().omit({ companyId: true }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const updates = pickProvided(parsed.data, req.body);
@@ -16754,7 +16774,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/automation-rules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const rules = await storage.getCommunicationAutomationRules(user.activeCompanyId);
     res.json(rules);
   });
@@ -16762,7 +16782,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/automation-rules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const parsed = insertCommunicationAutomationRuleSchema.safeParse({
       ...req.body,
       companyId: user.activeCompanyId,
@@ -16776,7 +16796,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/automation-rules/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const rule = await storage.updateCommunicationAutomationRule(req.params.id, user.activeCompanyId, req.body);
     if (!rule) return res.status(404).json({ error: "Not found" });
     res.json(rule);
@@ -16785,7 +16805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/automation-rules/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     await storage.deleteCommunicationAutomationRule(req.params.id, user.activeCompanyId);
     res.status(204).send();
   });
@@ -16793,7 +16813,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/automation-rules/:id/run", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     try {
       const result = await runAutomationRule(req.params.id, user.activeCompanyId);
       res.json(result);
@@ -16805,7 +16825,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/customers/:id/campaign-items", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     const items = await storage.getCampaignItemsByCustomer(req.params.id, user.activeCompanyId);
@@ -16815,7 +16835,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/properties/:id/campaign-items", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "office") {
+    if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Insufficient permissions");
     }
     const items = await storage.getCampaignItemsByProperty(req.params.id, user.activeCompanyId);
@@ -16858,7 +16878,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/operations/overdue", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!operationsRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!operationsRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
 
     const { pmSearch, category, customerSearch } = req.query as Record<string, string | undefined>;
     const today = new Date();
@@ -16913,7 +16933,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/operations/due-this-week", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!operationsRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!operationsRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
 
     const { pmSearch, category, customerSearch } = req.query as Record<string, string | undefined>;
     const today = new Date();
@@ -16971,7 +16991,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/operations/missing-obligations", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!operationsRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!operationsRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
 
     const { pmSearch, category, customerSearch } = req.query as Record<string, string | undefined>;
     const currentYear = new Date().getFullYear();
@@ -17074,7 +17094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/operations/exceptions", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!operationsRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!operationsRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
 
     const { pmSearch, category, customerSearch } = req.query as Record<string, string | undefined>;
 
@@ -17142,7 +17162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/service-plan-templates", async (req, res) => {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
     const createSchema = insertServicePlanTemplateSchema.extend({
       items: z.array(insertServicePlanTemplateItemSchema.omit({ templateId: true })).optional(),
     });
@@ -17160,7 +17180,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/service-plan-templates/:id", async (req, res) => {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
     const patchSchema = z.object({
       name: z.string().min(1).optional(),
       active: z.enum(["true", "false"]).optional(),
@@ -17181,7 +17201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/service-plan-templates/:id", async (req, res) => {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
     await storage.deleteServicePlanTemplate(req.params.id, user.activeCompanyId);
     res.json({ success: true });
   });
@@ -17199,7 +17219,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/customers/:id/service-plans", async (req, res) => {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
     if (await assertNotParentCustomer(req.params.id, user.activeCompanyId, res)) return;
     const parsed = insertCustomerServicePlanSchema.safeParse({
       ...req.body,
@@ -17222,7 +17242,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/customers/:id/service-plans/from-template", async (req, res) => {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
     if (await assertNotParentCustomer(req.params.id, user.activeCompanyId, res)) return;
     const fromTemplateSchema = z.object({
       templateId: z.string().min(1),
@@ -17258,7 +17278,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/customers/:customerId/service-plans/:planId", async (req, res) => {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
     const patchSchema = z.object({
       expectedQuantity: z.number().int().min(0).optional(),
       notes: z.string().nullable().optional(),
@@ -17273,7 +17293,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/customers/:customerId/service-plans/:planId", async (req, res) => {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin/office only" });
     await storage.deleteCustomerServicePlan(req.params.planId, req.params.customerId, user.activeCompanyId);
     res.json({ success: true });
   });
@@ -17292,7 +17312,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.user as UserWithContext;
       if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-      if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
         return res.status(403).json({ error: "Admin or office role required" });
       }
       const { customerId } = req.params;
@@ -17327,7 +17347,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.user as UserWithContext;
       if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-      if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
         return res.status(403).json({ error: "Admin or office role required" });
       }
       const { customerId } = req.params;
@@ -17348,7 +17368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.user as UserWithContext;
       if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-      if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
         return res.status(403).json({ error: "Admin or office role required" });
       }
       const { customerId } = req.params;
@@ -17450,7 +17470,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/chemical-products", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "chemical_manager") {
+    if (user.accessRole !== "admin" && user.accessRole !== "chemical_manager") {
       return res.status(403).send("Admin or chemical_manager only");
     }
     try {
@@ -17475,7 +17495,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
       const user = req.user as UserWithContext;
-      if (user.activeRole !== "admin" && user.activeRole !== "chemical_manager") {
+      if (user.accessRole !== "admin" && user.accessRole !== "chemical_manager") {
         return res.status(403).send("Admin or chemical_manager only");
       }
       try {
@@ -17599,7 +17619,7 @@ ${pdfText.slice(0, 8000)}`;
   app.patch("/api/chemical-products/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "chemical_manager") {
+    if (user.accessRole !== "admin" && user.accessRole !== "chemical_manager") {
       return res.status(403).send("Admin or chemical_manager only");
     }
     try {
@@ -17621,7 +17641,7 @@ ${pdfText.slice(0, 8000)}`;
   app.delete("/api/chemical-products/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (user.activeRole !== "admin" && user.activeRole !== "chemical_manager") {
+    if (user.accessRole !== "admin" && user.accessRole !== "chemical_manager") {
       return res.status(403).send("Admin or chemical_manager only");
     }
     await storage.deleteChemicalProduct(req.params.id, user.activeCompanyId);
@@ -17637,7 +17657,7 @@ ${pdfText.slice(0, 8000)}`;
       if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
       const user = req.user as UserWithContext;
       const roles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"];
-      if (!roles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+      if (!roles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
       try {
         const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
         if (!campaign || (campaign.category !== "chemical" && campaign.category !== "extra_billable")) {
@@ -17694,7 +17714,7 @@ ${pdfText.slice(0, 8000)}`;
       if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
       const user = req.user as UserWithContext;
       const roles = ["admin", "office", "field_manager", "field", "chemical_manager"];
-      if (!roles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+      if (!roles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
       try {
         const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
         if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
@@ -17730,7 +17750,7 @@ ${pdfText.slice(0, 8000)}`;
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const roles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"];
-    if (!roles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!roles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || (campaign.category !== "chemical" && campaign.category !== "extra_billable")) {
@@ -17768,7 +17788,7 @@ ${pdfText.slice(0, 8000)}`;
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const roles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"];
-    if (!roles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!roles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (campaign?.category === "extra_billable") {
@@ -17850,7 +17870,7 @@ ${pdfText.slice(0, 8000)}`;
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const chemWorkRoles = ["admin", "office", "field_manager", "field", "chemical_manager"];
-    if (!chemWorkRoles.includes(user.activeRole)) {
+    if (!chemWorkRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions to complete work");
     }
     try {
@@ -18108,7 +18128,7 @@ ${pdfText.slice(0, 8000)}`;
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const emailRoles = ["admin", "office", "chemical_manager"];
-    if (!emailRoles.includes(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (!emailRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     try {
       const userTemplateVars = filterUserChemTemplateVars((req.body || {}).templateVars);
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
@@ -18165,7 +18185,7 @@ ${pdfText.slice(0, 8000)}`;
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const emailRoles = ["admin", "office", "chemical_manager"];
-    if (!emailRoles.includes(user.activeRole)) {
+    if (!emailRoles.includes(user.accessRole)) {
       return res.status(403).send("Only admin, office, or chemical_manager can send completion emails");
     }
     try {
@@ -18263,7 +18283,7 @@ ${pdfText.slice(0, 8000)}`;
   app.post("/api/plant-library/sync", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+    if (!PLANT_LIBRARY_ROLES.includes(user.accessRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     try {
@@ -18282,7 +18302,7 @@ ${pdfText.slice(0, 8000)}`;
     if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
       return res.status(409).json({ error: "COMPANY_CHANGED" });
     }
-    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+    if (!PLANT_LIBRARY_ROLES.includes(user.accessRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     try {
@@ -18393,7 +18413,7 @@ ${pdfText.slice(0, 8000)}`;
   app.get("/api/plant-library/sync-status", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+    if (!PLANT_LIBRARY_ROLES.includes(user.accessRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     try {
@@ -18415,7 +18435,7 @@ ${pdfText.slice(0, 8000)}`;
   app.get("/api/plant-library/enrichment-status", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+    if (!PLANT_LIBRARY_ROLES.includes(user.accessRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     try {
@@ -18437,7 +18457,7 @@ ${pdfText.slice(0, 8000)}`;
   app.post("/api/plant-library/enrich", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+    if (!PLANT_LIBRARY_ROLES.includes(user.accessRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     try {
@@ -18453,7 +18473,7 @@ ${pdfText.slice(0, 8000)}`;
   app.get("/api/plant-library/matches", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+    if (!PLANT_LIBRARY_ROLES.includes(user.accessRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     try {
@@ -18533,7 +18553,7 @@ ${pdfText.slice(0, 8000)}`;
   app.post("/api/plant-library/matches/:varietyKey", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+    if (!PLANT_LIBRARY_ROLES.includes(user.accessRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     const { varietyKey } = req.params;
@@ -18620,7 +18640,7 @@ ${pdfText.slice(0, 8000)}`;
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) return res.status(409).json({ error: "COMPANY_CHANGED" });
-    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+    if (!PLANT_LIBRARY_ROLES.includes(user.accessRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     const { varietyKey } = req.params;
@@ -18655,7 +18675,7 @@ ${pdfText.slice(0, 8000)}`;
   app.get("/api/plant-library/candidates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!PLANT_LIBRARY_ROLES.includes(user.activeRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
+    if (!PLANT_LIBRARY_ROLES.includes(user.accessRole as typeof PLANT_LIBRARY_ROLES[number]) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     try {
@@ -18710,13 +18730,13 @@ ${pdfText.slice(0, 8000)}`;
 
   // ─── Chemical Notification Templates CRUD ────────────────────────────────────
 
-  const isTemplateAdmin = (user: UserWithContext) => user.activeRole === "admin" || user.isSuperAdminBool;
+  const isTemplateAdmin = (user: UserWithContext) => user.accessRole === "admin" || user.isSuperAdminBool;
 
   app.get("/api/chemical-notification-templates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const templateReadRoles = ["admin", "office"];
-    if (!templateReadRoles.includes(user.activeRole) && !user.isSuperAdminBool) return res.status(403).json({ error: "Insufficient permissions" });
+    if (!templateReadRoles.includes(user.accessRole) && !user.isSuperAdminBool) return res.status(403).json({ error: "Insufficient permissions" });
     try {
       const templates = await storage.getChemicalNotificationTemplates(user.activeCompanyId);
       res.json(templates);
@@ -18730,7 +18750,7 @@ ${pdfText.slice(0, 8000)}`;
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const templateReadRoles = ["admin", "office"];
-    if (!templateReadRoles.includes(user.activeRole) && !user.isSuperAdminBool) return res.status(403).json({ error: "Insufficient permissions" });
+    if (!templateReadRoles.includes(user.accessRole) && !user.isSuperAdminBool) return res.status(403).json({ error: "Insufficient permissions" });
     try {
       const tpl = await storage.getChemicalNotificationTemplate(req.params.id, user.activeCompanyId);
       if (!tpl) return res.status(404).json({ error: "Not found" });
@@ -18884,7 +18904,7 @@ ${pdfText.slice(0, 8000)}`;
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     const previewRoles = ["admin", "office"];
-    if (!previewRoles.includes(user.activeRole) && !user.isSuperAdminBool) {
+    if (!previewRoles.includes(user.accessRole) && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
     try {

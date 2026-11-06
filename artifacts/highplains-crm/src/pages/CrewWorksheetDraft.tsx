@@ -16,6 +16,7 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import type { CrewWorksheetWithDetails, CrewWorksheetPhoto } from "@shared/schema";
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent,
@@ -120,7 +121,7 @@ function CrewLeadPicker({
     enabled: !disabled,
   });
   const eligibleRoles = new Set(["admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor"]);
-  const eligible = companyUsers.filter(cu => eligibleRoles.has(cu.role));
+  const eligible = companyUsers.filter(cu => eligibleRoles.has(accessRole(cu.role)));
 
   if (disabled) {
     return <p className="text-sm" data-testid="text-crew-lead">{valueName || t("crewWorksheets.noCrewLead", { defaultValue: "—" })}</p>;
@@ -184,7 +185,7 @@ export default function CrewWorksheetDraft() {
   const { toast } = useToast();
   const { t } = useTranslation();
   const { user } = useAuth();
-  const role = user?.activeRole ?? "";
+  const role = user?.accessRole ?? "";
   const canWrite = role === "admin" || role === "office" || role === "field_manager" || role === "crew_supervisor" || role === "landscape_supervisor";
   const canFinalize = role === "admin" || role === "office";
 

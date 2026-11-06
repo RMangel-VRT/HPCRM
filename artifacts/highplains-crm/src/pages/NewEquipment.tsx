@@ -63,7 +63,7 @@ export default function NewEquipment() {
   const { toast } = useToast();
   const { user } = useAuth();
   
-  const canRetireOrDelete = user?.activeRole === "admin" || user?.activeRole === "shop_manager";
+  const canRetireOrDelete = user?.accessRole === "admin" || user?.accessRole === "shop_manager";
 
   const EQUIPMENT_TYPES = [
     { value: "truck", label: t("equipment.types.truck") },

@@ -24,6 +24,7 @@ const ROLE_LABELS: Record<string, string> = {
   field_manager: "Field Manager",
   landscape_supervisor: "Landscape Supervisor",
   admin: "Admin",
+  account_manager: "Account manager",
   office: "Office",
   field: "Field",
   chemical_manager: "Chemical Manager",
@@ -187,7 +188,7 @@ export default function MeScreen() {
         <View style={{ flex: 1 }}>
           <Text style={[styles.name, { color: colors.foreground }]}>{user?.name ?? "—"}</Text>
           <Text style={[styles.meta, { color: colors.mutedForeground }]}>
-            {ROLE_LABELS[user?.activeRole ?? ""] ?? user?.activeRole ?? ""}
+            {user?.activeRole === "account_manager" && user.language === "es" ? "Gerente de cuentas" : ROLE_LABELS[user?.activeRole ?? ""] ?? user?.activeRole ?? ""}
           </Text>
           <Text style={[styles.meta, { color: colors.mutedForeground }]}>
             {meQuery.data?.crewName ? `${t("me.crew")}: ${meQuery.data.crewName}` : t("me.noCrew")}

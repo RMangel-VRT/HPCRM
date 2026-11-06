@@ -24,7 +24,7 @@ export function CommunicationsSecondaryNav({ counts = {} }: { counts?: Partial<R
   const filters = useCommunicationsShell();
   const params = useParams<{ tab?: string }>();
   const activeTab = COMMS_VIEWS.includes(params.tab as CommsView) ? params.tab! : "inbox";
-  const items = COMMS_VIEWS.filter(tab => tab !== "all" || ["admin", "office"].includes(user?.activeRole ?? ""))
+  const items = COMMS_VIEWS.filter(tab => tab !== "all" || ["admin", "office"].includes(user?.accessRole ?? ""))
     .map(tab => ({ key: `comms-${tab}`, label: t(`comms.${tab}`),
       href: communicationsHref(tab, filters), badge: counts[tab] }));
   return <SectionRail title={t("nav.inbox")} ariaLabel={t("nav.inbox")}

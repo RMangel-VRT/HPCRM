@@ -152,7 +152,7 @@ export function registerExtraBillablePhotoRoutes(app: Express, deps: PhotoRouteD
       return null;
     }
     const user = req.user as UserWithContext;
-    if (!user || !ALLOWED_ROLES.includes(user.activeRole)) {
+    if (!user || !ALLOWED_ROLES.includes(user.accessRole)) {
       res.status(403).json({ error: "Insufficient permissions" });
       return null;
     }
@@ -281,7 +281,7 @@ export function registerExtraBillablePhotoRoutes(app: Express, deps: PhotoRouteD
       const isAuthed = typeof req.isAuthenticated === "function" ? req.isAuthenticated() : Boolean(req.user);
       if (!isAuthed) return res.status(401).json({ error: "Not authenticated" });
       const user = req.user as UserWithContext;
-      if (!user || !ALLOWED_ROLES.includes(user.activeRole)) {
+      if (!user || !ALLOWED_ROLES.includes(user.accessRole)) {
         return res.status(403).json({ error: "Insufficient permissions" });
       }
 

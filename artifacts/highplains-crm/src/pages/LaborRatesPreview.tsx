@@ -30,7 +30,7 @@ function LaborRatesContent() {
   const { user } = useAuth();
   const [companyId] = useState(() => user?.activeCompanyId ?? "");
   const [customer, setCustomer] = useState<{ id: string; name: string } | null>(null);
-  const isAdmin = user?.activeRole === "admin";
+  const isAdmin = user?.accessRole === "admin";
   const lang = i18n.language;
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<RatePreviewResponse>({

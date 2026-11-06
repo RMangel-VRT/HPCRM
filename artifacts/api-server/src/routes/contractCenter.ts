@@ -20,7 +20,7 @@ function authorize(req: Request, res: Response, allowOffice: boolean): UserWithC
     return null;
   }
   const user = req.user as UserWithContext;
-  if (!user.isSuperAdminBool && user.activeRole !== "admin" && !(allowOffice && user.activeRole === "office")) {
+  if (!user.isSuperAdminBool && user.accessRole !== "admin" && !(allowOffice && user.accessRole === "office")) {
     res.status(403).json({ message: "Forbidden" });
     return null;
   }

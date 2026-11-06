@@ -1,4 +1,5 @@
 import { useAuth } from "@/hooks/use-auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { Loader2 } from "lucide-react";
 import { Redirect, Route } from "wouter";
 import { LoginRequiredRedirect } from "@/lib/landing";
@@ -6,7 +7,7 @@ import { LoginRequiredRedirect } from "@/lib/landing";
 interface ProtectedRouteProps {
   path: string;
   component: React.ComponentType;
-  allowedRoles?: Array<"admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor">;
+  allowedRoles?: Array<import("../../../../lib/db/src/accessRole").Role>;
   superAdminOnly?: boolean;
   /** Extra access predicate (e.g. canViewBilling), replaces role list when given. */
   access?: (user: NonNullable<ReturnType<typeof useAuth>["user"]>) => boolean;
@@ -57,7 +58,7 @@ export function ProtectedRoute({
     );
   }
 
-  if (allowedRoles && !user.isSuperAdminBool && !allowedRoles.includes(user.activeRole)) {
+  if (allowedRoles && !user.isSuperAdminBool && !allowedRoles.includes(accessRole(user.activeRole))) {
     return (
       <Route path={path}>
         {() => <Redirect to="/access-denied" />}

@@ -871,7 +871,7 @@ export default function MailboxAccountsSettingsPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
-  const isAdmin = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
+  const isAdmin = currentUser?.accessRole === "admin" || currentUser?.isSuperAdminBool;
   const [showForm, setShowForm] = useState(false);
   const [editAccount, setEditAccount] = useState<MailboxAccount | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<MailboxAccount | null>(null);

@@ -12,7 +12,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 const gate: RequestHandler = (req, res, next) => {
   if (!req.isAuthenticated?.()) { res.status(401).json({ message: "Not authenticated" }); return; }
   const user = req.user as UserWithContext;
-  if (!user.activeCompanyId || !["admin", "office"].includes(user.activeRole)) {
+  if (!user.activeCompanyId || !["admin", "office"].includes(user.accessRole)) {
     res.status(403).json({ message: "Access denied" }); return;
   }
   // A request queued by the old company must not read/write the new company's

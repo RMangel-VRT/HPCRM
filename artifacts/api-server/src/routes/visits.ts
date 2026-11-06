@@ -35,7 +35,7 @@ const reorderBody = z.object({ crewId: z.string().min(1), visitDate: visitFields
 export function authorize(req: Request, res: Response): UserWithContext | undefined {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
   const user = req.user as UserWithContext;
-  if (!["admin", "office", "field_manager"].includes(user.activeRole)) { res.status(403).json({ error: "Insufficient permissions" }); return; }
+  if (!["admin", "office", "field_manager"].includes(user.accessRole)) { res.status(403).json({ error: "Insufficient permissions" }); return; }
   return user;
 }
 export function failure(res: Response, error: unknown) {

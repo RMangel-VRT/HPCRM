@@ -83,7 +83,7 @@ function SchedulingBoardPage() {
   const [hideRoutes, setHideRoutesState] = useState(() => readHideRoutes(hideKey));
   const setHideRoutes = (v: boolean) => { setHideRoutesState(v); writeHideRoutes(hideKey, v); };
   const [rainDate, setRainDate] = useState<string | null>(null);
-  const canRain = ["admin", "office", "field_manager"].includes(user?.activeRole ?? "");
+  const canRain = ["admin", "office", "field_manager"].includes(user?.accessRole ?? "");
   const [tab, setTab] = useState<"needs" | "slipped">("needs");
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState("");

@@ -241,7 +241,7 @@ function ProposalDraftContent() {
   const { data: proposal, isLoading } = useQuery<ProposalWithDetails>({
     queryKey: ["/api/proposals", id, identity],
     queryFn: async () => (await apiRequest("GET", `/api/proposals/${id}`)).json(),
-    enabled: !!id && !!companyId && ["admin", "office"].includes(user?.activeRole ?? ""),
+    enabled: !!id && !!companyId && ["admin", "office"].includes(user?.accessRole ?? ""),
     staleTime: 0,
     refetchInterval: 30_000,
     select: (data: ProposalWithDetails) => {

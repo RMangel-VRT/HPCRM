@@ -377,7 +377,7 @@ export function registerMobileTicketPhotosNotesRoutes(app: Express): void {
       res.status(404).json({ message: "Photo not found" });
       return;
     }
-    if (p.uploadedByUserId !== u.id && !ADMIN_DELETE_ROLES.has(u.activeRole)) {
+    if (p.uploadedByUserId !== u.id && !ADMIN_DELETE_ROLES.has(u.accessRole)) {
       res.status(403).json({ message: "You can't delete this photo" });
       return;
     }
@@ -474,7 +474,7 @@ export function registerMobileTicketPhotosNotesRoutes(app: Express): void {
       res.status(404).json({ message: "Note not found" });
       return;
     }
-    if (n.authorUserId !== u.id && !ADMIN_DELETE_ROLES.has(u.activeRole)) {
+    if (n.authorUserId !== u.id && !ADMIN_DELETE_ROLES.has(u.accessRole)) {
       res.status(403).json({ message: "You can't delete this note" });
       return;
     }

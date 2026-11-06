@@ -36,7 +36,7 @@ export default function ServiceFulfillmentPanel({ customerId }: Props) {
     notes: "",
   });
 
-  const isAdminOrOffice = user?.activeRole === "admin" || user?.activeRole === "office" || user?.isSuperAdminBool;
+  const isAdminOrOffice = user?.accessRole === "admin" || user?.accessRole === "office" || user?.isSuperAdminBool;
 
   const { data: fulfillment = [], isLoading: fulfillmentLoading } = useQuery<ServiceFulfillmentRow[]>({
     queryKey: ["/api/customers", customerId, "service-fulfillment", selectedYear],

@@ -14,7 +14,7 @@ import { NonRenewalChip } from "./NonRenewalChip";
 
 export function CustomerContracts({ customerId, children }: { customerId: string; children: ReactNode }) {
   const { user } = useAuth();
-  const permitted = !!user && (user.isSuperAdminBool || user.activeRole === "admin" || user.activeRole === "office");
+  const permitted = !!user && (user.isSuperAdminBool || user.accessRole === "admin" || user.accessRole === "office");
   const companyId = user?.activeCompanyId;
   const list = useQuery<ContractListItem[]>({
     queryKey: ["/api/contract-center/contracts", companyId, customerId],

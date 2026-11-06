@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -150,9 +151,9 @@ export default function CampaignDetail() {
     };
   }, [campaign?.title]);
 
-  const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
-  const isAdmin = user?.activeRole === "admin";
-  const canManageSeasons = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
+  const canManage = user?.accessRole === "admin" || user?.accessRole === "office";
+  const isAdmin = user?.accessRole === "admin";
+  const canManageSeasons = ["admin", "office", "chemical_manager"].includes(user?.accessRole || "");
 
   const { data: allSeasons } = useQuery<Season[]>({
     queryKey: ["/api/seasons"],
@@ -1226,7 +1227,7 @@ function EditCampaignDialog({
 
   const teamMembers = companyUsersData
     .filter(item =>
-      item.companyUser.role === "admin" ||
+      accessRole(item.companyUser.role) === "admin" ||
       item.companyUser.role === "office" ||
       item.companyUser.role === "field_manager" ||
       item.companyUser.role === "field" ||

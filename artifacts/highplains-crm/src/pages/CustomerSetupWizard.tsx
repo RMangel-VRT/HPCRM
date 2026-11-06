@@ -204,7 +204,7 @@ function WizardBody({ companyId }: { companyId: string }) {
       // Legacy lists encode pagination in the first key string. Prefix matching
       // ["/api/customers"] alone does not invalidate those infinitely fresh rows.
       void qc.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" &&
-        (q.queryKey[0] === "/api/customers" || q.queryKey[0].startsWith("/api/customers?")) });
+        (q.queryKey[0] === "/api/customer-account-managers" || q.queryKey[0] === "/api/customers" || q.queryKey[0].startsWith("/api/customers?")) });
       for (const k of ["/api/qbo/customer-reviews", "/api/qbo/customer-reviews/count", "/api/qbo/customer-review-options", "/api/qbo/customers/mapping", "/api/qbo/customers/cache", "/api/qbo/customers/unbound-count"])
         void qc.invalidateQueries({ queryKey: [k] });
       const review = res.qbo?.review;

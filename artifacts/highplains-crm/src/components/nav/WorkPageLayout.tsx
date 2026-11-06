@@ -10,7 +10,7 @@ export function WorkPageLayout({ path, children }: { path: string; children: Rea
   const { user } = useAuth();
   const { t } = useTranslation();
   const plantKey = plantRailKey(path);
-  if (plantKey && ["admin", "office"].includes(user?.activeRole ?? "")) {
+  if (plantKey && ["admin", "office"].includes(user?.accessRole ?? "")) {
     return <SectionRailLayout rail={<EstimatesRail activeKey={plantKey} />}>{children}</SectionRailLayout>;
   }
   const page = workPage(path);

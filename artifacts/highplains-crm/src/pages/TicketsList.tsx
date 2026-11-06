@@ -238,9 +238,9 @@ function OperationalTicketsList() {
     { label: "Tickets" },
   ], []);
 
-  const isAdmin = user?.activeRole === "admin";
-  const canCreateTickets = isAdmin || user?.activeRole === "office";
-  const canSeeEquipmentTickets = user?.activeRole != null && ["admin", "shop_manager", "office", "field_manager", "chemical_manager", "irrigation_manager"].includes(user.activeRole);
+  const isAdmin = user?.accessRole === "admin";
+  const canCreateTickets = isAdmin || user?.accessRole === "office";
+  const canSeeEquipmentTickets = user?.accessRole != null && ["admin", "shop_manager", "office", "field_manager", "chemical_manager", "irrigation_manager"].includes(user.accessRole);
 
   const { data: tickets = [], isLoading: ticketsLoading } = useQuery<TicketWithDetails[]>({
     queryKey: ["/api/tickets"],

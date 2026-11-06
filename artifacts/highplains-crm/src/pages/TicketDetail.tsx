@@ -299,14 +299,14 @@ export default function TicketDetail() {
   const [, setLocation] = useLocation();
   
   // Check if current user can reassign or delegate tickets (admin, office, or super admin)
-  const canReassign = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
-  const canDelegate = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
+  const canReassign = currentUser?.accessRole === "admin" || currentUser?.isSuperAdminBool;
+  const canDelegate = currentUser?.accessRole === "admin" || currentUser?.accessRole === "office" || currentUser?.isSuperAdminBool;
   
   // Check if current user can delete tickets (admin or office)
-  const canDelete = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
+  const canDelete = currentUser?.accessRole === "admin" || currentUser?.accessRole === "office" || currentUser?.isSuperAdminBool;
   
-  const canEdit = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
-  const isAdminOrOffice = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
+  const canEdit = currentUser?.accessRole === "admin" || currentUser?.isSuperAdminBool;
+  const isAdminOrOffice = currentUser?.accessRole === "admin" || currentUser?.accessRole === "office" || currentUser?.isSuperAdminBool;
   const rolesWithoutCustomerAccess = ["field", "irrigation_manager", "shop_manager", "landscape_supervisor", "crew_supervisor"];
   const canViewCustomer = !rolesWithoutCustomerAccess.includes(currentUser?.activeRole || "");
 
@@ -324,7 +324,7 @@ export default function TicketDetail() {
   // Scheduled-capable by stable status identity (never display name or current status).
   const scheduledCapable = !!details?.statuses?.some(s => s.statusKey === "scheduled");
   // Visits endpoints are admin/office/field_manager only; other roles never query them.
-  const canViewVisits = ["admin", "office", "field_manager"].includes(currentUser?.activeRole ?? "");
+  const canViewVisits = ["admin", "office", "field_manager"].includes(currentUser?.accessRole ?? "");
   const visitGuard = useTicketOpenVisitGuard(currentUser?.activeCompanyId, ticketId, scheduledCapable && canViewVisits);
   // Unknown (loading/failed) is never treated as "no open visits".
   const lockSchedule = scheduledCapable && (!canViewVisits || !visitGuard || visitGuard.state === "unknown" || visitGuard.hasOpen);
@@ -1951,7 +1951,7 @@ export default function TicketDetail() {
 
           {(() => {
             const ticket = details?.ticket;
-            const role = currentUser?.activeRole ?? "";
+            const role = currentUser?.accessRole ?? "";
             const canWriteCw = role === "admin" || role === "office" || role === "field_manager"
               || role === "crew_supervisor" || role === "landscape_supervisor";
             const params = new URLSearchParams({

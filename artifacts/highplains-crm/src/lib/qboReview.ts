@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { extractApiErrorMessage } from "@/lib/apiError";
 import { canViewBilling, isBillingPerson, showBillingSidebar, type BillingAccessUser } from "@/lib/billing";
 import type { Customer } from "@shared/schema";
@@ -65,7 +66,7 @@ export const cardKey = (id: string, u?: ScopeUser | null) => ["/api/customers", 
 export const reviewCountEligible = (u?: ScopeUser | null) =>
   !!u && (showBillingSidebar(u) || isBillingPerson(u));
 /** Promotion and rename stay with the existing admin/office permission. */
-export const canPromote = (u?: ScopeUser | null) => !!u && (u.activeRole === "admin" || u.activeRole === "office");
+export const canPromote = (u?: ScopeUser | null) => !!u && (accessRole(u.activeRole ?? "") === "admin" || accessRole(u.activeRole ?? "") === "office");
 
 export async function qboJson<T>(method: string, url: string, companyId: string | null | undefined, body?: unknown): Promise<T> {
   const res = await apiRequest(method, url, body, { headers: companyId ? { "X-Company-Id": companyId } : {} });

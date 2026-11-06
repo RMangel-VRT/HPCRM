@@ -4,6 +4,7 @@ import { eq, and, isNull } from "drizzle-orm";
 import { db } from "./db";
 import { mobileAuthTokens, users, companyUsers, comparePasswords } from "@workspace/db";
 import type { UserWithContext } from "./auth";
+import { accessRole } from "../../../lib/db/src/accessRole";
 
 // Roles allowed to use the mobile field-crew app.
 export const MOBILE_ALLOWED_ROLES = new Set<string>([
@@ -177,6 +178,7 @@ export function requireMobileAuth() {
       ...u,
       activeCompanyId: tokenRow.companyId,
       activeRole: membership.role as UserWithContext["activeRole"],
+      accessRole: accessRole(membership.role),
       activeTags: membership.tags ?? [],
       isSuperAdminBool: u.isSuperAdmin === "true",
     };

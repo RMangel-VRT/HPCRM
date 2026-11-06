@@ -133,7 +133,7 @@ function NoResultsState() {
 export default function InboxTab() {
   const { search, fromDate, toDate, viewAs } = useCommunicationsShell();
   const { user } = useAuth();
-  const canDelete = user?.activeRole === "admin" || user?.activeRole === "office";
+  const canDelete = user?.accessRole === "admin" || user?.accessRole === "office";
   const [selectedComm, setSelectedComm] = useState<CommunicationWithDetails | null>(null);
   const searchString = useSearch();
   const focusId = new URLSearchParams(searchString).get("focusId");

@@ -1,5 +1,12 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
+  accountManagers: {
+    label: "Account manager", notAssigned: "Not assigned", all: "All account managers",
+    setOn: "Set on {{parent}}", branchHelp: "Branches follow their parent's account manager.",
+    set: "Set account manager", select: "Select {{name}}", selectAll: "Select all eligible filtered customers",
+    changed: "{{count}} customers changed", failed: "Assignment failed. Your selection is unchanged.",
+    retry: "Could not load account managers. Retry", pending: "Assigning…",
+  },
   customerActivation: {
     title: "{{customer}} is still a prospect.",
     question: "Activate it and send it to QuickBooks?",
@@ -533,6 +540,7 @@ const en = {
     finalized: "Finalized",
   },
   roles: {
+    account_manager: "Account manager",
     admin: "Admin",
     office: "Office",
     field_manager: "Field Manager",

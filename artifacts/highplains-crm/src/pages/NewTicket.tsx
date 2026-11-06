@@ -4,6 +4,7 @@ import { useLocation, Link } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { qboJson } from "@/lib/qboReview";
 import { useAuth } from "@/hooks/use-auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -206,7 +207,7 @@ export default function NewTicket() {
 
   const teamMembers = useMemo(() => {
     return companyUsersData
-      .filter(item => item.companyUser.role === "admin" || item.companyUser.role === "office" || item.companyUser.role === "field_manager" || item.companyUser.role === "chemical_manager" || item.companyUser.role === "irrigation_manager" || item.companyUser.role === "shop_manager")
+      .filter(item => accessRole(item.companyUser.role) === "admin" || item.companyUser.role === "office" || item.companyUser.role === "field_manager" || item.companyUser.role === "chemical_manager" || item.companyUser.role === "irrigation_manager" || item.companyUser.role === "shop_manager")
       .map(item => ({
         id: item.companyUser.userId,
         name: item.user?.name || item.user?.email || item.companyUser.userId,

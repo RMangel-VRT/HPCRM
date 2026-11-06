@@ -22,6 +22,7 @@ import { CheckSquare, Plus, Loader2 } from "lucide-react";
 import { DatePickerField } from "@/components/DatePickerField";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
 import type { TicketType, TicketTypeStatus, CompanyUser, User, Customer } from "@shared/schema";
@@ -111,7 +112,7 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
 
   const teamMembers = companyUsersData
     .filter(item => 
-      item.companyUser.role === "admin" || 
+      accessRole(item.companyUser.role) === "admin" ||
       item.companyUser.role === "office" || 
       item.companyUser.role === "field_manager" ||
       item.companyUser.role === "chemical_manager" ||
@@ -210,7 +211,7 @@ export default function QuickAddToDo({ variant = "ghost" }: QuickAddToDoProps) {
 
   const isLoading = isInitializing || createTicketMutation.isPending;
 
-  if (!user || !["admin", "office"].includes(user.activeRole)) return null;
+  if (!user || !["admin", "office"].includes(user.accessRole)) return null;
 
   return (
     <>

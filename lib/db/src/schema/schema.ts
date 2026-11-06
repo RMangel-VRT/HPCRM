@@ -222,7 +222,7 @@ export const companyUsers = pgTable("company_users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  role: text("role").notNull().$type<"admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor">(),
+  role: text("role").notNull().$type<"admin" | "account_manager" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor">(),
   status: text("status").notNull().$type<"active" | "invited" | "suspended">().default("active"),
   tags: text("tags").array().default(sql`ARRAY[]::text[]`),
   invitedAt: timestamp("invited_at"),
@@ -238,7 +238,7 @@ export const insertCompanyUserSchema = createInsertSchema(companyUsers).omit({
   id: true,
   createdAt: true,
 }).extend({
-  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]),
+  role: z.enum(["admin", "account_manager", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]),
   status: z.enum(["active", "invited", "suspended"]).default("active"),
   tags: z.array(z.string()).default([]),
 });
@@ -263,6 +263,7 @@ export const customers = pgTable("customers", {
   propertyManagementCompanyId: varchar("property_management_company_id"),
   propertyManagerId: varchar("property_manager_id"),
   parentCustomerId: varchar("parent_customer_id"),
+  accountManagerId: varchar("account_manager_id").references(() => users.id, { onDelete: "set null" }),
   isParent: text("is_parent").notNull().default("false").$type<"true" | "false">(),
   active: text("active").notNull().default("true").$type<"true" | "false">(),
   customerType: text("customer_type").$type<"commercial" | "hoa">().notNull().default("commercial"),
@@ -307,6 +308,7 @@ export const customers = pgTable("customers", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
   customersCompanyIdIdx: index("customers_company_id_idx").on(table.companyId),
+  customersAccountManagerIdx: index("customers_company_account_manager_idx").on(table.companyId, table.accountManagerId),
   // Trigram index for fast customer-name substring search (requires pg_trgm extension)
   customersNameTrgmIdx: index("customers_name_trgm_idx").using("gin", sql`lower(name) gin_trgm_ops`),
   // Partial unique index: only one CRM customer per QBO customer (ignores NULL bindings)
@@ -360,6 +362,7 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
     z.enum(["1", "2", "3", "4", "5"]).optional(),
   ),
   parentCustomerId: z.string().nullable().optional(),
+  accountManagerId: z.string().min(1).nullable().optional(),
   isParent: z.enum(["true", "false"]).default("false"),
   active: z.enum(["true", "false"]).default("true"),
   snowEnabled: z.boolean().default(false),
@@ -485,7 +488,7 @@ export const insertContractStatusHistorySchema = createInsertSchema(contractStat
 export type InsertContractStatusHistory = z.infer<typeof insertContractStatusHistorySchema>;
 export type ContractStatusHistory = typeof contractStatusHistory.$inferSelect;
 
-export type RoleName = "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+export type RoleName = import("../accessRole").Role;
 
 export type MailboxVisibilityConfig = {
   shared: RoleName[];

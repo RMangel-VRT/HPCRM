@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { randomUUID } from "crypto";
 import { classifyExtraBillableEligibility } from "../lib/extraBillableAccess";
 
@@ -41,7 +42,7 @@ export function defaultLogger() {
 }
 
 function isAdminOffice(role: string | undefined): boolean {
-  return role === "admin" || role === "office";
+  return accessRole(role ?? "") === "admin" || accessRole(role ?? "") === "office";
 }
 
 async function copyExtraBillablePhotosToTicket(

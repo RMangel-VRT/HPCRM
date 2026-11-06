@@ -109,7 +109,7 @@ function ListContent() {
   const [includeVoid, setIncludeVoid] = useState(false);
   const [status, setStatus] = useState<ListStatusFilter | null>(null);
   const [creating, setCreating] = useState(false);
-  const allowed = user?.activeRole === "admin" || user?.activeRole === "office";
+  const allowed = user?.accessRole === "admin" || user?.accessRole === "office";
   const url = listUrl(search, includeVoid, status);
   const { data, isLoading, isError, refetch, isFetching } = useQuery<EstimateListItemDto[]>({
     queryKey: [ESTIMATES_API, "list", user?.activeCompanyId, user?.id, user?.activeRole, search, includeVoid, status ?? "all"],

@@ -73,7 +73,7 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       return;
     }
     const rows = await loadContractList(db, companyId, filter);
-    res.json(rows.map(row => ({ ...row, canRecordNonRenewal: ["admin", "office"].includes(user.activeRole)
+    res.json(rows.map(row => ({ ...row, canRecordNonRenewal: ["admin", "office"].includes(user.accessRole)
       && !row.notRenewing && !!row.renewalSource && ["signed", "active", "renewed"].includes(row.renewalSource.status) })));
   }));
   app.get("/api/contract-center/contracts/by-legacy/:legacyContractId", handle(async (req, res, user) => {
@@ -86,7 +86,7 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
   }));
   app.get("/api/contract-center/contracts/:agreementId", handle(async (req, res, user) => {
     const detail = await fullDetail(db, user.activeCompanyId, String(req.params.agreementId));
-    const permitted = ["admin", "office"].includes(user.activeRole);
+    const permitted = ["admin", "office"].includes(user.accessRole);
     res.json({ ...detail, canRecordNonRenewal: permitted && detail.canRecordNonRenewal, canUndoNonRenewal: permitted });
   }));
   app.post("/api/contract-center/contracts", handle(async (req, res, user) => {
@@ -160,12 +160,12 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     res.json(row);
   }));
   app.post("/api/contract-center/terms/:termId/non-renewal", handle(async (req, res, user) => {
-    if (!["admin", "office"].includes(user.activeRole)) throw new ContractCenterError(403, "Admin or office access required");
+    if (!["admin", "office"].includes(user.accessRole)) throw new ContractCenterError(403, "Admin or office access required");
     const body = nonRenewalSchema.parse(req.body), { companyId, userId, id } = context(req, user);
     res.json(await db.transaction(tx => recordNonRenewal(tx, companyId, userId, id, body)));
   }));
   app.delete("/api/contract-center/terms/:termId/non-renewal", handle(async (req, res, user) => {
-    if (!["admin", "office"].includes(user.activeRole)) throw new ContractCenterError(403, "Admin or office access required");
+    if (!["admin", "office"].includes(user.accessRole)) throw new ContractCenterError(403, "Admin or office access required");
     const { companyId, userId, id } = context(req, user);
     res.json(await db.transaction(tx => undoNonRenewal(tx, companyId, userId, id)));
   }));

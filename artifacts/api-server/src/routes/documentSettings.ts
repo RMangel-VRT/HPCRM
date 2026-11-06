@@ -10,7 +10,7 @@ export function registerDocumentSettingsRoutes(app: Express) {
   const router = Router();
   router.use(invoiceAccess);
   router.use(((req, res, next) => {
-    if ((req.user as UserWithContext).activeRole !== "admin") { res.status(403).json({ error: "ACCESS_DENIED" }); return; }
+    if ((req.user as UserWithContext).accessRole !== "admin") { res.status(403).json({ error: "ACCESS_DENIED" }); return; }
     next();
   }) as RequestHandler);
   router.get("/renderer", async (_req, res): Promise<void> => {

@@ -77,7 +77,7 @@ export default function CustomerRouteMap() {
   const [useSatellite, setUseSatellite] = useState(true);
   const [webglError, setWebglError] = useState(false);
 
-  const canGeocode = user?.activeRole === "admin" || user?.activeRole === "office";
+  const canGeocode = user?.accessRole === "admin" || user?.accessRole === "office";
   const mappedCustomersRef = useRef<Customer[]>([]);
   const styleInitializedRef = useRef(false);
 

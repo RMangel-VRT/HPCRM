@@ -92,7 +92,7 @@ function adminOrOffice(req: Request, res: Response): UserWithContext | null {
     return null;
   }
   const u = req.user as UserWithContext;
-  if (u.activeRole !== "admin" && u.activeRole !== "office" && !u.isSuperAdminBool) {
+  if (u.accessRole !== "admin" && u.accessRole !== "office" && !u.isSuperAdminBool) {
     res.status(403).json({ message: "Forbidden" });
     return null;
   }
@@ -272,7 +272,7 @@ async function parseMultipart(req: Request, res: Response): Promise<ParsedMultip
 }
 
 // ── Email notification on flag creation ────────────────────────────────────
-async function notifyOfficeOfNewFlag(args: {
+export async function notifyOfficeOfNewFlag(args: {
   flag: typeof flags.$inferSelect;
   createdByName: string | null;
   propertyName: string | null;
@@ -289,7 +289,7 @@ async function notifyOfficeOfNewFlag(args: {
       .where(and(
         eq(companyUsers.companyId, args.flag.companyId),
         eq(companyUsers.status, "active"),
-        inArray(companyUsers.role, ["admin", "office"]),
+        inArray(companyUsers.role, ["admin", "account_manager", "office"]),
       ));
     if (recipients.length === 0) return;
 

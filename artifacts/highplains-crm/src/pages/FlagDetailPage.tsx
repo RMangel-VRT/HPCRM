@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, Flag as FlagIcon, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { type FlagStatus } from "@shared/schema";
 import { tagMetaFromList, useFlagTaxonomy } from "@/hooks/useFlagTaxonomy";
 
@@ -56,7 +57,7 @@ export default function FlagDetailPage() {
     queryKey: ["/api/company-users"],
   });
   const companyUsers: CompanyUserOption[] = (companyUsersData ?? []).filter(
-    (cu) => cu.status === "active" && (cu.role === "admin" || cu.role === "office"),
+    (cu) => cu.status === "active" && (accessRole(cu.role) === "admin" || cu.role === "office"),
   );
 
   const [resolution, setResolution] = useState("");

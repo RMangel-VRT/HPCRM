@@ -43,7 +43,7 @@ export function ProposalEstimateSection({ proposal, companyId, active, onLinked 
   const scope = [companyId, user?.id, user?.activeRole] as const;
   const p = proposal as ProposalWithDetails & { ticketId?: string | null; customerId: string };
   const linkedSummary = proposal.estimate ?? null;
-  const canRead = !!companyId && ["admin", "office"].includes(user?.activeRole ?? "");
+  const canRead = !!companyId && ["admin", "office"].includes(user?.accessRole ?? "");
   const ticketId = p.ticketId ?? null;
 
   const full = useQuery<EstimateDetailDto>({

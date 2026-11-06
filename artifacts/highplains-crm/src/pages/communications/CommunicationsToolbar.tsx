@@ -95,7 +95,7 @@ function ComposeDialog({ open, onOpenChange, defaultMailboxAccountId }: {
 export function CommunicationsToolbar() {
   const { search, setSearch, fromDate, setFromDate, toDate, setToDate, viewAs, setViewAs } = useCommunicationsShell();
   const { user } = useAuth();
-  const isAdminOrOffice = user?.activeRole === "admin" || user?.activeRole === "office";
+  const isAdminOrOffice = user?.accessRole === "admin" || user?.accessRole === "office";
   const [composeOpen, setComposeOpen] = useState(false);
 
   const { data: mailboxAccounts = [] } = useQuery<MailboxAccount[]>({

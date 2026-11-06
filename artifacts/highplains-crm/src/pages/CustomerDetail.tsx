@@ -47,6 +47,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { extractApiErrorMessage } from "@/lib/apiError";
 import { useAuth } from "@/hooks/use-auth";
+import { useAccountManagers } from "@/hooks/use-account-managers";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import ContractServices from "@/components/ContractServices";
@@ -456,6 +457,7 @@ export function VersionHistoryDialog({ contractId, onClose, formatFileSize }: Ve
 }
 
 export default function CustomerDetail() {
+  const accountManagers = useAccountManagers();
   const { t } = useTranslation();
   const [, params] = useRoute("/dashboard/customers/:id");
   const [, navigate] = useLocation();
@@ -505,7 +507,7 @@ export default function CustomerDetail() {
     enabled: !!id,
   });
 
-  const isPrivilegedUser = user?.activeRole === "admin" || user?.activeRole === "office";
+  const isPrivilegedUser = user?.accessRole === "admin" || user?.accessRole === "office";
 
   const { data: customerProposals = [] } = useQuery<ProposalWithDetails[]>({
     queryKey: ["/api/customers", id, "proposals"],
@@ -595,7 +597,7 @@ export default function CustomerDetail() {
 
   useSetBreadcrumbs(breadcrumbItems, [customer?.name, customer?.id, activeTab, activeTabLabel, breadcrumbIsChild, breadcrumbParent?.id, breadcrumbParent?.name]);
 
-  const canEditCustomer = user?.activeRole === "admin" || user?.activeRole === "office";
+  const canEditCustomer = user?.accessRole === "admin" || user?.accessRole === "office";
 
   // Scroll to and briefly highlight a contract card after navigating from the dashboard
   useEffect(() => {
@@ -900,6 +902,9 @@ export default function CustomerDetail() {
             </div>
           )}
         </div>
+        <p className="text-xs text-muted-foreground mt-1" data-testid="customer-account-manager">
+              {t("accountManagers.label")}: {!accountManagers.data || accountManagers.isError ? "—" : accountManagers.data.assignments[customer.id]?.name ?? t("accountManagers.notAssigned")}
+        </p>
       </div>
 
       {/* Right column: action buttons */}
@@ -918,7 +923,7 @@ export default function CustomerDetail() {
           <MessageSquare className="w-4 h-4 mr-2" />
           {t("customerDetail.addNote")}
         </Button>
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+        {(user?.accessRole === "admin" || user?.accessRole === "office") && (
           <Button 
             size="sm"
             variant="outline"
@@ -1165,7 +1170,7 @@ export default function CustomerDetail() {
           )}
         </TabsContent>
 
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+        {(user?.accessRole === "admin" || user?.accessRole === "office") && (
           <TabsContent value="annual-rollup" className="space-y-4">
             <AnnualServiceRollup customerId={customer.id} />
           </TabsContent>
@@ -1182,7 +1187,7 @@ export default function CustomerDetail() {
           />
         </TabsContent>
 
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+        {(user?.accessRole === "admin" || user?.accessRole === "office") && (
           <>
             <TabsContent value="proposals" className="space-y-4">
               <CustomerProposalsSection customerId={params?.id!} />
@@ -1271,7 +1276,7 @@ export default function CustomerDetail() {
           </>
         )}
 
-        {customer.snowEnabled && (user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "field_manager") && (
+        {customer.snowEnabled && (user?.accessRole === "admin" || user?.accessRole === "office" || user?.accessRole === "field_manager") && (
           <TabsContent value="snow" className="space-y-4">
             <CustomerSnowHistory customerId={params?.id!} customerName={customer.name} />
           </TabsContent>
@@ -1285,7 +1290,7 @@ export default function CustomerDetail() {
           <ServiceChecklistTab customerId={params?.id!} />
         </TabsContent>
 
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+        {(user?.accessRole === "admin" || user?.accessRole === "office") && (
           <TabsContent value="communications" className="space-y-4">
             <CommunicationListTab
               queryKey={["/api/customers", params?.id!, "communications"]}
@@ -1294,7 +1299,7 @@ export default function CustomerDetail() {
           </TabsContent>
         )}
 
-        {(user?.activeRole === "admin" || user?.activeRole === "office") && (
+        {(user?.accessRole === "admin" || user?.accessRole === "office") && (
           <TabsContent value="settings" className="space-y-4">
             {customer && <CustomerLocationEditor customer={customer} />}
             <CustomerSchedulingSection customerId={params?.id!} />
@@ -2046,7 +2051,7 @@ function CustomerMapsSection({ customerId }: { customerId: string }) {
   const [selectedColor, setSelectedColor] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const canEdit = user?.activeRole === "admin" || user?.activeRole === "office";
+  const canEdit = user?.accessRole === "admin" || user?.accessRole === "office";
 
   const { data: mapLayers = [], isLoading } = useQuery<CustomerMapLayer[]>({
     queryKey: ["/api/customers", customerId, "map-layers"],
@@ -3191,7 +3196,7 @@ function CustomerCrewWorksheetsSection({ customerId }: { customerId: string }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  const role = user?.activeRole ?? "";
+  const role = user?.accessRole ?? "";
   const canWriteCrewWorksheets =
     role === "admin" || role === "office" || role === "field_manager" ||
     role === "crew_supervisor" || role === "landscape_supervisor";

@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractApiErrorMessage } from "@/lib/apiError";
 import { useToast } from "@/hooks/use-toast";
@@ -90,7 +91,7 @@ export default function CampaignsList() {
     return result;
   }, [campaigns, statusFilter, categoryFilter, search]);
 
-  const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
+  const canManage = user?.accessRole === "admin" || user?.accessRole === "office";
 
   const formatWindowDate = (dateStr: string) => {
     try {
@@ -323,7 +324,7 @@ function CreateCampaignDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
   const allAssignableMembers = companyUsersData
     .filter(item =>
-      item.companyUser.role === "admin" ||
+      accessRole(item.companyUser.role) === "admin" ||
       item.companyUser.role === "office" ||
       item.companyUser.role === "field_manager" ||
       item.companyUser.role === "field" ||

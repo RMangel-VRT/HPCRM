@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { accessRole } from "../../../../../lib/db/src/accessRole";
 import {
   LayoutDashboard, Building2, Settings, Shield, DollarSign, ClipboardList, UserCheck,
   Map, CalendarDays, FileText, FileBarChart, MessagesSquare, MessageSquare, Flag, Receipt,
@@ -10,6 +11,7 @@ import { localDateString } from "@/shared/scheduleBy";
 import { firstMapHref, workViewsFor } from "./workNav";
 
 export type NavRole =
+  | "account_manager"
   | "admin" | "office" | "field_manager" | "chemical_manager" | "field"
   | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
 
@@ -65,7 +67,7 @@ export function navItemIsActive(item: Pick<ResolvedNavItem, "key" | "activeMatch
     : location === path || location.startsWith(path + "/"));
 }
 
-const is = (...roles: NavRole[]) => (u: NavUser) => roles.includes(u.activeRole);
+const is = (...roles: NavRole[]) => (u: NavUser) => roles.includes(accessRole(u.activeRole));
 const AO: NavRole[] = ["admin", "office"];
 
 export const NAV_GROUPS: NavGroupDef[] = [

@@ -70,7 +70,7 @@ function CustomerMapManager({ customerId, customerName, onClose }: { customerId:
   const isMappingUser = user?.activeRole === "mapping";
   // canEdit controls whether edit actions (delete, upload) are shown within the interface
   // Both admin and mapping can edit when they have access to the edit interface
-  const canEdit = user?.activeRole === "admin" || user?.activeRole === "mapping";
+  const canEdit = user?.accessRole === "admin" || user?.accessRole === "mapping";
   const [uploadingLayer, setUploadingLayer] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<"base" | "community" | "snow" | "custom">("community");

@@ -1,4 +1,5 @@
 import i18n from "@/i18n";
+import { accessRole } from "../../../../../lib/db/src/accessRole";
 import type { RailSection } from "./SectionRail";
 
 type SettingsViewer = { activeRole?: string; isSuperAdminBool?: boolean } | null | undefined;
@@ -32,7 +33,7 @@ export function settingsRailFor(user: SettingsViewer): RailSection[] {
   return SETTINGS_SECTIONS.map(section => ({
     label: i18n.t(section.labelKey),
     items: section.items
-      .filter(item => user.isSuperAdminBool || item.roles.includes(user.activeRole ?? ""))
+      .filter(item => user.isSuperAdminBool || item.roles.includes(accessRole(user.activeRole ?? "")))
       .map(({ key, labelKey, href }) => ({ key, label: i18n.t(labelKey), href })),
   })).filter(section => section.items.length > 0);
 }
@@ -45,7 +46,7 @@ export function settingsSectionFor(location: string, user: SettingsViewer): stri
     .filter(item => !standaloneKeys.has(item.key)).map(item => item.key);
   return requested && validTabs.includes(requested)
     ? requested
-    : user?.activeRole === "admin" || user?.isSuperAdminBool ? "company" : "property-management";
+    : accessRole(user?.activeRole ?? "") === "admin" || user?.isSuperAdminBool ? "company" : "property-management";
 }
 
 export function isSettingsRailPage(location: string): boolean {

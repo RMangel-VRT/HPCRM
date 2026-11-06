@@ -75,7 +75,7 @@ function CommunicationsCenterInner({ rawTab }: { rawTab: Tab }) {
       return res.json();
     },
     staleTime: 50_000,
-    enabled: ["admin", "office"].includes(user?.activeRole ?? ""),
+    enabled: ["admin", "office"].includes(user?.accessRole ?? ""),
   });
 
   return (
@@ -115,7 +115,7 @@ export default function CommunicationsCenter() {
     return <QueryPreservingRedirect to="/dashboard/communications/inbox" />;
   }
 
-  const isAdminOrOffice = user?.activeRole === "admin" || user?.activeRole === "office";
+  const isAdminOrOffice = user?.accessRole === "admin" || user?.accessRole === "office";
 
   if (rawTab === "all" && !isAdminOrOffice) {
     return <QueryPreservingRedirect to="/dashboard/communications/inbox" />;

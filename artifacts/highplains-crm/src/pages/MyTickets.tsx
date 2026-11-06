@@ -230,7 +230,7 @@ export default function MyTickets() {
   });
 
   const campaignAllowedRoles = ["admin", "office", "field_manager", "field", "landscape_supervisor"];
-  const showCampaigns = campaignAllowedRoles.includes(user?.activeRole || "");
+  const showCampaigns = campaignAllowedRoles.includes(user?.accessRole || "");
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<CampaignWithProgress[]>({
     queryKey: ["/api/campaigns"],

@@ -17,7 +17,7 @@ import type { UserWithContext } from "../auth";
 function authorizeRoutes(req: Request, res: Response) {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
   const user = req.user as UserWithContext;
-  if (!["admin", "office", "field_manager", "irrigation_manager"].includes(user.activeRole)) {
+  if (!["admin", "office", "field_manager", "irrigation_manager"].includes(user.accessRole)) {
     res.status(403).json({ error: "Insufficient permissions" }); return;
   }
   if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {

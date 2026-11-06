@@ -42,14 +42,14 @@ const createUserSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   name: z.string().min(1),
   password: z.string().min(8),
-  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]),
+  role: z.enum(["admin", "account_manager", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]),
   language: z.enum(["en", "es"]).default("en"),
 });
 
 type CreateUserForm = z.infer<typeof createUserSchema>;
 
 const editUserSchema = z.object({
-  role: z.enum(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]),
+  role: z.enum(["admin", "account_manager", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"]),
   status: z.enum(["active", "invited", "suspended"]),
   password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
   confirmPassword: z.string().optional().or(z.literal("")),
@@ -66,6 +66,11 @@ const editUserSchema = z.object({
 type EditUserForm = z.infer<typeof editUserSchema>;
 
 export default function UsersPage() {
+  const { user } = useAuth();
+  return <UsersPageBody key={`${user?.activeCompanyId}|${user?.id}|${user?.activeRole}`} />;
+}
+
+function UsersPageBody() {
   const { user: currentUser } = useAuth();
   const { toast } = useToast();
   const { t } = useTranslation();
@@ -106,7 +111,7 @@ export default function UsersPage() {
 
   const createUserMutation = useMutation({
     mutationFn: async (data: CreateUserForm) => {
-      const res = await apiRequest("POST", "/api/companies/users/create", data);
+      const res = await apiRequest("POST", "/api/companies/users/create", data, { headers: { "X-Company-Id": currentUser?.activeCompanyId ?? "" } });
       return await res.json();
     },
     onSuccess: () => {
@@ -129,11 +134,13 @@ export default function UsersPage() {
 
   const updateUserMutation = useMutation({
     mutationFn: async (data: { id: string; updates: EditUserForm }) => {
-      const res = await apiRequest("PATCH", `/api/company-users/${data.id}`, data.updates);
+      const res = await apiRequest("PATCH", `/api/company-users/${data.id}`, data.updates, { headers: { "X-Company-Id": currentUser?.activeCompanyId ?? "" } });
       return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies/users"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/customer-account-managers"] });
       setEditDialogOpen(false);
       setSelectedUser(null);
       toast({
@@ -152,10 +159,12 @@ export default function UsersPage() {
 
   const deleteUserMutation = useMutation({
     mutationFn: async (id: string) => {
-      await apiRequest("DELETE", `/api/company-users/${id}`);
+      await apiRequest("DELETE", `/api/company-users/${id}`, undefined, { headers: { "X-Company-Id": currentUser?.activeCompanyId ?? "" } });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies/users"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/customer-account-managers"] });
       toast({
         title: t("users.userRemoved"),
         description: t("users.userRemovedMsg"),
@@ -189,7 +198,7 @@ export default function UsersPage() {
   const handleEdit = (user: CompanyUserWithDetails) => {
     setSelectedUser(user);
     editUserForm.reset({
-      role: user.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor",
+      role: user.companyUser.role as import("../../../../lib/db/src/accessRole").Role,
       status: user.companyUser.status as "active" | "invited" | "suspended",
       password: "",
       confirmPassword: "",
@@ -217,7 +226,7 @@ export default function UsersPage() {
     );
   }
 
-  const canManageUsers = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
+  const canManageUsers = currentUser?.accessRole === "admin" || currentUser?.isSuperAdminBool;
 
   return (
     <div className="p-6">
@@ -310,6 +319,7 @@ export default function UsersPage() {
                           </FormControl>
                           <SelectContent>
                             <SelectItem value="admin">{t("roles.admin")}</SelectItem>
+                            <SelectItem value="account_manager">{t("roles.account_manager")}</SelectItem>
                             <SelectItem value="office">{t("roles.office")}</SelectItem>
                             <SelectItem value="field_manager">{t("roles.field_manager")}</SelectItem>
                             <SelectItem value="chemical_manager">{t("roles.chemical_manager")}</SelectItem>
@@ -370,7 +380,7 @@ export default function UsersPage() {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">{t("users.role")}:</span>
                   <RoleBadge 
-                    role={userItem.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor"} 
+                    role={userItem.companyUser.role as import("../../../../lib/db/src/accessRole").Role}
                     isSuperAdmin={userItem.isSuperAdmin}
                   />
                 </div>
@@ -456,7 +466,7 @@ export default function UsersPage() {
                     </p>
                   </div>
                   <RoleBadge
-                    role={selectedUser.companyUser.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor"}
+                    role={selectedUser.companyUser.role as import("../../../../lib/db/src/accessRole").Role}
                     isSuperAdmin={selectedUser.isSuperAdmin}
                   />
                 </div>
@@ -512,6 +522,7 @@ export default function UsersPage() {
                               </FormControl>
                               <SelectContent>
                                 <SelectItem value="admin">{t("roles.admin")}</SelectItem>
+                                <SelectItem value="account_manager">{t("roles.account_manager")}</SelectItem>
                                 <SelectItem value="office">{t("roles.office")}</SelectItem>
                                 <SelectItem value="field_manager">{t("roles.field_manager")}</SelectItem>
                                 <SelectItem value="chemical_manager">{t("roles.chemical_manager")}</SelectItem>

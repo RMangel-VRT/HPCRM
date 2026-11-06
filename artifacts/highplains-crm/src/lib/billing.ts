@@ -1,13 +1,14 @@
 export const BILLING_ROLES = ["admin", "office"];
+import { accessRole } from "../../../../lib/db/src/accessRole";
 export interface BillingAccessUser { activeRole?: string | null; activeTags?: string[] | null }
 /** Route/API access: admin/office, or an active billing membership tag. */
 export const canViewBilling = (user?: BillingAccessUser | null) =>
-  !!user && ((!!user.activeRole && BILLING_ROLES.includes(user.activeRole)) || (user.activeTags ?? []).includes("billing"));
+  !!user && ((!!user.activeRole && BILLING_ROLES.includes(accessRole(user.activeRole))) || (user.activeTags ?? []).includes("billing"));
 /** Tag-only: the person who works the To invoice list. */
 export const isBillingPerson = (user?: BillingAccessUser | null) => !!user && (user.activeTags ?? []).includes("billing");
 /** Sidebar only (separate from access): admins always; office only when not billing-tagged. */
 export const showBillingSidebar = (user?: BillingAccessUser | null) =>
-  !!user && (user.activeRole === "admin" || (user.activeRole === "office" && !isBillingPerson(user)));
+  !!user && (accessRole(user.activeRole ?? "") === "admin" || (accessRole(user.activeRole ?? "") === "office" && !isBillingPerson(user)));
 export const BILLING_LANDING = "/dashboard/tickets/my?tab=invoice";
 
 export type PendingScope = "mine" | "all";

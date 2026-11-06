@@ -48,7 +48,7 @@ export function SeasonRecords() {
     queryKey: ["/api/seasons"],
   });
 
-  const canManage = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
+  const canManage = ["admin", "office", "chemical_manager"].includes(user?.accessRole || "");
 
   const createMutation = useMutation({
     mutationFn: async () => {

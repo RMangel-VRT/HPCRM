@@ -1,10 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native";
+import { accessRole, type Role as MembershipRole } from "../../../lib/db/src/accessRole";
 
 import { ApiError, apiRequest, loadToken, saveToken, setUnauthorizedHandler } from "@/lib/api";
 import { getLastRegisteredToken, tryRegisterAndRemember, unregisterPushToken } from "@/lib/push";
 
 export type Role =
+  | "account_manager"
   | "admin"
   | "office"
   | "field_manager"
@@ -24,6 +26,7 @@ export type AuthUser = {
   language?: "en" | "es";
   activeCompanyId: string;
   activeRole: Role;
+  accessRole: ReturnType<typeof accessRole<MembershipRole>>;
   isSuperAdminBool?: boolean;
 };
 
@@ -59,7 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       const me = await apiRequest<AuthUser>("/api/m/me");
-      setUser(me);
+      setUser({ ...me, accessRole: accessRole(me.activeRole) });
     } catch {
       // Token invalid/expired — api layer already cleared it.
       setUser(null);
@@ -97,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ username, password, deviceLabel }),
       });
       await saveToken(resp.token);
-      setUser(resp.user);
+      setUser({ ...resp.user, accessRole: accessRole(resp.user.activeRole) });
       // Slice 6: register the device's Expo push token immediately after a
       // successful sign-in. Fire-and-forget — we don't block sign-in on the
       // OS permission prompt or token RPC. The Notifications screen owns

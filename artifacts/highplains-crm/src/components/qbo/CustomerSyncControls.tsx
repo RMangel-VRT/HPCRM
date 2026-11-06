@@ -13,7 +13,7 @@ export function CustomerSyncControls({ connected }: { connected: boolean }) {
 }
 function ScopedSyncControls({ connected }: { connected: boolean }) {
   const { user } = useAuth();
-  const admin = user?.activeRole === "admin" || user?.isSuperAdminBool;
+  const admin = user?.accessRole === "admin" || user?.isSuperAdminBool;
   const companyId = user?.activeCompanyId ?? "";
   const headers = { "X-Company-Id": companyId };
   const [confirm, setConfirm] = useState(false);
@@ -21,7 +21,7 @@ function ScopedSyncControls({ connected }: { connected: boolean }) {
   const status = useQuery<QboCustomerSyncStatus>({
     queryKey: ["/api/qbo/customers/sync-status", companyId, user?.id, user?.activeRole], refetchInterval: 60_000,
     queryFn: async () => (await apiRequest("GET", "/api/qbo/customers/sync-status", undefined, { headers })).json(),
-    enabled: !!companyId && !!(admin || user?.activeRole === "office"),
+    enabled: !!companyId && !!(admin || user?.accessRole === "office"),
   });
   const mutation = useMutation({
     mutationFn: async (initial: boolean) => {

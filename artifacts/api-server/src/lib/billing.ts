@@ -1,9 +1,10 @@
 import type { UserWithContext } from "../auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { isSeededStatus, isSeededTicketType } from "../shared/ticketCapabilities";
 import { isInvoiceEligibleType, type RfbTicketType } from "./rfbInvoiceAutoCreate";
 
 export function canSeeBilling(user: Pick<UserWithContext, "activeRole" | "activeTags">): boolean {
-  return user.activeRole === "admin" || user.activeRole === "office" || user.activeTags?.includes("billing") === true;
+  return ["admin", "office"].includes(accessRole(user.activeRole)) || user.activeTags?.includes("billing") === true;
 }
 
 /** The additional field-role privilege is only Pending Invoice → Invoiced. */

@@ -7,7 +7,7 @@ import { Router } from "wouter";
 
 /* CQ7: the customer page is read-only for customer facts; every edit goes to /edit. */
 const fx = vi.hoisted(() => ({ user: { activeRole: "admin", activeCompanyId: "co1", isSuperAdminBool: false } as any, data: {} as Record<string, unknown> }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: fx.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { ...fx.user, accessRole: fx.user.activeRole === "account_manager" ? "admin" : fx.user.activeRole } }) }));
 vi.mock("@/hooks/use-breadcrumbs", () => ({ useSetBreadcrumbs: () => {} }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (s: string) => s, i18n: { language: "en" } }) }));
 vi.mock("@tanstack/react-query", async original => ({

@@ -11,11 +11,12 @@ import { CustomerSyncBusyError, CustomerSyncError } from "../services/qboCustome
 import { isQboWriteEnabled } from "../services/qboClient";
 import type { QboCustomerFields } from "../services/qboCustomerMap";
 import { logger } from "../lib/logger";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 
 export function setupAccess(req: Request, res: Response) {
   if (!req.isAuthenticated?.()) { res.status(401).json({ message: "UNAUTHENTICATED" }); return; }
   const user = req.user as UserWithContext;
-  if (!["admin", "office"].includes(user.activeRole)) { res.status(403).json({ message: "FORBIDDEN" }); return; }
+  if (!["admin", "office"].includes(accessRole(user.activeRole))) { res.status(403).json({ message: "FORBIDDEN" }); return; }
   if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
     res.status(409).json({ message: "COMPANY_CHANGED" }); return;
   }

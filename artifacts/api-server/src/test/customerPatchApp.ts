@@ -9,6 +9,7 @@ import { billingInputProblem, protectedBillingWrite } from "../services/customer
 import { withCustomerSyncLock } from "../services/qboCustomerSync";
 import { writeCustomer } from "../services/qboCustomerWrites";
 import { setupFailure } from "../routes/customerSetup";
+import { accessRole, type Role } from "../../../../lib/db/src/accessRole";
 import { storage as realStorage } from "../storage";
 
 // Run the actual PATCH handler against PostgreSQL without starting unrelated
@@ -21,11 +22,11 @@ const mount = new Function("app", "storage", "insertCustomerSchema", "pickProvid
   "billingInputProblem", "protectedBillingWrite", "storageBillingContext", "setupFailure",
   transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code);
 
-export function customerPatchApp(companyId: string) {
+export function customerPatchApp(companyId: string, role: Role = "admin") {
   const app = express(); app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => true) as typeof req.isAuthenticated;
-    req.user = { activeCompanyId: companyId, activeRole: "admin" } as Express.User;
+    req.user = { activeCompanyId: companyId, activeRole: role, accessRole: accessRole(role) } as Express.User;
     next();
   });
   const storage = {
@@ -46,7 +47,7 @@ export function managementCompanyPatchApp(companyId: string) {
   const app = express(); app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => true) as typeof req.isAuthenticated;
-    req.user = { activeCompanyId: companyId, activeRole: "admin" } as Express.User;
+    req.user = { activeCompanyId: companyId, activeRole: "admin", accessRole: "admin" } as Express.User;
     next();
   });
   const start = source.indexOf('  app.patch("/api/property-management-companies/:id",');

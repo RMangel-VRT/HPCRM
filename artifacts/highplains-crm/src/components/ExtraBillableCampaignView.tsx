@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
@@ -95,7 +96,7 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
   const [highlightItemId, setHighlightItemId] = useState<string | null>(null);
   const [highlightCrewId, setHighlightCrewId] = useState<string | null>(null);
 
-  const isAdminOffice = user?.activeRole === "admin" || user?.activeRole === "office";
+  const isAdminOffice = user?.accessRole === "admin" || user?.accessRole === "office";
 
   const { data: crews = [] } = useQuery<CampaignCrewWithMembers[]>({
     queryKey: ["/api/campaigns", campaignId, "crews"],
@@ -110,7 +111,7 @@ export default function ExtraBillableCampaignView({ campaign, campaignId }: Prop
     () =>
       companyUsersData
         .filter(cu =>
-          ["admin", "office", "field_manager", "field", "landscape_supervisor", "crew_supervisor"].includes(cu.companyUser.role),
+          ["admin", "office", "field_manager", "field", "landscape_supervisor", "crew_supervisor"].includes(accessRole(cu.companyUser.role)),
         )
         .map(cu => ({ id: cu.companyUser.userId, name: cu.user.name, role: cu.companyUser.role })),
     [companyUsersData],

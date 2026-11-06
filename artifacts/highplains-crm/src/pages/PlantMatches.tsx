@@ -329,7 +329,7 @@ export default function PlantMatches() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const { user } = useAuth();
-  const canEnrich = user?.activeRole === "admin" || user?.activeRole === "office" || user?.isSuperAdminBool;
+  const canEnrich = user?.accessRole === "admin" || user?.accessRole === "office" || user?.isSuperAdminBool;
 
   const [filter, setFilter] = useState<FilterTab>("pending");
   const [activeKey, setActiveKey] = useState<string | null>(null);

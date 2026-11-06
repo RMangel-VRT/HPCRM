@@ -106,7 +106,7 @@ function NoResultsState() {
 export default function SentTab() {
   const { search, fromDate, toDate, viewAs } = useCommunicationsShell();
   const { user } = useAuth();
-  const canDelete = user?.activeRole === "admin" || user?.activeRole === "office";
+  const canDelete = user?.accessRole === "admin" || user?.accessRole === "office";
   const [selectedComm, setSelectedComm] = useState<CommunicationWithDetails | null>(null);
 
   const params = new URLSearchParams({ page: "1", limit: "50", direction: "outbound" });

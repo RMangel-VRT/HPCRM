@@ -96,7 +96,7 @@ export default function CommandBand({ pulse }: CommandBandProps) {
   ];
 
   const visibleActions = actions.filter((action) =>
-    action.roles.includes(user?.activeRole as "admin" | "office"),
+    action.roles.includes(user?.accessRole as "admin" | "office"),
   );
   const primaryActionId = visibleActions.some((action) => action.id === "new-ticket")
     ? "new-ticket"

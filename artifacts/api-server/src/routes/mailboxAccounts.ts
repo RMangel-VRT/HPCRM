@@ -65,7 +65,7 @@ router.get("/", async (req, res) => {
 // ─── Auth helper: admin/superadmin OR owner of personal mailbox ───────────────
 function canManageMailboxOAuth(user: UserWithContext, account: typeof mailboxAccounts.$inferSelect): boolean {
   if (user.isSuperAdminBool) return true;
-  if (user.activeRole === "admin") return true;
+  if (user.accessRole === "admin") return true;
   // Personal mailbox owned by this user
   if (account.accountType === "personal" && account.ownerUserId === user.id) return true;
   return false;
@@ -463,7 +463,7 @@ router.get("/sync-summary", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
@@ -549,7 +549,7 @@ router.post("/:id/sync", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
@@ -597,7 +597,7 @@ router.get("/:id/sync-runs", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
@@ -622,7 +622,7 @@ router.get("/:id", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
     const [account] = await db.select()
@@ -641,7 +641,7 @@ router.post("/", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
@@ -686,12 +686,12 @@ router.patch("/:id", async (req, res) => {
 
     // Personal mailboxes may only be patched by their owner or an admin
     if (account.accountType === "personal") {
-      if (user.activeRole !== "admin" && !user.isSuperAdminBool && account.ownerUserId !== user.id) {
+      if (user.accessRole !== "admin" && !user.isSuperAdminBool && account.ownerUserId !== user.id) {
         return res.status(403).json({ error: "Not authorized to update this personal mailbox" });
       }
     } else {
       // Shared mailboxes require admin or office
-      if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+      if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
         return res.status(403).json({ error: "Admin or office role required" });
       }
     }
@@ -728,7 +728,7 @@ router.post("/:id/admin-disconnect", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
@@ -762,7 +762,7 @@ router.delete("/:id", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
     const [account] = await db.update(mailboxAccounts)
       .set({ isActive: false, updatedAt: new Date() })
       .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)))
@@ -780,7 +780,7 @@ router.delete("/:id/permanent", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
+    if (user.accessRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
 
     const [account] = await db.select()
       .from(mailboxAccounts)
@@ -805,7 +805,7 @@ router.delete("/:id/permanent", async (req, res) => {
 // ── Auth helper: owner of mailbox OR admin/office ────────────────────────────
 function canAccessMailboxBackfill(user: UserWithContext, account: typeof mailboxAccounts.$inferSelect): boolean {
   if (user.isSuperAdminBool) return true;
-  if (user.activeRole === "admin" || user.activeRole === "office") return true;
+  if (user.accessRole === "admin" || user.accessRole === "office") return true;
   if (account.accountType === "personal" && account.ownerUserId === user.id) return true;
   return false;
 }

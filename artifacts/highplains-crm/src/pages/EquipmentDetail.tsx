@@ -219,8 +219,8 @@ export default function EquipmentDetail() {
     return found ? found.label : type;
   }
 
-  const canEdit = user?.activeRole === "admin" || user?.activeRole === "shop_manager" || user?.activeRole === "office";
-  const canRetireOrDelete = user?.activeRole === "admin" || user?.activeRole === "shop_manager";
+  const canEdit = user?.accessRole === "admin" || user?.accessRole === "shop_manager" || user?.accessRole === "office";
+  const canRetireOrDelete = user?.accessRole === "admin" || user?.accessRole === "shop_manager";
 
   const { data: equipment, isLoading } = useQuery<Equipment>({
     queryKey: ["/api/equipment", id],

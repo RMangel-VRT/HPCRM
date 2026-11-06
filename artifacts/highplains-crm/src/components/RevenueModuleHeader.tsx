@@ -38,7 +38,7 @@ export function RevenueModuleHeader({
 }: RevenueModuleHeaderProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const isAdmin = user?.activeRole === "admin" || user?.isSuperAdminBool;
+  const isAdmin = user?.accessRole === "admin" || user?.isSuperAdminBool;
 
   const currentDate = new Date();
   const yearOptions = Array.from({ length: 7 }, (_, i) => currentDate.getFullYear() - 3 + i);

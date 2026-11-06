@@ -244,7 +244,7 @@ function HardscapeCatalogContent() {
     return () => { exportAbort.current?.abort(); scopeRef.current = ""; };
   }, [scope]);
 
-  const allowed = user?.activeRole === "admin" || user?.activeRole === "office";
+  const allowed = user?.accessRole === "admin" || user?.accessRole === "office";
   const url = catalogListUrl({ search, category, includeInactive });
   const queryKey = [HARDSCAPE_API, user?.activeCompanyId, user?.id, user?.activeRole, search, category, includeInactive] as const;
   const { data, isLoading, isError, refetch, isFetching } = useQuery<HardscapeListResponse>({

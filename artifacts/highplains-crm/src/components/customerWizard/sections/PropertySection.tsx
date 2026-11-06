@@ -1,4 +1,8 @@
 import type { ReactNode } from "react";
+import { useEffect } from "react";
+import { Link } from "wouter";
+import { useTranslation } from "react-i18next";
+import { useAccountManagers } from "@/hooks/use-account-managers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -13,6 +17,14 @@ interface Props {
 }
 
 export function PropertySection({ d, patch, tw, parentChoices, parentsLoading, mode = "create", needed, framed, id, testId = "wizard-body-1", top, managementFields }: Props) {
+  const { t } = useTranslation();
+  const managers = useAccountManagers();
+  const parent = parentChoices.find(p => p.id === d.parentCustomerId);
+  useEffect(() => {
+    if (mode !== "create" || d.accountManagerTouched || d.parentCustomerId || !managers.data) return;
+    // Mark the initialization even with zero/multiple options. Refetches must not choose later.
+    patch({ accountManagerId: managers.data.managers.length === 1 ? managers.data.managers[0].id : null, accountManagerTouched: true });
+  }, [mode, d.accountManagerTouched, d.parentCustomerId, managers.data, patch]);
   const active = d.status === "active";
   const reqAddr = active ? tw("requiredActive") : tw("optional");
   const need = (f: "street" | "city" | "state" | "zip") => active && needed?.has(f) ? tw("neededToActivate") : false;
@@ -73,6 +85,22 @@ export function PropertySection({ d, patch, tw, parentChoices, parentsLoading, m
           <select className={selectCls} value={d.ranking} onChange={e => patch({ ranking: e.target.value as WizardDraft["ranking"] })} data-testid="select-wizard-ranking">
             {RANKINGS.map(r => <option key={r} value={r}>{tw(`property.rankings.${r}`)}</option>)}
           </select>
+        </Field>
+        <Field label={t("accountManagers.label")}>
+          {d.parentCustomerId ? <div className="text-sm space-y-1" data-testid="account-manager-inherited">
+            <div>{managers.data?.assignments[d.parentCustomerId]?.name ?? t("accountManagers.notAssigned")}</div>
+            <Link className="text-xs text-muted-foreground underline" href={`/dashboard/customers/${d.parentCustomerId}`}>
+              {t("accountManagers.setOn", { parent: parent?.name ?? tw("property.parentUnavailable") })}
+            </Link>
+          </div> : <select className={selectCls} value={d.accountManagerId ?? ""} disabled={managers.isLoading || managers.isError}
+            onChange={e => patch({ accountManagerId: e.target.value || null, accountManagerTouched: true })}
+            data-testid="select-account-manager">
+            <option value="">{t("accountManagers.notAssigned")}</option>
+            {d.accountManagerId && !managers.data?.managers.some(m => m.id === d.accountManagerId) &&
+              <option value={d.accountManagerId}>{t("accountManagers.notAssigned")}</option>}
+            {managers.data?.managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>}
+          {managers.isError && <button type="button" className="text-xs text-destructive underline" onClick={() => void managers.refetch()}>{t("accountManagers.retry")}</button>}
         </Field>
         <Field label={tw("property.parent")} hint={tw("property.parentHelp")}>
           <select className={selectCls} value={d.parentCustomerId ?? ""} disabled={parentsLoading || d.isParent}

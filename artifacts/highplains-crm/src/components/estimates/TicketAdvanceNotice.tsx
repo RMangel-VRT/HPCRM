@@ -21,7 +21,7 @@ export function TicketAdvanceNotice({ estimate }: { estimate: EstimateState & { 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const companyId = user?.activeCompanyId ?? "";
   const request = ticketRequest(companyId, () => mounted.current);
-  const enabled = !!companyId && ["admin", "office"].includes(user?.activeRole ?? "") && !!linkedTicketEvent(estimate);
+  const enabled = !!companyId && ["admin", "office"].includes(user?.accessRole ?? "") && !!linkedTicketEvent(estimate);
   const query = useQuery({
     queryKey: [RECOVERY_KEY, companyId, user?.id, user?.activeRole, estimate.id, estimate.updatedAt],
     queryFn: async () => planLinkedTicket(estimate, await loadLinkedTicket(estimate.ticketId!, request)),

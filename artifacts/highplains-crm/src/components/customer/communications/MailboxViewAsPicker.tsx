@@ -19,7 +19,7 @@ const ALL_MAILBOXES_VALUE = "__all__";
 
 export default function MailboxViewAsPicker({ value, onChange }: Props) {
   const { user } = useAuth();
-  const role = user?.activeRole;
+  const role = user?.accessRole;
 
   const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
     queryKey: ["/api/company-users"],

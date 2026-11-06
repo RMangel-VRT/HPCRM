@@ -1,4 +1,5 @@
 import type { NavRole } from "./navConfig";
+import { accessRole } from "../../../../../lib/db/src/accessRole";
 
 export type WorkFamily = "tickets" | "maps" | "campaigns";
 type WorkItem = { key: string; labelKey: string; href: string; roles: readonly string[] };
@@ -20,7 +21,7 @@ export const WORK_VIEWS: Record<WorkFamily, WorkItem[]> = {
 };
 
 export function workViewsFor(family: WorkFamily, role?: string | null) {
-  return WORK_VIEWS[family].filter(item => role && item.roles.includes(role));
+  return WORK_VIEWS[family].filter(item => role && item.roles.includes(accessRole(role)));
 }
 
 export function workPage(path: string): { family: WorkFamily; activeKey: string } | undefined {

@@ -28,7 +28,7 @@ export default function TopbarMenus() {
   const [taskOpen, setTaskOpen] = useState(false);
 
   if (!user || user.isSuperAdminBool) return null;
-  if (user.activeRole !== "admin" && user.activeRole !== "office") return null;
+  if (user.accessRole !== "admin" && user.accessRole !== "office") return null;
 
   const tools = [
     { id: "proposals", href: "/dashboard/tools/proposals", label: t("topbar.proposalMaker"), hint: t("topbar.proposalMakerHint") },

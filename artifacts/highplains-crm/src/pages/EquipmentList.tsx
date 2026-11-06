@@ -108,8 +108,8 @@ export default function EquipmentList() {
   const [equipmentToDelete, setEquipmentToDelete] = useState<EquipmentWithTicketCount | null>(null);
   const [newTicketOpen, setNewTicketOpen] = useState(false);
 
-  const canEdit = user?.activeRole === "admin" || user?.activeRole === "shop_manager" || user?.activeRole === "office";
-  const canDelete = user?.activeRole === "admin" || user?.activeRole === "office" || user?.activeRole === "shop_manager";
+  const canEdit = user?.accessRole === "admin" || user?.accessRole === "shop_manager" || user?.accessRole === "office";
+  const canDelete = user?.accessRole === "admin" || user?.accessRole === "office" || user?.accessRole === "shop_manager";
 
   const TICKET_CATEGORIES = [
     { value: "preventative_maintenance", label: t("equipmentTicket.categories.preventative_maintenance") },

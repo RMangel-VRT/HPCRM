@@ -36,6 +36,20 @@ beforeEach(() => {
 });
 
 describe("active-company tags through real passport sessions", () => {
+  it("keeps account-manager identity while refreshing projected permissions after role/status changes and company switches", async () => {
+    memberships[0].role = "account_manager";
+    const agent = request.agent(app);
+    const login = await agent.post("/api/auth/login").send({ username: "viewer@example.test", password: "test-password" });
+    expect(login.body).toMatchObject({ activeRole: "account_manager", accessRole: "admin" });
+    expect((await agent.get("/api/auth/me")).body).toMatchObject({ activeRole: "account_manager", accessRole: "admin" });
+    memberships[0].role = "field";
+    expect((await agent.get("/api/auth/me")).body).toMatchObject({ activeRole: "field", accessRole: "field" });
+    memberships[1].role = "account_manager";
+    expect((await agent.post("/api/user/switch-company").send({ companyId: "two" })).body).toMatchObject({
+      activeRole: "account_manager", accessRole: "admin", activeCompanyId: "two" });
+    memberships[1].status = "suspended";
+    expect((await agent.get("/api/auth/me")).body).toMatchObject({ activeRole: "field", accessRole: "field", activeCompanyId: "one" });
+  });
   it("returns tags at login/me and preserves switched company after deserialization without borrowing tags", async () => {
     const agent = request.agent(app);
     const login = await agent.post("/api/auth/login").send({ username: "viewer@example.test", password: "test-password" });

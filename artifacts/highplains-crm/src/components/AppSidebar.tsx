@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import RoleBadge from "./RoleBadge";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import ThemeToggle from "./ThemeToggle";
 import { Link, useLocation } from "wouter";
 import logoImage from "@assets/LOGO_-_SPREAD-06_1773353516653.png";
@@ -44,7 +45,7 @@ const CUSTOMERS_LIST_PATH = "/dashboard/customers";
 const NOTIFICATION_ROLES = ["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "shop_manager", "landscape_supervisor"];
 
 interface AppSidebarProps {
-  userRole?: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+  userRole?: import("../../../../lib/db/src/accessRole").Role;
   isSuperAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
@@ -71,7 +72,7 @@ export default function AppSidebar({
   const [helpOpen, setHelpOpen] = useState(false);
 
   const canSeeRegularCustomers =
-    !isSuperAdmin && (userRole === "admin" || userRole === "office" || userRole === "field_manager");
+    !isSuperAdmin && (accessRole(userRole) === "admin" || accessRole(userRole) === "office" || accessRole(userRole) === "field_manager");
 
   useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers?page=1&limit=200"],
@@ -110,7 +111,7 @@ export default function AppSidebar({
   const billingTaggedAlternate = !showBillingEntry && isBillingPerson({ activeRole: userRole, activeTags });
   const billingBadgeCount = Array.isArray(billingBadgeRows) ? billingBadgeRows.length : 0;
 
-  const canSchedule = !isSuperAdmin && (userRole === "admin" || userRole === "office" || userRole === "field_manager");
+  const canSchedule = !isSuperAdmin && (accessRole(userRole) === "admin" || accessRole(userRole) === "office" || accessRole(userRole) === "field_manager");
   const { data: schedulingQueue } = useSchedulingQueue(companyId, canSchedule, { badge: true });
   const schedulingBadgeCount = schedulingQueue ? schedulingQueue.needsScheduling.length + schedulingQueue.slipped.length : 0;
 
@@ -137,7 +138,7 @@ export default function AppSidebar({
   );
   const groups = getNavForUser(navUser);
 
-  const isAdminOrOffice = userRole === "admin" || userRole === "office";
+  const isAdminOrOffice = accessRole(userRole) === "admin" || accessRole(userRole) === "office";
 
   const { data: flagUnreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/flags/unread-count"],
@@ -185,7 +186,7 @@ export default function AppSidebar({
     return null;
   };
 
-  const canSeeNotifications = isSuperAdmin || NOTIFICATION_ROLES.includes(userRole);
+  const canSeeNotifications = isSuperAdmin || NOTIFICATION_ROLES.includes(accessRole(userRole));
 
   return (
     <Sidebar

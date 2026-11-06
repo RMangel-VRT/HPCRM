@@ -30,7 +30,7 @@ function app(role = "admin", tags: string[] = []) {
   const app = express(); app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => true) as typeof req.isAuthenticated;
-    req.user = { id: actor, activeCompanyId: companyId, activeRole: role, activeTags: tags } as Express.User;
+    req.user = { id: actor, activeCompanyId: companyId, activeRole: role, accessRole: role === "account_manager" ? "admin" : role, activeTags: tags } as Express.User;
     next();
   });
   app.use("/api/qbo", qbo); return app;

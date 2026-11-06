@@ -1,5 +1,12 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const es = {
+  accountManagers: {
+    label: "Gerente de cuentas", notAssigned: "Sin asignar", all: "Todos los gerentes de cuentas",
+    setOn: "Se establece en {{parent}}", branchHelp: "Las sucursales siguen al gerente de cuentas del cliente principal.",
+    set: "Establecer gerente de cuentas", select: "Seleccionar {{name}}", selectAll: "Seleccionar todos los clientes filtrados elegibles",
+    changed: "{{count}} clientes modificados", failed: "No se pudo asignar. La selección no ha cambiado.",
+    retry: "No se pudieron cargar los gerentes de cuentas. Reintentar", pending: "Asignando…",
+  },
   customerActivation: {
     title: "{{customer}} sigue siendo un cliente potencial.",
     question: "¿Activarlo y enviarlo a QuickBooks?",
@@ -533,6 +540,7 @@ const es = {
     finalized: "Finalizado",
   },
   roles: {
+    account_manager: "Gerente de cuentas",
     admin: "Administrador",
     office: "Oficina",
     field_manager: "Gerente de Campo",

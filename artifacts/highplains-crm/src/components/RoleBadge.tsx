@@ -1,7 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
-type Role = "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+type Role = import("../../../../lib/db/src/accessRole").Role;
 
 interface RoleBadgeProps {
   role: Role;
@@ -10,6 +11,7 @@ interface RoleBadgeProps {
 }
 
 const roleConfig: Record<Role, { label: string; className: string }> = {
+  account_manager: { label: "Account manager", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400" },
   admin: {
     label: "Admin",
     className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
@@ -58,6 +60,7 @@ const superAdminConfig = {
 };
 
 export default function RoleBadge({ role, isSuperAdmin = false, className }: RoleBadgeProps) {
+  const { t } = useTranslation();
   const config = isSuperAdmin ? superAdminConfig : roleConfig[role];
   const testId = isSuperAdmin ? "role-badge-super-admin" : `role-badge-${role}`;
   
@@ -71,7 +74,7 @@ export default function RoleBadge({ role, isSuperAdmin = false, className }: Rol
       )}
       data-testid={testId}
     >
-      {config.label}
+      {role === "account_manager" && !isSuperAdmin ? t("roles.account_manager") : config.label}
     </Badge>
   );
 }

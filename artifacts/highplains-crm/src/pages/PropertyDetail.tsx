@@ -64,7 +64,7 @@ export default function PropertyDetail() {
     },
   ];
 
-  const isAdminOrOffice = user?.activeRole === "admin" || user?.activeRole === "office";
+  const isAdminOrOffice = user?.accessRole === "admin" || user?.accessRole === "office";
 
   return (
     <div className="space-y-6">

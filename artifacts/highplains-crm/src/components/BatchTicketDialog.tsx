@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { extractApiErrorMessage } from "@/lib/apiError";
 import { format } from "date-fns";
@@ -121,7 +122,7 @@ export default function BatchTicketDialog({
   // Team members who can be assigned
   const teamMembers = companyUsersData
     .filter(item => 
-      item.companyUser.role === "admin" || 
+      accessRole(item.companyUser.role) === "admin" ||
       item.companyUser.role === "office" || 
       item.companyUser.role === "field_manager" ||
       item.companyUser.role === "chemical_manager" ||

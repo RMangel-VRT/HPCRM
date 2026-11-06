@@ -23,7 +23,7 @@ export default function CrewWorksheetMaker() {
   const { toast } = useToast();
   const { t } = useTranslation();
   const { user } = useAuth();
-  const canWrite = CW_WRITE_ROLES.has(user?.activeRole ?? "");
+  const canWrite = CW_WRITE_ROLES.has(user?.accessRole ?? "");
 
   const params = new URLSearchParams(search);
   const contextTicketId = params.get("ticketId") || null;

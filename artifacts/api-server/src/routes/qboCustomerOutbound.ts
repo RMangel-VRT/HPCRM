@@ -20,7 +20,7 @@ function access(req: Request, res: Response, billing = false) {
   if (req.header("X-Company-Id") && req.header("X-Company-Id") !== u.activeCompanyId) {
     res.status(409).json({ message: "Active company changed; reload before continuing" }); return;
   }
-  if (billing ? !canSeeBilling(u) : !["admin", "office"].includes(u.activeRole)) {
+  if (billing ? !canSeeBilling(u) : !["admin", "office"].includes(u.accessRole)) {
     res.status(403).json({ message: "Forbidden" }); return;
   }
   return { companyId: u.activeCompanyId, actorId: u.id };

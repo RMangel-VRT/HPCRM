@@ -64,8 +64,8 @@ export default function ChecklistItemDetailPanel({ item, onClose }: ChecklistIte
   const { user } = useAuth();
   if (!item) return null;
 
-  const canViewCustomer = ["admin", "office", "field_manager", "chemical_manager"].includes(user?.activeRole ?? "");
-  const canViewCommunications = ["admin", "office"].includes(user?.activeRole ?? "");
+  const canViewCustomer = ["admin", "office", "field_manager", "chemical_manager"].includes(user?.accessRole ?? "");
+  const canViewCommunications = ["admin", "office"].includes(user?.accessRole ?? "");
 
   const executionUrl = `/dashboard/campaigns/${item.campaignId}/items/${item.id}`;
   const campaignUrl = `/dashboard/campaigns/${item.campaignId}`;

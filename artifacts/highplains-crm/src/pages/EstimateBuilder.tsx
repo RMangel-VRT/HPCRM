@@ -121,7 +121,7 @@ function BuilderContent({ id }: { id: string }) {
   const vParam = new URLSearchParams(search).get("version");
   const requestedVersion = vParam && /^[1-9]\d*$/.test(vParam) ? Number(vParam) : undefined;
   const [companyId] = useState(() => user?.activeCompanyId ?? "");
-  const allowed = user?.activeRole === "admin" || user?.activeRole === "office";
+  const allowed = user?.accessRole === "admin" || user?.accessRole === "office";
 
   const key = [ESTIMATES_API, "detail", user?.activeCompanyId, user?.id, user?.activeRole, id, requestedVersion ?? "current"] as const;
   const viewTag = key.join("|");

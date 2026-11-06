@@ -38,6 +38,7 @@ import {
   MOBILE_ALLOWED_ROLES,
 } from "../mobileAuth";
 import type { UserWithContext } from "../auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { addPushSubscription, removePushSubscription } from "../services/pushNotifications";
 import { pickProvided } from "../lib/patchBody";
 import { CrewLinkError, lockCrewCompany, recordCrewLinkChoice, validateCampaignOwner } from "../lib/crewLinks";
@@ -91,7 +92,7 @@ function adminOrOffice(req: Request, res: Response): UserWithContext | null {
     return null;
   }
   const u = req.user as UserWithContext;
-  if (u.activeRole !== "admin" && u.activeRole !== "office" && !u.isSuperAdminBool) {
+  if (u.accessRole !== "admin" && u.accessRole !== "office" && !u.isSuperAdminBool) {
     res.status(403).json({ message: "Forbidden" });
     return null;
   }
@@ -126,7 +127,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
   app.get("/api/crews/worksheet-options", async (req, res) => {
     if (!req.isAuthenticated?.()) return void res.status(401).json({ message: "Not authenticated" });
     const u = req.user as UserWithContext;
-    if (!["admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor"].includes(u.activeRole)) return void res.status(403).json({ message: "Forbidden" });
+    if (!["admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor"].includes(u.accessRole)) return void res.status(403).json({ message: "Forbidden" });
     res.json(await db.select({ id: crews.id, name: crews.name }).from(crews).where(and(eq(crews.companyId, u.activeCompanyId), eq(crews.isActive, true))).orderBy(sql`${crews.displayOrder} ASC NULLS LAST`, crews.name));
   });
   app.get("/api/crews/setup", async (req, res) => {
@@ -198,7 +199,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       : ["admin", "office", "field_manager"];
     if (req.path === "/api/routes/crews" && req.get("X-Company-Id") && req.get("X-Company-Id") !== u.activeCompanyId)
       return void res.status(409).json({ error: "COMPANY_CHANGED" });
-    if (!roles.includes(u.activeRole) && !u.isSuperAdminBool) return void res.status(403).json({ message: "Forbidden" });
+    if (!roles.includes(u.accessRole) && !u.isSuperAdminBool) return void res.status(403).json({ message: "Forbidden" });
     const rows = await db.select({ id: crews.id, name: crews.name, color: crews.color, defaultHoursPerDay: crews.defaultHoursPerDay, supervisorName: users.name, displayOrder: crews.displayOrder })
       .from(crews).leftJoin(users, eq(users.id, crews.supervisorUserId))
       .where(and(eq(crews.companyId, u.activeCompanyId), eq(crews.isActive, true)))
@@ -395,6 +396,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
         language: result.user.language,
         activeCompanyId: result.companyId,
         activeRole: result.role,
+        accessRole: accessRole(result.role),
       },
     });
   });
@@ -1813,6 +1815,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       language: u.language,
       activeCompanyId: u.activeCompanyId,
       activeRole: u.activeRole,
+      accessRole: accessRole(u.activeRole),
       isSuperAdminBool: u.isSuperAdminBool,
       crewId: crewRow?.id ?? null,
       crewName: crewRow?.name ?? null,
@@ -2188,6 +2191,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
         language: u.language,
         activeCompanyId: u.activeCompanyId,
         activeRole: u.activeRole,
+        accessRole: accessRole(u.activeRole),
         isSuperAdminBool: u.isSuperAdminBool,
         crewId,
         crewName,

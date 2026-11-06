@@ -13,6 +13,7 @@ import { CustomerSyncError, withCustomerSyncLock } from "./qboCustomerSync";
 import { customerEditNeedsPush, markPending, writeCustomer } from "./qboCustomerWrites";
 import { geocodeProperty } from "./propertyGeocoder";
 import { logger } from "../lib/logger";
+import { validateAccountManagerWrite } from "./accountManagers";
 
 const site = z.object({
   gateCode: z.string().nullable().optional(), accessNotes: z.string().nullable().optional(),
@@ -99,6 +100,9 @@ export async function saveCustomerSetup(companyId: string, actorId: string, inpu
     if (id && !before) throw new CustomerSyncError(404, "CUSTOMER_NOT_FOUND");
     if (id && !input.expectedUpdatedAt) throw new CustomerSyncError(400, "EXPECTED_UPDATED_AT_REQUIRED");
     const raw = { ...input.customer, ...input.siteNotes };
+    await validateAccountManagerWrite(tx, companyId, {
+      parentCustomerId: (Object.hasOwn(raw, "parentCustomerId") ? (raw as Record<string, unknown>).parentCustomerId : before?.parentCustomerId) as string | null | undefined,
+    }, raw);
     const parsed = before
       ? provided(insertCustomerSchema.partial().omit({ companyId: true }).parse(raw), raw)
       : insertCustomerSchema.parse({ ...raw, companyId });

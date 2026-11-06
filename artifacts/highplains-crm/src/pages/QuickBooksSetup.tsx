@@ -293,7 +293,7 @@ function QuickBooksSetupContent() {
   const [companyId] = useState(() => user?.activeCompanyId ?? "");
   const ctx: Ctx = { companyId, scope, scopeRef };
   const [dialog, setDialog] = useState<{ mode: "link" | "create"; umbrella: Umbrella; n: number } | null>(null);
-  const isAdmin = user?.activeRole === "admin";
+  const isAdmin = user?.accessRole === "admin";
 
   const { data, isLoading, isError, refetch } = useQuery<UmbrellasResponse>({
     queryKey: [QBO_UMBRELLAS_API, user?.activeCompanyId, user?.id, user?.activeRole],

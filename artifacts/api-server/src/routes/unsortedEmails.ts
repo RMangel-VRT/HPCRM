@@ -102,7 +102,7 @@ router.get("/:id", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
@@ -121,7 +121,7 @@ router.post("/:id/route", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
@@ -195,7 +195,7 @@ router.post("/:id/archive", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
@@ -215,7 +215,7 @@ router.post("/:id/spam", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
@@ -235,7 +235,7 @@ router.post("/:id/assign", async (req, res) => {
   try {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.activeRole !== "admin" && user.activeRole !== "office" && !user.isSuperAdminBool) {
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 

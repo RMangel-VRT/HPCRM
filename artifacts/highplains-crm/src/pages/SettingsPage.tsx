@@ -7,6 +7,7 @@ import { z } from "zod";
 import { useLocation, Link } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { useAuth } from "@/hooks/use-auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -91,7 +92,7 @@ export default function SettingsPage() {
   const [location, navigate] = useLocation();
   
   // Check if user is admin (can see all tabs) vs office (can only see Property Management)
-  const isAdmin = currentUser?.activeRole === "admin" || currentUser?.isSuperAdminBool;
+  const isAdmin = currentUser?.accessRole === "admin" || currentUser?.isSuperAdminBool;
   const getDefaultTab = () => settingsSectionFor(location, currentUser);
   const activeTabState = getDefaultTab();
   // Contracts is admin-only: guard direct URLs and role changes.
@@ -109,7 +110,7 @@ export default function SettingsPage() {
   });
   
   // Check if user has access to Property Management (admin or office)
-  const canAccessPropertyManagement = currentUser?.activeRole === "admin" || currentUser?.activeRole === "office" || currentUser?.isSuperAdminBool;
+  const canAccessPropertyManagement = currentUser?.accessRole === "admin" || currentUser?.accessRole === "office" || currentUser?.isSuperAdminBool;
   
   // Property Management state
   const [pmCompanyDialogOpen, setPmCompanyDialogOpen] = useState(false);
@@ -1842,7 +1843,7 @@ function BillingSettings() {
             <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
           ) : (
             <div className="space-y-2">
-              {teamMembers?.filter(m => m.status === "active" && (m.role === "admin" || m.role === "office")).map(member => (
+              {teamMembers?.filter(m => m.status === "active" && (accessRole(m.role) === "admin" || accessRole(m.role) === "office")).map(member => (
                 <div key={member.id} className="flex items-center justify-between gap-4 p-3 rounded-md border" data-testid={`billing-user-${member.id}`}>
                   <div className="flex items-center gap-3">
                     <User className="w-4 h-4 text-muted-foreground" />

@@ -4,6 +4,8 @@ import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrew
 import { hardscapeStorage } from "./lib/hardscapeStorage";
 import { loadProposalEstimateSummaries } from "./services/proposalEstimates";
 import { withCustomerSyncLock } from "./services/qboCustomerSync";
+import { validateAccountManagerWrite } from "./services/accountManagers";
+import { accessRole } from "../../../lib/db/src/accessRole";
 import { afterCustomerEdit, markPending, writeCustomer } from "./services/qboCustomerWrites";
 import { bindCustomer, unlinkCustomerLocked } from "./services/qboCustomerBinding";
 import { promoteQboCustomer } from "./services/qboCustomerPromotion";
@@ -848,6 +850,7 @@ export class PgStorage implements IStorage {
 
   async createCustomer(insertCustomer: InsertCustomer): Promise<Customer> {
     return withCustomerSyncLock(insertCustomer.companyId, async tx => {
+      await validateAccountManagerWrite(tx, insertCustomer.companyId, insertCustomer, insertCustomer);
       const [created] = await tx.insert(customers).values([insertCustomer] as (typeof customers.$inferInsert)[]).returning();
       await afterCustomerEdit(tx, undefined, created);
       return (await tx.select().from(customers).where(and(eq(customers.companyId, created.companyId), eq(customers.id, created.id))))[0];
@@ -859,6 +862,9 @@ export class PgStorage implements IStorage {
     // The non-renewal sweep supplies its own transaction for inactive-only DML.
     // It never activates or changes billing facts, so no outbound work is needed.
     if (writer === db) return withCustomerSyncLock(companyId, tx => writeCustomer(tx, id, companyId, updates, expectedUpdatedAt));
+    if (Object.hasOwn(updates, "accountManagerId")) {
+      throw new Error("Account manager changes require the shared customer transaction.");
+    }
     // If expectedUpdatedAt is provided, check for conflicts
     if (expectedUpdatedAt) {
       const current = await writer.select().from(customers)
@@ -3921,7 +3927,7 @@ export class PgStorage implements IStorage {
   }
 
   async getMyExtraBillableBatches(userId: string, role: string, companyId: string): Promise<MyExtraBillableBatch[]> {
-    const isAdminOrOffice = role === "admin" || role === "office";
+    const isAdminOrOffice = accessRole(role) === "admin" || accessRole(role) === "office";
     const baseSelect = {
       crewId: campaignCrews.id,
       crewName: campaignProjection.name,

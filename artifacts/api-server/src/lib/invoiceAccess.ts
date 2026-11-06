@@ -1,12 +1,13 @@
 import type { RequestHandler } from "express";
 import type { UserWithContext } from "../auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 
 /** Company header is an expectation, never authorization. Run before the flag. */
 export const invoiceAccess: RequestHandler = (req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   if (!req.isAuthenticated?.()) { res.status(401).json({ message: "Not authenticated" }); return; }
   const user = req.user as UserWithContext;
-  if (!user.activeCompanyId || !["admin", "office"].includes(user.activeRole)) {
+  if (!user.activeCompanyId || !["admin", "office"].includes(accessRole(user.activeRole))) {
     res.status(403).json({ message: "Access denied" }); return;
   }
   if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {

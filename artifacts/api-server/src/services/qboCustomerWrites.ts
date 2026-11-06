@@ -5,6 +5,7 @@ import { CustomerSyncError } from "./qboCustomerSync";
 import { lockedCustomer, queueCustomerPush } from "./qboCustomerPush";
 import { equal } from "./qboCustomerComparison";
 import { assertActivationComplete } from "./customerSetupValidation";
+import { validateAccountManagerWrite } from "./accountManagers";
 
 const billingColumns: (keyof Customer)[] = ["billingName", "billingCompanyName", "billingContactName", "billingEmails",
   "billingPhone", "billingMobile", "billToMode", "billStreet", "billStreet2", "billCity", "billState", "billZip",
@@ -47,6 +48,7 @@ export async function writeCustomer(tx: AppTransaction, id: string, companyId: s
   updates: Partial<InsertCustomer>, expectedUpdatedAt?: Date) {
   const before = await lockedCustomer(tx, companyId, id);
   if (!before) return undefined;
+  await validateAccountManagerWrite(tx, companyId, { ...before, ...updates }, updates);
   if (expectedUpdatedAt && Math.abs(before.updatedAt.getTime() - expectedUpdatedAt.getTime()) > 1000)
     return { conflict: true as const, current: before };
   let newParent: Customer | undefined;

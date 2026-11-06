@@ -340,7 +340,7 @@ const ALL_COMM_ROLES = new Set(["admin", "office", "field", "field_manager", "ch
 
 function useCommPermissions() {
   const { user } = useAuth();
-  const role = user?.activeRole;
+  const role = user?.accessRole;
   return {
     canView: !!role && ALL_COMM_ROLES.has(role),
     canManageTemplates: role === "admin" || role === "office",
@@ -1108,7 +1108,7 @@ function FollowUpPanel({
 
 function DetailPanel({ id }: { id: string | null }) {
   const { user } = useAuth();
-  const isAdmin = user?.activeRole === "admin";
+  const isAdmin = user?.accessRole === "admin";
   const [scheduleFor, setScheduleFor] = useState<string>("");
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpPreset, setFollowUpPreset] = useState<string>("1_week");

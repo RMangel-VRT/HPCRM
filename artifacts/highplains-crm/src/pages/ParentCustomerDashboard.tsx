@@ -19,6 +19,8 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import CustomerSearchInput from "@/components/CustomerSearchInput";
 import { CustomerContracts } from "@/components/contracts/CustomerContracts";
 import { useAuth } from "@/hooks/use-auth";
+import { useAccountManagers } from "@/hooks/use-account-managers";
+import { useTranslation } from "react-i18next";
 import type { Customer } from "@shared/schema";
 
 interface ParentRollupData {
@@ -73,7 +75,9 @@ interface Props {
 
 export default function ParentCustomerDashboard({ customer }: Props) {
   const { user } = useAuth();
-  const canViewContracts = !!user && (user.isSuperAdminBool || user.activeRole === "admin" || user.activeRole === "office");
+  const { t } = useTranslation();
+  const accountManagers = useAccountManagers();
+  const canViewContracts = !!user && (user.isSuperAdminBool || user.accessRole === "admin" || user.accessRole === "office");
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState(() =>
@@ -147,6 +151,8 @@ export default function ParentCustomerDashboard({ customer }: Props) {
     setLinkingStatus(nextStatus);
 
     if (successCount > 0) {
+      void queryClient.invalidateQueries({ queryKey: ["/api/customer-account-managers"] });
+      void queryClient.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/customers") });
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customer.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customer.id, "parent-rollup"] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
@@ -173,6 +179,8 @@ export default function ParentCustomerDashboard({ customer }: Props) {
     mutationFn: (childId: string) =>
       apiRequest("PATCH", `/api/customers/${childId}`, { parentCustomerId: null }),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/customer-account-managers"] });
+      void queryClient.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/customers") });
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customer.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customer.id, "parent-rollup"] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
@@ -226,6 +234,9 @@ export default function ParentCustomerDashboard({ customer }: Props) {
               {childCount} {childCount === 1 ? "property" : "properties"}
             </span>
           </div>
+          <p className="text-sm text-muted-foreground" data-testid="customer-account-manager">
+            {t("accountManagers.label")}: {!accountManagers.data || accountManagers.isError ? "—" : accountManagers.data.assignments[customer.id]?.name ?? t("accountManagers.notAssigned")}
+          </p>
         </div>
       </div>
 

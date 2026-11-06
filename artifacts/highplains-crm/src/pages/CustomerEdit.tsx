@@ -254,7 +254,7 @@ function EditBody({ id, companyId }: { id: string; companyId: string }) {
     try {
       await qboJson("PATCH", `/api/customers/${encodeURIComponent(id)}/setup`, companyId, body);
       if (!alive.current) return;
-      void qc.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/customers") });
+      void qc.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" && ((q.queryKey[0] as string).startsWith("/api/customers") || q.queryKey[0] === "/api/customer-account-managers") });
       for (const k of ["/api/property-managers", "/api/qbo/customer-reviews", "/api/qbo/customer-reviews/count", "/api/qbo/customer-review-options", "/api/qbo/customers/mapping", "/api/qbo/customers/cache", "/api/qbo/customers/unbound-count"])
         void qc.invalidateQueries({ queryKey: [k] });
       toast({ title: te("saved"), description: qboNote ? te("savedQbo") : undefined });

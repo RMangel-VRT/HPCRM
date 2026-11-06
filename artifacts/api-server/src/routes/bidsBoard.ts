@@ -23,7 +23,7 @@ export function registerBidsBoardRoutes(app: Express): void {
       res.status(401).json({ message: "Not authenticated" }); return;
     }
     const user = req.user as UserWithContext;
-    if (!["admin", "office"].includes(user.activeRole) || !user.activeCompanyId) {
+    if (!["admin", "office"].includes(user.accessRole) || !user.activeCompanyId) {
       res.status(403).json({ message: "Access denied" }); return;
     }
     try {

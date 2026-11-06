@@ -28,6 +28,7 @@ export interface SiteFacts {
 }
 
 export interface WizardDraft {
+  accountManagerId: string | null; accountManagerTouched: boolean;
   name: string; customerNumber: string; ranking: Ranking; street: string; city: string; state: string; zip: string;
   customerType: "commercial" | "hoa"; status: WizardStatus;
   parentCustomerId: string | null; isParent: boolean; branchBillingMode: BranchMode;
@@ -55,6 +56,7 @@ export const blankSite = (): SiteFacts => ({
 
 export function newWizardDraft(): WizardDraft {
   return {
+    accountManagerId: null, accountManagerTouched: false,
     name: "", customerNumber: "", ranking: "standard", street: "", city: "", state: "CO", zip: "", customerType: "commercial", status: "prospect",
     parentCustomerId: null, isParent: false, branchBillingMode: "master", snowEnabled: false, acres: "", complexityScore: "",
     billToMode: "property", propertyManagementCompanyId: null, propertyManagerId: null,
@@ -76,6 +78,7 @@ export function draftFromServer(c: Record<string, unknown>, contacts: Record<str
   const billingName = s(c.billingName);
   return {
     ...base,
+    accountManagerId: (c.accountManagerId as string) || null, accountManagerTouched: !!opts.edit,
     name: s(c.name), customerNumber: s(c.customerNumber),
     ranking: (RANKINGS as string[]).includes(String(c.ranking)) ? c.ranking as Ranking : "standard",
     street: s(c.street), city: s(c.city), state: s(c.state), zip: s(c.zip),
@@ -218,6 +221,7 @@ export function buildBody(d: WizardDraft, opts: { master: boolean; edit: boolean
     snowEnabled: d.snowEnabled, includeInRoute: d.site.includeInRoute,
   };
   const num = opt(d.customerNumber); if (num) customer.customerNumber = num;
+  if (!d.parentCustomerId) customer.accountManagerId = d.accountManagerId;
   if (d.ranking !== "standard") customer.ranking = d.ranking;
   if (d.isParent) customer.branchBillingMode = d.branchBillingMode;
   // Create omits blank address parts. Setup sends "" for a cleared part (columns are NOT NULL), never null.
@@ -319,6 +323,7 @@ export const patchIsEmpty = (p: EditPatch) =>
 /** Only facts that differ from the loaded baseline. Untouched legacy values (null billing name, odd ZIPs) are never resent. */
 export function buildEditPatch(base: WizardDraft, d: WizardDraft): EditPatch {
   const customer: Record<string, unknown> = {};
+  if (!d.parentCustomerId && base.accountManagerId !== d.accountManagerId) customer.accountManagerId = d.accountManagerId;
   for (const k of CUSTOMER_TEXT) if (d[k] !== base[k]) customer[k] = d[k].trim() ? d[k].trim() : NOT_NULL.has(k) ? "" : null;
   for (const k of ["customerType", "status", "ranking", "billToMode", "parentCustomerId", "propertyManagementCompanyId", "propertyManagerId", "snowEnabled"] as const)
     if (d[k] !== base[k]) customer[k] = d[k];

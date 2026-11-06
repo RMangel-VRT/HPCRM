@@ -48,7 +48,7 @@ function app(role = "admin", companyId = a, tags: string[] = [], authenticated =
   const result = express(); result.use(express.json());
   result.use((req, _res, next) => {
     req.isAuthenticated = (() => authenticated) as typeof req.isAuthenticated;
-    req.user = { id: actor, activeCompanyId: companyId, activeRole: role, activeTags: tags } as Express.User;
+    req.user = { id: actor, activeCompanyId: companyId, activeRole: role, accessRole: role === "account_manager" ? "admin" : role, activeTags: tags } as Express.User;
     next();
   });
   result.use("/api/qbo", outbound); return result;

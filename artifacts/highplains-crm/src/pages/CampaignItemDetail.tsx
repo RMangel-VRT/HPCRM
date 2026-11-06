@@ -269,7 +269,7 @@ export default function CampaignItemDetail() {
       if (!res.ok) throw new Error(`Recipient lookup failed (${res.status})`);
       return res.json();
     },
-    enabled: !!campaignId && !!itemId && campaign?.category === "chemical" && ["admin", "office", "chemical_manager"].includes(user?.activeRole || ""),
+    enabled: !!campaignId && !!itemId && campaign?.category === "chemical" && ["admin", "office", "chemical_manager"].includes(user?.accessRole || ""),
     staleTime: 0,
     refetchOnMount: "always",
     retry: false,
@@ -314,12 +314,12 @@ export default function CampaignItemDetail() {
 
   const isArchivedCampaign = campaign?.status === "archived";
 
-  const canManage = user?.activeRole === "admin" || user?.activeRole === "office";
-  const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"].includes(user?.activeRole || "");
-  const canSendChemEmails = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
-  const canFinishWithoutComms = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
-  const canSkip = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
-  const canReopen = ["admin", "office", "chemical_manager"].includes(user?.activeRole || "");
+  const canManage = user?.accessRole === "admin" || user?.accessRole === "office";
+  const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"].includes(user?.accessRole || "");
+  const canSendChemEmails = ["admin", "office", "chemical_manager"].includes(user?.accessRole || "");
+  const canFinishWithoutComms = ["admin", "office", "chemical_manager"].includes(user?.accessRole || "");
+  const canSkip = ["admin", "office", "chemical_manager"].includes(user?.accessRole || "");
+  const canReopen = ["admin", "office", "chemical_manager"].includes(user?.accessRole || "");
   const isChemicalCampaign = campaign?.category === "chemical";
   const isIrrigationCampaign = campaign?.category === "irrigation";
 
@@ -327,7 +327,7 @@ export default function CampaignItemDetail() {
   // /photos/drop endpoint so they get HEIC-converted, sharp-resized, and
   // EXIF-stripped server-side (instead of the legacy presigned-PUT flow).
   const isExtraBillableCampaign = campaign?.category === "extra_billable";
-  const isAdminOffice = user?.activeRole === "admin" || user?.activeRole === "office";
+  const isAdminOffice = user?.accessRole === "admin" || user?.accessRole === "office";
 
   const { data: ebCrews = [] } = useQuery<Array<{ id: string; name: string; color: string; leaderUserId: string; leaderName?: string }>>({
     queryKey: ["/api/campaigns", campaignId, "crews"],

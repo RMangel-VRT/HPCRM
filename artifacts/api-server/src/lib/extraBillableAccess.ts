@@ -1,4 +1,5 @@
 import type { IStorage } from "../storage";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 
 export interface ExtraBillableAccessUser {
   id: string;
@@ -39,7 +40,7 @@ export async function canAccessExtraBillableCampaignItem(
   item: ExtraBillableAccessItem,
   mode: "read" | "write",
 ): Promise<boolean> {
-  if (user.activeRole === "admin" || user.activeRole === "office") return true;
+  if (accessRole(user.activeRole) === "admin" || accessRole(user.activeRole) === "office") return true;
   if (!item.assignedCampaignCrewId) return false;
   const crew = await storage.getCampaignCrewById(item.assignedCampaignCrewId, user.activeCompanyId);
   if (!crew) return false;
@@ -101,7 +102,7 @@ export type BulkAssignValidationResult =
 export function validateBulkAssignCrew(input: BulkAssignValidationInput): BulkAssignValidationResult {
   const { user, campaignId, body, campaign, targetCrew, itemRows } = input;
 
-  if (user.activeRole !== "admin" && user.activeRole !== "office") {
+  if (accessRole(user.activeRole) !== "admin" && accessRole(user.activeRole) !== "office") {
     return { ok: false, status: 403, code: "forbidden_role", error: "Only admin/office can reassign properties" };
   }
 

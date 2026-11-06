@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useContext } from "react";
+import { accessRole, type Role } from "../../../../lib/db/src/accessRole";
 import {
   useQuery,
   useMutation,
@@ -11,7 +12,8 @@ import { useTranslation } from "react-i18next";
 
 export type UserWithCompanyContext = Omit<User, "passwordHash"> & {
   activeCompanyId: string;
-  activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+  activeRole: Role;
+  accessRole: ReturnType<typeof accessRole>;
   activeTags?: string[];
   isSuperAdminBool: boolean;
   activeCompany?: Company | null;
@@ -43,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   } = useQuery<UserWithCompanyContext | undefined, Error>({
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
+    staleTime: 0, refetchInterval: 30_000, refetchOnWindowFocus: true,
     retry: false,
   });
 
@@ -53,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: (user: UserWithCompanyContext) => {
       queryClient.setQueryData(["/api/auth/me"], user);
+      void queryClient.invalidateQueries({ queryKey: ["/api/customer-account-managers"] });
     },
     onError: (error: Error) => {
       toast({
@@ -69,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/auth/me"], null);
+      queryClient.removeQueries({ queryKey: ["/api/customer-account-managers"] });
     },
     onError: (error: Error) => {
       toast({
@@ -105,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        user: user ?? null,
+        user: user ? { ...user, accessRole: accessRole(user.activeRole) } : null,
         isLoading,
         error,
         loginMutation,

@@ -35,7 +35,7 @@ beforeAll(async () => {
     companyIds.push(company.id);
   }
   const [user] = await db.insert(users).values({ name: "Sections fixture", email: `sections-${randomUUID()}@example.invalid`, passwordHash: "not-a-login" }).returning();
-  viewer = { ...user, activeCompanyId: companyIds[0], activeRole: "admin", activeTags: [], isSuperAdminBool: false };
+  viewer = { ...user, activeCompanyId: companyIds[0], activeRole: "admin", accessRole: "admin", activeTags: [], isSuperAdminBool: false };
   await db.insert(companyUsers).values({ companyId: companyIds[0], userId: user.id, role: "admin", status: "active" });
 }, 30_000);
 afterAll(async () => {

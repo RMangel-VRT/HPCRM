@@ -21,7 +21,7 @@ interface Props {
 }
 export function TicketEstimatePanel(props: Props) {
   const { user } = useAuth();
-  if (!["admin", "office"].includes(user?.activeRole ?? "") || !user?.activeCompanyId
+  if (!["admin", "office"].includes(user?.accessRole ?? "") || !user?.activeCompanyId
     || !isSeededTicketType(props.ticketType, "estimate_request")) return null;
   return <Panel key={`${user.activeCompanyId}|${user.id}|${user.activeRole}|${props.ticket.id}`} {...props} />;
 }

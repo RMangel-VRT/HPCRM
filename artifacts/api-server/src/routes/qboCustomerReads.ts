@@ -17,7 +17,7 @@ function access(req: Request, res: Response, billing: boolean) {
     res.status(409).json({ message: "Active company changed. Reload before continuing." }); return;
   }
   // Mirrors the existing CustomerDetail route, not a new customer access grant.
-  if (billing ? !canSeeBilling(user) : !["admin", "office", "field_manager", "chemical_manager"].includes(user.activeRole)) {
+  if (billing ? !canSeeBilling(user) : !["admin", "office", "field_manager", "chemical_manager"].includes(user.accessRole)) {
     res.status(403).json({ message: "Forbidden" }); return;
   }
   return user;

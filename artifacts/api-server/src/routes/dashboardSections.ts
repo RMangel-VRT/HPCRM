@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { communications, flags, tickets, ticketTypes, ticketTypeStatuses, ticketStatusHistory } from "@workspace/db";
 import type { UserWithContext } from "../auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { db } from "../db";
 import { storage } from "../storage";
 import { companyToday } from "../lib/companyDay";
@@ -28,13 +29,14 @@ const PERSONAL_ROLES = ["admin", "office", "field", "field_manager", "chemical_m
 
 /** Mirrors navConfig/workNav, not the broader billing API permission. */
 export function permittedSections(user: Pick<UserWithContext, "activeRole" | "activeTags" | "isSuperAdminBool">): SectionKey[] {
-  const office = ["admin", "office"].includes(user.activeRole);
-  const billingNav = user.activeRole === "admin" || (user.activeRole === "office" && !user.activeTags?.includes("billing"));
+  const role = accessRole(user.activeRole);
+  const office = ["admin", "office"].includes(role);
+  const billingNav = role === "admin" || (role === "office" && !user.activeTags?.includes("billing"));
   if (user.isSuperAdminBool) return billingNav ? ["invoicing", "mine"] : [];
   return ([
-    ["estimates", office], ["bids", office], ["scheduling", office || user.activeRole === "field_manager"],
+    ["estimates", office], ["bids", office], ["scheduling", office || role === "field_manager"],
     ["invoicing", billingNav], ["inbox", office], ["flags", office], ["contracts", office],
-    ["mine", PERSONAL_ROLES.includes(user.activeRole) || user.activeTags?.includes("billing")],
+    ["mine", PERSONAL_ROLES.includes(role) || user.activeTags?.includes("billing")],
   ] as const).filter(([, allowed]) => allowed).map(([key]) => key);
 }
 

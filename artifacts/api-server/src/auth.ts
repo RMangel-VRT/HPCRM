@@ -1,4 +1,5 @@
 import passport from "passport";
+import { accessRole, type Role } from "../../../lib/db/src/accessRole";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express } from "express";
 import session from "express-session";
@@ -11,7 +12,8 @@ export const hashPassword = sharedHashPassword;
 export interface UserWithContext extends SelectUser {
   activeCompanyId: string;
   activeTags: string[];
-  activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+  activeRole: Role;
+  accessRole: ReturnType<typeof accessRole>;
   isSuperAdminBool: boolean;
 }
 
@@ -70,7 +72,7 @@ export function setupAuth(app: Express) {
           const isSuperAdminBool = user.isSuperAdmin === "true";
           let activeCompanyId: string;
           let activeTags: string[] = [];
-          let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+          let activeRole: Role;
 
           if (isSuperAdminBool) {
             if (!user.defaultCompanyId) {
@@ -91,7 +93,7 @@ export function setupAuth(app: Express) {
             const activeMembership = activeMemberships[0];
             activeCompanyId = activeMembership.companyId;
             activeTags = activeMembership.tags ?? [];
-            activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+            activeRole = activeMembership.role;
           }
 
           const userWithContext: UserWithContext = {
@@ -99,6 +101,7 @@ export function setupAuth(app: Express) {
             activeCompanyId,
             activeTags,
             activeRole,
+            accessRole: accessRole(activeRole),
             isSuperAdminBool,
           };
 
@@ -124,7 +127,7 @@ export function setupAuth(app: Express) {
       
       let activeCompanyId: string;
       let activeTags: string[] = [];
-      let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+      let activeRole: Role;
 
       if (isSuperAdminBool) {
         if (!user.defaultCompanyId) {
@@ -146,7 +149,7 @@ export function setupAuth(app: Express) {
         const activeMembership = activeMemberships.find(m => m.companyId === preferredCompanyId) ?? activeMemberships[0];
         activeCompanyId = activeMembership.companyId;
         activeTags = activeMembership.tags ?? [];
-        activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+        activeRole = activeMembership.role;
       }
 
       const userWithContext: UserWithContext = {
@@ -154,6 +157,7 @@ export function setupAuth(app: Express) {
         activeCompanyId,
         activeTags,
         activeRole,
+        accessRole: accessRole(activeRole),
         isSuperAdminBool,
       };
 
@@ -178,7 +182,7 @@ export function setupAuth(app: Express) {
       const isSuperAdminBool = user.isSuperAdmin === "true";
       let activeCompanyId: string;
       let activeTags: string[] = [];
-      let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+      let activeRole: Role;
 
       if (isSuperAdminBool) {
         if (!user.defaultCompanyId) {
@@ -199,7 +203,7 @@ export function setupAuth(app: Express) {
         const activeMembership = activeMemberships[0];
         activeCompanyId = activeMembership.companyId;
         activeTags = activeMembership.tags ?? [];
-        activeRole = activeMembership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+        activeRole = activeMembership.role;
       }
 
       const userWithContext: UserWithContext = {
@@ -207,6 +211,7 @@ export function setupAuth(app: Express) {
         activeCompanyId,
         activeTags,
         activeRole,
+        accessRole: accessRole(activeRole),
         isSuperAdminBool,
       };
 
@@ -313,11 +318,11 @@ export function setupAuth(app: Express) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    let activeRole: "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor" = "admin";
+    let activeRole: Role = "admin";
     if (!isSuperAdmin) {
       const membership = await storage.getCompanyUser(user.id, companyId);
       if (membership && membership.status === "active") {
-        activeRole = membership.role as "admin" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor";
+        activeRole = membership.role;
       }
     }
 
@@ -326,6 +331,7 @@ export function setupAuth(app: Express) {
       activeCompanyId: companyId,
       activeTags: await storage.getCompanyUser(user.id, companyId).then(m => m?.status === "active" ? m.tags ?? [] : []),
       activeRole,
+      accessRole: accessRole(activeRole),
       isSuperAdminBool: isSuperAdmin,
     };
 
@@ -433,6 +439,7 @@ export function setupAuth(app: Express) {
         activeCompanyId: company.id,
         activeTags: [],
         activeRole: "admin",
+        accessRole: "admin",
         isSuperAdminBool: false,
       };
 

@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { mailboxAccounts, settings, users as usersTable } from "@workspace/db";
 import type { MailboxVisibilityConfig, RoleName } from "@workspace/db";
 import { DEFAULT_MAILBOX_VISIBILITY } from "@workspace/db";
@@ -85,7 +86,8 @@ async function getMailboxById(companyId: string, mailboxId: string): Promise<{ i
 }
 
 export async function resolveVisibleMailboxes(ctx: ViewerContext): Promise<VisibleMailboxes> {
-  const { userId, companyId, role, viewAs, isSuperAdmin } = ctx;
+  const { userId, companyId, viewAs, isSuperAdmin } = ctx;
+  const role = accessRole(ctx.role);
 
   const isAdminLike = isSuperAdmin || role === "admin" || role === "office";
 

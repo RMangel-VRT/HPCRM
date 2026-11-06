@@ -123,7 +123,7 @@ export function registerEstimatesBoardRoutes(app: Express): void {
       return;
     }
     const user = req.user as UserWithContext;
-    if (!["admin", "office"].includes(user.activeRole) || !user.activeCompanyId) {
+    if (!["admin", "office"].includes(user.accessRole) || !user.activeCompanyId) {
       res.status(403).json({ message: "Access denied" });
       return;
     }

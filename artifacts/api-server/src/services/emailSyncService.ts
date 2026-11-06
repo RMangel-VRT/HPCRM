@@ -274,7 +274,7 @@ async function fetchGmailSentMessages(
 
 // ── Sync error email notification ─────────────────────────────────────────────
 
-async function sendSyncErrorNotification(
+export async function sendSyncErrorNotification(
   mailboxAccountId: string,
   companyId: string,
   mailboxEmailAddress: string,
@@ -299,7 +299,8 @@ async function sendSyncErrorNotification(
       .where(
         and(
           eq(companyUsers.companyId, companyId),
-          eq(companyUsers.role, "admin"),
+          // Approved owner-first exception: retain one fallback, not a broadcast.
+          sql`${companyUsers.role} IN ('admin', 'account_manager')`,
           eq(companyUsers.status, "active"),
         )
       )

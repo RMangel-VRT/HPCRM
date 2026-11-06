@@ -1,4 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useAuth } from "@/hooks/use-auth";
+import { useAccountManagers, ACCOUNT_MANAGERS_API } from "@/hooks/use-account-managers";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
@@ -83,6 +85,26 @@ function SortableHeader({
 }
 
 export default function CustomersList() {
+  const { user } = useAuth();
+  return <CustomersListBody key={`${user?.activeCompanyId}|${user?.id}|${user?.activeRole}`} />;
+}
+
+function CustomersListBody() {
+  const { user } = useAuth();
+  const managers = useAccountManagers();
+  const scope = `${user?.activeCompanyId}|${user?.id}|${user?.activeRole}`;
+  const companyId = user?.activeCompanyId ?? "";
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
+  useEffect(() => {
+    currentScope.current = scope;
+    return () => { currentScope.current = ""; };
+  }, [scope]);
+  const [managerFilter, setManagerFilter] = useState("all");
+  const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [targetManager, setTargetManager] = useState("");
+  const canAssign = user?.accessRole === "admin" || user?.accessRole === "office";
+  useEffect(() => { setSelection(new Set()); setManagerFilter("all"); setTargetManager(""); }, [scope]);
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -99,9 +121,41 @@ export default function CustomersList() {
   ], []);
 
   const { data: customersResult, isLoading } = useQuery<{ customers: Customer[]; total: number }>({
-    queryKey: ["/api/customers?page=1&limit=200"],
+    queryKey: ["/api/customers?page=1&limit=200", scope],
+    queryFn: async () => {
+      const all: Customer[] = [];
+      let total = 0;
+      for (let page = 1; ; page++) {
+        const result = await (await apiRequest("GET", `/api/customers?page=${page}&limit=200`, undefined,
+          { headers: { "X-Company-Id": companyId } })).json();
+        all.push(...result.customers); total = result.total;
+        if (all.length >= total || !result.customers.length) break;
+      }
+      return { customers: all, total };
+    },
+    enabled: !!companyId,
+    staleTime: 0, refetchOnMount: "always", refetchOnWindowFocus: true, refetchInterval: 30_000,
   });
   const customers = customersResult?.customers ?? [];
+  const bulk = useMutation({
+    mutationFn: async (input: { ids: string[]; manager: string | null; company: string; scope: string }) =>
+      ({ ...input, result: await (await apiRequest("POST", "/api/customers/account-manager",
+        { customerIds: input.ids, accountManagerId: input.manager },
+        { headers: { "X-Company-Id": input.company } })).json() }),
+    onSuccess: ({ result, scope: startedScope }) => {
+      if (startedScope !== currentScope.current) return;
+      setSelection(new Set());
+      void queryClient.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" &&
+        (q.queryKey[0].startsWith("/api/customers") || q.queryKey[0] === ACCOUNT_MANAGERS_API) });
+      toast({ title: t("accountManagers.changed", { count: result.changedCount }) });
+    },
+    onError: (_error, variables) => {
+      if (variables.scope !== currentScope.current) return;
+      void queryClient.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" &&
+        (q.queryKey[0].startsWith("/api/customers") || q.queryKey[0] === ACCOUNT_MANAGERS_API) });
+      toast({ title: t("accountManagers.failed"), variant: "destructive" });
+    },
+  });
 
   const archiveMutation = useMutation({
     mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
@@ -234,8 +288,18 @@ export default function CustomersList() {
     const matchesSearch = customer.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || customer.status === statusFilter;
     const matchesArchived = showArchived || customer.active === "true";
-    return matchesSearch && matchesStatus && matchesArchived;
+    const manager = managers.data?.assignments[customer.id];
+    const matchesManager = managerFilter === "all" || (managerFilter === "none" ? !manager : manager?.id === managerFilter);
+    return matchesSearch && matchesStatus && matchesArchived && matchesManager;
   };
+  const eligibleFiltered = customers.filter(c => !c.parentCustomerId && applyFilter(c));
+  useEffect(() => {
+    const eligibleIds = new Set(eligibleFiltered.map(c => c.id));
+    setSelection(old => {
+      const next = new Set([...old].filter(id => eligibleIds.has(id)));
+      return next.size === old.size ? old : next;
+    });
+  }, [customersResult, managers.data, managerFilter, statusFilter, search, showArchived]);
 
   const filteredTopLevel = topLevelCustomers.filter(c => {
     const selfMatch = applyFilter(c);
@@ -320,6 +384,14 @@ export default function CustomersList() {
       </div>
 
       <div className="flex gap-4 flex-wrap items-center">
+        <label className="text-sm">
+          <span className="sr-only">{t("accountManagers.label")}</span>
+          <select disabled={!managers.data || managers.isError} className="h-10 rounded-md border bg-background px-3" value={managerFilter} onChange={e => { setManagerFilter(e.target.value); setSelection(new Set()); }} data-testid="filter-account-manager">
+            <option value="all">{t("accountManagers.all")}</option>
+            <option value="none">{t("accountManagers.notAssigned")}</option>
+            {managers.data?.managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </label>
         <div className="relative flex-1 min-w-[240px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -354,6 +426,18 @@ export default function CustomersList() {
         </div>
       </div>
 
+      {canAssign && <div className="flex flex-wrap gap-3 items-center">
+        {managers.isError && <button type="button" role="alert" onClick={() => void managers.refetch()}>{t("accountManagers.retry")}</button>}
+        <select className="h-10 rounded-md border bg-background px-3" aria-label={t("accountManagers.set")} value={targetManager} onChange={e => setTargetManager(e.target.value)} disabled={bulk.isPending}>
+          <option value="">{t("accountManagers.notAssigned")}</option>
+          {managers.data?.managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+        <Button disabled={!selection.size || bulk.isPending || managers.isFetching}
+          onClick={() => bulk.mutate({ ids: [...selection], manager: targetManager || null, company: companyId, scope })} data-testid="bulk-set-account-manager">
+          {bulk.isPending ? t("accountManagers.pending") : t("accountManagers.set")} ({selection.size})
+        </Button>
+      </div>}
+
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4, 5].map((i) => (
@@ -373,7 +457,12 @@ export default function CustomersList() {
           <Table>
             <TableHeader>
               <TableRow>
+                {canAssign && <TableHead><input type="checkbox" aria-label={t("accountManagers.selectAll")}
+                  checked={eligibleFiltered.length > 0 && eligibleFiltered.every(c => selection.has(c.id))}
+                  disabled={bulk.isPending || managers.isLoading || managers.isError}
+                  onChange={e => setSelection(e.target.checked ? new Set(eligibleFiltered.map(c => c.id)) : new Set())} /></TableHead>}
                 <SortableHeader column="name" label={t("customers.customerName")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
+                <TableHead>{t("accountManagers.label")}</TableHead>
                 <SortableHeader column="city" label={t("common.address")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
                 <SortableHeader column="status" label={t("common.status")} currentSort={sortColumn} currentDirection={sortDirection} onSort={handleSort} />
                 <TableHead>Ranking</TableHead>
@@ -389,6 +478,12 @@ export default function CustomersList() {
                   data-testid={`row-customer-${customer.id}`}
                   className={isChild ? "bg-muted/30" : ""}
                 >
+                  {canAssign && <TableCell><span title={customer.parentCustomerId ? t("accountManagers.branchHelp") : undefined}>
+                    <input type="checkbox" aria-label={t("accountManagers.select", { name: customer.name })}
+                      disabled={!!customer.parentCustomerId || bulk.isPending || managers.isLoading || managers.isError}
+                      checked={!customer.parentCustomerId && selection.has(customer.id)}
+                      onChange={e => setSelection(old => { const next = new Set(old); if (e.target.checked) next.add(customer.id); else next.delete(customer.id); return next; })} />
+                  </span></TableCell>}
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-1.5">
                       {isParent ? (
@@ -437,6 +532,7 @@ export default function CustomersList() {
                       </div>
                     </div>
                   </TableCell>
+                  <TableCell data-testid={`account-manager-${customer.id}`}>{!managers.data || managers.isError ? "—" : managers.data.assignments[customer.id]?.name ?? t("accountManagers.notAssigned")}</TableCell>
                   <TableCell className="text-muted-foreground">
                     <div className="flex items-center gap-1.5">
                       <MapPin className="w-3.5 h-3.5" />

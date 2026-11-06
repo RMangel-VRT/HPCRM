@@ -17,7 +17,7 @@ import { LINE_LABELS, groupRates, missingDefaultCount, rateCardQueryKey, type Ra
 export default function ContractSettings() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const isAdmin = user?.activeRole === "admin" || !!user?.isSuperAdminBool;
+  const isAdmin = user?.accessRole === "admin" || !!user?.isSuperAdminBool;
   const companyId = user?.activeCompanyId;
   const key = rateCardQueryKey(companyId);
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());

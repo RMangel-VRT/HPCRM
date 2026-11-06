@@ -55,7 +55,7 @@ export default function EquipmentTicketDetail() {
   const { toast } = useToast();
   const { user } = useAuth();
   
-  const canModify = user && (user.activeRole === "admin" || user.activeRole === "shop_manager");
+  const canModify = user && (user.accessRole === "admin" || user.accessRole === "shop_manager");
 
   const TICKET_CATEGORIES = [
     { value: "preventative_maintenance", label: t("equipmentTicket.categories.preventative_maintenance") },

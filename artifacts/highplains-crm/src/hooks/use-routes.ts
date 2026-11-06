@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -10,7 +11,7 @@ import {
 
 const STALE = 30_000;
 export const ROUTE_ROLES = ["admin", "office", "field_manager", "irrigation_manager"] as const;
-export const canUseRoutes = (role: string | null | undefined) => (ROUTE_ROLES as readonly string[]).includes(role ?? "");
+export const canUseRoutes = (role: string | null | undefined) => (ROUTE_ROLES as readonly string[]).includes(accessRole(role ?? ""));
 
 export function useRouteStatus(service = "mowing", enabled = true) {
   const { user } = useAuth();

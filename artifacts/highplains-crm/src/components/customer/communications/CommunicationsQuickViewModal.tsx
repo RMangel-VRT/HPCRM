@@ -151,7 +151,7 @@ export default function CommunicationsQuickViewModal({
 }: CommunicationsQuickViewModalProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const canDelete = user?.activeRole === "admin" || user?.activeRole === "office";
+  const canDelete = user?.accessRole === "admin" || user?.accessRole === "office";
   const [showLogForm, setShowLogForm] = useState(false);
 
   const { data: recentComms = [], isLoading } = useQuery<CommunicationWithDetails[]>({

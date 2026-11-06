@@ -31,7 +31,7 @@ export function registerTicketOwnerResponseRoutes(app: Express): void {
             .where(and(eq(tickets.id, req.params.id as string), eq(tickets.companyId, user.activeCompanyId)))
             .for("update");
           if (!ticket) throw new ResponseError(404, "Ticket not found");
-          if (ticket.assignedToId !== user.id && user.activeRole !== "admin" && user.activeRole !== "office") {
+          if (ticket.assignedToId !== user.id && user.accessRole !== "admin" && user.accessRole !== "office") {
             throw new ResponseError(403, "Access denied - not assigned to this ticket");
           }
           const [type] = await tx.select().from(ticketTypes)

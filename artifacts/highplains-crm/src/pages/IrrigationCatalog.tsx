@@ -138,7 +138,7 @@ function IrrigationCatalogContent() {
     return () => { scopeRef.current = ""; };
   }, [scope]);
 
-  const allowed = user?.activeRole === "admin" || user?.activeRole === "office";
+  const allowed = user?.accessRole === "admin" || user?.accessRole === "office";
   const scopeKey = [user?.activeCompanyId, user?.id, user?.activeRole] as const;
   const url = irrigationListUrl({ search, category, brand, includeInactive });
   const queryKey = [IRRIGATION_API, ...scopeKey, search, category, brand, includeInactive] as const;

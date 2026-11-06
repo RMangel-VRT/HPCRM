@@ -60,7 +60,7 @@ function requireAdmin(req: Request, res: Response): UserWithContext | null {
     return null;
   }
   const u = req.user as UserWithContext;
-  if (u.activeRole !== "admin" && !u.isSuperAdminBool) {
+  if (u.accessRole !== "admin" && !u.isSuperAdminBool) {
     res.status(403).json({ message: "Forbidden" });
     return null;
   }
@@ -76,7 +76,7 @@ function requireAdminOrOffice(req: Request, res: Response): UserWithContext | nu
     return null;
   }
   const u = req.user as UserWithContext;
-  if (u.activeRole !== "admin" && u.activeRole !== "office" && !u.isSuperAdminBool) {
+  if (u.accessRole !== "admin" && u.accessRole !== "office" && !u.isSuperAdminBool) {
     res.status(403).json({ message: "Forbidden" });
     return null;
   }

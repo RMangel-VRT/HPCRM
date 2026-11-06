@@ -318,7 +318,7 @@ export default function PlantLibrary({ insertMode, onAddSelections, addPending }
   const { t } = useTranslation();
   const { toast } = useToast();
   const { user } = useAuth();
-  const canSync = user?.activeRole === "admin" || user?.activeRole === "office" || user?.isSuperAdminBool;
+  const canSync = user?.accessRole === "admin" || user?.accessRole === "office" || user?.isSuperAdminBool;
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<PlantCategory | "">("");

@@ -115,9 +115,9 @@ export default function TicketListView({
   const [selectionMode, setSelectionMode] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
-  const isAdmin = user?.activeRole === "admin";
-  const canCreateTickets = isAdmin || user?.activeRole === "office";
-  const canSeeEquipmentTickets = user?.activeRole && ["admin", "shop_manager", "office", "field_manager", "chemical_manager", "irrigation_manager"].includes(user.activeRole);
+  const isAdmin = user?.accessRole === "admin";
+  const canCreateTickets = isAdmin || user?.accessRole === "office";
+  const canSeeEquipmentTickets = user?.accessRole && ["admin", "shop_manager", "office", "field_manager", "chemical_manager", "irrigation_manager"].includes(user.accessRole);
 
   const { data: tickets = [], isLoading: ticketsLoading } = useQuery<TicketWithDetails[]>({
     queryKey: customerId ? ["/api/customers", customerId, "tickets"] : ["/api/tickets"],

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import express from "express";
 import request from "supertest";
 import { readFileSync } from "node:fs";
@@ -20,7 +21,7 @@ function app(role = "admin", tags: string[] = [], authenticated = true) {
   const result = express();
   result.use((req, _res, next) => {
     req.isAuthenticated = (() => authenticated) as typeof req.isAuthenticated;
-    req.user = { id: "u", activeCompanyId: company, activeRole: role, activeTags: tags } as Express.User;
+    req.user = { id: "u", activeCompanyId: company, activeRole: role, accessRole: accessRole(role), activeTags: tags } as Express.User;
     next();
   });
   result.use("/api/qbo", qboCustomerReads);
