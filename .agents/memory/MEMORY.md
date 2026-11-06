@@ -52,3 +52,4 @@
 - [Browser checks and hot reload](browser-hot-reload-verification.md) — freeze app/locale edits during draft checks; distinguish HMR remounts from repeatable navigation failures.
 - [Customer pages direction](customer-pages-direction.md) — slices integrate sequentially; snow ownership has a production gate; customer notes are shared, not author-private.
 - [Contract-stated rates](contract-stated-rates.md) — seasons contain only stated rates; card defaults stay separate; existing rows require signed-PDF re-audit, never automatic conversion.
+- [Contract payments](contract-payment-direction.md) — fees stay outside contract price; exact dated schedules never re-expand; production corrections require separate approval.
