@@ -1,14 +1,18 @@
 import { useState } from "react";
+import { RateHistoryNote } from "./RateHistoryNote";
 import type { ReactNode } from "react";
-import { Pencil } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MONTH_LETTERS, coloradoDay, coloradoToday, dateOnly, dateTime, monthName, money } from "./contractFormat";
-import { isChangedRate, isCustomRate } from "./RatesEditor";
+import { cardRateRows, isCustomRate, rateDisplay } from "./RatesEditor";
+import { useScopedRateCard } from "./useRateCard";
 import { equal12, msi } from "./paymentPresets";
 import { linesFromBilling, lineSum, startMonthOf } from "./paymentDraft";
 import type { ScopeRow } from "./ScopeEditor";
-import type { DetailTerm, TermRateRow } from "./contractTypes";
+import type { AgreementLine, DetailTerm, TermRateRow } from "./contractTypes";
 
 export type PanelId = "billing" | "documents" | "details" | "scope" | "rates" | "history";
 export type EditPanel = "billing" | "details" | "scope" | "rates";
@@ -229,24 +233,77 @@ export function ScopeSummary({ rows }: { rows: ScopeRow[] }) {
   );
 }
 
-const rateText = (cents: number | null, text: string | null | undefined) => (cents != null ? money(cents) : text ?? "On request");
-export const differingRates = (rates: TermRateRow[]) => rates.filter(r => isCustomRate(r) || isChangedRate(r));
+/** True when a stated card-key row's price differs from the card snapshot taken for reference. */
+export const differsFromCard = (r: TermRateRow) => !isCustomRate(r) && (r.cardPriceCents != null || r.cardPriceText != null) &&
+  (r.priceCents !== r.cardPriceCents || (r.priceCents == null && (r.priceText ?? null) !== (r.cardPriceText ?? null)));
 
+/** Every rate the contract states, in the contract's order. */
 export function RatesSummary({ rates }: { rates: TermRateRow[] }) {
-  const diff = differingRates(rates);
-  if (!diff.length) return <p className="text-sm text-muted-foreground" data-testid="empty-rates-diff">All rates match the rate card.</p>;
+  const { t } = useTranslation();
+  const onReq = t("contractRates.onRequest");
+  if (!rates.length) return <p className="text-sm text-muted-foreground" data-testid="empty-rates">{t("contractRates.empty")}</p>;
   return (
-    <ul className="divide-y text-sm" data-testid="list-rates-diff">
-      {diff.map(r => (
-        <li key={r.rateKey} className="flex items-baseline gap-2 py-1.5" data-testid={`rate-diff-${r.rateKey}`}>
-          <span className="min-w-0 flex-1 truncate">{r.label}{isCustomRate(r) && <span className="ml-1.5 text-xs text-muted-foreground">Custom</span>}</span>
-          {!isCustomRate(r) && <s className="text-xs text-muted-foreground tabular-nums" data-testid={`text-rate-card-${r.rateKey}`}>{rateText(r.cardPriceCents, r.cardPriceText)}</s>}
-          <span className="tabular-nums font-medium">{rateText(r.priceCents, r.priceText)}</span>
+    <ul className="divide-y text-sm" data-testid="list-rates">
+      {rates.map(r => (
+        <li key={r.rateKey} className="flex flex-wrap items-baseline gap-x-2 py-1.5" data-testid={`rate-stated-${r.rateKey}`}>
+          <span className="min-w-0 flex-1 truncate">{r.label}{isCustomRate(r) && <span className="ml-1.5 text-xs text-muted-foreground">{t("contractRates.custom")}</span>}</span>
+          {differsFromCard(r) && <span className="text-xs text-muted-foreground tabular-nums" data-testid={`text-rate-card-${r.rateKey}`}>{t("contractRates.cardNote", { price: rateDisplay(r.cardPriceCents, r.cardPriceText, onReq) })}</span>}
+          <span className="tabular-nums font-medium">{rateDisplay(r.priceCents, r.priceText, onReq)}</span>
           <span className="text-xs text-muted-foreground">{r.unit}</span>
+          {r.minimum && <span className="w-full text-xs text-muted-foreground pl-0">{t("contractRates.minimum")}: {r.minimum}</span>}
         </li>
       ))}
     </ul>
   );
+}
+
+export interface StandardRateRow { rateKey: string; label: string; priceCents: number | null; priceText: string | null; unit: string; minimum?: string | null }
+
+/** Collapsed list of standard rates the contract does not state. Rows are supplied or loaded lazily on open. */
+export function StandardRatesSection({ rows, loading, error, onOpen, onRetry, testId = "section-standard-rates" }: {
+  rows: StandardRateRow[] | undefined; loading?: boolean; error?: boolean; onOpen?: () => void; onRetry?: () => void; testId?: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const onReq = t("contractRates.onRequest");
+  return (
+    <div className="border-t pt-2" data-testid={testId}>
+      <button type="button" className="flex w-full items-center gap-1 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
+        aria-expanded={open} onClick={() => { if (!open) onOpen?.(); setOpen(!open); }} data-testid="button-standard-rates">
+        {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}{t("contractRates.standardTitle")}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1.5" data-testid="list-standard-rates">
+          <p className="text-xs text-muted-foreground">{t("contractRates.standardNote")}</p>
+          {error ? <p className="text-xs text-destructive">{t("contractRates.cardError")}{onRetry && <> <button type="button" className="underline" onClick={onRetry}>{t("contractRates.retry")}</button></>}</p>
+            : loading || !rows ? <Skeleton className="h-10 w-full" />
+            : !rows.length ? <p className="text-xs text-muted-foreground">{t("contractRates.standardEmpty")}</p>
+            : (
+              <ul className="divide-y text-sm text-muted-foreground">
+                {rows.map(r => (
+                  <li key={r.rateKey} className="flex items-baseline gap-2 py-1" data-testid={`rate-standard-${r.rateKey}`}>
+                    <span className="min-w-0 flex-1 truncate">{r.label}</span>
+                    <span className="tabular-nums">{rateDisplay(r.priceCents, r.priceText, onReq)}</span>
+                    <span className="text-xs">{r.unit}</span>
+                    {r.minimum != null && <span className="text-xs">{t("contractRates.minimum")}: {r.minimum}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Contract-page standard section: lazily loads the company card (admin/office) and omits stated keys. */
+export function ContractStandardRates({ line, rates }: { line: AgreementLine; rates: TermRateRow[] }) {
+  const [want, setWant] = useState(false);
+  const card = useScopedRateCard(want);
+  if (!card.allowed) return null;
+  const stated = new Set(rates.map(r => r.rateKey));
+  const rows = card.data ? cardRateRows(card.data, line).filter(r => !stated.has(r.rateKey)) : undefined;
+  return <StandardRatesSection rows={rows} loading={card.isLoading} error={card.isError} onOpen={() => setWant(true)} onRetry={() => void card.refetch()} />;
 }
 
 export function HistoryList({ term }: { term: DetailTerm }) {
@@ -260,7 +317,7 @@ export function HistoryList({ term }: { term: DetailTerm }) {
           <li key={h.id} className="py-2 text-sm" data-testid={`history-${h.id}`}>
             <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground"><span>{dateTime(h.createdAt)}</span><span>{h.changedByName ?? "System"}</span>
               <span>{h.oldStatus && h.oldStatus !== h.newStatus ? `${h.oldStatus} \u2192 ${h.newStatus}` : h.newStatus}</span></div>
-            {h.note && <div className="mt-0.5">{h.note}</div>}
+            {h.note && <div className="mt-0.5"><RateHistoryNote note={h.note} /></div>}
           </li>
         ))}
       </ul>

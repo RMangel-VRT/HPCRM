@@ -19,7 +19,7 @@ import { coloradoToday, dateOnly, errorText, money } from "@/components/contract
 import type { AgreementLine, ContractDetail } from "@/components/contracts/contractTypes";
 import type { RateCardItem } from "@/components/contracts/rateCardUtils";
 import {
-  applyScopePreset, blankPerContractRates, clearDraft, createBody, defaultDates, ensurePayments, hasLandscape, hasSnow, initialRates,
+  applyScopePreset, blankPerContractRates, clearDraft, createBody, defaultDates, ensurePayments, hasLandscape, hasSnow,
   initialScope, loadDraft, newDraft, needsPayments, reviewRows, saveDraft, sessionKey, setDates, setLine, stepProblems,
 } from "@/components/contracts/newContractDraft";
 import type { NewContractDraft, ScopePreset } from "@/components/contracts/newContractDraft";
@@ -158,16 +158,14 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
 
   const line = d.line as AgreementLine;
   const scopeRows = d.scope ?? (d.line ? initialScope(line) : []);
-  const rateRows = d.rates ?? (d.line && rateCard.data ? initialRates(rateCard.data, line) : []);
+  const rateRows = d.rates ?? [];
   const payLines = d.payments ?? [];
 
-  const ratesReady = !!d.rates || rateCard.isSuccess;
     function go(step: number) {
     setErrors([]); setShowLineErrors(false);
     setD(cur => {
       const next = { ...cur, step };
       if (step === 3 && !cur.scope && cur.line) next.scope = initialScope(cur.line);
-      if (step === 4 && !cur.rates && cur.line && rateCard.data) next.rates = initialRates(rateCard.data, cur.line);
       if (step === 5) next.payments = ensurePayments(cur);
       return next;
     });
@@ -180,7 +178,6 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
       else if (customerQ.isError) problems.push("The customer could not be verified. Retry the check.");
       else if (!verified) problems.push("Choose a customer from this company");
     }
-    if (step === 4 && !ratesReady) problems.push(rateCard.isError ? "The rate card did not load. Retry before continuing." : "The rate card is still loading");
     return problems;
   }
   function next() {
@@ -405,7 +402,7 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
               {blankPerContractRates(rateRows).map(r => <div key={r.rateKey}>{r.label}: No standard; enter this client's rate or leave blank.</div>)}
             </div>
           )}
-          <RatesEditor line={line} rows={rateRows} editing onChange={rows => patch({ rates: rows })} />
+          <RatesEditor line={line} rows={rateRows} editing card={rateCard.data} onChange={rows => patch({ rates: rows })} />
         </section>
       )}
 
@@ -429,8 +426,8 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
             )}
             {hasSnow(d.line) && <tr><th className="text-left p-2">Snow pricing</th><td data-testid="review-snow">{flat ? `Flat rate, included in the annual price` : TM_TEXT}</td></tr>}
             <tr><th className="text-left p-2">Services on</th><td data-testid="review-services">{review.services.join(", ") || "None"}</td></tr>
-            <tr><th className="text-left p-2">Changed or custom rates</th><td data-testid="review-rates">
-              {review.changedRates.length ? review.changedRates.map(r => `${r.label}${r.custom ? " (custom)" : ""}${r.input ? ` $${r.input}` : ""}`).join(", ") : "None"}</td></tr>
+            <tr><th className="text-left p-2">{t("contractRates.count", { count: review.rates.length })}</th><td data-testid="review-rates">
+              {review.rates.length ? review.rates.map(r => `${r.label}${r.custom ? " (custom)" : ""}${r.input ? ` $${r.input}` : r.text ? ` ${r.text}` : ""}`).join(", ") : "None"}</td></tr>
           </tbody></table>
           {d.form === "theirs" && (
             <div className="rounded-md border p-3 space-y-2" data-testid="box-their-form">

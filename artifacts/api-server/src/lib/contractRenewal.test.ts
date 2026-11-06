@@ -6,6 +6,7 @@ vi.mock("../objectStorage", () => ({ ObjectStorageService: class {} }));
 import { parseAuditFiles, readAuditZip, PDF_LIMIT, type UploadFile, type AuditFiles } from "./contractAuditFiles";
 import { planRenewalImport, renewalReport } from "./contractRenewalPlan";
 import { currentCsvTables, auditCsvTables, SEASON_COLUMNS, streamCurrentExport } from "./contractAuditExport";
+import { planAuditImport } from "./contractAuditPlan";
 import { renewalRates, expandPayments } from "./contractCenterService";
 import type { AuditData } from "./contractAuditData";
 import { RATE_CARD_DEFAULTS } from "../shared/contractCatalog";
@@ -32,6 +33,7 @@ async function input(extra: UploadFile[] = []) {
 function data(): AuditData {
   const now = new Date("2025-01-01T00:00:00Z");
   const card = RATE_CARD_DEFAULTS.map(({ key, ...r }, sortOrder) => ({ ...r, rateKey: key, sortOrder,
+    priceText: r.priceText ?? null, minimum: r.minimum ?? null,
     id: key, companyId: "company", active: true, createdAt: now, updatedAt: now }));
   const source = { id: "source", companyId: "company", agreementId: "agreement", line: "landscape", form: "ours", seasonLabel: "2025–26",
     startDate: "2025-11-01", endDate: "2026-10-31", status: "signed", renewedFromTermId: null,
@@ -144,7 +146,7 @@ describe("renewal preview validation and carry-forward", () => {
     expect(p.errors).toEqual([]);
     const term = p.customers[0].terms[0];
     expect(term.values).toMatchObject({ line: "both", form: "ours", snowPricing: "time_and_materials" });
-    expect(term.rates.some(r => r.line === "snow")).toBe(true);
+    expect(term.rates.some(r => r.line === "snow")).toBe(false);
     expect(term.scope.some(s => s.serviceKey === "snow_walks" && s.included)).toBe(true);
     files.tables["renewals.csv"][0].values.line = "";
     files.tables["renewals.csv"][0].values.form = "";
@@ -162,16 +164,18 @@ describe("renewal preview validation and carry-forward", () => {
     expect(t.billing.map(b => b.amountCents)).toEqual([10001, 20002]);
     expect(renewalReport(p, true)).toMatchObject({ mode: "renewal", dryRun: true, summary: { terms: 1, replaced: 0 } });
   });
-  it("overrides only supplied cells of one rate, including a partial custom rate", async () => {
+  it("replaces the list with supplied ordered rows, requiring full custom metadata", async () => {
     const f = await input(), d = data(), key = d.rates[0].rateKey;
     d.rates.push({ ...d.rates[0], rateKey: "custom_ice", label: "Ice", priceCents: 29500, priceText: null,
       cardPriceCents: null, cardPriceText: null });
     f.tables["rates.csv"] = [{ file: "rates.csv", row: 2, values: { contract_ref: "r", rate_key: key, price: "123.45" } },
-      { file: "rates.csv", row: 3, values: { contract_ref: "r", rate_key: "custom_ice", price: "299" } }];
+      { file: "rates.csv", row: 3, values: { contract_ref: "r", rate_key: "custom_ice", price: "299",
+        label: "Ice", unit: "ton", category: "Materials", line: "landscape" } }];
     const p = planRenewalImport(f, d); expect(p.errors).toEqual([]);
-    const expected = renewalRates(d.rates, d.card, "landscape").rates.map(r =>
-      r.rateKey === key ? { ...r, priceCents: 12345 } : r.rateKey === "custom_ice" ? { ...r, priceCents: 29900 } : r);
-    expect(p.customers[0].terms[0].rates).toEqual(expected);
+    expect(p.customers[0].terms[0].rates).toHaveLength(2);
+    expect(p.customers[0].terms[0].rates.map(r => [r.rateKey, r.priceCents, r.sortOrder])).toEqual([
+      [key, 12345, 0], ["custom_ice", 29900, 1],
+    ]);
   });
   it("replaces all scope when rows are supplied and warns on mismatching distribution", async () => {
     const f = await input(); f.tables["scope.csv"] = [{ file: "scope.csv", row: 2, values: {
@@ -260,7 +264,22 @@ describe("renewal preview validation and carry-forward", () => {
   });
 });
 describe("current export", () => {
-  it("shares exact season columns with audit and exports every term, first-year patterns and only rate differences", () => {
+  it("round trips the complete ordered list and null/empty/text/minimum/custom metadata", async () => {
+    const d = data();
+    d.rates = [d.rates[1], d.rates[0], { ...d.rates[0], rateKey: "custom_visit", label: "Mobilization",
+      unit: "visit", category: "Custom", minimum: "  1 visit  ", priceCents: null, priceText: "=Quoted after inspection" }];
+    d.rates.forEach((r, i) => { r.sortOrder = i; });
+    d.rates[0].minimum = ""; d.rates[1].priceText = "";
+    const files = await parseAuditFiles(Object.entries(currentCsvTables(d)).map(([name, value]) => file(name, value)));
+    expect(files.errors).toEqual([]);
+    // Round-trip into a fresh import target; existing interactive seasons remain protected.
+    const plan = planAuditImport(files, { ...d, agreements: [], terms: [], history: [] });
+    expect(plan.errors).toEqual([]);
+    const rates = plan.customers[0].agreements[0].terms[0].rates;
+    const commercial = (r: typeof rates[number]) => [r.rateKey, r.sortOrder, r.label, r.unit, r.category, r.line, r.minimum, r.priceCents, r.priceText];
+    expect(rates.map(commercial)).toEqual(d.rates.map(commercial));
+  });
+  it("shares season columns with audit and exports every stated row including card matches", () => {
     const d = data(); addRenewal(d, "signed");
     d.rates[0].priceCents = 11111;
     const tables = currentCsvTables(d), rows = parse(tables["contract_center.csv"], { columns: true }) as Record<string, string>[];
@@ -268,8 +287,8 @@ describe("current export", () => {
     expect(rows[0]).toMatchObject({ customer_id: "customer", customer_name: "Ute Creek", import_ref: "keep-me", term_id: "source", documents: "0" });
     expect(parse(auditCsvTables(d, ["customer"]).tables["contract_center.csv"])[0]).toEqual(SEASON_COLUMNS);
     expect((parse(tables["term_payments.csv"], { columns: true }) as Record<string, string>[])[0]).toMatchObject({ term_id: "source", nov: "123.45", jan: "0.00" });
-    const rates = parse(tables["term_rates.csv"], { columns: true }) as Record<string, string>[]; expect(rates).toHaveLength(1);
-    expect(rates[0].price).toBe("111.11"); expect(Object.keys(tables)).toHaveLength(4);
+    const rates = parse(tables["term_rates.csv"], { columns: true }) as Record<string, string>[]; expect(rates).toHaveLength(2);
+    expect(rates[0].price).toBe("111.11"); expect(Object.keys(tables)).toHaveLength(9);
   });
   it("sorts customer/name then season date and exports parent, history links, document counts and read-time status", () => {
     const d = data(); addRenewal(d, "signed");
@@ -294,14 +313,15 @@ describe("current export", () => {
     expect(rows).toHaveLength(1); expect(rows[0].nov).toBe("123.45");
     expect(rows[0].dec).toBe("0.00");
   });
-  it("streams a ZIP with the four current CSVs and no legacy files", async () => {
+  it("streams a ZIP with reports and importable complete rates CSVs", async () => {
     const app = express(); app.get("/", async (_req, res) => { await streamCurrentExport(res, data()); });
     const response = await request(app).get("/").buffer(true).parse((res, callback) => {
       const chunks: Buffer[] = []; res.on("data", c => chunks.push(c)); res.on("end", () => callback(null, Buffer.concat(chunks)));
     });
     expect(response.status).toBe(200);
     const entries = await readAuditZip(response.body);
-    expect(entries.map(f => f.name).sort()).toEqual(["contract_center.csv", "rate_card.csv", "term_payments.csv", "term_rates.csv"]);
+    expect(entries.map(f => f.name).sort()).toEqual(["contract_center.csv", "contracts.csv", "documents.csv",
+      "payments.csv", "rate_card.csv", "rates.csv", "scope.csv", "term_payments.csv", "term_rates.csv"]);
   });
   it("signed renewal of expired source becomes current and leaves renewal due", () => {
     const d = data(); d.terms[0].endDate = "2026-09-30";

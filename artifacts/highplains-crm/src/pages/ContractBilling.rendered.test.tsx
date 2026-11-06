@@ -70,14 +70,14 @@ describe("flat-rate Billing payment safety", () => {
     await user.clear(screen.getByTestId("input-month-0-12"));
     await user.type(screen.getByTestId("input-month-0-12"), "1200");
     await user.click(screen.getByTestId("button-save-payments"));
-    expect(fx.api).toHaveBeenCalledWith("PATCH", "/api/contract-center/terms/current", { snowFlatPriceCents: 520000 });
+    expect(fx.api).toHaveBeenCalledWith("PATCH", "/api/contract-center/terms/current", { snowFlatPriceCents: 520000 }, { headers: { "X-Company-Id": "company" } });
     expect(fx.api).toHaveBeenCalledWith("PUT", "/api/contract-center/terms/current/payments", [{
       component: "Snow", months: [
         { month: 1, amountCents: 100000 }, { month: 2, amountCents: 100000 },
         { month: 3, amountCents: 100000 }, { month: 4, amountCents: 100000 },
         { month: 12, amountCents: 120000 },
       ],
-    }]);
+    }], { headers: { "X-Company-Id": "company" } });
   });
 });
 

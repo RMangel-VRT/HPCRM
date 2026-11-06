@@ -1,15 +1,16 @@
 import { eq } from "drizzle-orm";
 import {
-  customers, agreements, agreementTerms, termRates, termBillingMonths, termScopeLines,
-  type Customer, type Agreement, type AgreementTerm, type TermRate, type TermBillingMonth, type TermScopeLine,
+  customers, agreements, agreementTerms, termRates, termBillingMonths, termScopeLines, rateCardItems,
+  type Customer, type Agreement, type AgreementTerm, type TermRate, type TermBillingMonth, type TermScopeLine, type RateCardItem,
 } from "@workspace/db";
 import type { Reader } from "./contractCenterPersistence";
-import { compareTermPriority, displayStatus, paymentSummary, recoverPayments, selectInEffectTerm, renewalDue } from "./contractCenterService";
+import { applies, compareTermPriority, displayStatus, paymentSummary, recoverPayments, selectInEffectTerm, renewalDue } from "./contractCenterService";
 import { companyToday } from "./companyDay";
 
 export interface CustomerContractInputs {
   customers: Customer[]; agreements: Agreement[]; terms: AgreementTerm[];
   rates?: TermRate[]; billingMonths?: TermBillingMonth[]; scope?: TermScopeLine[];
+  card?: RateCardItem[];
 }
 
 /** Commercial facts are read-only projections, never a second persisted owner.
@@ -62,7 +63,14 @@ export function customerContractProjector(data: CustomerContractInputs, today = 
           rates: [...(rates.get(t.id) ?? [])].sort((a, b) => a.sortOrder - b.sortOrder).map(r => ({
             rateKey: r.rateKey, line: r.line, category: r.category, label: r.label, unit: r.unit,
             minimum: r.minimum, priceCents: r.priceCents, priceText: r.priceText, sortOrder: r.sortOrder,
+            cardPriceCents: r.cardPriceCents, cardPriceText: r.cardPriceText,
           })),
+          standardRates: (data.card ?? []).filter(r => r.active && applies(t.line, r.line) &&
+            !(rates.get(t.id) ?? []).some(s => s.rateKey === r.rateKey))
+            .sort((a, b) => a.sortOrder - b.sortOrder).map(r => ({
+              rateKey: r.rateKey, line: r.line, category: r.category, label: r.label, unit: r.unit,
+              minimum: r.minimum, priceCents: r.priceCents, priceText: r.priceText, sortOrder: r.sortOrder,
+            })),
           scope: (scope.get(t.id) ?? []).filter(s => s.included).map(s => ({
             serviceKey: s.serviceKey, label: (s.details as { label?: string } | null)?.label ?? s.serviceKey, quantity: s.quantity, monthSpread: s.monthSpread,
           })),
@@ -94,7 +102,8 @@ export async function loadCustomerContractInputs(reader: Reader, companyId: stri
   const billingMonths = await reader.select().from(termBillingMonths).where(eq(termBillingMonths.companyId, companyId));
   const rates = await reader.select().from(termRates).where(eq(termRates.companyId, companyId));
   const scope = await reader.select().from(termScopeLines).where(eq(termScopeLines.companyId, companyId));
-  return { customers: properties, agreements: owners, terms, billingMonths, rates, scope };
+  const card = await reader.select().from(rateCardItems).where(eq(rateCardItems.companyId, companyId));
+  return { customers: properties, agreements: owners, terms, billingMonths, rates, scope, card };
 }
 
 /** Batched date-specific line coverage; never reads the retired snow switch. */

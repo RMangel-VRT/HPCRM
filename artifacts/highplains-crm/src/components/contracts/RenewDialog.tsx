@@ -10,6 +10,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useTranslation } from "react-i18next";
+import { RatesEditor, cardRateRows, rateApplies, rateProblems, ratesPayload, toRateRows } from "./RatesEditor";
+import type { RateRow } from "./RatesEditor";
+import { useScopedRateCard } from "./useRateCard";
 import { dateOnly, errorText, money } from "./contractFormat";
 import { selectRenewalSource, termForm, termLine } from "./contractTypes";
 import type { AgreementForm, AgreementLine, ContractDetail } from "./contractTypes";
@@ -20,7 +24,7 @@ import { FORM_NAME, LINE_NAME, changeNotes, createSequencer, parsePct, previewKe
 import type { PriceMode, RenewPreview, RoundTo } from "./renewPreview";
 
 export const RENEW_NOTE = "Change services, rates and payments on the new draft before sending.";
-const rateText = (v: { priceCents: number | null; priceText: string | null }) => (v.priceCents != null ? money(v.priceCents) : v.priceText || "No price");
+const rateText = (v: { priceCents: number | null; priceText: string | null }, none: string) => (v.priceCents != null ? money(v.priceCents) : v.priceText || none);
 
 function Choice<T extends string>({ value, options, onChange, disabled, testId }: { value: T; options: readonly (readonly [T, string])[]; onChange: (v: T) => void; disabled?: boolean; testId: string }) {
   return (
@@ -63,7 +67,10 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
   const [laterText, setLaterText] = useState<(string | null)[]>([]); // null = follow the default
   const [line, setLine] = useState<AgreementLine | null>(null);
   const [form, setForm] = useState<AgreementForm | null>(null);
-  const [rates, setRates] = useState<"carry" | "card" | null>(null);
+  const [rateMode, setRateMode] = useState<"carry" | "edit">("carry");
+  const [rateRows, setRateRows] = useState<RateRow[]>([]);
+  const [pendingCard, setPendingCard] = useState(false);
+  const { t } = useTranslation();
   const [scope, setScope] = useState<"carry" | "standard">("carry");
   const [preview, setPreview] = useState<{ key: string; body: Record<string, unknown>; data: RenewPreview } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -87,17 +94,22 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
     ?? (detailQ.data ? { line: termLine(srcTerm, detailQ.data.line), form: termForm(srcTerm, detailQ.data.form) } : null);
   const effLine = line ?? source?.line ?? null;
   const effForm = form ?? source?.form ?? null;
-  const effRates = rates ?? (source && effForm === "ours" && source.form !== "ours" ? "card" : "carry");
+  const card = useScopedRateCard(pendingCard);
+  useEffect(() => {
+    if (pendingCard && card.data && effLine) { setRateRows(cardRateRows(card.data, effLine)); setPendingCard(false); }
+  }, [pendingCard, card.data, effLine]);
+  const rateIssues = rateMode === "edit" ? rateProblems(rateRows) : [];
 
   const pct = parsePct(pctText);
   const targetCents = parseDollarsToCents(targetText);
   const laterDefault = mode === "pct" && pct !== null ? String(pct) : "3";
   const laterPcts = Array.from({ length: length - 1 }, (_, i) => parsePct(laterText[i] ?? laterDefault));
-  const body = renewBody({
+  const built = renewBody({
     mode, pct, targetCents: targetCents !== null && targetCents >= 0 ? targetCents : null, roundTo, laterPcts,
     line: line && source && line === source.line ? null : line, form: form && source && form === source.form ? null : form,
-    rates, scope,
+    rates: rateMode === "edit" ? ratesPayload(rateRows) : null, scope,
   });
+  const body = rateIssues.length || pendingCard ? null : built;
   const currentKey = body ? previewKey(body) : null;
 
   useEffect(() => {
@@ -122,6 +134,7 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
 
   const fresh = preview && preview.key === currentKey ? preview.data : null;
   const shown = fresh ?? preview?.data ?? null;
+  const noPrice = t("contractRates.noPrice");
   const rc = shown ? visibleRateChanges(shown.rateChanges) : null;
   const years = shown?.years?.length ? shown.years : shown ? [{ seasonLabel: shown.seasonLabel, startDate: shown.startDate, endDate: shown.endDate, annualPriceCents: shown.annualPriceCents ?? null }] : [];
   const notes = source && effLine && effForm ? changeNotes(source, { line: effLine, form: effForm }) : [];
@@ -129,7 +142,17 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
     : `Create ${shown?.seasonLabel ?? "next season"} draft`;
 
   const touch = () => seq.current.cancel();
-  function pickForm(v: AgreementForm) { touch(); setForm(v); if (source && v === "ours" && source.form !== "ours") setRates("card"); else if (rates === "card" && source && v === source.form) setRates(null); }
+  // Changing the form never resets the stated rates.
+  function pickForm(v: AgreementForm) { touch(); setForm(v); }
+  function pickLine(v: AgreementLine) { touch(); setLine(v); setRateRows(rows => rows.filter(r => rateApplies(v, r.line))); }
+  function pickRates(v: "carry" | "edit" | "card") {
+    touch();
+    if (v === "carry") { setRateMode("carry"); setPendingCard(false); return; }
+    setRateMode("edit");
+    if (v === "card") { setRateRows([]); setPendingCard(true); return; }
+    setPendingCard(false);
+    setRateRows(toRateRows((srcTerm?.rates ?? []).filter(r => !effLine || rateApplies(effLine, r.line))));
+  }
   function pickLength(n: number) { touch(); setLength(n); setLaterText(t => t.slice(0, n - 1)); }
 
   async function create() {
@@ -214,7 +237,7 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="w-20 text-xs text-muted-foreground">Coverage</span>
-            <Choice value={effLine!} disabled={creating} testId="button-line" onChange={v => { touch(); setLine(v); }}
+            <Choice value={effLine!} disabled={creating} testId="button-line" onChange={pickLine}
               options={[["landscape", "Landscape"], ["snow", "Snow"], ["both", "Both"]] as const} />
           </div>
           {notes.length > 0 && <ul className="space-y-1 text-xs text-muted-foreground" data-testid="renew-change-notes">{notes.map(n => <li key={n}>{n}</li>)}</ul>}
@@ -224,9 +247,20 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
       <Section title="Start from" testId="renew-section-start">
         <div className="flex flex-wrap items-center gap-2">
           <span className="w-20 text-xs text-muted-foreground">Rates</span>
-          <Choice value={effRates} disabled={creating} testId="button-rates" onChange={v => { touch(); setRates(v); }}
-            options={[["carry", "Carry forward this contract's rates"], ["card", "Reset to the rate card"]] as const} />
+          <Choice value={rateMode} disabled={creating || !source} testId="button-rates" onChange={pickRates}
+            options={[["carry", t("contractRates.renewCarry")], ["edit", t("contractRates.renewEdit")], ["card", t("contractRates.renewCard")]] as const} />
         </div>
+        {rateMode === "edit" && effLine && (
+          <div className="space-y-2" data-testid="renew-rates-editor">
+            {pendingCard && !card.isError && <Skeleton className="h-16 w-full" data-testid="skeleton-renew-card" />}
+            {pendingCard && card.isError && (
+              <p className="text-xs text-destructive">{t("contractRates.cardError")}{" "}
+                <button type="button" className="underline" onClick={() => void card.refetch()}>{t("contractRates.retry")}</button></p>
+            )}
+            {!pendingCard && <RatesEditor line={effLine} rows={rateRows} editing card={card.data} onChange={rows => { touch(); setRateRows(rows); }} />}
+            {rateIssues.map(p => <p key={p} className="text-xs text-destructive" role="alert">{p}</p>)}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <span className="w-20 text-xs text-muted-foreground">Scope</span>
           <Choice value={scope} disabled={creating} testId="button-scope" onChange={v => { touch(); setScope(v); }}
@@ -286,32 +320,27 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
             <div data-testid="text-flat-snow"><span className="text-xs text-muted-foreground block">Flat snow price</span>
               <span className="tabular-nums">{money(shown.snowFlatPrice.before)} {"\u2192"} {money(shown.snowFlatPrice.after)}</span></div>
           )}
-          {rc && (rc.card.length + rc.kept.length + rc.added.length + rc.removed.length > 0) && (
+          {rc && (rc.carried.length + rc.changed.length + rc.added.length + rc.removed.length > 0) && (
             <div className="space-y-1" data-testid="renew-rates">
-              <span className="text-xs text-muted-foreground block">Rate changes</span>
-              {rc.card.map(c => (
-                <div key={c.rateKey} className="flex justify-between gap-2" data-testid={`rate-card-${c.rateKey}`}>
-                  <span>{c.label} <span className="text-xs text-muted-foreground">Card changed</span></span>
-                  <span className="tabular-nums">{rateText(c.old)} {"\u2192"} {rateText(c.new)}</span>
-                </div>
-              ))}
-              {rc.kept.map(c => (
-                <div key={c.rateKey} className="flex justify-between gap-2" data-testid={`rate-kept-${c.rateKey}`}>
-                  <span>{c.label} <span className="text-xs text-muted-foreground">Kept this client's rate</span></span>
-                  <span className="tabular-nums">{rateText(c.new)}</span>
+              <span className="text-xs text-muted-foreground block">{t("contractRates.renewChanges")}</span>
+              {rc.changed.map(c => (
+                <div key={c.rateKey} className="flex justify-between gap-2" data-testid={`rate-changed-${c.rateKey}`}>
+                  <span>{c.label} <span className="text-xs text-muted-foreground">{t("contractRates.changed")}</span></span>
+                  <span className="tabular-nums">{rateText(c.old, noPrice)} {"\u2192"} {rateText(c.new, noPrice)}</span>
                 </div>
               ))}
               {rc.added.map(c => (
                 <div key={c.rateKey} className="flex justify-between gap-2" data-testid={`rate-added-${c.rateKey}`}>
-                  <span>{c.label} <span className="text-xs font-medium text-primary">Added</span></span>
-                  <span className="tabular-nums">{rateText(c.new)}</span>
+                  <span>{c.label} <span className="text-xs font-medium text-primary">{t("contractRates.added")}</span></span>
+                  <span className="tabular-nums">{rateText(c.new, noPrice)}</span>
                 </div>
               ))}
               {rc.removed.map(c => (
                 <div key={c.rateKey} className="flex justify-between gap-2 text-muted-foreground" data-testid={`rate-removed-${c.rateKey}`}>
-                  <span className="line-through">{c.label}</span><span className="text-xs text-destructive">Removed</span>
+                  <span className="line-through">{c.label}</span><span className="text-xs text-destructive">{t("contractRates.removed")}</span>
                 </div>
               ))}
+              {rc.carried.length > 0 && <div className="text-xs text-muted-foreground" data-testid="text-rates-carried">{t("contractRates.carried", { count: rc.carried.length })}</div>}
             </div>
           )}
           {shown.scopeChanges && (shown.scopeChanges.added.length > 0 || shown.scopeChanges.removed.length > 0) && (

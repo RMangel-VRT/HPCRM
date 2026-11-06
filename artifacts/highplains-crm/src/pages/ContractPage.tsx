@@ -32,8 +32,8 @@ import { dateOnly, errorStatus, errorText, money } from "@/components/contracts/
 import { isLaterYear, termForm, termLine } from "@/components/contracts/contractTypes";
 import type { ContractDetail, DetailTerm } from "@/components/contracts/contractTypes";
 import {
-  BillingSummary, DetailsList, HistoryList, PANEL_LABEL, Panel, PanelEditBar, RatesSummary, ScopeSummary, Tile,
-  coverageContext, daysUntil, differingRates, monthlyOf, paymentPattern, resolveTermHash, signedInfo, statusWords,
+  BillingSummary, DetailsList, HistoryList, PANEL_LABEL, Panel, PanelEditBar, ContractStandardRates, RatesSummary, ScopeSummary, Tile,
+  coverageContext, daysUntil, monthlyOf, paymentPattern, resolveTermHash, signedInfo, statusWords,
 } from "@/components/contracts/ContractWidgets";
 import type { EditPanel } from "@/components/contracts/ContractWidgets";
 
@@ -86,7 +86,6 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const [moveBusy, setMoveBusy] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [signPrompt, setSignPrompt] = useState(false);
-  const [ratesAll, setRatesAll] = useState(false);
 
   const seasonLine = termLine(term, detail.line);
   const seasonForm = termForm(term, detail.form);
@@ -115,7 +114,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const termKey = term?.id;
   useEffect(() => {
     setEditingPanel(null); setFields(null); setScope(null); setRates(null); setPayments(null); setErrors({});
-    setSignPrompt(false); setConfirmMove(null); setMenuOpen(false); setRatesAll(false);
+    setSignPrompt(false); setConfirmMove(null); setMenuOpen(false);
   }, [termKey]);
   useEffect(() => {
     if (!dirty) return;
@@ -309,7 +308,6 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
     <PanelEditBar id={p} saving={saving} canSave={canSave} problems={panelErrors(p)} onSave={() => void save()}
       onCancel={() => (dirty ? setPending({ kind: "cancel" }) : resetEdits())} />
   );
-  const diffCount = differingRates(term.rates).length;
   const scopeCount = scopeBase.filter(r => r.included).length;
 
   return (
@@ -538,19 +536,18 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
           ) : <ScopeSummary key={term.id} rows={scopeBase} />}
         </Panel>
 
-        <Panel id="rates" title="Rates" meta={`${diffCount} differ${diffCount === 1 ? "s" : ""} from the card`} {...editProps("rates")}
-          actions={editingPanel !== "rates" && term.rates.length > 0 && (
-            <Button size="sm" variant="ghost" className="h-7 px-1 text-primary" aria-expanded={ratesAll} onClick={() => setRatesAll(!ratesAll)} data-testid="button-rates-show-all">
-              {ratesAll ? "Show differences" : `Show all ${term.rates.length} rates`}
-            </Button>
-          )}>
+        <Panel id="rates" title="Rates" meta={translate("contractRates.count", { count: term.rates.length })} {...editProps("rates")}>
           {editingPanel === "rates" ? (
             <div className="space-y-3 overflow-x-auto">
               <RatesEditor line={seasonLine} rows={rateRows} editing onChange={setRates} />
               {editBar("rates", ratesDirty)}
             </div>
-          ) : ratesAll ? <div className="overflow-x-auto"><RatesEditor line={seasonLine} rows={ratesBase} editing={false} onChange={() => undefined} /></div>
-            : <RatesSummary rates={term.rates} />}
+          ) : (
+            <>
+              <RatesSummary rates={term.rates} />
+              <ContractStandardRates key={term.id} line={seasonLine} rates={term.rates} />
+            </>
+          )}
         </Panel>
 
         <Panel id="history" title="History" meta={`${term.history.length} entr${term.history.length === 1 ? "y" : "ies"}`}>

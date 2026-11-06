@@ -39,7 +39,7 @@ export async function seedRenewalSource(companyId: string, userId: string, custo
       annualPriceCents: 120000, billingType: "equal_monthly", legalName: "Original legal name", notes: "Historical notes" }, "Disposable fixture");
     const scope = buildScope([{ serviceKey: "other:fixture", included: true, quantity: 12,
       monthSpread: Array(12).fill(1), details: { label: "Fixture service" } }], "landscape");
-    const rates = snapshotRates(await activeCard(tx, companyId), [], "landscape");
+    const rates = snapshotRates(await activeCard(tx, companyId), [{ rateKey: "rate_general_labor" }], "landscape");
     await replaceRows(tx, companyId, source.id, termScopeLines, scope);
     await replaceRows(tx, companyId, source.id, termRates, rates);
     await replaceRows(tx, companyId, source.id, termBillingMonths,

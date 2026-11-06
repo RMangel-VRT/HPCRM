@@ -152,14 +152,32 @@ describe("contract widget presentation", () => {
     await user.click(screen.getByTestId("button-history-see-all"));
     expect(screen.getAllByTestId(/^history-h/)).toHaveLength(7);
   });
-  it("shows only different/custom rates with strike-through only for card differences", async () => {
+  it("shows every stated rate in order with a card note only where it differs, and no differ-only filter", async () => {
+    const user = userEvent.setup();
     mount();
-    expect(screen.queryByTestId("rate-diff-same")).toBeNull();
-    expect(screen.getByTestId("text-rate-card-different").tagName).toBe("S");
+    const panel = within(screen.getByTestId("panel-rates"));
+    expect(panel.getAllByTestId(/^rate-stated-/).map(e => e.getAttribute("data-testid")))
+      .toEqual(["rate-stated-same", "rate-stated-different", "rate-stated-custom_service"]);
+    expect(screen.getByTestId("text-panel-meta-rates").textContent).toBe("3 rates in this contract");
+    expect(screen.queryByTestId("text-rate-card-same")).toBeNull();
+    expect(screen.getByTestId("text-rate-card-different").textContent).toBe("Card $10");
     expect(screen.queryByTestId("text-rate-card-custom_service")).toBeNull();
-    expect(screen.getByTestId("text-panel-meta-rates").textContent).toContain("2 differ");
-    await userEvent.setup().click(screen.getByTestId("button-rates-show-all"));
-    expect(within(screen.getByTestId("panel-rates")).getByText("same")).toBeTruthy();
+    expect(screen.queryByTestId("button-rates-show-all")).toBeNull();
+    expect(screen.queryByTestId("list-rates-diff")).toBeNull();
+    // Standard rates are collapsed and the card is only requested when opened.
+    expect(screen.queryByTestId("list-standard-rates")).toBeNull();
+    expect(fx.api.mock.calls.some(c => c[1] === "/api/contract-center/rate-card")).toBe(false);
+    fx.api.mockImplementation(async (_m: string, url: string) => ({ ok: true, json: async () => url === "/api/contract-center/rate-card" ? [
+      { id: "1", rateKey: "same", line: "landscape", category: "Labor", label: "same", priceCents: 1000, priceText: null, unit: "hour", minimum: null, sortOrder: 1, active: true },
+      { id: "2", rateKey: "skid_loader", line: "landscape", category: "Equipment", label: "Skid loader", priceCents: 12500, priceText: null, unit: "hour", minimum: null, sortOrder: 2, active: true },
+      { id: "3", rateKey: "old_rate", line: "landscape", category: "Labor", label: "Old", priceCents: 100, priceText: null, unit: "hour", minimum: null, sortOrder: 3, active: false },
+      { id: "4", rateKey: "plow", line: "snow", category: "Snow", label: "Plow", priceCents: 100, priceText: null, unit: "hour", minimum: null, sortOrder: 4, active: true },
+    ] : {} }));
+    await user.click(screen.getByTestId("button-standard-rates"));
+    expect(await screen.findByTestId("rate-standard-skid_loader")).toBeTruthy();
+    expect(screen.getByTestId("list-standard-rates").textContent).toContain("Billed at standard rates unless agreed otherwise");
+    for (const k of ["same", "old_rate"]) expect(screen.queryByTestId(`rate-standard-${k}`)).toBeNull();
+    expect(screen.getByTestId("rate-standard-plow")).toBeTruthy();
   });
   it("switches every panel, resets expansions and normalizes legacy hash suffixes", async () => {
     const user = userEvent.setup();
@@ -179,7 +197,7 @@ describe("contract widget presentation", () => {
     expect(screen.getByTestId("chip-term-next-season").getAttribute("aria-current")).toBe("true");
     expect(screen.getByTestId("text-detail-po").textContent).toBe("Next PO");
     expect(screen.getByTestId("row-document-next-doc")).toBeTruthy();
-    for (const id of ["empty-billing", "empty-scope", "empty-rates-diff", "empty-history"]) expect(screen.getByTestId(id)).toBeTruthy();
+    for (const id of ["empty-billing", "empty-scope", "empty-rates", "empty-history"]) expect(screen.getByTestId(id)).toBeTruthy();
     await user.click(screen.getByTestId("chip-term-current"));
     expect(screen.getAllByTestId(/^scope-row-/)).toHaveLength(8);
     expect(screen.getAllByTestId(/^history-h/)).toHaveLength(5);
@@ -214,6 +232,29 @@ describe("contract widget presentation", () => {
 });
 
 describe("panel-local contract saving and guards", () => {
+  it.each(["reorder", "edit another row", "edit numeric price"])("preserves untouched stated text on save: %s", async action => {
+    const rates: TermRateRow[] = [
+      { ...rate("same", 7500), priceText: "  per worker + materials  ", minimum: "  two hours  " },
+      { ...rate("different", 8500), priceText: "", minimum: "" },
+      { ...rate("custom_null", 3995, null), priceText: null, minimum: null },
+      { ...rate("custom_text", 0, null), priceCents: null, priceText: "  Market price  ", minimum: "" },
+    ];
+    mount(agreement([season("current", { rates })]));
+    await edit("rates");
+    if (action === "reorder") fireEvent.click(screen.getByTestId("button-rate-up-custom_text"));
+    else if (action === "edit another row") fireEvent.change(screen.getByTestId("input-rate-label-different"), { target: { value: "Only this label changed" } });
+    else fireEvent.change(screen.getByTestId("input-rate-same"), { target: { value: "76" } });
+    await userEvent.setup().click(screen.getByTestId("button-save-rates"));
+    await waitFor(() => expect(fx.api).toHaveBeenCalledTimes(1));
+    const [method, path, payload, options] = fx.api.mock.calls[0];
+    expect([method, path, options]).toEqual(["PUT", "/api/contract-center/terms/current/rates", { headers: { "X-Company-Id": "company" } }]);
+    const order = action === "reorder" ? [rates[0], rates[1], rates[3], rates[2]] : rates;
+    expect(payload).toEqual(order.map(r => ({
+      rateKey: r.rateKey, line: r.line, category: r.category, label: action === "edit another row" && r.rateKey === "different" ? "Only this label changed" : r.label,
+      unit: r.unit, minimum: r.minimum, priceCents: action === "edit numeric price" && r.rateKey === "same" ? 7600 : r.priceCents, priceText: r.priceText,
+    })));
+    await waitFor(() => expect(screen.queryByTestId("button-save-rates")).toBeNull());
+  });
   it("saves rates only, even with an inconsistent unrelated flat snow amount", async () => {
     mount(agreement([season("current", { snowPricing: "flat_rate", snowFlatPriceCents: 999999 })]));
     await edit("rates");
@@ -231,7 +272,7 @@ describe("panel-local contract saving and guards", () => {
     await edit("details"); await changePO();
     fireEvent.change(screen.getByTestId("input-field-snowTriggers"), { target: { value: "Three inches" } });
     await user.click(screen.getByTestId("button-save-details"));
-    expect(fx.api.mock.calls).toEqual([["PATCH", "/api/contract-center/terms/current", { po: "New PO", snowTriggers: "Three inches" }]]);
+    expect(fx.api.mock.calls).toEqual([["PATCH", "/api/contract-center/terms/current", { po: "New PO", snowTriggers: "Three inches" }, { headers: { "X-Company-Id": "company" } }]]);
     fx.api.mockClear();
     await edit("scope");
     expect(screen.queryByTestId("input-snow-triggers")).toBeNull();

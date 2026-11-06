@@ -162,7 +162,8 @@ export async function addHistory(tx: Transaction, companyId: string, userId: str
     newStatus: term.status as TermStatus, changedBy: userId, note });
 }
 export async function activeCard(reader: Reader, companyId: string) {
-  return reader.select().from(rateCardItems).where(and(eq(rateCardItems.companyId, companyId), eq(rateCardItems.active, true)));
+  // Validation needs inactive keys too: they must not masquerade as custom rates.
+  return reader.select().from(rateCardItems).where(eq(rateCardItems.companyId, companyId));
 }
 /** Keep microseconds; Date truncates them and can group separate transactions. */
 export async function agreementSeasons(reader: Reader, companyId: string, agreementId: string) {

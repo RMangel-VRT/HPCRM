@@ -1,5 +1,7 @@
 import type { PaymentWire } from "./paymentDraft";
+import i18n from "i18next";
 import type { AgreementForm, AgreementLine } from "./contractTypes";
+import type { RatesWire } from "./RatesEditor";
 
 export type RoundTo = "dollar" | "twelve";
 export interface RenewRateChange {
@@ -28,7 +30,8 @@ export type PriceMode = "pct" | "target";
 export interface RenewChoices {
   mode: PriceMode; pct: number | null; targetCents: number | null; roundTo: RoundTo;
   laterPcts: (number | null)[]; line: AgreementLine | null; form: AgreementForm | null;
-  rates: "carry" | "card" | null; scope: "carry" | "standard";
+  /** null or "carry" carries the source rows; an array (even []) replaces them exactly. */
+  rates: "carry" | RatesWire | null; scope: "carry" | "standard";
 }
 /** Request body for the renew API, or null while any input is invalid. Unchanged defaults are omitted so plain renewals send what they always did. */
 export function renewBody(c: RenewChoices): Record<string, unknown> | null {
@@ -38,7 +41,7 @@ export function renewBody(c: RenewChoices): Record<string, unknown> | null {
     ...(c.mode === "pct" ? { increasePct: c.pct } : { targetAnnualCents: c.targetCents }), roundTo: c.roundTo,
     ...(c.laterPcts.length ? { laterYearPcts: c.laterPcts } : {}),
     ...(c.line ? { line: c.line } : {}), ...(c.form ? { form: c.form } : {}),
-    ...(c.rates ? { rates: c.rates } : {}), ...(c.scope === "standard" ? { scope: "standard" } : {}),
+    ...(Array.isArray(c.rates) || c.rates === "carry" ? { rates: c.rates } : {}), ...(c.scope === "standard" ? { scope: "standard" } : {}),
   };
 }
 export const LINE_NAME: Record<AgreementLine, string> = { landscape: "Landscape", snow: "Snow", both: "Landscape + Snow" };
@@ -47,11 +50,11 @@ const has = (l: AgreementLine, x: "landscape" | "snow") => l === "both" || l ===
 /** Short explanation of what a coverage or form change does to the draft. */
 export function changeNotes(from: { line: AgreementLine; form: AgreementForm }, to: { line: AgreementLine; form: AgreementForm }): string[] {
   const out: string[] = [];
-  if (!has(from.line, "snow") && has(to.line, "snow")) out.push("Snow added: snow rates and standard snow scope are added; snow is billed time and materials unless you set a flat price on the draft.");
-  if (has(from.line, "snow") && !has(to.line, "snow")) out.push("Snow dropped: the Snow payment line, snow rates and snow scope are removed.");
-  if (!has(from.line, "landscape") && has(to.line, "landscape")) out.push("Landscape added: landscape rates and standard landscape scope are added. Add landscape payments on the draft.");
-  if (has(from.line, "landscape") && !has(to.line, "landscape")) out.push("Landscape dropped: landscape payment lines, rates and scope are removed; only the Snow line is kept.");
-  if (from.form !== to.form) out.push(to.form === "ours" ? "Moving to our form: rates reset to the rate card unless you carry them forward." : "Moving to their form: keep their document on the draft's Documents tab.");
+  if (!has(from.line, "snow") && has(to.line, "snow")) out.push(i18n.t("contractRates.snowAdded"));
+  if (has(from.line, "snow") && !has(to.line, "snow")) out.push(i18n.t("contractRates.snowDropped"));
+  if (!has(from.line, "landscape") && has(to.line, "landscape")) out.push(i18n.t("contractRates.landscapeAdded"));
+  if (has(from.line, "landscape") && !has(to.line, "landscape")) out.push(i18n.t("contractRates.landscapeDropped"));
+  if (from.form !== to.form) out.push(i18n.t(to.form === "ours" ? "contractRates.formOurs" : "contractRates.formTheirs"));
   return out;
 }
 /** "2026–27" for one year, "2026–29" across several. */
@@ -78,13 +81,12 @@ export function createSequencer() {
 
 export const sumMonths = (months: { amountCents: number }[]) => months.reduce((s, m) => s + m.amountCents, 0);
 
-/** Only rates that actually move, plus every kept override. */
+/** Change report grouped by the server's reasons: carried, added, removed, changed. */
 export function visibleRateChanges(changes: RenewRateChange[]) {
-  const moved = (c: RenewRateChange) => c.old.priceCents !== c.new.priceCents || (c.old.priceText ?? null) !== (c.new.priceText ?? null);
   return {
-    card: changes.filter(c => c.reason === "card changed" && moved(c)),
-    kept: changes.filter(c => c.reason === "kept override"),
+    carried: changes.filter(c => c.reason === "carried"),
     added: changes.filter(c => c.reason === "added"),
     removed: changes.filter(c => c.reason === "removed"),
+    changed: changes.filter(c => c.reason === "changed"),
   };
 }

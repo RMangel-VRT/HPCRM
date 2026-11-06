@@ -4,7 +4,7 @@ import { SCOPE_CATALOG } from "../shared/contractCatalog";
 import { addCalendarDays } from "./companyDay";
 import {
   applies, buildScope, cents, ContractCenterError, increasedPayments, paymentSummary, renewalCoverage, renewalDates,
-  renewalRates, scaledPayments, snapshotRates, validateSnow, renewSchema, type Payments, scopeSchema,
+  renewalRates, rateChanges, scaledPayments, snapshotRates, validateSnow, renewSchema, type Payments, scopeSchema,
 } from "./contractCenterService";
 import type { z } from "zod/v4";
 
@@ -45,20 +45,9 @@ export function planChangingRenewal(source: AgreementTerm, payments: Payments, o
   oldRates: TermRate[], card: RateCardItem[], body: z.infer<typeof renewSchema>) {
   const line = body.line ?? source.line, form = body.form ?? source.form;
   const coverage = renewalCoverage(source, line, payments);
-  const mode = body.rates ?? (form === "ours" && source.form !== form ? "card" : "carry");
   const carried = renewalRates(oldRates, card, line);
-  const rates = mode === "card" ? snapshotRates(card, [], line) : carried.rates;
-  const rateChanges = mode === "carry" ? carried.changes : [
-    ...oldRates.filter(r => !rates.some(n => n.rateKey === r.rateKey)).map(r => ({
-      rateKey: r.rateKey, label: r.label, old: { priceCents: r.priceCents, priceText: r.priceText },
-      new: { priceCents: null, priceText: null }, reason: "removed",
-    })),
-    ...rates.map(r => {
-      const old = oldRates.find(o => o.rateKey === r.rateKey);
-      return { rateKey: r.rateKey, label: r.label, old: { priceCents: old?.priceCents ?? null, priceText: old?.priceText ?? null },
-        new: { priceCents: r.priceCents, priceText: r.priceText }, reason: old ? "card changed" : "added" };
-    }),
-  ];
+  const rates = Array.isArray(body.rates) ? snapshotRates(card, body.rates, line) : carried.rates;
+  const changesToRates = Array.isArray(body.rates) ? rateChanges(oldRates, rates) : carried.changes;
   const scope = renewalScope(oldScope, source.line, line, body.scope);
   const scopeChanges = {
     added: scope.filter(s => s.included && !oldScope.some(o => o.serviceKey === s.serviceKey && o.included)).map(s => s.serviceKey),
@@ -94,5 +83,5 @@ export function planChangingRenewal(source: AgreementTerm, payments: Payments, o
     })), snowFlatPrice: { before: snowBefore, after: snow } };
   });
   return { ...years[0], agreementId: source.agreementId, renewedFromTermId: source.id,
-    years, rateChanges, scopeChanges, changes, rates, scope, source: { line: source.line, form: source.form } };
+    years, rateChanges: changesToRates, scopeChanges, changes, rates, scope, source: { line: source.line, form: source.form } };
 }

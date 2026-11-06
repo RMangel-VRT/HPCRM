@@ -105,8 +105,7 @@ describe("production-preview copy rules", () => {
     expect(t.report.legacyContractIds).toEqual(["c1", "chemical", "s1"]);
     expect(t.term).toMatchObject({ annualPriceCents: 1200000, billingType: "equal_monthly" });
     expect(t.documents[0].createdAt).toEqual(new Date("2025-12-01Z"));
-    expect(new Set(t.rates.map(r => r.line))).toEqual(new Set(["landscape", "irrigation", "snow", "general"]));
-    expect(t.rates).toHaveLength(44);
+    expect(t.rates).toEqual([]);
     expect(t.rates.some(r => r.rateKey === "retired_custom")).toBe(false);
     expect(t.scope.find(s => s.serviceKey === "mowing")?.quantity).toBe(4);
     expect(t.term.notes).toContain("Old snow monthly amount, Nov: $990.00");
@@ -251,7 +250,7 @@ describe("legacy copy planner", () => {
     input.rateCard[0].active = false;
     const term = first(input);
     expect(term.rates.find(r => r.rateKey === "rate_skid_loader")).toMatchObject({ priceCents: 22500, cardPriceCents: 24500 });
-    expect(term.rates.find(r => r.rateKey === "rate_holiday")).toMatchObject({ priceText: "1.5x Normal Rates", cardPriceText: "1.5x Normal Rates" });
+    expect(term.rates.find(r => r.rateKey === "rate_holiday")).toBeUndefined();
     expect(term.rates.some(r => r.rateKey === "rate_general_labor")).toBe(false);
   });
   it("skips already-linked contracts with no duplicate plans", () => {
@@ -363,7 +362,7 @@ describe("legacy copy planner", () => {
   it("keeps ATV independent when snowblower is zero and ATV is null", () => {
     const input = fixture({ contracts: [contract("c1", { serviceType: "Snow" })],
       rateSheets: [{ id: "s", companyId: "company", customerId: "a", atv: null, snowBlower: 0 } as CopyInput["rateSheets"][number]] });
-    expect(first(input).rates.find(r => r.rateKey === "rate_atv")).toMatchObject({ priceCents: 13500, cardPriceCents: 13500 });
+    expect(first(input).rates.find(r => r.rateKey === "rate_atv")).toBeUndefined();
     expect(first(input).rates.find(r => r.rateKey === "rate_snowblower")).toMatchObject({ priceCents: 0, cardPriceCents: 13500 });
   });
   it("snapshots all ten customer overrides into every applicable season without changing card baselines", () => {

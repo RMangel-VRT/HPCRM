@@ -37,7 +37,7 @@ describe.skipIf(!enabled)("disposable renewal import database transactions", () 
   function server(role = "admin", companyId?: string, superAdmin = false) {
     const app = express(); app.use(express.json());
     app.use((req, _res, next) => { Object.assign(req, { isAuthenticated: () => true, user: { id: f.userId,
-      activeRole: role, activeCompanyId: companyId ?? f.companyId, isSuperAdminBool: superAdmin } }); next(); });
+      accessRole: role, activeRole: role, activeCompanyId: companyId ?? f.companyId, isSuperAdminBool: superAdmin } }); next(); });
     registerContractCenterRoutes(app); return app;
   }
   it("rejects office and other non-admins before reading uploads on both endpoints", async () => {

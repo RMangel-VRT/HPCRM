@@ -65,8 +65,8 @@ executable formula. Ordinary IDs and decimal amounts are unchanged.
 ## Externally signed renewal imports
 
 Settings › Contracts also offers **Download current contracts**, an admin-only,
-active-company export of every Contract Center season, payment pattern, rate
-difference/custom rate and the rate card. The audit batch export uses the same
+active-company export of every Contract Center season, payment pattern, stated
+rate (including card-price matches), and the rate card. The audit batch export uses the same
 season columns, without changing its legacy customer batching or documents.
 
 A renewal upload has `renewals.csv`, not `contracts.csv`. Never include both.
@@ -86,7 +86,30 @@ Blank optional season/snow fields keep the source values; dates determine the
 default season label. Supplied payments are a complete new yearly pattern,
 not an increase applied to old payments. `renewal_increase_pct` is information
 only. No scope rows copies the original scope; any scope rows replace it.
-Rates carry forward exactly as Renew, with only supplied cells overridden.
+Rates carry forward exactly as Renew when no rate replacement is supplied.
+Any `rates.csv` rows for a renewal are its **complete ordered replacement list**,
+not an overlay. Set `rates_mode=replace` on a `renewals.csv` row to explicitly
+clear its list when it has no `rates.csv` rows. Omitted `rates_mode` and no child
+rate rows means carry; `rates_mode=carry` cannot be combined with child rows.
+Custom replacement rates require their label, unit, category and line.
+
+Audit imports always treat the CSV list as exact, including zero rows. Current
+exports include import-shaped `contracts.csv`, `rates.csv`, `payments.csv`,
+`scope.csv` and an empty `documents.csv` alongside the existing read-only reports.
+They do **not** authorize replacing interactive agreements or transferring signed
+documents: existing import-provenance and destructive-replacement guards still
+apply. Historical documents are not deleted or converted by exporting rates.
+
+Rate CSV text can use `\N` for explicit null and `\E` for an explicit empty string.
+Exports encode text that would otherwise lose whitespace or be interpreted as a
+spreadsheet formula as `\J` followed by a JSON string. For example,
+`\J"  one visit  "` preserves the spaces; `\J"\\N"` is the literal text `\N`.
+An absent ordinary card field still takes its card default. CSV file order is
+contract order; all stored rate rows appear in exports. Inactive card keys remain
+invalid for newly supplied replacement lists; rates PUT can retain an unchanged
+inactive row already owned by that locked season, but cannot add or reprice it.
+Renew carries existing retired
+snapshots without reclassifying or repricing them.
 
 Preview writes nothing. Real Import reads the upload again and rechecks current
 data under agreement locks, one transaction per customer. Signed imports set

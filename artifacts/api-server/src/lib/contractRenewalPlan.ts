@@ -3,13 +3,14 @@ import { isNotRenewing, NON_RENEWAL_CONFLICT } from "@workspace/db/contract-non-
 import type { AuditData } from "./contractAuditData";
 import type { AuditFiles, CsvRow, Diagnostic } from "./contractAuditFiles";
 import { planAuditImport, type ImportTerm } from "./contractAuditPlan";
-import { renewalRates, snapshotRates, renewalCoverage } from "./contractCenterService";
+import { renewalRates, rateChanges, renewalCoverage } from "./contractCenterService";
 import { renewalScope } from "./contractChangingRenewal";
 import { addCalendarDays } from "./companyDay";
 
 export type RenewalTerm = Omit<ImportTerm, "documents" | "scope"> & {
   scope: (ImportTerm["scope"][number] | Omit<TermScopeLine, "id" | "companyId" | "termId" | "createdAt" | "updatedAt">)[];
   sourceTerm: AgreementTerm; agreementId: string; skipped: boolean;
+  rateChanges: ReturnType<typeof rateChanges>;
   line: AgreementLine; form: AgreementForm;
   documents: { file: string; kind: "signed" | "their_form" | "other" }[];
   values: ImportTerm["values"] & { renewalIncreasePct?: string };
@@ -71,25 +72,19 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
     const synthetic = { ...row, values: { ...inherited, ...v, agreement_ref: agreement.id, customer_id: customer.id,
       line, form, ...(snowPricing ? { snow_pricing: snowPricing } : {}),
       ...(snowPrice ? { snow_flat_price: snowPrice } : {}) } };
-    // Explicit CSV overrides still apply below; a move onto Our form starts from the card.
-    let rates = form === "ours" && source.form !== form ? snapshotRates(data.card, [], line)
-      : renewalRates((data.rates ?? []).filter(r => r.termId === source.id), data.card, line).rates;
-    const overrideRows = children("rates.csv").map(r => {
-      const existing = rates.find(rate => rate.rateKey === r.values.rate_key);
-      return existing ? { ...r, values: { label: existing.label, unit: existing.unit, category: existing.category,
-        line: existing.line, ...r.values } } : r;
-    });
-    // Renew retains custom/retired rates; allow partial overrides of those
-    // snapshots without requiring their metadata to be repeated in the CSV.
-    const builderCard = data.card.map(c => rates.some(r => r.rateKey === c.rateKey) ? { ...c, active: true } : c);
-    for (const rate of rates) if (!builderCard.some(c => c.rateKey === rate.rateKey))
-      builderCard.push({ ...rate, id: rate.rateKey, companyId: agreement.companyId, active: true,
-        createdAt: source.createdAt, updatedAt: source.updatedAt });
+    const sourceRates = (data.rates ?? []).filter(r => r.termId === source.id);
+    const carried = renewalRates(sourceRates, data.card, line);
+    if (v.rates_mode && !["carry", "replace"].includes(v.rates_mode))
+      diag(row, "rates_mode must be carry or replace", "rates_mode");
+    if (v.rates_mode === "carry" && children("rates.csv").length)
+      diag(row, "rates.csv rows conflict with rates_mode carry", "rates_mode");
+    // No child rows carries. Explicit replace with no child rows clears the list.
+    const replacement = v.rates_mode === "replace" || children("rates.csv").length > 0;
     // Reuse audit's exact money, CSV child validation and canonical builders.
     const built = planAuditImport({ filename: files.filename, errors: [], tables: {
       "contracts.csv": [synthetic], "payments.csv": children("payments.csv"), "scope.csv": children("scope.csv"),
-      "rates.csv": overrideRows, "documents.csv": [],
-    } }, { ...data, card: builderCard, agreements: [], terms: [], contracts: [], documents: [], links: [], termDocs: [], history: [] });
+      "rates.csv": children("rates.csv"), "documents.csv": [],
+    } }, { ...data, agreements: [], terms: [], contracts: [], documents: [], links: [], termDocs: [], history: [] });
     plan.errors.push(...built.errors); plan.warnings.push(...built.warnings);
     const term = built.customers[0]?.agreements[0]?.terms[0];
     if (!term) continue;
@@ -99,22 +94,8 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
     if (v.renewal_increase_pct !== undefined &&
         (!/^-?\d+(?:\.\d{1,2})?$/.test(v.renewal_increase_pct) || Math.abs(Number(v.renewal_increase_pct)) > 999.99))
       diag(row, "Expected a percentage with at most two decimals between -999.99 and 999.99", "renewal_increase_pct");
-    for (const r of children("rates.csv")) {
-      try {
-        const existing = rates.find(rate => rate.rateKey === r.values.rate_key);
-        const supplied = term.rates.find(rate => rate.rateKey === r.values.rate_key);
-        if (!supplied) continue;
-        const keys = Object.keys(r.values).filter(k => k !== "contract_ref" && k !== "rate_key")
-          .map(k => k === "price" ? "priceCents" : camel(k));
-        if (existing) rates = rates.map(rate => rate === existing ? { ...rate,
-          ...Object.fromEntries(keys.map(k => [k, supplied[k as keyof typeof supplied]])) } : rate);
-        else {
-          // Validation of custom metadata is shared with normal rate snapshots.
-          snapshotRates(data.card, [supplied], line);
-          rates.push(supplied);
-        }
-      } catch { diag(r, "Invalid rate override", "rate_key"); }
-    }
+    const rates = replacement ? term.rates : carried.rates;
+    const changes = replacement ? rateChanges(sourceRates, rates) : carried.changes;
     const documents: RenewalTerm["documents"] = [];
     const seenDocs = new Set<string>();
     for (const r of children("documents.csv")) {
@@ -132,7 +113,7 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
       renewalScope((data.scope ?? []).filter(s => s.termId === source.id), source.line, line, "carry");
     let group = plan.customers.find(c => c.id === customer.id);
     if (!group) { group = { id: customer.id, name: customer.name, terms: [] }; plan.customers.push(group); }
-    group.terms.push({ ...term, sourceTerm: source, agreementId: agreement.id, line, form, skipped, scope, rates, documents,
+    group.terms.push({ ...term, sourceTerm: source, agreementId: agreement.id, line, form, skipped, scope, rates, rateChanges: changes, documents,
       values: { ...term.values, ...(v.renewal_increase_pct ? { renewalIncreasePct: v.renewal_increase_pct } : {}) } });
   }
   return plan;
@@ -149,7 +130,7 @@ export function renewalReport(plan: RenewalPlan, dryRun: boolean) {
           description: `${t.skipped ? "Skip" : "Add"} ${t.values.seasonLabel} to ${c.name} (renews ${t.sourceTerm.seasonLabel})`,
           season: t.values.seasonLabel, startDate: t.values.startDate, endDate: t.values.endDate,
           status: t.values.status, annualPrice: t.values.annualPriceCents, paymentLines: t.paymentCount,
-          rates: t.rates.length, scope: t.scope.length, documents: t.documents.length, needsReview: t.values.needsReview ?? false,
+          rates: t.rates.length, rateChanges: t.rateChanges, scope: t.scope.length, documents: t.documents.length, needsReview: t.values.needsReview ?? false,
         })),
       })) })),
     summary: { customers: plan.customers.length, agreements: new Set(terms.map(t => t.agreementId)).size,

@@ -22,7 +22,7 @@ describe.skipIf(!enabled)("disposable contract-changing renewals", () => {
   function server(company: string = fixture.companyId, role = "office") {
     const app = express(); app.use(express.json());
     app.use((req, _res, next) => {
-      Object.assign(req, { isAuthenticated: () => true, user: { id: fixture.userId, activeRole: role,
+      Object.assign(req, { isAuthenticated: () => true, user: { id: fixture.userId, accessRole: role, activeRole: role,
         activeCompanyId: company, isSuperAdminBool: false } }); next();
     });
     registerContractCenterRoutes(app); return request(app);
@@ -32,7 +32,7 @@ describe.skipIf(!enabled)("disposable contract-changing renewals", () => {
     await db.update(agreementTerms).set({ form: "theirs" }).where(eq(agreementTerms.id, f.source.id));
     return f;
   }
-  const requestBody = { increasePct: 3, roundTo: "dollar", laterYearPcts: [3, 3], form: "ours", line: "both", rates: "card" };
+  const requestBody = { increasePct: 3, roundTo: "dollar", laterYearPcts: [3, 3], form: "ours", line: "both", rates: [] };
   it("creates seasonal fields only, and current-or-pending filters use season coverage", async () => {
     const api = server();
     const response = await api.post(`${path}/contracts`).send({ customerId: fixture.customerId, line: "snow", form: "theirs",
@@ -129,7 +129,7 @@ describe.skipIf(!enabled)("disposable contract-changing renewals", () => {
     const uploadServer = express(); uploadServer.use(express.json());
     uploadServer.use((req, _res, next) => {
       const termId = req.path.split("/")[4];
-      Object.assign(req, { isAuthenticated: () => true, user: { id: fixture.userId, activeRole: "office", activeCompanyId: fixture.companyId },
+      Object.assign(req, { isAuthenticated: () => true, user: { id: fixture.userId, accessRole: "office", activeRole: "office", activeCompanyId: fixture.companyId },
         session: { contractCenterUploads: { [objectPath]: { companyId: fixture.companyId, termId } } } });
       next();
     });

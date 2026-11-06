@@ -10,7 +10,9 @@ export interface ContractSummaryTerm {
   /** CP3: server-projected Contract Center renewal rule (successor/non-renewal aware). */
   renewalDue?: boolean;
   billingMonths?: { month: string; component: string | null; amountCents: number }[];
-  rates?: { rateKey: string; line?: "landscape" | "snow" | null; category?: string | null; sortOrder?: number; label: string; unit: string; minimum: string | null; priceCents: number | null; priceText: string | null }[];
+  /** CC2-17: active company standard (card) rates for the term's line that the contract does not state, card order. */
+  standardRates?: { rateKey: string; line?: string | null; category?: string | null; sortOrder?: number; label: string; unit: string; minimum: string | null; priceCents: number | null; priceText: string | null }[];
+  rates?: { rateKey: string; line?: "landscape" | "irrigation" | "snow" | "general" | null; category?: string | null; sortOrder?: number; label: string; unit: string; minimum: string | null; priceCents: number | null; priceText: string | null; cardPriceCents?: number | null; cardPriceText?: string | null }[];
 }
 export interface CustomerContractSummary {
   asOf: string; current: ContractSummaryTerm[]; upcoming?: ContractSummaryTerm[]; previous?: ContractSummaryTerm[];

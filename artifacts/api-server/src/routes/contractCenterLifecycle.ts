@@ -12,7 +12,7 @@ import {
   ContractCenterError, createContractSchema, termFieldsSchema, scopeSchema, ratesSchema, paymentsSchema,
   renewSchema, validateDates, validateSnow, expandPayments, recoverPayments, paymentSummary,
   buildScope, snapshotRates, assertEditable, assertMove, selectRenewalSource, displayStatus,
-  renewalSet,
+  renewalSet, rateChanges,
   nonRenewalSchema, isNotRenewing,
 } from "../lib/contractCenterService";
 import {
@@ -141,7 +141,13 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       const result = await db.transaction(async tx => {
         const { term, agreement } = await lockTerm(tx, companyId, id); assertEditable(term);
         if (part === "scope") await replaceRows(tx, companyId, id, termScopeLines, buildScope(scopeSchema.parse(input), term.line));
-        if (part === "rates") await replaceRows(tx, companyId, id, termRates, snapshotRates(await activeCard(tx, companyId), ratesSchema.parse(input), term.line));
+        if (part === "rates") {
+          const before = await tx.select().from(termRates).where(termWhere(termRates, companyId, id));
+          const rates = snapshotRates(await activeCard(tx, companyId), ratesSchema.parse(input), term.line, before);
+          const changes = rateChanges(before, rates).filter(c => c.reason !== "carried");
+          await replaceRows(tx, companyId, id, termRates, rates);
+          return writeTerm(tx, companyId, userId, term, {}, `Rates updated: ${JSON.stringify(changes)}`, "outcome");
+        }
         let summary = {};
         if (part === "payments") {
           const payments = paymentsSchema.parse(input);

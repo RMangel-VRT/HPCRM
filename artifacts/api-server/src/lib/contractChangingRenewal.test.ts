@@ -19,6 +19,16 @@ const run = (request: object, s = source, payments = pattern, rates: TermRate[] 
     rates, card, renewSchema.parse({ roundTo: "dollar", increasePct: 3, ...request }));
 
 describe("contract-changing renewal calculations", () => {
+  it("replaces rather than overlays rates, with explicit empty arrays clearing every row", () => {
+    const custom = { rateKey: "custom_old", label: "Old", line: "landscape", unit: "hour", category: "Custom",
+      minimum: null, priceCents: 123, priceText: null, cardPriceCents: null, cardPriceText: null, sortOrder: 0 } as TermRate;
+    const replaced = run({ rates: [{ rateKey: "rate_general_labor", priceCents: 7500 }] }, source, pattern, [custom]);
+    expect(replaced.rates.map(r => r.rateKey)).toEqual(["rate_general_labor"]);
+    expect(replaced.rateChanges.map(r => r.reason).sort()).toEqual(["added", "removed"]);
+    expect(run({ rates: [] }, source, pattern, [custom]).rates).toEqual([]);
+    expect(run({}, source, pattern, [custom]).rates[0]).toMatchObject({ rateKey: "custom_old", priceCents: 123 });
+    expect(renewSchema.safeParse({ increasePct: 3, roundTo: "dollar", rates: "card" }).success).toBe(false);
+  });
   it("requires exactly one first-year price and one to five years", () => {
     for (const b of [{}, { increasePct: 3, targetAnnualCents: 1 }, { increasePct: 3, laterYearPcts: [1, 2, 3, 4, 5] }])
       expect(renewSchema.safeParse({ roundTo: "dollar", ...b }).success).toBe(false);
@@ -59,13 +69,13 @@ describe("contract-changing renewal calculations", () => {
     expect(renewalCoverage({ ...source, line: "both", snowPricing: "time_and_materials" }, "snow", pattern).payments).toEqual([]);
     expect(() => run({ increasePct: undefined, targetAnnualCents: 12000, line: "snow" })).toThrow("cannot have payments");
   });
-  it("adds snow and defaults to reset when switching to Our form; lists removed custom rates", () => {
+  it("adds snow coverage without changing commitments or implicitly adding rates on Our form", () => {
     const custom = { rateKey: "custom_one", line: "landscape", label: "Custom", priceCents: 15000, priceText: null,
       unit: "hour", category: "Custom", minimum: null, cardPriceCents: null, cardPriceText: null, sortOrder: 1 } as TermRate;
     const p = run({ form: "ours", line: "both" }, source, pattern, [custom]);
     expect(p.snowPricing).toBe("time_and_materials");
-    expect(p.rateChanges).toContainEqual(expect.objectContaining({ rateKey: "custom_one", reason: "removed" }));
-    expect(p.rates.some(r => r.line === "snow")).toBe(true);
+    expect(p.rateChanges).toContainEqual(expect.objectContaining({ rateKey: "custom_one", reason: "carried" }));
+    expect(p.rates.some(r => r.line === "snow")).toBe(false);
     expect(p.scopeChanges.added).toContain("snow_walks");
     expect(run({ form: "ours", rates: "carry" }, source, pattern, [custom]).rates.some(r => r.rateKey === "custom_one")).toBe(true);
   });

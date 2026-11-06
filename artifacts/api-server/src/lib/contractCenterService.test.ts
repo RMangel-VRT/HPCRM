@@ -69,6 +69,38 @@ describe("payment placement and annual totals", () => {
   });
 });
 describe("scope and snapshots", () => {
+  it("hydrates omitted fields but preserves explicit null, zero, text, metadata and input order", () => {
+    const input = [{ rateKey: "rate_irrigation_labor", priceCents: 8500, label: "Agreed irrigation", minimum: null },
+      { rateKey: "rate_general_labor", priceCents: 0, priceText: "", unit: "visit" }];
+    const rows = snapshotRates(card, input, "landscape");
+    expect(rows.map(r => [r.rateKey, r.sortOrder])).toEqual(input.map((r, i) => [r.rateKey, i]));
+    expect(rows[0]).toMatchObject({ priceCents: 8500, label: "Agreed irrigation", minimum: null,
+      unit: card.find(c => c.rateKey === input[0].rateKey)!.unit });
+    expect(rows[1]).toMatchObject({ priceCents: 0, priceText: "", unit: "visit" });
+    expect(snapshotRates(card, [{ rateKey: "rate_general_labor", priceCents: null, priceText: "By quote" }], "landscape")[0])
+      .toMatchObject({ priceCents: null, priceText: "By quote" });
+    const standard = card.find(c => c.rateKey === "rate_general_labor")!;
+    expect(snapshotRates(card, [{ rateKey: standard.rateKey }], "landscape")[0])
+      .toMatchObject({ label: standard.label, unit: standard.unit, priceCents: standard.priceCents, cardPriceCents: standard.priceCents });
+  });
+  it("rejects duplicates, inactive and nonapplicable card keys even with custom metadata", () => {
+    expect(() => snapshotRates(card, [{ rateKey: card[0].rateKey }, { rateKey: card[0].rateKey }], "both")).toThrow("Duplicate");
+    expect(() => snapshotRates(card.map(c => ({ ...c, active: false })), [{ rateKey: card[0].rateKey,
+      label: "Pretend custom", unit: "hour", category: "Custom", line: "general" }], "both")).toThrow("inactive");
+    expect(() => snapshotRates(card, [{ rateKey: "rate_plow_truck" }], "landscape")).toThrow("does not apply");
+  });
+  it("renews exact retired/custom snapshots and refreshes references without repricing", () => {
+    const old = snapshotRates(card, [{ rateKey: "rate_general_labor" }, { rateKey: "rate_irrigation_labor", priceCents: 8500 },
+      { rateKey: "custom_visit", label: "Mobilization", unit: "visit", category: "Custom", line: "general", priceCents: 3995 }], "landscape") as TermRate[];
+    const changed = card.map(c => ({ ...c, active: false, priceCents: 99999, unit: "changed" }));
+    const before = structuredClone(old), result = renewalRates(old, changed, "landscape");
+    expect(result.rates.map(r => [r.rateKey, r.priceCents, r.unit])).toEqual(old.map(r => [r.rateKey, r.priceCents, r.unit]));
+    expect(result.rates[0].cardPriceCents).toBe(99999);
+    expect(result.changes.every(c => c.reason === "carried")).toBe(true);
+    expect(old).toEqual(before);
+    expect(renewalRates(old, changed, "snow").rates.map(r => r.rateKey)).toEqual(["custom_visit"]);
+    expect(renewalRates(old, changed, "snow").changes.filter(c => c.reason === "removed")).toHaveLength(2);
+  });
   it("orders catalog scope before labelled custom lines and derives line", () => {
     const scope = buildScope([{ serviceKey: "other:custom", included: true, details: { label: "Custom" } },
       { serviceKey: "backflow", included: false }, { serviceKey: "mowing", included: true }], "both");
@@ -79,11 +111,11 @@ describe("scope and snapshots", () => {
     expect(() => buildScope([{ serviceKey: "other:c", included: true }], "both")).toThrow();
     expect(() => buildScope([{ serviceKey: "mowing", included: true }, { serviceKey: "mowing", included: false }], "both")).toThrow();
   });
-  it("snapshots all active rows for both, retains card reference for overrides, validates custom rates", () => {
+  it("snapshots only supplied rows, retains card reference, validates custom rates", () => {
     const rows = snapshotRates([...card, { ...card[0], rateKey: "retired", active: false }], [{ rateKey: "rate_plow_truck", priceCents: 17000 }], "both");
-    expect(rows).toHaveLength(43);
+    expect(rows).toHaveLength(1);
     expect(rows.find(r => r.rateKey === "rate_plow_truck")).toMatchObject({ priceCents: 17000, cardPriceCents: 14500 });
-    expect(snapshotRates(card, [], "landscape").every(r => r.line !== "snow")).toBe(true);
+    expect(snapshotRates(card, [], "landscape")).toEqual([]);
     expect(() => snapshotRates(card, [{ rateKey: "custom", line: "snow", unit: "ton", category: "Materials" }], "snow")).toThrow();
     expect(snapshotRates(card, [{ rateKey: "custom", label: "Ice", line: "snow", unit: "ton", category: "Materials", priceCents: 5 }], "snow").at(-1)).toMatchObject({ cardPriceCents: null, priceCents: 5 });
   });
@@ -117,7 +149,7 @@ describe("renewal, status and Colorado display", () => {
     expect(renewalDates(term())).toEqual({ startDate: "2027-10-01", endDate: "2028-09-30", seasonLabel: "2027–28" });
     expect(renewalDates(term({ endDate: "2028-09-30" })).seasonLabel).toBe("2028–30");
   });
-  it("refreshes unmodified rates but retains numeric, text and custom overrides", () => {
+  it("carries exact commitments without adding or repricing unstated rows", () => {
     const old = snapshotRates(card, [{ rateKey: "rate_plow_truck", priceCents: 17000 },
       { rateKey: "rate_holiday", priceText: "2x" },
       { rateKey: "custom", label: "Custom", category: "Snow", unit: "hour", line: "snow", priceCents: 500 }], "both") as TermRate[];
@@ -125,7 +157,7 @@ describe("renewal, status and Colorado display", () => {
     const result = renewalRates(old, next, "both");
     expect(result.rates.find(r => r.rateKey === "rate_plow_truck")?.priceCents).toBe(17000);
     expect(result.rates.find(r => r.rateKey === "rate_holiday")?.priceText).toBe("2x");
-    expect(result.rates.find(r => r.rateKey === "rate_skid_loader")?.priceCents).toBe(30000);
+    expect(result.rates.find(r => r.rateKey === "rate_skid_loader")).toBeUndefined();
     expect(result.rates.find(r => r.rateKey === "custom")?.priceCents).toBe(500);
   });
   it("rejects direct signing and all computed status moves, and allows renewal draft loss", () => {

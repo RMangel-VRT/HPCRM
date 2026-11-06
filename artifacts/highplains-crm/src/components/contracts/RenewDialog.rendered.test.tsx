@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import "@/i18n";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -17,11 +18,16 @@ const preview = (after: number) => ({ seasonLabel: "2027\u201328", startDate: "2
   payments: [{ component: "Grounds", before: months(100000), after: months(after) }], snowFlatPrice: { before: null, after: null }, rateChanges: [] });
 type Call = { body: { increasePct: unknown; roundTo: string; dryRun?: boolean }; resolve: (v: unknown) => void; reject: (e: Error) => void };
 let calls: Call[] = [];
+const CARD = [
+  { id: "c1", rateKey: "general_labor", line: "general", category: "Labor", label: "General labor", priceCents: 7500, priceText: null, unit: "hour", minimum: null, sortOrder: 1, active: true },
+  { id: "c2", rateKey: "plow", line: "snow", category: "Snow", label: "Plow", priceCents: 9000, priceText: null, unit: "hour", minimum: null, sortOrder: 2, active: true },
+];
+const stated = (rateKey: string, line = "landscape", priceCents = 8500) => ({ rateKey, line, category: "Labor", label: rateKey, unit: "hour", minimum: null, priceCents, priceText: null, cardPriceCents: null, cardPriceText: null });
 beforeEach(() => {
   calls = []; fx.toast.mockReset(); fx.api.mockReset();
   // The display-current season differs from the renewal source (the later signed season).
   fx.detail = { id: "a1", line: "both", form: "ours", terms: [season("t0", { line: "both", form: "ours", startDate: "2025-10-01" }), season("t1")] };
-  fx.api.mockImplementation((m: string, _u: string, body: Call["body"]) => m === "GET" ? Promise.resolve({ json: async () => fx.detail }) : new Promise((resolve, reject) => {
+  fx.api.mockImplementation((m: string, _u: string, body: Call["body"]) => m === "GET" ? Promise.resolve({ json: async () => (_u === "/api/contract-center/rate-card" ? CARD : fx.detail) }) : new Promise((resolve, reject) => {
     calls.push({ body, resolve: v => resolve({ json: async () => v }), reject });
   }));
   vi.useFakeTimers();
@@ -94,16 +100,41 @@ describe("RenewDialog", () => {
     expect(screen.getByTestId("button-line-landscape").getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByTestId("button-rates-carry").getAttribute("aria-pressed")).toBe("true");
   });
-  it("switches rates to the card when form becomes ours, sends the changes, and notes snow added", async () => {
+  it("keeps carrying rates when the form changes (no implicit reset) and omits rates from the body", async () => {
     mount(); await flush(301);
     fireEvent.click(screen.getByTestId("button-form-ours"));
-    expect(screen.getByTestId("button-rates-card").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("button-rates-carry").getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByTestId("button-line-both"));
     expect(screen.getByTestId("renew-change-notes").textContent).toContain("Snow added");
-    fireEvent.click(screen.getByTestId("button-rates-carry"));
-    expect(screen.getByTestId("button-rates-carry").getAttribute("aria-pressed")).toBe("true");
     await flush(301);
-    expect(dry().at(-1)!.body).toMatchObject({ increasePct: 3, form: "ours", line: "both", rates: "carry", dryRun: true });
+    expect(dry().at(-1)!.body).toMatchObject({ increasePct: 3, form: "ours", line: "both", dryRun: true });
+    expect(dry().at(-1)!.body).not.toHaveProperty("rates");
+  });
+  it("edits the source rows exactly, drops rows that no longer apply, and sends [] when all are removed", async () => {
+    (fx.detail as { terms: Record<string, unknown>[] }).terms[1].rates = [stated("irrigation_labor"), stated("custom_mobilization", "general", 3995)];
+    mount(); await flush(301);
+    fireEvent.click(screen.getByTestId("button-rates-edit"));
+    expect(screen.getByTestId("rate-row-irrigation_labor")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("button-rate-up-custom_mobilization"));
+    await flush(301);
+    expect((dry().at(-1)!.body as unknown as { rates: { rateKey: string }[] }).rates.map(r => r.rateKey)).toEqual(["custom_mobilization", "irrigation_labor"]);
+    fireEvent.click(screen.getByTestId("button-line-snow"));
+    expect(screen.queryByTestId("rate-row-irrigation_labor")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-rate-remove-custom_mobilization"));
+    expect(screen.getByTestId("empty-rates")).toBeTruthy();
+    await flush(301);
+    expect(dry().at(-1)!.body).toMatchObject({ line: "snow", rates: [] });
+  });
+  it("Start from the card pre-fills applicable card rows and saves only what is kept", async () => {
+    mount(); await flush(301);
+    fireEvent.click(screen.getByTestId("button-rates-card"));
+    await flush(0); await flush(0);
+    expect(screen.getByTestId("rate-row-general_labor")).toBeTruthy();
+    expect(screen.queryByTestId("rate-row-plow")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-rate-remove-general_labor"));
+    await flush(301);
+    expect(dry().at(-1)!.body).toMatchObject({ rates: [] });
+    expect(fx.api).toHaveBeenCalledWith("GET", "/api/contract-center/rate-card", undefined, { headers: { "X-Company-Id": "fixture-company" } });
   });
   it("lists every year of a 3-year preview and labels the button by length", async () => {
     mount(); await flush(301);

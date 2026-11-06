@@ -59,7 +59,7 @@ export const renewSchema = z.object({
   laterYearPcts: z.array(z.number().min(-50).max(100)).max(4).default([]),
   line: z.enum(["landscape", "snow", "both"]).optional(),
   form: z.enum(["ours", "theirs"]).optional(),
-  rates: z.enum(["carry", "card"]).optional(),
+  rates: z.union([z.literal("carry"), ratesSchema]).optional(),
   scope: z.enum(["carry", "standard"]).default("carry"),
   roundTo: z.enum(["dollar", "twelve"]), dryRun: z.boolean().default(false),
 }).refine(b => (b.increasePct === undefined) !== (b.targetAnnualCents === undefined),
@@ -141,24 +141,34 @@ export function buildScope(input: z.infer<typeof scopeSchema>, line: AgreementLi
 export function applies(line: AgreementLine, rateLine: string) {
   return line === "both" || rateLine === "general" || (line === "snow" ? rateLine === "snow" : ["landscape", "irrigation"].includes(rateLine));
 }
-export function snapshotRates(card: RateCardItem[], input: z.infer<typeof ratesSchema>, line: AgreementLine) {
+type StoredRateCommitment = Pick<TermRate, "rateKey" | "label" | "unit" | "category" | "line" | "minimum" | "priceCents" | "priceText">;
+export function snapshotRates(card: RateCardItem[], input: z.infer<typeof ratesSchema>, line: AgreementLine,
+  existing: readonly StoredRateCommitment[] = []) {
   const rates = ratesSchema.parse(input); unique(rates.map(r => r.rateKey), "rate key");
-  const active = card.filter(r => r.active && applies(line, r.line));
-  const overrides = new Map(rates.map(r => [r.rateKey, r]));
-  const rows = active.map(r => {
-    const override = overrides.get(r.rateKey);
-    return { rateKey: r.rateKey, line: r.line, category: r.category, label: r.label,
-      unit: r.unit, minimum: r.minimum, priceCents: r.priceCents, priceText: r.priceText,
-      ...override, cardPriceCents: r.priceCents, cardPriceText: r.priceText, sortOrder: r.sortOrder };
+  return rates.map((r, sortOrder) => {
+    const standard = card.find(c => c.rateKey === r.rateKey);
+    if (standard && !standard.active) {
+      // A locked season may already own a retired commitment. Keeping it is not
+      // selecting an inactive card default: retain only its exact agreed values.
+      const before = existing.find(old => old.rateKey === r.rateKey);
+      const fields = ["label", "unit", "category", "line", "minimum", "priceCents", "priceText"] as const;
+      if (!before || !applies(line, before.line) || fields.some(key => r[key] !== undefined && r[key] !== before[key]))
+        throw new ContractCenterError(400, "Rate is inactive; it may only be retained unchanged from this season");
+      return { rateKey: before.rateKey, label: before.label, unit: before.unit, category: before.category, line: before.line,
+        minimum: before.minimum, priceCents: before.priceCents, priceText: before.priceText,
+        cardPriceCents: standard.priceCents, cardPriceText: standard.priceText, sortOrder };
+    }
+    if (standard && (!standard.active || !applies(line, standard.line)))
+      throw new ContractCenterError(400, "Rate is inactive or does not apply to this contract");
+    if (!standard && (!r.label || !r.unit || !r.category || !r.line))
+      throw new ContractCenterError(400, "Custom rates require label, unit, category and line");
+    return { rateKey: r.rateKey, label: r.label ?? standard!.label, unit: r.unit ?? standard!.unit,
+      category: r.category ?? standard!.category, line: r.line ?? standard!.line,
+      minimum: r.minimum === undefined ? standard?.minimum ?? null : r.minimum,
+      priceCents: r.priceCents === undefined ? standard?.priceCents ?? null : r.priceCents,
+      priceText: r.priceText === undefined ? standard?.priceText ?? null : r.priceText,
+      cardPriceCents: standard?.priceCents ?? null, cardPriceText: standard?.priceText ?? null, sortOrder };
   });
-  for (const r of rates.filter(r => !active.some(c => c.rateKey === r.rateKey))) {
-    if (card.some(c => c.rateKey === r.rateKey)) throw new ContractCenterError(400, "Rate is inactive or does not apply to this contract");
-    if (!r.label || !r.unit || !r.category || !r.line) throw new ContractCenterError(400, "Custom rates require label, unit, category and line");
-    rows.push({ ...r, label: r.label, unit: r.unit, category: r.category, line: r.line,
-      minimum: r.minimum ?? null, priceCents: r.priceCents ?? null, priceText: r.priceText ?? null,
-      cardPriceCents: null, cardPriceText: null, sortOrder: card.length + rows.length });
-  }
-  return rows.sort((a, b) => a.sortOrder - b.sortOrder);
 }
 type StatusTerm = Pick<AgreementTerm, "id" | "status" | "startDate" | "endDate" | "renewedFromTermId"> & { nonRenewalOn?: string | null };
 export function displayStatus(term: StatusTerm, terms: StatusTerm[] = [], today = companyToday()) {
@@ -241,29 +251,29 @@ export function renewalDates(term: Pick<AgreementTerm, "startDate" | "endDate">)
   return { startDate, endDate, seasonLabel: sy === ey ? sy : `${sy}–${ey.slice(-2)}` };
 }
 export function renewalRates(old: TermRate[], card: RateCardItem[], line: AgreementLine) {
-  const removed = old.filter(r => !applies(line, r.line));
-  old = old.filter(r => applies(line, r.line));
-  const active = card.filter(r => r.active && applies(line, r.line));
-  const overrides = old.filter(r => !active.some(c => c.rateKey === r.rateKey) ||
-    r.priceCents !== r.cardPriceCents || r.priceText !== r.cardPriceText);
-  // Keep custom/retired snapshots without treating them as active-card overrides.
-  const fresh = snapshotRates(active, overrides.filter(r => active.some(c => c.rateKey === r.rateKey)), line);
-  const retained = overrides.filter(r => !active.some(c => c.rateKey === r.rateKey)).map(r => ({
-    rateKey: r.rateKey, line: r.line, category: r.category, label: r.label, unit: r.unit,
-    minimum: r.minimum, priceCents: r.priceCents, priceText: r.priceText, cardPriceCents: r.cardPriceCents,
-    cardPriceText: r.cardPriceText, sortOrder: r.sortOrder,
-  }));
-  const rates = [...fresh, ...retained];
-  const changes = rates.map(r => {
-    const before = old.find(o => o.rateKey === r.rateKey);
-    const kept = overrides.some(o => o.rateKey === r.rateKey);
-    return { rateKey: r.rateKey, label: r.label, old: { priceCents: before?.priceCents ?? null, priceText: before?.priceText ?? null },
-      new: { priceCents: r.priceCents, priceText: r.priceText }, reason: !before ? "added" : kept ? "kept override" : "card changed" };
+  const rates = [...old].sort((a, b) => a.sortOrder - b.sortOrder).filter(r => applies(line, r.line)).map((r, sortOrder) => {
+    const standard = card.find(c => c.rateKey === r.rateKey);
+    return { rateKey: r.rateKey, line: r.line, category: r.category, label: r.label, unit: r.unit,
+      minimum: r.minimum, priceCents: r.priceCents, priceText: r.priceText, sortOrder,
+      cardPriceCents: standard?.priceCents ?? null, cardPriceText: standard?.priceText ?? null };
   });
-  changes.push(...removed.map(r => ({ rateKey: r.rateKey, label: r.label,
-    old: { priceCents: r.priceCents, priceText: r.priceText },
-    new: { priceCents: null, priceText: null }, reason: "removed" })));
-  return { rates, changes };
+  return { rates, changes: rateChanges(old, rates).map(c => c.reason === "removed" ? c : { ...c, reason: "carried", fields: [] }) };
+}
+
+type StatedRate = Pick<TermRate, "rateKey" | "label" | "unit" | "line" | "category" | "minimum" | "priceCents" | "priceText" | "sortOrder">;
+export function rateChanges(old: StatedRate[], rates: StatedRate[]) {
+  const fields = ["label", "unit", "line", "category", "minimum", "priceCents", "priceText", "sortOrder"] as const;
+  return [...rates.map(r => {
+    const before = old.find(o => o.rateKey === r.rateKey);
+    return { rateKey: r.rateKey, label: r.label, old: { priceCents: before?.priceCents ?? null, priceText: before?.priceText ?? null },
+      new: { priceCents: r.priceCents, priceText: r.priceText },
+      reason: !before ? "added" : fields.some(k => before[k] !== r[k]) ? "changed" : "carried",
+      fields: before ? fields.filter(k => before[k] !== r[k]).map(k => ({ field: k, old: before[k], new: r[k] }))
+        : fields.map(k => ({ field: k, old: null, new: r[k] })) };
+  }), ...old.filter(o => !rates.some(r => r.rateKey === o.rateKey)).map(r => ({
+    rateKey: r.rateKey, label: r.label, old: { priceCents: r.priceCents, priceText: r.priceText },
+    new: { priceCents: null, priceText: null }, reason: "removed",
+    fields: fields.map(k => ({ field: k, old: r[k], new: null })) }))];
 }
 
 /** Exact annual target, retaining every line/month's share of the original total. */

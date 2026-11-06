@@ -7,7 +7,7 @@ import yauzl from "yauzl";
 export const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 export const IMPORT_HEADERS: Record<string, string[]> = {
   "remove_agreements.csv": ["agreement_ref"],
-  "renewals.csv": "contract_ref renews_term_id customer_name season_label start_date end_date status signed_date snow_pricing snow_flat_price legal_name managing_agent_name project_contact contact_phone contact_email project_address po snow_triggers notes renewal_increase_pct needs_review review_note line form".split(" "),
+  "renewals.csv": "contract_ref renews_term_id customer_name season_label start_date end_date status signed_date snow_pricing snow_flat_price legal_name managing_agent_name project_contact contact_phone contact_email project_address po snow_triggers notes renewal_increase_pct needs_review review_note line form rates_mode".split(" "),
   "contracts.csv": "contract_ref agreement_ref customer_id customer_name line form season_label start_date end_date status signed_date renews_ref snow_pricing snow_flat_price managing_agent_name legal_name project_contact contact_phone contact_email project_address po snow_triggers legacy_contract_ids needs_review review_note notes".split(" "),
   "payments.csv": ["contract_ref", "payment_line", ...MONTHS],
   "rates.csv": "contract_ref rate_key price price_text minimum unit label category line".split(" "),
@@ -17,6 +17,22 @@ export const IMPORT_HEADERS: Record<string, string[]> = {
 export type Diagnostic = { file: string; row?: number; column?: string; contractRef?: string; message: string };
 export type CsvRow = { file: string; row: number; values: Record<string, string> };
 export type UploadFile = { name: string; data: Buffer };
+/** Preserve nullable commercial text through CSV trimming and spreadsheet protection. */
+export function rateCsvText(value: string | null): string {
+  if (value === null) return "\\N";
+  if (value === "") return "\\E";
+  return value.trim() !== value || /^[=+\-@\\\t\r]/.test(value) ? `\\J${JSON.stringify(value)}` : value;
+}
+export function parseRateCsvText(value: string): string | null {
+  if (value === "\\N") return null;
+  if (value === "\\E") return "";
+  if (value.startsWith("\\J")) {
+    const decoded: unknown = JSON.parse(value.slice(2));
+    if (typeof decoded !== "string") throw new Error("Expected encoded rate text");
+    return decoded;
+  }
+  return value;
+}
 export type AuditFiles = { filename: string; mode?: "audit" | "renewal"; pdfs?: Record<string, Buffer>; tables: Record<string, CsvRow[]>; manifest?: { exportedAt: string }; errors: Diagnostic[] };
 const LIMIT = 10 * 1024 * 1024;
 const EXPANDED_LIMIT = 30 * 1024 * 1024;
@@ -165,6 +181,8 @@ export async function parseAuditFiles(upload: UploadFile[]): Promise<AuditFiles>
       continue;
     }
     if (name === "README.md") continue;
+    // Companion read-only reports in a current-contracts export are not import writers.
+    if (["contract_center.csv", "term_payments.csv", "term_rates.csv", "rate_card.csv"].includes(name)) continue;
     if (!IMPORT_HEADERS[name] && name !== "manifest.json") { error(file.name, "Unsupported data file"); continue; }
     if (seen.has(name)) { error(file.name, "Duplicate data file"); continue; }
     seen.add(name);

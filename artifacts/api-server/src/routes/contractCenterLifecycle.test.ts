@@ -64,7 +64,7 @@ function app(role = "office", company = "company", superAdmin = false) {
   const instance = express(), session: any = {};
   instance.use(express.json());
   instance.use((req, _res, next) => {
-    Object.assign(req, { isAuthenticated: () => true, user: { id: "actor", activeCompanyId: company, activeRole: role, isSuperAdminBool: superAdmin }, session });
+    Object.assign(req, { isAuthenticated: () => true, user: { id: "actor", activeCompanyId: company, accessRole: role, activeRole: role, isSuperAdminBool: superAdmin }, session });
     next();
   });
   registerContractCenterRoutes(instance); return instance;
@@ -106,6 +106,111 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("Contract Center lifecycle routes", () => {
+  it("keeps a retired rate carried by renewal while changing another rate, with one detailed event", async () => {
+    vi.spyOn(companyDay, "companyToday").mockReturnValue("2026-06-01");
+    tables.rate_card_items = [
+      { rateKey: "former_labor", line: "landscape", category: "Labor", label: "Former labor", unit: "hour",
+        minimum: "  two hours  ", priceCents: 7000, priceText: "  labor only  ", active: true, companyId: "company" },
+      { rateKey: "current_labor", line: "landscape", category: "Labor", label: "Current labor", unit: "hour",
+        minimum: null, priceCents: 8000, priceText: null, active: true, companyId: "company" },
+      { rateKey: "never_stated", line: "landscape", category: "Labor", label: "Never stated", unit: "hour",
+        minimum: null, priceCents: 9000, priceText: null, active: false, companyId: "company" },
+    ];
+    const agent = request(app());
+    const created = await agent.post(`${base}/contracts`).send({ ...body, rates: [
+      { rateKey: "former_labor", priceCents: 7500 }, { rateKey: "current_labor", priceCents: 8500 },
+    ] });
+    expect(created.status).toBe(201);
+    const sourceId = created.body.terms[0].id;
+    rows("agreement_terms").find(t => t.id === sourceId).status = "signed";
+    tables.rate_card_items[0].active = false;
+    tables.rate_card_items[0].priceCents = 9900;
+    const renewed = await agent.post(`${base}/contracts/${created.body.id}/renew`).send({ increasePct: 3, roundTo: "dollar" });
+    expect(renewed.status).toBe(201);
+    const next = renewed.body.terms.find((t: any) => t.id !== sourceId);
+    rows("agreement_terms").find(t => t.id === next.id).status = "signed";
+    const oldRates = structuredClone(rows("term_rates").filter(r => r.termId === next.id));
+    const eventCount = rows("term_status_history").length;
+    const payload = [{ ...next.rates[1], priceCents: 8700 }, next.rates[0]];
+    expect((await agent.put(`${base}/terms/${next.id}/rates`).send(payload)).status).toBe(200);
+    const saved = rows("term_rates").filter(r => r.termId === next.id);
+    expect(saved.map(r => [r.rateKey, r.priceCents, r.priceText, r.minimum, r.sortOrder])).toEqual([
+      ["current_labor", 8700, null, null, 0], ["former_labor", 7500, "  labor only  ", "  two hours  ", 1],
+    ]);
+    expect(rows("term_rates").find(r => r.termId === sourceId && r.rateKey === "former_labor").priceCents).toBe(7500);
+    expect(rows("term_status_history")).toHaveLength(eventCount + 1);
+    const note = rows("term_status_history").at(-1).note;
+    expect(note).toMatch(/^Rates updated:/);
+    expect(JSON.parse(note.slice("Rates updated: ".length))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rateKey: "current_labor", reason: "changed",
+        fields: expect.arrayContaining([expect.objectContaining({ field: "priceCents", old: 8500, new: 8700 })]) }),
+    ]));
+    for (const invalid of [
+      [...payload, { rateKey: "never_stated" }],
+      [payload[0], { ...payload[1], priceCents: 7600 }],
+      [payload[0], { ...payload[1], minimum: null }],
+      [payload[0], { ...payload[1], priceText: "labor only" }],
+      [payload[0], { ...payload[1], line: "general" }],
+    ]) expect((await agent.put(`${base}/terms/${next.id}/rates`).send(invalid)).status).toBe(400);
+    expect(rows("term_status_history")).toHaveLength(eventCount + 1);
+    expect(rows("term_rates").filter(r => r.termId === next.id)).toEqual(saved);
+    expect(oldRates[0].priceCents).toBe(7500);
+    expect((await agent.put(`${base}/terms/${next.id}/rates`).send([{ rateKey: "current_labor" }])).status).toBe(200);
+    expect(rows("term_rates").filter(r => r.termId === next.id).map(r => r.rateKey)).toEqual(["current_labor"]);
+    // Removal is explicit; the retired key cannot be reintroduced afterward.
+    expect((await agent.put(`${base}/terms/${next.id}/rates`).send(payload)).status).toBe(400);
+  });
+  it("stores the development three-rate example, renews exact prices, replaces and clears with one detailed event per PUT", async () => {
+    vi.spyOn(companyDay, "companyToday").mockReturnValue("2026-06-01");
+    tables.rate_card_items = [
+      { rateKey: "rate_general_labor", line: "landscape", category: "Labor", label: "General labor",
+        unit: "hour", minimum: "1 hour", priceCents: 7000, priceText: null, active: true, companyId: "company" },
+      { rateKey: "rate_irrigation_labor", line: "irrigation", category: "Labor", label: "Irrigation labor",
+        unit: "hour", minimum: null, priceCents: 8000, priceText: null, active: true, companyId: "company" },
+      { rateKey: "rate_skid_loader", line: "landscape", category: "Equipment", label: "Skid loader",
+        unit: "hour", minimum: null, priceCents: 24500, priceText: null, active: true, companyId: "company" },
+      { rateKey: "retired", line: "landscape", category: "Labor", label: "Retired",
+        unit: "hour", minimum: null, priceCents: 10, priceText: null, active: false, companyId: "company" },
+    ];
+    const supplied = [{ rateKey: "rate_general_labor", priceCents: 7500 },
+      { rateKey: "rate_irrigation_labor", priceCents: 8500 },
+      { rateKey: "custom_mobilization", label: "Mobilization", unit: "visit", category: "Custom", line: "general", priceCents: 3995 }];
+    const agent = request(app());
+    const response = await agent.post(`${base}/contracts`).send({ ...body, rates: supplied });
+    expect(response.status).toBe(201);
+    const agreementId = response.body.id, termId = response.body.terms[0].id;
+    expect(rows("term_rates").map(r => [r.rateKey, r.priceCents, r.sortOrder])).toEqual(supplied.map((r, i) => [r.rateKey, r.priceCents, i]));
+    rows("agreement_terms")[0].status = "signed";
+    const before = structuredClone(rows("term_rates"));
+    tables.rate_card_items[0].priceCents = 9900;
+    const renewal = await agent.post(`${base}/contracts/${agreementId}/renew`).send({ increasePct: 3, roundTo: "dollar" });
+    expect(renewal.status).toBe(201);
+    const next = renewal.body.terms.find((t: any) => t.id !== termId);
+    expect(next.rates.map((r: any) => [r.rateKey, r.priceCents])).toEqual(supplied.map(r => [r.rateKey, r.priceCents]));
+    expect(rows("term_rates").filter(r => r.termId === termId)).toEqual(before);
+    const priorHistory = rows("term_status_history").length;
+    const replace = await agent.put(`${base}/terms/${next.id}/rates`).send([
+      { ...supplied[2], minimum: "One visit" }, supplied[1], { rateKey: "rate_skid_loader" },
+    ]);
+    expect(replace.status).toBe(200);
+    expect(rows("term_status_history")).toHaveLength(priorHistory + 1);
+    const event = rows("term_status_history").at(-1);
+    expect(event.note).toMatch(/^Rates updated:/);
+    const changes = JSON.parse(event.note.slice("Rates updated: ".length));
+    expect(changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rateKey: "rate_general_labor", reason: "removed" }),
+      expect.objectContaining({ rateKey: "rate_skid_loader", reason: "added" }),
+      expect.objectContaining({ rateKey: "custom_mobilization", reason: "changed",
+        fields: expect.arrayContaining([expect.objectContaining({ field: "minimum", new: "One visit" })]) }),
+    ]));
+    rows("agreement_terms").find(t => t.id === next.id).status = "signed";
+    const count = rows("term_status_history").length;
+    expect((await agent.put(`${base}/terms/${next.id}/rates`).send([])).status).toBe(200);
+    expect(rows("term_rates").filter(r => r.termId === next.id)).toEqual([]);
+    expect(rows("term_status_history")).toHaveLength(count + 1);
+    expect((await agent.put(`${base}/terms/${next.id}/rates`).send([{ rateKey: "retired", label: "X", unit: "hour", category: "Custom", line: "general" }])).status).toBe(400);
+    expect(rows("term_status_history")).toHaveLength(count + 1);
+  });
   it("active customers is scoped, returns customer-based counts, inherits only same-company direct parent and uses exactly three reads", async () => {
     tables.customers = [
       { id: "parent", companyId: "company", name: "Parent", status: "active", parentCustomerId: null },
@@ -235,7 +340,7 @@ describe("Contract Center lifecycle routes", () => {
         expect((await agent.put(`${base}/terms/${termId}/${part}`).send({ [part]: input })).status).toBe(editable ? 200 : 409);
       if (editable && ["signed", "active", "renewed"].includes(status))
         expect(rows("term_status_history").slice(1)).toEqual(expect.arrayContaining(
-          ["notes", "scope", "rates", "payments"].map(note => expect.objectContaining({ changedBy: "actor", note: `Edited after signing: ${note}` }))));
+           ["notes", "scope", "payments"].map(note => expect.objectContaining({ changedBy: "actor", note: `Edited after signing: ${note}` }))));
     });
   it.each(["field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor", "crew_supervisor"])("denies %s every lifecycle endpoint", async role => {
     const agent = request(app(role));

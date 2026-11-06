@@ -1,5 +1,5 @@
 import type { AgreementLine, AgreementForm, TermStatus, ContractDocument } from "@workspace/db";
-import { dollarCents, MONTHS, type CsvRow, type Diagnostic, type AuditFiles } from "./contractAuditFiles";
+import { dollarCents, parseRateCsvText, MONTHS, type CsvRow, type Diagnostic, type AuditFiles } from "./contractAuditFiles";
 import type { AuditData } from "./contractAuditData";
 import { auditOwnsCustomer, destructiveAgreementIssues } from "./contractAuditEligibility";
 import { validateDates, validateSnow, validatePayments, paymentSummary, expandPayments, buildScope, snapshotRates,
@@ -154,10 +154,11 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
     const rateInputs = children("rates.csv").map(r => {
       const key = required(r, "rate_key");
       if (!data.card.some(c => c.rateKey === key) && !key.startsWith("custom_")) diagnostic(r, "Non-card rates must start with custom_", "rate_key");
-      const price = money(r, "price");
+      const price = r.values.price === "\\N" ? null : money(r, "price");
       const input = { rateKey: key, ...(price === undefined ? {} : { priceCents: price }),
         ...Object.fromEntries(["price_text", "minimum", "unit", "label", "category", "line"].filter(k => r.values[k] !== undefined)
-          .map(k => [k === "price_text" ? "priceText" : k, r.values[k]])) };
+           .map(k => [k === "price_text" ? "priceText" : k,
+             attempt(r, () => parseRateCsvText(r.values[k]), r.values[k], k)])) };
       attempt(r, () => ratesSchema.element.parse(input), undefined);
       attempt(r, () => snapshotRates(data.card, [input], line), [], "rate_key");
       return input;

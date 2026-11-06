@@ -300,13 +300,15 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
             if (applicableLines.includes(applicableLine) && sheet?.[overrideKeys[key]] != null && !rates.some(r => r.rateKey === key))
               flag(`Rate sheet value for ${key} skipped; add the missing standard rates in Settings first`);
           }
-          const termRates = rates.filter(r => applicableLines.includes(r.line)).map(r => {
+          // A legacy rate sheet is explicit input; the rest of the card is not.
+          const termRates = rates.filter(r => applicableLines.includes(r.line) &&
+            sheet && overrideKeys[r.rateKey] && sheet[overrideKeys[r.rateKey]] != null).map((r, sortOrder) => {
             const override = sheet && overrideKeys[r.rateKey] ? sheet[overrideKeys[r.rateKey]] : null;
             const price = override;
             return { rateKey: r.rateKey, line: r.line, category: r.category, label: r.label,
               priceCents: typeof price === "number" ? price : r.priceCents, priceText: r.priceText,
               unit: r.unit, minimum: r.minimum, cardPriceCents: r.priceCents,
-              cardPriceText: r.priceText, sortOrder: r.sortOrder };
+              cardPriceText: r.priceText, sortOrder };
           });
           const scopeLines = [...scope.values()].sort((a, b) => a.sortOrder - b.sortOrder);
           const termReport: TermReport = { legacyContractIds: ids, seasonLabel: sy === ey ? String(sy) : `${sy}–${String(ey).slice(-2)}`,

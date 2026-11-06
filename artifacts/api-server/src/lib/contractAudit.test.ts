@@ -55,6 +55,26 @@ async function zip(entries: UploadFile[]) {
 }
 
 describe("audit file boundaries", () => {
+  it("builds exactly three CSV rates in contract order, and none when absent", async () => {
+    const { files } = await fixture();
+    const ref = files.tables["contracts.csv"][0].values.contract_ref;
+    files.tables["rates.csv"] = [
+      { file: "rates.csv", row: 2, values: { contract_ref: ref, rate_key: "rate_general_labor", price: "75" } },
+      { file: "rates.csv", row: 3, values: { contract_ref: ref, rate_key: "rate_irrigation_labor", price: "85" } },
+      { file: "rates.csv", row: 4, values: { contract_ref: ref, rate_key: "custom_mobilization", price: "39.95",
+        label: "Mobilization", unit: "visit", category: "Custom", line: "general" } },
+    ];
+    const built = planAuditImport(files, data());
+    expect(built.errors).toEqual([]);
+    const seasons = built.customers.flatMap(c => c.agreements).flatMap(a => a.terms);
+    const term = seasons.find(t => t.contractRef === ref)!;
+    expect(term.rates.map(r => [r.rateKey, r.priceCents, r.sortOrder])).toEqual([
+      ["rate_general_labor", 7500, 0], ["rate_irrigation_labor", 8500, 1], ["custom_mobilization", 3995, 2],
+    ]);
+    expect(seasons.filter(t => t.contractRef !== ref).every(t => t.rates.length === 0)).toBe(true);
+    files.tables["rates.csv"] = [];
+    expect(planAuditImport(files, data()).customers.flatMap(c => c.agreements).flatMap(a => a.terms).every(t => !t.rates.length)).toBe(true);
+  });
   it("enforces the multipart aggregate 10 MB boundary and disallows fields", async () => {
     const app = express();
     app.post("/upload", async (req, res) => {

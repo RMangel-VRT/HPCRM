@@ -26,6 +26,22 @@ function fixture(): CustomerContractInputs {
   };
 }
 describe("customer Contract Center projection", () => {
+  it("keeps ordered stated rows and returns omitted active standards only to commercial readers", () => {
+    const data = fixture();
+    data.rates = [
+      { ...data.rates![0], rateKey: "irrigation", line: "irrigation", sortOrder: 1 },
+      { ...data.rates![0], rateKey: "custom_visit", line: "general", sortOrder: 0, priceCents: 3995, cardPriceCents: null },
+    ] as any;
+    data.card = [
+      { rateKey: "irrigation", line: "irrigation", active: true, sortOrder: 0, priceCents: 9999 },
+      { rateKey: "standard", line: "landscape", active: true, sortOrder: 1, priceCents: 7000 },
+      { rateKey: "retired", line: "landscape", active: false, sortOrder: 2, priceCents: 1 },
+    ] as any;
+    const summary = customerContractProjector(data, today)("ute")!;
+    expect(summary.current[0].rates.map(r => r.rateKey)).toEqual(["custom_visit", "irrigation"]);
+    expect(summary.current[0].standardRates.map(r => r.rateKey)).toEqual(["standard"]);
+    expect(JSON.stringify(projectContractSummary(summary, false))).not.toMatch(/standardRates|priceCents|rates/);
+  });
   it("projects the Contract Center renewal rule, including suppression for a signed successor or non-renewal", () => {
     const data = fixture();
     data.terms = [term("ending", "a", { endDate: "2027-01-04" })] as any;

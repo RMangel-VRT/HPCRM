@@ -6,7 +6,7 @@ import { db, pool } from "../db";
 import { createAuditFixture, removeAuditFixture } from "./contractAuditFixture";
 import { seedRenewalSource } from "./contractRenewalFixture";
 import { activeCard, replaceRows } from "./contractCenterPersistence";
-import { buildScope, expandPayments, snapshotRates } from "./contractCenterService";
+import { applies, buildScope, expandPayments, snapshotRates } from "./contractCenterService";
 import { initialScope } from "@workspace/api-zod/contractScope";
 import { SCOPE_CATALOG } from "../shared/contractCatalog";
 import { logger } from "./logger";
@@ -29,7 +29,9 @@ try {
         await tx.update(agreementTerms).set({ line, form: "theirs", annualPriceCents: index ? 3600000 : 3000000,
           snowPricing: index ? "flat_rate" : null, snowFlatPriceCents: index ? 600000 : null }).where(eq(agreementTerms.id, s.source.id));
         await replaceRows(tx, f.companyId, s.source.id, termScopeLines, buildScope(initialScope(line, SCOPE_CATALOG).filter(s => s.included), line));
-        await replaceRows(tx, f.companyId, s.source.id, termRates, snapshotRates(await activeCard(tx, f.companyId), [], line));
+        const card = await activeCard(tx, f.companyId);
+        await replaceRows(tx, f.companyId, s.source.id, termRates, snapshotRates(card,
+          card.filter(r => r.active && applies(line, r.line)).map(r => ({ rateKey: r.rateKey })), line));
         await replaceRows(tx, f.companyId, s.source.id, termBillingMonths, expandPayments([
           { component: "Grounds maintenance", months: Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amountCents: 250000 })) },
           ...(index ? [{ component: "Snow", months: Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amountCents: 50000 })) }] : []),

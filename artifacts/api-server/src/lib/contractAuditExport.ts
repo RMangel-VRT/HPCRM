@@ -2,7 +2,7 @@ import archiver from "archiver";
 import { PassThrough, type Readable } from "node:stream";
 import type { Response } from "express";
 import type { AuditData } from "./contractAuditData";
-import { MONTHS } from "./contractAuditFiles";
+import { MONTHS, IMPORT_HEADERS, rateCsvText } from "./contractAuditFiles";
 import { ObjectStorageService } from "../objectStorage";
 import { companyToday } from "./companyDay";
 import { displayStatus, recoverPayments } from "./contractCenterService";
@@ -67,17 +67,41 @@ export function seasonCsv(data: AuditData, customerIds: string[]) {
 }
 export function currentCsvTables(data: AuditData) {
   const ids = data.customers.map(c => c.id), seasons = sortedSeasons(data, ids);
+  const stated = (id: string) => (data.rates ?? []).filter(r => r.termId === id)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.rateKey.localeCompare(b.rateKey));
+  const contractRows = seasons.map(({ t, a, c }) => ({
+    contract_ref: t.id, agreement_ref: a.importRef ?? a.id, customer_id: c.id, customer_name: c.name,
+    line: t.line, form: t.form, season_label: t.seasonLabel, start_date: t.startDate, end_date: t.endDate,
+    status: t.status, signed_date: legacyDay(t.signedAt), renews_ref: t.renewedFromTermId,
+    snow_pricing: t.snowPricing, snow_flat_price: dollars(t.snowFlatPriceCents),
+    legal_name: t.legalName, managing_agent_name: t.managingAgentName, project_contact: t.projectContact,
+    contact_phone: t.contactPhone, contact_email: t.contactEmail, project_address: t.projectAddress,
+    po: t.po, snow_triggers: t.snowTriggers, notes: t.notes,
+  }));
   return {
+    "contracts.csv": csv(IMPORT_HEADERS["contracts.csv"], contractRows.map(row =>
+      IMPORT_HEADERS["contracts.csv"].map(k => row[k as keyof typeof row]))),
+    "rates.csv": csv(IMPORT_HEADERS["rates.csv"], seasons.flatMap(({ t }) => stated(t.id).map(r => [
+      t.id, r.rateKey, r.priceCents === null ? "\\N" : dollars(r.priceCents), rateCsvText(r.priceText),
+      rateCsvText(r.minimum), rateCsvText(r.unit), rateCsvText(r.label), rateCsvText(r.category), r.line,
+    ]))),
+    "payments.csv": csv(IMPORT_HEADERS["payments.csv"], seasons.flatMap(({ t }) =>
+      recoverPayments((data.billing ?? []).filter(b => b.termId === t.id)).map(p =>
+        [t.id, p.component, ...MONTHS.map((_, i) => dollars(p.months.find(m => m.month === i + 1)?.amountCents ?? 0))]))),
+    "scope.csv": csv(IMPORT_HEADERS["scope.csv"], seasons.flatMap(({ t }) =>
+      (data.scope ?? []).filter(s => s.termId === t.id).map(s => [
+        t.id, s.serviceKey, s.included, s.quantity, s.unit, ...(s.monthSpread ?? Array(12).fill("")),
+        (s.details as { label?: string } | null)?.label, s.notes,
+      ]))),
+    "documents.csv": csv(IMPORT_HEADERS["documents.csv"], []),
     "contract_center.csv": seasonCsv(data, ids),
     "term_payments.csv": csv(["term_id", "payment_line", ...MONTHS], seasons.flatMap(({ t }) =>
       recoverPayments((data.billing ?? []).filter(b => b.termId === t.id)).map(p =>
         [t.id, p.component, ...MONTHS.map((_, i) => dollars(p.months.find(m => m.month === i + 1)?.amountCents ?? 0))]))),
-    "term_rates.csv": csv("term_id rate_key label price price_text unit minimum card_price".split(" "),
-      seasons.flatMap(({ t }) => (data.rates ?? []).filter(r => r.termId === t.id &&
-        (!data.card.some(c => c.rateKey === r.rateKey) || r.rateKey.startsWith("custom_") ||
-          r.priceCents !== r.cardPriceCents || r.priceText !== r.cardPriceText ||
-          data.card.some(c => c.rateKey === r.rateKey && (r.unit !== c.unit || r.minimum !== c.minimum || r.label !== c.label))))
-        .map(r => [t.id, r.rateKey, r.label, dollars(r.priceCents), r.priceText, r.unit, r.minimum, dollars(r.cardPriceCents)]))),
+    "term_rates.csv": csv("term_id rate_key label price price_text unit minimum card_price category line sort_order card_price_text".split(" "),
+      seasons.flatMap(({ t }) => stated(t.id)
+        .map(r => [t.id, r.rateKey, r.label, dollars(r.priceCents), r.priceText, r.unit, r.minimum, dollars(r.cardPriceCents),
+          r.category, r.line, r.sortOrder, r.cardPriceText]))),
     "rate_card.csv": rateCardCsv(data),
   };
 }

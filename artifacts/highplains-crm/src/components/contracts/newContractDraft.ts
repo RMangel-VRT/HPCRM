@@ -1,9 +1,9 @@
 import { DEFAULT_SNOW_TRIGGERS, buildScopeRows, scopePayload, scopeProblems } from "./ScopeEditor";
 import type { ScopeRow } from "./ScopeEditor";
-import { isChangedRate, isCustomRate, rateProblems, ratesPayload, toRateRows } from "./RatesEditor";
+import { cardRateRows, isChangedRate, isCustomRate, rateApplies, rateProblems, ratesPayload } from "./RatesEditor";
 import type { RateRow } from "./RatesEditor";
 import { addDays, addMonths } from "./contractFormat";
-import type { AgreementLine, TermRateRow } from "./contractTypes";
+import type { AgreementLine } from "./contractTypes";
 import { GROUNDS_LINE, SNOW_LINE, applyPreset, blankLine, equalMonthly, annualCents, lineProblems, lineSum, paymentsPayload, startMonthOf } from "./paymentDraft";
 import type { PaymentLine } from "./paymentDraft";
 import { parseDollarsToCents } from "./rateCardUtils";
@@ -59,7 +59,8 @@ export function newDraft(today: string): NewContractDraft {
 
 /** Type change: reset the pieces that depend on it. */
 export function setLine(d: NewContractDraft, line: AgreementLine, today: string): NewContractDraft {
-  const next: NewContractDraft = { ...d, line, scope: null, rates: null, payments: null };
+  // Stated rates are never reset implicitly; only rows that no longer apply to the new type are dropped.
+  const next: NewContractDraft = { ...d, line, scope: null, rates: d.rates ? d.rates.filter(r => rateApplies(line, r.line)) : null, payments: null };
   if (!d.datesEdited) {
     const dates = defaultDates(line, today);
     Object.assign(next, dates);
@@ -90,14 +91,9 @@ export function initialScope(line: AgreementLine): ScopeRow[] {
   return standardScope(line, SCOPE_CATALOG);
 }
 
-/** Active card rows relevant to the contract type, as editable rate rows. */
+/** Card rows for the type; used only when the user clicks "Start from the card". */
 export function initialRates(card: RateCardItem[], line: AgreementLine): RateRow[] {
-  const lines = line === "snow" ? ["snow", "general"] : line === "landscape" ? ["landscape", "irrigation", "general"] : null;
-  const rows: TermRateRow[] = card.filter(r => r.active && (!lines || lines.includes(r.line))).map(r => ({
-    rateKey: r.rateKey, line: r.line, category: r.category, label: r.label, priceCents: r.priceCents, priceText: r.priceText,
-    unit: r.unit, minimum: r.minimum, cardPriceCents: r.priceCents, cardPriceText: r.priceText,
-  }));
-  return toRateRows(rows);
+  return cardRateRows(card, line);
 }
 /** Labor-style rows with no standard that the user left blank. */
 export const blankPerContractRates = (rows: RateRow[]) =>
@@ -189,6 +185,7 @@ export function reviewRows(d: NewContractDraft) {
   return {
     annual: needsPayments(d) ? annualCents(lines) : null, monthly,
     services: (d.scope ?? []).filter(r => r.included).map(r => r.label),
+    rates: (d.rates ?? []).map(r => ({ key: r.rateKey, label: r.label, custom: isCustomRate(r), input: r.input, text: r.input.trim() ? null : r.priceText })),
     changedRates: changed.map(r => ({ key: r.rateKey, label: r.label, custom: isCustomRate(r), input: r.input })),
   };
 }

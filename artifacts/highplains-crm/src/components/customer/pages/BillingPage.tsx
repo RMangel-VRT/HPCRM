@@ -9,6 +9,7 @@ import { contractTermHref } from "@/components/customer/CustomerContractPanels";
 import QboCustomerCard from "@/components/qbo/QboCustomerCard";
 import { formatCurrency } from "@/lib/currency";
 import { Card, CardContent } from "@/components/ui/card";
+import { StandardRatesSection } from "@/components/contracts/ContractWidgets";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export type BillingView = "rates" | "revenue";
@@ -18,7 +19,7 @@ export function splitRatesByLine(term: ContractSummaryTerm | undefined) {
   const rates = term?.rates ?? [];
   const fallback = term?.line === "snow" ? "snow" : "landscape";
   return {
-    landscape: rates.filter(r => (r.line ?? fallback) === "landscape"),
+    landscape: rates.filter(r => (r.line ?? fallback) !== "snow"),
     snow: rates.filter(r => (r.line ?? fallback) === "snow"),
   };
 }
@@ -84,13 +85,22 @@ export default function BillingPage({ customerId, isParent, view, onViewChange, 
               <TableHead>{t("cp1.rate")}</TableHead>
               <TableHead className="text-right">{t("customerPages.billing.price")}</TableHead>
               <TableHead>{t("cp1.unit")}</TableHead>
+              <TableHead>{t("contractRates.minimum")}</TableHead>
             </TableRow></TableHeader>
             <TableBody>
               {list.map(r => (
                 <TableRow key={r.rateKey} data-testid={`row-rate-${r.rateKey}`}>
                   <TableCell>{r.label}</TableCell>
-                  <TableCell className="text-right tabular-nums">{r.priceCents == null ? r.priceText ?? "\u2014" : money(r.priceCents)}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {r.priceCents == null ? r.priceText ?? "\u2014" : money(r.priceCents)}
+                    {(r.cardPriceCents != null || r.cardPriceText != null) && (r.priceCents !== (r.cardPriceCents ?? null) || (r.priceCents == null && (r.priceText ?? null) !== (r.cardPriceText ?? null))) && (
+                      <span className="block text-xs text-muted-foreground" data-testid={`text-billing-card-${r.rateKey}`}>
+                        {t("contractRates.cardNote", { price: r.cardPriceCents != null ? money(r.cardPriceCents) : r.cardPriceText })}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>{t(`cp1.units.${r.unit}`, { defaultValue: r.unit })}</TableCell>
+                  <TableCell>{r.minimum ?? "\u2014"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -133,6 +143,11 @@ export default function BillingPage({ customerId, isParent, view, onViewChange, 
             <div className="grid gap-4 lg:grid-cols-2" data-testid="billing-rates">
               {renderRateTable(t("cp1.landscape"), split.landscape, "landscape")}
               {renderRateTable(t("customerPages.billing.snowAndIce"), split.snow, "snow")}
+              {term.standardRates && (
+                <div className="lg:col-span-2">
+                  <StandardRatesSection key={term.termId} rows={term.standardRates} testId="billing-standard-rates" />
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-4" data-testid="billing-revenue">

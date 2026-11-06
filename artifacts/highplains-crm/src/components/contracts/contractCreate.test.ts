@@ -90,10 +90,10 @@ describe("renew preview", () => {
     const s = createSequencer(); const a = s.next(); const b = s.next();
     expect(s.isCurrent(a)).toBe(false); expect(s.isCurrent(b)).toBe(true); s.cancel(); expect(s.isCurrent(b)).toBe(false);
   });
-  it("splits card changes from kept overrides", () => {
+  it("groups rate changes as carried, added, removed and changed", () => {
     const c = (reason: string, o: number, n: number) => ({ rateKey: reason + o, label: "x", reason, old: { priceCents: o, priceText: null }, new: { priceCents: n, priceText: null } });
-    const v = visibleRateChanges([c("card changed", 1, 2), c("card changed", 3, 3), c("kept override", 5, 5)]);
-    expect(v.card).toHaveLength(1); expect(v.kept).toHaveLength(1);
+    const v = visibleRateChanges([c("carried", 1, 1), c("carried", 2, 2), c("added", 0, 3), c("removed", 4, 0), c("changed", 5, 6)]);
+    expect([v.carried.length, v.added.length, v.removed.length, v.changed.length]).toEqual([2, 1, 1, 1]);
   });
 });
 
