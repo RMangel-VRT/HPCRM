@@ -18,7 +18,7 @@ vi.mock("@/hooks/use-breadcrumbs", () => ({ useSetBreadcrumbs: () => {} }));
 vi.mock("@/components/LayerMapViewer", () => ({ default: () => null }));
 vi.mock("@/components/CustomerLocationEditor", () => ({ default: () => null }));
 vi.mock("@/components/qbo/QboCustomerCard", () => ({ default: () => null, cardState: () => "not_linked" }));
-vi.mock("@/components/customerWizard/FinishSetupBanner", () => ({ FinishSetupBanner: () => null, MissingFieldsNotice: () => null }));
+vi.mock("@/components/customerWizard/FinishSetupBanner", () => ({ FinishSetupBanner: () => null, MissingFieldsNotice: () => null, useSetupMissingFields: () => ({ enabled: false, isLoading: false, isError: false, fields: [], refetch: () => {} }) }));
 vi.mock("@tanstack/react-query", async original => ({
   ...await original<typeof import("@tanstack/react-query")>(),
   useQuery: (o: any) => {

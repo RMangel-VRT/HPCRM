@@ -25,6 +25,20 @@ export function MissingFieldsNotice({ customerId, fields, variant = "banner" }: 
 }
 
 /** Advisory for prospects and legacy active customers with incomplete setup. */
+/** Shared (deduplicated) setup read: the Dashboard turns this into a Needs-attention chip. */
+export function useSetupMissingFields(customerId: string | undefined, status: string | null | undefined) {
+  const { user } = useAuth();
+  const enabled = !!customerId && (status === "prospect" || status === "active") && canPromote(user);
+  const q = useQuery<{ missingFields: MissingField[] }>({
+    queryKey: ["/api/customers", customerId, "setup", user?.activeCompanyId ?? null, ...viewerScope(user)],
+    queryFn: () => qboJson("GET", `/api/customers/${customerId}/setup`, user?.activeCompanyId),
+    enabled, retry: false, staleTime: 30_000,
+  });
+  return { enabled, isLoading: enabled && q.isLoading, isError: enabled && !!q.error,
+    fields: enabled ? q.data?.missingFields ?? [] : [], refetch: q.refetch };
+}
+export type SetupState = ReturnType<typeof useSetupMissingFields>;
+
 export function FinishSetupBanner({ customerId, status }: { customerId: string; status: string | null | undefined }) {
   const { user } = useAuth();
   const enabled = (status === "prospect" || status === "active") && canPromote(user);

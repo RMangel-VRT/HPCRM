@@ -3,6 +3,11 @@ import { transformSync } from "esbuild";
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { contactInstant, readDashboardCommunications } from "../services/customerDashboardActivity";
+
+vi.mock("../services/mailboxScope", () => ({
+  resolveVisibleMailboxes: vi.fn(async () => ({ mailboxIds: null, includeNullMailbox: true, scopeLabel: "All" })),
+}));
 
 // Execute the real registrations without running unrelated startup jobs, as in
 // customerBilling.test.ts. These tests do not substitute a parallel HTTP policy.
@@ -10,7 +15,7 @@ const source = readFileSync(new URL("./routes.ts", import.meta.url), "utf8");
 const start = source.indexOf('  app.get("/api/customers/:id/parent-rollup",');
 const end = source.indexOf('  app.post("/api/customers",', start);
 if (start < 0 || end < 0) throw new Error("Parent rollup registration not found");
-const mount = new Function("app", "storage", "db", "customerContractProjector", "loadCustomerContractInputs",
+const mount = new Function("app", "storage", "db", "customerContractProjector", "loadCustomerContractInputs", "readDashboardCommunications", "contactInstant",
   transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code);
 const patchStart = source.indexOf('  app.patch("/api/customers/:id",');
 const patchEnd = source.indexOf('  app.delete("/api/customers/:id",', patchStart);
@@ -32,7 +37,7 @@ beforeEach(() => {
   storage.getAllTicketTypeStatuses.mockResolvedValue([{ id: "closed", isFinal: "true" }]);
   storage.getTicketsByCustomerId.mockResolvedValue([{ id: "ticket", title: "Work", currentStatusId: "open", completedAt: null }]);
   storage.getTicketStatusHistoryForTickets.mockResolvedValue([]);
-  storage.getCommunications.mockResolvedValue([{ id: "mail", subject: "Privileged email", type: "email",
+  storage.getCommunications.mockResolvedValue([{ id: "mail", subject: "Privileged email", type: "email", status: "sent", direction: "outbound",
     sentAt: new Date(), createdAt: new Date() }]);
   load.mockResolvedValue({});
   app = express(); app.use(express.json());
@@ -44,7 +49,7 @@ beforeEach(() => {
   mount(app, storage, {}, () => () => ({ current: [
     { agreementId: "a", termId: "term", annualCents: 12300, parentCustomerId: "parent",
       label: "2026–27", line: "both", startDate: "2026-11-01", endDate: "2027-10-31" },
-  ] }), load);
+  ] }), load, readDashboardCommunications, contactInstant);
   mountPatch(app, storage);
 });
 describe("CP2 Property location mutation boundary", () => {
@@ -58,6 +63,28 @@ describe("CP2 Property location mutation boundary", () => {
     });
 });
 describe("CP2 parent shared-frame reads", () => {
+  it("CP3 aggregates independent owned terms once, never allocating inherited prices to branches", async () => {
+    storage.getChildCustomers.mockResolvedValue([{ id: "inherited", name: "Inherited" }, { id: "own", name: "Own" }, { id: "uncovered", name: "Uncovered" }]);
+    const parentTerm = { agreementId: "landscape", termId: "p", annualCents: 1000000, label: "2026–27", line: "landscape",
+      startDate: "2026-11-01", endDate: "2027-10-31", parentCustomerId: null, renewalDue: false };
+    const snowTm = { ...parentTerm, agreementId: "snow", termId: "s", line: "snow", annualCents: null, snowPricing: "time_and_materials" };
+    const branchTerm = { ...parentTerm, agreementId: "own", termId: "o", annualCents: 353600, label: "2026" };
+    const customApp = express();
+    customApp.use((req, _res, next) => {
+      req.isAuthenticated = (() => true) as any;
+      req.user = { activeCompanyId: "company", accessRole: "admin", activeRole: "account_manager", id: "am" } as any;
+      next();
+    });
+    const rows: Record<string, any[]> = { parent: [parentTerm, snowTm],
+      inherited: [parentTerm, snowTm].map(t => ({ ...t, parentCustomerId: "parent" })), own: [branchTerm], uncovered: [] };
+    mount(customApp, storage, {}, () => (id: string) => ({ current: rows[id] ?? [] }), load, readDashboardCommunications, contactInstant);
+    const r = await request(customApp).get("/api/customers/parent/parent-rollup").expect(200);
+    expect(r.body.totals).toMatchObject({ annualRevenue: 1353600, activeContracts: 3 });
+    expect(r.body.currentTerms.map((t: any) => t.termId)).toEqual(["p", "s", "o"]);
+    expect(r.body.currentTerms[1]).toMatchObject({ annualCents: null, snowPricing: "time_and_materials" });
+    expect(r.body.children.find((c: any) => c.id === "inherited").annualRevenue).toBeNull();
+    expect(r.body.uncoveredBranches).toBe(1);
+  });
   it("rejects stale company and signed-out reads before loading customer facts", async () => {
     await request(app).get("/api/customers/parent/parent-rollup").set("X-Company-Id", "old").expect(409);
     authenticated = false;
@@ -80,7 +107,8 @@ describe("CP2 parent shared-frame reads", () => {
     role = accessRole;
     const r = await request(app).get("/api/customers/parent/parent-rollup").expect(200);
     expect(load).toHaveBeenCalledWith({}, "company", true);
-    expect(storage.getCommunications).toHaveBeenCalledWith("company", { customerId: "branch" });
+    expect(storage.getCommunications).toHaveBeenCalledWith("company", { customerId: "branch" },
+      { mailboxIds: null, includeNullMailbox: true, scopeLabel: "All" });
     expect(r.body.recentActivity[0].title).toBe("Privileged email");
     // Inherited agreement value is never allocated to a branch.
     expect(r.body.children[0].annualRevenue).toBeNull();

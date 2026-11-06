@@ -26,6 +26,15 @@ function fixture(): CustomerContractInputs {
   };
 }
 describe("customer Contract Center projection", () => {
+  it("projects the Contract Center renewal rule, including suppression for a signed successor or non-renewal", () => {
+    const data = fixture();
+    data.terms = [term("ending", "a", { endDate: "2027-01-04" })] as any;
+    expect(customerContractProjector(data, today)("ute")!.current[0].renewalDue).toBe(true);
+    data.terms.push(term("successor", "a", { startDate: "2027-01-05", endDate: "2028-01-04", renewedFromTermId: "ending" }) as any);
+    expect(customerContractProjector(data, today)("ute")!.current[0].renewalDue).toBe(false);
+    data.terms = [term("ending", "a", { endDate: "2027-01-04", nonRenewalOn: "2026-11-04" })] as any;
+    expect(customerContractProjector(data, today)("ute")!.current[0].renewalDue).toBe(false);
+  });
   it("Ute Creek parity: both coverage, 13,536 annual, twelve 1,128 payments and negotiated snapshot", () => {
     const data = fixture(), summary = customerContractProjector(data, today)("ute")!;
     expect(summary.coverage).toEqual({ landscape: true, snow: true });

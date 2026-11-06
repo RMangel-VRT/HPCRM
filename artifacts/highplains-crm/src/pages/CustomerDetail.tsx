@@ -13,10 +13,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Edit, Plus, Users, MessageSquare, Ticket as TicketIcon, Building2, Copy, Mail, ChevronDown, Lock } from "lucide-react";
-import StatusBadge from "@/components/StatusBadge";
+import { Edit, Plus, Users, MessageSquare, Copy, Mail, Lock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
@@ -37,8 +35,11 @@ import CommunicationListTab from "@/components/CommunicationListTab";
 import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
 import { cardState } from "@/components/qbo/QboCustomerCard";
 import { cardKey, qboJson, type QuickBooksCard } from "@/lib/qboReview";
-import { FinishSetupBanner } from "@/components/customerWizard/FinishSetupBanner";
-import SiteDetailsCard from "@/components/customer/SiteDetailsCard";
+import { FinishSetupBanner, useSetupMissingFields } from "@/components/customerWizard/FinishSetupBanner";
+import CustomerHeader from "@/components/customer/header/CustomerHeader";
+import LogCommunicationForm from "@/components/customer/communications/LogCommunicationForm";
+import { aggregateTerms } from "@/components/customer/dashboard/dashboardModel";
+import { useCustomerScope } from "@/lib/customerScope";
 import PreviousContractsSection from "@/components/customer/pages/PreviousContractsSection";
 import ServicesPage from "@/components/customer/pages/ServicesPage";
 import PropertyPage from "@/components/customer/pages/PropertyPage";
@@ -99,22 +100,33 @@ export default function CustomerDetail() {
   });
   const isParent = customer?.isParent === "true";
 
-  const { data: contacts = [], isLoading: isLoadingContacts } = useQuery<Contact[]>({
-    queryKey: ["/api/customers", id, "contacts"],
-    enabled: !!id && (activeTab === "contacts" || activeTab === "dashboard"),
+  // Every detail read is bound to company + viewer + role and sends X-Company-Id; keys keep the
+  // ["/api/customers", id, <resource>] prefix so existing invalidations still match.
+  const scope = useCustomerScope();
+  const contactsQuery = useQuery<Contact[]>({
+    queryKey: ["/api/customers", id, "contacts", ...scope.scope],
+    queryFn: ({ signal }) => scope.getJson<Contact[]>(`/api/customers/${id}/contacts`, signal),
+    enabled: !!id && scope.enabled && (activeTab === "contacts" || activeTab === "dashboard"),
   });
-  const { data: notes = [], isLoading: isLoadingNotes } = useQuery<Note[]>({
-    queryKey: ["/api/customers", id, "notes"],
-    enabled: !!id && (activeTab === "notes" || activeTab === "dashboard"),
+  const contacts = contactsQuery.data ?? [];
+  const isLoadingContacts = contactsQuery.isLoading;
+  const notesQuery = useQuery<Note[]>({
+    queryKey: ["/api/customers", id, "notes", ...scope.scope],
+    queryFn: ({ signal }) => scope.getJson<Note[]>(`/api/customers/${id}/notes`, signal),
+    enabled: !!id && scope.enabled && (activeTab === "notes" || activeTab === "dashboard"),
   });
+  const notes = notesQuery.data ?? [];
+  const isLoadingNotes = notesQuery.isLoading;
 
   const summary = useCustomerContractSummary(customer && !isParent ? id : undefined);
   const services = useCustomerServices(customer && !isParent ? id : undefined);
 
-  const { data: tickets = [] } = useQuery<Ticket[]>({
-    queryKey: ["/api/customers", id, "tickets"],
-    enabled: !!id && !!customer && !isParent,
+  const ticketsQuery = useQuery<Ticket[]>({
+    queryKey: ["/api/customers", id, "tickets", ...scope.scope],
+    queryFn: ({ signal }) => scope.getJson<Ticket[]>(`/api/customers/${id}/tickets`, signal),
+    enabled: !!id && scope.enabled && !!customer && !isParent,
   });
+  const tickets = ticketsQuery.data ?? [];
   // Open = current status not final, using the company's real ticket statuses (scoped read).
   const { data: ticketStatuses } = useQuery<{ id: string; isFinal?: string | boolean | null }[]>({
     queryKey: ["/api/ticket-type-statuses", user?.activeCompanyId, user?.id, user?.activeRole],
@@ -122,25 +134,37 @@ export default function CustomerDetail() {
       { headers: { "X-Company-Id": user!.activeCompanyId }, signal })).json(),
     enabled: !!user?.activeCompanyId && !!customer && !isParent,
   });
-  const { data: customerProposals = [] } = useQuery<ProposalWithDetails[]>({
+  const proposalsQuery = useQuery<ProposalWithDetails[]>({
     queryKey: ["/api/customers", id, "proposals", user?.activeCompanyId, user?.id, user?.activeRole],
     queryFn: async ({ signal }) => (await apiRequest("GET", `/api/customers/${id}/proposals`, undefined,
       { headers: { "X-Company-Id": user!.activeCompanyId }, signal })).json(),
     enabled: !!id && !!user?.activeCompanyId && isPrivilegedUser && !!customer && !isParent,
   });
+  const customerProposals = proposalsQuery.data ?? [];
   const qboCard = useQuery<QuickBooksCard>({
     queryKey: cardKey(id ?? "", user),
     queryFn: () => qboJson("GET", `/api/customers/${encodeURIComponent(id!)}/quickbooks-card`, user?.activeCompanyId),
     enabled: !!id && !!user?.activeCompanyId && isPrivilegedUser,
   });
 
-  const onDashboard = activeTab === "dashboard" && !!customer && !isParent;
-  const { data: pmCompanies = [] } = useQuery<PropertyManagementCompany[]>({ queryKey: ["/api/property-management-companies"], enabled: onDashboard });
-  const { data: pmManagers = [] } = useQuery<PropertyManager[]>({ queryKey: ["/api/property-managers"], enabled: onDashboard });
+  // Header "Managed by" chip appears on every regular/branch page.
+  const needsPm = !!customer && !isParent && (!!customer.propertyManagementCompanyId || !!customer.propertyManagerId);
+  const pmCompaniesQuery = useQuery<PropertyManagementCompany[]>({
+    queryKey: ["/api/property-management-companies", ...scope.scope], enabled: needsPm && scope.enabled,
+    queryFn: ({ signal }) => scope.getJson<PropertyManagementCompany[]>("/api/property-management-companies", signal),
+  });
+  const pmManagersQuery = useQuery<PropertyManager[]>({
+    queryKey: ["/api/property-managers", ...scope.scope], enabled: needsPm && scope.enabled,
+    queryFn: ({ signal }) => scope.getJson<PropertyManager[]>("/api/property-managers", signal),
+  });
+  const pmCompanies = pmCompaniesQuery.data ?? [];
+  const pmManagers = pmManagersQuery.data ?? [];
+  const setup = useSetupMissingFields(customer && !isParent ? customer.id : undefined, customer?.status);
   const parentRollup = useParentRollup(isParent ? id : undefined);
 
   const { data: customersResult } = useQuery<{ customers: Customer[]; total: number }>({
-    queryKey: ["/api/customers?page=1&limit=200"],
+    queryKey: ["/api/customers?page=1&limit=200", ...scope.scope], enabled: scope.enabled,
+    queryFn: ({ signal }) => scope.getJson<{ customers: Customer[]; total: number }>("/api/customers?page=1&limit=200", signal),
   });
   const activeCustomersForSwitcher = (customersResult?.customers ?? [])
     .filter((c) => c.active === "true")
@@ -223,6 +247,23 @@ export default function CustomerDetail() {
     onError: onNoteError,
   });
 
+  const [isLogCommOpen, setIsLogCommOpen] = useState(false);
+  const createProposal = useMutation({
+    // Same request and destination as the Proposals page's existing New proposal flow.
+    mutationFn: async () => {
+      const started = scope.companyId;
+      const res = await scope.request("POST", "/api/proposals", { customerId: id, title: t("customerPages.pages.proposals"), proposalDate: new Date().toISOString().split("T")[0] });
+      const created = await res.json();
+      scope.assertSameCompany(started);
+      return created as { id: string };
+    },
+    onSuccess: created => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "proposals"] });
+      navigate(`/dashboard/tools/proposals/${created.id}`);
+    },
+    onError: () => toast({ title: t("common.error"), description: t("customerPages.proposals.createFailed"), variant: "destructive" }),
+  });
+
   useEffect(() => {
     if (!id || isLoadingCustomer) return;
     if (!customer) { removeRecentCustomer(user?.activeCompanyId, id); return; }
@@ -243,12 +284,26 @@ export default function CustomerDetail() {
   }
 
   const sortedNotes = [...notes].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const coverage = summary.isLoading ? t("common.loading") : summary.error ? t("cp1.loadFailed") : summary.data?.coverage.landscape
-    ? t(summary.data.coverage.snow ? "cp1.both" : "cp1.landscape")
-    : t(summary.data?.coverage.snow ? "cp1.snow" : "cp1.noContract");
   const isChildCustomer = !!customer.parentCustomerId;
   const childCustomers = customer.childCustomers || [];
   const parentCustomer = customer.parentCustomer || null;
+  const amLoaded = !!accountManagers.data && !accountManagers.isError;
+  const amName = amLoaded ? accountManagers.data!.assignments[customer.id]?.name ?? null : null;
+  const qboLoadable = !isPrivilegedUser ? undefined
+    : qboCard.isLoading ? { status: "loading" as const } : qboCard.isError ? { status: "error" as const } : { status: "ready" as const, value: qboState };
+  const qboAttention = qboNeedsAttention(qboCard.data, qboState);
+  const pmCompany = customer.propertyManagementCompanyId ? pmCompanies.find(c => c.id === customer.propertyManagementCompanyId) ?? null : null;
+  const pmManager = customer.propertyManagerId ? pmManagers.find(m => m.id === customer.propertyManagerId) ?? null : null;
+  // Loading/failed management reads are never shown as "Self-managed".
+  const pmPending = needsPm && (pmCompaniesQuery.isLoading || pmManagersQuery.isLoading);
+  const pmFailed = needsPm && (!!pmCompaniesQuery.error || !!pmManagersQuery.error);
+  const managedBy = pmPending ? { status: "loading" as const } : pmFailed ? { status: "error" as const }
+    : { status: "ready" as const, value: pmCompany || pmManager ? { company: pmCompany?.name ?? null, manager: pmManager?.name ?? null } : null };
+  const contractLoadable = !isPrivilegedUser ? undefined : isParent
+    ? (parentRollup.isLoading ? { status: "loading" as const } : parentRollup.error || !parentRollup.data?.currentTerms ? { status: "error" as const }
+      : { status: "ready" as const, value: aggregateTerms(parentRollup.data.currentTerms) })
+    : (summary.isLoading ? { status: "loading" as const } : summary.error ? { status: "error" as const }
+      : { status: "ready" as const, value: summary.data?.current.length ? aggregateTerms(summary.data.current) : null });
 
   const openNoteDialog = () => { noteForm.reset({ body: "" }); setEditingNote(null); setIsAddNoteDialogOpen(true); };
 
@@ -270,11 +325,15 @@ export default function CustomerDetail() {
     switch (pageDef.key) {
       case "dashboard":
         return isParent
-          ? <ParentDashboardPage customer={customer} showActivity={isPrivilegedUser} />
-          : <div className="space-y-4"><CustomerDashboard customerId={customer.id} customer={customer} contacts={contacts} contracts={[]} tickets={tickets} notes={notes}
-              pmCompanies={pmCompanies} pmManagers={pmManagers} isParentCustomer={false} childCustomers={childCustomers}
-              onTabChange={setActiveTab} onContractClick={() => setActiveTab("contracts")} />
-              <SiteDetailsCard customer={customer} canEdit={canEditCustomer} /></div>;
+          ? <ParentDashboardPage customer={customer} pages={pages} privileged={isPrivilegedUser}
+              qboCard={isPrivilegedUser ? qboCard : undefined} qboState={qboState} qboAttention={qboAttention}
+              accountManagerName={amName} accountManagerLoaded={amLoaded} tags={customer.tags ?? []} />
+          : <CustomerDashboard customer={customer} pages={pages} privileged={isPrivilegedUser} canEditCustomer={canEditCustomer}
+              contacts={contactsQuery} notes={notesQuery} tickets={ticketsQuery} ticketStatuses={ticketStatuses}
+              proposals={isPrivilegedUser ? proposalsQuery : undefined} summary={summary} services={services}
+              qboCard={isPrivilegedUser ? qboCard : undefined} qboState={qboState} qboAttention={qboAttention}
+              setup={setup} snowFlagCount={openSnowTriggerFlagCount(summary.data)}
+              accountManagerName={amName} accountManagerLoaded={amLoaded} pmCompany={pmCompany} pmManager={pmManager} management={managedBy} />;
       case "branches":
         return <BranchesPage customer={customer} canManage={isPrivilegedUser} />;
       case "contacts":
@@ -343,14 +402,14 @@ export default function CustomerDetail() {
                       )}
                       {contact.phones && contact.phones.length > 0 && (
                         <div className="text-sm text-muted-foreground">
-                          {contact.phones.map((phone, idx) => (
+                          {contact.phones.map((phone: string, idx: number) => (
                             <span key={idx}>{phone}{idx < contact.phones!.length - 1 ? ", " : ""}</span>
                           ))}
                         </div>
                       )}
                       {contact.emails && contact.emails.length > 0 && (
                         <div className="text-sm text-muted-foreground flex items-center flex-wrap gap-x-2">
-                          {contact.emails.map((email, idx) => (
+                          {contact.emails.map((email: string, idx: number) => (
                             <span key={idx} className="inline-flex items-center gap-1">
                               {email}
                               <button
@@ -506,72 +565,20 @@ export default function CustomerDetail() {
     <div className="flex h-full bg-background">
       <CustomerSubNav pages={pages} activeTab={activeTab} onTabChange={setActiveTab} badges={badges} />
       <div className="flex-1 min-w-0 overflow-y-auto space-y-5 p-4 sm:p-6 md:p-8">
-        {!isParent && <FinishSetupBanner customerId={customer.id} status={customer.status} />}
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex flex-col gap-1 min-w-0">
-            <div className="flex items-center gap-2">
-              {isParent && <Building2 className="w-6 h-6 text-primary flex-shrink-0" />}
-              {activeCustomersForSwitcher.length > 1 ? (
-                <Select value={customer.id} onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}>
-                  <SelectTrigger className="w-auto border-0 bg-transparent p-0 h-auto shadow-none focus:ring-0 [&>svg]:hidden gap-1.5 hover:opacity-75 transition-opacity"
-                    data-testid="select-customer-switcher">
-                    <span className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">{customer.name}</span>
-                    <span className="flex-shrink-0"><ChevronDown className="w-5 h-5 text-muted-foreground mt-1" /></span>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {activeCustomersForSwitcher.map((c) => (
-                      <SelectItem key={c.id} value={c.id} data-testid={`option-customer-${c.id}`}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <h1 className="text-3xl font-semibold tracking-tight" data-testid="text-customer-name">{customer.name}</h1>
-              )}
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {customer.customerNumber && (
-                <span className="text-sm text-muted-foreground font-medium" data-testid="text-customer-number">#{customer.customerNumber}</span>
-              )}
-              {!isParent && <StatusBadge status={customer.status} />}
-              {isParent && (
-                <>
-                  <Badge variant="secondary" data-testid="badge-parent-customer">{t("customerDetail.parentAccount")}</Badge>
-                  <span className="text-sm text-muted-foreground" data-testid="text-child-count">{t("customerPages.parent.branchCount", { count: childCustomers.length })}</span>
-                </>
-              )}
-              {isChildCustomer && parentCustomer && (
-                <Link href={`/dashboard/customers/${parentCustomer.id}?tab=dashboard`} data-testid="badge-branch-customer"
-                  className="inline-flex items-center gap-1 rounded-md border px-2.5 py-0.5 text-xs font-semibold hover-elevate">
-                  <Building2 className="w-3 h-3" />{t("customerDetail.partOf", { name: parentCustomer.name })}
-                </Link>
-              )}
-              {isChildCustomer && !parentCustomer && <Badge variant="outline" data-testid="badge-branch-customer">{t("customerDetail.branch")}</Badge>}
-              {!isParent && <Badge variant="secondary" data-testid="badge-coverage-status">{coverage}</Badge>}
-              {customer.includeInRoute && !isParent && <Badge variant="secondary" data-testid="badge-include-in-route">{t("customers.onRoute")}</Badge>}
-              {customer.tags?.map((tag) => <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1" data-testid="customer-account-manager">
-              {t("accountManagers.label")}: {!accountManagers.data || accountManagers.isError ? "\u2014" : accountManagers.data.assignments[customer.id]?.name ?? t("accountManagers.notAssigned")}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-            <Button size="sm" variant="outline" data-testid="button-add-note" onClick={() => { openNoteDialog(); setActiveTab("notes"); }}>
-              <MessageSquare className="w-4 h-4 mr-2" />{t("customerDetail.addNote")}
-            </Button>
-            {isPrivilegedUser && !isParent && (
-              <Button size="sm" variant="outline" data-testid="button-add-ticket" onClick={() => navigate(`/dashboard/tickets/new?customerId=${customer.id}`)}>
-                <TicketIcon className="w-4 h-4 mr-2" />{t("customerDetail.addTicket")}
-              </Button>
-            )}
-            {canEditCustomer && !isParent && (
-              <Button size="sm" variant="default" asChild>
-                <Link href={`/dashboard/customers/${customer.id}/edit`} data-testid="button-edit-customer">
-                  <Edit className="w-4 h-4 mr-2" />{t("customerEdit.eyebrow")}
-                </Link>
-              </Button>
-            )}
-          </div>
-        </div>
+        <CustomerHeader
+          customer={customer} kind={isParent ? "parent" : isChildCustomer ? "branch" : "regular"} parent={parentCustomer}
+          pages={pages} switcherCustomers={activeCustomersForSwitcher}
+          contract={contractLoadable} qbo={qboLoadable}
+          billingName={isPrivilegedUser ? qboCard.data?.effectiveCustomer?.billingName ?? customer.billingName ?? customer.name : undefined}
+          managedBy={managedBy}
+          accountManager={accountManagers.isLoading ? { status: "loading" } : !amLoaded ? { status: "error" } : { status: "ready", value: amName }}
+          branchCount={parentRollup.data?.children.length ?? childCustomers.length}
+          canEdit={canEditCustomer}
+          actions={{ note: true, ticket: isPrivilegedUser && !isParent, proposal: isPrivilegedUser && !isParent, logCommunication: isPrivilegedUser }}
+          onAddNote={openNoteDialog} onAddProposal={() => createProposal.mutate()} proposalPending={createProposal.isPending}
+          onLogCommunication={() => setIsLogCommOpen(true)} />
+
+        {!isParent && activeTab !== "dashboard" && <FinishSetupBanner customerId={customer.id} status={customer.status} />}
 
         <CustomerPageChips pages={pages} activeTab={activeTab} onTabChange={setActiveTab} badges={badges} />
 
@@ -579,6 +586,18 @@ export default function CustomerDetail() {
           <h2 id="customer-page-heading" className="text-xl font-semibold tracking-tight" data-testid="text-customer-page-heading">{pageLabel}</h2>
           {renderPage()}
         </section>
+
+      <Dialog open={isLogCommOpen} onOpenChange={setIsLogCommOpen}>
+        <DialogContent className="max-w-xl" data-testid="dialog-log-comm">
+          <DialogHeader>
+            <DialogTitle>{t("emailTracking.logCommunicationBtn")}</DialogTitle>
+            <DialogDescription>{t("cp3.add.logDescription", { name: customer.name })}</DialogDescription>
+          </DialogHeader>
+          <LogCommunicationForm customerId={customer.id}
+            onSuccess={() => { setIsLogCommOpen(false); void queryClient.invalidateQueries({ queryKey: ["/api/customers", customer.id, "dashboard-activity"] }); }}
+            onCancel={() => setIsLogCommOpen(false)} />
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isAddNoteDialogOpen || !!editingNote} onOpenChange={(open) => {
         if (!open) {

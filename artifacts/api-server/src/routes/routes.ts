@@ -1,5 +1,7 @@
 import { z as proposalZ } from "zod/v4";
 import { registerAccountManagerRoutes } from "./accountManagers";
+import { registerCustomerDashboardRoutes } from "./customerDashboard";
+import { contactInstant, readDashboardCommunications } from "../services/customerDashboardActivity";
 import { accessRole, ROLE_VALUES, type Role } from "../../../../lib/db/src/accessRole";
 import { loadProposalExhibits } from "../services/proposalExhibits";
 import { proposalCoverPatch, coverSelectionError } from "../services/proposalCover";
@@ -2722,6 +2724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerTicketExpectedCompany(app);
   // Must precede every ticket sub-router (comments, photos, work items, etc.).
   registerCrewSupervisorTicketGuard(app, storage);
+  registerCustomerDashboardRoutes(app);
   registerTicketOwnerResponseRoutes(app);
   registerCrewsAndMobileRoutes(app);
   registerVisitRoutes(app);
@@ -2885,15 +2888,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const children = await storage.getChildCustomers(customer.id, user.activeCompanyId);
-    const currentYear = new Date().getFullYear();
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const ytdStart = new Date(currentYear, 0, 1);
+    const ytdYear = new Intl.DateTimeFormat("en", { year: "numeric", timeZone: "America/Denver" }).format(now);
+    // Colorado New Year's midnight is always UTC-07 (not a host-local date).
+    const ytdStart = new Date(`${ytdYear}-01-01T00:00:00-07:00`);
 
     const allStatuses = await storage.getAllTicketTypeStatuses(user.activeCompanyId);
-    const finalStatusIds = new Set(
-      allStatuses.filter(s => s.isFinal === "true").map(s => s.id)
-    );
+    const statusesById = new Map(allStatuses.map(s => [s.id, s]));
 
     const commercial = ["admin", "office"].includes(user.accessRole);
     const contractProject = customerContractProjector(await loadCustomerContractInputs(db, user.activeCompanyId, commercial));
@@ -2903,48 +2905,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
           storage.getTicketsByCustomerId(child.id, user.activeCompanyId),
           // The shared parent frame is also available to field readers.
           // Do not query privileged email data merely to populate its activity.
-          commercial ? storage.getCommunications(user.activeCompanyId, { customerId: child.id }) : Promise.resolve([]),
+          commercial ? readDashboardCommunications(storage, user, child.id,
+            typeof req.query.viewAs === "string" ? req.query.viewAs : undefined,
+            typeof req.query.mailboxIds === "string" ? req.query.mailboxIds : undefined) : Promise.resolve([]),
         ]);
         const current = contractProject(child.id)?.current ?? [];
         const ownPrices = current.filter(t => !t.parentCustomerId && t.annualCents != null);
         const annualRevenue = commercial && ownPrices.length ? ownPrices.reduce((sum, t) => sum + t.annualCents!, 0) : null;
 
-        const ticketIds = tickets.map(t => t.id);
+        const visibleTickets = user.activeRole === "crew_supervisor" ? tickets.filter(t => t.assignedToId === user.id) : tickets;
+        const ticketIds = visibleTickets.map(t => t.id);
         const statusHistoryRecords = await storage.getTicketStatusHistoryForTickets(ticketIds);
 
         const activeContractCount = current.length;
-        const openTicketCount = tickets.filter(t => !finalStatusIds.has(t.currentStatusId)).length;
+        const openTicketCount = visibleTickets.filter(t => {
+          const status = statusesById.get(t.currentStatusId);
+          return status ? status.isFinal !== "true" : !t.completedAt;
+        }).length;
 
         const recentCommunicationCount = communications.filter(c => {
-          const date = c.sentAt ?? c.createdAt;
+          const date = contactInstant(c);
           return date !== null && date >= thirtyDaysAgo;
         }).length;
 
         const sortedComms = [...communications].sort((a, b) => {
-          const dateA = a.sentAt ?? a.createdAt;
-          const dateB = b.sentAt ?? b.createdAt;
+          const dateA = contactInstant(a);
+          const dateB = contactInstant(b);
           return dateB.getTime() - dateA.getTime();
         });
         const lastCommunication: Date | null =
-          sortedComms.length > 0 ? (sortedComms[0].sentAt ?? sortedComms[0].createdAt) : null;
+          sortedComms.length > 0 ? contactInstant(sortedComms[0]) : null;
 
-        const completedWorkOrdersYtd = tickets.filter(
+        const completedWorkOrdersYtd = visibleTickets.filter(
           t => t.completedAt !== null && t.completedAt >= ytdStart
         ).length;
 
-        const ticketTitleById = new Map(tickets.map(t => [t.id, t.title]));
+        const ticketTitleById = new Map(visibleTickets.map(t => [t.id, t.title]));
 
         const commActivity = communications.map(c => ({
           type: "communication" as const,
           id: c.id,
-          date: c.sentAt ?? c.createdAt,
+          date: contactInstant(c),
           title: c.subject || "(no subject)",
           subtitle: c.type,
           childId: child.id,
           childName: child.name,
         }));
 
-        const completionActivity = tickets
+        const completionActivity = visibleTickets
           .filter(t => t.completedAt !== null)
           .map(t => ({
             type: "completion" as const,
@@ -2984,8 +2992,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     );
 
     const parentTerms = contractProject(customer.id)?.current ?? [];
-    const pricedTerms = [...parentTerms.filter(t => t.annualCents != null),
-      ...children.flatMap(c => (contractProject(c.id)?.current ?? []).filter(t => !t.parentCustomerId && t.annualCents != null))];
+    const ownedTerms = [...parentTerms,
+      ...children.flatMap(c => (contractProject(c.id)?.current ?? []).filter(t => !t.parentCustomerId))];
+    const uniqueTerms = [...new Map(ownedTerms.map(t => [t.termId, t])).values()];
+    const pricedTerms = uniqueTerms.filter(t => t.annualCents != null);
     const uniquePrices = [...new Map(pricedTerms.map(t => [t.termId, t])).values()];
     const totals = {
       activeContracts: new Set([...parentTerms, ...children.flatMap(c => contractProject(c.id)?.current ?? [])].map(t => t.agreementId)).size,
@@ -3025,6 +3035,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       children: childrenResponse,
       totals,
       recentActivity,
+      currentTerms: commercial ? uniqueTerms.map(t => ({
+        agreementId: t.agreementId, termId: t.termId, label: t.label, line: t.line,
+        startDate: t.startDate, endDate: t.endDate, annualCents: t.annualCents,
+        snowPricing: t.snowPricing, renewalDue: t.renewalDue,
+      })) : uniqueTerms.map(t => ({
+        label: t.label, line: t.line, startDate: t.startDate, endDate: t.endDate,
+      })),
+      uncoveredBranches: children.filter(c => !(contractProject(c.id)?.current.length)).length,
     });
   });
 

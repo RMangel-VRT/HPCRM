@@ -7,6 +7,8 @@ export interface ContractSummaryTerm {
   startDate: string; endDate: string; status?: string; form?: string;
   annualCents?: number | null; snowPricing?: string | null; snowTriggers?: string | null;
   parentCustomerId?: string | null;
+  /** CP3: server-projected Contract Center renewal rule (successor/non-renewal aware). */
+  renewalDue?: boolean;
   billingMonths?: { month: string; component: string | null; amountCents: number }[];
   rates?: { rateKey: string; line?: "landscape" | "snow" | null; category?: string | null; sortOrder?: number; label: string; unit: string; minimum: string | null; priceCents: number | null; priceText: string | null }[];
 }

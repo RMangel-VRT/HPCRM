@@ -21,9 +21,9 @@ vi.mock("@/components/CustomerSchedulingSection", () => ({ default: () => null }
 vi.mock("@/components/TicketListView", () => ({ default: () => <div data-testid="ticket-list-stub" /> }));
 vi.mock("@/components/CommunicationListTab", () => ({ default: () => <div data-testid="comms-stub" /> }));
 vi.mock("@/components/contracts/CustomerContracts", () => ({ CustomerContracts: () => <div data-testid="contracts-stub" /> }));
-vi.mock("@/components/customer/dashboard/CustomerDashboard", () => ({ default: (p: any) => <div data-testid="dashboard-stub" data-pm={p.pmCompanies.length} data-mgr={p.pmManagers.length} /> }));
+vi.mock("@/components/customer/dashboard/CustomerDashboard", async o => ({ ...await o<object>(), default: (p: any) => <div data-testid="dashboard-stub" data-pm={p.pmCompany ? 1 : 0} data-mgr={p.pmManager ? 1 : 0} /> }));
 vi.mock("@/components/qbo/QboCustomerCard", () => ({ default: () => <div data-testid="qbo-stub" />, cardState: (c: any) => (c?.reviews ? "linked" : "error") }));
-vi.mock("@/components/customerWizard/FinishSetupBanner", () => ({ FinishSetupBanner: () => null }));
+vi.mock("@/components/customerWizard/FinishSetupBanner", () => ({ FinishSetupBanner: () => null, useSetupMissingFields: () => ({ enabled: false, isLoading: false, isError: false, fields: [], refetch: () => {} }) }));
 import CustomerDetail from "./CustomerDetail";
 
 const regular = { id: "c1", companyId: "co1", name: "Willow Bend", status: "active", isParent: "false", tags: [] };
@@ -99,7 +99,8 @@ describe("CP2 customer pages", () => {
   });
 
   it("dashboard keeps site details; contracts has collapsed previous contracts with a note and no fetch until opened", () => {
-    expect(page("c1", "tab=dashboard")).toContain('data-testid="card-site-details"');
+    // CP3: Site details now render inside the (stubbed here) dashboard; see CustomerDetail.cp3.rendered.test.tsx.
+    expect(page("c1", "tab=dashboard")).toContain('data-testid="dashboard-stub"');
     fx.data["/api/customers|c1|contracts"] = [{ id: "old1", serviceType: "Maintenance", startDate: "2019-01-01", endDate: null, status: "ended" }];
     const html = page("c1", "tab=contracts");
     expect(html).toContain('data-testid="button-previous-contracts"');
@@ -143,7 +144,8 @@ describe("CP2 customer pages", () => {
   });
 
   it("dashboard loads management company and manager data", () => {
-    fx.data["/api/property-management-companies"] = [{ id: "pm" }]; fx.data["/api/property-managers"] = [{ id: "m" }];
+    fx.data["/api/customers|c1"] = { ...regular, propertyManagementCompanyId: "pm", propertyManagerId: "m" };
+    fx.data["/api/property-management-companies"] = [{ id: "pm", name: "Peak PM" }]; fx.data["/api/property-managers"] = [{ id: "m", name: "Dana" }];
     expect(page("c1", "tab=dashboard")).toContain('data-testid="dashboard-stub" data-pm="1" data-mgr="1"');
   });
 

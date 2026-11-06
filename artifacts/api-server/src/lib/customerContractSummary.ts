@@ -4,7 +4,7 @@ import {
   type Customer, type Agreement, type AgreementTerm, type TermRate, type TermBillingMonth, type TermScopeLine,
 } from "@workspace/db";
 import type { Reader } from "./contractCenterPersistence";
-import { compareTermPriority, displayStatus, paymentSummary, recoverPayments, selectInEffectTerm } from "./contractCenterService";
+import { compareTermPriority, displayStatus, paymentSummary, recoverPayments, selectInEffectTerm, renewalDue } from "./contractCenterService";
 import { companyToday } from "./companyDay";
 
 export interface CustomerContractInputs {
@@ -54,6 +54,7 @@ export function customerContractProjector(data: CustomerContractInputs, today = 
         return {
           agreementId: a.id, termId: t.id, label: t.seasonLabel, line: t.line, form: t.form,
           startDate: t.startDate, endDate: t.endDate, status: displayStatus(t, byAgreement.get(a.id), today),
+          renewalDue: renewalDue(t, byAgreement.get(a.id), today),
           annualCents: paymentSummary(recoverPayments(payments), t.line, t.snowPricing).annualPriceCents,
           snowPricing: t.snowPricing, snowTriggers: t.snowTriggers,
           parentCustomerId: a.customerId !== customerId ? a.customerId : null,

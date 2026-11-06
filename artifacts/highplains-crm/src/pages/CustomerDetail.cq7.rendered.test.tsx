@@ -17,9 +17,9 @@ vi.mock("@tanstack/react-query", async original => ({
 }));
 vi.mock("@/components/LayerMapViewer", () => ({ default: () => null }));
 vi.mock("@/components/CustomerLocationEditor", () => ({ default: () => null }));
-vi.mock("@/components/customer/dashboard/CustomerDashboard", () => ({ default: () => <div data-testid="dashboard-stub" /> }));
+vi.mock("@/components/customer/dashboard/CustomerDashboard", async o => ({ ...await o<object>(), default: () => <div data-testid="dashboard-stub" /> }));
 vi.mock("@/components/qbo/QboCustomerCard", () => ({ default: () => null, cardState: () => "not_linked" }));
-vi.mock("@/components/customerWizard/FinishSetupBanner", () => ({ FinishSetupBanner: () => null, MissingFieldsNotice: () => null }));
+vi.mock("@/components/customerWizard/FinishSetupBanner", () => ({ FinishSetupBanner: () => null, MissingFieldsNotice: () => null, useSetupMissingFields: () => ({ enabled: false, isLoading: false, isError: false, fields: [], refetch: () => {} }) }));
 import CustomerDetail from "./CustomerDetail";
 import SiteDetailsCard from "@/components/customer/SiteDetailsCard";
 
