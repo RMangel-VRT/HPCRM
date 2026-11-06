@@ -54,6 +54,7 @@ export interface TicketCardProps {
   isSelected?: boolean;
   onToggleSelect?: () => void;
   showCustomer?: boolean;
+  hideInternalId?: boolean;
   workflowStatuses?: {
     id: string; name: string; color: string | null; displayOrder: number;
     statusKey?: string | null;
@@ -72,6 +73,7 @@ export default function TicketCard({
   isSelected,
   onToggleSelect,
   showCustomer = true,
+  hideInternalId = false,
   workflowStatuses = [],
   onNavigate,
 }: TicketCardProps) {
@@ -130,9 +132,9 @@ export default function TicketCard({
                   </span>
                 </div>
               )}
-              <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground" data-testid={`text-ticket-id-${ticket.id}`}>
+              {!hideInternalId && <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground" data-testid={`text-ticket-id-${ticket.id}`}>
                 #{ticket.id.slice(0, 8)}
-              </span>
+              </span>}
               {!selectionMode && (
                 <ChevronRight className="w-5 h-5 shrink-0 text-muted-foreground" />
               )}

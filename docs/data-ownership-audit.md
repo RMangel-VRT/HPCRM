@@ -106,7 +106,9 @@ Frozen legacy contracts and newer Contract Center terms deliberately coexist, bu
 
 **Suggested owner (not a decision):** Contract Center term_scope_lines owns per-property, per-term entitlement, as the master scheduling design requests. Copy and reconcile legacy/planned entitlement, preserve seasons and inherited parent coverage, repoint fulfillment readers, then freeze redundant planning inputs before eventual retirement. Service checklists are execution instructions, not a second entitlement owner.
 
-**Retirement risk:** Current revenue, dashboard, snow, tickets and mobile legacy consumers intentionally remain on frozen legacy data. Parent agreements may cover branch properties; agreement owner is not always the operational property.
+**Retirement risk at the production audit:** Revenue, dashboard, snow, tickets and mobile legacy consumers remained on frozen legacy data. Parent agreements may cover branch properties; agreement owner is not always the operational property.
+
+**Subsequent development change — customer-page correctness (November 5, 2026):** Customer headers/dashboard, billing/monthly/rates, parent rollups and every operational snow-switch decision have moved to date-specific Contract Center projections. Customer service activity uses campaign items plus authorized customer-filtered route visits, not service plans. Only `flags.source_key` was added as persisted reconciliation metadata. This is not a new production-data audit: the original production counts below remain historical. See [the caller inventory and manual release gates](customer-pages-correctness.md). General Revenue reports, ticket rate displays, frozen archive helpers, mobile legacy contract-basis reads and retained compatibility endpoints have **not** been broadly repointed.
 
 ### Holders and columns
 

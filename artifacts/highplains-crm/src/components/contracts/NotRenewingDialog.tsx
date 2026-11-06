@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 import { NON_RENEWAL_LABELS, NON_RENEWAL_REASONS } from "@shared/contractCatalog";
 import { coloradoDay, dateOnly, errorText } from "./contractFormat";
 import type { ContractDetail, DetailTerm } from "./contractTypes";
@@ -38,13 +39,15 @@ export function NotRenewingDialog(props: { target: Target | null; onClose: () =>
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function Body({ target, onClose, onBusy, onRecorded }: { target: Target; onClose: () => void; onBusy: (b: boolean) => void; onRecorded?: () => void }) {
+  const companyId = useAuth().user?.activeCompanyId;
+  const request = (method: string, url: string, body?: unknown) => apiRequest(method, url, body, { headers: { "X-Company-Id": companyId! } });
   const { t, i18n } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const lang: "en" | "es" = i18n.language?.startsWith("es") ? "es" : "en";
   const q = useQuery<NonRenewalDetail>({
-    queryKey: ["/api/contract-center/contracts", target.id],
-    queryFn: async () => (await apiRequest("GET", `/api/contract-center/contracts/${target.id}`)).json(),
+    queryKey: ["/api/contract-center/contracts", target.id, companyId],
+    queryFn: async () => (await request("GET", `/api/contract-center/contracts/${target.id}`)).json(),
     retry: false,
     staleTime: 0, refetchOnMount: "always",
   });
@@ -77,7 +80,7 @@ function Body({ target, onClose, onBusy, onRecorded }: { target: Target; onClose
     if (!sourceId || invalid || saving) return;
     setSaving(true); onBusy(true); setError(null);
     try {
-      await apiRequest("POST", `/api/contract-center/terms/${sourceId}/non-renewal`, {
+      await request("POST", `/api/contract-center/terms/${sourceId}/non-renewal`, {
         decidedOn: day, reason,
         competitor: reason === "competitor" && competitor.trim() ? competitor.trim() : null,
         note: note.trim() ? note.trim() : null,

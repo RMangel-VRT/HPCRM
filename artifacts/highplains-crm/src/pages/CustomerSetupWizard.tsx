@@ -393,7 +393,6 @@ function ReviewStep({ d, tw, t, goto, master, parent, pm, manager: mgr, billingN
         [tw("property.type"), tw(`property.${d.customerType}`)],
         [tw("property.parent"), parent?.name ?? tw("property.parentNone")],
         ...(d.isParent ? [[tw("review.branches"), tw(`property.${d.branchBillingMode}`)] as [string, ReactNode]] : []),
-        [tw("property.snow"), d.snowEnabled ? t("common.yes") : t("common.no")],
         [tw("property.acres"), d.acres || none],
         [tw("property.complexity"), d.complexityScore || none],
       ])}

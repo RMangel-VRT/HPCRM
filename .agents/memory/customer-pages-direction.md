@@ -26,3 +26,9 @@ The Contract chip and This season KPI must support multiple in-effect terms from
 **Why:** Separate landscape and snow agreements can be in effect simultaneously; selecting one term would omit coverage or understate the priced total.
 
 **How to apply:** Consume the current contract-summary interface, not an assumed singular-term model. Cover multiple priced terms and mixed priced/T&M terms in both displays while preserving existing null, inheritance and permission rules.
+
+The user confirmed that the summary must expose multiple concurrent terms, rather than a singular current term. Preserve agreement identity for current, upcoming and previous selections; billing and rate views select an individual agreement/term.
+
+**Why:** The original correctness brief's singular response cannot represent separate concurrent landscape and snow agreements without dropping commercial facts.
+
+**How to apply:** Keep priced-term aggregation limited to the agreed owner KPI. Never infer a branch allocation or treat unpriced/T&M terms as zero.

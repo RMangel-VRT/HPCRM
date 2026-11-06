@@ -1,3 +1,4 @@
+import { useSnowCoveredCustomers } from "@/hooks/useCustomerContractSummary";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useState, useEffect } from "react";
@@ -244,7 +245,8 @@ export default function SnowEventDetail() {
     });
   };
 
-  const snowEnabledCustomers = allCustomers?.filter(c => c.snowEnabled && c.active === "true") || [];
+  const snowCoverage = useSnowCoveredCustomers();
+  const snowEnabledCustomers = allCustomers?.filter(c => snowCoverage.data?.customerIds.includes(c.id) && c.active === "true") || [];
   const existingCustomerIds = new Set(impacts?.map(i => i.customerId) || []);
   const availableCustomers = snowEnabledCustomers.filter(c => !existingCustomerIds.has(c.id));
 

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import {
   FLAG_STATUSES as LOCAL_STATUSES,
@@ -20,6 +21,7 @@ export function useFlagTaxonomy(): {
   statuses: readonly FlagStatus[];
   noteMaxLength: number;
 } {
+  const { t } = useTranslation();
   const { data } = useQuery<Resp>({
     queryKey: ["/api/flag-tags"],
     staleTime: 5 * 60_000,
@@ -32,7 +34,8 @@ export function useFlagTaxonomy(): {
     data?.statuses && data.statuses.length > 0
       ? (data.statuses as readonly FlagStatus[])
       : LOCAL_STATUSES;
-  return { tags, statuses, noteMaxLength: data?.noteMaxLength ?? 280 };
+  return { tags: tags.map(tag => tag.value === "contract_question" ? { ...tag, label: t("cp1.contractQuestion") } : tag),
+    statuses, noteMaxLength: data?.noteMaxLength ?? 280 };
 }
 
 export function tagMetaFromList(

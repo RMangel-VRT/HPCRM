@@ -12,7 +12,8 @@ vi.mock("@/hooks/use-breadcrumbs", () => ({ useSetBreadcrumbs: () => {} }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (s: string) => s, i18n: { language: "en" } }) }));
 vi.mock("@tanstack/react-query", async original => ({
   ...await original<typeof import("@tanstack/react-query")>(),
-  useQuery: (o: any) => ({ data: fx.data[o.queryKey.join("|")], isLoading: false, isError: false, refetch: vi.fn() }),
+  useQuery: (o: any) => ({ data: fx.data[o.queryKey.join("|")] ?? fx.data[o.queryKey.slice(0, 3).join("|")] ??
+    (o.queryKey[2] === fx.user.activeCompanyId ? fx.data[o.queryKey.slice(0, 2).join("|")] : undefined), isLoading: false, isError: false, refetch: vi.fn() }),
 }));
 vi.mock("@/components/LayerMapViewer", () => ({ default: () => null }));
 vi.mock("@/components/CustomerLocationEditor", () => ({ default: () => null }));

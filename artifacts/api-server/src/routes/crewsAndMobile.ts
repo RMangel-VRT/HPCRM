@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod/v4";
 import { and, asc, desc, eq, gte, ilike, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../db";
+import { snowCoveredCustomerIds } from "../lib/customerContractSummary";
 import {
   crews,
   campaignCrews,
@@ -1652,7 +1653,7 @@ export function registerCrewsAndMobileRoutes(app: Express): void {
       complexityScore: c.complexityScore,
       acres: c.acres,
       managementCompany: c.managementCompany,
-      snowEnabled: c.snowEnabled,
+      snowEnabled: (await snowCoveredCustomerIds(db, u.activeCompanyId)).has(c.id),
       tags: c.tags ?? [],
       locationLat: c.locationLat,
       locationLng: c.locationLng,

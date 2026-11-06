@@ -1,7 +1,6 @@
 import { Fragment, useRef, useCallback, useContext, useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
-import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitcher";
 import { Button } from "@/components/ui/button";
 import { SidebarContext } from "@/components/ui/sidebar";
 import {
@@ -109,7 +108,7 @@ export function CustomerSubNav({
     return () => cancelAnimationFrame(frame);
   }, [prefersReducedMotion]);
 
-  const isPrivileged = userRole === "admin" || userRole === "office";
+  const isPrivileged = userRole === "admin" || userRole === "account_manager" || userRole === "office";
   const isFieldManager = userRole === "field_manager";
 
   const visibleItems: RailItem[] = BASE_RAIL_ITEMS.map((item) => {
@@ -314,7 +313,6 @@ export function CustomerSubNav({
 
       {!isCollapsed && (
         <div className="p-3 border-t border-rail-border flex justify-center">
-          <CustomersViewSwitcher active="detail" className="bg-rail border-rail-border" />
         </div>
       )}
     </div>

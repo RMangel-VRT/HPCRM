@@ -22,6 +22,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useAccountManagers } from "@/hooks/use-account-managers";
 import { useTranslation } from "react-i18next";
 import type { Customer } from "@shared/schema";
+import { formatCurrency as customerMoney } from "@/lib/currency";
 
 interface ParentRollupData {
   parent: Customer;
@@ -30,13 +31,13 @@ interface ParentRollupData {
     name: string;
     activeContracts: number;
     openTickets: number;
-    annualRevenue: number;
+    annualRevenue: number | null;
     lastCommunication: string | null;
   }[];
   totals: {
     activeContracts: number;
     openTickets: number;
-    annualRevenue: number;
+    annualRevenue: number | null;
     recentCommunications: number;
     completedWorkOrdersYtd: number;
   };
@@ -51,14 +52,7 @@ interface ParentRollupData {
   }[];
 }
 
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
+const formatCurrency = (amount: number | null) => customerMoney(amount, true);
 
 function formatLastComm(date: string | null) {
   if (!date) return "—";

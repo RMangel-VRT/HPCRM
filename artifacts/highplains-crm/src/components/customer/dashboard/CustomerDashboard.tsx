@@ -1,3 +1,6 @@
+import { CustomerContractValue, CustomerActiveAgreements } from "@/components/customer/CustomerContractPanels";
+import CustomerNextService from "@/components/customer/CustomerNextService";
+import { useCustomerContractSummary } from "@/hooks/useCustomerContractSummary";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
@@ -102,9 +105,7 @@ export default function CustomerDashboard({
   const { t } = useTranslation();
   const currentYear = new Date().getFullYear();
 
-  const { data: allMonthlyAmounts = [] } = useQuery<{ contractId: string; amounts: ContractMonthlyAmount[] }[]>({
-    queryKey: ["/api/customers", customerId, "all-monthly-amounts", currentYear],
-  });
+  const { data: contractSummary } = useCustomerContractSummary(customerId);
 
   const { data: communications = [] } = useQuery<CommunicationWithDetails[]>({
     queryKey: ["/api/customers", customerId, "communications"],
@@ -139,11 +140,6 @@ export default function CustomerDashboard({
     ? Math.floor((Date.now() - new Date(oldestOpenTicket.createdAt).getTime()) / 86400000)
     : null;
 
-  const annualValue = allMonthlyAmounts.reduce((total, ca) => {
-    const contract = contracts.find((c) => c.id === ca.contractId && c.status === "active");
-    if (!contract) return total;
-    return total + ca.amounts.reduce((sum, a) => sum + (a.amount || 0), 0);
-  }, 0);
 
   const upcomingTickets = tickets
     .filter((t) => !t.completedAt && t.dueDate && isFuture(new Date(t.dueDate)))
@@ -191,10 +187,7 @@ export default function CustomerDashboard({
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <AnnualContractValueCard
-          annualValue={annualValue}
-          activeContractCount={activeContracts.length}
-        />
+        <CustomerContractValue customerId={customerId} />
 
         <OpenTicketsCard
           openTickets={openTickets}
@@ -203,18 +196,13 @@ export default function CustomerDashboard({
           onTabChange={onTabChange}
         />
 
-        <NextServiceCard
+        <CustomerNextService
           customerId={customerId}
-          nextServiceTicket={nextServiceTicket}
           onTabChange={onTabChange}
         />
 
         <div className="md:col-span-2">
-          <ActiveContractsCard
-            activeContracts={activeContracts}
-            onTabChange={onTabChange}
-            onContractClick={onContractClick}
-          />
+          <CustomerActiveAgreements customerId={customerId} />
         </div>
 
         <PrimaryContactCard
@@ -230,11 +218,11 @@ export default function CustomerDashboard({
           />
         </div>
 
-        <PropertyCard
+        {!isParentCustomer && <PropertyCard
           customer={customer}
           pmCompany={pmCompany ?? null}
           pmManager={pmManager ?? null}
-        />
+        />}
 
         <CommunicationsCard
           totalCount={commsSummary?.totalCount ?? 0}
@@ -391,71 +379,6 @@ function OpenTicketsCard({
             <p className="text-sm text-muted-foreground mt-1" data-testid="text-ticket-subtitle">
               {highPriorityCount > 0 ? `${highPriorityCount} high priority` : "No high priority"}
               {oldestDaysAgo !== null ? ` · oldest ${oldestDaysAgo}d ago` : ""}
-            </p>
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function NextServiceCard({
-  customerId,
-  nextServiceTicket,
-  onTabChange,
-}: {
-  customerId: string;
-  nextServiceTicket: Ticket | null;
-  onTabChange: (tab: string) => void;
-}) {
-  const currentYear = new Date().getFullYear();
-  const { data: allServicePlans = [], isLoading } = useQuery<CustomerServicePlan[]>({
-    queryKey: ["/api/customers", customerId, "service-plans"],
-  });
-  const servicePlans = allServicePlans.filter((p) => p.year === currentYear);
-
-  const hasPlans = servicePlans.length > 0;
-
-  return (
-    <Card
-      className="cursor-pointer hover-elevate"
-      onClick={() => onTabChange("fulfillment")}
-      data-testid="card-next-service"
-    >
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-          <Calendar className="w-4 h-4" />
-          Next Service
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : hasPlans ? (
-          <div className="space-y-1" data-testid="service-plans-list">
-            {servicePlans.slice(0, 3).map((plan) => (
-              <div key={plan.id} className="flex items-center justify-between gap-2" data-testid={`service-plan-row-${plan.id}`}>
-                <p className="text-sm font-medium truncate">{plan.serviceCategory}</p>
-                <span className="text-xs text-muted-foreground shrink-0">×{plan.expectedQuantity}</span>
-              </div>
-            ))}
-            {servicePlans.length > 3 && (
-              <p className="text-xs text-muted-foreground" data-testid="text-more-plans">
-                +{servicePlans.length - 3} more
-              </p>
-            )}
-          </div>
-        ) : !nextServiceTicket ? (
-          <p className="text-sm text-muted-foreground">No upcoming services</p>
-        ) : (
-          <>
-            <p className="font-medium text-sm truncate" data-testid="text-next-service-name">
-              {nextServiceTicket.title}
-            </p>
-            <p className="text-sm text-muted-foreground mt-1" data-testid="text-next-service-date">
-              {nextServiceTicket.dueDate
-                ? format(new Date(nextServiceTicket.dueDate), "MMM d, yyyy")
-                : "No date set"}
             </p>
           </>
         )}

@@ -198,7 +198,8 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
       if (!created) {
         const problems = [1, 2, 3, 4, 5].flatMap(gate);
         if (problems.length) { setErrors(problems); return; }
-        const res = await apiRequest("POST", "/api/contract-center/contracts", createBody({ ...d, bidTicketId: fromRfp ?? undefined, scope: scopeRows, rates: rateRows }));
+        const res = await apiRequest("POST", "/api/contract-center/contracts", createBody({ ...d, bidTicketId: fromRfp ?? undefined, scope: scopeRows, rates: rateRows }),
+          { headers: { "X-Company-Id": companyId } });
         const detail = (await res.json()) as ContractDetail;
         created = { agreementId: detail.id, termId: detail.terms[detail.terms.length - 1].id };
         // Persist the marker before anything else so a reload can never create a second contract.

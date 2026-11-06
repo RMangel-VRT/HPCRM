@@ -1,5 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { useCustomerServices, classifyCustomerService } from "@/hooks/useCustomerServices";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,6 +60,8 @@ interface ChecklistRowProps {
 }
 
 function ChecklistRow({ item, isSelected, onSelect }: ChecklistRowProps) {
+  const { t } = useTranslation();
+  const overdue = classifyCustomerService(item.status, item.campaignWindowStart, item.campaignWindowEnd) === "overdue";
   return (
     <div
       className={`flex items-center gap-3 p-3 rounded-md cursor-pointer border transition-colors ${
@@ -76,15 +80,16 @@ function ChecklistRow({ item, isSelected, onSelect }: ChecklistRowProps) {
             {item.campaignTitle}
           </span>
           <Badge variant="outline" className="text-xs px-1 py-0">
-            {categoryLabel(item.campaignCategory)}
+            {t(`cp1.categories.${item.campaignCategory.toLowerCase()}`, { defaultValue: item.campaignCategory })}
           </Badge>
+          {overdue && <Badge variant="destructive">{t("cp1.serviceStates.overdue")}</Badge>}
         </div>
         {item.workflowStep && (
           <span className="text-xs text-muted-foreground">{stepLabel(item.workflowStep)}</span>
         )}
       </div>
       <Badge variant={statusBadgeVariant(item.status)} className="text-xs shrink-0">
-        {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+        {t(`cp1.serviceStates.${classifyCustomerService(item.status, item.campaignWindowStart, item.campaignWindowEnd)}`)}
       </Badge>
     </div>
   );
@@ -95,13 +100,12 @@ interface CustomerServiceChecklistProps {
 }
 
 export default function CustomerServiceChecklist({ customerId }: CustomerServiceChecklistProps) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedItem, setSelectedItem] = useState<ChecklistItemWithCampaign | null>(null);
 
-  const { data: items = [], isLoading } = useQuery<ChecklistItemWithCampaign[]>({
-    queryKey: ["/api/customers", customerId, "campaign-items"],
-  });
+  const { items, isLoading, error } = useCustomerServices(customerId);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -158,7 +162,7 @@ export default function CustomerServiceChecklist({ customerId }: CustomerService
           </Select>
         </div>
 
-        {isLoading ? (
+        {error ? <p role="alert">{t("cp1.loadFailed")}</p> : isLoading ? (
           <div className="space-y-2">
             {[...Array(4)].map((_, i) => (
               <Skeleton key={i} className="h-14 w-full rounded-md" />

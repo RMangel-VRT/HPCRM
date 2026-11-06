@@ -5,6 +5,7 @@
 // validation) and the web/mobile UIs (for the chip palette / colors).
 
 export const FLAG_TAGS = [
+  { value: "contract_question",    label: "Contract question",    color: "#be185d" }, // pink
   { value: "irrigation_issue",     label: "Irrigation issue",     color: "#2563eb" }, // blue
   { value: "property_damage",      label: "Property damage",      color: "#dc2626" }, // red
   { value: "access_problem",       label: "Access problem",       color: "#d97706" }, // amber

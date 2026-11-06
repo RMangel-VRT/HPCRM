@@ -41,7 +41,7 @@ describe("customer rail heading presentation", () => {
     fireEvent.keyDown(contacts, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByTestId("nav-item-notes"));
     expect(onTabChange).toHaveBeenLastCalledWith("notes");
-    expect(screen.getByTestId("view-switcher")).toBeTruthy();
+    expect(screen.queryByTestId("view-switcher")).toBeNull();
   });
   it.each(["office", "field_manager", "field", "mapping"])("filters %s groups before applying expanded separators", role => {
     const { nav } = fixture(role, false, false);

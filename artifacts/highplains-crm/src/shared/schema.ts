@@ -318,6 +318,7 @@ export const customers = pgTable("customers", {
 }));
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({
+  snowEnabled: true,
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -372,7 +373,6 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   accountManagerId: z.string().min(1).nullable().optional(),
   isParent: z.enum(["true", "false"]).default("false"),
   active: z.enum(["true", "false"]).default("true"),
-  snowEnabled: z.boolean().default(false),
   locationLat: z.number().nullable().optional(),
   locationLng: z.number().nullable().optional(),
   ranking: z.enum(["standard", "preferred", "key_account"]).default("standard"),
@@ -3701,6 +3701,7 @@ export type MailboxBackfillRun = typeof mailboxBackfillRuns.$inferSelect;
 
 // Mobile v1 Slice 4 — flag tag taxonomy (mirrors lib/db/src/flag-tags.ts).
 export const FLAG_TAGS = [
+  { value: "contract_question",    label: "Contract question",    color: "#be185d" },
   { value: "irrigation_issue",     label: "Irrigation issue",     color: "#2563eb" },
   { value: "property_damage",      label: "Property damage",      color: "#dc2626" },
   { value: "access_problem",       label: "Access problem",       color: "#d97706" },

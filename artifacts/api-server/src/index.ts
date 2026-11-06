@@ -11,6 +11,7 @@ import { startPlantEnrichmentScheduler } from "./lib/plantEnrichment";
 import { startQboProactiveRefresh } from "./services/qboClient";
 import { startQboCustomerSync } from "./services/qboCustomerSync";
 import { startContractNonRenewalSweep } from "./lib/contractNonRenewalSweep";
+import { startContractQuestionSweep } from "./lib/contractQuestionFlags";
 
 async function warnIfSchemaDrift(): Promise<void> {
   try {
@@ -59,6 +60,7 @@ registerRoutes(app)
       startQboProactiveRefresh();
       server.once("close", startQboCustomerSync());
       server.once("close", startContractNonRenewalSweep());
+      server.once("close", startContractQuestionSweep());
     });
   })
   .catch((err) => {

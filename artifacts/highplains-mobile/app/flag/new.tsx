@@ -37,6 +37,7 @@ const FALLBACK_FLAG_TAGS: readonly TagOption[] = [
   { value: "material_needed",      label: "Material needed",      color: "#0d9488" },
   { value: "safety_concern",       label: "Safety concern",       color: "#b91c1c" },
   { value: "question",             label: "Question",             color: "#475569" },
+  { value: "contract_question",    label: "Contract question",    color: "#be185d" },
   { value: "other",                label: "Other",                color: "#6b7280" },
 ];
 const FLAG_NOTE_MAX_LENGTH = 280;
@@ -375,7 +376,7 @@ export default function NewFlagScreen() {
                       { color: selected ? "#fff" : colors.foreground },
                     ]}
                   >
-                    {opt.label}
+                    {opt.value === "contract_question" ? t("flag.contractQuestion") : opt.label}
                   </Text>
                 </Pressable>
               );

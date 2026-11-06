@@ -38,7 +38,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import StatusBadge from "@/components/StatusBadge";
 import EmptyState from "@/components/EmptyState";
-import { CustomersViewSwitcher } from "@/components/customer/CustomersViewSwitcher";
 import emptyCustomersImage from "@assets/generated_images/Empty_customers_state_illustration_84171f59.png";
 import { Link, useLocation } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -120,7 +119,7 @@ function CustomersListBody() {
     { label: t("customers.title") },
   ], []);
 
-  const { data: customersResult, isLoading } = useQuery<{ customers: Customer[]; total: number }>({
+  const { data: customersResult, isLoading } = useQuery<{ customers: (Customer & { branchCount?: number })[]; total: number }>({
     queryKey: ["/api/customers?page=1&limit=200", scope],
     queryFn: async () => {
       const all: Customer[] = [];
@@ -366,7 +365,6 @@ function CustomersListBody() {
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
-        <CustomersViewSwitcher active="list" />
       </div>
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -535,8 +533,10 @@ function CustomersListBody() {
                   <TableCell data-testid={`account-manager-${customer.id}`}>{!managers.data || managers.isError ? "—" : managers.data.assignments[customer.id]?.name ?? t("accountManagers.notAssigned")}</TableCell>
                   <TableCell className="text-muted-foreground">
                     <div className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span>{customer.city}, {customer.state}</span>
+                      {customer.isParent !== "true" && <MapPin className="w-3.5 h-3.5" />}
+                      <span>{customer.isParent === "true"
+                        ? t("cp1.branches", { count: customer.branchCount ?? 0 })
+                        : [customer.city, customer.state].filter(Boolean).join(", ")}</span>
                     </div>
                   </TableCell>
                   <TableCell>

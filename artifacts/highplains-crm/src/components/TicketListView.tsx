@@ -616,6 +616,7 @@ export default function TicketListView({
                       isSelected={selectedTicketIds.has(ticket.id)}
                       onToggleSelect={() => toggleTicketSelection(ticket.id)}
                       showCustomer={showCustomerColumn}
+                      hideInternalId={!!customerId}
                       workflowStatuses={allStatuses.filter(s => s.ticketTypeId === ticket.ticketTypeId).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))}
                     />
                   ))}
@@ -653,6 +654,7 @@ export default function TicketListView({
                           isSelected={selectedTicketIds.has(ticket.id)}
                           onToggleSelect={() => toggleTicketSelection(ticket.id)}
                           showCustomer={showCustomerColumn}
+                          hideInternalId={!!customerId}
                           workflowStatuses={allStatuses.filter(s => s.ticketTypeId === ticket.ticketTypeId).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))}
                         />
                       ))}
@@ -743,9 +745,9 @@ export default function TicketListView({
                               <h3 className="font-medium text-base leading-tight line-clamp-2 flex-1" data-testid={`text-equip-ticket-title-${ticket.id}`}>
                                 {ticket.title}
                               </h3>
-                              <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`text-equip-ticket-id-${ticket.id}`}>
+                              {!customerId && <span className="font-mono text-xs text-muted-foreground shrink-0" data-testid={`text-equip-ticket-id-${ticket.id}`}>
                                 #{ticket.id.slice(0, 8)}
-                              </span>
+                              </span>}
                             </div>
                             <div className="flex items-center gap-1 mt-1.5 text-sm text-muted-foreground">
                               <Wrench className="w-3.5 h-3.5 shrink-0" />

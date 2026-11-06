@@ -33,7 +33,6 @@ import { Badge } from "@/components/ui/badge";
 import type { Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isBillingPerson, pendingInvoicesKey, showBillingSidebar, type PendingInvoice } from "@/lib/billing";
-import { resolveCustomersRouteAsync, resolveCustomersRouteSync } from "@/lib/last-viewed-customer";
 import { getLastCommsTab, isValidCommsTab, type CommsTab } from "@/lib/last-comms-tab";
 import { useEffect, useMemo, useState } from "react";
 import { getNavForUser, navItemIsActive, type NavUser } from "@/components/nav/navConfig";
@@ -71,22 +70,6 @@ export default function AppSidebar({
   const sidebarExpanded = sidebarState === "expanded";
   const [helpOpen, setHelpOpen] = useState(false);
 
-  const canSeeRegularCustomers =
-    !isSuperAdmin && (accessRole(userRole) === "admin" || accessRole(userRole) === "office" || accessRole(userRole) === "field_manager");
-
-  useQuery<{ customers: Customer[]; total: number }>({
-    queryKey: ["/api/customers?page=1&limit=200"],
-    enabled: canSeeRegularCustomers,
-  });
-
-  const customersHref = canSeeRegularCustomers ? resolveCustomersRouteSync(queryClient) : CUSTOMERS_LIST_PATH;
-
-  const handleCustomersClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
-    e.preventDefault();
-    const target = await resolveCustomersRouteAsync(queryClient);
-    navigate(target);
-  };
 
   const toggleLanguage = async () => {
     const newLang = i18n.language === "es" ? "en" : "es";
@@ -229,8 +212,7 @@ export default function AppSidebar({
                       }
                     >
                       <Link
-                        href={isCustomers ? customersHref : item.href}
-                        onClick={isCustomers ? handleCustomersClick : undefined}
+                        href={item.href}
                         data-testid={`nav-${item.key}`}
                       >
                         <item.icon className="w-4 h-4" />

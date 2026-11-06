@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const fx = vi.hoisted(() => ({ api: vi.fn(), toast: vi.fn(), detail: null as unknown }));
 const season = (id: string, o: Record<string, unknown> = {}) => ({ id, seasonLabel: "2026\u201327", startDate: "2026-10-01", endDate: "2027-09-30", status: "active", line: "landscape", form: "theirs", ...o });
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: fx.toast }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { activeCompanyId: "fixture-company", activeRole: "admin" } }) }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: (...a: unknown[]) => fx.api(...a) }));
 import { RenewDialog } from "./RenewDialog";
 

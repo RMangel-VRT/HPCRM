@@ -14,6 +14,7 @@ import { customerEditNeedsPush, markPending, writeCustomer } from "./qboCustomer
 import { geocodeProperty } from "./propertyGeocoder";
 import { logger } from "../lib/logger";
 import { validateAccountManagerWrite } from "./accountManagers";
+import { hasSnowCoverageWrite, SNOW_COVERAGE_MESSAGE } from "../lib/snowCoverageInput";
 
 const site = z.object({
   gateCode: z.string().nullable().optional(), accessNotes: z.string().nullable().optional(),
@@ -94,6 +95,7 @@ async function validateRelationships(tx: AppTransaction, companyId: string, c: C
 
 /** Shared legacy + wizard create boundary. All local facts commit before any push. */
 export async function saveCustomerSetup(companyId: string, actorId: string, input: SetupInput, id?: string) {
+  if (hasSnowCoverageWrite(input.customer)) throw new CustomerSyncError(422, SNOW_COVERAGE_MESSAGE);
   if (protectedBillingWrite(input.customer)) throw new CustomerSyncError(400, "SYNC_METADATA_PROTECTED");
   const saved = await withCustomerSyncLock(companyId, tx => inTransaction(tx, async () => {
     const before = id ? (await tx.select().from(customers).where(predicate(companyId, id)).for("update"))[0] : undefined;

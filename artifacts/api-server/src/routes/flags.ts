@@ -361,8 +361,10 @@ const flagTagSchema = z.enum(FLAG_TAG_VALUES as readonly [string, ...string[]]);
 const flagStatusSchema = z.enum(FLAG_STATUSES as readonly [string, ...string[]]);
 
 export function registerFlagsRoutes(app: Express): void {
-  app.get("/api/m/flag-tags", requireMobileAuth(), (_req, res) => {
-    res.json({ tags: FLAG_TAGS, noteMaxLength: FLAG_NOTE_MAX_LENGTH });
+  app.get("/api/m/flag-tags", requireMobileAuth(), (req, res) => {
+    const spanish = (req.user as UserWithContext).language === "es";
+    res.json({ tags: FLAG_TAGS.map(t => spanish && t.value === "contract_question"
+      ? { ...t, label: "Pregunta de contrato" } : t), noteMaxLength: FLAG_NOTE_MAX_LENGTH });
   });
   app.get("/api/flags/customer-search", async (req, res) => {
     const u = adminOrOffice(req, res);
@@ -411,6 +413,9 @@ export function registerFlagsRoutes(app: Express): void {
     const parsed = await parseMultipart(req, res);
     if (!parsed) return;
 
+    if (["sourceKey", "source_key", "createdByUserId", "companyId"].some(key => Object.hasOwn(parsed.fields, key))) {
+      res.status(422).json({ message: "Flag source metadata is system-owned" }); return;
+    }
     const tagParse = flagTagSchema.safeParse(parsed.fields.tag);
     if (!tagParse.success) {
       res.status(400).json({ message: "Invalid or missing tag" });
@@ -862,7 +867,7 @@ export function registerFlagsRoutes(app: Express): void {
     status: flagStatusSchema.optional(),
     assignedToUserId: z.string().nullable().optional(),
     resolution: z.string().max(2000).nullable().optional(),
-  });
+  }).strict();
   app.patch("/api/flags/:id", async (req, res) => {
     const u = adminOrOffice(req, res);
     if (!u) return;

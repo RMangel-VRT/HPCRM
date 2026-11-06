@@ -115,7 +115,8 @@ describe("New contract flow", () => {
     await settle();
     expect(posts).toBe(1);
     expect(fx.api).toHaveBeenCalledWith("GET", "/api/customers/p1");
-    expect(fx.api).toHaveBeenCalledWith("POST", "/api/contract-center/contracts", expect.objectContaining({ customerId: "p1" }));
+    expect(fx.api).toHaveBeenCalledWith("POST", "/api/contract-center/contracts", expect.objectContaining({ customerId: "p1" }),
+      { headers: { "X-Company-Id": fx.user.activeCompanyId } });
   });
   it("makes parents selectable in search without exposing foreign customers", async () => {
     routes({ "/api/customers/p1": customer({ id: "p1", name: "Parent Co", isParent: "true" }), "/api/customers/p1/contacts": [] });

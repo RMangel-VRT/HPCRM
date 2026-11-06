@@ -190,7 +190,8 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const keepEditing = () => { setPending(null); unsavedGuard.clearPending(); };
 
   const refresh = async () => { await qc.invalidateQueries({ queryKey: [LIST_KEY] }); };
-  const api = async (method: string, url: string, body?: unknown) => (await apiRequest(method, url, body)).json();
+  const api = async (method: string, url: string, body?: unknown) => (await apiRequest(method, url, body,
+    { headers: { "X-Company-Id": user!.activeCompanyId } })).json();
 
   /** Saves the open panel only. Resolves true when everything it owned was saved. */
   async function save(): Promise<boolean> {
@@ -501,7 +502,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
                   </label>
                 ))}
                 {snow && (
-                  <label className="text-xs text-muted-foreground space-y-1 sm:col-span-2">Snow triggers
+                  <label className="text-xs text-muted-foreground space-y-1 sm:col-span-2">{translate("cp1.snowTriggers")}
                     <Input value={String(fieldValue("snowTriggers"))} data-testid="input-field-snowTriggers" onChange={e => setF({ snowTriggers: e.target.value })} />
                   </label>
                 )}
@@ -520,10 +521,11 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
               { key: "contactEmail", label: "Email", value: term.contactEmail },
               { key: "projectAddress", label: "Address", value: term.projectAddress },
               { key: "po", label: "PO", value: term.po },
-              ...(snow ? [{ key: "snowTriggers", label: "Snow triggers", value: term.snowTriggers }] : []),
+              ...(snow ? [{ key: "snowTriggers", label: translate("cp1.snowTriggers"), value: term.snowTriggers?.trim() || translate("cp1.notStated") }] : []),
               { key: "notes", label: "Notes", value: term.notes },
             ]} />
           )}
+          {snow && !term.snowTriggers?.trim() && <p className="text-sm text-amber-700" role="status">{translate("cp1.notStated")}</p>}
         </Panel>
 
         <Panel id="scope" title="Scope" meta={`${scopeCount} service${scopeCount === 1 ? "" : "s"}`} {...editProps("scope")}>

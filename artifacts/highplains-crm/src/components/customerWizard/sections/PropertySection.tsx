@@ -130,7 +130,6 @@ export function PropertySection({ d, patch, tw, parentChoices, parentsLoading, m
       <fieldset className="space-y-3">
         <legend className="text-xs font-medium text-muted-foreground">{tw("property.extras")}</legend>
         <div className="grid gap-3 sm:grid-cols-3 items-end">
-          <label className="flex h-9 items-center gap-2 text-sm"><Switch checked={d.snowEnabled} onCheckedChange={v => patch({ snowEnabled: v })} data-testid="switch-snow" />{tw("property.snow")}</label>
           <Field label={tw("property.acres")}><Input inputMode="decimal" value={d.acres} onChange={e => patch({ acres: e.target.value })} data-testid="input-wizard-acres" /></Field>
           <Field label={tw("property.complexity")}>
             <select className={selectCls} value={d.complexityScore} onChange={e => patch({ complexityScore: e.target.value })} data-testid="select-wizard-complexity">

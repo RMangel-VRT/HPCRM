@@ -217,6 +217,7 @@ const en: Record<string, string> = {
   "flag.composerTitle": "New Flag",
   "flag.submit": "Send",
   "flag.tag.label": "What kind of issue?",
+  "flag.contractQuestion": "Contract question",
   "flag.photos.label": "Photos",
   "flag.photos.add": "Add",
   "flag.photos.remove": "Remove photo",

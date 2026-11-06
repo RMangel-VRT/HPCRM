@@ -32,7 +32,7 @@ export interface WizardDraft {
   name: string; customerNumber: string; ranking: Ranking; street: string; city: string; state: string; zip: string;
   customerType: "commercial" | "hoa"; status: WizardStatus;
   parentCustomerId: string | null; isParent: boolean; branchBillingMode: BranchMode;
-  snowEnabled: boolean; acres: string; complexityScore: string;
+  acres: string; complexityScore: string;
   billToMode: BillToMode; propertyManagementCompanyId: string | null; propertyManagerId: string | null;
   billStreet: string; billStreet2: string; billCity: string; billState: string; billZip: string;
   billingName: string; billingNameTouched: boolean; billingCompanyName: string; billingContactName: string;
@@ -58,7 +58,7 @@ export function newWizardDraft(): WizardDraft {
   return {
     accountManagerId: null, accountManagerTouched: false,
     name: "", customerNumber: "", ranking: "standard", street: "", city: "", state: "CO", zip: "", customerType: "commercial", status: "prospect",
-    parentCustomerId: null, isParent: false, branchBillingMode: "master", snowEnabled: false, acres: "", complexityScore: "",
+    parentCustomerId: null, isParent: false, branchBillingMode: "master", acres: "", complexityScore: "",
     billToMode: "property", propertyManagementCompanyId: null, propertyManagerId: null,
     billStreet: "", billStreet2: "", billCity: "", billState: "", billZip: "",
     billingName: "", billingNameTouched: false, billingCompanyName: "", billingContactName: "",
@@ -86,7 +86,7 @@ export function draftFromServer(c: Record<string, unknown>, contacts: Record<str
     parentCustomerId: (c.parentCustomerId as string) || null,
     isParent: c.isParent === true || c.isParent === "true",
     branchBillingMode: c.branchBillingMode === "separate" ? "separate" : "master",
-    snowEnabled: !!c.snowEnabled, acres: s(c.acres), complexityScore: s(c.complexityScore),
+    acres: s(c.acres), complexityScore: s(c.complexityScore),
     billToMode: (["property", "management_company", "custom"].includes(String(c.billToMode)) ? c.billToMode : "property") as BillToMode,
     propertyManagementCompanyId: (c.propertyManagementCompanyId as string) || null,
     propertyManagerId: (c.propertyManagerId as string) || null,
@@ -218,7 +218,7 @@ export function buildBody(d: WizardDraft, opts: { master: boolean; edit: boolean
   const customer: Record<string, unknown> = {
     name: d.name.trim(), customerType: d.customerType, status: d.status === "inactive" ? "prospect" : d.status,
     parentCustomerId: d.parentCustomerId, isParent: d.isParent ? "true" : "false",
-    snowEnabled: d.snowEnabled, includeInRoute: d.site.includeInRoute,
+    includeInRoute: d.site.includeInRoute,
   };
   const num = opt(d.customerNumber); if (num) customer.customerNumber = num;
   if (!d.parentCustomerId) customer.accountManagerId = d.accountManagerId;
@@ -325,7 +325,7 @@ export function buildEditPatch(base: WizardDraft, d: WizardDraft): EditPatch {
   const customer: Record<string, unknown> = {};
   if (!d.parentCustomerId && base.accountManagerId !== d.accountManagerId) customer.accountManagerId = d.accountManagerId;
   for (const k of CUSTOMER_TEXT) if (d[k] !== base[k]) customer[k] = d[k].trim() ? d[k].trim() : NOT_NULL.has(k) ? "" : null;
-  for (const k of ["customerType", "status", "ranking", "billToMode", "parentCustomerId", "propertyManagementCompanyId", "propertyManagerId", "snowEnabled"] as const)
+  for (const k of ["customerType", "status", "ranking", "billToMode", "parentCustomerId", "propertyManagementCompanyId", "propertyManagerId"] as const)
     if (d[k] !== base[k]) customer[k] = d[k];
   if (d.isParent !== base.isParent) customer.isParent = d.isParent ? "true" : "false";
   if (d.isParent && (d.branchBillingMode !== base.branchBillingMode || d.isParent !== base.isParent)) customer.branchBillingMode = d.branchBillingMode;

@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 import { dateOnly, errorText, money } from "./contractFormat";
 import { selectRenewalSource, termForm, termLine } from "./contractTypes";
 import type { AgreementForm, AgreementLine, ContractDetail } from "./contractTypes";
@@ -52,6 +53,8 @@ export function RenewDialog(props: { target: { id: string; customerName: string 
 }
 
 function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: string; customerName: string }; onClose: () => void; onBusy: (b: boolean) => void; onCreated?: (termId: string) => void }) {
+  const companyId = useAuth().user?.activeCompanyId;
+  const request = (method: string, url: string, body?: unknown) => apiRequest(method, url, body, { headers: { "X-Company-Id": companyId! } });
   const [mode, setMode] = useState<PriceMode>("pct");
   const [pctText, setPctText] = useState("3");
   const [targetText, setTargetText] = useState("");
@@ -77,7 +80,7 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
   const url = `${base}/renew`;
 
   // Defaults come from the season Renew starts from (the last eligible one), not the displayed current season.
-  const detailQ = useQuery<ContractDetail>({ queryKey: ["/api/contract-center/contracts", target.id], queryFn: async () => (await apiRequest("GET", base)).json(), retry: false });
+  const detailQ = useQuery<ContractDetail>({ queryKey: ["/api/contract-center/contracts", target.id, companyId], queryFn: async () => (await request("GET", base)).json(), retry: false });
   const srcTerm = detailQ.data ? selectRenewalSource(detailQ.data.terms) : undefined;
   // The server's explicit preview.source wins; the fetched detail fills in before the first preview arrives.
   const source: { line: AgreementLine; form: AgreementForm } | null = preview?.data.source
@@ -104,7 +107,7 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
     const sent = body;
     const timer = setTimeout(async () => {
       try {
-        const res = await apiRequest("POST", url, { ...sent, dryRun: true });
+        const res = await request("POST", url, { ...sent, dryRun: true });
         const data = (await res.json()) as RenewPreview;
         if (!seq.current.isCurrent(id)) return;
         setPreview({ key: previewKey(sent), body: sent, data }); setError(null); setLoading(false);
@@ -135,7 +138,7 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
     seq.current.cancel(); setCreating(true);
     const { body: sent, data } = preview;
     try {
-      const res = await apiRequest("POST", url, sent);
+      const res = await request("POST", url, sent);
       const detail = (await res.json()) as ContractDetail;
       await qc.invalidateQueries({ queryKey: ["/api/contract-center/contracts"] });
       const termId = detail.renewalDraftId ?? detail.terms[detail.terms.length - 1]?.id;

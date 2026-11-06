@@ -8,6 +8,9 @@ import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import type { Customer, Contact, Note, Contract, ContractDocument, ContractMonthlyAmount, CustomerRateSheet, InsertNote, CustomerMapLayer, PropertyManagementCompany, PropertyManager, Ticket, SnowEvent, SnowEventPropertyImpact, ProposalWithDetails, CustomerServicePlan } from "@shared/schema";
 import { insertNoteSchema } from "@shared/schema";
 import { CustomerContracts } from "@/components/contracts/CustomerContracts";
+import { CustomerContractPanel } from "@/components/customer/CustomerContractPanels";
+import { useCustomerContractSummary } from "@/hooks/useCustomerContractSummary";
+import { useCustomerServices, classifyCustomerService } from "@/hooks/useCustomerServices";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -67,9 +70,8 @@ import QboCustomerCard from "@/components/qbo/QboCustomerCard";
 import SiteDetailsCard from "@/components/customer/SiteDetailsCard";
 import { FinishSetupBanner } from "@/components/customerWizard/FinishSetupBanner";
 import {
-  setLastViewedCustomerId,
-  clearLastViewedCustomerId,
-  resolveCustomersRouteAsync,
+  recordRecentCustomer,
+  removeRecentCustomer,
 } from "@/lib/last-viewed-customer";
 
 interface ContractCardProps {
@@ -472,8 +474,10 @@ export default function CustomerDetail() {
   const { user } = useAuth();
 
   const { data: customer, isLoading: isLoadingCustomer } = useQuery<Customer & { childCustomers?: Customer[]; parentCustomer?: Customer | null }>({
-    queryKey: ["/api/customers", id],
-    enabled: !!id,
+    queryKey: ["/api/customers", id, user?.activeCompanyId, user?.id],
+    enabled: !!id && !!user?.activeCompanyId,
+    queryFn: async ({ signal }) => (await apiRequest("GET", `/api/customers/${id}`, undefined,
+      { headers: { "X-Company-Id": user!.activeCompanyId }, signal })).json(),
   });
 
   const { data: contacts = [], isLoading: isLoadingContacts } = useQuery<Contact[]>({
@@ -486,21 +490,12 @@ export default function CustomerDetail() {
     enabled: !!id && (activeTab === "notes" || activeTab === "overview"),
   });
 
-  const { data: contracts = [], isLoading: isLoadingContracts } = useQuery<Contract[]>({
-    queryKey: ["/api/customers", id, "contracts"],
-    enabled: !!id,
-  });
-
-  const currentYear = new Date().getFullYear();
-  const { data: currentYearServicePlans = [] } = useQuery<CustomerServicePlan[]>({
-    queryKey: ["/api/customers", id, "service-plans", currentYear],
-    queryFn: async () => {
-      const res = await fetch(`/api/customers/${id}/service-plans?year=${currentYear}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch service plans");
-      return res.json();
-    },
-    enabled: !!id,
-  });
+  const summary = useCustomerContractSummary(id);
+  const services = useCustomerServices(id);
+  // Old contract cards below remain export-compatible for legacy non-customer
+  // consumers, but this page never loads or renders legacy commercial records.
+  const contracts: Contract[] = [];
+  const isLoadingContracts = false;
 
   const { data: tickets = [], isLoading: isLoadingTickets } = useQuery<Ticket[]>({
     queryKey: ["/api/customers", id, "tickets"],
@@ -523,8 +518,8 @@ export default function CustomerDetail() {
   const pendingProposalCount = customerProposals.filter(
     (p) => p.status !== "accepted" && p.status !== "rejected"
   ).length;
-  const activeContractCount = contracts.filter((c) => c.status === "active").length;
-  const servicePlanItemCount = currentYearServicePlans.length;
+  const activeContractCount = summary.data?.current.length ?? 0;
+  const servicePlanItemCount = services.services.filter(s => !["done", "skipped"].includes(s.state)).length;
 
   // Property Management queries
   const { data: pmCompanies = [] } = useQuery<PropertyManagementCompany[]>({
@@ -703,25 +698,15 @@ export default function CustomerDetail() {
     if (!id) return;
     if (isLoadingCustomer) return;
     if (!customer) {
-      clearLastViewedCustomerId(id);
-      // The remembered customer is gone (deleted or inaccessible). Redirect
-      // to the next-best customer so users aren't stuck on a dead detail
-      // route.
-      let cancelled = false;
-      void resolveCustomersRouteAsync(queryClient).then((next) => {
-        if (cancelled) return;
-        if (next !== `/dashboard/customers/${id}`) navigate(next);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (customer.active === "false") {
-      clearLastViewedCustomerId(customer.id);
+      removeRecentCustomer(user?.activeCompanyId, id);
       return;
     }
-    setLastViewedCustomerId(customer.id);
-  }, [id, customer, isLoadingCustomer, navigate]);
+    if (customer.active === "false") {
+      removeRecentCustomer(user?.activeCompanyId, customer.id);
+      return;
+    }
+    if (customer.companyId === user?.activeCompanyId) recordRecentCustomer(user?.activeCompanyId, customer.id);
+  }, [id, customer, isLoadingCustomer, user?.activeCompanyId]);
 
   if (isLoadingCustomer) {
     return (
@@ -780,7 +765,9 @@ export default function CustomerDetail() {
     }
   };
 
-  const coverage = calculateCoverage(contracts);
+  const coverage = summary.isLoading ? t("common.loading") : summary.error ? t("cp1.loadFailed") : summary.data?.coverage.landscape
+    ? t(summary.data.coverage.snow ? "cp1.both" : "cp1.landscape")
+    : t(summary.data?.coverage.snow ? "cp1.snow" : "cp1.noContract");
 
   const isChildCustomer = !!customer.parentCustomerId;
   const childCustomers = customer.childCustomers || [];
@@ -804,7 +791,7 @@ export default function CustomerDetail() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         userRole={user?.activeRole}
-        snowEnabled={customer.snowEnabled ?? false}
+        snowEnabled={summary.data?.coverage.snow ?? false}
         badgeCounts={{
           tickets: openTicketCount,
           proposals: pendingProposalCount,
@@ -965,7 +952,7 @@ export default function CustomerDetail() {
               setHighlightContractId(contractId);
             }}
           />
-          <SiteDetailsCard customer={customer} canEdit={canEditCustomer} />
+          {!isParentCustomer && <SiteDetailsCard customer={customer} canEdit={canEditCustomer} />}
         </TabsContent>
 
         <TabsContent value="contacts" className="space-y-4">
@@ -1263,20 +1250,20 @@ export default function CustomerDetail() {
               </TabsContent>
 
             <TabsContent value="rate-sheet" className="space-y-4">
-              <RateSheetSection customerId={params?.id!} />
+              <CustomerContractPanel customerId={params?.id!} kind="rates" />
             </TabsContent>
 
             <TabsContent value="revenue" className="space-y-4">
-              <RevenueSection customerId={params?.id!} />
+              <CustomerContractPanel customerId={params?.id!} kind="revenue" />
             </TabsContent>
 
             <TabsContent value="monthly-summary" className="space-y-4">
-              <MonthlyBillingSummarySection customerId={params?.id!} contracts={contracts} />
+              <CustomerContractPanel customerId={params?.id!} kind="monthly" />
             </TabsContent>
           </>
         )}
 
-        {customer.snowEnabled && (user?.accessRole === "admin" || user?.accessRole === "office" || user?.accessRole === "field_manager") && (
+        {summary.data?.coverage.snow && (user?.accessRole === "admin" || user?.accessRole === "office" || user?.accessRole === "field_manager") && (
           <TabsContent value="snow" className="space-y-4">
             <CustomerSnowHistory customerId={params?.id!} customerName={customer.name} />
           </TabsContent>
@@ -1372,513 +1359,8 @@ export default function CustomerDetail() {
   );
 }
 
-interface MonthlyBillingSummaryProps {
-  customerId: string;
-  contracts: Contract[];
-}
-
-function MonthlyBillingSummarySection({ customerId, contracts }: MonthlyBillingSummaryProps) {
-  const { t } = useTranslation();
-  const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState(currentYear);
-  
-  const { data: allMonthlyAmounts = [] } = useQuery<{ contractId: string; amounts: ContractMonthlyAmount[] }[]>({
-    queryKey: ["/api/customers", customerId, "all-monthly-amounts", selectedYear],
-  });
-  
-  const monthNames = [t("months.jan"), t("months.feb"), t("months.mar"), t("months.apr"), t("months.may"), t("months.jun"), t("months.jul"), t("months.aug"), t("months.sep"), t("months.oct"), t("months.nov"), t("months.dec")];
-  
-  const monthlySummary = useMemo(() => {
-    const summary: { month: number; total: number; byContract: { contractId: string; serviceType: string; amount: number }[] }[] = [];
-    
-    for (let month = 1; month <= 12; month++) {
-      const monthData: { month: number; total: number; byContract: { contractId: string; serviceType: string; amount: number }[] } = {
-        month,
-        total: 0,
-        byContract: []
-      };
-      
-      for (const contractAmounts of allMonthlyAmounts) {
-        const contract = contracts.find(c => c.id === contractAmounts.contractId);
-        if (!contract || contract.status === "ended") continue;
-        
-        const monthAmount = contractAmounts.amounts.find(a => a.month === month);
-        if (monthAmount && monthAmount.amount > 0) {
-          const amount = monthAmount.amount / 100;
-          monthData.total += amount;
-          monthData.byContract.push({
-            contractId: contract.id,
-            serviceType: contract.serviceType,
-            amount
-          });
-        }
-      }
-      
-      summary.push(monthData);
-    }
-    
-    return summary;
-  }, [allMonthlyAmounts, contracts]);
-  
-  const totalAnnual = monthlySummary.reduce((sum, m) => sum + m.total, 0);
-
-  const maintenanceMonthly = monthlySummary.map(m => ({
-    month: m.month,
-    amount: m.byContract.filter(c => c.serviceType === "Maintenance").reduce((sum, c) => sum + c.amount, 0)
-  }));
-  
-  const chemicalMonthly = monthlySummary.map(m => ({
-    month: m.month,
-    amount: m.byContract.filter(c => c.serviceType === "Chemical").reduce((sum, c) => sum + c.amount, 0)
-  }));
-  
-  const otherMonthly = monthlySummary.map(m => ({
-    month: m.month,
-    amount: m.byContract.filter(c => c.serviceType !== "Maintenance" && c.serviceType !== "Chemical").reduce((sum, c) => sum + c.amount, 0)
-  }));
-
-  const activeContractCount = contracts.filter(c => c.status === "active" || c.status === "paused").length;
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h3 className="text-lg font-semibold">{t("customerDetail.monthlySummaryTitle")}</h3>
-          <p className="text-sm text-muted-foreground">{t("customerDetail.monthlySummaryDesc")}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSelectedYear(selectedYear - 1)}
-            data-testid="button-summary-prev-year"
-          >
-            ← {selectedYear - 1}
-          </Button>
-          <span className="text-sm font-medium px-3" data-testid="text-summary-year">{selectedYear}</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSelectedYear(selectedYear + 1)}
-            data-testid="button-summary-next-year"
-          >
-            {selectedYear + 1} →
-          </Button>
-        </div>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{t("customerDetail.annualTotal")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold" data-testid="text-summary-annual-total">
-              ${totalAnnual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{t("customerDetail.activeContracts")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold" data-testid="text-summary-active-contracts">
-              {activeContractCount}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">{t("customerDetail.monthlyBreakdown")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("contracts.month")}</TableHead>
-                <TableHead className="text-right">{t("serviceTypes.maintenance")}</TableHead>
-                <TableHead className="text-right">{t("serviceTypes.chemical")}</TableHead>
-                <TableHead className="text-right">{t("serviceTypes.other")}</TableHead>
-                <TableHead className="text-right">{t("common.total")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {monthlySummary.map((month, idx) => (
-                  <TableRow key={month.month} data-testid={`row-month-${month.month}`}>
-                    <TableCell className="font-medium">{monthNames[idx]}</TableCell>
-                    <TableCell className="text-right">
-                      {maintenanceMonthly[idx].amount > 0 
-                        ? `$${maintenanceMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                        : '-'
-                      }
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {chemicalMonthly[idx].amount > 0 
-                        ? `$${chemicalMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                        : '-'
-                      }
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {otherMonthly[idx].amount > 0 
-                        ? `$${otherMonthly[idx].amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                        : '-'
-                      }
-                    </TableCell>
-                    <TableCell className="text-right font-semibold">
-                      {month.total > 0 
-                        ? `$${month.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                        : '-'
-                      }
-                    </TableCell>
-                  </TableRow>
-              ))}
-              <TableRow className="font-bold border-t-2">
-                <TableCell>{t("common.total")}</TableCell>
-                <TableCell className="text-right">
-                  ${maintenanceMonthly.reduce((sum, m) => sum + m.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </TableCell>
-                <TableCell className="text-right">
-                  ${chemicalMonthly.reduce((sum, m) => sum + m.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </TableCell>
-                <TableCell className="text-right">
-                  ${otherMonthly.reduce((sum, m) => sum + m.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </TableCell>
-                <TableCell className="text-right">
-                  ${totalAnnual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-      
-    </div>
-  );
-}
-
-interface CustomerRevenueData {
-  annualProjection: number;
-  monthlyBreakdown: { month: number; total: number; byServiceType: { serviceType: string; amount: number }[] }[];
-  contractBreakdown: { contractId: string; serviceType: string; status: string; startDate: Date; endDate: Date | null; annualTotal: number }[];
-}
-
-function RevenueSection({ customerId }: { customerId: string }) {
-  const { t } = useTranslation();
-  const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState(currentYear);
-  
-  const { data: revenueData, isLoading } = useQuery<CustomerRevenueData>({
-    queryKey: ["/api/customers", customerId, "revenue", selectedYear],
-  });
-  
-  const monthNames = [t("months.jan"), t("months.feb"), t("months.mar"), t("months.apr"), t("months.may"), t("months.jun"), t("months.jul"), t("months.aug"), t("months.sep"), t("months.oct"), t("months.nov"), t("months.dec")];
-  
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-64 w-full" />
-        <Skeleton className="h-48 w-full" />
-      </div>
-    );
-  }
-  
-  if (!revenueData) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center p-12">
-          <p className="text-sm text-muted-foreground">{t("customerDetail.noDocumentsFound")}</p>
-        </CardContent>
-      </Card>
-    );
-  }
-  
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h3 className="text-lg font-semibold">{t("customerDetail.revenueOverview")}</h3>
-          <p className="text-sm text-muted-foreground">{t("customerDetail.revenueDesc")}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSelectedYear(selectedYear - 1)}
-            data-testid="button-prev-year"
-          >
-            ← {selectedYear - 1}
-          </Button>
-          <span className="text-sm font-medium px-3" data-testid="text-selected-year">{selectedYear}</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSelectedYear(selectedYear + 1)}
-            data-testid="button-next-year"
-          >
-            {selectedYear + 1} →
-          </Button>
-        </div>
-      </div>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">{t("customerDetail.annualProjection")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-4xl font-bold" data-testid="text-annual-projection">
-            ${revenueData.annualProjection.toFixed(2)}
-          </p>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t("customerDetail.annualTotal")} {selectedYear}
-          </p>
-        </CardContent>
-      </Card>
-      
-      {(() => {
-        const maintenanceTotal = revenueData.monthlyBreakdown.reduce((sum, month) => {
-          const maintenance = month.byServiceType.find(s => s.serviceType === 'Maintenance');
-          return sum + (maintenance?.amount || 0);
-        }, 0);
-        const chemicalTotal = revenueData.monthlyBreakdown.reduce((sum, month) => {
-          const chemical = month.byServiceType.find(s => s.serviceType === 'Chemical');
-          return sum + (chemical?.amount || 0);
-        }, 0);
-        
-        if (maintenanceTotal === 0 && chemicalTotal === 0) return null;
-        
-        return (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">{t("serviceTypes.maintenance")} {t("customerDetail.billingTabs.revenue")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold" data-testid="text-maintenance-total">
-                  ${maintenanceTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">{t("customerDetail.annualTotal")} {selectedYear}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">{t("serviceTypes.chemical")} {t("customerDetail.billingTabs.revenue")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold" data-testid="text-chemical-total">
-                  ${chemicalTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">{t("customerDetail.annualTotal")} {selectedYear}</p>
-              </CardContent>
-            </Card>
-          </div>
-        );
-      })()}
-      
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">{t("contracts.month")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-3">
-            {revenueData.monthlyBreakdown.map((monthData) => (
-              <div key={monthData.month} className="p-3 border rounded-md">
-                <p className="text-xs font-medium text-muted-foreground mb-1">
-                  {monthNames[monthData.month - 1]}
-                </p>
-                <p className="text-lg font-semibold" data-testid={`text-month-${monthData.month}-total`}>
-                  ${monthData.total.toFixed(2)}
-                </p>
-                {monthData.byServiceType.length > 0 && (
-                  <div className="mt-2 space-y-0.5">
-                    {monthData.byServiceType.map((service) => (
-                      <div key={service.serviceType} className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">{service.serviceType}:</span>
-                        <span className="font-medium">${service.amount.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">{t("customerDetail.billingTabs.contracts")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {revenueData.contractBreakdown.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">{t("customerDetail.noDocumentsFound")}</p>
-          ) : (
-            <div className="border rounded-md">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b bg-muted/30">
-                    <th className="text-left p-3 text-xs font-medium">{t("contracts.serviceType")}</th>
-                    <th className="text-left p-3 text-xs font-medium">{t("common.status")}</th>
-                    <th className="text-left p-3 text-xs font-medium">{t("contracts.startDate")}</th>
-                    <th className="text-right p-3 text-xs font-medium">{t("customerDetail.annualTotal")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {revenueData.contractBreakdown.map((contract) => (
-                    <tr key={contract.contractId} className="border-b last:border-0" data-testid={`row-contract-${contract.contractId}`}>
-                      <td className="p-3 text-sm">{contract.serviceType}</td>
-                      <td className="p-3">
-                        <StatusBadge status={contract.status as "active" | "paused" | "ended"} />
-                      </td>
-                      <td className="p-3 text-sm text-muted-foreground">
-                        {format(new Date(contract.startDate), "MMM d, yyyy")}
-                        {contract.endDate ? ` - ${format(new Date(contract.endDate), "MMM d, yyyy")}` : ` - ${t("customerDetail.ongoing")}`}
-                      </td>
-                      <td className="p-3 text-sm font-semibold text-right" data-testid={`text-contract-${contract.contractId}-total`}>
-                        ${contract.annualTotal.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// RateInput component defined outside to prevent focus loss on re-renders
-interface RateInputProps {
-  label: string;
-  field: string;
-  unit: string;
-  value: string;
-}
-
-function RateInput({ label, field, unit, value }: RateInputProps) {
-  return (
-    <div>
-      <p className="text-sm font-medium">{label}</p>
-      <div className="flex items-center gap-2 mt-1">
-        <div className="relative flex-1">
-          <DollarSign className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <p data-testid={`text-rate-${field}`} className="pl-8 py-2">{value || "—"}</p>
-        </div>
-        <span className="text-sm text-muted-foreground whitespace-nowrap">{unit}</span>
-      </div>
-    </div>
-  );
-}
-
 export function RateSheetSection({ customerId }: { customerId: string }) {
-  const { t } = useTranslation();
-
-  const { data: rateSheet, isLoading } = useQuery<CustomerRateSheet | null>({
-    queryKey: ["/api/customers", customerId, "rate-sheet"],
-  });
-
-  const localRates = useMemo(() => {
-      const rates: Record<string, string> = {};
-    if (rateSheet) {
-      
-      // Maintenance & Emergency Labor
-      if (rateSheet.generalLabor !== null) rates.generalLabor = (rateSheet.generalLabor / 100).toFixed(2);
-      if (rateSheet.operatorLabor !== null) rates.operatorLabor = (rateSheet.operatorLabor / 100).toFixed(2);
-      if (rateSheet.irrigationLabor !== null) rates.irrigationLabor = (rateSheet.irrigationLabor / 100).toFixed(2);
-      if (rateSheet.emergencyGeneralLabor !== null) rates.emergencyGeneralLabor = (rateSheet.emergencyGeneralLabor / 100).toFixed(2);
-      if (rateSheet.emergencyIrrigationLabor !== null) rates.emergencyIrrigationLabor = (rateSheet.emergencyIrrigationLabor / 100).toFixed(2);
-      
-      // Snow & Ice Services
-      if (rateSheet.handShovelLabor !== null) rates.handShovelLabor = (rateSheet.handShovelLabor / 100).toFixed(2);
-      if (rateSheet.plowTruck !== null) rates.plowTruck = (rateSheet.plowTruck / 100).toFixed(2);
-      if (rateSheet.atv !== null) rates.atv = (rateSheet.atv / 100).toFixed(2);
-      if (rateSheet.skidSteer !== null) rates.skidSteer = (rateSheet.skidSteer / 100).toFixed(2);
-      if (rateSheet.snowBlower !== null) rates.snowBlower = (rateSheet.snowBlower / 100).toFixed(2);
-      if (rateSheet.iceMeltMaterial !== null) rates.iceMeltMaterial = (rateSheet.iceMeltMaterial / 100).toFixed(2);
-      if (rateSheet.iceMeltApplicationLabor !== null) rates.iceMeltApplicationLabor = (rateSheet.iceMeltApplicationLabor / 100).toFixed(2);
-      
-    }
-    return rates;
-  }, [rateSheet]);
-
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <Accordion type="multiple" defaultValue={["maintenance", "snow"]} className="space-y-4">
-        <AccordionItem value="maintenance">
-          <AccordionTrigger className="text-lg font-semibold" data-testid="accordion-maintenance">
-            {t("customerDetail.landscapingRates")}
-          </AccordionTrigger>
-          <AccordionContent>
-            <Card>
-              <CardContent className="pt-6 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <RateInput label={t("customerDetail.generalLabor")} field="generalLabor" unit={t("customerDetail.perHour")} value={localRates.generalLabor || ""} />
-                  <RateInput label={t("customerDetail.operatorLabor")} field="operatorLabor" unit={t("customerDetail.perHour")} value={localRates.operatorLabor || ""} />
-                  <RateInput label={t("customerDetail.irrigationLabor")} field="irrigationLabor" unit={t("customerDetail.perHour")} value={localRates.irrigationLabor || ""} />
-                  <RateInput label={t("customerDetail.emergencyGeneralLabor")} field="emergencyGeneralLabor" unit={t("customerDetail.perHour")} value={localRates.emergencyGeneralLabor || ""} />
-                  <RateInput label={t("customerDetail.emergencyIrrigationLabor")} field="emergencyIrrigationLabor" unit={t("customerDetail.perHour")} value={localRates.emergencyIrrigationLabor || ""} />
-                </div>
-              </CardContent>
-            </Card>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="snow">
-          <AccordionTrigger className="text-lg font-semibold" data-testid="accordion-snow">
-            {t("customerDetail.snowRates")}
-          </AccordionTrigger>
-          <AccordionContent>
-            <Card>
-              <CardContent className="pt-6 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <RateInput label={t("customerDetail.handShovel")} field="handShovelLabor" unit={t("customerDetail.perHour")} value={localRates.handShovelLabor || ""} />
-                  <RateInput label={t("customerDetail.plowTruck")} field="plowTruck" unit={t("customerDetail.perHour")} value={localRates.plowTruck || ""} />
-                  <RateInput label={t("customerDetail.atv")} field="atv" unit={t("customerDetail.perHour")} value={localRates.atv || ""} />
-                  <RateInput label={t("customerDetail.skidSteer")} field="skidSteer" unit={t("customerDetail.perHour")} value={localRates.skidSteer || ""} />
-                  <RateInput label={t("customerDetail.snowBlower")} field="snowBlower" unit={t("customerDetail.perHour")} value={localRates.snowBlower || ""} />
-                  <RateInput label={t("customerDetail.iceMeltMaterial")} field="iceMeltMaterial" unit={t("customerDetail.perPound")} value={localRates.iceMeltMaterial || ""} />
-                  <RateInput label={t("customerDetail.iceMeltApplicationLabor")} field="iceMeltApplicationLabor" unit={t("customerDetail.perHour")} value={localRates.iceMeltApplicationLabor || ""} />
-                </div>
-              </CardContent>
-            </Card>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">{t("customerDetail.rateNotes")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="whitespace-pre-wrap" data-testid="text-rate-notes">{rateSheet?.notes || "—"}</p>
-        </CardContent>
-      </Card>
-
-      {rateSheet?.lastUpdatedBy && rateSheet?.lastUpdatedAt && (
-        <div className="text-sm text-muted-foreground" data-testid="text-last-updated">
-          {t("customerDetail.lastUpdated")} {format(new Date(rateSheet.lastUpdatedAt), "PPp")}
-        </div>
-      )}
-
-        <div className="text-sm text-muted-foreground text-center p-4 bg-muted/50 rounded-md">
-          Rates now live on each contract in the Contract Center.
-        </div>
-    </div>
-  );
+  return <CustomerContractPanel customerId={customerId} kind="rates" />;
 }
 
 // Layer type configuration - bright colors for satellite visibility
@@ -2636,6 +2118,7 @@ type CampaignItemWithCampaign = import("@shared/schema").CampaignItem & {
 };
 
 function ServiceChecklistTab({ customerId }: { customerId: string }) {
+  const { t } = useTranslation();
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -2645,14 +2128,7 @@ function ServiceChecklistTab({ customerId }: { customerId: string }) {
   const [groupBy, setGroupBy] = useState<"season" | "category" | "month">("season");
   const [selectedItem, setSelectedItem] = useState<CampaignItemWithCampaign | null>(null);
 
-  const { data: rawItems = [], isLoading } = useQuery<CampaignItemWithCampaign[]>({
-    queryKey: ["/api/customers", customerId, "campaign-items"],
-    queryFn: async () => {
-      const res = await fetch(`/api/customers/${customerId}/campaign-items`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch campaign items");
-      return res.json();
-    },
-  });
+  const { items: rawItems, isLoading } = useCustomerServices(customerId);
 
   const { data: companyUsersWithDetails = [] } = useQuery<Array<{ id: string; userId: string; role: string; user: { id: string; firstName: string; lastName: string; email: string } }>>({
     queryKey: ["/api/company-users"],
@@ -2735,7 +2211,7 @@ function ServiceChecklistTab({ customerId }: { customerId: string }) {
     if (groupBy === "category") {
       return groupByKey(
         (item) => item.campaign?.category || "general",
-        (key) => key.charAt(0).toUpperCase() + key.slice(1),
+        (key) => t(`cp1.categories.${key.toLowerCase()}`, { defaultValue: key }),
       );
     } else if (groupBy === "month") {
       const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -2962,8 +2438,10 @@ function ServiceChecklistTab({ customerId }: { customerId: string }) {
                           {item.campaign?.title || "Untitled Service"}
                         </span>
                         <Badge variant="outline" className={`text-xs capitalize ${getCategoryColor(item.campaign?.category || "general")}`} data-testid={`badge-category-${item.id}`}>
-                          {item.campaign?.category || "general"}
+                          {t(`cp1.categories.${(item.campaign?.category || "general").toLowerCase()}`, { defaultValue: item.campaign?.category || "general" })}
                         </Badge>
+                        {classifyCustomerService(item.status, item.campaignWindowStart, item.campaignWindowEnd) === "overdue" &&
+                          <Badge variant="destructive">{t("cp1.serviceStates.overdue")}</Badge>}
                       </div>
                       {item.campaign?.windowStart && item.campaign?.windowEnd && (
                         <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-window-${item.id}`}>
@@ -3007,7 +2485,7 @@ function ServiceChecklistTab({ customerId }: { customerId: string }) {
                     {selectedItem.status}
                   </Badge>
                   <Badge variant="outline" className={`capitalize ${getCategoryColor(selectedItem.campaign?.category || "general")}`} data-testid="drawer-category">
-                    {selectedItem.campaign?.category || "general"}
+                    {t(`cp1.categories.${(selectedItem.campaign?.category || "general").toLowerCase()}`, { defaultValue: selectedItem.campaign?.category || "general" })}
                   </Badge>
                   {selectedItem.campaign?.subtype && (
                     <Badge variant="secondary" className="capitalize text-xs" data-testid="drawer-subtype">
@@ -3348,7 +2826,7 @@ function CustomerProposalsSection({ customerId }: { customerId: string }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-sm" data-testid={`text-proposal-title-${p.id}`}>{p.title}</span>
-                  <Badge variant="secondary" className="text-xs">{t("statuses.draft")}</Badge>
+                  <Badge variant="secondary" className="text-xs">{t(`statuses.${p.status}`, { defaultValue: t("statuses.draft") })}</Badge>
                   {p.versions && p.versions.length > 0 && (
                     <Badge variant="outline" className="text-xs" data-testid={`badge-version-${p.id}`}>
                       v{p.versions[p.versions.length - 1].versionNumber}
@@ -3362,7 +2840,7 @@ function CustomerProposalsSection({ customerId }: { customerId: string }) {
                   {formatDate(p.proposalDate)}
                   {p.versions && p.versions.length > 0 && (
                     <span className="ml-2">
-                      &middot; {t("customerDetail.finalized")} {(() => {
+                      &middot; {t("statuses.finalized")} {(() => {
                         const d = new Date(p.versions[p.versions.length - 1].finalizedAt);
                         return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
                       })()}

@@ -27,6 +27,14 @@ export async function apiRequest(
   });
 
   await throwIfResNotOk(res);
+  if (!["GET", "HEAD"].includes(method.toUpperCase()) &&
+    /^\/api\/(?:contract-center|admin\/contract-center|customers|customer-account-managers|users|team|company-users|companies\/users|qbo|estimates|bids|proposals)(?:\/|$)/.test(url)) {
+    // All term/parent writes can affect inherited branch summaries. Invalidate
+    // the shared prefix, not only the contract owner's currently open detail.
+    void queryClient.invalidateQueries({ predicate: q =>
+      q.queryKey[0] === "/api/customers/snow-covered" ||
+      (q.queryKey[0] === "/api/customers" && q.queryKey[2] === "contract-summary") });
+  }
   return res;
 }
 

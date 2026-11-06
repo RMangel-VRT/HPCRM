@@ -321,6 +321,7 @@ export const customers = pgTable("customers", {
 }));
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({
+  snowEnabled: true,
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -365,7 +366,6 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
   accountManagerId: z.string().min(1).nullable().optional(),
   isParent: z.enum(["true", "false"]).default("false"),
   active: z.enum(["true", "false"]).default("true"),
-  snowEnabled: z.boolean().default(false),
   locationLat: z.number().nullable().optional(),
   locationLng: z.number().nullable().optional(),
   ranking: z.enum(["standard", "preferred", "key_account"]).default("standard"),
@@ -4012,9 +4012,12 @@ export const flags = pgTable("flags", {
   resolution: text("resolution"),
   resolvedAt: timestamp("resolved_at"),
   clientId: varchar("client_id"),
+  sourceKey: text("source_key"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
+  openSourceKey: uniqueIndex("flags_company_open_source_key").on(table.companyId, table.sourceKey)
+    .where(sql`${table.sourceKey} IS NOT NULL AND ${table.status} NOT IN ('resolved', 'dismissed')`),
   flagsCompanyStatusCreatedIdx: index("flags_company_status_created_idx").on(
     table.companyId, table.status, table.createdAt,
   ),

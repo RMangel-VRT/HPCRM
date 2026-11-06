@@ -79,6 +79,10 @@ import { pickProvided } from '../lib/patchBody';
 import { billingInputProblem, protectedBillingWrite } from "../services/customerBillingInput";
 import { customerQboReads } from "./qboCustomerReads";
 import { customerSetupRouter, createCustomerRequest, setupFailure, customerSyncBusyFailure } from "./customerSetup";
+import { registerCustomerContractSummary } from "./customerContractSummary";
+import { registerContractQuestionReconciliation } from "../lib/contractQuestionFlags";
+import { snowCoveredCustomerIds, loadCustomerContractInputs, customerContractProjector } from "../lib/customerContractSummary";
+import { rejectLegacySnowCoverageWrite } from "../lib/snowCoverageInput";
 import { assertActivationComplete } from "../services/customerSetupValidation";
 import { geocodeProperty } from "../services/propertyGeocoder";
 import { linkCrewsByName } from "../lib/linkCrews";
@@ -1148,7 +1152,6 @@ async function ensureToDoTicketType(companyId: string): Promise<{
       status: "active",
       active: "true",
       isParent: "false",
-      snowEnabled: false,
       ranking: "standard",
       tags: [],
     });
@@ -1202,7 +1205,6 @@ export async function migrateFirstBankHierarchy(): Promise<void> {
           status: "active",
           isParent: "true",
           active: "true",
-          snowEnabled: false,
           ranking: "standard",
           tags: [],
         });
@@ -2708,6 +2710,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await backfillVisitServices();
 
   setupAuth(app);
+  registerContractQuestionReconciliation(app);
+  app.use("/api/customers", (req, res, next) => {
+    const companyId = (req.user as UserWithContext | undefined)?.activeCompanyId;
+    if (companyId && req.get("X-Company-Id") && req.get("X-Company-Id") !== companyId) {
+      res.status(409).json({ message: "Active company changed. Reload and try again." }); return;
+    }
+    rejectLegacySnowCoverageWrite(req, res, next);
+  });
+  registerCustomerContractSummary(app);
   registerTicketExpectedCompany(app);
   // Must precede every ticket sub-router (comments, photos, work items, etc.).
   registerCrewSupervisorTicketGuard(app, storage);
@@ -2794,7 +2805,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 200));
     const search = (req.query.search as string) || undefined;
     const result = await storage.getCustomersPaginated(user.activeCompanyId, { page, limit, search });
-    return res.json(result);
+    const counts = await db.select({ parentId: customersTable.parentCustomerId, count: sql<number>`count(*)::int` })
+      .from(customersTable).where(eq(customersTable.companyId, user.activeCompanyId)).groupBy(customersTable.parentCustomerId);
+    const branches = new Map(counts.map(c => [c.parentId, c.count]));
+    return res.json({ ...result, customers: result.customers.map(c => ({ ...c, branchCount: branches.get(c.id) ?? 0 })) });
   });
 
   // Search endpoint — returns up to 20 matching customers for typeahead pickers
@@ -2878,19 +2892,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       allStatuses.filter(s => s.isFinal === "true").map(s => s.id)
     );
 
+    const contractProject = customerContractProjector(await loadCustomerContractInputs(db, user.activeCompanyId));
+    const commercial = ["admin", "office"].includes(user.accessRole);
     const childData = await Promise.all(
       children.map(async (child) => {
-        const [contracts, tickets, communications, revenueData] = await Promise.all([
-          storage.getContractsByCustomerId(child.id, user.activeCompanyId),
+        const [tickets, communications] = await Promise.all([
           storage.getTicketsByCustomerId(child.id, user.activeCompanyId),
           storage.getCommunications(user.activeCompanyId, { customerId: child.id }),
-          storage.getCustomerRevenue(child.id, user.activeCompanyId, currentYear),
         ]);
+        const current = contractProject(child.id)?.current ?? [];
+        const ownPrices = current.filter(t => !t.parentCustomerId && t.annualCents != null);
+        const annualRevenue = commercial && ownPrices.length ? ownPrices.reduce((sum, t) => sum + t.annualCents!, 0) : null;
 
         const ticketIds = tickets.map(t => t.id);
         const statusHistoryRecords = await storage.getTicketStatusHistoryForTickets(ticketIds);
 
-        const activeContractCount = contracts.filter(c => c.status === "active").length;
+        const activeContractCount = current.length;
         const openTicketCount = tickets.filter(t => !finalStatusIds.has(t.currentStatusId)).length;
 
         const recentCommunicationCount = communications.filter(c => {
@@ -2949,7 +2966,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           name: child.name,
           activeContracts: activeContractCount,
           openTickets: openTicketCount,
-          annualRevenue: revenueData.annualProjection,
+          annualRevenue,
           lastCommunication,
           recentCommunicationCount,
           completedWorkOrdersYtd,
@@ -2958,10 +2975,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
     );
 
+    const parentTerms = contractProject(customer.id)?.current ?? [];
+    const pricedTerms = [...parentTerms.filter(t => t.annualCents != null),
+      ...children.flatMap(c => (contractProject(c.id)?.current ?? []).filter(t => !t.parentCustomerId && t.annualCents != null))];
+    const uniquePrices = [...new Map(pricedTerms.map(t => [t.termId, t])).values()];
     const totals = {
-      activeContracts: childData.reduce((sum, c) => sum + c.activeContracts, 0),
+      activeContracts: new Set([...parentTerms, ...children.flatMap(c => contractProject(c.id)?.current ?? [])].map(t => t.agreementId)).size,
       openTickets: childData.reduce((sum, c) => sum + c.openTickets, 0),
-      annualRevenue: childData.reduce((sum, c) => sum + c.annualRevenue, 0),
+      annualRevenue: commercial && uniquePrices.length ? uniquePrices.reduce((sum, t) => sum + t.annualCents!, 0) : null,
       recentCommunications: childData.reduce((sum, c) => sum + c.recentCommunicationCount, 0),
       completedWorkOrdersYtd: childData.reduce((sum, c) => sum + c.completedWorkOrdersYtd, 0),
     };
@@ -10739,6 +10760,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       switch (reportType) {
         case "customers": {
           const allCustomers = await storage.getCustomers(companyId);
+          const snowIds = await snowCoveredCustomerIds(db, companyId);
           const rows = allCustomers.map(c => ({
             name: c.name,
             customerNumber: c.customerNumber || "",
@@ -10748,7 +10770,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             zip: c.zip,
             status: c.status,
             acres: c.acres || "",
-            snowEnabled: c.snowEnabled ? "Yes" : "No",
+            snowEnabled: snowIds.has(c.id) ? "Yes" : "No",
           }));
           return res.json({
             title: "Customer / Property List",
