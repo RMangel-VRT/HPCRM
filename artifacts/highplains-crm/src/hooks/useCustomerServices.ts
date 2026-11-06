@@ -8,6 +8,8 @@ export type ServiceState = "done" | "skipped" | "overdue" | "in_window" | "upcom
 export interface CustomerService {
   id: string; source: "campaign" | "route"; title: string; serviceKey: string | null;
   start: string; end: string; state: ServiceState; inContract: boolean;
+  /** Real completion timestamp when the source provides one; never synthesized. */
+  completedAt?: string | null;
 }
 export function classifyCustomerService(status: string, start: string, end: string, today = companyToday()): ServiceState {
   if (status === "completed" || status === "done") return "done";
@@ -55,7 +57,7 @@ export function useCustomerServices(customerId?: string) {
     serviceKey: i.servicePlanCategory ?? i.campaign?.serviceKey ?? null,
     start: i.campaignWindowStart.slice(0, 10), end: i.campaignWindowEnd.slice(0, 10),
     state: classifyCustomerService(i.status, i.campaignWindowStart.slice(0, 10), i.campaignWindowEnd.slice(0, 10), today),
-    inContract: inContractCategory(i.campaignCategory),
+    inContract: inContractCategory(i.campaignCategory), completedAt: i.completedAt ?? null,
   }));
   // Campaign-linked or ticket trips are not separate service demand. Include
   // only route occurrences, preserving their own stable identity.
@@ -63,6 +65,7 @@ export function useCustomerServices(customerId?: string) {
     id: `route:${v.id}`, source: "route", title: v.title ?? v.serviceKey ?? "",
     serviceKey: v.serviceKey ?? null, start: v.visitDate, end: v.visitDate,
     state: classifyCustomerService(v.status, v.visitDate, v.visitDate, today), inContract: true,
+    completedAt: v.completedAt ?? null,
   });
   const pending = services.filter(s => s.state === "in_window" || s.state === "upcoming")
     .sort((a, b) => a.start.localeCompare(b.start) || a.id.localeCompare(b.id));

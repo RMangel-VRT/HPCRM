@@ -112,6 +112,16 @@ function WizardBody({ companyId }: { companyId: string }) {
   const allCustomers = (parents.data?.customers ?? []).filter(c => !c.companyId || c.companyId === companyId);
   const parentChoices = allCustomers.filter(c => !c.parentCustomerId);
   const parent = allCustomers.find(c => c.id === d.parentCustomerId) ?? null;
+
+  // CP2 "Add branch": ?parentId= prefills the parent once, only if it is a valid top-level choice in this company.
+  const parentPrefilled = useRef(false);
+  useEffect(() => {
+    if (parentPrefilled.current || parents.isLoading || typeof window === "undefined") return;
+    const wanted = new URLSearchParams(window.location.search).get("parentId");
+    parentPrefilled.current = true;
+    if (!wanted || !parentChoices.some(c => c.id === wanted)) return;
+    setD(cur => (cur.parentCustomerId ? cur : { ...cur, parentCustomerId: wanted }));
+  }, [parents.isLoading, parentChoices]);
   const master = parentIsMaster(d, parent);
   const pm = (pmCompanies.data ?? []).find(p => p.id === d.propertyManagementCompanyId) ?? null;
   const manager = master ? null : (managers.data ?? []).find(m => m.id === d.propertyManagerId) ?? null;

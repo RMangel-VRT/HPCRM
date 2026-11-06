@@ -18,7 +18,6 @@ vi.mock("@tanstack/react-query", async original => ({
 vi.mock("@/components/LayerMapViewer", () => ({ default: () => null }));
 vi.mock("@/components/CustomerLocationEditor", () => ({ default: () => null }));
 vi.mock("@/components/customer/dashboard/CustomerDashboard", () => ({ default: () => <div data-testid="dashboard-stub" /> }));
-vi.mock("@/pages/ParentCustomerDashboard", () => ({ default: () => null }));
 vi.mock("@/components/qbo/QboCustomerCard", () => ({ default: () => null, cardState: () => "not_linked" }));
 vi.mock("@/components/customerWizard/FinishSetupBanner", () => ({ FinishSetupBanner: () => null, MissingFieldsNotice: () => null }));
 import CustomerDetail from "./CustomerDetail";
@@ -44,8 +43,8 @@ describe("customer page after CQ7", () => {
     expect(html).not.toContain("button-save-contact");
   });
 
-  it("overview shows read-only site details with dashes and an Edit link to #site", () => {
-    const html = page("overview");
+  it("property page shows read-only site details with dashes and an Edit link to #site", () => {
+    const html = page("property");
     expect(html).toContain('data-testid="card-site-details"');
     expect(html).toMatch(/data-testid="text-site-gate"[^>]*>4471</);
     expect(html).toMatch(/data-testid="text-site-access"[^>]*>\u2014</);

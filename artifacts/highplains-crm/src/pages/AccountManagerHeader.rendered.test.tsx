@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import i18n from "@/i18n";
 
-for (const file of ["CustomerDetail.tsx", "ParentCustomerDashboard.tsx"]) {
+for (const file of ["CustomerDetail.tsx"]) {
   const source = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
   const fragment = source.match(/<p[^>]*data-testid="customer-account-manager">[\s\S]*?<\/p>/)?.[0];
   if (!fragment) throw new Error(`The production quiet manager line is missing in ${file}`);

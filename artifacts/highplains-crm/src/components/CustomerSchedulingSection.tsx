@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { canUseRoutes, useCustomerRouteSummary } from "@/hooks/use-routes";
 import { fmtMinutes, routeServiceLabel, serviceColorVar, weekdayName } from "@/lib/routes";
 
-export default function CustomerSchedulingSection({ customerId }: { customerId: string }) {
+export default function CustomerSchedulingSection({ customerId, readOnly = false }: { customerId: string; readOnly?: boolean }) {
   const { user } = useAuth();
   const summary = useCustomerRouteSummary(customerId);
   return <Card data-testid="card-customer-routes">
@@ -22,7 +22,7 @@ export default function CustomerSchedulingSection({ customerId }: { customerId: 
             <Badge variant="outline">{s.everyWeeks === 2 ? "Every 2 weeks" : "Every week"}</Badge>
             <span className="ml-auto flex items-center gap-1 tabular-nums text-muted-foreground"><Clock className="h-3.5 w-3.5" />{fmtMinutes(s.minutes)}</span>
           </li>)}</ul>}
-      {canUseRoutes(user?.activeRole) && <Link href="/dashboard/routes" className="text-sm underline">Manage Routes</Link>}
+      {!readOnly && canUseRoutes(user?.activeRole) && <Link href="/dashboard/routes" className="text-sm underline">Manage Routes</Link>}
     </CardContent>
   </Card>;
 }

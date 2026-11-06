@@ -264,8 +264,8 @@ describe("customer editor", () => {
     type("input-site-gate", "5");
     save();
     await waitFor(() => expect(loc.history?.at(-1)).toBe("/dashboard/customers/c7?tab=contacts"));
-    expect(returnHref("c7", "#billing")).toBe("/dashboard/customers/c7?tab=contacts".replace("contacts", "contracts"));
-    expect(returnHref("c7", "#site")).toBe("/dashboard/customers/c7?tab=overview");
+    expect(returnHref("c7", "#billing")).toBe("/dashboard/customers/c7?tab=billing");
+    expect(returnHref("c7", "#site")).toBe("/dashboard/customers/c7?tab=property");
   });
 
   it("ignores a save that resolves after the company switched", async () => {

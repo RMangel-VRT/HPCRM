@@ -31,9 +31,10 @@ interface SetupResponse { customer: Record<string, unknown> & { id: string; name
 export function returnHref(id: string, hash: string) {
   const base = `/dashboard/customers/${id}`;
   switch (hash.replace(/^#/, "")) {
-    case "billing": return `${base}?tab=contracts`;
+    case "billing": return `${base}?tab=billing`;
     case "contacts": return `${base}?tab=contacts`;
-    case "site": return `${base}?tab=overview`;
+    case "site": return `${base}?tab=property`;
+    case "property": return `${base}?tab=property`;
     default: return base;
   }
 }

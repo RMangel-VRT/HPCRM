@@ -269,7 +269,7 @@ export function RevenueMatrixPanel({ year, month, searchQuery }: RevenueMatrixPa
                         ${customer.annualProjection.toFixed(2)}
                       </td>
                       <td className="p-3">
-                        <Link href={`/dashboard/customers/${customer.customerId}?tab=revenue`}>
+                        <Link href={`/dashboard/customers/${customer.customerId}?tab=billing&view=revenue`}>
                           <Button variant="ghost" size="sm" data-testid={`button-view-customer-${customer.customerId}`}>
                             View
                           </Button>
@@ -307,7 +307,7 @@ export function RevenueMatrixPanel({ year, month, searchQuery }: RevenueMatrixPa
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-muted-foreground w-6">{index + 1}.</span>
-                      <Link href={`/dashboard/customers/${customer.customerId}?tab=revenue`}>
+                      <Link href={`/dashboard/customers/${customer.customerId}?tab=billing&view=revenue`}>
                         <span
                           className="text-sm font-medium text-primary hover:underline cursor-pointer"
                           data-testid={`link-breakdown-customer-${customer.customerId}`}

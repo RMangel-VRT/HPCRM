@@ -2872,6 +2872,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ message: "Active company changed. Reload and try again." });
+    }
     const customer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
     if (!customer) {
       return res.status(404).send("Customer not found");
@@ -2892,13 +2895,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       allStatuses.filter(s => s.isFinal === "true").map(s => s.id)
     );
 
-    const contractProject = customerContractProjector(await loadCustomerContractInputs(db, user.activeCompanyId));
     const commercial = ["admin", "office"].includes(user.accessRole);
+    const contractProject = customerContractProjector(await loadCustomerContractInputs(db, user.activeCompanyId, commercial));
     const childData = await Promise.all(
       children.map(async (child) => {
         const [tickets, communications] = await Promise.all([
           storage.getTicketsByCustomerId(child.id, user.activeCompanyId),
-          storage.getCommunications(user.activeCompanyId, { customerId: child.id }),
+          // The shared parent frame is also available to field readers.
+          // Do not query privileged email data merely to populate its activity.
+          commercial ? storage.getCommunications(user.activeCompanyId, { customerId: child.id }) : Promise.resolve([]),
         ]);
         const current = contractProject(child.id)?.current ?? [];
         const ownPrices = current.filter(t => !t.parentCustomerId && t.annualCents != null);
@@ -2965,6 +2970,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: child.id,
           name: child.name,
           activeContracts: activeContractCount,
+          currentTerms: current.map(t => ({
+            label: t.label, line: t.line, startDate: t.startDate, endDate: t.endDate,
+          })),
           openTickets: openTicketCount,
           annualRevenue,
           lastCommunication,
@@ -3006,6 +3014,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       id: c.id,
       name: c.name,
       activeContracts: c.activeContracts,
+      currentTerms: c.currentTerms,
       openTickets: c.openTickets,
       annualRevenue: c.annualRevenue,
       lastCommunication: c.lastCommunication,
@@ -3036,6 +3045,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Providing this new assignment fact always requires the same policy as setup/bulk.
     if (Object.hasOwn(req.body, "accountManagerId") && !["admin", "office"].includes(user.accessRole))
       return res.status(403).json({ message: "Account manager assignment requires admin or office access." });
+    if (["locationLat", "locationLng"].some(key => Object.hasOwn(req.body, key))
+      && !["admin", "office"].includes(user.accessRole)) {
+      return res.status(403).json({ message: "Property location editing requires admin or office access." });
+    }
     
     if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
       return res.status(403).send("Insufficient permissions - admin or office role required");

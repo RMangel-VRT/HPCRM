@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useCustomerScope } from "@/lib/customerScope";
 import type { CustomerMapLayer } from "@shared/schema";
-import { MapContainer, TileLayer, GeoJSON, useMap, ZoomControl } from "react-leaflet";
+import { MapContainer, TileLayer, GeoJSON, useMap, ZoomControl, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { kml as kmlToGeoJsonLib } from "@tmcw/togeojson";
@@ -57,6 +58,12 @@ interface LayerMapViewerProps {
   fullScreen?: boolean;
   onClose?: () => void;
   isVisible?: boolean;
+  /** CP2 Property: start on the app's light street map instead of satellite. */
+  light?: boolean;
+  /** Customer location pin. */
+  pin?: [number, number] | null;
+  /** When provided, the caller owns layer visibility (Property layer table "Show"). */
+  shownLayerIds?: Set<string>;
 }
 
 function FitBounds({ bounds, fitTrigger }: { bounds: L.LatLngBounds | null; fitTrigger?: number }) {
@@ -171,12 +178,16 @@ export default function LayerMapViewer({
   fullScreen = false,
   onClose,
   isVisible,
+  light = false,
+  pin = null,
+  shownLayerIds,
 }: LayerMapViewerProps) {
-  const [enabledLayers, setEnabledLayers] = useState<Set<string>>(new Set());
+  const [internalEnabledLayers, setEnabledLayers] = useState<Set<string>>(new Set());
+  const enabledLayers = shownLayerIds ?? internalEnabledLayers;
   const [layerData, setLayerData] = useState<Map<string, LayerData>>(new Map());
-  const [showLayerPanel, setShowLayerPanel] = useState(true);
+  const [showLayerPanel, setShowLayerPanel] = useState(!shownLayerIds);
   const [bounds, setBounds] = useState<L.LatLngBounds | null>(null);
-  const [useSatellite, setUseSatellite] = useState(true);
+  const [useSatellite, setUseSatellite] = useState(!light);
   const [fitTrigger, setFitTrigger] = useState(0);
   const [showMyLocation, setShowMyLocation] = useState(false);
   const { toast } = useToast();
@@ -186,8 +197,12 @@ export default function LayerMapViewer({
     if (isVisible) setFitTrigger(t => t + 1);
   }, [isVisible]);
 
+  // Same company/viewer-scoped key and request as the Property page, so no unscoped cache entry exists.
+  const scope = useCustomerScope();
   const { data: mapLayers = [], isLoading: loadingLayers } = useQuery<CustomerMapLayer[]>({
-    queryKey: ["/api/customers", customerId, "map-layers"],
+    queryKey: ["/api/customers", customerId, "map-layers", ...scope.scope],
+    queryFn: ({ signal }) => scope.getJson<CustomerMapLayer[]>(`/api/customers/${customerId}/map-layers`, signal),
+    enabled: scope.enabled,
   });
 
   useEffect(() => {
@@ -283,7 +298,7 @@ export default function LayerMapViewer({
     );
   }
 
-  if (mapLayers.length === 0) {
+  if (mapLayers.length === 0 && !pin) {
     return (
       <div className={fullScreen && !contained ? "fixed inset-0 bg-background z-50 flex items-center justify-center" : "absolute inset-0 flex items-center justify-center border rounded-md"}>
         {fullScreen && onClose && (
@@ -527,6 +542,7 @@ export default function LayerMapViewer({
         )}
         <FitBounds bounds={bounds} fitTrigger={fitTrigger} />
         <LocateMeControl active={showMyLocation} />
+        {pin && <Marker position={pin} />}
 
         {Array.from(layerData.values()).map((data) => {
           if (!data.geoJson || !enabledLayers.has(data.layer.id)) return null;

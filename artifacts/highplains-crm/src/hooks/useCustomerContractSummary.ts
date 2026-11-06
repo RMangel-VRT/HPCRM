@@ -8,12 +8,17 @@ export interface ContractSummaryTerm {
   annualCents?: number | null; snowPricing?: string | null; snowTriggers?: string | null;
   parentCustomerId?: string | null;
   billingMonths?: { month: string; component: string | null; amountCents: number }[];
-  rates?: { rateKey: string; label: string; unit: string; minimum: string | null; priceCents: number | null; priceText: string | null }[];
+  rates?: { rateKey: string; line?: "landscape" | "snow" | null; category?: string | null; sortOrder?: number; label: string; unit: string; minimum: string | null; priceCents: number | null; priceText: string | null }[];
 }
 export interface CustomerContractSummary {
   asOf: string; current: ContractSummaryTerm[]; upcoming?: ContractSummaryTerm[]; previous?: ContractSummaryTerm[];
   coverage: { landscape: boolean; snow: boolean }; parentCustomerId?: string | null;
+  /** Admin/office/field manager only: latest snow-trigger flag status per effective snow term. */
+  snowTriggerFlags?: { termId: string; status: string }[];
 }
+export const OPEN_SNOW_FLAG_STATUSES = ["new", "acknowledged", "in_progress"] as const;
+export const openSnowTriggerFlagCount = (s?: CustomerContractSummary | null) =>
+  !s?.coverage.snow ? 0 : (s.snowTriggerFlags ?? []).filter(f => (OPEN_SNOW_FLAG_STATUSES as readonly string[]).includes(f.status)).length;
 export const contractSummaryKey = (id: string) => ["/api/customers", id, "contract-summary"] as const;
 export function useCustomerContractSummary(customerId?: string) {
   const { user } = useAuth();

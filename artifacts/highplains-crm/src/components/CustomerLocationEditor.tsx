@@ -4,7 +4,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MapPin, Edit, Loader2 } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { useCustomerScope } from "@/lib/customerScope";
 import { useToast } from "@/hooks/use-toast";
 import type { Customer } from "@shared/schema";
 import mapboxgl from "mapbox-gl";
@@ -14,11 +15,16 @@ const US_CENTER: [number, number] = [-98.5795, 39.8283];
 
 interface Props {
   customer: Customer;
+  /** Admin/office only (CP2 Property). Others see the map read-only. */
+  canEdit?: boolean;
+  /** Open directly in edit mode (Property "Edit location" title action). */
+  autoEdit?: boolean;
 }
 
-export default function CustomerLocationEditor({ customer }: Props) {
+export default function CustomerLocationEditor({ customer, canEdit = false, autoEdit = false }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const scope = useCustomerScope();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
@@ -26,6 +32,10 @@ export default function CustomerLocationEditor({ customer }: Props) {
   const [draftLat, setDraftLat] = useState<number | null>(null);
   const [draftLng, setDraftLng] = useState<number | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState(false);
+  const validCoordinates = draftLat != null && draftLng != null &&
+    Number.isFinite(draftLat) && Number.isFinite(draftLng) &&
+    Math.abs(draftLat) <= 90 && Math.abs(draftLng) <= 180;
 
   const hasCoords = customer.locationLat != null && customer.locationLng != null;
 
@@ -35,8 +45,8 @@ export default function CustomerLocationEditor({ customer }: Props) {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (draftLat == null || draftLng == null) throw new Error("No coordinates");
-      return apiRequest("PATCH", `/api/customers/${customer.id}`, {
+      if (!canEdit || !validCoordinates) throw new Error("Invalid coordinates");
+      return scope.request("PATCH", `/api/customers/${customer.id}`, {
         locationLat: draftLat,
         locationLng: draftLng,
       });
@@ -74,9 +84,11 @@ export default function CustomerLocationEditor({ customer }: Props) {
   const initMap = useCallback(
     (interactive: boolean) => {
       const token = mapboxConfig?.token;
-      if (!token || !mapContainerRef.current) return;
+      if (!token) { setMapError(true); return; }
+      if (!mapContainerRef.current) return;
 
       destroyMap();
+      setMapError(false);
 
       mapboxgl.accessToken = token;
 
@@ -86,13 +98,21 @@ export default function CustomerLocationEditor({ customer }: Props) {
           : US_CENTER;
       const zoom = hasCoords ? 15 : 4;
 
-      const map = new mapboxgl.Map({
-        container: mapContainerRef.current,
-        style: "mapbox://styles/mapbox/satellite-streets-v12",
-        center,
-        zoom,
-        interactive,
-      });
+      let map: mapboxgl.Map;
+      try {
+        // WebGL may be unavailable (managed/headless browsers, disabled GPU).
+        // Keep editing usable, but explicitly report that the map failed.
+        map = new mapboxgl.Map({
+          container: mapContainerRef.current,
+          style: "mapbox://styles/mapbox/light-v11",
+          center, zoom, interactive,
+        });
+      } catch {
+        setMapError(true);
+        return;
+      }
+      mapRef.current = map;
+      map.on("error", () => setMapError(true));
 
       if (interactive) {
         map.addControl(new mapboxgl.NavigationControl(), "bottom-right");
@@ -130,20 +150,26 @@ export default function CustomerLocationEditor({ customer }: Props) {
   );
 
   useEffect(() => {
-    if (!editing && mapboxConfig?.token) {
-      initMap(false);
-    }
+    if (mapContainerRef.current || editing) initMap(editing);
     return () => {
       destroyMap();
     };
   }, [editing, mapboxConfig?.token, customer.locationLat, customer.locationLng]);
 
   const handleEditClick = () => {
+    if (!canEdit) return;
+    setDraftLat(customer.locationLat ?? null);
+    setDraftLng(customer.locationLng ?? null);
     setEditing(true);
-    setTimeout(() => {
-      initMap(true);
-    }, 50);
   };
+
+  const autoEditDone = useRef(false);
+  useEffect(() => {
+    if (autoEdit && canEdit && !autoEditDone.current) {
+      autoEditDone.current = true;
+      handleEditClick();
+    }
+  });
 
   const handleCancel = () => {
     setEditing(false);
@@ -165,7 +191,7 @@ export default function CustomerLocationEditor({ customer }: Props) {
           <MapPin className="w-4 h-4" />
           {t("customerDetail.locationSection")}
         </CardTitle>
-        {!editing && (
+        {!editing && canEdit && (
           <Button
             size="sm"
             variant="outline"
@@ -178,7 +204,7 @@ export default function CustomerLocationEditor({ customer }: Props) {
         )}
       </CardHeader>
       <CardContent className="space-y-3">
-        {!mapboxConfig?.token ? (
+        {!mapboxConfig?.token && !editing ? (
           <div className="flex items-center justify-center h-[180px]">
             <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
           </div>
@@ -191,23 +217,38 @@ export default function CustomerLocationEditor({ customer }: Props) {
             <p className="text-xs text-muted-foreground">
               {t("customerDetail.noLocationDesc")}
             </p>
-            <Button
+            {canEdit && <Button
               size="sm"
               onClick={handleEditClick}
               data-testid="button-set-location"
             >
               <MapPin className="w-3 h-3 mr-1" />
               {t("customerDetail.editLocation")}
-            </Button>
+            </Button>}
           </div>
         ) : (
           <>
             <div
               ref={mapContainerRef}
               className="w-full rounded-md overflow-hidden"
-              style={{ height: editing ? 300 : 220 }}
+              style={{ height: mapError ? 0 : editing ? 300 : 220 }}
               data-testid="map-location-editor"
             />
+            {mapError && <p role="status" className="text-sm text-muted-foreground" data-testid="location-map-unavailable">
+              {t("customerDetail.mapUnavailable")}
+            </p>}
+            {editing && mapError && <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm">{t("customerDetail.latitude")}
+                <input type="number" min="-90" max="90" step="any" value={draftLat ?? ""}
+                  onChange={e => setDraftLat(e.target.value === "" ? null : Number(e.target.value))}
+                  className="mt-1 w-full rounded border bg-background p-2" data-testid="input-location-latitude" />
+              </label>
+              <label className="text-sm">{t("customerDetail.longitude")}
+                <input type="number" min="-180" max="180" step="any" value={draftLng ?? ""}
+                  onChange={e => setDraftLng(e.target.value === "" ? null : Number(e.target.value))}
+                  className="mt-1 w-full rounded border bg-background p-2" data-testid="input-location-longitude" />
+              </label>
+            </div>}
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="text-xs text-muted-foreground" data-testid="text-coordinates">
                 {t("customerDetail.currentCoords")}:{" "}
@@ -229,7 +270,7 @@ export default function CustomerLocationEditor({ customer }: Props) {
                   <Button
                     size="sm"
                     onClick={handleSave}
-                    disabled={saveMutation.isPending || draftLat == null}
+                    disabled={saveMutation.isPending || !validCoordinates}
                     data-testid="button-save-location"
                   >
                     {saveMutation.isPending && (

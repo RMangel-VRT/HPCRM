@@ -124,7 +124,7 @@ export function AuditDetailDrawer({ row, onClose }: AuditDetailDrawerProps) {
   const handleOpenCustomer = () => {
     if (!row) return;
     onClose();
-    navigate(`/dashboard/customers/${row.customerId}?tab=revenue`);
+    navigate(`/dashboard/customers/${row.customerId}?tab=billing&view=revenue`);
   };
 
   return (

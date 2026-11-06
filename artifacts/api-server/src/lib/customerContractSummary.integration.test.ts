@@ -65,7 +65,8 @@ describe.skipIf(process.env.NODE_ENV === "production")("CP1 isolated company API
   it.each(["field_manager", "chemical_manager", "irrigation_manager", "field", "mapping", "landscape_supervisor", "crew_supervisor"])("%s gets only allowlisted coverage and current dates", async role => {
     const res = await app(role).get(`/api/customers/${branch}/contract-summary`).expect(200);
     expect(res.body.coverage).toEqual({ landscape: true, snow: true });
-    expect(Object.keys(res.body).sort()).toEqual(["asOf", "coverage", "current"]);
+    expect(Object.keys(res.body).sort()).toEqual(role === "field_manager"
+      ? ["asOf", "coverage", "current", "snowTriggerFlags"] : ["asOf", "coverage", "current"]);
     expect(Object.keys(res.body.current[0]).sort()).toEqual(["endDate", "label", "line", "startDate"]);
   });
   it("company isolation and initiating company header are enforced", async () => {
@@ -87,6 +88,13 @@ describe.skipIf(process.env.NODE_ENV === "production")("CP1 isolated company API
     expect(rows.find(f => f.sourceKey === `no-term:${uncovered}`)).toMatchObject({ note: NO_TERM_NOTE, assignedToUserId: manager, createdByUserId: null });
     expect(rows.find(f => f.sourceKey === `snow-triggers:${termId}`)?.assignedToUserId).toBe(manager);
     expect(rows.some(f => f.sourceKey === `no-term:${branch}`)).toBe(false);
+    for (const role of ["admin", "office", "account_manager", "field_manager"]) {
+      const result = await app(role).get(`/api/customers/${branch}/contract-summary`).expect(200);
+      expect(result.body.snowTriggerFlags).toEqual([{ termId, status: "new" }]);
+      expect(Object.keys(result.body.snowTriggerFlags[0]).sort()).toEqual(["status", "termId"]);
+    }
+    const hidden = await app("field").get(`/api/customers/${branch}/contract-summary`).expect(200);
+    expect(hidden.body.snowTriggerFlags).toBeUndefined();
   });
   it("new flags follow assignment changes, picked-up flags remain assigned", async () => {
     await db.update(flags).set({ status: "acknowledged" }).where(and(eq(flags.companyId, companyId), eq(flags.sourceKey, `no-term:${uncovered}`)));
@@ -103,6 +111,8 @@ describe.skipIf(process.env.NODE_ENV === "production")("CP1 isolated company API
     await db.update(agreementTerms).set({ snowTriggers: "2 inches" }).where(eq(agreementTerms.id, termId));
     await reconcileContractQuestions(companyId, today);
     expect((await open()).find(f => f.sourceKey === `snow-triggers:${termId}`)).toMatchObject({ status: "resolved", resolution: "Triggers added on contract" });
+    const result = await app("field_manager").get(`/api/customers/${branch}/contract-summary`).expect(200);
+    expect(result.body.snowTriggerFlags).toEqual([{ termId, status: "resolved" }]);
     await reconcileContractQuestions(companyId, addCalendarDays(today, 355));
     expect((await open()).filter(f => f.status === "new").map(f => f.sourceKey).sort()).toEqual([`no-term:${parent}`, `no-term:${branch}`].sort());
     await db.update(customers).set({ status: "inactive" }).where(eq(customers.companyId, companyId));

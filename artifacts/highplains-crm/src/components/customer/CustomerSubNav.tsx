@@ -1,168 +1,70 @@
 import { Fragment, useRef, useCallback, useContext, useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useTranslation } from "react-i18next";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import { Button } from "@/components/ui/button";
 import { SidebarContext } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
-import {
-  LayoutDashboard,
-  Users,
-  MessageSquare,
-  Map,
-  CheckCircle2,
-  CalendarCheck,
-  Mail,
-  DollarSign,
-  Settings,
-  ChevronDown,
-  BarChart3,
-  Ticket as TicketIcon,
-  FileText,
-  Layers,
-  Snowflake,
-} from "lucide-react";
+  CUSTOMER_PAGES, GROUP_LABEL_KEYS, type CustomerPageGroup, type CustomerPageKey,
+} from "./customerPages";
 
-interface CustomerSubNavCustomer {
-  id: string;
-  name: string;
-}
-
-export interface RailItem {
-  key: string;
-  label: string;
-  section: string;
-  tabValue: string;
-  badgeCount?: number;
-  visible?: boolean;
-  icon: React.ComponentType<{ className?: string }>;
-  adminOnly?: boolean;
-  fieldManagerVisible?: boolean;
-  snowRequired?: boolean;
-}
+export interface CustomerPageBadge { count: number; warning?: boolean }
 
 interface CustomerSubNavProps {
-  customerId: string;
-  customerName: string;
-  customers: CustomerSubNavCustomer[];
+  pages: CustomerPageKey[];
   activeTab: string;
-  onTabChange: (tab: string) => void;
-  userRole?: string;
-  snowEnabled?: boolean;
-  badgeCounts?: Record<string, number>;
+  onTabChange: (tab: CustomerPageKey) => void;
+  badges?: Partial<Record<CustomerPageKey, CustomerPageBadge>>;
 }
 
-const BASE_RAIL_ITEMS: Omit<RailItem, "visible">[] = [
-  { key: "overview", label: "Dashboard", section: "Overview", tabValue: "overview", icon: LayoutDashboard },
-  { key: "contacts", label: "Contacts", section: "Overview", tabValue: "contacts", icon: Users },
-  { key: "notes", label: "Notes", section: "Overview", tabValue: "notes", icon: MessageSquare },
-  { key: "maps", label: "Maps", section: "Operations", tabValue: "maps", icon: Map },
-  { key: "service-checklist", label: "Service Checklist", section: "Operations", tabValue: "service-checklist", icon: CheckCircle2 },
-  { key: "fulfillment", label: "Service Plan", section: "Operations", tabValue: "fulfillment", icon: CalendarCheck },
-  { key: "annual-rollup", label: "Annual Rollup", section: "Operations", tabValue: "annual-rollup", icon: BarChart3, adminOnly: true },
-  { key: "tickets", label: "Tickets", section: "Operations", tabValue: "tickets", icon: TicketIcon },
-  { key: "proposals", label: "Proposals", section: "Operations", tabValue: "proposals", icon: FileText, adminOnly: true },
-  { key: "visual-scopes", label: "Visual Scopes", section: "Operations", tabValue: "visual-scopes", icon: Layers, adminOnly: true },
-  { key: "snow", label: "Snow", section: "Operations", tabValue: "snow", icon: Snowflake, snowRequired: true, fieldManagerVisible: true },
-  { key: "communications", label: "Communications", section: "Operations", tabValue: "communications", icon: Mail, adminOnly: true },
-  { key: "billing", label: "Billing", section: "Financial", tabValue: "contracts", icon: DollarSign, adminOnly: true },
-  { key: "settings", label: "Settings", section: "Settings", tabValue: "settings", icon: Settings, adminOnly: true },
-];
+const GROUP_ORDER: CustomerPageGroup[] = ["main", "work", "money"];
 
-const BILLING_SUBTABS = new Set(["contracts", "rate-sheet", "revenue", "monthly-summary"]);
+function badgeClass(warning?: boolean) {
+  return warning
+    ? "bg-[hsl(var(--est-warn-bg))] text-[hsl(var(--est-warn))]"
+    : "bg-rail-hover text-rail-foreground";
+}
 
-const SECTION_ORDER = ["Overview", "Operations", "Financial", "Settings"];
+function useSections(pages: CustomerPageKey[]) {
+  return GROUP_ORDER.map(group => ({
+    group,
+    items: pages.filter(key => CUSTOMER_PAGES[key].group === group),
+  })).filter(s => s.items.length > 0);
+}
 
-export function CustomerSubNav({
-  customerId,
-  customerName,
-  customers,
-  activeTab,
-  onTabChange,
-  userRole,
-  snowEnabled = false,
-  badgeCounts = {},
-}: CustomerSubNavProps) {
-  const [, navigate] = useLocation();
+/** Desktop section rail (light green). Hidden below ~900px where CustomerPageChips take over. */
+export function CustomerSubNav({ pages, activeTab, onTabChange, badges = {} }: CustomerSubNavProps) {
+  const { t } = useTranslation();
   const navRef = useRef<HTMLElement>(null);
   const sidebarCtx = useContext(SidebarContext);
   const isCollapsed = sidebarCtx?.state === "collapsed";
   const [isMounted, setIsMounted] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const sections = useSections(pages);
 
   useEffect(() => {
-    if (prefersReducedMotion) {
-      setIsMounted(true);
-      return;
-    }
+    if (prefersReducedMotion) { setIsMounted(true); return; }
     const frame = requestAnimationFrame(() => setIsMounted(true));
     return () => cancelAnimationFrame(frame);
   }, [prefersReducedMotion]);
 
-  const isPrivileged = userRole === "admin" || userRole === "account_manager" || userRole === "office";
-  const isFieldManager = userRole === "field_manager";
-
-  const visibleItems: RailItem[] = BASE_RAIL_ITEMS.map((item) => {
-    if (item.adminOnly && !isPrivileged) return { ...item, visible: false };
-    if (item.snowRequired && !snowEnabled) return { ...item, visible: false };
-    if (item.snowRequired && !isPrivileged && !isFieldManager) return { ...item, visible: false };
-    const count = badgeCounts[item.key];
-    return { ...item, visible: true, badgeCount: count && count > 0 ? count : undefined };
-  }).filter((item) => item.visible);
-
-  const sections = SECTION_ORDER.map((heading) => ({
-    heading,
-    items: visibleItems.filter((item) => item.section === heading),
-  })).filter((s) => s.items.length > 0);
-
-  const getAllNavButtons = useCallback((): HTMLButtonElement[] => {
-    if (!navRef.current) return [];
-    return Array.from(
-      navRef.current.querySelectorAll<HTMLButtonElement>("[data-nav-item]")
-    );
+  const handleNavKeyDown = useCallback((e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const buttons = navRef.current ? Array.from(navRef.current.querySelectorAll<HTMLButtonElement>("[data-nav-item]")) : [];
+    if (buttons.length === 0) return;
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === "ArrowDown"
+      ? (current < buttons.length - 1 ? current + 1 : 0)
+      : (current > 0 ? current - 1 : buttons.length - 1);
+    buttons[next].focus();
+    buttons[next].click();
   }, []);
-
-  const handleNavKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLElement>) => {
-      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-
-      e.preventDefault();
-
-      const buttons = getAllNavButtons();
-      if (buttons.length === 0) return;
-
-      const focused = document.activeElement as HTMLButtonElement;
-      const currentIndex = buttons.indexOf(focused);
-
-      let nextIndex: number;
-      if (e.key === "ArrowDown") {
-        nextIndex = currentIndex < buttons.length - 1 ? currentIndex + 1 : 0;
-      } else {
-        nextIndex = currentIndex > 0 ? currentIndex - 1 : buttons.length - 1;
-      }
-
-      const nextButton = buttons[nextIndex];
-      nextButton.focus();
-      nextButton.click();
-    },
-    [getAllNavButtons]
-  );
 
   return (
     <div
-      className={`flex-shrink-0 bg-rail text-rail-foreground border border-rail-border flex flex-col overflow-hidden ${
-        isCollapsed
-          ? "rounded-lg border-l"
-          : "border-l-0 rounded-r-lg"
+      className={`flex-shrink-0 bg-rail text-rail-foreground border border-rail-border flex-col overflow-hidden hidden min-[901px]:flex ${
+        isCollapsed ? "rounded-lg border-l" : "border-l-0 rounded-r-lg"
       }`}
       style={{
         width: isCollapsed ? "3rem" : (isMounted ? 200 : 0),
@@ -171,93 +73,41 @@ export function CustomerSubNav({
       }}
       data-testid="customer-sub-nav"
     >
-      {!isCollapsed && (
-        <div className="p-3 border-b border-rail-border">
-          {customers.length > 1 ? (
-            <Select
-              value={customerId}
-              onValueChange={(val) => navigate(`/dashboard/customers/${val}`)}
-            >
-              <SelectTrigger
-                className="w-full border-0 bg-transparent p-0 h-auto shadow-none focus:ring-0 [&>svg]:hidden gap-1 text-rail-foreground hover:text-rail-active-foreground"
-                data-testid="select-subnav-customer-switcher"
-              >
-                <span className="font-semibold text-sm leading-snug truncate" data-testid="text-subnav-customer-name">
-                  {customerName}
-                </span>
-                <ChevronDown className="w-3.5 h-3.5 text-rail-muted flex-shrink-0" />
-              </SelectTrigger>
-              <SelectContent>
-                {customers.map((c) => (
-                  <SelectItem
-                    key={c.id}
-                    value={c.id}
-                    data-testid={`option-subnav-customer-${c.id}`}
-                  >
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <span
-              className="font-semibold text-sm leading-snug block truncate"
-              data-testid="text-subnav-customer-name"
-            >
-              {customerName}
-            </span>
-          )}
-        </div>
-      )}
-
-      <nav
-        ref={navRef}
-        className="flex-1 overflow-y-auto py-2"
-        aria-label="Customer sections"
-        onKeyDown={handleNavKeyDown}
-      >
+      <nav ref={navRef} className="flex-1 overflow-y-auto py-2" aria-label={t("customerPages.railLabel")} onKeyDown={handleNavKeyDown}>
         {isCollapsed ? (
           <div className="flex flex-col items-center gap-0.5 px-1">
             {sections.map((section, i) => (
-              <Fragment key={section.heading}>
+              <Fragment key={section.group}>
                 {i > 0 && <div aria-hidden="true" className="h-px self-stretch bg-rail-border my-1" data-testid="customer-group-divider" />}
-                {section.items.map((item) => {
-                  const Icon = item.icon;
-                  const isActive =
-                    item.key === "billing"
-                      ? BILLING_SUBTABS.has(activeTab)
-                      : item.tabValue === activeTab;
+                {section.items.map(key => {
+                  const page = CUSTOMER_PAGES[key];
+                  const Icon = page.icon;
+                  const label = t(page.labelKey);
+                  const isActive = key === activeTab;
+                  const badge = badges[key];
                   return (
-                    <Tooltip key={item.key} delayDuration={300}>
+                    <Tooltip key={key} delayDuration={300}>
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className={`text-rail-foreground hover:bg-rail-hover hover:text-rail-active-foreground relative${
-                            isActive
-                              ? " bg-rail-active text-rail-active-foreground font-medium"
-                              : " font-normal"
-                          }`}
-                          onClick={() => onTabChange(item.tabValue)}
-                          data-testid={`nav-item-${item.key}`}
+                          className={`text-rail-foreground hover:bg-rail-hover hover:text-rail-active-foreground relative${isActive ? " bg-rail-active text-rail-active-foreground font-medium" : " font-normal"}`}
+                          onClick={() => onTabChange(key)}
+                          data-testid={`nav-item-${key}`}
                           data-nav-item
                           aria-current={isActive ? "page" : undefined}
-                          aria-label={item.label}
+                          aria-label={label}
                         >
                           <Icon className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
-                          {item.badgeCount !== undefined && item.badgeCount > 0 && (
-                            <span
-                              className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] rounded-full bg-rail-hover text-rail-foreground text-[9px] font-semibold flex items-center justify-center px-0.5"
-                              data-testid={`badge-count-${item.key}`}
-                            >
-                              {item.badgeCount}
+                          {badge && badge.count > 0 && (
+                            <span className={`absolute top-0.5 right-0.5 min-w-[14px] h-[14px] rounded-full text-[9px] font-semibold flex items-center justify-center px-0.5 ${badgeClass(badge.warning)}`}
+                              data-testid={`badge-count-${key}`} data-warning={badge.warning ? "true" : undefined}>
+                              {badge.count}
                             </span>
                           )}
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="right" sideOffset={4}>
-                        {item.label}
-                      </TooltipContent>
+                      <TooltipContent side="right" sideOffset={4}>{label}</TooltipContent>
                     </Tooltip>
                   );
                 })}
@@ -265,56 +115,86 @@ export function CustomerSubNav({
             ))}
           </div>
         ) : (
-          sections.map((section, i) => (
-            <div key={section.heading} className={`pb-1.5 ${i > 0 ? "pt-3.5 border-t border-rail-border" : "pt-0.5"}`} role="group" aria-label={section.heading}>
-              <p
-                className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-rail-heading"
-                aria-hidden="true"
-              >
-                {section.heading}
-              </p>
-              {section.items.map((item) => {
-                const Icon = item.icon;
-                const isActive =
-                  item.key === "billing"
-                    ? BILLING_SUBTABS.has(activeTab)
-                    : item.tabValue === activeTab;
-                return (
-                  <Button
-                    key={item.key}
-                    variant="ghost"
-                    className={`w-full justify-start h-8 px-3 text-sm rounded-none text-rail-foreground hover:bg-rail-hover hover:text-rail-active-foreground${
-                      isActive
-                        ? " bg-rail-active text-rail-active-foreground font-medium border-l-[3px] border-l-rail-active-icon pl-[calc(0.75rem-3px)]"
-                        : " font-normal"
-                    }`}
-                    onClick={() => onTabChange(item.tabValue)}
-                    data-testid={`nav-item-${item.key}`}
-                    data-nav-item
-                    aria-current={isActive ? "page" : undefined}
-                  >
-                    <Icon className="w-3.5 h-3.5 mr-2 flex-shrink-0" aria-hidden="true" />
-                    <span className="truncate flex-1">{item.label}</span>
-                    {item.badgeCount !== undefined && item.badgeCount > 0 && (
-                      <span
-                        className="ml-1.5 min-w-[18px] h-[18px] rounded-full bg-rail-hover text-rail-foreground text-[10px] font-semibold flex items-center justify-center px-1 flex-shrink-0"
-                        data-testid={`badge-count-${item.key}`}
-                      >
-                        {item.badgeCount}
-                      </span>
-                    )}
-                  </Button>
-                );
-              })}
-            </div>
-          ))
+          sections.map((section, i) => {
+            const headingKey = GROUP_LABEL_KEYS[section.group];
+            return (
+              <div key={section.group} className={`pb-1.5 ${i > 0 ? "pt-3.5 border-t border-rail-border" : "pt-0.5"}`}
+                role="group" aria-label={headingKey ? t(headingKey) : t("customerPages.groups.main")}>
+                {headingKey && (
+                  <p className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-rail-heading text-left" aria-hidden="true">
+                    {t(headingKey)}
+                  </p>
+                )}
+                {section.items.map(key => {
+                  const page = CUSTOMER_PAGES[key];
+                  const Icon = page.icon;
+                  const isActive = key === activeTab;
+                  const badge = badges[key];
+                  return (
+                    <Button
+                      key={key}
+                      variant="ghost"
+                      className={`w-full justify-start text-left h-8 px-3 text-sm rounded-none text-rail-foreground hover:bg-rail-hover hover:text-rail-active-foreground${
+                        isActive ? " bg-rail-active text-rail-active-foreground font-medium border-l-[3px] border-l-rail-active-icon pl-[calc(0.75rem-3px)]" : " font-normal"
+                      }`}
+                      onClick={() => onTabChange(key)}
+                      data-testid={`nav-item-${key}`}
+                      data-nav-item
+                      aria-current={isActive ? "page" : undefined}
+                    >
+                      <Icon className="w-3.5 h-3.5 mr-2 flex-shrink-0" aria-hidden="true" />
+                      <span className="truncate flex-1 text-left">{t(page.labelKey)}</span>
+                      {badge && badge.count > 0 && (
+                        <span className={`ml-1.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-semibold flex items-center justify-center px-1 flex-shrink-0 ${badgeClass(badge.warning)}`}
+                          data-testid={`badge-count-${key}`} data-warning={badge.warning ? "true" : undefined}>
+                          {badge.count}
+                        </span>
+                      )}
+                    </Button>
+                  );
+                })}
+              </div>
+            );
+          })
         )}
       </nav>
-
-      {!isCollapsed && (
-        <div className="p-3 border-t border-rail-border flex justify-center">
-        </div>
-      )}
     </div>
+  );
+}
+
+/** Below ~900px: the same permitted pages as a horizontal chip row. */
+export function CustomerPageChips({ pages, activeTab, onTabChange, badges = {} }: CustomerSubNavProps) {
+  const { t } = useTranslation();
+  return (
+    <nav aria-label={t("customerPages.railLabel")} className="min-[901px]:hidden -mx-1 overflow-x-auto" data-testid="customer-page-chips">
+      <div className="flex gap-1.5 px-1 pb-1 w-max">
+        {pages.map(key => {
+          const page = CUSTOMER_PAGES[key];
+          const Icon = page.icon;
+          const isActive = key === activeTab;
+          const badge = badges[key];
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onTabChange(key)}
+              aria-current={isActive ? "page" : undefined}
+              data-testid={`chip-${key}`}
+              className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full border text-sm whitespace-nowrap transition-colors ${
+                isActive ? "bg-rail-active text-rail-active-foreground border-rail-active-icon font-medium" : "bg-rail text-rail-foreground border-rail-border hover:bg-rail-hover"
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+              {t(page.labelKey)}
+              {badge && badge.count > 0 && (
+                <span className={`min-w-[18px] h-[18px] rounded-full text-[10px] font-semibold flex items-center justify-center px-1 ${badgeClass(badge.warning)}`}>
+                  {badge.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }

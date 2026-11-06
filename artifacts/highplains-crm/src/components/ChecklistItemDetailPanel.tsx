@@ -73,7 +73,7 @@ export default function ChecklistItemDetailPanel({ item, onClose }: ChecklistIte
   const propertyUrl = item.propertyId
     ? `/dashboard/properties/${item.propertyId}`
     : (item.customerId && canViewCustomer)
-      ? `/dashboard/customers/${item.customerId}?tab=maps`
+      ? `/dashboard/customers/${item.customerId}?tab=property`
       : null;
   const commsUrl = (item.customerId && canViewCommunications)
     ? `/dashboard/customers/${item.customerId}?tab=communications`
