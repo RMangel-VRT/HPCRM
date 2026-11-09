@@ -311,7 +311,7 @@ describe("legacy copy planner", () => {
       contract("c2", { startDate: new Date("2025-11-15Z"), endDate: new Date("2026-11-14Z") })],
        monthlyAmounts: [amount("c1", 11, 100), amount("c2", 11, 200), amount("c1", 12, 400)] });
      const term = first(input);
-      expect(term.billingMonths).toEqual([{ component: "Contract", month: "2025-11-01", amountCents: 300 }, { component: "Contract", month: "2025-12-01", amountCents: 400 }, { component: "Contract", month: "2026-11-01", amountCents: 300 }]);
+      expect(term.billingMonths).toEqual([{ component: "Contract", month: "2025-11-01", amountCents: 300 }, { component: "Contract", month: "2025-12-01", amountCents: 400 }, { component: "Contract", month: "2026-11-01", amountCents: 300 }].map(r => ({ ...r, isFee: false })));
       expect(term.term.annualPriceCents).toBe(700);
       expect(term.report.flags).toContain("Contract runs 13 months (not whole years); check the dates");
      expect(term.term).toMatchObject({ needsReview: true, reviewNote: term.report.flags.join("; ") });
@@ -321,14 +321,14 @@ describe("legacy copy planner", () => {
      const input = fixture({ contracts: [contract("c1", { startDate: new Date("2025-11-15Z"), endDate: new Date("2026-10-14Z") })],
        monthlyAmounts: [amount("c1", 11, 100), amount("c1", 12, 200), amount("c1", 10, 300)] });
      const term = first(input);
-     expect(term.billingMonths).toEqual([{ component: "Contract", month: "2025-11-01", amountCents: 100 }, { component: "Contract", month: "2025-12-01", amountCents: 200 }, { component: "Contract", month: "2026-10-01", amountCents: 300 }]);
+     expect(term.billingMonths).toEqual([{ component: "Contract", month: "2025-11-01", amountCents: 100 }, { component: "Contract", month: "2025-12-01", amountCents: 200 }, { component: "Contract", month: "2026-10-01", amountCents: 300 }].map(r => ({ ...r, isFee: false })));
      expect(term.term.annualPriceCents).toBe(600);
       expect(term.report.flags).toEqual(["Only 3 of 12 monthly amounts entered"]);
    });
    it("includes partial months in same-year windows without inventing a later-year charge", () => {
      const term = first(fixture({ contracts: [contract("c1", { startDate: new Date("2026-01-15Z"), endDate: new Date("2026-02-14Z") })],
        monthlyAmounts: [amount("c1", 1, 100), amount("c1", 2, 200)] }));
-     expect(term.billingMonths).toEqual([{ component: "Contract", month: "2026-01-01", amountCents: 100 }, { component: "Contract", month: "2026-02-01", amountCents: 200 }]);
+     expect(term.billingMonths).toEqual([{ component: "Contract", month: "2026-01-01", amountCents: 100 }, { component: "Contract", month: "2026-02-01", amountCents: 200 }].map(r => ({ ...r, isFee: false })));
      expect(term.term.annualPriceCents).toBe(300);
       expect(term.report.flags).toEqual(["Only 2 of 12 monthly amounts entered"]);
   });

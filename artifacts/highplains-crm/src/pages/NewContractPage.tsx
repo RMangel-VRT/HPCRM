@@ -15,6 +15,8 @@ import { ContractFileInput, TERM_UPLOAD_OPTIONS } from "@/components/contracts/C
 import { RatesEditor } from "@/components/contracts/RatesEditor";
 import { ScopeEditor } from "@/components/contracts/ScopeEditor";
 import { PaymentEditor, TM_TEXT } from "@/components/contracts/PaymentEditor";
+import { ExplicitScheduleEditor, ScheduleModeToggle } from "@/components/contracts/ExplicitScheduleEditor";
+import { explicitFromLines } from "@/components/contracts/explicitSchedule";
 import { coloradoToday, dateOnly, errorText, money } from "@/components/contracts/contractFormat";
 import type { AgreementLine, ContractDetail } from "@/components/contracts/contractTypes";
 import type { RateCardItem } from "@/components/contracts/rateCardUtils";
@@ -408,9 +410,14 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
 
       {d.step === 5 && (
         <section className="space-y-3" data-testid="step-body-5">
-          {needsPayments(d)
-            ? <PaymentEditor lines={payLines} onChange={l => patch({ payments: l })} startMonth={startMonthOf(d.startDate)} flatSnowAllowed={flat} errors={showLineErrors} />
-            : <p className="text-sm rounded-md border p-3" data-testid="text-time-and-materials">{TM_TEXT}</p>}
+          {(
+            <ScheduleModeToggle mode={d.scheduleMode ?? "pattern"} onChange={m => patch(m === "explicit" && !d.explicit
+              ? { scheduleMode: m, explicit: explicitFromLines(payLines, d.startDate, d.endDate) } : { scheduleMode: m })} />
+          )}
+          {d.scheduleMode === "explicit" && d.explicit
+            ? <ExplicitScheduleEditor draft={d.explicit} onChange={x => patch({ explicit: x })} startDate={d.startDate} endDate={d.endDate} feesOnly={!needsPayments(d)} />
+            : <PaymentEditor lines={payLines} onChange={l => patch({ payments: l })} startMonth={startMonthOf(d.startDate)} flatSnowAllowed={flat} errors={showLineErrors}
+            line={needsPayments(d) ? undefined : "snow"} snowPricing={d.snowPricing} />}
         </section>
       )}
 

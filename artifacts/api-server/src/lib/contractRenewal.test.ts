@@ -55,6 +55,18 @@ function addRenewal(d: AuditData, status: string, imported = false) {
   if (imported) d.history.push({ termId: "existing", oldStatus: null, note: "Imported signed renewal (old.zip)" } as AuditData["history"][number]);
 }
 describe("renewal upload boundaries", () => {
+  it("carries omitted source fee components unchanged into imported monthly renewals", async () => {
+    const a = data();
+    a.billing = [{ termId: "source", component: "Mobilization", month: "2025-11-01",
+      amountCents: 3995, isFee: true }] as any;
+    const plan = planRenewalImport(await input(), a);
+    expect(plan.errors).toEqual([]);
+    const renewed = plan.customers[0].terms[0];
+    expect(renewed.values.annualPriceCents).toBe(30003);
+    expect(renewed.billing.filter(p => p.isFee)).toEqual([{
+      component: "Mobilization", month: "2026-11-01", amountCents: 3995, isFee: true,
+    }]);
+  });
   it("rejects a marked source as a row error, including retries of an imported renewal", async () => {
     for (const imported of [false, true]) {
       const d = data(); d.terms[0].nonRenewalOn = "2026-10-14";

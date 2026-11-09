@@ -31,7 +31,7 @@ export interface ContractListItem {
   parentName?: string;
   locationCount?: number;
   branch?: { name: string; billingCode: string | null };
-  payments?: { component: string; months: { month: number; amountCents: number }[] }[];
+  payments?: { component: string; months: { month: number; amountCents: number }[]; fee?: boolean }[];
   line: AgreementLine;
   form: "ours" | "theirs";
   current: TermSummary | null;
@@ -54,7 +54,7 @@ export interface TermRateRow {
   id?: string; rateKey: string; line: string; category: string; label: string; priceCents: number | null;
   priceText: string | null; unit: string; minimum: string | null; cardPriceCents: number | null; cardPriceText: string | null;
 }
-export interface TermBillingRow { component: string; month: string; amountCents: number }
+export interface TermBillingRow { component: string; month: string; amountCents: number; isFee?: boolean }
 export interface TermDocument {
   id: string; kind: string; version: number; filename: string; storageObjectPath: string; mimeType: string;
   fileSize: number | null; createdAt: string; uploadedByName?: string | null;
@@ -72,6 +72,11 @@ export interface DetailTerm extends TermSummary {
   reviewNote?: string | null; renewedFromTermId?: string | null;
   allowedMoves?: string[]; editable?: boolean;
   renewalSet?: RenewalSetInfo | null;
+  /** CC2-18: computed on read. */
+  paymentSchedule?: "pattern" | "explicit";
+  feesAnnualCents?: number | null;
+  contractTotalCents?: number | null;
+  durationMonths?: number;
   scope: TermScopeRow[]; rates: TermRateRow[]; billingMonths: TermBillingRow[];
   documents: TermDocument[]; coveredBy?: TermDocument[]; history: TermHistoryRow[];
 }

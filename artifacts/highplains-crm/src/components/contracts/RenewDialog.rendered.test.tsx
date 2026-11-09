@@ -45,6 +45,22 @@ function mount(onClose = vi.fn()) {
 const type = (v: string) => fireEvent.change(screen.getByTestId("input-increase-pct"), { target: { value: v } });
 
 describe("RenewDialog", () => {
+  it("requires explicit rebuild consent and sends editable fee classification choices", async () => {
+    (fx.detail as any).terms[1].paymentSchedule = "explicit";
+    (fx.detail as any).terms[1].billingMonths = [
+      { component: "Grounds", month: "2026-10-01", amountCents: 100000, isFee: false },
+      { component: "Mobilization", month: "2026-10-01", amountCents: 3995, isFee: true },
+    ];
+    mount(); await flush(400);
+    expect(dry()).toHaveLength(0);
+    fireEvent.click(screen.getByTestId("checkbox-rebuild-schedule"));
+    await flush(301);
+    expect(dry()[0].body).toMatchObject({ rebuildSchedule: true });
+    expect((screen.getByTestId("checkbox-renew-fee-Mobilization") as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByTestId("checkbox-renew-fee-Grounds"));
+    await flush(301);
+    expect(dry().at(-1)!.body).toMatchObject({ rebuildSchedule: true, paymentFees: [{ component: "Grounds", fee: true }] });
+  });
   it("debounces 300 ms and ignores out-of-order previews", async () => {
     mount();
     await flush(299); expect(dry()).toHaveLength(0);

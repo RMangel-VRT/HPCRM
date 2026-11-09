@@ -44,16 +44,83 @@ export const ratesSchema = z.array(z.object({
 })).max(500);
 export const paymentsSchema = z.array(z.object({
   component: z.string().trim().min(1).max(150),
+  fee: z.boolean().default(false),
   months: z.array(z.object({ month: z.number().int().min(1).max(12), amountCents: cents })).max(12),
 })).max(100);
-export type Payments = z.infer<typeof paymentsSchema>;
+export type Payments = z.input<typeof paymentsSchema>;
+export const explicitPaymentsSchema = z.object({
+  schedule: z.literal("explicit"),
+  rows: z.array(z.object({
+    component: z.string().trim().min(1).max(150),
+    month: calendar.refine(v => v.endsWith("-01"), "Payment date must be the first of a month"),
+    amountCents: cents, fee: z.boolean().default(false),
+  })).max(6000),
+  allowPreStart: z.boolean().optional(),
+}).strict();
+export const paymentInputSchema = z.union([paymentsSchema, explicitPaymentsSchema]);
+export type PaymentInput = z.input<typeof paymentInputSchema>;
+export type BillingRow = { component: string; month: string; amountCents: number; isFee?: boolean };
+export const monthIndex = (day: string) => Number(day.slice(0, 4)) * 12 + Number(day.slice(5, 7)) - 1;
+export const monthAt = (index: number) => `${Math.floor(index / 12)}-${String(index % 12 + 1).padStart(2, "0")}-01`;
+export function validateExplicitWindow(rows: BillingRow[], start: string, end: string, allowPreStart = false,
+  previousStart?: string) {
+  validateDates(start, end);
+  const lower = monthIndex(start);
+  const invalid = rows.filter(r => r.month > end || (monthIndex(r.month) < lower &&
+    (!allowPreStart || monthIndex(r.month) < lower - 2 ||
+      (previousStart !== undefined && (lower > monthIndex(previousStart) || monthIndex(r.month) >= monthIndex(previousStart))))));
+  if (invalid.length) throw new ContractCenterError(400,
+    `Payments outside the allowed term window: ${invalid.map(r => `${r.component} ${r.month}`).join(", ")}. Edit the schedule first; pre-start rows require explicit authorization.`);
+}
+export function preparePayments(input: PaymentInput, start: string, end: string, line: AgreementLine, snowPricing?: string | null) {
+  const parsed = paymentInputSchema.parse(input);
+  if (Array.isArray(parsed)) {
+    const summary = paymentSummary(parsed, line, snowPricing);
+    return { rows: expandPayments(parsed, start, end), paymentSchedule: "pattern" as const,
+      annualPriceCents: summary.annualPriceCents, billingType: summary.billingType, preStart: false };
+  }
+  const flags = new Map<string, boolean>();
+  for (const row of parsed.rows) {
+    if (flags.has(row.component) && flags.get(row.component) !== row.fee)
+      throw new ContractCenterError(400, `Mixed fee flags for payment component ${row.component}`);
+    flags.set(row.component, row.fee);
+  }
+  unique(parsed.rows.map(r => `${r.component}\0${r.month}`), "payment component/month");
+  const rows = parsed.rows.map(({ fee, ...r }) => ({ ...r, isFee: fee }));
+  validateExplicitWindow(rows, start, end, parsed.allowPreStart);
+  const firstYear = rows.filter(r => monthIndex(r.month) >= monthIndex(start) && monthIndex(r.month) < monthIndex(start) + 12);
+  const summary = paymentSummary(recoverPayments(firstYear), line, snowPricing);
+  // Snow validation must cover all years, not only the annual reporting window.
+  paymentSummary(recoverPayments(rows), line, snowPricing);
+  const annualPriceCents = line === "snow" && snowPricing === "time_and_materials" ? null :
+    rows.some(r => !r.isFee) ? firstYear.filter(r => !r.isFee).reduce((n, r) => n + r.amountCents, 0) : null;
+  if (annualPriceCents !== null) cents.parse(annualPriceCents);
+  return { rows, paymentSchedule: "explicit" as const, annualPriceCents,
+    billingType: summary.billingType, preStart: rows.some(r => r.month < start.slice(0, 7) + "-01") };
+}
+/** Read-only projection: never persist fee or full-term totals. Preserve unknown legacy annual values. */
+export function seasonPaymentSummary(term: { startDate: string; endDate: string; paymentSchedule?: string;
+  annualPriceCents: number | null; line: AgreementLine; snowPricing?: string | null }, rows: BillingRow[]) {
+  const explicit = term.paymentSchedule === "explicit";
+  const annualRows = explicit ? rows.filter(r => monthIndex(r.month) >= monthIndex(term.startDate) &&
+    monthIndex(r.month) < monthIndex(term.startDate) + 12) : rows;
+  const annual = paymentSummary(recoverPayments(annualRows), term.line, term.snowPricing);
+  const feesAnnualCents = annual.feesAnnualCents;
+  const contractRows = rows.filter(r => !r.isFee);
+  const contractTotalCents = term.annualPriceCents === null ? null :
+    !explicit && inclusiveMonths(term.startDate, term.endDate) <= 12 ? term.annualPriceCents :
+      contractRows.reduce((n, r) => n + r.amountCents, 0);
+  return { feesAnnualCents, contractTotalCents, durationMonths: inclusiveMonths(term.startDate, term.endDate) };
+}
 export const createContractSchema = z.object({
   bidTicketId: z.string().min(1).optional(),
   customerId: z.string().min(1), line: z.enum(["landscape", "snow", "both"]),
   form: z.enum(["ours", "theirs"]), propertyManagementCompanyId: z.string().min(1).nullable().optional(),
-  term: termFieldsSchema, scope: scopeSchema, rates: ratesSchema, payments: paymentsSchema,
+  term: termFieldsSchema, scope: scopeSchema, rates: ratesSchema, payments: paymentInputSchema,
 });
 export const renewSchema = z.object({
+  rebuildSchedule: z.boolean().optional(),
+  paymentFees: z.array(z.object({ component: z.string().trim().min(1).max(150), fee: z.boolean() })).max(100).optional(),
   increasePct: z.number().min(-50).max(100).optional(),
   targetAnnualCents: cents.optional(),
   laterYearPcts: z.array(z.number().min(-50).max(100)).max(4).default([]),
@@ -86,36 +153,42 @@ export function expandPayments(input: Payments, start: string, end: string) {
   validateDates(start, end);
   const payments = validatePayments(input);
   const [year, month] = start.split("-").map(Number);
-  const rows: Array<{ component: string; month: string; amountCents: number }> = [];
+  const rows: BillingRow[] = [];
   for (const p of payments) {
     const amounts = new Map(p.months.map(m => [m.month, m.amountCents]));
     for (let offset = 0; offset < Math.max(12, inclusiveMonths(start, end)); offset++) {
       const index = year * 12 + month - 1 + offset, m = index % 12 + 1;
       const amountCents = amounts.get(m);
-      if (amountCents) rows.push({ component: p.component, month: `${Math.floor(index / 12)}-${String(m).padStart(2, "0")}-01`, amountCents });
+      if (amountCents) rows.push({ component: p.component, month: `${Math.floor(index / 12)}-${String(m).padStart(2, "0")}-01`, amountCents, isFee: p.fee ?? false });
     }
   }
   return rows;
 }
-export function recoverPayments(rows: Pick<TermBillingMonth, "component" | "month" | "amountCents">[]): Payments {
+export function recoverPayments(rows: BillingRow[]): Payments {
   const patterns = new Map<string, Map<number, number>>();
+  const fees = new Map<string, boolean>();
   for (const row of [...rows].sort((a, b) => a.month.localeCompare(b.month))) {
+    if (fees.has(row.component) && fees.get(row.component) !== !!row.isFee)
+      throw new ContractCenterError(400, `Mixed fee flags for payment component ${row.component}`);
+    fees.set(row.component, !!row.isFee);
     const key = row.component ?? "Contract", month = Number(row.month.slice(5, 7));
     if (!patterns.has(key)) patterns.set(key, new Map());
     const pattern = patterns.get(key)!;
     if (!pattern.has(month)) pattern.set(month, row.amountCents);
   }
-  return [...patterns].map(([component, amounts]) => ({ component,
+  return [...patterns].map(([component, amounts]) => ({ component, ...(fees.get(component) ? { fee: true } : {}),
     months: [...amounts].sort(([a], [b]) => a - b).map(([month, amountCents]) => ({ month, amountCents })) }));
 }
 export function paymentSummary(payments: Payments, line: AgreementLine, snowPricing?: string | null) {
-  validatePayments(payments);
+  payments = validatePayments(payments);
+  const feesAnnualCents = payments.filter(p => p.fee).reduce((sum, p) => sum + p.months.reduce((n, m) => n + m.amountCents, 0), 0);
+  payments = payments.filter(p => !p.fee);
   const annualPriceCents = payments.length ? payments.reduce((sum, p) => sum + p.months.reduce((n, m) => n + m.amountCents, 0), 0) : null;
   if (annualPriceCents !== null) cents.parse(annualPriceCents);
   if (line === "snow" && snowPricing === "time_and_materials" && payments.some(p => p.months.some(m => m.amountCents)))
     throw new ContractCenterError(400, "Snow time-and-materials terms cannot have payments");
   const equal = payments.length === 1 && payments[0].months.length === 12 && new Set(payments[0].months.map(m => m.amountCents)).size === 1;
-  return { annualPriceCents: line === "snow" && snowPricing === "time_and_materials" ? null : annualPriceCents,
+  return { feesAnnualCents, annualPriceCents: line === "snow" && snowPricing === "time_and_materials" ? null : annualPriceCents,
     billingType: line === "snow" && snowPricing === "time_and_materials"
     ? "time_and_materials" as const : equal ? "equal_monthly" as const : "monthly_variable" as const };
 }
@@ -222,6 +295,7 @@ export function assertEditable(term: { status: string; endDate: string }, today 
 }
 export function increasedPayments(payments: Payments, pct: number, roundTo: "dollar" | "twelve"): Payments {
   return validatePayments(payments).map(p => {
+    if (p.fee) return p;
     const months = p.months.filter(m => m.amountCents > 0).sort((a, b) => a.month - b.month);
     const total = months.reduce((sum, m) => sum + m.amountCents, 0), increased = total * (100 + pct) / 100;
     const twelveUnits = increased / 1200;
@@ -229,7 +303,7 @@ export function increasedPayments(payments: Payments, pct: number, roundTo: "dol
       : Math.ceil(twelveUnits - Number.EPSILON * Math.abs(twelveUnits)) * 1200;
     cents.parse(target);
     let allocated = 0;
-    return { component: p.component, months: months.map((m, i) => {
+    return { component: p.component, fee: false, months: months.map((m, i) => {
       const proposed = roundTo === "dollar" ? Math.round(m.amountCents * (100 + pct) / 10000) * 100 : Math.floor(target * m.amountCents / total);
       // Very small patterns can otherwise round earlier payments past the entire
       // annual total, making the reconciliation payment negative.
@@ -279,12 +353,13 @@ export function rateChanges(old: StatedRate[], rates: StatedRate[]) {
 /** Exact annual target, retaining every line/month's share of the original total. */
 export function scaledPayments(input: Payments, target: number, roundTo: "dollar" | "twelve"): Payments {
   cents.parse(target);
-  const payments = validatePayments(input);
+  const fees = validatePayments(input).filter(p => p.fee);
+  const payments = validatePayments(input).filter(p => !p.fee);
   const total = payments.reduce((n, p) => n + p.months.reduce((s, m) => s + m.amountCents, 0), 0);
   cents.parse(total);
   if (!total) {
     const share = Math.floor(target / 12);
-    return [{ component: "Grounds maintenance", months: Array.from({ length: 12 }, (_, i) =>
+    return [...fees, { component: "Grounds maintenance", months: Array.from({ length: 12 }, (_, i) =>
       ({ month: i + 1, amountCents: i === 11 ? target - share * 11 : share })) }];
   }
   const paid = payments.flatMap((p, pi) => p.months.filter(m => m.amountCents > 0)
@@ -301,7 +376,7 @@ export function scaledPayments(input: Payments, target: number, roundTo: "dollar
     cents.parse(amountCents); allocated += amountCents;
     result[m.pi].months.push({ month: m.month, amountCents });
   });
-  return validatePayments(result);
+  return validatePayments([...result, ...fees]);
 }
 
 /** Coverage changes run before repricing and are shared with explicit-source imports. */
@@ -311,8 +386,8 @@ export function renewalCoverage(source: Pick<AgreementTerm, "line" | "snowPricin
   const addingSnow = source.line === "landscape" && line !== "landscape";
   const snowPricing = line === "landscape" ? null : addingSnow ? "time_and_materials" as const : source.snowPricing;
   const snowFlatPriceCents = line === "landscape" || addingSnow ? null : source.snowFlatPriceCents;
-  if (line === "landscape") payments = payments.filter(p => p.component !== "Snow");
-  if (line === "snow") payments = snowPricing === "time_and_materials" ? [] : payments.filter(p => p.component === "Snow");
+  if (line === "landscape") payments = payments.filter(p => p.fee || p.component !== "Snow");
+  if (line === "snow") payments = payments.filter(p => p.fee || (snowPricing !== "time_and_materials" && p.component === "Snow"));
   return { payments, snowPricing, snowFlatPriceCents };
 }
 

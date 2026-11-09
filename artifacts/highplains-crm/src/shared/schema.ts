@@ -869,6 +869,7 @@ export const agreementTerms = pgTable("agreement_terms", {
   status: contractCenterText("status").notNull().default("draft").$type<TermStatus>(),
   billingType: contractCenterText("billing_type").notNull().$type<BillingType>(),
   annualPriceCents: integer("annual_price_cents"),
+  paymentSchedule: text("payment_schedule").notNull().default("pattern"),
   snowPricing: text("snow_pricing").$type<SnowPricing>(),
   snowFlatPriceCents: integer("snow_flat_price_cents"),
   renewalIncreasePct: numeric("renewal_increase_pct", { precision: 5, scale: 2 }),
@@ -892,6 +893,7 @@ export const agreementTerms = pgTable("agreement_terms", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t: Record<string, any>) => ({
   companyIdx: index("agreement_terms_company_idx").on(t.companyId),
+  paymentScheduleCheck: check("agreement_terms_payment_schedule_check", sql`${t.paymentSchedule} IN ('pattern', 'explicit')`),
   bidTicketIdx: index("agreement_terms_bid_ticket_idx").on(t.bidTicketId),
   agreementIdx: index("agreement_terms_agreement_idx").on(t.agreementId),
   companyStatusIdx: index("agreement_terms_company_status_idx").on(t.companyId, t.status),
@@ -1009,6 +1011,7 @@ export const termBillingMonths = pgTable("term_billing_months", {
   component: text("component").notNull().default("Contract"),
   month: date("month", { mode: "string" }).notNull(),
   amountCents: integer("amount_cents").notNull(),
+  isFee: boolean("is_fee").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t: Record<string, any>) => ({ termComponentMonthUnique: unique("term_billing_months_term_component_month_unique").on(t.termId, t.component, t.month) }));

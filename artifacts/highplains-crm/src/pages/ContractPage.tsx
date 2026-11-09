@@ -26,6 +26,9 @@ import { buildFieldPatch, saveSections } from "@/components/contracts/contractSa
 import type { FieldDraft } from "@/components/contracts/contractSave";
 import { PaymentEditor } from "@/components/contracts/PaymentEditor";
 import { RenewDialog } from "@/components/contracts/RenewDialog";
+import { ExplicitScheduleEditor, ScheduleModeToggle, monthLabel } from "@/components/contracts/ExplicitScheduleEditor";
+import { explicitFingerprint, explicitFromBilling, explicitFromLines, explicitPayload, explicitProblems } from "@/components/contracts/explicitSchedule";
+import type { ExplicitDraft } from "@/components/contracts/explicitSchedule";
 import { SNOW_LINE, lineProblems, lineSum, linesFromBilling, paymentsFingerprint, paymentsPayload, startMonthOf } from "@/components/contracts/paymentDraft";
 import type { PaymentLine } from "@/components/contracts/paymentDraft";
 import { dateOnly, errorStatus, errorText, money } from "@/components/contracts/contractFormat";
@@ -33,7 +36,7 @@ import { isLaterYear, termForm, termLine } from "@/components/contracts/contract
 import type { ContractDetail, DetailTerm } from "@/components/contracts/contractTypes";
 import {
   BillingSummary, DetailsList, HistoryList, PANEL_LABEL, Panel, PanelEditBar, ContractStandardRates, RatesSummary, ScopeSummary, Tile,
-  coverageContext, daysUntil, monthlyOf, paymentPattern, resolveTermHash, signedInfo, statusWords,
+  coverageContext, daysUntil, feeSummary, monthlyOf, paymentPattern, resolveTermHash, signedInfo, statusWords,
 } from "@/components/contracts/ContractWidgets";
 import type { EditPanel } from "@/components/contracts/ContractWidgets";
 
@@ -75,6 +78,8 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const [scope, setScope] = useState<ScopeRow[] | null>(null);
   const [rates, setRates] = useState<RateRow[] | null>(null);
   const [payments, setPayments] = useState<PaymentLine[] | null>(null);
+  const [schedMode, setSchedMode] = useState<"pattern" | "explicit" | null>(null);
+  const [explicit, setExplicit] = useState<ExplicitDraft | null>(null);
   const [renewOpen, setRenewOpen] = useState(false);
   const [nonRenewalOpen, setNonRenewalOpen] = useState(false);
   const [undoBusy, setUndoBusy] = useState(false);
@@ -95,7 +100,14 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const paymentRows = payments ?? paymentsBase;
   const scopeRows = scope ?? scopeBase;
   const rateRows = rates ?? ratesBase;
-  const paymentsDirty = editingPanel === "billing" && !!payments && paymentsFingerprint(payments) !== paymentsFingerprint(paymentsBase);
+  const storedMode = term?.paymentSchedule ?? "pattern";
+  const mode = schedMode ?? storedMode;
+  const explicitBase = useMemo(() => (term ? explicitFromBilling(term.billingMonths, term.startDate) : null), [term]);
+  const explicitRowsDraft = explicit ?? explicitBase;
+  const tmOnly = !!term && termLine(term, detail.line) === "snow" && term.snowPricing !== "flat_rate";
+  const paymentsDirty = editingPanel === "billing" && (mode !== storedMode || (mode === "pattern"
+    ? !!payments && paymentsFingerprint(payments) !== paymentsFingerprint(paymentsBase)
+    : !!explicit && !!explicitBase && (explicitFingerprint(explicit) !== explicitFingerprint(explicitBase) || explicit.allowPreStart)));
   const scopeDirty = editingPanel === "scope" && !!scope && JSON.stringify(scope) !== JSON.stringify(scopeBase);
   const ratesDirty = editingPanel === "rates" && !!rates && ratesFingerprint(rates) !== ratesFingerprint(ratesBase);
   // Only the open panel's own field keys are ever patched.
@@ -160,7 +172,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
     if (term && window.location.hash !== `#term-${term.id}`) history.replaceState(null, "", `#term-${term.id}`);
   }, [term]);
 
-  function resetEdits() { setEditingPanel(null); setFields(null); setScope(null); setRates(null); setPayments(null); setErrors({}); }
+  function resetEdits() { setEditingPanel(null); setFields(null); setScope(null); setRates(null); setPayments(null); setSchedMode(null); setExplicit(null); setErrors({}); }
   function openPanel(p: EditPanel) {
     if (editingPanel === p) return;
     if (dirty) return setPending({ kind: "panel", to: p });
@@ -201,7 +213,9 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
     const effFlat = seasonLine !== "landscape" && (fields?.snowPricing ?? term.snowPricing) === "flat_rate";
     const problems = [
       ...(fieldsDirty ? fieldBuild.problems : []), ...(scopeDirty ? scopeProblems(scopeRows) : []),
-      ...(ratesDirty ? rateProblems(rateRows) : []), ...(billing ? lineProblems(paymentRows, effFlat) : []),
+      ...(ratesDirty ? rateProblems(rateRows) : []), ...(billing ? (mode === "explicit" && explicitRowsDraft
+        ? explicitProblems(explicitRowsDraft, term.startDate, term.endDate, translate, monthLabel)
+        : lineProblems(paymentRows, effFlat)) : []),
     ];
     if (problems.length) { setErrors({ validation: problems.join("; ") }); return false; }
     setSaving(true); setErrors({});
@@ -214,7 +228,9 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
       ...(fieldsDirty ? [{ name: "fields", run: () => api("PATCH", base, { ...fieldPatch, ...derivedPrice }) }]
         : Object.keys(derivedPrice).length ? [{ name: "snowprice", run: () => api("PATCH", base, derivedPrice) }] : []),
       ...(scopeDirty ? [{ name: "scope", run: () => api("PUT", `${base}/scope`, scopePayload(scopeRows)) }] : []),
-      ...(paymentsDirty ? [{ name: "payments", run: () => api("PUT", `${base}/payments`, paymentsPayload(paymentRows)) }] : []),
+      ...(paymentsDirty ? [{ name: "payments", run: () => api("PUT", `${base}/payments`, mode === "explicit" && explicitRowsDraft
+        ? explicitPayload(explicitRowsDraft, term.startDate)
+        : paymentsPayload(tmOnly ? paymentRows.filter(l => l.fee) : paymentRows)) }] : []),
       ...(ratesDirty ? [{ name: "rates", run: () => api("PUT", `${base}/rates`, ratesPayload(rateRows)) }] : []),
     ];
     const { ok, failures } = await saveSections(sections);
@@ -222,7 +238,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
     if (ok.includes("fields")) setFields(null);
     if (ok.includes("scope")) setScope(null);
     if (ok.includes("rates")) setRates(null);
-    if (ok.includes("payments")) setPayments(null);
+    if (ok.includes("payments")) { setPayments(null); setSchedMode(null); setExplicit(null); }
     setSaving(false);
     if (Object.keys(failures).length) {
       setErrors(failures);
@@ -289,12 +305,18 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const later = detail.terms.filter(t => t.startDate > term.startDate).sort((a, b) => a.startDate.localeCompare(b.startDate));
   const next = later.find(t => !["lost", "cancelled"].includes(t.status));
   const monthly = monthlyOf(term);
+  const feeInfo = feeSummary(term);
   const daysLeft = daysUntil(term.endDate);
   const signed = signedInfo(term);
   const renewalSigned = later.some(t => ["signed", "active", "renewed"].includes(t.status));
   const tiles = [
     term.annualPriceCents != null && <Tile key="annual" id="annual-price" label="Annual price" value={<span data-testid="text-annual-price">{money(term.annualPriceCents)}</span>}
       sub={next?.annualPriceCents != null ? `${next.seasonLabel}: ${money(next.annualPriceCents)}${term.annualPriceCents > 0 ? ` (${(((next.annualPriceCents - term.annualPriceCents) / term.annualPriceCents) * 100).toFixed(1).replace("-", "\u2212")}%)` : ""}` : undefined} />,
+    feeInfo.cents > 0 && <Tile key="fees" id="fees" label={translate("contractFees.fees")}
+      value={<span data-testid="text-header-fees">{translate("contractFees.perYear", { amount: money(feeInfo.cents) })}</span>} sub={<span data-testid="text-header-fee-names">{feeInfo.names.join(", ")}</span>} />,
+    (term.durationMonths ?? 0) > 12 && term.contractTotalCents != null && <Tile key="total" id="contract-total" label={translate("contractFees.contractTotal")}
+      value={<span data-testid="text-contract-total">{money(term.contractTotalCents)}</span>}
+      sub={<span data-testid="text-contract-duration">{translate("contractFees.months", { count: term.durationMonths })}</span>} />,
     monthly != null && monthly > 0 && <Tile key="monthly" id="monthly" label="Monthly" value={<span data-testid="text-monthly">{money(monthly)}</span>} sub={paymentPattern(term) ?? undefined} />,
     term.endDate && <Tile key="ends" id="season-ends" label="Season ends" value={dateOnly(term.endDate)}
       sub={[daysLeft >= 0 ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : "Ended",
@@ -453,8 +475,15 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
                   )}
                 </div>
               )}
-              <PaymentEditor lines={paymentRows} onChange={setPayments} startMonth={startMonthOf(term.startDate)} line={seasonLine}
-                snowPricing={f.snowPricing ?? term.snowPricing} flatSnowAllowed={(f.snowPricing ?? term.snowPricing) === "flat_rate"} errors />
+              <ScheduleModeToggle mode={mode} storedMode={storedMode} onChange={m => {
+                if (m === "explicit" && !explicit && payments) setExplicit(explicitFromLines(payments, term.startDate, term.endDate));
+                setSchedMode(m);
+              }} />
+              {mode === "explicit" && explicitRowsDraft
+                ? <ExplicitScheduleEditor draft={explicitRowsDraft} onChange={setExplicit} startDate={term.startDate} endDate={term.endDate}
+                    feesOnly={seasonLine === "snow" && (f.snowPricing ?? term.snowPricing) !== "flat_rate"} />
+                : <PaymentEditor lines={paymentRows} onChange={setPayments} startMonth={startMonthOf(term.startDate)} line={seasonLine}
+                    snowPricing={f.snowPricing ?? term.snowPricing} flatSnowAllowed={(f.snowPricing ?? term.snowPricing) === "flat_rate"} errors />}
               {editBar("billing", paymentsDirty || fieldsDirty)}
             </div>
           ) : <BillingSummary term={term} snow={snow} snowLineOnly={seasonLine === "snow"} />}

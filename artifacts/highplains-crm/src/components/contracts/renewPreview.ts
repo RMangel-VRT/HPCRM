@@ -12,7 +12,7 @@ export interface RenewRateChange {
 }
 export interface RenewPreview {
   seasonLabel: string; startDate: string; endDate: string; annualPriceCents?: number | null;
-  payments: { component: string; before: PaymentWire["months"]; after: PaymentWire["months"] }[];
+  payments: { component: string; before: PaymentWire["months"]; after: PaymentWire["months"]; fee?: boolean }[];
   snowFlatPrice: { before: number | null; after: number | null };
   rateChanges: RenewRateChange[];
   line?: AgreementLine; form?: AgreementForm;

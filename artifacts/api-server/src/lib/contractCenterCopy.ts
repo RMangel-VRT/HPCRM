@@ -233,7 +233,7 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
             const month = index % 12 + 1;
             const amountCents = totals.get(month);
             if (amountCents !== undefined && amountCents !== 0) billingMonths.push({
-              component: "Contract", month: `${String(Math.floor(index / 12)).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`, amountCents,
+              component: "Contract", month: `${String(Math.floor(index / 12)).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`, amountCents, isFee: false,
             });
           }
           billingMonths.sort((a, b) => a.month.localeCompare(b.month));
@@ -324,7 +324,7 @@ export function planLegacyCopy(input: CopyInput, dryRun = true): CopyPlan {
             term: { bidTicketId: null, line, form: "ours", seasonLabel: termReport.seasonLabel, startDate: start, endDate: end, status, billingType,
               nonRenewalOn: null, nonRenewalReason: null, nonRenewalCompetitor: null, nonRenewalNote: null, nonRenewalBy: null, deactivateCustomerOnEnd: false,
               snowPricing: line === "landscape" ? null : "time_and_materials", snowFlatPriceCents: null,
-              annualPriceCents, renewalIncreasePct: null, legalName: null, managingAgentName: manager?.name ?? customer.managementCompany ?? null,
+              annualPriceCents, paymentSchedule: "pattern", renewalIncreasePct: null, legalName: null, managingAgentName: manager?.name ?? customer.managementCompany ?? null,
               projectContact: null, contactPhone: null, contactEmail: null,
               projectAddress: `${customer.street}, ${customer.city}, ${customer.state} ${customer.zip}`,
               snowTriggers: null, po: old[0].po, sentAt: null, signedAt: null, masterId: null,

@@ -300,7 +300,7 @@ describe("audit exports and routes", () => {
     expect(auditBatches(d, 1).map(b => b.customerIds[0])).toEqual(["customer-b", "customer-c", "customer-a"]);
     expect(legacyDay(new Date("2026-04-01T00:00:00Z"))).toBe("2026-04-01");
     const tables = auditCsvTables(d, ["customer-a"]).tables;
-    expect(Object.keys(tables)).toHaveLength(8);
+    expect(Object.keys(tables)).toHaveLength(9);
     expect(tables["old_contracts.csv"]).toContain("2026-04-01T00:00:00.000Z");
     expect(tables["old_contracts.csv"]).toContain("15.00");
     expect(csv(["name"], [['a,"b"\nc']])).toBe('name\r\n"a,""b""\nc"\r\n');
@@ -316,7 +316,7 @@ describe("audit exports and routes", () => {
       expect(response.status).toBe(200);
       const entries = await readAuditZip(response.body);
       expect(entries.some(e => e.name === "manifest.json")).toBe(true);
-      expect(entries.filter(e => e.name.endsWith(".csv"))).toHaveLength(8);
+      expect(entries.filter(e => e.name.endsWith(".csv"))).toHaveLength(9);
       if (documents) {
         expect(entries.filter(e => e.name.endsWith("__MISSING.txt"))).toHaveLength(2);
         expect(entries.map(e => e.data.toString()).join("")).not.toContain("secret credentials");

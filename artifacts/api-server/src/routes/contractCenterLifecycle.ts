@@ -14,6 +14,7 @@ import {
   buildScope, snapshotRates, assertEditable, assertMove, selectRenewalSource, displayStatus,
   renewalSet, rateChanges,
   nonRenewalSchema, isNotRenewing,
+  preparePayments, validateExplicitWindow, monthIndex,
 } from "../lib/contractCenterService";
 import {
   fullDetail, getTerm, getAgreement, lockAgreement, lockTerm, writeTerm, addHistory,
@@ -103,11 +104,12 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
         if (!management) throw new ContractCenterError(404, "Management company not found");
       }
       const scope = buildScope(body.scope, body.line), rates = snapshotRates(await activeCard(tx, companyId), body.rates, body.line);
-      const billing = expandPayments(body.payments, body.term.startDate, body.term.endDate);
+      const { rows: billing, preStart, ...paymentFields } = preparePayments(body.payments, body.term.startDate, body.term.endDate, body.line, body.term.snowPricing);
       const [agreement] = await tx.insert(agreements).values({ companyId, customerId: body.customerId,
         propertyManagementCompanyId: managementId }).returning();
       const term = await writeTerm(tx, companyId, user.id, null, { ...body.term, bidTicketId: body.bidTicketId ?? null, line: body.line, form: body.form, agreementId: agreement.id, status: "draft",
-        ...paymentSummary(body.payments, body.line, body.term.snowPricing) }, bid ? `Created from RFP ${bid.estimateNumber || bid.title}` : "Created in the Contract Center");
+        ...paymentFields }, bid ? `Created from RFP ${bid.estimateNumber || bid.title}` : "Created in the Contract Center");
+      if (preStart) await addHistory(tx, companyId, user.id, term, `Authorized pre-start payments for start month ${body.term.startDate.slice(0, 7)}: ${billing.filter(r => r.month < body.term.startDate.slice(0, 7) + "-01").map(r => `${r.component} ${r.month}`).join(", ")}`);
       await replaceRows(tx, companyId, term.id, termScopeLines, scope);
       await replaceRows(tx, companyId, term.id, termRates, rates);
       await replaceRows(tx, companyId, term.id, termBillingMonths, billing);
@@ -124,10 +126,18 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       const { term, agreement } = await lockTerm(tx, companyId, id); assertEditable(term);
       const next = { ...term, ...updates };
       validateDates(next.startDate, next.endDate); validateSnow(term.line, next);
-      const payments = recoverPayments(await tx.select().from(termBillingMonths).where(termWhere(termBillingMonths, companyId, id)));
+      const stored = await tx.select().from(termBillingMonths).where(termWhere(termBillingMonths, companyId, id));
+      const payments = recoverPayments(stored);
+      paymentSummary(payments, term.line, next.snowPricing);
+      const datesChanged = next.startDate !== term.startDate || next.endDate !== term.endDate;
+      if (term.paymentSchedule === "explicit" && datesChanged)
+        validateExplicitWindow(stored, next.startDate, next.endDate, true, term.startDate);
+      const annualRows = term.paymentSchedule === "explicit" ? stored.filter(r => monthIndex(r.month) >= monthIndex(next.startDate) && monthIndex(r.month) < monthIndex(next.startDate) + 12) : stored;
+      const summary = paymentSummary(term.paymentSchedule === "explicit" ? recoverPayments(annualRows) : payments, term.line, next.snowPricing);
       const row = await writeTerm(tx, companyId, userId, term, { ...updates,
-        ...paymentSummary(payments, term.line, next.snowPricing) }, Object.keys(updates).join(", "));
-      if (next.startDate !== term.startDate || next.endDate !== term.endDate)
+        annualPriceCents: term.paymentSchedule === "explicit" && summary.annualPriceCents === null && stored.some(r => !r.isFee) && !(term.line === "snow" && next.snowPricing === "time_and_materials") ? 0 : summary.annualPriceCents,
+        billingType: summary.billingType }, Object.keys(updates).join(", "));
+      if (datesChanged && term.paymentSchedule !== "explicit")
         await replaceRows(tx, companyId, id, termBillingMonths, expandPayments(payments, next.startDate, next.endDate));
       return row;
     });
@@ -150,9 +160,10 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
         }
         let summary = {};
         if (part === "payments") {
-          const payments = paymentsSchema.parse(input);
-          summary = paymentSummary(payments, term.line, term.snowPricing);
-          await replaceRows(tx, companyId, id, termBillingMonths, expandPayments(payments, term.startDate, term.endDate));
+          const { rows, preStart, ...fields } = preparePayments(req.body?.schedule === "explicit" ? req.body : input, term.startDate, term.endDate, term.line, term.snowPricing);
+          summary = fields;
+          await replaceRows(tx, companyId, id, termBillingMonths, rows);
+          if (preStart) await addHistory(tx, companyId, userId, term, `Authorized pre-start payments for start month ${term.startDate.slice(0, 7)}: ${rows.filter(r => r.month < term.startDate.slice(0, 7) + "-01").map(r => `${r.component} ${r.month}`).join(", ")}`);
         }
         return writeTerm(tx, companyId, userId, term, summary, part);
       });
@@ -186,7 +197,10 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       if (terms.some(t => t.renewedFromTermId === source.id && ["draft", "sent"].includes(t.status))) throw new ContractCenterError(409, "A draft or sent renewal already exists");
       const scope = await tx.select().from(termScopeLines).where(termWhere(termScopeLines, companyId, source.id));
       const oldRates = await tx.select().from(termRates).where(termWhere(termRates, companyId, source.id));
-      const before = recoverPayments(await tx.select().from(termBillingMonths).where(termWhere(termBillingMonths, companyId, source.id)));
+      if (source.paymentSchedule === "explicit" && !body.rebuildSchedule)
+        throw new ContractCenterError(400, "Rebuild the schedule confirmation is required for an exact-date season");
+      const sourceRows = await tx.select().from(termBillingMonths).where(termWhere(termBillingMonths, companyId, source.id));
+      const before = recoverPayments(source.paymentSchedule === "explicit" ? sourceRows.filter(r => monthIndex(r.month) >= monthIndex(source.startDate) && monthIndex(r.month) < monthIndex(source.startDate) + 12) : sourceRows);
       const plan = planChangingRenewal(source, before, scope, oldRates, await activeCard(tx, companyId), body);
       if (body.dryRun) return plan;
       let previous = source;

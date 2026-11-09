@@ -7,7 +7,7 @@ import { ObjectAccessGroupType, ObjectPermission } from "../objectAcl";
 import type { AuditFiles } from "./contractAuditFiles";
 import { loadAuditData } from "./contractAuditData";
 import { planRenewalImport, renewalReport } from "./contractRenewalPlan";
-import { lockAgreement, replaceRows, writeTerm } from "./contractCenterPersistence";
+import { lockAgreement, replaceRows, writeTerm, addHistory } from "./contractCenterPersistence";
 
 export async function executeRenewalImport(files: AuditFiles, companyId: string, userId: string,
   storage = new ObjectStorageService()) {
@@ -51,6 +51,8 @@ export async function executeRenewalImport(files: AuditFiles, companyId: string,
           await replaceRows(tx, companyId, row.id, termScopeLines, term.scope);
           await replaceRows(tx, companyId, row.id, termRates, term.rates);
           await replaceRows(tx, companyId, row.id, termBillingMonths, term.billing);
+          if (term.preStart) await addHistory(tx, companyId, userId, row,
+            `Authorized pre-start payments for start month ${row.startDate.slice(0, 7)}: ${term.billing.filter(r => r.month < row.startDate.slice(0, 7) + "-01").map(r => `${r.component} ${r.month}`).join(", ")}`);
           if (docs.length) await tx.insert(termDocuments).values(docs.map(d => ({ ...d, termId: row.id })));
           if (row.status === "signed") await writeTerm(tx, companyId, userId, term.sourceTerm, { status: "renewed" },
             `Renewed by ${row.seasonLabel} (imported)`);

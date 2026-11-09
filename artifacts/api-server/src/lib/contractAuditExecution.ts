@@ -22,6 +22,8 @@ async function writeCustomer(tx: Transaction, group: ImportCustomer, files: Audi
       const row = await writeTerm(tx, companyId, userId, null, { ...term.values,
         agreementId: created.id, renewedFromTermId }, `Imported from audit (${files.filename})`);
       if (removedRefs.length) await addHistory(tx, companyId, userId, row, `Replaces imported contracts: ${removedRefs.join(", ")}`);
+      if (term.preStart) await addHistory(tx, companyId, userId, row,
+        `Authorized pre-start payments for start month ${row.startDate.slice(0, 7)}: ${term.billing.filter(r => r.month < row.startDate.slice(0, 7) + "-01").map(r => `${r.component} ${r.month}`).join(", ")}`);
       termIds.set(term.contractRef, row.id); termCount++;
       const context = { companyId, termId: row.id };
       if (term.scope.length) await tx.insert(termScopeLines).values(term.scope.map(r => ({ ...r, ...context })));

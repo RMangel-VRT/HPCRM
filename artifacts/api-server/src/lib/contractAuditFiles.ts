@@ -9,11 +9,13 @@ export const IMPORT_HEADERS: Record<string, string[]> = {
   "remove_agreements.csv": ["agreement_ref"],
   "renewals.csv": "contract_ref renews_term_id customer_name season_label start_date end_date status signed_date snow_pricing snow_flat_price legal_name managing_agent_name project_contact contact_phone contact_email project_address po snow_triggers notes renewal_increase_pct needs_review review_note line form rates_mode".split(" "),
   "contracts.csv": "contract_ref agreement_ref customer_id customer_name line form season_label start_date end_date status signed_date renews_ref snow_pricing snow_flat_price managing_agent_name legal_name project_contact contact_phone contact_email project_address po snow_triggers legacy_contract_ids needs_review review_note notes".split(" "),
-  "payments.csv": ["contract_ref", "payment_line", ...MONTHS],
+  "payments.csv": ["contract_ref", "payment_line", ...MONTHS, "fee", "month", "amount"],
   "rates.csv": "contract_ref rate_key price price_text minimum unit label category line".split(" "),
   "scope.csv": ["contract_ref", "service_key", "included", "quantity", "unit", ...MONTHS, "label", "notes"],
   "documents.csv": ["contract_ref", "document_id", "kind", "covers_through_ref"],
 };
+IMPORT_HEADERS["contracts.csv"].push("allow_pre_start");
+IMPORT_HEADERS["renewals.csv"].push("allow_pre_start", "rebuild_schedule");
 export type Diagnostic = { file: string; row?: number; column?: string; contractRef?: string; message: string };
 export type CsvRow = { file: string; row: number; values: Record<string, string> };
 export type UploadFile = { name: string; data: Buffer };

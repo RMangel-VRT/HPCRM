@@ -23,13 +23,15 @@ export interface PaymentLine {
   pickerOpen: boolean;
   /** Raw text of month amounts that are not valid dollar amounts (calendar month -> text). */
   invalid: Record<number, string>;
+  /** CC2-18: billed every month but not part of the contract price. */
+  fee: boolean;
 }
-export interface PaymentWire { component: string; months: { month: number; amountCents: number }[] }
+export interface PaymentWire { component: string; months: { month: number; amountCents: number }[]; fee?: boolean }
 
 let counter = 0;
 export const newLineId = () => `line-${Date.now().toString(36)}-${counter++}`;
 export const blankLine = (name = "", over: Partial<PaymentLine> = {}): PaymentLine => ({
-  id: newLineId(), name, preset: "custom", total: "", months: Array(12).fill(0), chosen: [], pickerOpen: false, invalid: {}, ...over,
+  id: newLineId(), name, preset: "custom", total: "", months: Array(12).fill(0), chosen: [], pickerOpen: false, invalid: {}, fee: false, ...over,
 });
 
 export const totalCents = (line: PaymentLine): number | null => {
@@ -37,7 +39,9 @@ export const totalCents = (line: PaymentLine): number | null => {
   return parseDollarsToCents(line.total);
 };
 export const lineSum = (line: PaymentLine) => line.months.reduce((a, b) => a + b, 0);
-export const annualCents = (lines: PaymentLine[]) => lines.reduce((s, l) => s + lineSum(l), 0);
+/** Contract price: fee lines are billed separately and never count toward it. */
+export const annualCents = (lines: PaymentLine[]) => lines.reduce((s, l) => s + (l.fee ? 0 : lineSum(l)), 0);
+export const feesCents = (lines: PaymentLine[]) => lines.reduce((s, l) => s + (l.fee ? lineSum(l) : 0), 0);
 /** Months add up to a different number than the typed total. */
 export const lineMismatch = (line: PaymentLine): { sum: number; total: number } | null => {
   const total = totalCents(line);
@@ -95,7 +99,7 @@ export const lineProblems = (lines: PaymentLine[], requireSnow = false): string[
     if (l.months.some(m => !Number.isInteger(m) || m < 0 || m > MAX_CENTS)) out.push(`Payment line ${n}: a month amount is out of range`);
   });
   if (annualCents(lines) > MAX_CENTS) out.push("The annual price is too large");
-  if (requireSnow && !lines.some(l => l.name.trim() === SNOW_LINE && lineSum(l) > 0)) {
+  if (requireSnow && !lines.some(l => l.name.trim() === SNOW_LINE && !l.fee && lineSum(l) > 0)) {
     out.push('Flat-rate snow requires a payment line named "Snow" with a yearly amount above $0');
   }
   return out;
@@ -106,34 +110,36 @@ export function paymentsPayload(lines: PaymentLine[]): PaymentWire[] {
   return lines.filter(l => lineSum(l) > 0).map(l => ({
     component: l.name.trim(),
     months: l.months.map((amountCents, i) => ({ month: i + 1, amountCents })).filter(m => m.amountCents > 0),
+    ...(l.fee ? { fee: true } : {}),
   }));
 }
 export const paymentsFingerprint = (lines: PaymentLine[]) =>
   // Raw invalid totals count as edits even when the last valid cents did not change.
-  JSON.stringify(lines.map(l => [l.name.trim(), l.months, l.total, l.invalid ?? {}]));
+  JSON.stringify(lines.map(l => [l.name.trim(), l.months, l.total, l.invalid ?? {}, !!l.fee]));
 
 /** Read-only or edit lines from stored payment patterns (calendar months). */
 export function linesFromPayments(payments: PaymentWire[]): PaymentLine[] {
   return payments.map(p => {
     const months = Array(12).fill(0);
     for (const m of p.months) months[m.month - 1] = m.amountCents;
-    return blankLine(p.component, { months, total: centsToInput(months.reduce((a, b) => a + b, 0)) });
+    return blankLine(p.component, { months, total: centsToInput(months.reduce((a, b) => a + b, 0)), fee: !!p.fee });
   });
 }
 /** One year's pattern per component from stored billing rows (first occurrence of each calendar month wins). */
-export function linesFromBilling(rows: { component: string; month: string; amountCents: number }[]): PaymentLine[] {
+export function linesFromBilling(rows: { component: string; month: string; amountCents: number; isFee?: boolean }[]): PaymentLine[] {
   const by = new Map<string, Map<number, number>>();
+  const fee = new Set(rows.filter(r => r.isFee).map(r => r.component));
   for (const r of [...rows].sort((a, b) => a.month.localeCompare(b.month))) {
     if (!by.has(r.component)) by.set(r.component, new Map());
     const m = Number(r.month.slice(5, 7));
     if (!by.get(r.component)!.has(m)) by.get(r.component)!.set(m, r.amountCents);
   }
   return linesFromPayments([...by].map(([component, map]) => ({
-    component, months: [...map].map(([month, amountCents]) => ({ month, amountCents })),
+    component, months: [...map].map(([month, amountCents]) => ({ month, amountCents })), fee: fee.has(component),
   })));
 }
 /** Monthly amount when every month of the cycle has the same combined total. */
 export function equalMonthly(lines: PaymentLine[]): number | null {
-  const totals = Array.from({ length: 12 }, (_, i) => lines.reduce((s, l) => s + l.months[i], 0));
+  const totals = Array.from({ length: 12 }, (_, i) => lines.reduce((s, l) => s + (l.fee ? 0 : l.months[i]), 0));
   return totals[0] > 0 && totals.every(t => t === totals[0]) ? totals[0] : null;
 }

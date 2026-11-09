@@ -4,7 +4,7 @@ import {
   type Customer, type Agreement, type AgreementTerm, type TermRate, type TermBillingMonth, type TermScopeLine, type RateCardItem,
 } from "@workspace/db";
 import type { Reader } from "./contractCenterPersistence";
-import { applies, compareTermPriority, displayStatus, paymentSummary, recoverPayments, selectInEffectTerm, renewalDue } from "./contractCenterService";
+import { applies, compareTermPriority, displayStatus, paymentSummary, recoverPayments, selectInEffectTerm, renewalDue, seasonPaymentSummary, monthIndex } from "./contractCenterService";
 import { companyToday } from "./companyDay";
 
 export interface CustomerContractInputs {
@@ -56,10 +56,12 @@ export function customerContractProjector(data: CustomerContractInputs, today = 
           agreementId: a.id, termId: t.id, label: t.seasonLabel, line: t.line, form: t.form,
           startDate: t.startDate, endDate: t.endDate, status: displayStatus(t, byAgreement.get(a.id), today),
           renewalDue: renewalDue(t, byAgreement.get(a.id), today),
-          annualCents: paymentSummary(recoverPayments(payments), t.line, t.snowPricing).annualPriceCents,
+          annualCents: t.annualPriceCents !== undefined ? t.annualPriceCents : paymentSummary(recoverPayments(t.paymentSchedule === "explicit" ? payments.filter(r =>
+            monthIndex(r.month) >= monthIndex(t.startDate) && monthIndex(r.month) < monthIndex(t.startDate) + 12) : payments), t.line, t.snowPricing).annualPriceCents,
+          ...seasonPaymentSummary(t, payments),
           snowPricing: t.snowPricing, snowTriggers: t.snowTriggers,
           parentCustomerId: a.customerId !== customerId ? a.customerId : null,
-          billingMonths: payments.map(p => ({ month: p.month, component: p.component, amountCents: p.amountCents })).sort((a, b) => a.month.localeCompare(b.month)),
+          billingMonths: payments.map(p => ({ month: p.month, component: p.component, amountCents: p.amountCents, isFee: !!p.isFee })).sort((a, b) => a.month.localeCompare(b.month)),
           rates: [...(rates.get(t.id) ?? [])].sort((a, b) => a.sortOrder - b.sortOrder).map(r => ({
             rateKey: r.rateKey, line: r.line, category: r.category, label: r.label, unit: r.unit,
             minimum: r.minimum, priceCents: r.priceCents, priceText: r.priceText, sortOrder: r.sortOrder,

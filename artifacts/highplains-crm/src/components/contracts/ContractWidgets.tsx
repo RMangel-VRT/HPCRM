@@ -12,6 +12,9 @@ import { useScopedRateCard } from "./useRateCard";
 import { equal12, msi } from "./paymentPresets";
 import { linesFromBilling, lineSum, startMonthOf } from "./paymentDraft";
 import type { ScopeRow } from "./ScopeEditor";
+import { FeeTag } from "./PaymentEditor";
+import { ExplicitScheduleEditor } from "./ExplicitScheduleEditor";
+import { explicitFromBilling } from "./explicitSchedule";
 import type { AgreementLine, DetailTerm, TermRateRow } from "./contractTypes";
 
 export type PanelId = "billing" | "documents" | "details" | "scope" | "rates" | "history";
@@ -48,14 +51,28 @@ const dayNum = (d: string) => { const [y, m, dd] = d.slice(0, 10).split("-").map
 /** Colorado calendar days from today to a date-only value (negative when past). */
 export const daysUntil = (day: string) => Math.round(dayNum(day) - dayNum(coloradoToday()));
 
+/** Fee components (billed monthly, outside the contract price): server figure first, else the pattern year. */
+export function feeSummary(t: Pick<DetailTerm, "billingMonths" | "feesAnnualCents"> & Partial<Pick<DetailTerm, "paymentSchedule" | "startDate">>): { cents: number; names: string[] } {
+  const rows = t.billingMonths.filter(b => b.isFee);
+  const names = [...new Set(rows.map(b => b.component))];
+  const start = t.startDate?.slice(0, 7) + "-01";
+  const annualRows = t.paymentSchedule === "explicit" && t.startDate ? rows.filter(b => {
+    const offset = (Number(b.month.slice(0, 4)) - Number(t.startDate!.slice(0, 4))) * 12 + Number(b.month.slice(5, 7)) - Number(t.startDate!.slice(5, 7));
+    return b.month >= start && offset < 12;
+  }) : rows;
+  const cents = t.feesAnnualCents ?? linesFromBilling(annualRows).reduce((s, l) => s + lineSum(l), 0);
+  return { cents, names };
+}
+
 export function monthlyOf(t: DetailTerm): number | null {
-  if (!t.billingMonths.length) return t.annualPriceCents != null ? Math.round(t.annualPriceCents / 12) : null;
-  const first = t.billingMonths.map(b => b.month).sort()[0];
-  return t.billingMonths.filter(b => b.month === first).reduce((s, b) => s + b.amountCents, 0);
+  const rows = t.billingMonths.filter(b => !b.isFee);
+  if (!rows.length) return t.annualPriceCents != null ? Math.round(t.annualPriceCents / 12) : null;
+  const first = rows.map(b => b.month).sort()[0];
+  return rows.filter(b => b.month === first).reduce((s, b) => s + b.amountCents, 0);
 }
 
 export function paymentPattern(t: DetailTerm): string | null {
-  const lines = linesFromBilling(t.billingMonths);
+  const lines = linesFromBilling(t.billingMonths.filter(b => !b.isFee));
   if (!lines.length) return t.billingType === "equal_monthly" ? "12 equal payments" : null;
   const totals = Array.from({ length: 12 }, (_, i) => lines.reduce((s, l) => s + l.months[i], 0));
   const total = totals.reduce((s, n) => s + n, 0);
@@ -128,11 +145,15 @@ export function Tile({ id, label, value, sub }: { id: string; label: string; val
 }
 
 export function BillingSummary({ term, snow, snowLineOnly }: { term: DetailTerm; snow: boolean; snowLineOnly: boolean }) {
+  const { t } = useTranslation();
   const tm = snow && term.snowPricing !== "flat_rate";
-  if (snowLineOnly && tm) {
+  if (snowLineOnly && tm && !term.billingMonths.some(b => b.isFee)) {
     return <p className="text-sm" data-testid="text-snow-billing">Billed per event (time and materials)</p>;
   }
   const components = [...new Set(term.billingMonths.map(b => b.component))];
+  const feeSet = new Set(term.billingMonths.filter(b => b.isFee).map(b => b.component));
+  const fees = feeSummary(term);
+  const explicit = term.paymentSchedule === "explicit";
   const cells = contractYear(term);
   const max = Math.max(1, ...cells.map(c => c.amount));
   const nowMonth = Number(coloradoToday().slice(5, 7));
@@ -150,12 +171,28 @@ export function BillingSummary({ term, snow, snowLineOnly }: { term: DetailTerm;
         <>
           <ul className="divide-y text-sm">
             {components.map(c => (
-              <li key={c} className="flex justify-between py-1.5" data-testid={`billing-line-${c}`}>
-                <span className="truncate">{c}</span>
-                <span className="tabular-nums">{money(lineSum(linesFromBilling(term.billingMonths.filter(b => b.component === c))[0]))}</span>
+              <li key={c} className={cn("flex justify-between py-1.5", feeSet.has(c) && "text-muted-foreground")} data-testid={`billing-line-${c}`}>
+                <span className="truncate">{c}{feeSet.has(c) && <FeeTag testId={`tag-fee-${c}`} />}</span>
+                <span className="tabular-nums">{money(explicit
+                  ? term.billingMonths.filter(b => b.component === c).reduce((s, b) => s + b.amountCents, 0)
+                  : lineSum(linesFromBilling(term.billingMonths.filter(b => b.component === c))[0]))}</span>
               </li>
             ))}
           </ul>
+          {fees.cents > 0 && (
+            <p className="text-sm" data-testid="text-contract-split">
+              {t("contractFees.split", { contract: money(term.annualPriceCents), fees: money(fees.cents), names: fees.names.join(", ") })}
+            </p>
+          )}
+          {(term.durationMonths ?? 0) > 12 && term.contractTotalCents != null && (
+            <p className="text-sm" data-testid="text-billing-contract-total">{t("contractFees.contractTotalLine", { amount: money(term.contractTotalCents), count: term.durationMonths })}</p>
+          )}
+          {explicit && (
+            <div className="space-y-1" data-testid="billing-explicit">
+              <span className="text-xs text-muted-foreground">{t("contractFees.exactSummary")}</span>
+              <ExplicitScheduleEditor readOnly draft={explicitFromBilling(term.billingMonths, term.startDate)} onChange={() => {}} startDate={term.startDate} endDate={term.endDate} />
+            </div>
+          )}
           <div className="grid grid-cols-12 gap-1" data-testid="strip-billing-months">
             {cells.map((x, i) => {
               const current = inSeason && x.month === nowMonth;

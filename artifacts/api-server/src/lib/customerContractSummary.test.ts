@@ -26,6 +26,18 @@ function fixture(): CustomerContractInputs {
   };
 }
 describe("customer Contract Center projection", () => {
+  it("reports fees even when the stored contract value is null, using the exact first-year window", () => {
+    const data = fixture();
+    data.terms = [term("current", "a", { paymentSchedule: "explicit", startDate: "2026-10-01",
+      endDate: "2028-03-31", annualPriceCents: null })] as any;
+    data.billingMonths = [
+      { termId: "current", component: "Fee", month: "2026-09-01", amountCents: 1, isFee: true },
+      { termId: "current", component: "Fee", month: "2026-10-01", amountCents: 3995, isFee: true },
+      { termId: "current", component: "Fee", month: "2027-09-01", amountCents: 3995, isFee: true },
+      { termId: "current", component: "Fee", month: "2027-10-01", amountCents: 2, isFee: true },
+    ] as any;
+    expect(customerContractProjector(data, today)("ute")!.current[0]).toMatchObject({ annualCents: null, feesAnnualCents: 7990 });
+  });
   it("keeps ordered stated rows and returns omitted active standards only to commercial readers", () => {
     const data = fixture();
     data.rates = [

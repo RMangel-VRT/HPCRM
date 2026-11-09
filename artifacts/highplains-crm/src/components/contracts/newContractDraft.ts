@@ -4,6 +4,9 @@ import { cardRateRows, isChangedRate, isCustomRate, rateApplies, rateProblems, r
 import type { RateRow } from "./RatesEditor";
 import { addDays, addMonths } from "./contractFormat";
 import type { AgreementLine } from "./contractTypes";
+import i18n from "i18next";
+import { explicitPayload, explicitProblems, explicitTotals } from "./explicitSchedule";
+import type { ExplicitDraft } from "./explicitSchedule";
 import { GROUNDS_LINE, SNOW_LINE, applyPreset, blankLine, equalMonthly, annualCents, lineProblems, lineSum, paymentsPayload, startMonthOf } from "./paymentDraft";
 import type { PaymentLine } from "./paymentDraft";
 import { parseDollarsToCents } from "./rateCardUtils";
@@ -22,6 +25,8 @@ export interface NewContractDraft {
   legalName: string; projectContact: string; contactPhone: string; contactEmail: string; projectAddress: string; po: string; notes: string;
   snowTriggers: string;
   scope: ScopeRow[] | null; rates: RateRow[] | null; payments: PaymentLine[] | null;
+  /** CC2-18: "explicit" saves the dated grid instead of the monthly pattern. */
+  scheduleMode?: "pattern" | "explicit"; explicit?: ExplicitDraft | null;
   /** Set once the server accepted the create, so a failed upload never creates a second contract. */
   created: { agreementId: string; termId: string } | null;
 }
@@ -140,7 +145,12 @@ export function stepProblems(d: NewContractDraft, step: number): string[] {
   }
   if (step === 3 && d.scope) out.push(...scopeProblems(d.scope));
   if (step === 4 && d.rates) out.push(...rateProblems(d.rates));
-  if (step === 5) {
+  if (step === 5 && d.scheduleMode === "explicit" && d.explicit) {
+    const label = (m: string) => `${m.slice(5, 7)}/${m.slice(0, 4)}`;
+    out.push(...explicitProblems(d.explicit, d.startDate, d.endDate, (k, o) => i18n.t(k, o) as string, label));
+    if (!needsPayments(d) && d.explicit.components.some(c => !c.fee))
+      out.push(i18n.t("contractFees.tmFeesOnly"));
+  } else if (step === 5) {
     out.push(...lineProblems(d.payments ?? []));
     if (d.snowPricing === "flat_rate" && hasSnow(d.line)) {
       const s = (d.payments ?? []).find(l => l.name.trim() === SNOW_LINE);
@@ -152,7 +162,7 @@ export function stepProblems(d: NewContractDraft, step: number): string[] {
 
 const text = (v: string) => (v.trim() === "" ? undefined : v.trim());
 export function createBody(d: NewContractDraft) {
-  const payments = needsPayments(d) ? d.payments ?? [] : [];
+  const payments = needsPayments(d) ? d.payments ?? [] : (d.payments ?? []).filter(l => l.fee);
   const flat = hasSnow(d.line) && d.snowPricing === "flat_rate";
   const snowLine = payments.find(l => l.name.trim() === SNOW_LINE);
   return {
@@ -169,12 +179,12 @@ export function createBody(d: NewContractDraft) {
     },
     scope: scopePayload(d.scope ?? initialScope(d.line as AgreementLine)),
     rates: ratesPayload(d.rates ?? []),
-    payments: paymentsPayload(payments),
+    payments: d.scheduleMode === "explicit" && d.explicit ? explicitPayload(d.explicit, d.startDate) : paymentsPayload(payments),
   };
 }
 
 export function reviewRows(d: NewContractDraft) {
-  const lines = needsPayments(d) ? d.payments ?? [] : [];
+  const lines = needsPayments(d) ? d.payments ?? [] : (d.payments ?? []).filter(l => l.fee);
   const monthly = equalMonthly(lines);
   // Editors retain the original priceCents and keep the current amount in input.
   // Review must compare the same effective value that ratesPayload sends.
@@ -183,7 +193,7 @@ export function reviewRows(d: NewContractDraft) {
     priceText: r.input.trim() === "" ? r.priceText : null,
   }) || isCustomRate(r));
   return {
-    annual: needsPayments(d) ? annualCents(lines) : null, monthly,
+    annual: needsPayments(d) ? (d.scheduleMode === "explicit" && d.explicit ? explicitTotals(d.explicit, d.startDate).year1 : annualCents(lines)) : null, monthly,
     services: (d.scope ?? []).filter(r => r.included).map(r => r.label),
     rates: (d.rates ?? []).map(r => ({ key: r.rateKey, label: r.label, custom: isCustomRate(r), input: r.input, text: r.input.trim() ? null : r.priceText })),
     changedRates: changed.map(r => ({ key: r.rateKey, label: r.label, custom: isCustomRate(r), input: r.input })),

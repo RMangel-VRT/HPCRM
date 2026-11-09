@@ -26,9 +26,18 @@ export function splitRatesByLine(term: ContractSummaryTerm | undefined) {
 
 /** Contract amounts per month for the selected term (planned payments, not invoices). */
 export function contractByMonth(term: ContractSummaryTerm | undefined) {
-  const map = new Map<string, number>();
-  for (const m of term?.billingMonths ?? []) map.set(m.month, (map.get(m.month) ?? 0) + m.amountCents);
-  return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([month, cents]) => ({ month, cents }));
+  const map = new Map<string, { cents: number; fees: number }>();
+  for (const m of term?.billingMonths ?? []) {
+    const cur = map.get(m.month) ?? { cents: 0, fees: 0 };
+    if (m.isFee) cur.fees += m.amountCents; else cur.cents += m.amountCents;
+    map.set(m.month, cur);
+  }
+  return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([month, v]) => ({ month, ...v }));
+}
+/** Fee components shown apart from the contract value. */
+export function feeTotals(term: ContractSummaryTerm | undefined) {
+  const rows = (term?.billingMonths ?? []).filter(m => m.isFee);
+  return { annual: term?.feesAnnualCents ?? null, names: [...new Set(rows.map(r => r.component ?? ""))].filter(Boolean), any: rows.length > 0 || (term?.feesAnnualCents ?? 0) > 0 };
 }
 
 export function TermPicker({ rows, value, onChange }: { rows: { term: ContractSummaryTerm; period: string }[]; value: string; onChange: (v: string) => void }) {
@@ -113,6 +122,7 @@ export default function BillingPage({ customerId, isParent, view, onViewChange, 
   const split = splitRatesByLine(term);
   const months = contractByMonth(term);
   const tm = term?.snowPricing === "time_and_materials";
+  const fees = feeTotals(term);
 
   return (
     <div className="space-y-4" data-testid="billing-page">
@@ -156,6 +166,18 @@ export default function BillingPage({ customerId, isParent, view, onViewChange, 
                   <p className="text-xs text-muted-foreground">{t("customerPages.billing.kpiContract")}</p>
                   <p className="text-2xl font-semibold tabular-nums" data-testid="kpi-contract-term">{money(term.annualCents)}</p>
                   {tm && <p className="text-xs text-muted-foreground">{t("cp1.timeAndMaterials")}</p>}
+                  {(term.durationMonths ?? 0) > 12 && term.contractTotalCents != null && (
+                    <p className="text-xs text-muted-foreground" data-testid="kpi-contract-total">{t("contractFees.contractTotalLine", { amount: money(term.contractTotalCents), count: term.durationMonths })}</p>
+                  )}
+                  {fees.any && (
+                    <div className="mt-2 border-t pt-2" data-testid="kpi-fees-block">
+                      <p className="text-xs text-muted-foreground">{t("contractFees.kpiFees")}</p>
+                      <p className="text-base font-semibold tabular-nums" data-testid="kpi-fees">
+                        {fees.annual != null ? t("contractFees.perYear", { amount: money(fees.annual) }) : money(months.reduce((n, m) => n + m.fees, 0))}
+                      </p>
+                      {fees.names.length > 0 && <p className="text-xs text-muted-foreground" data-testid="kpi-fee-names">{fees.names.join(", ")}</p>}
+                    </div>
+                  )}
                 </CardContent></Card>
                 <Card><CardContent className="pt-4">
                   <p className="text-xs text-muted-foreground">{t("customerPages.billing.kpiInvoiced")}</p>
@@ -176,17 +198,20 @@ export default function BillingPage({ customerId, isParent, view, onViewChange, 
                       <TableHeader><TableRow>
                         <TableHead>{t("cp1.month")}</TableHead>
                         <TableHead className="text-right">{t("customerPages.billing.contractCol")}</TableHead>
+                        {fees.any && <TableHead className="text-right">{t("contractFees.feeCol")}</TableHead>}
                       </TableRow></TableHeader>
                       <TableBody>
                         {months.map(m => (
                           <TableRow key={m.month} data-testid={`row-month-${m.month}`}>
                             <TableCell>{m.month}</TableCell>
                             <TableCell className="text-right tabular-nums">{money(m.cents)}</TableCell>
+                            {fees.any && <TableCell className="text-right tabular-nums text-muted-foreground" data-testid={`text-month-fees-${m.month}`}>{m.fees ? money(m.fees) : "\u2014"}</TableCell>}
                           </TableRow>
                         ))}
                         <TableRow className="font-semibold">
                           <TableCell>{t("customerPages.billing.total")}</TableCell>
                           <TableCell className="text-right tabular-nums" data-testid="text-months-total">{money(months.reduce((n, m) => n + m.cents, 0))}</TableCell>
+                          {fees.any && <TableCell className="text-right tabular-nums" data-testid="text-months-fees-total">{money(months.reduce((n, m) => n + m.fees, 0))}</TableCell>}
                         </TableRow>
                       </TableBody>
                     </Table>

@@ -11,6 +11,12 @@ const service = (id: string, state: CustomerService["state"], over = {}): Custom
   id, state, source: "campaign", title: id, serviceKey: null, start: "2026-01-01", end: "2026-11-01", inContract: true, ...over,
 });
 describe("CP3 identity and commercial projection", () => {
+  it("excludes billed fees from both annual and monthly contract values", () => {
+    expect(aggregateTerms([term({ annualCents: 2224800, billingMonths: [
+      { month: "2026-11", component: "Grounds", amountCents: 185400 },
+      { month: "2026-11", component: "Mobilization", amountCents: 3995, isFee: true },
+    ] })])).toMatchObject({ annualCents: 2224800, monthlyCents: 185400 });
+  });
   it.each([["18 at Ute Creek", "UC"], ["The Village of Pine", "VP"], ["1st Bank", "1B"], ["18 at the", ""], ["Álamo and Cedar", "ÁC"]])(
     "%s → %s", (name, expected) => expect(customerInitials(name)).toBe(expected));
   it("keeps Ute Creek's authoritative fixture and both lines", () => {

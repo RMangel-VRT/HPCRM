@@ -6,7 +6,7 @@ import {
   users, type AgreementTerm, type TermStatus,
 } from "@workspace/db";
 import { db } from "../db";
-import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves, renewalSet, recoverPayments, isTermEditable } from "./contractCenterService";
+import { ContractCenterError, displayStatus, selectCurrent, selectRenewalSource, renewalDue, allowedMoves, renewalSet, recoverPayments, isTermEditable, seasonPaymentSummary } from "./contractCenterService";
 import { addCalendarDays, calendarDaysBetween, companyToday } from "./companyDay";
 import { coverageResolver } from "./contractCoverage";
 import { hasOpenBusiness, isNotRenewing } from "../shared/contractCatalog";
@@ -210,7 +210,7 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
     const set = renewalSet(terms, term), first = set[0], year = set.findIndex(t => t.id === term.id) + 1;
     const editable = isTermEditable(term, today);
     const statusEditable = (statusEditableIds.has(term.id) || ["draft", "sent"].includes(term.status)) && !["renewed", "lost", "cancelled"].includes(term.status);
-    return { ...term, nonRenewalByName: term.nonRenewalBy ? names.get(term.nonRenewalBy) ?? null : null,
+    return { ...term, ...seasonPaymentSummary(term, billingMonths), nonRenewalByName: term.nonRenewalBy ? names.get(term.nonRenewalBy) ?? null : null,
       displayStatus: displayStatus(term, terms), editable,
       renewalSet: { firstTermId: first.id, firstSeason: first.seasonLabel, lastSeason: set[set.length - 1].seasonLabel, year, length: set.length },
       allowedMoves: year === 1 && (statusEditable || set.length > 1) ? allowedMoves(set[set.length - 1].status, !!first.renewedFromTermId, !!first.bidTicketId) : [],

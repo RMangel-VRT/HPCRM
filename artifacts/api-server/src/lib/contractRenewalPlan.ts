@@ -3,7 +3,8 @@ import { isNotRenewing, NON_RENEWAL_CONFLICT } from "@workspace/db/contract-non-
 import type { AuditData } from "./contractAuditData";
 import type { AuditFiles, CsvRow, Diagnostic } from "./contractAuditFiles";
 import { planAuditImport, type ImportTerm } from "./contractAuditPlan";
-import { renewalRates, rateChanges, renewalCoverage } from "./contractCenterService";
+import { renewalRates, rateChanges, renewalCoverage, recoverPayments, monthIndex } from "./contractCenterService";
+import { MONTHS } from "./contractAuditFiles";
 import { renewalScope } from "./contractChangingRenewal";
 import { addCalendarDays } from "./companyDay";
 
@@ -43,6 +44,8 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
     const customer = agreement && data.customers.find(c => c.id === agreement.customerId);
     if (!source || !agreement || !customer) { diag(row, "Unknown renewal source in active company", "renews_term_id"); continue; }
     if (isNotRenewing(source)) { diag(row, NON_RENEWAL_CONFLICT, "renews_term_id"); continue; }
+    if (source.paymentSchedule === "explicit" && v.rebuild_schedule !== "yes")
+      diag(row, "Rebuild the schedule confirmation required: rebuild_schedule must be yes", "rebuild_schedule");
     const renewals = data.terms.filter(t => t.renewedFromTermId === source.id);
     const skipped = renewals.some(t => t.startDate === v.start_date &&
       data.history.some(h => h.termId === t.id && h.note?.startsWith("Imported signed renewal (")));
@@ -59,6 +62,25 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
     if (v.start_date !== addCalendarDays(source.endDate, 1))
       diag(row, `Gap or overlap with ${source.seasonLabel}: ${source.startDate} – ${source.endDate}`, "start_date", true);
     const children = (name: string) => (files.tables[name] ?? []).filter(r => r.values.contract_ref === v.contract_ref);
+    const suppliedPayments = children("payments.csv");
+    const sourceBilling = (data.billing ?? []).filter(r => r.termId === source.id);
+    const sourceFirstYear = source.paymentSchedule === "explicit" ? sourceBilling.filter(r =>
+      monthIndex(r.month) >= monthIndex(source.startDate) && monthIndex(r.month) < monthIndex(source.startDate) + 12) : sourceBilling;
+    const carriedFees = recoverPayments(sourceFirstYear).filter(p => p.fee);
+    const paymentRows = [...suppliedPayments];
+    const datedPayments = suppliedPayments.some(r => /^\d{4}-/.test(r.values.month ?? ""));
+    for (const fee of carriedFees) {
+      const supplied = suppliedPayments.filter(r => r.values.payment_line === fee.component);
+      if (!supplied.length) {
+        if (datedPayments) {
+          diag(row, `Include carried fee "${fee.component}" in the rebuilt exact schedule; dated obligations are never added automatically`, "contract_ref");
+        } else {
+          paymentRows.push({ file: "payments.csv", row: row.row, values: { contract_ref: v.contract_ref,
+            payment_line: fee.component, fee: "yes", ...Object.fromEntries(fee.months.map(m =>
+              [MONTHS[m.month - 1], (m.amountCents / 100).toFixed(2)])) } });
+        }
+      }
+    }
     const inherited: Record<string, string> = {};
     for (const key of fields) {
       const value = source[camel(key) as keyof AgreementTerm];
@@ -82,7 +104,7 @@ export function planRenewalImport(files: AuditFiles, data: AuditData): RenewalPl
     const replacement = v.rates_mode === "replace" || children("rates.csv").length > 0;
     // Reuse audit's exact money, CSV child validation and canonical builders.
     const built = planAuditImport({ filename: files.filename, errors: [], tables: {
-      "contracts.csv": [synthetic], "payments.csv": children("payments.csv"), "scope.csv": children("scope.csv"),
+      "contracts.csv": [synthetic], "payments.csv": paymentRows, "scope.csv": children("scope.csv"),
       "rates.csv": children("rates.csv"), "documents.csv": [],
     } }, { ...data, agreements: [], terms: [], contracts: [], documents: [], links: [], termDocs: [], history: [] });
     plan.errors.push(...built.errors); plan.warnings.push(...built.warnings);

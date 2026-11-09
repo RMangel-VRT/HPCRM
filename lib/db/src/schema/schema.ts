@@ -857,6 +857,7 @@ export const agreementTerms = pgTable("agreement_terms", {
   status: text("status").notNull().default("draft").$type<TermStatus>(),
   billingType: text("billing_type").notNull().$type<BillingType>(),
   annualPriceCents: integer("annual_price_cents"),
+  paymentSchedule: text("payment_schedule").notNull().default("pattern").$type<"pattern" | "explicit">(),
   snowPricing: text("snow_pricing").$type<SnowPricing>(),
   snowFlatPriceCents: integer("snow_flat_price_cents"),
   renewalIncreasePct: numeric("renewal_increase_pct", { precision: 5, scale: 2 }),
@@ -880,6 +881,7 @@ export const agreementTerms = pgTable("agreement_terms", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
   companyIdx: index("agreement_terms_company_idx").on(t.companyId),
+  paymentScheduleCheck: check("agreement_terms_payment_schedule_check", sql`${t.paymentSchedule} IN ('pattern', 'explicit')`),
   bidTicketIdx: index("agreement_terms_bid_ticket_idx").on(t.bidTicketId),
   agreementIdx: index("agreement_terms_agreement_idx").on(t.agreementId),
   companyStatusIdx: index("agreement_terms_company_status_idx").on(t.companyId, t.status),
@@ -898,6 +900,7 @@ export const insertAgreementTermSchema = createInsertSchema(agreementTerms).omit
   startDate: contractCalendarDate, endDate: contractCalendarDate,
   status: z.enum(TERM_STATUSES).default("draft"), billingType: z.enum(BILLING_TYPES),
   annualPriceCents: contractOptionalCents, renewalIncreasePct: z.string().nullable().optional(),
+  paymentSchedule: z.enum(["pattern", "explicit"]).default("pattern"),
   snowPricing: z.preprocess(v => v === "" || v === null ? undefined : v, z.enum(SNOW_PRICING).optional()),
   snowFlatPriceCents: contractOptionalCents,
   renewedFromTermId: z.string().nullable().optional(), legalName: z.string().nullable().optional(),
@@ -995,12 +998,14 @@ export const termBillingMonths = pgTable("term_billing_months", {
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
   component: text("component").notNull().default("Contract"),
+  isFee: boolean("is_fee").notNull().default(false),
   month: date("month", { mode: "string" }).notNull(),
   amountCents: integer("amount_cents").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({ termComponentMonthUnique: unique("term_billing_months_term_component_month_unique").on(t.termId, t.component, t.month) }));
 export const insertTermBillingMonthSchema = createInsertSchema(termBillingMonths).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  isFee: z.boolean().default(false),
   component: z.string().trim().min(1).default("Contract"),
   companyId: z.string(), termId: z.string(), month: contractCalendarDate, amountCents: z.number().int().min(0).max(2147483647),
 });

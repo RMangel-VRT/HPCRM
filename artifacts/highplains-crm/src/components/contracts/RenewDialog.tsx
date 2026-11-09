@@ -17,8 +17,8 @@ import { useScopedRateCard } from "./useRateCard";
 import { dateOnly, errorText, money } from "./contractFormat";
 import { selectRenewalSource, termForm, termLine } from "./contractTypes";
 import type { AgreementForm, AgreementLine, ContractDetail } from "./contractTypes";
-import { PaymentEditor } from "./PaymentEditor";
-import { linesFromPayments, startMonthOf } from "./paymentDraft";
+import { FeeTag, PaymentEditor } from "./PaymentEditor";
+import { linesFromPayments, linesFromBilling, startMonthOf } from "./paymentDraft";
 import { parseDollarsToCents } from "./rateCardUtils";
 import { FORM_NAME, LINE_NAME, changeNotes, createSequencer, parsePct, previewKey, renewBody, spanLabel, sumMonths, visibleRateChanges } from "./renewPreview";
 import type { PriceMode, RenewPreview, RoundTo } from "./renewPreview";
@@ -79,6 +79,7 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [paymentFees, setPaymentFees] = useState<Record<string, boolean>>({});
   const seq = useRef(createSequencer());
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -109,7 +110,13 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
     line: line && source && line === source.line ? null : line, form: form && source && form === source.form ? null : form,
     rates: rateMode === "edit" ? ratesPayload(rateRows) : null, scope,
   });
-  const body = rateIssues.length || pendingCard ? null : built;
+  // CC2-18: an exact-dates source needs an explicit "Rebuild the schedule" confirmation; dated rows never carry forward.
+  const explicitSource = srcTerm?.paymentSchedule === "explicit";
+  const [rebuild, setRebuild] = useState(false);
+  const body = rateIssues.length || pendingCard || (explicitSource && !rebuild) ? null : built ? {
+    ...built, ...(explicitSource ? { rebuildSchedule: true } : {}),
+    ...(Object.keys(paymentFees).length ? { paymentFees: Object.entries(paymentFees).map(([component, fee]) => ({ component, fee })) } : {}),
+  } : null;
   const currentKey = body ? previewKey(body) : null;
 
   useEffect(() => {
@@ -268,6 +275,28 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
         </div>
       </Section>
 
+      {!!srcTerm?.billingMonths?.length && (
+        <Section title={t("contractFees.fees")} testId="renew-section-fees">
+          {linesFromBilling(srcTerm.billingMonths).map(p => (
+            <label key={p.name} className="flex items-start gap-2 text-xs">
+              <input type="checkbox" checked={paymentFees[p.name] ?? !!p.fee} disabled={creating}
+                onChange={e => { touch(); setPaymentFees(old => ({ ...old, [p.name]: e.target.checked })); }}
+                data-testid={`checkbox-renew-fee-${p.name}`} />
+              <span>{p.name}: {t("contractFees.checkbox")}</span>
+            </label>
+          ))}
+        </Section>
+      )}
+      {explicitSource && (
+        <Section title={t("contractFees.rebuildTitle")} testId="renew-section-rebuild">
+          <p className="text-sm text-muted-foreground">{t("contractFees.rebuildBody")}</p>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={rebuild} disabled={creating} onChange={e => { touch(); setRebuild(e.target.checked); }} data-testid="checkbox-rebuild-schedule" />
+            {t("contractFees.rebuildConfirm")}
+          </label>
+          {!rebuild && <p className="text-xs text-destructive" data-testid="text-rebuild-required">{t("contractFees.rebuildRequired")}</p>}
+        </Section>
+      )}
       {error && (
         <div className="rounded-md border border-destructive/40 p-3 text-sm" data-testid="error-renew">
           {error}
@@ -294,6 +323,15 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
           </div>
           <div className="space-y-2">
             <span className="text-xs text-muted-foreground block">Payment lines{years.length > 1 ? `, ${years[0].seasonLabel}` : ""}</span>
+            {shown.payments.some(p => p.fee) && (
+              <p className="text-xs text-muted-foreground" data-testid="text-fees-carried">
+                {t("contractFees.feesCarried", { list: shown.payments.filter(p => p.fee).map(p => {
+                  const paid = p.after.filter(m => m.amountCents > 0);
+                  const same = paid.length > 0 && paid.every(m => m.amountCents === paid[0].amountCents);
+                  return `${p.component} ${same && paid.length === 12 ? t("contractFees.perMonth", { amount: money(paid[0].amountCents) }) : t("contractFees.perYear", { amount: money(sumMonths(p.after)) })}`;
+                }).join(", ") })}
+              </p>
+            )}
             {shown.payments.length === 0 && <p className="text-muted-foreground">No payment lines to renew.</p>}
             {shown.payments.map((p, i) => {
               const k = `${i}`;
@@ -301,15 +339,15 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
                 <div key={k} className="rounded-md border p-2" data-testid={`renew-line-${i}`}>
                   <button type="button" className="flex w-full items-center justify-between gap-2 text-left" aria-expanded={!!open[k]}
                     onClick={() => setOpen({ ...open, [k]: !open[k] })} data-testid={`button-expand-line-${i}`}>
-                    <span className="flex items-center gap-1">{open[k] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}{p.component}</span>
+                    <span className="flex items-center gap-1">{open[k] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}{p.component}{p.fee && <FeeTag testId={`tag-fee-renew-${i}`} />}</span>
                     <span className="tabular-nums" data-testid={`text-line-change-${i}`}>{money(sumMonths(p.before))} {"\u2192"} {money(sumMonths(p.after))}</span>
                   </button>
                   {open[k] && (
                     <div className="mt-2 space-y-2" data-testid={`renew-months-${i}`}>
                       <div className="text-xs text-muted-foreground">Last season</div>
-                      <PaymentEditor readOnly lines={linesFromPayments([{ component: p.component, months: p.before }])} onChange={() => {}} startMonth={startMonthOf(shown.startDate)} />
+                      <PaymentEditor readOnly lines={linesFromPayments([{ component: p.component, months: p.before, fee: p.fee }])} onChange={() => {}} startMonth={startMonthOf(shown.startDate)} />
                       <div className="text-xs text-muted-foreground">New season</div>
-                      <PaymentEditor readOnly lines={linesFromPayments([{ component: p.component, months: p.after }])} onChange={() => {}} startMonth={startMonthOf(shown.startDate)} />
+                      <PaymentEditor readOnly lines={linesFromPayments([{ component: p.component, months: p.after, fee: p.fee }])} onChange={() => {}} startMonth={startMonthOf(shown.startDate)} />
                     </div>
                   )}
                 </div>

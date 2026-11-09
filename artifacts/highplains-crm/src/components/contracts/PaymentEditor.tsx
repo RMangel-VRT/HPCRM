@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useTranslation } from "react-i18next";
 import { amberBox } from "./ContractBadges";
 import { monthName, money } from "./contractFormat";
 import {
-  LINE_SUGGESTIONS, PRESET_LABEL, SNOW_LINE, annualCents, applyPreset, blankLine, cycle, lineMismatch, lineSum, monthPct,
+  LINE_SUGGESTIONS, PRESET_LABEL, SNOW_LINE, annualCents, feesCents, applyPreset, blankLine, cycle, lineMismatch, lineSum, monthPct,
   recompute, setMonthRaw, totalInvalid,
 } from "./paymentDraft";
 import type { PaymentLine, PresetKey } from "./paymentDraft";
@@ -31,11 +32,21 @@ function MonthInput({ value, bad, onRaw, testId }: { value: number; bad: boolean
   );
 }
 
+/** Muted tag for fee components (billed monthly, outside the contract price). */
+export function FeeTag({ testId }: { testId?: string }) {
+  const { t } = useTranslation();
+  return <span className="ml-1.5 inline-flex items-center rounded border border-border bg-muted px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground" data-testid={testId ?? "tag-fee"}>{t("contractFees.tag")}</span>;
+}
+
 export function PaymentEditor(props: {
   lines: PaymentLine[]; onChange: (lines: PaymentLine[]) => void; startMonth: number; readOnly?: boolean;
   line?: AgreementLine; snowPricing?: string | null; flatSnowAllowed?: boolean; errors?: boolean;
 }) {
-  const { lines, startMonth, readOnly } = props;
+  const { t } = useTranslation();
+  // Snow time and materials: contract payments are not allowed, fee lines are.
+  const tm = props.line === "snow" && props.snowPricing !== "flat_rate";
+  const lines = tm ? props.lines.filter(l => l.fee) : props.lines;
+  const { startMonth, readOnly } = props;
   const order = cycle(startMonth);
   // Re-run presets when the term's start month moves.
   const lastStart = useRef(startMonth);
@@ -47,9 +58,7 @@ export function PaymentEditor(props: {
     changeRef.current(linesRef.current.map(l => recompute(l, startMonth)));
   }, [startMonth]);
 
-  if (props.line === "snow" && props.snowPricing !== "flat_rate") {
-    return <p className="text-sm rounded-md border p-3" data-testid="text-time-and-materials">{TM_TEXT}</p>;
-  }
+  const fees = feesCents(lines);
   const patch = (id: string, fn: (l: PaymentLine) => PaymentLine) => props.onChange(lines.map(l => (l.id === id ? fn(l) : l)));
   const presetsFor = (l: PaymentLine): PresetKey[] => [
     "equal12", "msi", "equalOver", ...(props.flatSnowAllowed && l.name.trim() === SNOW_LINE ? ["flatSnow" as const] : []), "custom",
@@ -57,6 +66,8 @@ export function PaymentEditor(props: {
 
   return (
     <div className="space-y-4" data-testid="payment-editor">
+      {tm && <p className="text-sm rounded-md border p-3" data-testid="text-time-and-materials">{TM_TEXT}</p>}
+      {tm && !readOnly && <p className="text-xs text-muted-foreground" data-testid="text-tm-fees-only">{t("contractFees.tmFeesOnly")}</p>}
       <datalist id="payment-line-names">{LINE_SUGGESTIONS.map(s => <option key={s} value={s} />)}</datalist>
       {props.errors && props.flatSnowAllowed && !lines.some(l => l.name.trim() === SNOW_LINE && lineSum(l) > 0) && (
         <p className="text-sm text-destructive" data-testid="error-flat-snow-line">
@@ -75,6 +86,7 @@ export function PaymentEditor(props: {
                   onChange={e => patch(l.id, x => ({ ...x, name: e.target.value }))} data-testid={`input-line-name-${idx}`} />
                 {missingName && <span className="text-xs text-destructive" data-testid={`error-line-name-${idx}`}>Give this payment line a name</span>}
               </label>
+              {readOnly && l.fee && <FeeTag testId={`tag-fee-${idx}`} />}
               <label className="space-y-1 w-36">
                 <span className="text-xs text-muted-foreground">Yearly total</span>
                 <Input inputMode="decimal" value={l.total} disabled={readOnly} placeholder="0.00"
@@ -93,6 +105,14 @@ export function PaymentEditor(props: {
                 </>
               )}
             </div>
+            {!readOnly && (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground" data-testid={`label-line-fee-${idx}`}>
+                <input type="checkbox" checked={tm || l.fee} disabled={tm} onChange={e => patch(l.id, x => ({ ...x, fee: e.target.checked }))}
+                  data-testid={`checkbox-line-fee-${idx}`} />
+                {t("contractFees.checkbox")}
+                {(tm || l.fee) && <FeeTag testId={`tag-fee-${idx}`} />}
+              </label>
+            )}
             {!readOnly && l.pickerOpen && (
               <div className="space-y-2" data-testid={`presets-${idx}`}>
                 <div className="flex flex-wrap gap-2">
@@ -143,18 +163,28 @@ export function PaymentEditor(props: {
           </div>
         );
       })}
-      {!readOnly && props.flatSnowAllowed && !lines.some(l => l.name.trim() === SNOW_LINE) && (
+      {!readOnly && !tm && props.flatSnowAllowed && !lines.some(l => l.name.trim() === SNOW_LINE) && (
         <Button type="button" size="sm" variant="outline" data-testid="button-add-snow-line"
           onClick={() => props.onChange([...lines, blankLine(SNOW_LINE, { preset: "flatSnow", pickerOpen: true })])}>Add Snow line</Button>
       )}
       {!readOnly && <p className="text-xs text-muted-foreground">Lines with no amounts are not saved.</p>}
-      {!readOnly && (
+      {!readOnly && (tm ? (
+        <Button type="button" size="sm" variant="outline" data-testid="button-add-fee-line"
+          onClick={() => props.onChange([...lines, blankLine("", { pickerOpen: true, fee: true })])}><Plus className="w-4 h-4 mr-1" />{t("contractFees.addFeeLine")}</Button>
+      ) : (
         <Button type="button" size="sm" variant="outline" data-testid="button-add-line"
           onClick={() => props.onChange([...lines, blankLine("", { pickerOpen: true })])}><Plus className="w-4 h-4 mr-1" />Add payment line</Button>
+      ))}
+      {!tm && (
+        <div className="flex justify-between border-t pt-3 text-sm font-semibold">
+          <span>Annual price</span><span className="tabular-nums" data-testid="text-annual-price">{money(annualCents(lines))}</span>
+        </div>
       )}
-      <div className="flex justify-between border-t pt-3 text-sm font-semibold">
-        <span>Annual price</span><span className="tabular-nums" data-testid="text-annual-price">{money(annualCents(lines))}</span>
-      </div>
+      {fees > 0 && (
+        <div className={`flex justify-between text-sm text-muted-foreground ${tm ? "border-t pt-3" : ""}`} data-testid="row-fees-annual">
+          <span>{t("contractFees.feesNotInPrice")}</span><span className="tabular-nums" data-testid="text-fees-annual">{t("contractFees.perYear", { amount: money(fees) })}</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -15,7 +15,7 @@ export function aggregateTerms(terms: ContractSummaryTerm[]) {
   const priced = own.filter(t => t.annualCents != null);
   const monthMaps = priced.map(t => {
     const months = new Map<string, number>();
-    for (const m of t.billingMonths ?? []) months.set(m.month, (months.get(m.month) ?? 0) + m.amountCents);
+    for (const m of t.billingMonths ?? []) if (!m.isFee) months.set(m.month, (months.get(m.month) ?? 0) + m.amountCents);
     return months;
   });
   // A single monthly figure is honest only for uniform, aligned payment schedules.

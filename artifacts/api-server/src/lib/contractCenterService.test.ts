@@ -25,7 +25,7 @@ describe("payment placement and annual totals", () => {
     const all = expandPayments(pavilionPayments, start, end);
     expect(all.filter(r => r.component === "Fertilization").map(r => r.month)).toEqual(
       Array.from({ length: 7 }, (_, i) => `2027-${String(i + 3).padStart(2, "0")}-01`));
-    expect(paymentSummary(pavilionPayments, "landscape")).toEqual({ annualPriceCents: 1415000, billingType: "monthly_variable" });
+    expect(paymentSummary(pavilionPayments, "landscape")).toEqual({ annualPriceCents: 1415000, feesAnnualCents: 0, billingType: "monthly_variable" });
     expect(recoverPayments(all)).toEqual(pavilionPayments);
   });
   it("repeats two years while retaining the one-year annual total", () => {
@@ -45,7 +45,7 @@ describe("payment placement and annual totals", () => {
     const snow = [{ component: "Snow", months: [12,1,2,3,4].map(month => ({ month, amountCents: 10000 })) }];
     validateSnow("snow", { snowPricing: "flat_rate", snowFlatPriceCents: 50000 });
     expect(paymentSummary(snow, "snow", "flat_rate").annualPriceCents).toBe(50000);
-    expect(paymentSummary([], "snow", "time_and_materials")).toEqual({ annualPriceCents: null, billingType: "time_and_materials" });
+    expect(paymentSummary([], "snow", "time_and_materials")).toEqual({ annualPriceCents: null, feesAnnualCents: 0, billingType: "time_and_materials" });
     expect(paymentSummary([{ component: "Snow", months: [{ month: 1, amountCents: 0 }] }], "snow", "time_and_materials").annualPriceCents).toBeNull();
     expect(() => paymentSummary(snow, "snow", "time_and_materials")).toThrow();
   });

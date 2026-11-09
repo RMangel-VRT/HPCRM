@@ -52,17 +52,26 @@ function sortedSeasons(data: AuditData, customerIds: string[]) {
   }).sort((a, b) => a.c.name.toLowerCase().localeCompare(b.c.name.toLowerCase(), "en") ||
     a.t.startDate.localeCompare(b.t.startDate) || a.t.id.localeCompare(b.t.id));
 }
+function paymentExportRows(data: AuditData, term: AuditData["terms"][number]) {
+  const rows = (data.billing ?? []).filter(r => r.termId === term.id);
+  if (term.paymentSchedule === "explicit")
+    return rows.map(r => [term.id, r.component, ...MONTHS.map(() => ""), r.isFee ? "yes" : "", r.month.slice(0, 7), dollars(r.amountCents)]);
+  return recoverPayments(rows).map(p => [term.id, p.component,
+    ...MONTHS.map((_, i) => dollars(p.months.find(m => m.month === i + 1)?.amountCents ?? 0)), p.fee ? "yes" : "", "", ""]);
+}
 export function seasonCsv(data: AuditData, customerIds: string[]) {
   const today = companyToday();
   return csv(SEASON_COLUMNS, sortedSeasons(data, customerIds).map(({ t, a, c }) => [
     c.id, c.name, data.customers.find(p => p.id === c.parentCustomerId)?.name, a.id, a.importRef, t.line, t.form,
     t.id, t.seasonLabel, t.startDate, t.endDate, t.status, displayStatus(t, data.terms, today), t.renewedFromTermId,
     iso(t.signedAt), dollars(t.annualPriceCents),
+    (t.paymentSchedule === "explicit" ? (data.billing ?? []).filter(b => b.termId === t.id).map(r =>
+      `${r.component}${r.isFee ? " [Fee]" : ""}: ${r.month.slice(0, 7)} ${dollars(r.amountCents)}`) :
     recoverPayments((data.billing ?? []).filter(b => b.termId === t.id)).map(p => {
       const amounts = new Set(p.months.map(m => m.amountCents));
-      return `${p.component}: ${amounts.size === 1 ? `${p.months.length} x ${dollars(p.months[0].amountCents)} (${p.months.map(m => MONTHS[m.month - 1]).join(", ")})`
+      return `${p.component}${p.fee ? " [Fee]" : ""}: ${amounts.size === 1 ? `${p.months.length} x ${dollars(p.months[0].amountCents)} (${p.months.map(m => MONTHS[m.month - 1]).join(", ")})`
         : p.months.map(m => `${MONTHS[m.month - 1]} ${dollars(m.amountCents)}`).join(", ")}`;
-    }).join("; "), data.termDocs.filter(d => d.termId === t.id).length,
+    })).join("; "), data.termDocs.filter(d => d.termId === t.id).length,
   ]));
 }
 export function currentCsvTables(data: AuditData) {
@@ -77,6 +86,7 @@ export function currentCsvTables(data: AuditData) {
     legal_name: t.legalName, managing_agent_name: t.managingAgentName, project_contact: t.projectContact,
     contact_phone: t.contactPhone, contact_email: t.contactEmail, project_address: t.projectAddress,
     po: t.po, snow_triggers: t.snowTriggers, notes: t.notes,
+    allow_pre_start: t.paymentSchedule === "explicit" && (data.billing ?? []).some(r => r.termId === t.id && r.month < t.startDate.slice(0, 7) + "-01") ? "yes" : "",
   }));
   return {
     "contracts.csv": csv(IMPORT_HEADERS["contracts.csv"], contractRows.map(row =>
@@ -85,9 +95,7 @@ export function currentCsvTables(data: AuditData) {
       t.id, r.rateKey, r.priceCents === null ? "\\N" : dollars(r.priceCents), rateCsvText(r.priceText),
       rateCsvText(r.minimum), rateCsvText(r.unit), rateCsvText(r.label), rateCsvText(r.category), r.line,
     ]))),
-    "payments.csv": csv(IMPORT_HEADERS["payments.csv"], seasons.flatMap(({ t }) =>
-      recoverPayments((data.billing ?? []).filter(b => b.termId === t.id)).map(p =>
-        [t.id, p.component, ...MONTHS.map((_, i) => dollars(p.months.find(m => m.month === i + 1)?.amountCents ?? 0))]))),
+    "payments.csv": csv(IMPORT_HEADERS["payments.csv"], seasons.flatMap(({ t }) => paymentExportRows(data, t))),
     "scope.csv": csv(IMPORT_HEADERS["scope.csv"], seasons.flatMap(({ t }) =>
       (data.scope ?? []).filter(s => s.termId === t.id).map(s => [
         t.id, s.serviceKey, s.included, s.quantity, s.unit, ...(s.monthSpread ?? Array(12).fill("")),
@@ -95,9 +103,7 @@ export function currentCsvTables(data: AuditData) {
       ]))),
     "documents.csv": csv(IMPORT_HEADERS["documents.csv"], []),
     "contract_center.csv": seasonCsv(data, ids),
-    "term_payments.csv": csv(["term_id", "payment_line", ...MONTHS], seasons.flatMap(({ t }) =>
-      recoverPayments((data.billing ?? []).filter(b => b.termId === t.id)).map(p =>
-        [t.id, p.component, ...MONTHS.map((_, i) => dollars(p.months.find(m => m.month === i + 1)?.amountCents ?? 0))]))),
+    "term_payments.csv": csv(["term_id", ...IMPORT_HEADERS["payments.csv"].slice(1)], seasons.flatMap(({ t }) => paymentExportRows(data, t))),
     "term_rates.csv": csv("term_id rate_key label price price_text unit minimum card_price category line sort_order card_price_text".split(" "),
       seasons.flatMap(({ t }) => stated(t.id)
         .map(r => [t.id, r.rateKey, r.label, dollars(r.priceCents), r.priceText, r.unit, r.minimum, dollars(r.cardPriceCents),
@@ -153,6 +159,7 @@ export function auditCsvTables(data: AuditData, customerIds: string[]) {
     "old_documents.csv": csv("document_id contract_id customer_id version filename mime_type file_size uploaded_at zip_path".split(" "),
       documents.map(d => [d.id, d.contractId, old.find(c => c.id === d.contractId)!.customerId, d.version, d.filename, d.mimeType, d.fileSize, iso(d.uploadedAt), documentPath(d)])),
     "contract_center.csv": seasonCsv(data, customerIds),
+    "payments.csv": csv(IMPORT_HEADERS["payments.csv"], sortedSeasons(data, customerIds).flatMap(({ t }) => paymentExportRows(data, t))),
     "rate_card.csv": rateCardCsv(data),
   };
   return { tables, documents: documents.map(d => ({ document: d, path: documentPath(d) })) };

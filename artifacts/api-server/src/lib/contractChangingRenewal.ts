@@ -30,7 +30,7 @@ export function renewalScope(old: Array<Omit<z.infer<typeof scopeSchema>[number]
 function zRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
-const total = (p: Payments) => p.reduce((n, l) => n + l.months.reduce((s, m) => s + m.amountCents, 0), 0);
+const total = (p: Payments) => p.filter(l => !l.fee).reduce((n, l) => n + l.months.reduce((s, m) => s + m.amountCents, 0), 0);
 export function twelveMonthDates(end: string) {
   const startDate = addCalendarDays(end, 1);
   const d = new Date(`${startDate}T00:00:00Z`), day = d.getUTCDate();
@@ -43,6 +43,12 @@ export function twelveMonthDates(end: string) {
 }
 export function planChangingRenewal(source: AgreementTerm, payments: Payments, oldScope: TermScopeLine[],
   oldRates: TermRate[], card: RateCardItem[], body: z.infer<typeof renewSchema>) {
+  if (body.paymentFees) {
+    const names = body.paymentFees.map(p => p.component);
+    if (new Set(names).size !== names.length || names.some(name => !payments.some(p => p.component === name)))
+      throw new ContractCenterError(400, "Renewal fee choices must identify unique source payment components");
+    payments = payments.map(p => ({ ...p, fee: body.paymentFees!.find(f => f.component === p.component)?.fee ?? p.fee }));
+  }
   const line = body.line ?? source.line, form = body.form ?? source.form;
   const coverage = renewalCoverage(source, line, payments);
   const carried = renewalRates(oldRates, card, line);
@@ -69,17 +75,20 @@ export function planChangingRenewal(source: AgreementTerm, payments: Payments, o
       throw new ContractCenterError(400, "Equivalent renewal percentage exceeds the supported range");
     const snowBefore = i === 0 ? source.snowFlatPriceCents : snow;
     snow = snow === null ? null : cents.parse(Math.round(snow * (factor ?? 1)));
-    const dates = body.laterYearPcts.length ? twelveMonthDates(previousEnd) : renewalDates(source);
+    const dates = body.laterYearPcts.length || source.paymentSchedule === "explicit" ? twelveMonthDates(previousEnd) : renewalDates(source);
+    const summary = paymentSummary(after, line, coverage.snowPricing);
     const fields = { ...dates, line, form, status: "draft" as const,
       renewalIncreasePct: equivalent === null ? null : equivalent.toFixed(2),
       legalName: source.legalName, managingAgentName: source.managingAgentName,
       projectContact: source.projectContact, contactPhone: source.contactPhone, contactEmail: source.contactEmail,
       projectAddress: source.projectAddress, snowTriggers: source.snowTriggers, po: source.po, notes: source.notes,
-      snowPricing: coverage.snowPricing, snowFlatPriceCents: snow, ...paymentSummary(after, line, coverage.snowPricing) };
+      snowPricing: coverage.snowPricing, snowFlatPriceCents: snow, paymentSchedule: "pattern" as const,
+      annualPriceCents: summary.annualPriceCents, billingType: summary.billingType };
     validateSnow(line, fields);
     previous = after; previousEnd = dates.endDate;
     return { ...fields, before, after, payments: [...new Set([...before, ...after].map(p => p.component))].map(component => ({
-      component, before: before.find(p => p.component === component)?.months ?? [], after: after.find(p => p.component === component)?.months ?? [],
+      component, fee: !!after.find(p => p.component === component)?.fee,
+      before: before.find(p => p.component === component)?.months ?? [], after: after.find(p => p.component === component)?.months ?? [],
     })), snowFlatPrice: { before: snowBefore, after: snow } };
   });
   return { ...years[0], agreementId: source.agreementId, renewedFromTermId: source.id,

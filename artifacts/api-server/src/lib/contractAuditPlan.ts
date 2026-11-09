@@ -1,6 +1,7 @@
 import type { AgreementLine, AgreementForm, TermStatus, ContractDocument } from "@workspace/db";
 import { dollarCents, parseRateCsvText, MONTHS, type CsvRow, type Diagnostic, type AuditFiles } from "./contractAuditFiles";
 import type { AuditData } from "./contractAuditData";
+import { prepareCsvPayments } from "./contractPaymentCsv";
 import { auditOwnsCustomer, destructiveAgreementIssues } from "./contractAuditEligibility";
 import { validateDates, validateSnow, validatePayments, paymentSummary, expandPayments, buildScope, snapshotRates,
   termFieldsSchema, ratesSchema, scopeSchema, type Payments } from "./contractCenterService";
@@ -10,10 +11,11 @@ type BuiltRates = ReturnType<typeof snapshotRates>;
 export type ImportTerm = {
   source: CsvRow; contractRef: string; renewsRef?: string; legacyIds: string[];
   values: ReturnType<typeof termFieldsSchema.parse> & { line: AgreementLine; form: AgreementForm; status: TermStatus; signedAt: Date | null; reviewNote: string | null;
-    annualPriceCents: number | null; billingType: ReturnType<typeof paymentSummary>["billingType"] };
+    annualPriceCents: number | null; paymentSchedule?: "pattern" | "explicit"; billingType: ReturnType<typeof paymentSummary>["billingType"] };
   scope: BuiltScope; rates: BuiltRates; billing: ReturnType<typeof expandPayments>;
   documents: Array<{ source: ContractDocument; kind: "signed" | "their_form" | "other"; coversThroughRef?: string }>;
   paymentCount: number;
+  preStart?: boolean;
 };
 export type ImportAgreement = { ref: string; line: AgreementLine; form: AgreementForm; replaceId?: string; terms: ImportTerm[] };
 export type ImportCustomer = { id: string; name: string; managementId: string | null; agreements: ImportAgreement[] };
@@ -140,17 +142,13 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
       }
     }
     const children = (file: string) => (files.tables[file] ?? []).filter(r => r.values.contract_ref === v.contract_ref);
-    const payments: Payments = children("payments.csv").map(r => ({
-      component: required(r, "payment_line"), months: MONTHS.flatMap((m, i) => {
-        const amount = money(r, m); return amount ? [{ month: i + 1, amountCents: amount }] : [];
-      }),
-    }));
-    if (line === "snow" && v.snow_pricing === "time_and_materials" && payments.length)
-      diagnostic(children("payments.csv")[0], "Snow-only time-and-materials seasons must have no payment rows", "contract_ref");
     const paymentContext = children("payments.csv")[0] ?? row;
-    attempt(paymentContext, () => validatePayments(payments), []);
-    const summary = attempt(paymentContext, () => paymentSummary(payments, line, v.snow_pricing), { annualPriceCents: null, billingType: "monthly_variable" as const });
-    const billing = attempt(paymentContext, () => expandPayments(payments, v.start_date, v.end_date), []);
+    if (line === "snow" && v.snow_pricing === "time_and_materials" && children("payments.csv").some(r => r.values.fee !== "yes"))
+      diagnostic(paymentContext, "Snow-only time-and-materials seasons must have no payment rows except fees", "contract_ref");
+    children("payments.csv").forEach(r => required(r, "payment_line"));
+    const prepared = attempt(paymentContext, () => prepareCsvPayments(children("payments.csv"), v.start_date, v.end_date, line, v.snow_pricing, v.allow_pre_start),
+      { rows: [], preStart: false, paymentSchedule: "pattern" as "pattern" | "explicit", annualPriceCents: null as number | null, billingType: "monthly_variable" as ReturnType<typeof paymentSummary>["billingType"] });
+    const { rows: billing, preStart, ...summary } = prepared;
     const rateInputs = children("rates.csv").map(r => {
       const key = required(r, "rate_key");
       if (!data.card.some(c => c.rateKey === key) && !key.startsWith("custom_")) diagnostic(r, "Non-card rates must start with custom_", "rate_key");
@@ -218,7 +216,7 @@ export function planAuditImport(files: AuditFiles, data: AuditData): ImportPlan 
     }
     agreement.terms.push({ source: row, contractRef: v.contract_ref, renewsRef: v.renews_ref, legacyIds,
       values: { ...values, status, signedAt, reviewNote: v.review_note ?? null, ...summary },
-      scope, rates, billing, documents, paymentCount: payments.length });
+      scope, rates, billing, documents, preStart, paymentCount: new Set(billing.map(r => r.component)).size });
   }
   for (const customer of plan.customers) {
     const row = customer.agreements[0].terms[0].source;
