@@ -47,7 +47,7 @@ function isCalendarDate(value: string): boolean {
   const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1];
 }
-import { sql, pgTable, text, varchar, timestamp, unique, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, createInsertSchema, check } from "./drizzle-stub";
+import { sql, pgTable, text, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, createInsertSchema, check } from "./drizzle-stub";
 export { serviceProgramSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceProgramContracts";
 import { campaignIdentityCheckSql, serviceProgramCheckSql } from "../../../../lib/db/src/campaignSql";
 
@@ -2664,6 +2664,14 @@ export const servicePrograms = pgTable("service_programs", {
   valid: check("service_programs_valid_check", serviceProgramCheckSql),
 }));
 export type ServiceProgram = typeof servicePrograms.$inferSelect;
+
+export const campaignGenerationYears = pgTable("campaign_generation_years", {
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  year: smallint("year").notNull(),
+  enabledById: varchar("enabled_by_id").references(() => users.id, { onDelete: "set null" }),
+  enabledAt: timestamp("enabled_at").notNull().defaultNow(),
+}, t => ({ pk: primaryKey({ columns: [t.companyId, t.year] }) }));
+export type CampaignGenerationYear = typeof campaignGenerationYears.$inferSelect;
 
 export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
   id: true,

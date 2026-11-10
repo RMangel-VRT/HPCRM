@@ -7,6 +7,392 @@
  */
 import * as zod from "zod";
 
+export const PreviewCampaignGenerationParams = zod.object({
+  year: zod.coerce.number(),
+});
+
+export const PreviewCampaignGenerationHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const PreviewCampaignGenerationResponse = zod.object({
+  year: zod.number(),
+  today: zod.string(),
+  enabledAt: zod.string().nullable(),
+  rounds: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          members: zod.array(
+            zod.object({
+              propertyId: zod.string(),
+              propertyName: zod.string(),
+              termId: zod.string(),
+              agreementId: zod.string(),
+              seasonLabel: zod.string(),
+              termStatus: zod.string(),
+              timing: zod.enum(["contract", "program"]),
+              count: zod.enum(["contract", "standard"]),
+            }),
+          ),
+          newRound: zod.boolean(),
+          added: zod.number(),
+          removed: zod.number(),
+        }),
+      ),
+  ),
+  created: zod.array(
+    zod.object({
+      serviceKey: zod.string(),
+      roundMonth: zod.string(),
+      roundSeq: zod.number(),
+      title: zod.string(),
+      windowStart: zod.string(),
+      windowEnd: zod.string(),
+      campaignId: zod.string().nullable(),
+    }),
+  ),
+  deleted: zod.array(
+    zod.object({
+      serviceKey: zod.string(),
+      roundMonth: zod.string(),
+      roundSeq: zod.number(),
+      title: zod.string(),
+      windowStart: zod.string(),
+      windowEnd: zod.string(),
+      campaignId: zod.string().nullable(),
+    }),
+  ),
+  added: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          propertyId: zod.string(),
+          propertyName: zod.string(),
+          itemId: zod.string().nullable(),
+        }),
+      ),
+  ),
+  removed: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          propertyId: zod.string(),
+          propertyName: zod.string(),
+          itemId: zod.string().nullable(),
+        }),
+      ),
+  ),
+  keptNotOwed: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          propertyId: zod.string(),
+          propertyName: zod.string(),
+          itemId: zod.string().nullable(),
+        }),
+      ),
+  ),
+  missed: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          propertyId: zod.string(),
+          propertyName: zod.string(),
+          itemId: zod.string().nullable(),
+        }),
+      ),
+  ),
+  addedToClosedRound: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          propertyId: zod.string(),
+          propertyName: zod.string(),
+          itemId: zod.string().nullable(),
+        }),
+      ),
+  ),
+  gaps: zod.array(
+    zod.object({
+      propertyId: zod.string(),
+      propertyName: zod.string(),
+      termId: zod.string(),
+      agreementId: zod.string(),
+      seasonLabel: zod.string(),
+      serviceKey: zod.string(),
+      kind: zod.enum([
+        "no_count",
+        "no_timing",
+        "invalid_count",
+        "duplicate_lines",
+        "count_mismatch",
+      ]),
+      count: zod.number().optional(),
+      monthTotal: zod.number().optional(),
+    }),
+  ),
+  waitingOnSignature: zod.number(),
+  manualCampaigns: zod.array(
+    zod.object({
+      id: zod.string(),
+      title: zod.string(),
+      category: zod.string(),
+      windowStart: zod.string(),
+      windowEnd: zod.string(),
+    }),
+  ),
+});
+
+export const GenerateContractCampaignsParams = zod.object({
+  year: zod.coerce.number(),
+});
+
+export const GenerateContractCampaignsHeader = zod.object({
+  "X-Company-Id": zod.string(),
+});
+
+export const GenerateContractCampaignsBody = zod.object({
+  confirm: zod.boolean(),
+});
+
+export const GenerateContractCampaignsResponse = zod.object({
+  year: zod.number(),
+  today: zod.string(),
+  enabledAt: zod.string().nullable(),
+  rounds: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          members: zod.array(
+            zod.object({
+              propertyId: zod.string(),
+              propertyName: zod.string(),
+              termId: zod.string(),
+              agreementId: zod.string(),
+              seasonLabel: zod.string(),
+              termStatus: zod.string(),
+              timing: zod.enum(["contract", "program"]),
+              count: zod.enum(["contract", "standard"]),
+            }),
+          ),
+          newRound: zod.boolean(),
+          added: zod.number(),
+          removed: zod.number(),
+        }),
+      ),
+  ),
+  created: zod.array(
+    zod.object({
+      serviceKey: zod.string(),
+      roundMonth: zod.string(),
+      roundSeq: zod.number(),
+      title: zod.string(),
+      windowStart: zod.string(),
+      windowEnd: zod.string(),
+      campaignId: zod.string().nullable(),
+    }),
+  ),
+  deleted: zod.array(
+    zod.object({
+      serviceKey: zod.string(),
+      roundMonth: zod.string(),
+      roundSeq: zod.number(),
+      title: zod.string(),
+      windowStart: zod.string(),
+      windowEnd: zod.string(),
+      campaignId: zod.string().nullable(),
+    }),
+  ),
+  added: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          propertyId: zod.string(),
+          propertyName: zod.string(),
+          itemId: zod.string().nullable(),
+        }),
+      ),
+  ),
+  removed: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          propertyId: zod.string(),
+          propertyName: zod.string(),
+          itemId: zod.string().nullable(),
+        }),
+      ),
+  ),
+  keptNotOwed: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          propertyId: zod.string(),
+          propertyName: zod.string(),
+          itemId: zod.string().nullable(),
+        }),
+      ),
+  ),
+  missed: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          propertyId: zod.string(),
+          propertyName: zod.string(),
+          itemId: zod.string().nullable(),
+        }),
+      ),
+  ),
+  addedToClosedRound: zod.array(
+    zod
+      .object({
+        serviceKey: zod.string(),
+        roundMonth: zod.string(),
+        roundSeq: zod.number(),
+        title: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        campaignId: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          propertyId: zod.string(),
+          propertyName: zod.string(),
+          itemId: zod.string().nullable(),
+        }),
+      ),
+  ),
+  gaps: zod.array(
+    zod.object({
+      propertyId: zod.string(),
+      propertyName: zod.string(),
+      termId: zod.string(),
+      agreementId: zod.string(),
+      seasonLabel: zod.string(),
+      serviceKey: zod.string(),
+      kind: zod.enum([
+        "no_count",
+        "no_timing",
+        "invalid_count",
+        "duplicate_lines",
+        "count_mismatch",
+      ]),
+      count: zod.number().optional(),
+      monthTotal: zod.number().optional(),
+    }),
+  ),
+  waitingOnSignature: zod.number(),
+  manualCampaigns: zod.array(
+    zod.object({
+      id: zod.string(),
+      title: zod.string(),
+      category: zod.string(),
+      windowStart: zod.string(),
+      windowEnd: zod.string(),
+    }),
+  ),
+});
+
 /**
  * Admin, office and field_manager only. Ordered bounds must be at most 62 days apart.
  * @summary Company-scoped enriched visits for an inclusive Colorado date range

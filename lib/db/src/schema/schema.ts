@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, check } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { isCalendarDate } from "./calendarDate";
@@ -2689,6 +2689,15 @@ export const servicePrograms = pgTable("service_programs", {
   valid: check("service_programs_valid_check", sql.raw(serviceProgramCheckSql)),
 }));
 export type ServiceProgram = typeof servicePrograms.$inferSelect;
+
+/** Explicit generation opt-in, not a second owner of contractual demand. */
+export const campaignGenerationYears = pgTable("campaign_generation_years", {
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  year: smallint("year").notNull(),
+  enabledById: varchar("enabled_by_id").references(() => users.id, { onDelete: "set null" }),
+  enabledAt: timestamp("enabled_at").notNull().defaultNow(),
+}, t => ({ pk: primaryKey({ columns: [t.companyId, t.year] }) }));
+export type CampaignGenerationYear = typeof campaignGenerationYears.$inferSelect;
 
 export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
   id: true,

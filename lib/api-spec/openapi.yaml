@@ -23,6 +23,43 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /campaign-generation/{year}/preview:
+    get:
+      operationId: previewCampaignGeneration
+      parameters:
+        - { name: year, in: path, required: true, schema: { type: integer } }
+        - { name: X-Company-Id, in: header, schema: { type: string } }
+      responses:
+        "200":
+          description: Rollback-only preview for admin and office
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignGenerationReport" }
+        "400": { description: Not this Colorado year or next year }
+        "401": { description: Not authenticated }
+        "403": { description: Forbidden }
+        "409": { description: Company or campaign work changed }
+  /campaign-generation/{year}:
+    post:
+      operationId: generateContractCampaigns
+      parameters:
+        - { name: year, in: path, required: true, schema: { type: integer } }
+        - { name: X-Company-Id, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CampaignGenerationInput" }
+      responses:
+        "200":
+          description: Admin-confirmed transaction result and year opt-in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignGenerationReport" }
+        "400": { description: Invalid year or missing confirmation }
+        "401": { description: Not authenticated }
+        "403": { description: Admin required }
+        "409": { description: Company or campaign work changed }
   /visits:
     get:
       operationId: listVisits
@@ -1131,6 +1168,95 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    CampaignGenerationInput:
+      type: object
+      additionalProperties: false
+      required: [confirm]
+      properties:
+        confirm: { type: boolean, const: true }
+    CampaignDemandMember:
+      type: object
+      required: [propertyId, propertyName, termId, agreementId, seasonLabel, termStatus, timing, count]
+      properties:
+        propertyId: { type: string }
+        propertyName: { type: string }
+        termId: { type: string }
+        agreementId: { type: string }
+        seasonLabel: { type: string }
+        termStatus: { type: string }
+        timing: { type: string, enum: [contract, program] }
+        count: { type: string, enum: [contract, standard] }
+    CampaignDemandGap:
+      type: object
+      required: [propertyId, propertyName, termId, agreementId, seasonLabel, serviceKey, kind]
+      properties:
+        propertyId: { type: string }
+        propertyName: { type: string }
+        termId: { type: string }
+        agreementId: { type: string }
+        seasonLabel: { type: string }
+        serviceKey: { type: string }
+        kind: { type: string, enum: [no_count, no_timing, invalid_count, duplicate_lines, count_mismatch] }
+        count: { type: integer }
+        monthTotal: { type: integer }
+    CampaignRoundRef:
+      type: object
+      required: [serviceKey, roundMonth, roundSeq, title, windowStart, windowEnd, campaignId]
+      properties:
+        serviceKey: { type: string }
+        roundMonth: { type: string }
+        roundSeq: { type: integer }
+        title: { type: string }
+        windowStart: { type: string }
+        windowEnd: { type: string }
+        campaignId: { type: [string, "null"] }
+    CampaignGenerationItemRef:
+      allOf:
+        - { $ref: "#/components/schemas/CampaignRoundRef" }
+        - type: object
+          required: [propertyId, propertyName, itemId]
+          properties:
+            propertyId: { type: string }
+            propertyName: { type: string }
+            itemId: { type: [string, "null"] }
+    CampaignPreviewRound:
+      allOf:
+        - { $ref: "#/components/schemas/CampaignRoundRef" }
+        - type: object
+          required: [members, newRound, added, removed]
+          properties:
+            members: { type: array, items: { $ref: "#/components/schemas/CampaignDemandMember" } }
+            newRound: { type: boolean }
+            added: { type: integer }
+            removed: { type: integer }
+    CampaignGenerationReport:
+      type: object
+      required: [year, today, enabledAt, rounds, created, deleted, added, removed, keptNotOwed, missed, addedToClosedRound, gaps, waitingOnSignature, manualCampaigns]
+      properties:
+        year: { type: integer }
+        today: { type: string }
+        enabledAt: { type: [string, "null"] }
+        rounds: { type: array, items: { $ref: "#/components/schemas/CampaignPreviewRound" } }
+        created: { type: array, items: { $ref: "#/components/schemas/CampaignRoundRef" } }
+        deleted: { type: array, items: { $ref: "#/components/schemas/CampaignRoundRef" } }
+        added: { type: array, items: { $ref: "#/components/schemas/CampaignGenerationItemRef" } }
+        removed: { type: array, items: { $ref: "#/components/schemas/CampaignGenerationItemRef" } }
+        keptNotOwed: { type: array, items: { $ref: "#/components/schemas/CampaignGenerationItemRef" } }
+        missed: { type: array, items: { $ref: "#/components/schemas/CampaignGenerationItemRef" } }
+        addedToClosedRound: { type: array, items: { $ref: "#/components/schemas/CampaignGenerationItemRef" } }
+        gaps: { type: array, items: { $ref: "#/components/schemas/CampaignDemandGap" } }
+        waitingOnSignature: { type: integer }
+        manualCampaigns:
+          type: array
+          items:
+            type: object
+            required: [id, title, category, windowStart, windowEnd]
+            properties:
+              id: { type: string }
+              title: { type: string }
+              category: { type: string }
+              windowStart: { type: string }
+              windowEnd: { type: string }
     VisitInput:
       type: object
       required: [crewId, visitDate]

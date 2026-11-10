@@ -5,6 +5,112 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export const CampaignGenerationInputValue = {
+  confirm: true,
+} as const;
+export type CampaignGenerationInput = typeof CampaignGenerationInputValue;
+
+export type CampaignDemandMemberTiming =
+  (typeof CampaignDemandMemberTiming)[keyof typeof CampaignDemandMemberTiming];
+
+export const CampaignDemandMemberTiming = {
+  contract: "contract",
+  program: "program",
+} as const;
+
+export type CampaignDemandMemberCount =
+  (typeof CampaignDemandMemberCount)[keyof typeof CampaignDemandMemberCount];
+
+export const CampaignDemandMemberCount = {
+  contract: "contract",
+  standard: "standard",
+} as const;
+
+export interface CampaignDemandMember {
+  propertyId: string;
+  propertyName: string;
+  termId: string;
+  agreementId: string;
+  seasonLabel: string;
+  termStatus: string;
+  timing: CampaignDemandMemberTiming;
+  count: CampaignDemandMemberCount;
+}
+
+export type CampaignDemandGapKind =
+  (typeof CampaignDemandGapKind)[keyof typeof CampaignDemandGapKind];
+
+export const CampaignDemandGapKind = {
+  no_count: "no_count",
+  no_timing: "no_timing",
+  invalid_count: "invalid_count",
+  duplicate_lines: "duplicate_lines",
+  count_mismatch: "count_mismatch",
+} as const;
+
+export interface CampaignDemandGap {
+  propertyId: string;
+  propertyName: string;
+  termId: string;
+  agreementId: string;
+  seasonLabel: string;
+  serviceKey: string;
+  kind: CampaignDemandGapKind;
+  count?: number;
+  monthTotal?: number;
+}
+
+export interface CampaignRoundRef {
+  serviceKey: string;
+  roundMonth: string;
+  roundSeq: number;
+  title: string;
+  windowStart: string;
+  windowEnd: string;
+  /** @nullable */
+  campaignId: string | null;
+}
+
+export type CampaignGenerationItemRef = CampaignRoundRef & {
+  propertyId: string;
+  propertyName: string;
+  /** @nullable */
+  itemId: string | null;
+};
+
+export type CampaignPreviewRound = CampaignRoundRef & {
+  members: CampaignDemandMember[];
+  newRound: boolean;
+  added: number;
+  removed: number;
+};
+
+export type CampaignGenerationReportManualCampaignsItem = {
+  id: string;
+  title: string;
+  category: string;
+  windowStart: string;
+  windowEnd: string;
+};
+
+export interface CampaignGenerationReport {
+  year: number;
+  today: string;
+  /** @nullable */
+  enabledAt: string | null;
+  rounds: CampaignPreviewRound[];
+  created: CampaignRoundRef[];
+  deleted: CampaignRoundRef[];
+  added: CampaignGenerationItemRef[];
+  removed: CampaignGenerationItemRef[];
+  keptNotOwed: CampaignGenerationItemRef[];
+  missed: CampaignGenerationItemRef[];
+  addedToClosedRound: CampaignGenerationItemRef[];
+  gaps: CampaignDemandGap[];
+  waitingOnSignature: number;
+  manualCampaigns: CampaignGenerationReportManualCampaignsItem[];
+}
+
 /**
  * ticketId is required for a ticket visit; otherwise a nonblank internal title is required.
  */

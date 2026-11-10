@@ -14,6 +14,7 @@ export const varchar = (_n: string, _o?: any) => colBuilder();
 export const timestamp = (_n: string, _o?: any) => colBuilder();
 export const integer = (_n: string) => colBuilder();
 export const smallint = (_n: string) => colBuilder();
+export const primaryKey = (_config: unknown) => ({});
 export const foreignKey = (_config: any) => ({ onDelete: (_action: string) => ({}) });
 export const real = (_n: string) => colBuilder();
 export const boolean = (_n: string) => colBuilder();

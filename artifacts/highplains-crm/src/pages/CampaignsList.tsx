@@ -50,6 +50,7 @@ import {
   ClipboardList as ClipboardListIcon,
   GripVertical,
   Trash2,
+  Sprout,
 } from "lucide-react";
 import type { CampaignWithProgress, Customer, CompanyUser, User } from "@shared/schema";
 
@@ -146,6 +147,12 @@ export default function CampaignsList() {
           <p className="text-muted-foreground">{t("campaigns.description")}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+        {(canManage || user?.isSuperAdminBool) && (
+          <Button variant="outline" onClick={() => navigate("/dashboard/campaigns/generate")} data-testid="button-generate-from-contracts">
+            <Sprout className="w-4 h-4 mr-2" />
+            Generate from contracts
+          </Button>
+        )}
         {canManage && (
           <Button onClick={() => setShowCreate(true)} data-testid="button-create-campaign">
             <Plus className="w-4 h-4 mr-2" />

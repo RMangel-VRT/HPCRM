@@ -6,6 +6,17 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./campaignDemandGap";
+export * from "./campaignDemandGapKind";
+export * from "./campaignDemandMember";
+export * from "./campaignDemandMemberCount";
+export * from "./campaignDemandMemberTiming";
+export * from "./campaignGenerationInput";
+export * from "./campaignGenerationItemRef";
+export * from "./campaignGenerationReport";
+export * from "./campaignGenerationReportManualCampaignsItem";
+export * from "./campaignPreviewRound";
+export * from "./campaignRoundRef";
 export * from "./crew";
 export * from "./crewInput";
 export * from "./crewPatch";

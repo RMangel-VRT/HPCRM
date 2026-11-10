@@ -109,6 +109,7 @@ const EquipmentFeesCatalog = lazy(() => import("@/pages/EquipmentFeesCatalog"));
 const LaborRatesPreview = lazy(() => import("@/pages/LaborRatesPreview"));
 const QuickBooksSetup = lazy(() => import("@/pages/QuickBooksSetup"));
 const QboCustomerMapping = lazy(() => import("@/pages/QboCustomerMapping"));
+const CampaignGeneratePage = lazy(() => import("@/pages/CampaignGeneratePage"));
 const ServiceTimingPage = lazy(() => import("@/pages/ServiceTimingPage"));
 
 interface ErrorBoundaryProps {
@@ -382,6 +383,7 @@ function Router() {
           component={ServiceChecklistsPage}
           allowedRoles={["admin", "office", "field_manager", "chemical_manager"]}
         />
+        <ProtectedRoute path="/dashboard/campaigns/generate" component={CampaignGeneratePage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute
           path="/dashboard/campaigns/:id/items/:itemId"
           component={CampaignItemDetail}

@@ -131,6 +131,8 @@ import { registerEstimateRoutes } from "./estimates";
 import { registerInvoiceRoutes } from "./invoices";
 import { registerDocumentSettingsRoutes } from "./documentSettings";
 import { registerServiceProgramRoutes } from "./servicePrograms";
+import { registerCampaignGenerationRoutes } from "./campaignGeneration";
+import { campaignItemRow } from "../lib/campaignItemRow";
 import { CampaignGuardError, registerCampaignIdentityGuards } from "../lib/campaignIdentity";
 import { registerTicketExpectedCompany } from "../lib/ticketExpectedCompany";
 
@@ -2750,6 +2752,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerInvoiceRoutes(app);
   registerDocumentSettingsRoutes(app);
   registerServiceProgramRoutes(app);
+  registerCampaignGenerationRoutes(app);
   registerCampaignIdentityGuards(app);
   registerContractCenterRoutes(app);
 
@@ -14436,42 +14439,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const existingCustomerIds = new Set(existingItems.map(i => i.customerId));
     const allCustomers = await storage.getCustomers(user.activeCompanyId);
     const customerMap = new Map(allCustomers.map(c => [c.id, c]));
-    // Derive service_plan_category from campaign type+subtype for deterministic fulfillment counting
-    let derivedServicePlanCategory: string | null = null;
-    if (campaign.category === "chemical") {
-      derivedServicePlanCategory = "chemical";
-    } else if (campaign.category === "irrigation") {
-      if (campaign.subtype === "spring_turn_on") derivedServicePlanCategory = "irrigation_open";
-      else if (campaign.subtype === "winterization") derivedServicePlanCategory = "irrigation_winterization";
-      else derivedServicePlanCategory = "irrigation_close";
-    }
     const newItems: CampaignItem[] = [];
     for (const custId of customerIds) {
       if (existingCustomerIds.has(custId)) continue;
       const cust = customerMap.get(custId);
       if (!cust) continue;
-      const item = await storage.createCampaignItem({
-        campaignId: req.params.id,
-        companyId: user.activeCompanyId,
-        customerId: custId,
-        customerName: cust.name,
-        customerCity: cust.city || "",
-        status: "pending",
-        notes: null,
-        skipReason: null,
-        photos: [],
-        wasBumpedToBackup: false,
-        completedById: null,
-        completedAt: null,
-        workflowStep: campaign.category === "chemical" ? "pre_communication" : null,
-        preCommSentAt: null,
-        preCommSentById: null,
-        workCompletedAt: null,
-        workCompletedById: null,
-        postCommSentAt: null,
-        postCommSentById: null,
-        servicePlanCategory: derivedServicePlanCategory,
-      });
+      const item = await storage.createCampaignItem(campaignItemRow(campaign, cust));
       newItems.push(item);
     }
     res.json({ added: newItems.length, items: newItems });
