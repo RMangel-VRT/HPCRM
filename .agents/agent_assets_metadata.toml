@@ -17,7 +17,7 @@ content_type = "text/html"
 
 [[outputs]]
 id = "6QXMiWuAJRptNoTwC04VZ"
-uri = "file://docs/data-ownership-audit.md"
+uri = "file://docs/ownership/reports/data-ownership-audit.md"
 type = "text"
 title = "A1 — Data ownership audit"
 description = "Read-only audit covering all 113 schema tables, production counts, source references, copied-field drift and retirement risks."
@@ -31,7 +31,7 @@ content_type = "text/markdown"
 
 [[outputs]]
 id = "MgbMZ95c_gkZwck4CZyfL"
-uri = "file://docs/navigation/N1-implementation-report.md"
+uri = "file://docs/navigation/reports/N1-implementation-report.md"
 type = "text"
 title = "N1 navigation — completed implementation and verification report"
 description = "Requested authenticated role/menu/mobile screenshot manifest, baseline-relative checks, and all reported ticket authorization corrections."
@@ -59,7 +59,7 @@ content_type = "text/html"
 
 [[outputs]]
 id = "AMewhm3fA-sufrxqjiytM"
-uri = "file://docs/navigation/N3-implementation-report.md"
+uri = "file://docs/navigation/reports/N3-implementation-report.md"
 type = "text"
 title = "N3 — Section rails implementation report"
 description = "Changed files, baseline-relative checks, complete screenshot inventory, customer before/after comparisons, map measurements, and verification limitations."
@@ -73,7 +73,7 @@ content_type = "text/markdown"
 
 [[outputs]]
 id = "qlxNaCYxzegK5pMrZHwQe"
-uri = "file://docs/routes-engine-verification.md"
+uri = "file://docs/scheduling/reports/routes-engine-verification.md"
 type = "text"
 title = "R1 Routes final verification report"
 description = "Production dry-run evidence, blocked approval prerequisites, winter-month and deletion safeguards, and final two-time-zone verification."

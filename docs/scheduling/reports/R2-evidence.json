@@ -1,0 +1,290 @@
+{
+  "production": "Read-only access denied; no import/publication/mutations. Owner switch gated on approved company import marker.",
+  "mockup": "Approved HTML requested but not supplied; no mockup fidelity claimed.",
+  "tests": {
+    "baseline-api": {
+      "passed": 2370,
+      "failed": 7,
+      "skipped": 96,
+      "failures": [
+        {
+          "file": "lib/plantEnrichment.test.ts",
+          "name": "enrichPlants \u2014 partial failure marks the sync run as 'partial' in the DB",
+          "reason": "AssertionError: expected undefined to be 'partial' // Object.is equality"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback reconnect \u2014 syncErrorCount reset resets syncErrorCount to 0 on a successful reconnect from an errored state",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback reconnect \u2014 syncErrorCount reset includes syncErrorCount: 0 as an explicit key \u2014 not absent \u2014 so the DB actually resets it",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback reconnect \u2014 syncErrorCount reset does NOT trigger the update at all when the OAuth code exchange fails",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback \u2014 shared mailbox rejects email mismatch returns 400 with Email Mismatch page when shared mailbox email differs from connected Google account",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback \u2014 personal mailbox auto-correct auto-corrects emailAddress when personal mailbox owner signs in with a different (unclaimed) Gmail",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback \u2014 personal mailbox auto-correct rejects when the corrected email is already claimed by another mailbox in the company",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        }
+      ]
+    },
+    "final-api": {
+      "passed": 2368,
+      "failed": 9,
+      "skipped": 105,
+      "failures": [
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback reconnect \u2014 syncErrorCount reset resets syncErrorCount to 0 on a successful reconnect from an errored state",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback reconnect \u2014 syncErrorCount reset includes syncErrorCount: 0 as an explicit key \u2014 not absent \u2014 so the DB actually resets it",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback reconnect \u2014 syncErrorCount reset does NOT trigger the update at all when the OAuth code exchange fails",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback \u2014 shared mailbox rejects email mismatch returns 400 with Email Mismatch page when shared mailbox email differs from connected Google account",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback \u2014 personal mailbox auto-correct auto-corrects emailAddress when personal mailbox owner signs in with a different (unclaimed) Gmail",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "routes/mailboxAccounts.oauthReconnect.test.ts",
+          "name": "OAuth callback \u2014 personal mailbox auto-correct rejects when the corrected email is already claimed by another mailbox in the company",
+          "reason": "SyntaxError: \"undefined\" is not valid JSON"
+        },
+        {
+          "file": "lib/plantEnrichment.test.ts",
+          "name": "enrichPlants \u2014 partial failure marks the sync run as 'partial' in the DB",
+          "reason": "AssertionError: expected undefined to be 'partial' // Object.is equality"
+        },
+        {
+          "file": "services/estimates.integration.test.ts",
+          "name": "serialized draft edits, read payloads and isolation manual display fields are allowed only for equipment/fee/custom; palette fields are plant-only",
+          "reason": "Error: STACK_TRACE_ERROR"
+        },
+        {
+          "file": "services/estimates.integration.test.ts",
+          "name": "serialized draft edits, read payloads and isolation draft and void gates cover every mutation; retitling a sent nonvoid container is allowed",
+          "reason": "Error: STACK_TRACE_ERROR"
+        }
+      ]
+    },
+    "estimates-recheck": {
+      "passed": 25,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    "baseline-crm": {
+      "passed": 902,
+      "failed": 10,
+      "skipped": 0,
+      "failures": [
+        {
+          "file": "components/CrewAssignmentBoard.test.ts",
+          "name": "CrewAssignmentBoard.selectReducer shift click in a different column does not range-extend; falls back to add",
+          "reason": "AssertionError: expected [ 'y' ] to deeply equal [ 'b', 'y' ]"
+        },
+        {
+          "file": "components/CrewAssignmentBoard.test.ts",
+          "name": "CrewAssignmentBoard.selectReducer prune removes ids no longer present and clears lastClicked if it was pruned",
+          "reason": "AssertionError: expected { id: 'b', col: 'u' } to be null"
+        },
+        {
+          "file": "components/TicketConversation.rendered.test.tsx",
+          "name": "Shared ticket conversation preserves the empty state and always offers the main composer and compact navigation",
+          "reason": "TestingLibraryElementError: Unable to find an element with the text: No tickets found. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+        },
+        {
+          "file": "hooks/useTabParam.test.ts",
+          "name": "useTabParam returns the default tab when no tab param exists in the URL",
+          "reason": "ReferenceError: document is not defined"
+        },
+        {
+          "file": "hooks/useTabParam.test.ts",
+          "name": "useTabParam reads the active tab from the URL search string",
+          "reason": "ReferenceError: document is not defined"
+        },
+        {
+          "file": "hooks/useTabParam.test.ts",
+          "name": "useTabParam preserves all non-tab query params when switching tabs",
+          "reason": "ReferenceError: document is not defined"
+        },
+        {
+          "file": "hooks/useTabParam.test.ts",
+          "name": "useTabParam only updates the tab key and leaves every other param untouched",
+          "reason": "ReferenceError: document is not defined"
+        },
+        {
+          "file": "hooks/useTabParam.test.ts",
+          "name": "useTabParam adds the tab param without disturbing existing params when no tab was present",
+          "reason": "ReferenceError: document is not defined"
+        },
+        {
+          "file": "pages/TicketDetail.visits.rendered.test.tsx",
+          "name": "TicketDetail conversation locations always offers the Overview Conversation card and opens the focused tab when empty",
+          "reason": "TestingLibraryElementError: Unable to find an element by: [data-testid=\"button-view-all-comments\"]"
+        },
+        {
+          "file": "components/contracts/rateCardUtils.test.ts",
+          "name": "rateCardUtils groups and counts missing",
+          "reason": "AssertionError: expected 42 to be 23 // Object.is equality"
+        }
+      ]
+    },
+    "final-crm": {
+      "passed": 931,
+      "failed": 10,
+      "skipped": 0,
+      "failures": [
+        {
+          "file": "components/CrewAssignmentBoard.test.ts",
+          "name": "CrewAssignmentBoard.selectReducer shift click in a different column does not range-extend; falls back to add",
+          "reason": "AssertionError: expected [ 'y' ] to deeply equal [ 'b', 'y' ]"
+        },
+        {
+          "file": "components/CrewAssignmentBoard.test.ts",
+          "name": "CrewAssignmentBoard.selectReducer prune removes ids no longer present and clears lastClicked if it was pruned",
+          "reason": "AssertionError: expected { id: 'b', col: 'u' } to be null"
+        },
+        {
+          "file": "components/TicketConversation.rendered.test.tsx",
+          "name": "Shared ticket conversation preserves the empty state and always offers the main composer and compact navigation",
+          "reason": "TestingLibraryElementError: Unable to find an element with the text: No tickets found. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+        },
+        {
+          "file": "hooks/useTabParam.test.ts",
+          "name": "useTabParam returns the default tab when no tab param exists in the URL",
+          "reason": "ReferenceError: document is not defined"
+        },
+        {
+          "file": "hooks/useTabParam.test.ts",
+          "name": "useTabParam reads the active tab from the URL search string",
+          "reason": "ReferenceError: document is not defined"
+        },
+        {
+          "file": "hooks/useTabParam.test.ts",
+          "name": "useTabParam preserves all non-tab query params when switching tabs",
+          "reason": "ReferenceError: document is not defined"
+        },
+        {
+          "file": "hooks/useTabParam.test.ts",
+          "name": "useTabParam only updates the tab key and leaves every other param untouched",
+          "reason": "ReferenceError: document is not defined"
+        },
+        {
+          "file": "hooks/useTabParam.test.ts",
+          "name": "useTabParam adds the tab param without disturbing existing params when no tab was present",
+          "reason": "ReferenceError: document is not defined"
+        },
+        {
+          "file": "pages/TicketDetail.visits.rendered.test.tsx",
+          "name": "TicketDetail conversation locations always offers the Overview Conversation card and opens the focused tab when empty",
+          "reason": "TestingLibraryElementError: Unable to find an element by: [data-testid=\"button-view-all-comments\"]"
+        },
+        {
+          "file": "components/contracts/rateCardUtils.test.ts",
+          "name": "rateCardUtils groups and counts missing",
+          "reason": "AssertionError: expected 42 to be 23 // Object.is equality"
+        }
+      ]
+    }
+  },
+  "typechecks": {
+    "api": {
+      "baseline": 730,
+      "final": 730,
+      "added": [],
+      "removed": []
+    },
+    "crm": {
+      "baseline": 221,
+      "final": 221,
+      "added": [],
+      "removed": []
+    }
+  },
+  "focusedApi-utc": [
+    "Test Files  4 passed (4)",
+    "Tests  57 passed (57)"
+  ],
+  "focusedApi-denver": [
+    "Test Files  4 passed (4)",
+    "Tests  57 passed (57)"
+  ],
+  "changedFiles": [
+    ".agents/memory/route-occurrence-retention.md",
+    ".migration-backup/migrations/0063_route_import_decisions.sql",
+    "artifacts/api-server/src/lib/importPlannerRoutes.ts",
+    "artifacts/api-server/src/lib/plannerFreeze.ts",
+    "artifacts/api-server/src/lib/routeCalendar.ts",
+    "artifacts/api-server/src/lib/routeEngine.integration.test.ts",
+    "artifacts/api-server/src/lib/routeFill.ts",
+    "artifacts/api-server/src/lib/routeReporting.ts",
+    "artifacts/api-server/src/lib/routesR2.integration.test.ts",
+    "artifacts/api-server/src/routes/routeStops.ts",
+    "artifacts/api-server/src/routes/routes.ts",
+    "artifacts/api-server/src/routes/visits.ts",
+    "artifacts/api-server/src/storage.ts",
+    "artifacts/highplains-crm/src/App.tsx",
+    "artifacts/highplains-crm/src/components/AppSidebar.tsx",
+    "artifacts/highplains-crm/src/components/CustomerSchedulingSection.tsx",
+    "artifacts/highplains-crm/src/components/SchedulePreview.tsx",
+    "artifacts/highplains-crm/src/components/nav/navConfig.test.ts",
+    "artifacts/highplains-crm/src/components/nav/navConfig.ts",
+    "artifacts/highplains-crm/src/components/routes/PlannerReplacedBanner.tsx",
+    "artifacts/highplains-crm/src/components/routes/RouteSchedulePreview.tsx",
+    "artifacts/highplains-crm/src/components/routes/RouteStopDrawer.tsx",
+    "artifacts/highplains-crm/src/components/scheduling/BoardPrimitives.tsx",
+    "artifacts/highplains-crm/src/components/scheduling/RainDayDialog.tsx",
+    "artifacts/highplains-crm/src/components/scheduling/RouteBlock.tsx",
+    "artifacts/highplains-crm/src/components/scheduling/scheduling-board.css",
+    "artifacts/highplains-crm/src/components/scheduling/schedulingLayout.test.ts",
+    "artifacts/highplains-crm/src/hooks/use-routes.ts",
+    "artifacts/highplains-crm/src/i18n/locales/en.ts",
+    "artifacts/highplains-crm/src/i18n/locales/es.ts",
+    "artifacts/highplains-crm/src/index.css",
+    "artifacts/highplains-crm/src/lib/routes.test.ts",
+    "artifacts/highplains-crm/src/lib/routes.ts",
+    "artifacts/highplains-crm/src/lib/schedulingBoard.ts",
+    "artifacts/highplains-crm/src/pages/PlannerFreeze.rendered.test.tsx",
+    "artifacts/highplains-crm/src/pages/RoutesPage.rendered.test.tsx",
+    "artifacts/highplains-crm/src/pages/RoutesPage.tsx",
+    "artifacts/highplains-crm/src/pages/SchedulePage.tsx",
+    "artifacts/highplains-crm/src/pages/SchedulingPage.tsx",
+    "artifacts/highplains-crm/src/pages/SchedulingRoutes.rendered.test.tsx",
+    "artifacts/highplains-crm/src/shared/schema.ts",
+    "docs/ownership/data-ownership-map.md",
+    "docs/scheduling/reports/R2-evidence.json",
+    "docs/scheduling/reports/R2-verification.md",
+    "docs/scheduling/reports/summarize-r2.py",
+    "lib/db/src/schema/schema.ts"
+  ]
+}

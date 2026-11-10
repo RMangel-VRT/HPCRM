@@ -4,7 +4,7 @@ description: Rationale for stable wire conventions when building downstream esti
 ---
 
 Keep the draft API's totals conventions stable across the downstream builder
-and lifecycle work; see `docs/estimate-builder-draft-api.md`.
+and lifecycle work; see `docs/estimates/estimate-builder-draft-api.md`.
 
 **Why:** The builder brief left zero-denominator margin behavior unspecified.
 We chose null because even a known positive cost does not make margin defined

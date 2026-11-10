@@ -8,5 +8,9 @@ Reference documents for the scheduling section:
 - [Design sheet](Design.md)
 - [Rules](Rules.md)
 - [Phase 2 rules](Rules-P2.md)
+- [Verification reports and evidence](reports/) — Phase 2 handoffs, Phase 3 release/presentation checks, Routes evidence and ticket conversion reports.
+- [Routes engine verification](reports/routes-engine-verification.md)
+- [Named Routes import verification](reports/routes-named-import-verification.md)
+- [Display-type filter audit](reports/display-type-filter-audit.md)
 
 Keep source documents here so they can be referenced during planning and implementation. The dated master design is preserved as supplied; its implementation-status statements are a snapshot, not a live status report.

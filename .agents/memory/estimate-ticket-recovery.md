@@ -16,5 +16,5 @@ there is no evidence to distinguish them from a failed write.
 
 **How to apply:** Keep the target-status field reconciliation when changing
 the panel or builder. Read the event-precedence and single-decline-reason
-interpretation in `docs/estimate-ticket-integration.md`; do not infer the
+interpretation in `docs/estimates/estimate-ticket-integration.md`; do not infer the
 effective lifecycle event from the current-version pointer alone.

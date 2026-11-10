@@ -2,6 +2,18 @@
 
 A full-featured property maintenance CRM for High Plains Property Maintenance — manages customers, tickets, contracts, campaigns, communications, scheduling, and visual scope mapping.
 
+## Working from slice packs
+
+See [Slice packs](docs/slices/README.md) and the [documentation map](docs/README.md).
+
+1. One slice per task; name the repository rules, `STATUS.md` and slice file by path.
+2. Read all three from the repo, never a pasted or attached copy.
+3. Run pre-flight first; stop and report failures, and never rebuild an earlier slice's work.
+4. Build only the named slice; do not start the next one.
+5. Add exact integration details and deviations to the pack's `STATUS.md`, and write verification to the area's `reports/`.
+
+Slice files are user-controlled; Randy replaces them when a slice changes.
+
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
@@ -65,8 +77,8 @@ Development sampled about 1502 MiB summed process-tree RSS (shared pages counted
 more than once), not a proven minimum production memory size; no memory setting
 was changed. Read-only old production logs confirm fallback warnings, not their
 underlying cause. No publication/live Chromium validation was performed here.
-See [the kit contract](docs/document-kit.md) and
-[verification report](docs/document-kit-verification.md) for reproducible checks,
+See [the kit contract](docs/documents/document-kit.md) and
+[verification report](docs/documents/reports/document-kit-verification.md) for reproducible checks,
 deployment limitations and Acceptance spacing evidence. There is no startup DDL
 or deploy migration hook.
 
@@ -91,7 +103,7 @@ or deploy migration hook.
 
 ## Architecture decisions
 
-- Before adding or changing an owner of a fact, consult [the data-ownership map](docs/data-ownership-map.md). The crew list ownership rollout is marked O1 merged there.
+- Before adding or changing an owner of a fact, consult [the data-ownership map](docs/ownership/data-ownership-map.md). The crew list ownership rollout is marked O1 merged there.
 
 - OpenAPI spec skipped — frontend uses the original `apiRequest` fetch layer directly (no generated hooks)
 - `registerRoutes(app)` in `routes.ts` returns an HTTP server; `index.ts` calls it and invokes `server.listen()`
@@ -157,5 +169,5 @@ If the Connect button shows a 503 toast in production, the deployment is missing
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
-- Contract Center manual freeze/import release order and Phase 7 shared-object retention: `docs/contract-center-audit-rollout.md`.
-- Standalone plant palettes are retired. Keep dormant schema and legacy proposal rendering until a separate reviewed drop: `docs/plant-palette-retirement.md` (includes Randy's read-only pre-flight SQL).
+- Contract Center manual freeze/import release order and Phase 7 shared-object retention: `docs/contracts/contract-center-audit-rollout.md`.
+- Standalone plant palettes are retired. Keep dormant schema and legacy proposal rendering until a separate reviewed drop: `docs/estimates/reports/plant-palette-retirement.md` (includes Randy's read-only pre-flight SQL).

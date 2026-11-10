@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 /**
  * Mirrors the ticket identity header (TicketDetail `header-ticket-identity`) with the same tokens:
  * rounded-xl card, 4px hue top border, hue-tinted border, icon-chip badge, state pill, metadata strip.
- * Mirrored rather than extracted so TicketDetail stays untouched (see docs/estimate-builder-screen.md).
+ * Mirrored rather than extracted so TicketDetail stays untouched (see docs/estimates/estimate-builder-screen.md).
  */
 export const ESTIMATE_HUE = ticketHue({ name: "Estimate Request", typeKey: "estimate_request" });
 

@@ -1,4 +1,4 @@
-// Read-only source inventory helper for docs/data-ownership-audit.md.
+// Read-only source inventory helper for docs/ownership/reports/data-ownership-audit.md.
 // Does not import application code or connect to a database.
 import fs from "node:fs";
 import path from "node:path";
