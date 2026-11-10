@@ -1541,8 +1541,8 @@ export const insertCustomerMapLayerSchema = createInsertSchema(customerMapLayers
 export type InsertCustomerMapLayer = z.infer<typeof insertCustomerMapLayerSchema>;
 export type CustomerMapLayer = typeof customerMapLayers.$inferSelect;
 
-// Customer Map Documents - PDF maps and documents
-export const customerMapDocuments = pgTable("customer_map_documents", {
+// Same customer-uploaded file owner as the server; contract files stay term-owned.
+export const customerDocuments = pgTable("customer_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
@@ -1550,19 +1550,35 @@ export const customerMapDocuments = pgTable("customer_map_documents", {
   filePath: text("file_path").notNull(), // Object storage path
   fileType: text("file_type").notNull().default("pdf"), // pdf, image, etc.
   fileSize: integer("file_size"), // Size in bytes
+  category: text("category").notNull().default("map"),
+  mimeType: text("mime_type"),
+  note: text("note"),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table: any) => ({
+  companyCustomerCategory: index("customer_documents_company_customer_category_idx").on(table.companyId, table.customerId, table.category),
+  noteLength: check("customer_documents_note_check", sql`length(${table.note}) <= 500`),
+  categoryCheck: check("customer_documents_category_check", sql`${table.category} IN ('map', 'site_plan', 'irrigation', 'photo', 'other')`),
+}));
 
-export const insertCustomerMapDocumentSchema = createInsertSchema(customerMapDocuments).omit({
+export const insertCustomerDocumentSchema = createInsertSchema(customerDocuments).omit({
   id: true,
   createdAt: true,
+  updatedAt: true,
 }).extend({
   fileType: z.string().default("pdf"),
   fileSize: z.number().int().optional(),
+  note: z.string().max(500).nullable().optional(),
+  category: z.enum(["map", "site_plan", "irrigation", "photo", "other"]).default("map"),
 });
 
-export type InsertCustomerMapDocument = z.infer<typeof insertCustomerMapDocumentSchema>;
-export type CustomerMapDocument = typeof customerMapDocuments.$inferSelect;
+export type InsertCustomerDocument = z.infer<typeof insertCustomerDocumentSchema>;
+export type CustomerDocument = typeof customerDocuments.$inferSelect;
+export const customerMapDocuments = customerDocuments;
+export const insertCustomerMapDocumentSchema = insertCustomerDocumentSchema;
+export type InsertCustomerMapDocument = InsertCustomerDocument;
+export type CustomerMapDocument = CustomerDocument;
 
 // ==================== SCHEDULING SYSTEM ====================
 

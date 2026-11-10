@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Edit, Plus, Mail, Lock } from "lucide-react";
+import { Edit, Plus, Mail, Lock, Upload } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
@@ -43,6 +43,7 @@ import { aggregateTerms } from "@/components/customer/dashboard/dashboardModel";
 import { useCustomerScope } from "@/lib/customerScope";
 import PreviousContractsSection from "@/components/customer/pages/PreviousContractsSection";
 import ServicesPage from "@/components/customer/pages/ServicesPage";
+import DocumentsPage from "@/components/customer/documents/DocumentsPage";
 import PropertyPage from "@/components/customer/pages/PropertyPage";
 import ProposalsPage, { type ProposalsView } from "@/components/customer/pages/ProposalsPage";
 import BillingPage, { type BillingView } from "@/components/customer/pages/BillingPage";
@@ -249,6 +250,7 @@ export default function CustomerDetail() {
 
 
   const [isLogCommOpen, setIsLogCommOpen] = useState(false);
+  const [documentUploadSignal, setDocumentUploadSignal] = useState(0);
   const createProposal = useMutation({
     // Same request and destination as the Proposals page's existing New proposal flow.
     mutationFn: async () => {
@@ -326,6 +328,8 @@ export default function CustomerDetail() {
         <Button size="sm" onClick={openNoteDialog} data-testid="button-add-note"><Plus className="mr-2 h-4 w-4" />{t("customerDetail.addNote")}</Button>) }] : [];
       case "communications": return isPrivilegedUser ? [{ node: (
         <Button size="sm" variant="outline" onClick={() => setIsLogCommOpen(true)} data-testid="button-log-new-comm"><Plus className="mr-2 h-4 w-4" />{t("emailTracking.logCommunication")}</Button>) }] : [];
+      case "documents": return isPrivilegedUser ? [{ primary: true, node: (
+        <Button size="sm" onClick={() => setDocumentUploadSignal(n => n + 1)} data-testid="button-upload-documents"><Upload className="mr-2 h-4 w-4" />{t("cp5.documents.upload.action")}</Button>) }] : [];
       // New contract is a section-title action (not a header Add action); same admin/office gate as the contract center.
       case "contracts": return isPrivilegedUser ? [{ primary: true, node: (
         <Button size="sm" asChild><Link href={`/dashboard/contracts/new?customerId=${encodeURIComponent(customer.id)}`} data-testid="button-new-contract">
@@ -370,6 +374,8 @@ export default function CustomerDetail() {
         return <NotesPage customerId={customer.id} notes={notesQuery.data} isLoading={isLoadingNotes} error={notesQuery.error}
           onRetry={() => void notesQuery.refetch()} canWrite={canWriteNotes(accessRole)}
           onEdit={note => { setEditingNote(note); noteForm.reset({ body: note.body }); }} />;
+      case "documents":
+        return <DocumentsPage customerId={customer.id} privileged={isPrivilegedUser} uploadSignal={documentUploadSignal} />;
       case "communications":
         return <CommunicationListTab queryKey={["/api/customers", customer.id, "communications"]} customerId={customer.id} showLogButton={false} />;
       case "services":
@@ -413,7 +419,7 @@ export default function CustomerDetail() {
 
         <section aria-labelledby="customer-page-heading" className="space-y-4">
           <PageWidth narrow={(NARROW_PAGES as readonly string[]).includes(activeTab)}>
-            <SectionTitle title={pageLabel} actions={isAllowed ? titleActions() : []} />
+            <SectionTitle title={pageLabel} lead={isAllowed && activeTab === "documents" ? t("cp5.documents.lead") : undefined} actions={isAllowed ? titleActions() : []} />
             {renderPage()}
           </PageWidth>
         </section>

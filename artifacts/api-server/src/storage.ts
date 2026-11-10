@@ -663,7 +663,7 @@ export class PgStorage implements IStorage {
     // 3. Delete scheduling data
     
     // 4. Delete customer data
-    await db.execute(sql`DELETE FROM customer_map_documents`);
+    await db.execute(sql`DELETE FROM customer_documents`);
     await db.execute(sql`DELETE FROM customer_map_layers`);
     await db.execute(sql`DELETE FROM notes`);
     await db.execute(sql`DELETE FROM contract_services`);

@@ -84,6 +84,8 @@ import { customerSetupRouter, createCustomerRequest, setupFailure, customerSyncB
 import { registerCustomerContractSummary } from "./customerContractSummary";
 import { registerCustomerNotePins } from "./customerNotePins";
 import { registerCustomerListSummary } from "./customerListSummary";
+import { registerCustomerDocuments } from "./customerDocuments";
+import { customerDocumentRawAccess } from "../services/customerDocumentRawAccess";
 import { loadCustomerListMetadata } from "../services/customerListSummary";
 import { isLoggedCustomerCommunication } from "../services/customerCommunicationPresentation";
 import { registerContractQuestionReconciliation } from "../lib/contractQuestionFlags";
@@ -4160,6 +4162,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
+    // Customer documents must reauthorize the customer AND accepted DB row.
+    // Never let the generic ACL route expose pending/rejected/deleted uploads.
+    if (!await customerDocumentRawAccess(req.path, user)) {
+      return res.status(404).send("Use the customer's Documents page");
+    }
     const objectStorageService = new ObjectStorageService();
     
     try {
@@ -8608,89 +8615,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Customer Map Documents (PDF) routes
-  app.get("/api/customers/:customerId/map-documents", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    const documents = await storage.getCustomerMapDocuments(req.params.customerId, user.activeCompanyId);
-    res.json(documents);
-  });
-
-  app.post("/api/customers/:customerId/map-documents", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions");
-    }
-
-    const result = insertCustomerMapDocumentSchema.safeParse({
-      ...req.body,
-      customerId: req.params.customerId,
-      companyId: user.activeCompanyId,
-    });
-    if (!result.success) {
-      return res.status(400).send(result.error.message);
-    }
-
-    const document = await storage.createCustomerMapDocument(result.data);
-    res.json(document);
-  });
-
-  app.delete("/api/customers/:customerId/map-documents/:id", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions");
-    }
-
-    await storage.deleteCustomerMapDocument(req.params.id, user.activeCompanyId);
-    res.status(200).send("Deleted");
-  });
-
-  // PDF/document upload URL
-  app.post("/api/customers/:customerId/map-documents/upload-url", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-    const user = req.user as UserWithContext;
-    if (user.activeRole === "field_manager" || user.activeRole === "chemical_manager" || user.activeRole === "field" || user.activeRole === "irrigation_manager" || user.activeRole === "landscape_supervisor") {
-      return res.status(403).send("Insufficient permissions");
-    }
-
-    const { fileName, contentType } = req.body;
-    if (!fileName) {
-      return res.status(400).send("fileName is required");
-    }
-
-    const timestamp = Date.now();
-    const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
-    const objectPath = `.private/map-documents/${user.activeCompanyId}/${req.params.customerId}/${timestamp}_${safeName}`;
-
-    try {
-      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-      if (!bucketId) {
-        return res.status(500).send("Object storage not configured");
-      }
-
-      const uploadURL = await signObjectURL({
-        bucketName: bucketId,
-        objectName: objectPath,
-        method: "PUT",
-        ttlSec: 900,
-      });
-
-      res.json({ uploadURL, objectPath: `/${bucketId}/${objectPath}` });
-    } catch (error) {
-      console.error("Error generating upload URL:", error);
-      res.status(500).send("Failed to generate upload URL");
-    }
-  });
+  // Canonical handlers plus thin one-release /map-documents aliases.
+  registerCustomerDocuments(app);
 
   // ---------------------
   // Ticket Notifications

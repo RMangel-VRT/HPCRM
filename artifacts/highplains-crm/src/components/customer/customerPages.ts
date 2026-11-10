@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import {
   LayoutDashboard, Users, MessageSquare, Mail, CheckCircle2, Ticket as TicketIcon, Snowflake, Map,
-  FileText, FileSignature, DollarSign, Building2,
+  FileText, FileSignature, DollarSign, Building2, FolderOpen,
 } from "lucide-react";
 
 /**
@@ -9,7 +9,7 @@ import {
  * breadcrumb and document.title all read `labelKey` from here.
  */
 export type CustomerPageKey =
-  | "dashboard" | "branches" | "contacts" | "notes" | "communications"
+  | "dashboard" | "branches" | "contacts" | "notes" | "documents" | "communications"
   | "services" | "tickets" | "snow" | "property"
   | "proposals" | "contracts" | "billing";
 
@@ -31,6 +31,7 @@ export const CUSTOMER_PAGES: Record<CustomerPageKey, CustomerPageDef> = {
   branches: { key: "branches", labelKey: "customerPages.pages.branches", group: "main", access: "all", icon: Building2 },
   contacts: { key: "contacts", labelKey: "customerPages.pages.contacts", group: "main", access: "all", icon: Users },
   notes: { key: "notes", labelKey: "customerPages.pages.notes", group: "main", access: "all", icon: MessageSquare },
+  documents: { key: "documents", labelKey: "customerPages.pages.documents", group: "main", access: "all", icon: FolderOpen },
   communications: { key: "communications", labelKey: "customerPages.pages.communications", group: "main", access: "privileged", icon: Mail },
   services: { key: "services", labelKey: "customerPages.pages.services", group: "work", access: "all", icon: CheckCircle2 },
   tickets: { key: "tickets", labelKey: "customerPages.pages.tickets", group: "work", access: "all", icon: TicketIcon },
@@ -48,12 +49,12 @@ export const GROUP_LABEL_KEYS: Record<CustomerPageGroup, string | null> = {
 };
 
 export const REGULAR_PAGE_ORDER: readonly CustomerPageKey[] = [
-  "dashboard", "contacts", "notes", "communications",
+  "dashboard", "contacts", "notes", "documents", "communications",
   "services", "tickets", "snow", "property",
   "proposals", "contracts", "billing",
 ];
 export const PARENT_PAGE_ORDER: readonly CustomerPageKey[] = [
-  "dashboard", "branches", "contacts", "notes", "communications",
+  "dashboard", "branches", "contacts", "notes", "documents", "communications",
   "tickets",
   "contracts", "billing",
 ];

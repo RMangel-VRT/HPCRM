@@ -21,6 +21,7 @@ import LayerMapViewer from "@/components/LayerMapViewer";
 import CustomerLocationEditor from "@/components/CustomerLocationEditor";
 import CustomerSchedulingSection from "@/components/CustomerSchedulingSection";
 import SiteDetailsCard from "@/components/customer/SiteDetailsCard";
+import { MapPdfsCard } from "@/components/customer/documents/MapPdfsCard";
 
 type Category = "base" | "community" | "snow" | "custom";
 
@@ -239,6 +240,7 @@ export default function PropertyPage({ customer, canEditLocation, canEditLayers,
 
         <div className="space-y-4 min-w-0">
           <SiteDetailsCard customer={customer} canEdit={canEditCustomer} />
+          <MapPdfsCard customerId={customerId} />
           <div data-testid="card-mowing-setup">
             <CustomerSchedulingSection customerId={customerId} readOnly={!canEditLocation} />
           </div>

@@ -31,7 +31,7 @@ function fixture({ role = "admin", collapsed = false, snow = true, kind = "regul
 describe("CP2 customer rail", () => {
   it("admin regular customer: 11 pages, one name each, Work and Money headings, no name block", () => {
     const { nav, onTabChange, pages } = fixture();
-    expect(pages).toEqual(["dashboard", "contacts", "notes", "communications", "services", "tickets", "snow", "property", "proposals", "contracts", "billing"]);
+    expect(pages).toEqual(["dashboard", "contacts", "notes", "documents", "communications", "services", "tickets", "snow", "property", "proposals", "contracts", "billing"]);
     const groups = within(nav).getAllByRole("group");
     expect(groups.map(g => g.getAttribute("aria-label"))).toEqual(["Customer", "Work", "Money"]);
     expect(within(nav).getByTestId("nav-item-dashboard").textContent).toBe("Dashboard");
@@ -58,7 +58,7 @@ describe("CP2 customer rail", () => {
   it("snow hidden without coverage; parent order has Branches and no Services/Property/Snow/Proposals", () => {
     expect(visibleCustomerPages({ kind: "regular", accessRole: "admin", snowCovered: false })).not.toContain("snow");
     expect(visibleCustomerPages({ kind: "parent", accessRole: "admin", snowCovered: true }))
-      .toEqual(["dashboard", "branches", "contacts", "notes", "communications", "tickets", "contracts", "billing"]);
+      .toEqual(["dashboard", "branches", "contacts", "notes", "documents", "communications", "tickets", "contracts", "billing"]);
   });
 
   it("collapsed rail is icon-only with labelled buttons and dividers between groups", () => {

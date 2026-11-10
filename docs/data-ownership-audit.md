@@ -1,4 +1,6 @@
 > Historical audit. Recurring scheduling was superseded by the November 2026 retirement; use the current ownership map for live owners. Do not execute the legacy scheduling queries below against the retired development schema.
+>
+> Customer files, November 9, 2026: CP5 renames `customer_map_documents` in place to `customer_documents`; the historical names/counts below remain dated audit evidence. Contract files remain owned by `term_documents`, projected read-only on customer pages. See the current ownership map and `docs/cp5-verification.md`.
 
 7 areas have live duplicates; 3 tables look dead; 5 copied columns have drifted.
 
