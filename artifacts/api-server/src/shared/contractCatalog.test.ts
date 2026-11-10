@@ -3,9 +3,19 @@ import { describe, expect, it } from "vitest";
 import {
   SCOPE_CATALOG, RATE_CARD_DEFAULTS, LEGACY_SERVICE_TO_SCOPE,
   LEGACY_CONTRACT_LINE, scopeServiceByKey,
+  campaignServices,
 } from "./contractCatalog";
+import { routeService } from "../../../../lib/db/src/routeContracts";
+import { campaignServiceSql } from "../../../../lib/db/src/campaignSql";
 
 describe("Contract Center catalog", () => {
+  it("classifies all services, preserves Routes, and matches database campaign integrity keys", () => {
+    expect(SCOPE_CATALOG.every(s => ["route", "campaign", "on_request", "event", "none"].includes(s.scheduling))).toBe(true);
+    expect(SCOPE_CATALOG.filter(s => s.scheduling === "route").map(s => s.key).sort()).toEqual([...routeService.options].sort());
+    expect(campaignServices().map(s => s.key)).toEqual(["aeration", "cleanups", "shrub_trimming", "ornamental_grass", "tree_pruning", "chemical", "irrigation_open", "irrigation_winterization"]);
+    expect(campaignServiceSql.match(/'([^']+)'/g)?.map(s => s.slice(1, -1))).toEqual(campaignServices().map(s => s.key));
+    expect(scopeServiceByKey("other:bed-weeding")).toBeUndefined();
+  });
   it("contains all 25 scope services and 43 distinct rate defaults", () => {
     expect(SCOPE_CATALOG).toHaveLength(25);
     expect(RATE_CARD_DEFAULTS).toHaveLength(43);

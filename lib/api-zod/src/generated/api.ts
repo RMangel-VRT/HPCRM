@@ -34,6 +34,12 @@ export const ListVisitsResponseItem = zod
     crewId: zod.string().nullable(),
     visitDate: zod.string().regex(listVisitsResponseOneVisitDateRegExp),
     sourceType: zod.enum(["ticket", "internal", "route", "campaign_item"]),
+    campaignItemId: zod
+      .string()
+      .nullable()
+      .describe(
+        "Engine-owned link; present exactly for campaign_item visits. Never writable through generic visit endpoints.",
+      ),
     routeStopId: zod.string().nullish(),
     routeOccurrenceDate: zod.string().nullish(),
     serviceKey: zod.string().nullable(),
@@ -223,6 +229,12 @@ export const UpdateVisitResponse = zod
     crewId: zod.string().nullable(),
     visitDate: zod.string().regex(updateVisitResponseOneVisitDateRegExp),
     sourceType: zod.enum(["ticket", "internal", "route", "campaign_item"]),
+    campaignItemId: zod
+      .string()
+      .nullable()
+      .describe(
+        "Engine-owned link; present exactly for campaign_item visits. Never writable through generic visit endpoints.",
+      ),
     routeStopId: zod.string().nullish(),
     routeOccurrenceDate: zod.string().nullish(),
     serviceKey: zod.string().nullable(),
@@ -288,6 +300,12 @@ export const TicketVisitsResponseItem = zod
     crewId: zod.string().nullable(),
     visitDate: zod.string().regex(ticketVisitsResponseOneVisitDateRegExp),
     sourceType: zod.enum(["ticket", "internal", "route", "campaign_item"]),
+    campaignItemId: zod
+      .string()
+      .nullable()
+      .describe(
+        "Engine-owned link; present exactly for campaign_item visits. Never writable through generic visit endpoints.",
+      ),
     routeStopId: zod.string().nullish(),
     routeOccurrenceDate: zod.string().nullish(),
     serviceKey: zod.string().nullable(),

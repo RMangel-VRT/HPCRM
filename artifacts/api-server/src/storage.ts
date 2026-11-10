@@ -9,6 +9,7 @@ import { accessRole } from "../../../lib/db/src/accessRole";
 import { afterCustomerEdit, markPending, writeCustomer } from "./services/qboCustomerWrites";
 import { bindCustomer, unlinkCustomerLocked } from "./services/qboCustomerBinding";
 import { promoteQboCustomer } from "./services/qboCustomerPromotion";
+import { CampaignGuardError, assertNoCampaignVisitLinks } from "./lib/campaignIdentity";
 
 export interface MyExtraBillableBatch {
   campaignId: string;
@@ -28,6 +29,10 @@ export interface MyExtraBillableBatch {
   photoCount: number;
   nextDueDate: string | null;
 }
+export type CampaignItemIdentity = {
+  campaignSource: "manual" | "contract"; campaignServiceKey: string | null;
+  campaignRoundMonth: string | null; campaignRoundSeq: number | null;
+};
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct, type ChemicalNotificationTemplate, type InsertChemicalNotificationTemplate, type MailboxBackfillRun, type InsertMailboxBackfillRun } from "@workspace/db";
 import { db } from "./db";
 import { lockCrewCompany, validateStandingCrew, recordCrewLinkChoice } from "./lib/crewLinks";
@@ -410,10 +415,10 @@ export interface IStorage {
   deleteCampaign(id: string, companyId: string): Promise<void>;
   getCampaignItems(campaignId: string, companyId: string): Promise<CampaignItem[]>;
   getCampaignItemById(itemId: string, companyId: string): Promise<CampaignItem | undefined>;
-  getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]>;
-  getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]>;
+  getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & CampaignItemIdentity & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]>;
+  getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & CampaignItemIdentity & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]>;
   getCampaignItemsByCustomerId(customerId: string, companyId: string): Promise<(CampaignItem & { campaign: Campaign })[]>;
-  getCampaignItemsGlobal(companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignWindowStart: string; campaignWindowEnd: string; campaignCategory: string })[]>;
+  getCampaignItemsGlobal(companyId: string): Promise<(CampaignItem & CampaignItemIdentity & { campaignTitle: string; campaignWindowStart: string; campaignWindowEnd: string; campaignCategory: string })[]>;
   createCampaignItem(item: InsertCampaignItem): Promise<CampaignItem>;
   updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem & { updatedAt: Date }>): Promise<CampaignItem | undefined>;
   deleteCampaignItem(id: string, companyId: string): Promise<void>;
@@ -894,6 +899,7 @@ export class PgStorage implements IStorage {
   async deleteCustomer(id: string, companyId: string): Promise<void> {
     await db.transaction(async tx => {
       await lockVisitCompany(tx, companyId);
+      await assertNoCampaignVisitLinks(and(eq(campaignItems.customerId, id), eq(campaignItems.companyId, companyId))!, tx);
       await tx.delete(customers).where(and(eq(customers.id, id), eq(customers.companyId, companyId)));
     });
   }
@@ -3626,7 +3632,13 @@ export class PgStorage implements IStorage {
   }
 
   async deleteCampaign(id: string, companyId: string): Promise<void> {
-    await db.delete(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.companyId, companyId)));
+    await db.transaction(async tx => {
+      await lockVisitCompany(tx, companyId);
+      const [campaign] = await tx.select().from(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.companyId, companyId))).for("update");
+      if (campaign?.source === "contract") throw new CampaignGuardError("Generated campaigns cannot be deleted. Archive instead.");
+      await assertNoCampaignVisitLinks(and(eq(campaignItems.campaignId, id), eq(campaignItems.companyId, companyId))!, tx);
+      await tx.delete(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.companyId, companyId)));
+    });
   }
 
   async getCampaignItems(campaignId: string, companyId: string): Promise<CampaignItem[]> {
@@ -3638,8 +3650,8 @@ export class PgStorage implements IStorage {
     return rows[0];
   }
 
-  async getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]> {
-    type Row = CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null };
+  async getCampaignItemsByCustomer(customerId: string, companyId: string): Promise<(CampaignItem & CampaignItemIdentity & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]> {
+    type Row = CampaignItem & CampaignItemIdentity & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null };
     const rows = await db
       .select({
         id: campaignItems.id,
@@ -3674,6 +3686,10 @@ export class PgStorage implements IStorage {
         createdAt: campaignItems.createdAt,
         updatedAt: campaignItems.updatedAt,
         campaignTitle: campaigns.title,
+        campaignSource: campaigns.source,
+        campaignServiceKey: campaigns.serviceKey,
+        campaignRoundMonth: campaigns.roundMonth,
+        campaignRoundSeq: campaigns.roundSeq,
         campaignCategory: campaigns.category,
         campaignSubtype: campaigns.subtype,
         campaignStatus: campaigns.status,
@@ -3688,8 +3704,8 @@ export class PgStorage implements IStorage {
     return rows as Row[];
   }
 
-  async getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]> {
-    type Row = CampaignItem & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null };
+  async getCampaignItemsByProperty(propertyId: string, companyId: string): Promise<(CampaignItem & CampaignItemIdentity & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null })[]> {
+    type Row = CampaignItem & CampaignItemIdentity & { campaignTitle: string; campaignCategory: string; campaignSubtype: string | null; campaignStatus: string; campaignWindowStart: string; campaignWindowEnd: string; seasonId: string | null };
     const rows = await db
       .select({
         id: campaignItems.id,
@@ -3724,6 +3740,10 @@ export class PgStorage implements IStorage {
         createdAt: campaignItems.createdAt,
         updatedAt: campaignItems.updatedAt,
         campaignTitle: campaigns.title,
+        campaignSource: campaigns.source,
+        campaignServiceKey: campaigns.serviceKey,
+        campaignRoundMonth: campaigns.roundMonth,
+        campaignRoundSeq: campaigns.roundSeq,
         campaignCategory: campaigns.category,
         campaignSubtype: campaigns.subtype,
         campaignStatus: campaigns.status,
@@ -3751,11 +3771,15 @@ export class PgStorage implements IStorage {
     return rows.map(r => ({ ...r.item, campaign: r.campaign }));
   }
 
-  async getCampaignItemsGlobal(companyId: string): Promise<(CampaignItem & { campaignTitle: string; campaignWindowStart: string; campaignWindowEnd: string; campaignCategory: string })[]> {
+  async getCampaignItemsGlobal(companyId: string): Promise<(CampaignItem & CampaignItemIdentity & { campaignTitle: string; campaignWindowStart: string; campaignWindowEnd: string; campaignCategory: string })[]> {
     const rows = await db
       .select({
         ...getTableColumns(campaignItems),
         campaignTitle: campaigns.title,
+        campaignSource: campaigns.source,
+        campaignServiceKey: campaigns.serviceKey,
+        campaignRoundMonth: campaigns.roundMonth,
+        campaignRoundSeq: campaigns.roundSeq,
         campaignWindowStart: campaigns.windowStart,
         campaignWindowEnd: campaigns.windowEnd,
         campaignCategory: campaigns.category,
@@ -3785,7 +3809,15 @@ export class PgStorage implements IStorage {
   }
 
   async deleteCampaignItem(id: string, companyId: string): Promise<void> {
-    await db.delete(campaignItems).where(and(eq(campaignItems.id, id), eq(campaignItems.companyId, companyId)));
+    await db.transaction(async tx => {
+      await lockVisitCompany(tx, companyId);
+      const [row] = await tx.select({ source: campaigns.source }).from(campaignItems)
+        .innerJoin(campaigns, and(eq(campaigns.id, campaignItems.campaignId), eq(campaigns.companyId, companyId)))
+        .where(and(eq(campaignItems.id, id), eq(campaignItems.companyId, companyId)));
+      if (row?.source === "contract") throw new CampaignGuardError("Membership follows contracts. Change the property's contract scope.");
+      await assertNoCampaignVisitLinks(and(eq(campaignItems.id, id), eq(campaignItems.companyId, companyId))!, tx);
+      await tx.delete(campaignItems).where(and(eq(campaignItems.id, id), eq(campaignItems.companyId, companyId)));
+    });
   }
 
   async createCampaignWithItems(campaignData: InsertCampaign, itemsData: InsertCampaignItem[]): Promise<Campaign> {

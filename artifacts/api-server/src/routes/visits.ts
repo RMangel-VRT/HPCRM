@@ -32,6 +32,11 @@ const rangeBody = z.object({ from: visitFields.visitDate, to: visitFields.visitD
 );
 const reorderBody = z.object({ crewId: z.string().min(1), visitDate: visitFields.visitDate, visitIds: z.array(z.string().min(1)) });
 
+export function rejectCampaignVisitIdentity(body: Record<string, unknown>) {
+  if (["campaignItemId", "campaign_item_id", "sourceType", "source_type"].some(k => Object.hasOwn(body, k)))
+    throw new VisitError(400, "ENGINE_OWNED_VISIT_IDENTITY", "Campaign visit identity cannot be supplied to the generic visit editor.");
+}
+
 export function authorize(req: Request, res: Response): UserWithContext | undefined {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Not authenticated" }); return; }
   const user = req.user as UserWithContext;
@@ -60,6 +65,7 @@ export async function patchVisitInTransaction(tx: VisitTransaction, companyId: s
   if (!identity) throw new VisitError(404, "NOT_FOUND");
   if (identity.ticketId) await lockVisitTickets(tx, companyId, [identity.ticketId]);
   const [existing] = await tx.select().from(visits).where(and(eq(visits.id, id), eq(visits.companyId, companyId)));
+  if (existing.sourceType === "campaign_item") throw new VisitError(409, "CAMPAIGN_VISIT_READ_ONLY", "Campaign work is recorded through its campaign, not the generic visit editor.");
   const moved = (body.crewId !== undefined && body.crewId !== existing.crewId) || (body.visitDate !== undefined && body.visitDate !== existing.visitDate);
   if (["done", "skipped", "cancelled"].includes(existing.status) && moved) throw new VisitError(409, "VISIT_CLOSED");
   if (existing.ticketId && (moved || (body.status !== undefined && openVisitStatuses.includes(body.status as "planned" | "in_progress") && !openVisitStatuses.includes(existing.status as "planned" | "in_progress"))))
@@ -123,6 +129,7 @@ export function registerVisitRoutes(app: Express) {
   app.post("/api/visits", async (req, res): Promise<void> => {
     const user = authorize(req, res); if (!user) return;
     try {
+      rejectCampaignVisitIdentity(req.body);
       const contract = CreateVisitBody.safeParse(req.body);
       if (!contract.success) throw new VisitError(400, "INVALID_VISIT", contract.error.message);
       const body = visitCreateBody.parse(contract.data);
@@ -152,10 +159,11 @@ export function registerVisitRoutes(app: Express) {
       const body = reorderBody.parse(contract.data);
       const result = await write(user.activeCompanyId, async tx => {
         await validateVisitCrew(tx, user.activeCompanyId, body.crewId);
-        const rows = await tx.select({ id: visits.id, ticketId: visits.ticketId }).from(visits).where(and(eq(visits.companyId, user.activeCompanyId), eq(visits.crewId, body.crewId),
+        const rows = await tx.select({ id: visits.id, ticketId: visits.ticketId, sourceType: visits.sourceType }).from(visits).where(and(eq(visits.companyId, user.activeCompanyId), eq(visits.crewId, body.crewId),
           eq(visits.visitDate, body.visitDate), inArray(visits.status, [...openVisitStatuses])));
         if (new Set(body.visitIds).size !== body.visitIds.length || rows.length !== body.visitIds.length || rows.some(v => !body.visitIds.includes(v.id)))
           throw new VisitError(400, "INVALID_VISIT_IDS", "IDs must exactly match the open crew-day visits");
+        if (rows.some(v => v.sourceType === "campaign_item")) throw new VisitError(409, "CAMPAIGN_VISIT_READ_ONLY");
         const ticketIds = [...new Set(rows.flatMap(v => v.ticketId ? [v.ticketId] : []))].sort();
         await lockVisitTickets(tx, user.activeCompanyId, ticketIds);
         if (body.visitIds.length) await tx.update(visits).set({
@@ -171,6 +179,7 @@ export function registerVisitRoutes(app: Express) {
   app.patch("/api/visits/:id", async (req, res): Promise<void> => {
     const user = authorize(req, res); if (!user) return;
     try {
+      rejectCampaignVisitIdentity(req.body);
       const contract = UpdateVisitBody.safeParse(req.body);
       if (!contract.success) throw new VisitError(400, "INVALID_VISIT", contract.error.message);
       const body = pickProvided(visitUpdateBody.parse(contract.data), req.body);
@@ -188,6 +197,7 @@ export function registerVisitRoutes(app: Express) {
         if (!identity) throw new VisitError(404, "NOT_FOUND");
         if (identity.ticketId) await lockVisitTickets(tx, user.activeCompanyId, [identity.ticketId]);
         const [existing] = await tx.select().from(visits).where(and(eq(visits.id, id), eq(visits.companyId, user.activeCompanyId)));
+        if (existing.sourceType === "campaign_item") throw new VisitError(409, "CAMPAIGN_VISIT_READ_ONLY", "Recorded campaign work cannot be deleted.");
         if (existing.status !== "planned") throw new VisitError(409, "VISIT_CLOSED", "Only planned visits can be deleted; cancel instead");
         // Route occurrences are durable tombstones: deletion must not let fill recreate them.
         if (existing.sourceType === "route") await tx.update(visits).set({ status: "cancelled", updatedAt: new Date() })

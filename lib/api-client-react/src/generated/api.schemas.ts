@@ -109,6 +109,11 @@ export interface Visit {
   /** @pattern ^\d{4}-\d{2}-\d{2}$ */
   visitDate: string;
   sourceType: VisitSourceType;
+  /**
+   * Engine-owned link; present exactly for campaign_item visits. Never writable through generic visit endpoints.
+   * @nullable
+   */
+  campaignItemId: string | null;
   /** @nullable */
   routeStopId?: string | null;
   /** @nullable */

@@ -109,6 +109,7 @@ const EquipmentFeesCatalog = lazy(() => import("@/pages/EquipmentFeesCatalog"));
 const LaborRatesPreview = lazy(() => import("@/pages/LaborRatesPreview"));
 const QuickBooksSetup = lazy(() => import("@/pages/QuickBooksSetup"));
 const QboCustomerMapping = lazy(() => import("@/pages/QboCustomerMapping"));
+const ServiceTimingPage = lazy(() => import("@/pages/ServiceTimingPage"));
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -429,6 +430,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/settings/my-mailbox" component={MyMailboxPage} />
         <ProtectedRoute path="/dashboard/settings/notification-templates" component={ChemicalNotificationTemplates} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/settings/qbo-customers" component={QboCustomerMapping} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/settings/service-timing" component={ServiceTimingPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/settings/crews" component={SettingsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/reports" component={ReportsPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/users" component={UsersPage} allowedRoles={["admin"]} />

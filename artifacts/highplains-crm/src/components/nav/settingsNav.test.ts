@@ -6,6 +6,7 @@ import { SETTINGS_SECTIONS, isSettingsRailPage, settingsRailFor, settingsSection
 const expected = [
   ["Company", ["company", "documents", "seasons", "benchmarks", "crews", "property-management"]],
   ["Services & catalog", ["service-plans", "work-item-templates", "chemical-products", "contracts"]],
+  ["Scheduling", ["service-timing"]],
   ["Communication", ["email-templates", "notification-templates", "shared-mailboxes"]],
   ["Integrations", ["billing", "qbo-customers"]],
   ["System", ["features", "database"]],
@@ -13,13 +14,13 @@ const expected = [
 const labels = [
   "Company profile", "Documents", "Seasons", "Benchmarks", "Crews", "Property managers",
   "Service plans", "Work item templates", "Chemical products", "Contract defaults",
-  "Email templates", "Notification templates", "Shared mailboxes",
+  "Service timing", "Email templates", "Notification templates", "Shared mailboxes",
   "QuickBooks invoicing", "QuickBooks customer mapping", "Feature flags", "Database",
 ];
 const spanish = [
   "Perfil de la empresa", "Documentos", "Temporadas", "Referencias", "Cuadrillas", "Administradores de propiedades",
   "Planes de servicio", "Plantillas de trabajo", "Productos químicos", "Valores de contrato",
-  "Plantillas de correo", "Plantillas de notificación", "Buzones compartidos",
+  "Calendario de servicios", "Plantillas de correo", "Plantillas de notificación", "Buzones compartidos",
   "Facturación de QuickBooks", "Vinculación de clientes de QuickBooks", "Funciones", "Base de datos",
 ];
 const app = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
@@ -33,15 +34,17 @@ describe("Settings navigation source of truth", () => {
     expect(rail.flatMap(s => s.items).map(i => i.href)).toEqual(
       expected.flatMap(([, keys]) => keys.map(k => `/dashboard/settings/${k}`)),
     );
-    expect(SETTINGS_SECTIONS).toHaveLength(5);
+    expect(SETTINGS_SECTIONS).toHaveLength(6);
   });
-  it("shows office only Company > Property managers and drops all empty groups", () => {
+  it("shows office only Property managers and Service timing and drops all empty groups", () => {
     expect(settingsRailFor({ activeRole: "office" })).toEqual([{
       label: "Company", items: [{ key: "property-management", label: "Property managers", href: "/dashboard/settings/property-management" }],
+    }, {
+      label: "Scheduling", items: [{ key: "service-timing", label: "Service timing", href: "/dashboard/settings/service-timing" }],
     }]);
   });
   it("keeps Platform Admin visibility, with no Settings items for other roles", () => {
-    expect(settingsRailFor({ activeRole: "field", isSuperAdminBool: true }).flatMap(s => s.items)).toHaveLength(17);
+    expect(settingsRailFor({ activeRole: "field", isSuperAdminBool: true }).flatMap(s => s.items)).toHaveLength(18);
     for (const activeRole of ["field", "field_manager", "chemical_manager", "irrigation_manager",
       "shop_manager", "landscape_supervisor", "crew_supervisor", "mapping"]) {
       expect(settingsRailFor({ activeRole })).toEqual([]);
@@ -65,7 +68,7 @@ describe("Settings navigation source of truth", () => {
   it("uses the exact supplied Spanish table without changing stable keys or URLs", async () => {
     await i18n.changeLanguage("es");
     const rail = settingsRailFor({ activeRole: "admin" });
-    expect(rail.map(s => s.label)).toEqual(["Empresa", "Servicios y catálogo", "Comunicación", "Integraciones", "Sistema"]);
+    expect(rail.map(s => s.label)).toEqual(["Empresa", "Servicios y catálogo", "Programación", "Comunicación", "Integraciones", "Sistema"]);
     expect(rail.flatMap(s => s.items).map(i => i.label)).toEqual(spanish);
     expect(rail.flatMap(s => s.items).map(i => i.href)).toEqual(
       expected.flatMap(([, keys]) => keys.map(k => `/dashboard/settings/${k}`)),

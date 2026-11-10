@@ -47,7 +47,9 @@ function isCalendarDate(value: string): boolean {
   const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1];
 }
-import { sql, pgTable, text, varchar, timestamp, unique, integer, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, createInsertSchema, check } from "./drizzle-stub";
+import { sql, pgTable, text, varchar, timestamp, unique, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, createInsertSchema, check } from "./drizzle-stub";
+export { serviceProgramSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceProgramContracts";
+import { campaignIdentityCheckSql, serviceProgramCheckSql } from "../../../../lib/db/src/campaignSql";
 
 export const visitFields = {
   companyId: z.string().min(1),
@@ -57,6 +59,7 @@ export const visitFields = {
   routeStopId: z.string().min(1).nullable().optional(),
   routeOccurrenceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, "Invalid calendar date").nullable().optional(),
   ticketId: z.string().min(1).nullable().optional(),
+  campaignItemId: z.string().min(1).nullable().optional(),
   customerId: z.string().min(1).nullable().optional(),
   title: z.string().trim().min(1).nullable().optional(),
   routeOrder: z.number().int().nullable().optional(),
@@ -74,6 +77,8 @@ export const insertVisitSchema = z.object(visitFields).superRefine((value, ctx) 
   if (value.sourceType === "ticket" && !value.ticketId) ctx.addIssue({ code: "custom", path: ["ticketId"], message: "Ticket required" });
   if (value.sourceType === "internal" && !value.title) ctx.addIssue({ code: "custom", path: ["title"], message: "Title required" });
   if (value.sourceType === "route" && (!value.routeStopId || !value.routeOccurrenceDate)) ctx.addIssue({ code: "custom", path: ["routeStopId"], message: "Route stop and occurrence date required" });
+  if ((value.sourceType === "campaign_item") !== !!value.campaignItemId)
+    ctx.addIssue({ code: "custom", path: ["campaignItemId"], message: "Campaign item link is required exactly for campaign-item visits" });
 });
 export type InsertVisit = z.infer<typeof insertVisitSchema>;
 export const visits = pgTable("visits", {
@@ -87,6 +92,7 @@ export const visits = pgTable("visits", {
   title: text("title"),
   routeStopId: varchar("route_stop_id").references(() => routeStops.id, { onDelete: "no action" }),
   routeOccurrenceDate: date("route_occurrence_date"),
+  campaignItemId: varchar("campaign_item_id").references((): AnyPgColumn => campaignItems.id, { onDelete: "no action" }),
   routeOrder: integer("route_order"),
   startTime: text("start_time"),
   estimatedHours: real("estimated_hours"),
@@ -102,6 +108,10 @@ export const visits = pgTable("visits", {
   companyServiceDate: index("visits_company_service_date_idx").on(table.companyId, table.serviceKey, table.visitDate),
   routeOccurrenceUnique: uniqueIndex("visits_route_occurrence_unique").on(table.routeStopId, table.routeOccurrenceDate).where(sql`${table.routeStopId} IS NOT NULL`),
   routeIdentity: check("visits_route_identity_check", sql`${table.sourceType} <> 'route' OR (${table.routeStopId} IS NOT NULL AND ${table.routeOccurrenceDate} IS NOT NULL)`),
+  campaignItem: index("visits_campaign_item_idx").on(table.campaignItemId),
+  campaignDone: uniqueIndex("visits_campaign_item_done_unique").on(table.campaignItemId).where(sql`${table.campaignItemId} IS NOT NULL AND ${table.status} = 'done'`),
+  campaignIdentity: check("visits_campaign_identity_check", sql`(${table.sourceType} = 'campaign_item') = (${table.campaignItemId} IS NOT NULL)`),
+  campaignCompany: foreignKey({ name: "visits_campaign_item_company_fk", columns: [table.campaignItemId, table.companyId], foreignColumns: [campaignItems.id, campaignItems.companyId] }).onDelete("no action"),
   companyDateCrew: index("visits_company_date_crew_idx").on(table.companyId, table.visitDate, table.crewId),
   ticket: index("visits_ticket_idx").on(table.ticketId),
   companyCustomerDate: index("visits_company_customer_date_idx").on(table.companyId, table.customerId, table.visitDate),
@@ -2527,6 +2537,10 @@ export type ChemicalNotificationTemplate = typeof chemicalNotificationTemplates.
 export const campaigns = pgTable("campaigns", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  source: text("source").notNull().default("manual"),
+  serviceKey: text("service_key"),
+  roundMonth: date("round_month", { mode: "string" }),
+  roundSeq: smallint("round_seq"),
   title: text("title").notNull(),
   description: text("description"),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
@@ -2543,13 +2557,19 @@ export const campaigns = pgTable("campaigns", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
   campaignsCompanyIdIdx: index("campaigns_company_id_idx").on(table.companyId),
+  companyIdentity: unique("campaigns_id_company_unique").on(table.id, table.companyId),
+  contractRound: uniqueIndex("campaigns_contract_round_unique").on(table.companyId, table.serviceKey, table.roundMonth, table.roundSeq).where(sql`${table.source} = 'contract'`),
+  generatedIdentity: check("campaigns_identity_check", campaignIdentityCheckSql),
 }));
 
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   id: true,
+  source: true, serviceKey: true, roundMonth: true, roundSeq: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
+  source: z.never().optional(), serviceKey: z.never().optional(),
+  roundMonth: z.never().optional(), roundSeq: z.never().optional(),
   seasonId: z.string().nullable().optional(),
   notificationTemplateId: z.string().nullable().optional(),
 });
@@ -2624,7 +2644,26 @@ export const campaignItems = pgTable("campaign_items", {
   campaignItemsCompanyIdIdx: index("campaign_items_company_id_idx").on(table.companyId),
   campaignItemsCustomerIdIdx: index("campaign_items_customer_id_idx").on(table.customerId),
   campaignItemsPropertyIdIdx: index("campaign_items_property_id_idx").on(table.propertyId),
+  companyIdentity: unique("campaign_items_id_company_unique").on(table.id, table.companyId),
+  campaignCompany: foreignKey({ name: "campaign_items_campaign_company_fk", columns: [table.campaignId, table.companyId], foreignColumns: [campaigns.id, campaigns.companyId] }).onDelete("cascade"),
 }));
+
+export const servicePrograms = pgTable("service_programs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  serviceKey: text("service_key").notNull(),
+  rounds: smallint("rounds").notNull(),
+  monthSpread: smallint("month_spread").array().notNull(),
+  isStandard: boolean("is_standard").notNull().default(false),
+  updatedById: varchar("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t: any) => ({
+  identity: unique("service_programs_unique").on(t.companyId, t.serviceKey, t.rounds),
+  standard: uniqueIndex("service_programs_one_standard").on(t.companyId, t.serviceKey).where(sql`${t.isStandard}`),
+  valid: check("service_programs_valid_check", serviceProgramCheckSql),
+}));
+export type ServiceProgram = typeof servicePrograms.$inferSelect;
 
 export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
   id: true,

@@ -130,6 +130,8 @@ import { registerCatalogRoutes } from "./catalog";
 import { registerEstimateRoutes } from "./estimates";
 import { registerInvoiceRoutes } from "./invoices";
 import { registerDocumentSettingsRoutes } from "./documentSettings";
+import { registerServiceProgramRoutes } from "./servicePrograms";
+import { CampaignGuardError, registerCampaignIdentityGuards } from "../lib/campaignIdentity";
 import { registerTicketExpectedCompany } from "../lib/ticketExpectedCompany";
 
 // Derive runtime choices from the existing insert enum, never a second type list.
@@ -2747,6 +2749,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerEstimateRoutes(app);
   registerInvoiceRoutes(app);
   registerDocumentSettingsRoutes(app);
+  registerServiceProgramRoutes(app);
+  registerCampaignIdentityGuards(app);
   registerContractCenterRoutes(app);
 
   // ── Communication Center permission constants & helpers ──────────────────────
@@ -3259,7 +3263,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (await hasFrozenLegacyRows(user.activeCompanyId, customerToDelete.id)) {
       return rejectLegacyContractWrite(res);
     }
-    await storage.deleteCustomer(req.params.id, user.activeCompanyId);
+    try { await storage.deleteCustomer(req.params.id, user.activeCompanyId); }
+    catch (err) { if (err instanceof CampaignGuardError) return res.status(409).json({ message: err.message }); throw err; }
 
     // If the deleted customer had a parent, check if the parent has any remaining children
     if (customerToDelete?.parentCustomerId) {
@@ -10081,6 +10086,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .select({
         campaignId: campaignsTable.id,
         campaignTitle: campaignsTable.title,
+        campaignServiceKey: campaignsTable.serviceKey,
+        campaignSource: campaignsTable.source,
+        campaignRoundMonth: campaignsTable.roundMonth,
+        campaignRoundSeq: campaignsTable.roundSeq,
         windowStart: campaignsTable.windowStart,
         windowEnd: campaignsTable.windowEnd,
         category: campaignsTable.category,
@@ -14482,7 +14491,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (item.status !== "pending") {
       return res.status(400).json({ error: "Only pending items can be removed" });
     }
-    await storage.deleteCampaignItem(req.params.itemId, user.activeCompanyId);
+    try { await storage.deleteCampaignItem(req.params.itemId, user.activeCompanyId); }
+    catch (err) { if (err instanceof CampaignGuardError) return res.status(409).json({ message: err.message }); throw err; }
     res.json({ success: true });
   });
 
@@ -14492,7 +14502,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.accessRole !== "admin" && user.accessRole !== "office") {
       return res.status(403).send("Only admin/office can delete campaigns");
     }
-    await storage.deleteCampaign(req.params.id, user.activeCompanyId);
+    try { await storage.deleteCampaign(req.params.id, user.activeCompanyId); }
+    catch (err) { if (err instanceof CampaignGuardError) return res.status(409).json({ message: err.message }); throw err; }
     res.json({ success: true });
   });
 
@@ -14771,6 +14782,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .select({
           campaignId: campaignsTable.id,
           campaignTitle: campaignsTable.title,
+          campaignServiceKey: campaignsTable.serviceKey,
+          campaignSource: campaignsTable.source,
+          campaignRoundMonth: campaignsTable.roundMonth,
+          campaignRoundSeq: campaignsTable.roundSeq,
           windowStart: campaignsTable.windowStart,
           windowEnd: campaignsTable.windowEnd,
           category: campaignsTable.category,
@@ -16238,6 +16253,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const seasonCampaigns = allCampaigns.filter(c => c.seasonId === season.id);
     const reportItems: Array<{
       campaignName: string; campaignId: string; customerName: string; customerCity: string;
+      campaignServiceKey: string | null; campaignSource: "manual" | "contract";
+      campaignRoundMonth: string | null; campaignRoundSeq: number | null;
       customerAddress: string;
       completedAt: string | null; notes: string | null; photoCount: number;
       weatherTemp: number | null; weatherWindSpeed: number | null; weatherWindDirection: number | null;
@@ -16257,6 +16274,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           reportItems.push({
             campaignName: camp.title,
             campaignId: camp.id,
+            campaignServiceKey: camp.serviceKey,
+            campaignSource: camp.source,
+            campaignRoundMonth: camp.roundMonth,
+            campaignRoundSeq: camp.roundSeq,
             customerName: item.customerName,
             customerCity: item.customerCity || "",
             customerAddress,
@@ -16859,6 +16880,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     campaignId: string;
     campaignTitle: string;
     campaignCategory: string;
+    campaignServiceKey: string | null;
+    campaignSource: "manual" | "contract";
+    campaignRoundMonth: string | null;
+    campaignRoundSeq: number | null;
     windowStart: string;
     windowEnd: string;
     customerId: string;
@@ -16924,6 +16949,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           campaignId: campaign.id,
           campaignTitle: campaign.title,
           campaignCategory: campaign.category,
+          campaignServiceKey: campaign.serviceKey,
+          campaignSource: campaign.source,
+          campaignRoundMonth: campaign.roundMonth,
+          campaignRoundSeq: campaign.roundSeq,
           windowStart: campaign.windowStart,
           windowEnd: campaign.windowEnd,
           customerId: customer.id,
@@ -16982,6 +17011,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           campaignId: campaign.id,
           campaignTitle: campaign.title,
           campaignCategory: campaign.category,
+          campaignServiceKey: campaign.serviceKey,
+          campaignSource: campaign.source,
+          campaignRoundMonth: campaign.roundMonth,
+          campaignRoundSeq: campaign.roundSeq,
           windowStart: campaign.windowStart,
           windowEnd: campaign.windowEnd,
           customerId: customer.id,
@@ -17136,6 +17169,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           campaignId: campaign.id,
           campaignTitle: campaign.title,
           campaignCategory: campaign.category,
+          campaignServiceKey: campaign.serviceKey,
+          campaignSource: campaign.source,
+          campaignRoundMonth: campaign.roundMonth,
+          campaignRoundSeq: campaign.roundSeq,
           windowStart: campaign.windowStart,
           windowEnd: campaign.windowEnd,
           customerId: customer.id,

@@ -3,6 +3,8 @@ export { NON_RENEWAL_REASONS, NON_RENEWAL_LABELS, isNotRenewing, hasOpenBusiness
 
 export interface ScopeService {
   key: string;
+  scheduling: "route" | "campaign" | "on_request" | "event" | "none";
+  campaignName?: string;
   line: ScopeLine;
   label: string;
   /** Section of the Word master this switches on, for the generator (Phase 3). */
@@ -16,31 +18,31 @@ export interface ScopeService {
 }
 
 export const SCOPE_CATALOG: ScopeService[] = [
-  { key: "mowing", line: "landscape", label: "Weekly turf service", wordModule: null, unit: "visits", defaultQuantity: 26, defaultMonthSpread: [0,0,0,2,5,4,4,4,5,2,0,0] },
-  { key: "aeration", line: "landscape", label: "Spring core aeration", wordModule: "aeration", unit: "visits", defaultQuantity: 1, defaultMonthSpread: [0,0,0,1,0,0,0,0,0,0,0,0] },
-  { key: "fall_aeration", line: "landscape", label: "Fall aeration (on request)", wordModule: "fall_aeration", unit: null, defaultQuantity: null, defaultMonthSpread: null, optionalPriced: true },
-  { key: "cleanups", line: "landscape", label: "Spring and fall clean-ups", wordModule: null, unit: "visits", defaultQuantity: 3, defaultMonthSpread: [0,0,0,1,0,0,0,0,0,1,1,0] },
-  { key: "shrub_trimming", line: "landscape", label: "Shrub trimming", wordModule: null, unit: "visits", defaultQuantity: 2, defaultMonthSpread: [0,0,0,0,0,0,1,0,0,1,0,0] },
-  { key: "ornamental_grass", line: "landscape", label: "Ornamental grass cutback", wordModule: null, unit: "visits", defaultQuantity: 1, defaultMonthSpread: [0,0,0,0,0,0,0,0,0,1,0,0] },
-  { key: "tree_pruning", line: "landscape", label: "Light tree pruning", wordModule: null, unit: "visits", defaultQuantity: 1, defaultMonthSpread: [0,0,0,1,0,0,0,0,0,0,0,0] },
-  { key: "native_areas", line: "landscape", label: "Native grass areas", wordModule: "native_areas", unit: "visits", defaultQuantity: null, defaultMonthSpread: null },
-  { key: "retention_pond", line: "landscape", label: "Detention / retention pond", wordModule: "retention_pond", unit: "visits", defaultQuantity: 1, defaultMonthSpread: null },
-  { key: "pool", line: "landscape", label: "Pool on site", wordModule: "pool", unit: null, defaultQuantity: null, defaultMonthSpread: null },
-  { key: "chemical", line: "landscape", label: "Fertilization and weed control", wordModule: null, unit: "applications", defaultQuantity: 12, defaultMonthSpread: [0,0,0,3,2,2,2,2,1,0,0,0] },
-  { key: "crabgrass", line: "landscape", label: "Crabgrass control (on request)", wordModule: "crabgrass", unit: null, defaultQuantity: null, defaultMonthSpread: null, optionalPriced: true },
-  { key: "pet_station", line: "landscape", label: "Pet waste stations", wordModule: "pet_waste", unit: "visits", defaultQuantity: 26, defaultMonthSpread: [0,0,0,2,5,4,4,4,5,2,0,0] },
-  { key: "winter_visits", line: "landscape", label: "Winter site visits", wordModule: null, unit: "visits", defaultQuantity: 10, defaultMonthSpread: [2,2,2,0,0,0,0,0,0,0,2,2] },
-  { key: "winter_watering", line: "landscape", label: "Winter watering (on request)", wordModule: "winter_watering", unit: null, defaultQuantity: null, defaultMonthSpread: null },
-  { key: "irrigation_open", line: "irrigation", label: "Spring activation", wordModule: "irrigation", unit: "visits", defaultQuantity: 1, defaultMonthSpread: null },
-  { key: "irrigation_inspection", line: "irrigation", label: "Monthly system inspection", wordModule: "irrigation", unit: "visits", defaultQuantity: null, defaultMonthSpread: null },
-  { key: "irrigation_winterization", line: "irrigation", label: "Winterization", wordModule: "irrigation", unit: "visits", defaultQuantity: 1, defaultMonthSpread: null },
-  { key: "backflow", line: "irrigation", label: "Backflow testing", wordModule: "irrigation", unit: "devices", defaultQuantity: null, defaultMonthSpread: null },
-  { key: "snow_walks", line: "snow", label: "Sidewalks and steps", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
-  { key: "snow_drives", line: "snow", label: "Streets, drives and lots", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
-  { key: "snow_alleys", line: "snow", label: "Alleys", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
-  { key: "ice_melt", line: "snow", label: "Ice melt application", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
-  { key: "snow_stakes", line: "snow", label: "Snow stakes", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
-  { key: "other", line: "landscape", label: "Other", wordModule: null, unit: null, defaultQuantity: null, defaultMonthSpread: null },
+  { key: "mowing", scheduling: "route", line: "landscape", label: "Weekly turf service", wordModule: null, unit: "visits", defaultQuantity: 26, defaultMonthSpread: [0,0,0,2,5,4,4,4,5,2,0,0] },
+  { key: "aeration", scheduling: "campaign", campaignName: "Aeration", line: "landscape", label: "Spring core aeration", wordModule: "aeration", unit: "visits", defaultQuantity: 1, defaultMonthSpread: [0,0,0,1,0,0,0,0,0,0,0,0] },
+  { key: "fall_aeration", scheduling: "on_request", line: "landscape", label: "Fall aeration (on request)", wordModule: "fall_aeration", unit: null, defaultQuantity: null, defaultMonthSpread: null, optionalPriced: true },
+  { key: "cleanups", scheduling: "campaign", campaignName: "Clean-up", line: "landscape", label: "Spring and fall clean-ups", wordModule: null, unit: "visits", defaultQuantity: 3, defaultMonthSpread: [0,0,0,1,0,0,0,0,0,1,1,0] },
+  { key: "shrub_trimming", scheduling: "campaign", campaignName: "Shrub trimming", line: "landscape", label: "Shrub trimming", wordModule: null, unit: "visits", defaultQuantity: 2, defaultMonthSpread: [0,0,0,0,0,0,1,0,0,1,0,0] },
+  { key: "ornamental_grass", scheduling: "campaign", campaignName: "Grass cutback", line: "landscape", label: "Ornamental grass cutback", wordModule: null, unit: "visits", defaultQuantity: 1, defaultMonthSpread: [0,0,0,0,0,0,0,0,0,1,0,0] },
+  { key: "tree_pruning", scheduling: "campaign", campaignName: "Tree pruning", line: "landscape", label: "Light tree pruning", wordModule: null, unit: "visits", defaultQuantity: 1, defaultMonthSpread: [0,0,0,1,0,0,0,0,0,0,0,0] },
+  { key: "native_areas", scheduling: "none", line: "landscape", label: "Native grass areas", wordModule: "native_areas", unit: "visits", defaultQuantity: null, defaultMonthSpread: null },
+  { key: "retention_pond", scheduling: "none", line: "landscape", label: "Detention / retention pond", wordModule: "retention_pond", unit: "visits", defaultQuantity: 1, defaultMonthSpread: null },
+  { key: "pool", scheduling: "none", line: "landscape", label: "Pool on site", wordModule: "pool", unit: null, defaultQuantity: null, defaultMonthSpread: null },
+  { key: "chemical", scheduling: "campaign", campaignName: "Fert/chem", line: "landscape", label: "Fertilization and weed control", wordModule: null, unit: "applications", defaultQuantity: 12, defaultMonthSpread: [0,0,0,3,2,2,2,2,1,0,0,0] },
+  { key: "crabgrass", scheduling: "on_request", line: "landscape", label: "Crabgrass control (on request)", wordModule: "crabgrass", unit: null, defaultQuantity: null, defaultMonthSpread: null, optionalPriced: true },
+  { key: "pet_station", scheduling: "route", line: "landscape", label: "Pet waste stations", wordModule: "pet_waste", unit: "visits", defaultQuantity: 26, defaultMonthSpread: [0,0,0,2,5,4,4,4,5,2,0,0] },
+  { key: "winter_visits", scheduling: "route", line: "landscape", label: "Winter site visits", wordModule: null, unit: "visits", defaultQuantity: 10, defaultMonthSpread: [2,2,2,0,0,0,0,0,0,0,2,2] },
+  { key: "winter_watering", scheduling: "on_request", line: "landscape", label: "Winter watering (on request)", wordModule: "winter_watering", unit: null, defaultQuantity: null, defaultMonthSpread: null },
+  { key: "irrigation_open", scheduling: "campaign", campaignName: "Irrigation start-up", line: "irrigation", label: "Spring activation", wordModule: "irrigation", unit: "visits", defaultQuantity: 1, defaultMonthSpread: null },
+  { key: "irrigation_inspection", scheduling: "route", line: "irrigation", label: "Monthly system inspection", wordModule: "irrigation", unit: "visits", defaultQuantity: null, defaultMonthSpread: null },
+  { key: "irrigation_winterization", scheduling: "campaign", campaignName: "Winterization", line: "irrigation", label: "Winterization", wordModule: "irrigation", unit: "visits", defaultQuantity: 1, defaultMonthSpread: null },
+  { key: "backflow", scheduling: "none", line: "irrigation", label: "Backflow testing", wordModule: "irrigation", unit: "devices", defaultQuantity: null, defaultMonthSpread: null },
+  { key: "snow_walks", scheduling: "event", line: "snow", label: "Sidewalks and steps", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
+  { key: "snow_drives", scheduling: "event", line: "snow", label: "Streets, drives and lots", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
+  { key: "snow_alleys", scheduling: "event", line: "snow", label: "Alleys", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
+  { key: "ice_melt", scheduling: "event", line: "snow", label: "Ice melt application", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
+  { key: "snow_stakes", scheduling: "event", line: "snow", label: "Snow stakes", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
+  { key: "other", scheduling: "none", line: "landscape", label: "Other", wordModule: null, unit: null, defaultQuantity: null, defaultMonthSpread: null },
 ];
 
 /** Old contracts.service_type → agreement line. */
@@ -115,3 +117,4 @@ export const RATE_CARD_DEFAULTS: RateCardDefault[] = [
 ];
 
 export const scopeServiceByKey = (key: string) => SCOPE_CATALOG.find((s) => s.key === key);
+export const campaignServices = () => SCOPE_CATALOG.filter(s => s.scheduling === "campaign");

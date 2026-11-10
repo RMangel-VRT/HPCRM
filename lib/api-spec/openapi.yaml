@@ -1158,13 +1158,14 @@ components:
         serviceKey: { type: [string, "null"] }
     Visit:
       type: object
-      required: [id, companyId, crewId, visitDate, sourceType, ticketId, customerId, title, serviceKey, routeOrder, startTime, estimatedHours, status, actualStartAt, actualEndAt, notes, createdById, createdAt, updatedAt]
+      required: [id, companyId, crewId, visitDate, sourceType, campaignItemId, ticketId, customerId, title, serviceKey, routeOrder, startTime, estimatedHours, status, actualStartAt, actualEndAt, notes, createdById, createdAt, updatedAt]
       properties:
         id: { type: string }
         companyId: { type: string }
         crewId: { type: [string, "null"] }
         visitDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
         sourceType: { type: string, enum: [ticket, internal, route, campaign_item] }
+        campaignItemId: { type: [string, "null"], description: Engine-owned link; present exactly for campaign_item visits. Never writable through generic visit endpoints. }
         routeStopId: { type: [string, "null"] }
         routeOccurrenceDate: { type: [string, "null"] }
         serviceKey: { type: [string, "null"] }

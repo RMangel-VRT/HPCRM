@@ -49,7 +49,7 @@ function app(role = "admin", authenticated = true, activeCompanyId = companyId) 
   app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => authenticated) as typeof req.isAuthenticated;
-    req.user = { id: userId, activeCompanyId, activeRole: role } as Express.User;
+    req.user = { id: userId, activeCompanyId, activeRole: role, accessRole: role } as Express.User;
     next();
   });
   registerVisitRoutes(app);
@@ -335,8 +335,9 @@ describe("real PostgreSQL visits API and ticket workflow", () => {
   });
   it("PATCH is sparse, honors null and protects server-owned fields", async () => {
     const r = await post({ startTime: "09:30", estimatedHours: 4, notes: "Keep" });
+    expect((await request(app()).patch(`/api/visits/${r.body.id}`).send({ sourceType: "internal" })).status).toBe(400);
     const response = await request(app()).patch(`/api/visits/${r.body.id}`).send({
-      notes: null, customerId: foreignCustomerId, ticketId: randomUUID(), sourceType: "internal", companyId: foreignCompanyId, createdById: null,
+      notes: null, customerId: foreignCustomerId, ticketId: randomUUID(), companyId: foreignCompanyId, createdById: null,
     });
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ notes: null, startTime: "09:30", estimatedHours: 4, customerId, ticketId, companyId, status: "planned", createdById: userId });
