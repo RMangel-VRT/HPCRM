@@ -15,6 +15,7 @@ export * from "./campaignGenerationInput";
 export * from "./campaignGenerationItemRef";
 export * from "./campaignGenerationReport";
 export * from "./campaignGenerationReportManualCampaignsItem";
+export * from "./campaignMembershipStatus";
 export * from "./campaignPreviewRound";
 export * from "./campaignRoundRef";
 export * from "./crew";

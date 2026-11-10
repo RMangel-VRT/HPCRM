@@ -27,12 +27,14 @@ task status. A successful prerequisite merge does not waive a successor's separa
 specification-revision gate; obtain explicit owner authorization for that deviation.
 
 The owner deliberately kept the obsolete numbered Campaigns slice documents
-removed and separately authorized building campaign demand/generation from the
-reviewed task requirements. Do not restore those old specifications.
+removed and separately authorized building campaign demand/generation and
+contract-driven membership from their assigned task requirements. Each exception
+was approved after its own source gate stopped work. Do not restore those old
+specifications.
 
 **Why:** The checked-in versions predated the reviewed count/status/gap decisions;
 restoring them would reintroduce the version ambiguity the owner removed.
 
 **How to apply:** For subsequent Campaigns work, obtain the current owner-approved
 requirements and actual predecessor handoff. Do not treat this one-slice source
-authorization as approval to invent or automatically begin later slices.
+authorizations as approval to invent or automatically begin later slices.

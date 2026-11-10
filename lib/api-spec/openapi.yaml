@@ -23,6 +23,22 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /campaign-generation/{year}/status:
+    get:
+      operationId: getCampaignMembershipStatus
+      parameters:
+        - { name: year, in: path, required: true, schema: { type: integer } }
+        - { name: X-Company-Id, in: header, schema: { type: string } }
+      responses:
+        "200":
+          description: Latest in-memory automatic membership check; enabledAt survives restart
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignMembershipStatus" }
+        "400": { description: Invalid year }
+        "401": { description: Not authenticated }
+        "403": { description: Forbidden }
+        "409": { description: Company changed }
   /campaign-generation/{year}/preview:
     get:
       operationId: previewCampaignGeneration
@@ -1229,6 +1245,17 @@ components:
             newRound: { type: boolean }
             added: { type: integer }
             removed: { type: integer }
+    CampaignMembershipStatus:
+      type: object
+      required: [enabledAt, checkedAt, succeededAt, error, changes, keptNotOwed, missed]
+      properties:
+        enabledAt: { type: [string, "null"] }
+        checkedAt: { type: [string, "null"] }
+        succeededAt: { type: [string, "null"] }
+        error: { type: [string, "null"] }
+        changes: { type: integer }
+        keptNotOwed: { type: integer }
+        missed: { type: integer }
     CampaignGenerationReport:
       type: object
       required: [year, today, enabledAt, rounds, created, deleted, added, removed, keptNotOwed, missed, addedToClosedRound, gaps, waitingOnSignature, manualCampaigns]

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { campaignServices } from "@shared/contractCatalog";
 import type {
-  CampaignGenerationReport, DemandGap, DemandGapKind, ItemRef, PreviewRound, RoundRef,
+  CampaignGenerationReport, CampaignMembershipStatus, DemandGap, DemandGapKind, ItemRef, PreviewRound, RoundRef,
 } from "../../../../lib/db/src/campaignGenerationContracts";
 
 /** Calendar year in Colorado (America/Denver) and month (1-12). */
@@ -82,7 +82,7 @@ export default function CampaignGeneratePage() {
           </div>
         </div>
         <p className="text-sm text-muted-foreground border-l-2 border-primary/60 pl-3" data-testid="text-explanation">
-          Rounds come from signed, active, renewed, up-for-renewal and sent contract seasons; sent seasons are included and marked Waiting on signature. A count of zero means nothing is owed. Review every change below before generating; nothing changes until an administrator confirms.
+          Rounds come from signed, active, renewed, up-for-renewal and sent contract seasons; sent seasons are included and marked Waiting on signature. A count of zero means nothing is owed. Generate enables automatic membership checks for that year; years not yet enabled stay unchanged.
         </p>
       </header>
       <GenerateBody key={`${companyId}|${year}`} companyId={companyId} year={year} canGenerate={canGenerate} />
@@ -103,6 +103,14 @@ function GenerateBody({ companyId, year, canGenerate }: { companyId: string; yea
     staleTime: 0, gcTime: 0, refetchOnMount: "always", refetchOnWindowFocus: false,
   });
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const status = useQuery<CampaignMembershipStatus>({
+    queryKey: ["/api/campaign-generation", companyId, year, "status"],
+    queryFn: async () => (await apiRequest("GET", `/api/campaign-generation/${year}/status`, undefined, { headers })).json(),
+    refetchInterval: 30_000, staleTime: 0,
+  });
+  useEffect(() => {
+    if (status.data?.checkedAt) void qc.invalidateQueries({ queryKey });
+  }, [status.data?.checkedAt, qc, queryKey]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CampaignGenerationReport | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
@@ -115,6 +123,7 @@ function GenerateBody({ companyId, year, canGenerate }: { companyId: string; yea
       const res = await apiRequest("POST", `/api/campaign-generation/${year}`, { confirm: true }, { headers });
       const report = (await res.json()) as CampaignGenerationReport;
       void qc.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      void status.refetch();
       qc.setQueryData(queryKey, report);
       if (!alive.current) return;
       setResult(report);
@@ -160,15 +169,24 @@ function GenerateBody({ companyId, year, canGenerate }: { companyId: string; yea
         <CalendarRange className="h-4 w-4 text-primary" />
         <div className="text-sm">
           {r.enabledAt
-            ? <span data-testid="text-status">Generated {fmtDate(r.enabledAt)}. Rounds are not kept in step automatically; generate again after contract changes.</span>
+            ? <span data-testid="text-status">Enabled {fmtDate(r.enabledAt)}. Membership follows contracts and service timing automatically until the year ends.</span>
             : <span data-testid="text-status">{year} has not been generated yet.</span>}
           <span className="block text-xs text-muted-foreground tabular-nums" data-testid="text-totals">
             {r.rounds.length} rounds · {memberTotal} property memberships · {changes} pending changes · as of {fmtDate(r.today)}
             {r.waitingOnSignature > 0 && <> · {r.waitingOnSignature} included memberships waiting on signature</>}
           </span>
+          {status.isError && <p className="text-destructive">Couldn't load the last membership check. Refresh to retry.</p>}
+          {r.enabledAt && <div className="text-xs mt-1" data-testid="membership-last-check">
+            {status.data?.checkedAt
+              ? <>Last checked {new Date(status.data.checkedAt).toLocaleString("en-US", { timeZone: "America/Denver" })} Colorado time.
+                {status.data.error ? <span className="text-destructive"> {status.data.error}
+                  {status.data.succeededAt && <> Last successful check: {new Date(status.data.succeededAt).toLocaleString("en-US", { timeZone: "America/Denver" })} Colorado time.</>}</span>
+                  : <> {status.data.changes} changes · {status.data.keptNotOwed} kept not owed · {status.data.missed} missed.</>}</>
+              : <>Enabled {fmtDate(r.enabledAt)}; no automatic check recorded since server restart.</>}
+          </div>}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" variant="outline" disabled={busy || query.isFetching} onClick={() => void query.refetch()} data-testid="button-refresh">
+          <Button size="sm" variant="outline" disabled={busy || query.isFetching} onClick={() => { void query.refetch(); void status.refetch(); }} data-testid="button-refresh">
             <RotateCcw className="h-3.5 w-3.5 mr-1" />Refresh preview
           </Button>
           {canGenerate ? (
@@ -221,7 +239,7 @@ function GenerateBody({ companyId, year, canGenerate }: { companyId: string; yea
                   <li>{r.keptNotOwed.length} kept not owed · {r.missed.length} missed · {r.addedToClosedRound.length} added to closed rounds</li>
                   {r.gaps.length > 0 && <li>{r.gaps.length} contract issues to review; count mismatches keep stated months</li>}
                 </ul>
-                <p>Rounds will not update automatically afterward.</p>
+                <p>After generation, membership follows successful contract and service-timing changes. Startup and hourly checks retry failures. Recorded work is retained.</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -305,6 +323,7 @@ function ItemList({ title, testId, items }: { title: string; testId: string; ite
             <span className="font-medium">{i.propertyName}</span>
             <span className="text-muted-foreground">{i.title} · {fmtDate(i.windowStart)} – {fmtDate(i.windowEnd)}</span>
             {i.campaignId && <Link href={`/dashboard/campaigns/${i.campaignId}`} className="text-primary hover:underline">Open round</Link>}
+            {i.campaignId && i.itemId && <Link href={`/dashboard/campaigns/${i.campaignId}/items/${i.itemId}`} className="text-primary hover:underline">Review item / skip</Link>}
           </li>
         ))}
       </ul>

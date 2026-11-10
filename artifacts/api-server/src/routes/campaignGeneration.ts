@@ -4,7 +4,8 @@ import type { UserWithContext } from "../auth";
 import { companyToday } from "../lib/companyDay";
 import { runCampaignGeneration } from "../lib/campaignReconcile";
 import { logger } from "../lib/logger";
-import { GenerateContractCampaignsResponse, PreviewCampaignGenerationResponse } from "@workspace/api-zod";
+import { campaignMembershipStatus } from "../lib/campaignMembership";
+import { GenerateContractCampaignsResponse, PreviewCampaignGenerationResponse, GetCampaignMembershipStatusResponse } from "@workspace/api-zod";
 
 function authorize(req: Request, res: Response, write: boolean) {
   res.set("Cache-Control", "no-store");
@@ -27,6 +28,17 @@ export function campaignGenerationYear(raw: unknown, today = companyToday()) {
     .refine(year => year === current || year === current + 1, "Choose this Colorado year or next year").parse(raw);
 }
 export function registerCampaignGenerationRoutes(app: Express) {
+  app.get("/api/campaign-generation/:year/status", async (req, res): Promise<void> => {
+    const context = authorize(req, res, false); if (!context) return;
+    try {
+      const year = campaignGenerationYear(req.params.year);
+      res.json(GetCampaignMembershipStatusResponse.parse(await campaignMembershipStatus(context.companyId, year)));
+    } catch (err) {
+      if (err instanceof z.ZodError) { res.status(400).json({ message: "Choose this Colorado year or next year" }); return; }
+      logger.error({ err }, "Campaign membership status failed");
+      res.status(500).json({ message: "Unable to load membership status." });
+    }
+  });
   for (const write of [false, true]) {
     app[write ? "post" : "get"](`/api/campaign-generation/:year${write ? "" : "/preview"}`, async (req, res): Promise<void> => {
       const context = authorize(req, res, write); if (!context) return;

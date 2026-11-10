@@ -85,6 +85,20 @@ export type CampaignPreviewRound = CampaignRoundRef & {
   removed: number;
 };
 
+export interface CampaignMembershipStatus {
+  /** @nullable */
+  enabledAt: string | null;
+  /** @nullable */
+  checkedAt: string | null;
+  /** @nullable */
+  succeededAt: string | null;
+  /** @nullable */
+  error: string | null;
+  changes: number;
+  keptNotOwed: number;
+  missed: number;
+}
+
 export type CampaignGenerationReportManualCampaignsItem = {
   id: string;
   title: string;

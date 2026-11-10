@@ -1,4 +1,12 @@
 /** Read-only demand projections; commercial counts/months remain Contract Center owned. */
+export interface CampaignMembershipStatus {
+  enabledAt: string | null; checkedAt: string | null; succeededAt: string | null;
+  error: string | null; changes: number; keptNotOwed: number; missed: number;
+}
+export interface CampaignContractState {
+  state: "owed" | "waiting_on_signature" | "no_longer_in_contract";
+  agreementId: string | null; termId: string | null;
+}
 export type DemandGapKind = "no_count" | "no_timing" | "invalid_count" | "duplicate_lines" | "count_mismatch";
 export interface DemandMember {
   propertyId: string; propertyName: string; termId: string; agreementId: string;

@@ -39,7 +39,9 @@ const yr = yearChoices().defaultYear;
 beforeEach(() => {
   fx.api.mockReset(); fx.toast.mockReset();
   fx.user = { ...fx.user, activeCompanyId: "co1", accessRole: "admin", activeRole: "admin" };
-  fx.api.mockImplementation((m: string) => ok(m === "POST" ? report({ enabledAt: "2025-10-14T10:00:00Z" }) : report()));
+  fx.api.mockImplementation((m: string, path: string) => ok(path.endsWith("/status")
+    ? { enabledAt: null, checkedAt: null, succeededAt: null, error: null, changes: 0, keptNotOwed: 0, missed: 0 }
+    : m === "POST" ? report({ enabledAt: "2025-10-14T10:00:00Z" }) : report()));
 });
 afterEach(() => cleanup());
 
@@ -105,5 +107,29 @@ describe("Campaign generation", () => {
     fx.api.mockImplementation(() => ok(report({ rounds: [], created: [], added: [], gaps: [], manualCampaigns: [] })));
     fireEvent.click(screen.getByTestId("button-retry"));
     await screen.findByTestId("state-empty");
+  });
+
+  it("shows enabled-time fallback after restart and live kept/missed decision links", async () => {
+    const item = { ...ref, campaignId: "round1", itemId: "item1", propertyId: "p1", propertyName: "Retained property" };
+    fx.api.mockImplementation((_m: string, path: string) => ok(path.endsWith("/status")
+      ? { enabledAt: "2025-10-14T10:00:00Z", checkedAt: null, succeededAt: null, error: null, changes: 0, keptNotOwed: 0, missed: 0 }
+      : report({ enabledAt: "2025-10-14T10:00:00Z", keptNotOwed: [item], missed: [{ ...item, itemId: null }] })));
+    mount();
+    expect((await screen.findByTestId("membership-last-check")).textContent).toContain("since server restart");
+    expect(screen.getByTestId("text-status").textContent).toContain("automatically");
+    expect(screen.getByTestId("panel-kept").textContent).toContain("Retained property");
+    expect(screen.getByText("Review item / skip").getAttribute("href")).toBe("/dashboard/campaigns/round1/items/item1");
+    expect(screen.getByTestId("panel-missed")).toBeTruthy();
+  });
+
+  it("shows failed check, last success, and hourly retry without claiming changes were saved", async () => {
+    fx.api.mockImplementation((_m: string, path: string) => ok(path.endsWith("/status")
+      ? { enabledAt: "2025-10-14T10:00:00Z", checkedAt: "2025-10-15T12:00:00Z", succeededAt: "2025-10-14T12:00:00Z",
+        error: "Membership check failed. The hourly sweep will retry.", changes: 0, keptNotOwed: 0, missed: 0 }
+      : report({ enabledAt: "2025-10-14T10:00:00Z" })));
+    mount();
+    await waitFor(() => expect(screen.getByTestId("membership-last-check").textContent).toContain("hourly sweep will retry"));
+    expect(screen.getByTestId("membership-last-check").textContent).toContain("Last successful check");
+    expect(screen.queryByTestId("panel-result")).toBeNull();
   });
 });

@@ -75,6 +75,8 @@ import type { Campaign, CampaignItem, CampaignChecklistTask } from "@shared/sche
 import LayerMapViewer from "@/components/LayerMapViewer";
 import WeatherCapturePanel, { type WeatherCapturableItem } from "@/components/WeatherCapturePanel";
 import { Label } from "@/components/ui/label";
+import CampaignContractNotice from "@/components/CampaignContractNotice";
+import type { CampaignContractState } from "../../../../lib/db/src/campaignGenerationContracts";
 
 interface CampaignItemWithUser extends Omit<CampaignItem,
   | 'completionEmailSentAt'
@@ -100,6 +102,7 @@ interface CampaignItemWithUser extends Omit<CampaignItem,
   | 'workCompletedById'
 > {
   completedByName?: string | null;
+  contractState?: CampaignContractState;
   preCommSentByName?: string | null;
   workCompletedByName?: string | null;
   postCommSentByName?: string | null;
@@ -185,6 +188,13 @@ export default function CampaignItemDetail() {
   const [exceptionType, setExceptionType] = useState<string>("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [showSkip, setShowSkip] = useState(false);
+  useEffect(() => {
+    if (showSkip) {
+      const input = document.querySelector<HTMLInputElement>('[data-testid="input-skip-reason"]');
+      input?.scrollIntoView({ block: "center", behavior: "smooth" });
+      input?.focus({ preventScroll: true });
+    }
+  }, [showSkip]);
   const [uploading, setUploading] = useState(false);
   const [showPropertyMaps, setShowPropertyMaps] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
@@ -259,7 +269,10 @@ export default function CampaignItemDetail() {
   const [pendingIrrigationTaskId, setPendingIrrigationTaskId] = useState<string | null>(null);
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
-    queryKey: ["/api/campaigns", campaignId],
+    queryKey: ["/api/campaigns", campaignId, user?.activeCompanyId],
+    queryFn: async () => (await apiRequest("GET", `/api/campaigns/${campaignId}`, undefined,
+      { headers: { "X-Company-Id": user?.activeCompanyId ?? "" } })).json(),
+    refetchInterval: 30_000,
   });
 
   const { data: notificationRecipient, isPending: recipientLoading, isError: recipientError, refetch: retryRecipient } = useQuery<{ email: string | null; contactName: string | null }>({
@@ -964,6 +977,9 @@ export default function CampaignItemDetail() {
           </div>
         </div>
       )}
+
+      <CampaignContractNotice value={item.contractState}
+        onSkip={canSkip && !isArchivedCampaign && item.status === "pending" ? () => setShowSkip(true) : undefined} />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>

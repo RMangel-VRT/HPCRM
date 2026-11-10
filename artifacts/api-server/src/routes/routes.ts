@@ -89,6 +89,8 @@ import { customerDocumentRawAccess } from "../services/customerDocumentRawAccess
 import { loadCustomerListMetadata } from "../services/customerListSummary";
 import { isLoggedCustomerCommunication } from "../services/customerCommunicationPresentation";
 import { registerContractQuestionReconciliation } from "../lib/contractQuestionFlags";
+import { registerCampaignMembershipReconciliation } from "../lib/campaignMembership";
+import { withCampaignContractStates } from "../lib/campaignContractState";
 import { snowCoveredCustomerIds, loadCustomerContractInputs, customerContractProjector } from "../lib/customerContractSummary";
 import { rejectLegacySnowCoverageWrite } from "../lib/snowCoverageInput";
 import { assertActivationComplete } from "../services/customerSetupValidation";
@@ -2723,6 +2725,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   setupAuth(app);
   registerContractQuestionReconciliation(app);
+  registerCampaignMembershipReconciliation(app);
   app.use("/api/customers", (req, res, next) => {
     const companyId = (req.user as UserWithContext | undefined)?.activeCompanyId;
     if (companyId && req.get("X-Company-Id") && req.get("X-Company-Id") !== companyId) {
@@ -13946,6 +13949,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId)
+      return res.status(409).json({ message: "Active company changed. Reload and try again." });
     if (!campaignAllowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
@@ -14052,7 +14057,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     res.json({
       ...campaign,
-      items: itemsWithNames,
+      items: await withCampaignContractStates(campaign, itemsWithNames),
       totalItems: items.length,
       completedItems: items.filter((i: { status: string }) => i.status === "completed").length,
       skippedItems: items.filter((i: { status: string }) => i.status === "skipped").length,

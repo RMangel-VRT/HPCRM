@@ -69,8 +69,11 @@ import {
 } from "lucide-react";
 import type { Campaign, CampaignItem, Season, CampaignChecklistTask, Customer, CompanyUser, User as UserType } from "@shared/schema";
 import ExtraBillableCampaignView from "@/components/ExtraBillableCampaignView";
+import CampaignContractNotice from "@/components/CampaignContractNotice";
+import type { CampaignContractState } from "../../../../lib/db/src/campaignGenerationContracts";
 
 interface CampaignItemWithUser extends CampaignItem {
+  contractState?: CampaignContractState;
   completedByName?: string | null;
   customerAddress?: string;
 }
@@ -139,7 +142,10 @@ export default function CampaignDetail() {
   const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
-    queryKey: ["/api/campaigns", id],
+    queryKey: ["/api/campaigns", id, user?.activeCompanyId],
+    queryFn: async () => (await apiRequest("GET", `/api/campaigns/${id}`, undefined,
+      { headers: { "X-Company-Id": user?.activeCompanyId ?? "" } })).json(),
+    refetchInterval: 30_000,
   });
 
   useEffect(() => {
@@ -265,7 +271,7 @@ export default function CampaignDetail() {
       items = items.filter(i => i.status === filterStatus);
     }
     if (filterExceptionsOnly) {
-      items = items.filter(i => !!i.exceptionType);
+      items = items.filter(i => !!i.exceptionType || (!!i.contractState && i.contractState.state !== "owed"));
     }
     if (search.trim()) {
       const s = search.toLowerCase();
@@ -282,7 +288,7 @@ export default function CampaignDetail() {
       items = items.filter(i => i.customerName.toLowerCase().includes(s));
     }
     if (filterExceptionsOnly) {
-      items = items.filter(i => !!i.exceptionType);
+      items = items.filter(i => !!i.exceptionType || (!!i.contractState && i.contractState.state !== "owed"));
     }
     return sortItems(items);
   }, [campaign?.items, search, sortBy, filterExceptionsOnly]);
@@ -928,6 +934,7 @@ function ItemCard({ item, isChemicalCampaign, isIrrigationCampaign, campaign, ca
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium truncate" data-testid={`text-item-name-${item.id}`}>{item.customerName}</span>
+              <CampaignContractNotice value={item.contractState} />
               {isArchived && (
                 <Badge variant="secondary" className="text-xs shrink-0 gap-1" data-testid={`badge-archived-item-${item.id}`}>
                   <Archive className="w-3 h-3" />

@@ -7,6 +7,24 @@
  */
 import * as zod from "zod";
 
+export const GetCampaignMembershipStatusParams = zod.object({
+  year: zod.coerce.number(),
+});
+
+export const GetCampaignMembershipStatusHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const GetCampaignMembershipStatusResponse = zod.object({
+  enabledAt: zod.string().nullable(),
+  checkedAt: zod.string().nullable(),
+  succeededAt: zod.string().nullable(),
+  error: zod.string().nullable(),
+  changes: zod.number(),
+  keptNotOwed: zod.number(),
+  missed: zod.number(),
+});
+
 export const PreviewCampaignGenerationParams = zod.object({
   year: zod.coerce.number(),
 });

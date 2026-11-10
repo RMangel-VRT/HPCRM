@@ -19,6 +19,7 @@ import type {
 import type {
   CampaignGenerationInput,
   CampaignGenerationReport,
+  CampaignMembershipStatus,
   Crew,
   CrewInput,
   CrewPatch,
@@ -81,6 +82,94 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getGetCampaignMembershipStatusUrl = (year: number) => {
+  return `/api/campaign-generation/${year}/status`;
+};
+
+export const getCampaignMembershipStatus = async (
+  year: number,
+  options?: RequestInit,
+): Promise<CampaignMembershipStatus> => {
+  return customFetch<CampaignMembershipStatus>(
+    getGetCampaignMembershipStatusUrl(year),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetCampaignMembershipStatusQueryKey = (year: number) => {
+  return [`/api/campaign-generation/${year}/status`] as const;
+};
+
+export const getGetCampaignMembershipStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCampaignMembershipStatus>>,
+  TError = ErrorType<void>,
+>(
+  year: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCampaignMembershipStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetCampaignMembershipStatusQueryKey(year);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCampaignMembershipStatus>>
+  > = ({ signal }) =>
+    getCampaignMembershipStatus(year, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!year,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCampaignMembershipStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCampaignMembershipStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCampaignMembershipStatus>>
+>;
+export type GetCampaignMembershipStatusQueryError = ErrorType<void>;
+
+export function useGetCampaignMembershipStatus<
+  TData = Awaited<ReturnType<typeof getCampaignMembershipStatus>>,
+  TError = ErrorType<void>,
+>(
+  year: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCampaignMembershipStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCampaignMembershipStatusQueryOptions(
+    year,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 export const getPreviewCampaignGenerationUrl = (year: number) => {
   return `/api/campaign-generation/${year}/preview`;

@@ -5,14 +5,36 @@ The ledger each CG slice updates when it finishes. The next slice's pre-flight r
 | Slice | State |
 |---|---|
 | CG1 Catalog, service timing, schema | merged |
-| CG2 Demand engine and Generate screen | implemented and verified in task branch; awaiting merge |
-| CG3 Membership follows contracts | not started |
+| CG2 Demand engine and Generate screen | merged; verification and handoff recorded |
+| CG3 Membership follows contracts | implemented and verified in task branch; awaiting merge |
 | CG4 Crew lists | not started |
 | CG5 Owed and done calculation | not started |
 
 ## Log
 
 (Each slice adds a block here: date, migration, new tables/columns/functions/endpoints with exact names, deviations, open items.)
+
+### 2026-11-10 — CG3 membership synchronization and contract exceptions
+
+- **Source deviation, explicitly authorized:** after the missing repository specification was reported, the owner instructed “no just run it on the task plan.” CG3 follows this assigned task plan and CG2's actual merged handoff. No removed owner-controlled specification was restored or rewritten. This permission is CG3-specific, not permission to start CG4.
+- Rechecked producer contracts on fetched `origin/main`: `campaignDemand`, `coverageResolver.forMonth`, `campaignItemProtected`, `reconcileCampaigns`, `runCampaignGeneration`, `campaignGenerationYears`; CG2 handoff verified. Existing demand rules, generated/manual guards, shared item initialization and protection logic remain unchanged.
+- Migration: **none**. New tables/columns: **none**. No opt-in writes, Generate runs, historical backfills, production writes or publishing. Database verification used only disposable development companies and direct enabled-year fixtures.
+- `lib/campaignMembership.ts` exports `campaignMembershipStatus`, `reconcileEnabledCampaignYears`, `scheduleCampaignMembership`, `registerCampaignMembershipReconciliation`, `runCampaignMembershipSweep`, `startCampaignMembershipSweep`. Independent per-company promise chains queue every successful relevant response, capturing company at request entry. Middleware is registered immediately after the existing contract-question middleware. Write paths: `customers`, `contract-center`, `admin/contract-center`, `service-programs`, `estimates`, `bids`, `proposals`, `qbo`; campaign edits, reads and non-2xx responses do not queue.
+- Enabled years are selected by company, ascending year, with year >= Colorado current year. Each gets a separate transaction using the existing `campaign-gen:<companyId>` advisory lock and `reconcileCampaigns(...,{dryRun:false,today})`; opt-in is rechecked under lock and never created. Failure is logged per year without preventing later years or companies. Startup/hourly sweep uses the same independent queue and its timer is stopped on server close.
+- Latest summaries use a bounded 500-entry process-local map, with enabled time, latest attempt/success, sanitized error and change/kept/missed counts. No report history or membership flags are stored. Endpoint `GET /api/campaign-generation/:year/status`, OpenAPI operation `getCampaignMembershipStatus`, generated validator `GetCampaignMembershipStatusResponse`; admin/office with existing super-admin override, no-store, company-header consistency and existing Colorado current/next-year bounds. Shared DTO `CampaignMembershipStatus`; enabled-at fallback survives process restart.
+- `lib/campaignContractState.ts` exports `withCampaignContractStates`: generated campaign detail reads compute a single batch demand projection using the same `campaignDemand` and current company programs, yielding shared DTO `CampaignContractState` (`owed`, `waiting_on_signature`, `no_longer_in_contract`). Manual campaigns bypass this projection.
+- CRM `CampaignContractNotice` displays signature chips, retained-work warnings, contract/review links and permission-gated access to the existing skip form. Both list and kanban cards use it, as does item detail. Exception filtering includes contract exceptions. Campaign detail/item queries are company-scoped and poll every 30 seconds; the detail GET rejects a mismatched company header. Generate polls the status endpoint, refreshes preview after a completed automatic check, shows restart/failure/last-success information and existing kept/missed decision panels with item review/skip links.
+- Verification: 64 server checks passed in the combined queue/database/demand/Routes/program run; targeted additions passed (startup/hourly/stop timer and completed/skipped/chemical-progress retention), alongside status/fallback rechecks. All 11 rendered UI checks passed. API/CRM workflows restarted; health and all four changed Vite modules returned 200, signed-out status returned 401. Schema/extension workflow passed. Existing leaf typecheck failures and unrelated QuickBooks fixture-token warnings remain; no CG3 functional issue identified.
+- Evidence and exact command/results: [CG3 verification and handoff](../../scheduling/reports/CG3-verification.md). Earlier blocked pre-flight evidence remains historical. CG4, crew lists, board work and customer Services UI were not started.
+
+### 2026-11-10 — CG3 source pre-flight blocked; implementation not started
+
+- Fetched actual GitHub `origin/main` and confirmed it matches this checkout's CG2 implementation. CG2 is merged, with verification and integration handoff in `docs/scheduling/reports/CG2-verification.md`; its prior awaiting-merge wording above is now corrected.
+- Required owner-controlled source `docs/slices/campaigns/CG3-membership-follows-contracts.md` is absent both locally and on fetched `origin/main`. Its named pre-flight cannot be read or executed. The CG2-specific source deviation does not authorize implementing CG3 from the task summary.
+- Existing producer integration names observed: `campaignDemand`, `coverageResolver.forMonth`, `campaignItemProtected`, `reconcileCampaigns`, `runCampaignGeneration`, `campaignGenerationYears`. No predecessor implementation was rebuilt.
+- Migration: **none**. New tables, columns, functions and endpoints: **none**. No application code or owner-controlled slice specification changed.
+- Deviation: stopped at the required source gate; CG3 is not implemented or complete. Open item: supply the current approved CG3 repository specification, then rerun its full pre-flight before implementation. Do not restore the deliberately removed obsolete specification.
+- Evidence: [CG3 pre-flight verification](../../scheduling/reports/CG3-preflight-verification.md). No database writes, Generate runs, backfills, workflow changes, production operations or publishing occurred.
 
 ### 2026-11-10 — CG2 pre-flight blocked; implementation not started
 
