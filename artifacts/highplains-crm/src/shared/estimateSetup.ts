@@ -11,9 +11,9 @@ export const UMBRELLA_DEFAULTS = [
   { key: "irrigation_labor", label: "Irrigation Labor", description: "Irrigation installation, service and repair labor." },
   { key: "fees_surcharges", label: "Fees & Surcharges", description: "Disposal, delivery, permits and other fees or surcharges." },
 ] as const;
-export const QUICK_ITEM_UNITS = ["hour", "day", "week", "ea", "flat"] as const;
+export const QUICK_ITEM_UNITS = ["hour", "day", "week", "ea", "flat", "sq ft", "1,000 sq ft", "lin ft", "visit"] as const;
 export type QuickItemUnit = (typeof QUICK_ITEM_UNITS)[number];
-export const QUICK_ITEM_KINDS = ["equipment", "fee"] as const;
+export const QUICK_ITEM_KINDS = ["equipment", "fee", "service"] as const;
 export type QuickItemKind = (typeof QUICK_ITEM_KINDS)[number];
 export const QBO_ITEM_TYPES = ["Service", "NonInventory"] as const;
 export type QboItemType = (typeof QBO_ITEM_TYPES)[number];
@@ -28,18 +28,29 @@ export const quickItemFields = {
   umbrellaKey: z.enum(UMBRELLA_KEYS),
   isActive: z.boolean(),
   sortOrder: z.number().int().min(-2147483648).max(2147483647),
+  serviceCategoryId: z.string().trim().min(1).max(200).nullable().optional(),
 };
 export const patchQuickItemSchema = z.object(quickItemFields).partial().strict();
 const optionalUmbrella = z.preprocess(v => v === "" || v === null ? undefined : v, z.enum(UMBRELLA_KEYS).optional());
+/** Mirrors the server: no transform; omitted unit/umbrella defaults are resolved by the server create service. */
 export const createQuickItemSchema = z.object({
-  ...quickItemFields, defaultUnit: quickItemFields.defaultUnit.default("hour"),
+  ...quickItemFields, defaultUnit: quickItemFields.defaultUnit.optional(),
   umbrellaKey: optionalUmbrella, isActive: quickItemFields.isActive.default(true),
-  sortOrder: quickItemFields.sortOrder.default(0),
-}).strict().transform(v => ({ ...v, umbrellaKey: v.umbrellaKey ?? (v.kind === "equipment" ? "landscape_labor" : "fees_surcharges") as UmbrellaKey }));
+  sortOrder: quickItemFields.sortOrder.default(0), serviceCategoryId: quickItemFields.serviceCategoryId.optional(),
+}).strict().superRefine((v, ctx) => {
+  if ((v.kind === "service") !== !!v.serviceCategoryId) ctx.addIssue({ code: "custom", path: ["serviceCategoryId"], message: "Services require a category; other kinds cannot have one" });
+});
+
+export const SERVICE_CATEGORY_NAME_MAX = 100;
+export interface EstimateServiceCategory {
+  id: string; companyId: string; name: string; defaultUmbrellaKey: UmbrellaKey; defaultUnit: QuickItemUnit;
+  sortOrder: number; isActive: boolean; createdAt?: string; updatedAt?: string; itemCount: number;
+}
 
 export interface EstimateQuickItem {
   id: string; companyId: string; kind: QuickItemKind; label: string; defaultUnit: QuickItemUnit;
   defaultRateCents: number | null; umbrellaKey: UmbrellaKey; isActive: boolean; sortOrder: number;
+  serviceCategoryId?: string | null; serviceCategoryName?: string | null; serviceCategoryIsActive?: boolean | null;
   createdAt?: string; updatedAt?: string;
 }
 export interface QboUmbrellaItem {

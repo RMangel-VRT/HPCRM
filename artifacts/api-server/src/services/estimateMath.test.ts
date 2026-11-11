@@ -70,7 +70,7 @@ describe("driver-free strict contracts", () => {
     for (const extra of [{ unitPriceCents: 1 }, { unitCostCents: 0 }, { priceSource: "manual" }, { name: "override" }, { includeInPalette: false }, { extendedCents: 1 }])
       expect(createEstimateLineSchema.safeParse({ ...base, ...extra }).success).toBe(false);
   });
-  it.each(["equipment", "fee"])("enforces exclusive quick-list/free entry for %s", lineType => {
+  it.each(["service", "equipment", "fee"])("enforces exclusive quick-list/free entry for %s", lineType => {
     const base = { lineType, sectionId: "s", quantity: 1 };
     expect(createEstimateLineSchema.safeParse({ ...base, quickItemId: "q" }).success).toBe(true);
     expect(createEstimateLineSchema.safeParse({ ...base, name: "Free", unit: "ea", unitPriceCents: 0, umbrellaKey: "fees_surcharges" }).success).toBe(true);

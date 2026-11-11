@@ -8,8 +8,8 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiErrorMessage, centsToInput, fetchJson, formatCents, parseDollarsToCents } from "@/lib/hardscapeCatalog";
 import {
-  QUICK_ITEMS_API, QUICK_ITEM_LABEL_MAX, QUICK_KINDS, QUICK_UNITS, UMBRELLA_KEYS, defaultUmbrellaForKind, scopeOf, sendJson,
-  type QuickItem, type QuickItemEditable, type QuickKind, type QuickUnit, type UmbrellaKey,
+  EQUIPMENT_FEE_KINDS as QUICK_KINDS, QUICK_ITEMS_API, QUICK_ITEM_LABEL_MAX, QUICK_UNITS, UMBRELLA_KEYS, defaultUmbrellaForKind, scopeOf, sendJson,
+  type EquipmentFeeKind as QuickKind, type QuickItem, type QuickItemEditable, type QuickUnit, type UmbrellaKey,
 } from "@/lib/estimateSettings";
 import { SectionRailLayout } from "@/components/nav/SectionRail";
 import { EstimatesRail } from "@/components/nav/estimatesRail";
@@ -31,7 +31,7 @@ type FormErrors = Partial<Record<"label" | "rate" | "form", string>>;
 
 function toForm(item: QuickItem | null, kind: QuickKind): FormState {
   return item
-    ? { label: item.label, kind: item.kind, unit: item.defaultUnit, rate: centsToInput(item.defaultRateCents), umbrellaKey: item.umbrellaKey, umbrellaTouched: true, isActive: item.isActive }
+    ? { label: item.label, kind: item.kind as QuickKind, unit: item.defaultUnit, rate: centsToInput(item.defaultRateCents), umbrellaKey: item.umbrellaKey, umbrellaTouched: true, isActive: item.isActive }
     : { label: "", kind, unit: kind === "fee" ? "flat" : "hour", rate: "", umbrellaKey: defaultUmbrellaForKind(kind), umbrellaTouched: false, isActive: true };
 }
 
@@ -163,7 +163,7 @@ function EquipmentFeesContent() {
     enabled: !!user,
   });
   const items = useMemo(() => {
-    const all = (data ?? []).filter((i) => showInactive || i.isActive);
+    const all = (data ?? []).filter((i) => i.kind !== "service" && (showInactive || i.isActive));
     return [...all].sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.sortOrder - b.sortOrder || a.label.localeCompare(b.label));
   }, [data, showInactive]);
 
@@ -225,7 +225,7 @@ function EquipmentFeesContent() {
           ) : items.length === 0 ? (
             <div className="rounded-md border border-dashed bg-card/60 px-6 py-12 text-center" data-testid="quick-items-empty">
               <div className="mx-auto mb-3 flex w-fit gap-2 text-muted-foreground"><Truck className="h-5 w-5" /><Receipt className="h-5 w-5" /></div>
-              <p className="font-semibold">{kind || (data?.length ?? 0) > 0 ? t("equipmentFees.emptyKind") : t("equipmentFees.empty")}</p>
+              <p className="font-semibold">{kind || (data ?? []).some((i) => i.kind !== "service") ? t("equipmentFees.emptyKind") : t("equipmentFees.empty")}</p>
               <p className="mt-1 text-sm text-muted-foreground">{t("equipmentFees.emptyHint")}</p>
             </div>
           ) : (

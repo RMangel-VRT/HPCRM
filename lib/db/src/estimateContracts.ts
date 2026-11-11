@@ -5,7 +5,7 @@ import { isCalendarDate } from "./schema/calendarDate";
 export { isCalendarDate } from "./schema/calendarDate";
 
 export const ESTIMATE_STATUSES = ["draft", "sent", "accepted", "declined", "superseded", "void"] as const;
-export const ESTIMATE_LINE_TYPES = ["plant", "hardscape", "irrigation", "labor", "equipment", "fee", "custom"] as const;
+export const ESTIMATE_LINE_TYPES = ["plant", "hardscape", "irrigation", "labor", "service", "equipment", "fee", "custom"] as const;
 export const ESTIMATE_PRICE_SOURCES = ["catalog", "contract", "rate_card", "quick_list", "manual"] as const;
 export const ESTIMATE_SENT_METHODS = ["email", "hard_copy", "portal", "other"] as const;
 export const ESTIMATE_ACCEPTANCE_METHODS = ["email_approval", "signed_pdf", "phone", "portal", "other"] as const;
@@ -43,7 +43,7 @@ const quickOrFree = z.union([
   z.object({ quickItemId: estimateIdSchema }).strict(),
   z.object(free).strict(),
 ]);
-const quickBranch = (lineType: "equipment" | "fee") => z.object({
+const quickBranch = (lineType: "equipment" | "fee" | "service") => z.object({
   ...base, lineType: z.literal(lineType), quickItemId: estimateIdSchema.optional(),
   name: name.optional(), detail: detail.optional(), unit: name.optional(),
   unitPriceCents: cents.optional(), umbrellaKey: z.enum(ESTIMATE_UMBRELLAS).optional(),
@@ -56,7 +56,7 @@ export const createEstimateLineSchema = z.discriminatedUnion("lineType", [
   z.object({ ...base, lineType: z.literal("hardscape"), hardscapeCatalogItemId: estimateIdSchema }).strict(),
   z.object({ ...base, lineType: z.literal("irrigation"), irrigationCatalogItemId: estimateIdSchema }).strict(),
   z.object({ ...base, lineType: z.literal("labor"), rateKey: name }).strict(),
-  quickBranch("equipment"), quickBranch("fee"),
+  quickBranch("service"), quickBranch("equipment"), quickBranch("fee"),
   z.object({ ...base, lineType: z.literal("custom"), ...free }).strict(),
 ]);
 // Explicit PATCH fields have NO defaults. Null is a real clear operation.

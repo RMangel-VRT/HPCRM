@@ -126,7 +126,7 @@ export function patchLine(companyId: string, id: string, versionId: string, line
   const input = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined)) as PatchEstimateLineInput;
   return mutateEstimate(companyId, id, versionId, async ({ tx }) => {
     const line = requireEstimate((await tx.select().from(estimateLines).where(and(eq(estimateLines.companyId, companyId), eq(estimateLines.versionId, versionId), eq(estimateLines.id, lineId))))[0]);
-    if (!["equipment", "fee", "custom"].includes(line.lineType) && ["unit", "name", "detail", "umbrellaKey"].some(k => Object.hasOwn(input, k))) throw new EstimateError(400, "FIELD_NOT_EDITABLE");
+    if (!["service", "equipment", "fee", "custom"].includes(line.lineType) && ["unit", "name", "detail", "umbrellaKey"].some(k => Object.hasOwn(input, k))) throw new EstimateError(400, "FIELD_NOT_EDITABLE");
     if (line.lineType !== "plant" && ["includeInPalette", "paletteTypeLabel"].some(k => Object.hasOwn(input, k))) throw new EstimateError(400, "PLANT_ONLY_FIELD");
     await sectionFor(tx, companyId, versionId, line.sectionId);
     if (input.sectionId) await sectionFor(tx, companyId, versionId, input.sectionId);

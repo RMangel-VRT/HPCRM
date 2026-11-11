@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { plantCatalogItems, hardscapeCatalogItems, irrigationCatalogItems, estimateQuickItems, type CreateEstimateLineInput, type EstimateLine, type EstimateUmbrella } from "@workspace/db";
+import { plantCatalogItems, hardscapeCatalogItems, irrigationCatalogItems, estimateQuickItems, estimateServiceCategories, type CreateEstimateLineInput, type EstimateLine, type EstimateUmbrella } from "@workspace/db";
 import type { AppTransaction } from "../db";
 import { loadEstimateRateContext, resolveEstimateRate } from "./estimateRates";
 import { PLANT_DEFAULT_PRICE, moneyStringToCents } from "./estimateMath";
@@ -36,9 +36,15 @@ export async function snapshotEstimateLine(tx: AppTransaction, companyId: string
         unitPriceCents: rate.rateCents ?? 0, unitCostCents: null, priceSource: rate.source,
         umbrellaKey: context.card.find(c => c.rateKey === input.rateKey)?.line === "irrigation" ? "irrigation_labor" : "landscape_labor" };
     }
-    case "equipment": case "fee": {
+    case "service": case "equipment": case "fee": {
       if (input.quickItemId) {
         const row = requireEstimate((await tx.select().from(estimateQuickItems).where(and(eq(estimateQuickItems.companyId, companyId), eq(estimateQuickItems.id, input.quickItemId), eq(estimateQuickItems.isActive, true), eq(estimateQuickItems.kind, input.lineType))))[0]);
+        if (input.lineType === "service") {
+          requireEstimate((await tx.select().from(estimateServiceCategories).where(and(
+            eq(estimateServiceCategories.companyId, companyId), eq(estimateServiceCategories.id, row.serviceCategoryId!),
+            eq(estimateServiceCategories.isActive, true),
+          )))[0]);
+        }
         return { quickItemId: row.id, name: row.label, detail: null, unit: row.defaultUnit, unitPriceCents: row.defaultRateCents ?? 0,
           unitCostCents: null, umbrellaKey: row.umbrellaKey, priceSource: "quick_list" };
       }

@@ -1,5 +1,15 @@
 # Estimate Builder: model and draft API
 
+### Service line extension
+
+`service` is also a valid line type. Like equipment/fee, it accepts **either**
+`quickItemId` **or** a complete free entry (`name`, `unit`, `unitPriceCents`,
+`umbrellaKey`, optional detail), never both. Service references must be active
+company-owned service items in active company-owned estimate service categories.
+Referenced values are captured once with `quick_list` provenance and null
+initial detail; free entries have `manual` provenance. Normal draft display
+field edits, lock rules and umbrella-based totals apply unchanged.
+
 ## Scope and deployment
 
 Server-only draft storage/API. No builder UI, lifecycle transitions, price
@@ -92,9 +102,9 @@ twice known wholesale cost (including zero), otherwise sale price, otherwise
 zero. Plant palette inclusion defaults true; every other type defaults false.
 
 Hardscape/irrigation snapshot source names, units, category/SKU details, price,
-cost and umbrella. Quick-list equipment/fee references must match the line's
+cost and umbrella. Quick-list service/equipment/fee references must match the line's
 kind and snapshot its label, unit, optional rate and umbrella. Inactive/foreign
-sources are indistinguishable 404s. Free equipment/fee/custom entries remain
+sources are indistinguishable 404s. Free service/equipment/fee/custom entries remain
 available; reference-plus-client-price requests are rejected.
 
 Labor loads the existing rate context through the transaction and passes
@@ -111,7 +121,7 @@ retain provenance; same-price, quantity and permitted display/palette edits
 preserve source. Manual zero prices are valid without `needsPrice`. Other
 zero prices expose it.
 
-Names/details/units/umbrellas can change only on equipment/fee/custom;
+Names/details/units/umbrellas can change only on service/equipment/fee/custom;
 palette fields are plant-only. Moves are within the version. Explicit null
 clears nullable fields; omitted fields remain unchanged.
 

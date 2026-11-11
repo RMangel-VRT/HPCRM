@@ -1,15 +1,15 @@
 import { useTranslation } from "react-i18next";
-import { Droplets, Hammer, Leaf, Mountain, PenLine, Receipt, Tractor } from "lucide-react";
+import { Droplets, Hammer, Leaf, Mountain, PenLine, Receipt, Sprout, Tractor } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { LINE_TINT, LINE_TYPES, type EstimateLineType } from "@/lib/estimateBuilder";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export const LINE_TYPE_ICON: Record<EstimateLineType, LucideIcon> = {
-  plant: Leaf, hardscape: Mountain, irrigation: Droplets, labor: Hammer, equipment: Tractor, fee: Receipt, custom: PenLine,
+  plant: Leaf, hardscape: Mountain, irrigation: Droplets, labor: Hammer, service: Sprout, equipment: Tractor, fee: Receipt, custom: PenLine,
 };
 
-/** "Add line" group: seven outlined buttons, each with the line type's tinted icon chip. */
+/** "Add line" group: eight outlined buttons, each with the line type's tinted icon chip. */
 export function AddLineButtons({ sectionId, onAdd }: { sectionId: string; onAdd: (t: EstimateLineType) => void }) {
   const { t } = useTranslation();
   return (

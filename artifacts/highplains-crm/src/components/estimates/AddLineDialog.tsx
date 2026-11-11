@@ -73,7 +73,7 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
 
   const enabled = !freeMode;
   const q = useQuery<unknown>({
-    queryKey: ["estimate-picker", type, ...scopeKey, search, category, brand, customerId],
+    queryKey: ["estimate-picker", type, ...scopeKey, search, type === "service" ? null : category, brand, customerId],
     enabled,
     queryFn: ({ signal }) => {
       switch (type) {
@@ -89,11 +89,12 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
     },
   });
 
-  const { rows, categories, brands } = useMemo(() => {
+  const { rows, categories, brands, serviceCats } = useMemo(() => {
     const d = q.data;
     const s = search.toLowerCase();
     let rows: Row[] = []; let categories: string[] = []; let brands: string[] = [];
-    if (!d) return { rows, categories, brands };
+    const serviceCats: { id: string; name: string }[] = [];
+    if (!d) return { rows, categories, brands, serviceCats };
     if (type === "plant") {
       for (const v of d as PlantVariety[]) for (const sz of v.sizes.filter((x) => x.isActive !== false)) {
         rows.push({
@@ -125,6 +126,20 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
           body: { rateKey: r.rateKey },
         };
       });
+    } else if (type === "service") {
+      // Picker shows only active services in active categories; category chips filter client-side.
+      const pickable = (d as QuickItem[]).filter((i) => i.kind === "service" && i.isActive && i.serviceCategoryId && i.serviceCategoryIsActive === true);
+      for (const i of pickable) if (!serviceCats.some((c) => c.id === i.serviceCategoryId)) serviceCats.push({ id: i.serviceCategoryId!, name: i.serviceCategoryName ?? "" });
+      serviceCats.sort((a, b) => a.name.localeCompare(b.name));
+      rows = pickable.filter((i) => (!category || i.serviceCategoryId === category) && (!s || i.label.toLowerCase().includes(s)))
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label))
+        .map((i) => ({
+          key: i.id, title: i.label,
+          detail: [i.serviceCategoryName, t(`estimateBuilder.unit.${i.defaultUnit}`, { defaultValue: i.defaultUnit })].filter(Boolean).join(" · "),
+          meta: i.defaultRateCents != null ? formatCents(i.defaultRateCents, lang) : t("estimateBuilder.picker.noDefault"),
+          body: { quickItemId: i.id },
+        }));
+      rows.push({ key: "__free", title: t("estimateBuilder.picker.freeType"), detail: t("estimateBuilder.picker.freeTypeHint"), free: true });
     } else {
       rows = (d as QuickItem[]).filter((i) => i.isActive && (!s || i.label.toLowerCase().includes(s))).sort((a, b) => a.sortOrder - b.sortOrder)
         .map((i) => ({
@@ -134,8 +149,8 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
         }));
       rows.push({ key: "__free", title: t("estimateBuilder.picker.freeType"), detail: t("estimateBuilder.picker.freeTypeHint"), free: true });
     }
-    return { rows, categories, brands };
-  }, [q.data, type, search, lang, t]);
+    return { rows, categories, brands, serviceCats };
+  }, [q.data, type, search, category, lang, t]);
 
   useEffect(() => { setHighlight(0); }, [rows.length, search, category, brand]);
   useEffect(() => {
@@ -200,6 +215,16 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
             {[null, ...categories].map((c) => (
               <button key={c ?? "__all"} type="button" aria-pressed={category === c} className={chip(category === c)} onClick={() => setCategory(c)} data-testid={`chip-picker-category-${c ?? "all"}`}>
                 {c ?? t("estimateBuilder.picker.all")}
+              </button>
+            ))}
+          </div>
+        )}
+        {serviceCats.length > 0 && (
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("estimateBuilder.picker.categories")} data-testid="group-picker-service-categories">
+            {[null, ...serviceCats].map((c) => (
+              <button key={c?.id ?? "__all"} type="button" aria-pressed={category === (c?.id ?? null)} className={chip(category === (c?.id ?? null))}
+                onClick={() => setCategory(c?.id ?? null)} data-testid={`chip-picker-service-category-${c?.id ?? "all"}`}>
+                {c?.name ?? t("estimateBuilder.picker.all")}
               </button>
             ))}
           </div>
@@ -269,9 +294,9 @@ function FreeForm({ type, title, pending, quantity, setQuantity, qtyError, onBac
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [detail, setDetail] = useState("");
-  const [unit, setUnit] = useState<string>(type === "fee" || type === "custom" ? "ea" : "hour");
+  const [unit, setUnit] = useState<string>(type === "fee" || type === "custom" ? "ea" : type === "service" ? "1,000 sq ft" : "hour");
   const [rate, setRate] = useState("");
-  const [umbrella, setUmbrella] = useState<EstimateUmbrella>(DEFAULT_UMBRELLA[type as "equipment" | "fee" | "custom"] ?? "landscape_materials");
+  const [umbrella, setUmbrella] = useState<EstimateUmbrella>(DEFAULT_UMBRELLA[type as "service" | "equipment" | "fee" | "custom"] ?? "landscape_materials");
   const [errs, setErrs] = useState<{ name?: string; rate?: string }>({});
 
   function submit(e: FormEvent) {

@@ -106,6 +106,7 @@ const EstimateBuilder = lazy(() => import("@/pages/EstimateBuilder"));
 const HardscapeCatalog = lazy(() => import("@/pages/HardscapeCatalog"));
 const IrrigationCatalog = lazy(() => import("@/pages/IrrigationCatalog"));
 const EquipmentFeesCatalog = lazy(() => import("@/pages/EquipmentFeesCatalog"));
+const ServicesCatalog = lazy(() => import("@/pages/ServicesCatalog"));
 const LaborRatesPreview = lazy(() => import("@/pages/LaborRatesPreview"));
 const QuickBooksSetup = lazy(() => import("@/pages/QuickBooksSetup"));
 const QboCustomerMapping = lazy(() => import("@/pages/QboCustomerMapping"));
@@ -276,6 +277,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/estimates/catalogs/plants/matches" component={PlantMatches} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/plants" component={PlantLibrary} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/irrigation" component={IrrigationCatalog} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/estimates/catalogs/services" component={ServicesCatalog} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/catalogs/equipment-fees" component={EquipmentFeesCatalog} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/settings/rates" component={LaborRatesPreview} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/estimates/settings/quickbooks" component={QuickBooksSetup} allowedRoles={["admin", "office"]} />

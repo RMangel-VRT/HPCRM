@@ -12,12 +12,62 @@ catalog dialogs and table components instead. No new artifact or dependency.
 New URLs (admin and office):
 
 - `/dashboard/estimates/catalogs/equipment-fees`
+- `/dashboard/estimates/catalogs/services`
 - `/dashboard/estimates/settings/rates`
 - `/dashboard/estimates/settings/quickbooks`
 
 Existing board, plants, hardscape and irrigation destinations remain unchanged.
 Rate Card editing and QBO connection/write settings remain admin-only; office
 users see permission guidance rather than a link suggesting edit access.
+
+## Categorized estimate services (Slice 4.6)
+
+Services are a third `estimate_quick_items.kind`, not a second item store and
+not the contract/campaign service catalog. The six QuickBooks umbrellas do not
+change. Categories own names, order, active state, default unit and umbrella;
+items own their own defaults; estimate lines capture immutable-at-insertion
+source snapshots, with normal permitted manual draft edits.
+
+Migrations `0078_estimate_services.sql` and
+`0079_estimate_service_legacy_unit_check.sql` add the category table, required
+service category FK/check, expanded quick-item units and service line type.
+The second migration removes the legacy automatically named unit CHECK from
+SQL-created databases; the first supplies the canonical expanded check.
+Both are guarded; no earlier migration is renamed or edited.
+Existing companies receive General Landscape and Chemical Treatments
+(`landscape_labor`, `1,000 sq ft`, orders 0/1) without resetting existing rows.
+Company creation now initializes categories within its transaction; there was
+no umbrella-seeding company hook to reuse. Existing umbrella provisioning stays
+unchanged. Neither category listing nor startup reseeds edited categories.
+
+`GET /api/estimates/service-categories` returns active and inactive categories
+ordered by `sortOrder`, then name, with `itemCount` over all member items
+(including inactive items). `POST` accepts name, defaultUmbrellaKey, defaultUnit,
+sortOrder and isActive (defaults: landscape_labor, 1,000 sq ft, 0, true).
+`PATCH /:id` accepts only explicitly supplied fields from that list. Empty
+PATCH is rejected. There is no DELETE. Duplicate names, case-insensitive within
+the company, return 409 with `A category with this name already exists`.
+All endpoints use the same admin/office access, no-store and expected-company
+checks as other estimate setup routes.
+
+`GET /api/quick-items?kind=service` retains the existing array envelope and
+adds `serviceCategoryId`, `serviceCategoryName`, `serviceCategoryIsActive`.
+Management includes inactive categories and members; the builder requires both
+item and category active. A new service requires an active same-company
+category. Omitting unit/umbrella on create resolves them from that category on
+the server; equipment/fee keep their existing defaults. Explicit overrides win.
+PATCH merges the existing row before checking kind/category consistency; only
+a new/reassigned association requires an active category, so an unrelated
+edit can preserve an inactive association. Category changes never rewrite
+items or lines. All item kinds share company-wide label uniqueness; conflicts
+return `An item with this name already exists`.
+
+Quick-item unit codes now also include `sq ft`, `1,000 sq ft`, `lin ft`, `visit`.
+These stored codes print as-is. The service dialog prefills unit and umbrella
+independently until each is touched; untouched create defaults are omitted from
+the request, not guessed on the client.
+
+Verification and screenshots: [Services Catalog integration report](reports/services-catalog.md).
 
 Apply `.migration-backup/migrations/0053_estimate_setup.sql` through the existing
 strict migration command in development/post-merge. Number 0053 was checked as

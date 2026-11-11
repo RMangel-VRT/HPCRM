@@ -17,12 +17,12 @@ export const ESTIMATE_BUILDER_PATH = "/dashboard/estimates/builder";
 export const builderPath = (id: string, version?: number) =>
   `${ESTIMATE_BUILDER_PATH}/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`;
 
-export const LINE_TYPES: EstimateLineType[] = ["plant", "hardscape", "irrigation", "labor", "equipment", "fee", "custom"];
+export const LINE_TYPES: EstimateLineType[] = ["plant", "hardscape", "irrigation", "labor", "service", "equipment", "fee", "custom"];
 export const UMBRELLAS: EstimateUmbrella[] = ["plants", "landscape_materials", "irrigation_materials", "landscape_labor", "irrigation_labor", "fees_surcharges"];
-export const FREE_UNITS = ["hour", "day", "week", "ea", "flat"] as const;
-export const FREE_UNIT_TYPES: EstimateLineType[] = ["equipment", "fee", "custom"];
-export const DEFAULT_UMBRELLA: Record<"equipment" | "fee" | "custom", EstimateUmbrella> = {
-  equipment: "landscape_labor", fee: "fees_surcharges", custom: "landscape_materials",
+export const FREE_UNITS = ["hour", "day", "week", "ea", "flat", "sq ft", "1,000 sq ft", "lin ft", "visit"] as const;
+export const FREE_UNIT_TYPES: EstimateLineType[] = ["service", "equipment", "fee", "custom"];
+export const DEFAULT_UMBRELLA: Record<"service" | "equipment" | "fee" | "custom", EstimateUmbrella> = {
+  service: "landscape_labor", equipment: "landscape_labor", fee: "fees_surcharges", custom: "landscape_materials",
 };
 
 /** Mirrors estimateQuantitySchema exactly: never rounds. */
@@ -88,7 +88,7 @@ export function formatDate(iso: string | null | undefined, lang: string): string
 
 /** Distinct tints per line type (HSL triplets). */
 export const LINE_TINT: Record<EstimateLineType, string> = {
-  plant: "142 45% 34%", hardscape: "25 45% 40%", irrigation: "199 70% 38%", labor: "262 35% 45%",
+  plant: "142 45% 34%", hardscape: "25 45% 40%", irrigation: "199 70% 38%", labor: "262 35% 45%", service: "78 55% 28%",
   equipment: "38 80% 36%", fee: "340 50% 42%", custom: "210 10% 40%",
 };
 

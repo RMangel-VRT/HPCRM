@@ -234,7 +234,7 @@ describe("builder rendering", () => {
     expect(screen.getByTestId("text-section-count-s1").textContent).toBe("7 lines");
     expect(screen.getByTestId("text-known-cost").textContent).toBe("$2,110.50");
     expect(screen.getByTestId("text-margin").textContent).toBe("47.2%");
-    expect(screen.getByTestId("text-unknown-cost").textContent).toBe("3 lines without cost (labor, equipment, fees) not included");
+    expect(screen.getByTestId("text-unknown-cost").textContent).toBe("3 lines without cost (labor, services, equipment, fees) not included");
     expect(screen.getByTestId("row-umbrella-plants")).toBeTruthy();
     expect(screen.getByTestId("row-umbrella-landscape_labor")).toBeTruthy();
     expect(screen.queryByTestId("row-umbrella-irrigation_materials")).toBeNull();

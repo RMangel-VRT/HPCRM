@@ -221,7 +221,7 @@ describe("add-line buttons", () => {
     const group = screen.getByTestId("group-add-s1");
     const buttons = within(group).getAllByRole("button");
     expect(buttons.map((b) => b.getAttribute("data-testid"))).toEqual(
-      ["plant", "hardscape", "irrigation", "labor", "equipment", "fee", "custom"].map((ty) => `button-add-${ty}-s1`));
+      ["plant", "hardscape", "irrigation", "labor", "service", "equipment", "fee", "custom"].map((ty) => `button-add-${ty}-s1`));
     for (const b of buttons) { expect(b.tagName).toBe("BUTTON"); expect(b.className).toContain("focus-visible:ring-2"); expect(b.className).toContain("h-8"); }
     buttons[0].focus();
     expect(document.activeElement).toBe(buttons[0]);

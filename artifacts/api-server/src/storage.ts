@@ -1,4 +1,5 @@
 import { campaignProjection, campaignJoin } from "./lib/crewProjection";
+import { initializeServiceCategories } from "./services/estimateServiceCategories";
 import { updateCampaignRoundItem } from "./lib/campaignRoundWork";
 import { CrewLinkError, validateCampaignOwner } from "./lib/crewLinks";
 import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrewWithMembers } from "@workspace/db";
@@ -725,8 +726,11 @@ export class PgStorage implements IStorage {
   }
 
   async createCompany(insertCompany: InsertCompany): Promise<Company> {
-    const result = await db.insert(companies).values([insertCompany]).returning();
-    return result[0];
+    return db.transaction(async tx => {
+      const [company] = await tx.insert(companies).values([insertCompany]).returning();
+      await initializeServiceCategories(tx, company.id);
+      return company;
+    });
   }
 
   async updateCompany(id: string, updates: Partial<InsertCompany>): Promise<Company | undefined> {

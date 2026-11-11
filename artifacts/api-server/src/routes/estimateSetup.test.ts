@@ -40,12 +40,13 @@ describe("estimate catalog and preview boundaries", () => {
     mocks.preview.mockRejectedValue({ status: 404, message: "Customer not found" });
     expect((await request(appFor()).get("/api/estimates/rates/preview?customerId=foreign")).status).toBe(404);
   });
-  it("defaults equipment/fee umbrellas and preserves optional null rates", async () => {
+  it("defers create defaults to the service and preserves optional null rates", async () => {
     expect((await request(appFor()).post("/api/quick-items").send({ kind: "equipment", label: " Skid " })).status).toBe(201);
-    expect(mocks.create).toHaveBeenLastCalledWith("a", expect.objectContaining({ label: "Skid", umbrellaKey: "landscape_labor" }));
+    expect(mocks.create).toHaveBeenLastCalledWith("a", expect.objectContaining({ label: "Skid" }));
+    expect(mocks.create.mock.calls[0][1].umbrellaKey).toBeUndefined();
     expect(mocks.create.mock.calls[0][1].defaultRateCents).toBeUndefined();
     await request(appFor()).post("/api/quick-items").send({ kind: "fee", label: "Disposal", defaultRateCents: null, umbrellaKey: "" });
-    expect(mocks.create).toHaveBeenLastCalledWith("a", expect.objectContaining({ defaultRateCents: null, umbrellaKey: "fees_surcharges" }));
+    expect(mocks.create).toHaveBeenLastCalledWith("a", expect.objectContaining({ defaultRateCents: null, umbrellaKey: undefined }));
   });
   it("PATCH writes only supplied fields, including an explicit null and reactivation", async () => {
     await request(appFor()).patch("/api/quick-items/id").send({ label: "New" });

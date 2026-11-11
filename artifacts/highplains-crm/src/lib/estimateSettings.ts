@@ -1,6 +1,6 @@
 import { apiRequest } from "@/lib/queryClient";
 import { companyHeaders, formatCents } from "@/lib/hardscapeCatalog";
-import type { EstimateQuickItem, QboItemCacheRow, QboItemType, QboUmbrellaItem, UmbrellaKey, QuickItemKind as QuickKind } from "@shared/estimateSetup";
+import type { EstimateQuickItem, EstimateServiceCategory, QboItemCacheRow, QboItemType, QboUmbrellaItem, UmbrellaKey, QuickItemKind as QuickKind } from "@shared/estimateSetup";
 
 /** Frontend-safe mirrors of the Slice 2.3 API shapes. */
 export const QUICK_ITEMS_API = "/api/quick-items";
@@ -8,16 +8,23 @@ export const QBO_UMBRELLAS_API = "/api/qbo/umbrellas";
 export const QBO_ITEM_CACHE_API = "/api/qbo/items/cache";
 export const QBO_ITEM_PULL_API = "/api/qbo/items/pull";
 export const QBO_INCOME_ACCOUNTS_API = "/api/qbo/items/income-accounts";
+export const SERVICE_CATEGORIES_API = "/api/estimates/service-categories";
 export const RATES_PREVIEW_API = "/api/estimates/rates/preview";
 
 /** Admin-only destinations; office users get guidance text instead of links. */
 export const RATE_CARD_SETTINGS_PATH = "/dashboard/settings/contracts";
 export const QBO_WRITE_SETTINGS_PATH = "/dashboard/settings/features";
 
-export { UMBRELLA_KEYS, QUICK_ITEM_KINDS as QUICK_KINDS, QUICK_ITEM_UNITS as QUICK_UNITS, QUICK_ITEM_LABEL_MAX, patchQuickItemSchema } from "@shared/estimateSetup";
+export { UMBRELLA_KEYS, QUICK_ITEM_KINDS as QUICK_KINDS, QUICK_ITEM_UNITS as QUICK_UNITS, QUICK_ITEM_LABEL_MAX, SERVICE_CATEGORY_NAME_MAX, patchQuickItemSchema } from "@shared/estimateSetup";
 export type { UmbrellaKey, QuickItemKind as QuickKind, QuickItemUnit as QuickUnit, QboItemType } from "@shared/estimateSetup";
 export type QuickItem = Omit<EstimateQuickItem, "createdAt" | "updatedAt">;
 export type QuickItemEditable = Pick<QuickItem, "kind" | "label" | "defaultUnit" | "defaultRateCents" | "umbrellaKey" | "isActive">;
+export type ServiceItemEditable = QuickItemEditable & { serviceCategoryId: string };
+export type ServiceCategory = Omit<EstimateServiceCategory, "createdAt" | "updatedAt">;
+export type ServiceCategoryEditable = Pick<ServiceCategory, "name" | "defaultUmbrellaKey" | "defaultUnit" | "isActive">;
+/** Equipment & Fees page only manages these two kinds; services live in the Services Catalog. */
+export const EQUIPMENT_FEE_KINDS = ["equipment", "fee"] as const satisfies readonly QuickKind[];
+export type EquipmentFeeKind = (typeof EQUIPMENT_FEE_KINDS)[number];
 
 export type BindingStatus = "unlinked" | "active" | "inactive" | "missing";
 export interface Umbrella extends Omit<QboUmbrellaItem, "qboItemType"> { qboItemType: string | null; bindingStatus: BindingStatus }

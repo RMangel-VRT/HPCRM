@@ -4,6 +4,27 @@ The builder consumes the Slice 3.1 driver-free DTOs and strict input schemas.
 The draft API and all captured snapshot/totals behavior remain unchanged.
 Lifecycle actions belong to the following slice.
 
+## Categorized services (Slice 4.6)
+
+The Service add-line action appears between Labor and Equipment, with Sprout
+and a distinct olive tint verified above 4.5:1 on white. Its picker uses the
+existing explicit selection/Quantity/Add behavior, with active-category chips
+and internal category detail. Inactive services or categories cannot supply a
+new referenced line. Free-type remains available without a category.
+
+Referenced service lines send `lineType: "service"` and `quickItemId`, capture
+`quick_list` provenance and initially null detail. Free service entries use
+`manual` provenance. Draft name/detail/unit/umbrella edits match equipment/fees;
+locked/void protections are unchanged. Category edits/deactivation never
+rewrite existing lines. Service units extend free-entry choices with `sq ft`,
+`1,000 sq ft`, `lin ft`, `visit`; default free-service unit is `1,000 sq ft`.
+
+Services Catalog lives directly above Equipment & Fees in the Estimates rail
+at `/dashboard/estimates/catalogs/services`. Equipment & Fees deliberately keeps
+its original two-kind filters/options even though the shared store has three.
+
+See [the integration report](reports/services-catalog.md) for browser evidence.
+
 ## Version-owned scope of work
 
 Migration `0077_estimate_scope_of_work.sql` adds nullable text to estimate versions.
