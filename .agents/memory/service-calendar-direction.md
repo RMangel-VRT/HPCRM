@@ -26,3 +26,15 @@ Retiring the former timing table is narrowly permitted only when a migration ver
 **Why:** The replacement depends on the old configuration being unused, not permission to delete entered company data.
 
 **How to apply:** Keep the empty-table guard and production boundary explicit in any task plan. Update ownership references and document removals when implementation is authorized.
+
+The replacement endpoint accepts every kind permitted for a service, not one kind per service. Native areas has spring/fall full-mow rounds and a recurring beauty-band entry simultaneously. Positions are independent per kind, matching company/service/kind/position uniqueness; every row still requires kind/service compatibility validation.
+
+**Why:** The user explicitly resolved the brief's one-kind wording, which would otherwise exclude required native-area entries.
+
+**How to apply:** Preserve mixed-kind rows and stable IDs across edits and UI sections; do not overwrite recurring rows when editing rounds or enforce service-wide position uniqueness.
+
+During the SC1-to-SC2 transition, retiring the old timing owner must give the existing demand engine, reconcile and customer fulfillment an empty program list. They keep compiling/running, while seasons formerly relying on program timing show gaps in Generate preview. No calendar-based generation belongs in SC1. The user confirmed on November 11, 2026 that Generate has never run in production.
+
+**Why:** The user approved a bounded compatibility transition rather than keeping retired-table reads or implementing SC2 early.
+
+**How to apply:** Replace old program loading with empty inputs in all three consumers, preserving contract-stated timing and safe gap behavior. Do not infer authorization to run Generate or load production data from this historical fact.
