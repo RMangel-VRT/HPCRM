@@ -44,6 +44,8 @@ export function pageCss(): string {
    .table-page.continuation{break-before:page}.table-page{display:flow-root}
   .signatures{display:grid;grid-template-columns:2fr 1fr;gap:28px 24px;margin-top:30px}.signature{border-top:1px solid #4f5a53;padding-top:5px;font-size:8.5pt;color:#4f5a53}
   .memo{background:#f1f2ef;padding:12px;margin-bottom:18px;overflow-wrap:anywhere}.boilerplate{white-space:normal;overflow-wrap:anywhere}
+   .scope{margin-bottom:14px}.scope-body{font-size:10.5pt;line-height:1.45;overflow-wrap:anywhere}
+   .boilerplate.estimate-legal{font-size:8.5pt;line-height:1.45;color:#5c665f}.legal-heading{font-size:10pt;margin:14px 0 5px;break-after:avoid}
    .contact{font-size:8.5pt;color:#c9d6cd;margin-top:6px;max-width:440px}.identity .number,.identity .date{letter-spacing:normal;font-variant-numeric:normal}.terms-page{break-before:page}
   </style>`;
 }

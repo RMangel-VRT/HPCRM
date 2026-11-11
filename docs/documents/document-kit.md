@@ -67,12 +67,16 @@ logo 48px. Footer line is 47px from bottom, footer baseline 22px.
 Every flowing line table uses a repeating `thead`, fixed column widths,
 unbroken row protection and wrapping descriptions. Currency signs appear only
 on totals; units are captured words, not normalized. Estimates group by
-estimator section and show customer-labeled category aggregates. Invoices group
+estimator section; category aggregates remain model data but are not printed. Invoices group
 by QuickBooks umbrella category, with the label only on the first group line.
 No raw category keys enter models. Null draft prices show dashes, not zero.
 
-Estimate category/total summaries follow the pricing table directly. Only the
-Terms/Warranty/Acceptance block has `.terms-page` and starts a new page.
+Estimate total follows the pricing table directly, in the right column of the
+two-column summary with an empty left column. `data-totals` and the last-three-row
+orphan rule remain unchanged. Version-owned scope prints after the project title
+and optional ticket line, before pricing: escaped multiline 10.5pt text, line-height
+1.45 and a 14px bottom gap. Absent scope creates no block.
+Only the Terms/Warranty/Acceptance area has `.terms-page` and starts a new page.
 Invoice payment instructions and totals follow the table. A measured print-width
 preflight keeps the last three line rows (all rows if fewer) with the totals;
 when necessary, it moves that tail to a new table page. Every segment repeats
@@ -100,10 +104,16 @@ zeros and group thousands for display only; money keeps two decimal places.
 Payment instructions precede a comma-joined, single-line `Mail to:` display
 without changing multiline Settings storage.
 
-Empty Terms/Warranty text creates no block. Never invent legal text.
-Very long user content can naturally require more pages. A final block taller
-than the 884px printable area fails explicitly with
-`DOCUMENT_FINAL_BLOCK_TOO_LARGE`, rather than splitting legal content.
+Empty Terms/Warranty text creates no block. Never invent legal text. Warranty
+requires at least one captured line with umbrella `plants`, including custom
+Plants lines. Configured terms print independently. Shared estimate/proposal legal
+text uses 8.5pt Inter, 1.45 line-height and #5c665f (white-background contrast
+greater than 4.5:1); headings use 10pt and 14px/5px margins. These rules are scoped
+to the legal fragment, preserving proposal narrative and invoice typography.
+Very long legal text flows across pages. Only Acceptance/signatures and the
+following mountain reserve stay together. An acceptance group or an invoice
+`.final.keep` block taller than the 884px printable area fails explicitly with
+`DOCUMENT_FINAL_BLOCK_TOO_LARGE`. The estimate-wide wrapper is not indivisible.
 An indivisible line or final-three-rows/totals group that cannot fit fails with
 `DOCUMENT_ROW_TOO_LARGE` / `DOCUMENT_TOTALS_GROUP_TOO_LARGE`. A remit line wider
 than the full content area fails with `DOCUMENT_REMIT_TOO_WIDE` rather than

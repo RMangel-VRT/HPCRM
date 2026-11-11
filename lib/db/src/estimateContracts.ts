@@ -32,6 +32,7 @@ export const estimateQuantitySchema = z.union([z.string(), z.number().finite()])
   .transform(String).refine(v => /^\d{1,10}(?:\.\d{1,2})?$/.test(v) && /[1-9]/.test(v), "Quantity must be positive, numeric(12,2)");
 export const createEstimateSchema = z.object({ customerId: estimateIdSchema, title: name, ticketId: estimateIdSchema.optional() }).strict();
 export const patchEstimateSchema = z.object({ title: name }).strict();
+export const patchEstimateVersionSchema = z.object({ scopeOfWork: z.string().max(10000).nullable() }).strict();
 export const createEstimateSectionSchema = z.object({ name }).strict();
 export const patchEstimateSectionSchema = z.object({ name: name.optional(), sortOrder: order.optional() }).strict();
 const base = { sectionId: estimateIdSchema, quantity: estimateQuantitySchema };
@@ -113,6 +114,7 @@ export interface EstimateVersionSummaryDto extends EstimateTimestampsDto {
   frozenSubtotalCents?: number | null; frozenCostKnownCents?: number | null; frozenCostUnknownLines?: number | null;
 }
 export interface EstimateVersionDto extends EstimateVersionSummaryDto {
+  scopeOfWork: string | null;
   /** Live display-only catalog defaults, never part of captured commercial line values. */
   plantPaletteDefaults?: Record<string, string>;
   companyId: string; estimateId: string; createdFromVersionId: string | null;

@@ -33,6 +33,41 @@ const allLines = (d: Draft): Array<EstimateLine & { needsPrice: boolean }> => d.
 const postLine = (d: Draft, body: Record<string, unknown>, company = a) => request(appFor(company)).post(`${versionPath(d)}/lines`).send({ sectionId: d.version.sections[0].id, quantity: "1", ...body });
 
 describe("customer-safe version PDFs and display reads", () => {
+  it("persists version scope, validates strict patches and preserves isolation, revision and void gates", async () => {
+    const migration = await readFile(new URL("../../../../.migration-backup/migrations/0077_estimate_scope_of_work.sql", import.meta.url), "utf8");
+    await db.execute(sql.raw(migration)); await db.execute(sql.raw(migration));
+    const d = await fresh(), url = versionPath(d);
+    expect(d.version.scopeOfWork).toBeNull();
+    for (const scopeOfWork of ["Install trees\nKeep existing lawn", null, " \n\t", "x".repeat(10000)]) {
+      const response = await request(appFor()).patch(url).set("X-Company-Id", a).send({ scopeOfWork });
+      expect(response.status).toBe(200);
+      expect(response.body.version.scopeOfWork).toBe(scopeOfWork?.trim() ? scopeOfWork : null);
+      expect((await readEstimate(a, d.id)).version.scopeOfWork).toBe(response.body.version.scopeOfWork);
+    }
+    for (const body of [{}, { scopeOfWork: "x".repeat(10001) }, { scopeOfWork: "x", title: "no" }, { title: "no" }]) {
+      const response = await request(appFor()).patch(url).send(body);
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe(Object.keys(body).length ? "INVALID_REQUEST" : "EMPTY_PATCH");
+    }
+    expect((await request(appFor(b)).patch(url).send({ scopeOfWork: "no" })).status).toBe(404);
+    expect((await request(appFor(a, "field")).patch(url).send({ scopeOfWork: "no" })).status).toBe(403);
+    expect((await request(appFor()).patch(url).set("X-Company-Id", b).send({ scopeOfWork: "no" })).status).toBe(409);
+    await request(appFor()).patch(url).send({ scopeOfWork: "Copied scope" });
+    await postLine(d, { lineType: "custom", name: "Work", unit: "ea", unitPriceCents: 100, umbrellaKey: "landscape_labor" });
+    expect((await request(appFor()).post(`${url}/send`).send({ method: "email" })).status).toBe(200);
+    const locked = await request(appFor()).patch(url).send({ scopeOfWork: "no" });
+    expect(locked.status).toBe(409); expect(locked.body.error).toBe("VERSION_LOCKED");
+    for (const status of ["accepted", "declined", "superseded", "void", "sent"] as const) {
+      await db.update(estimateVersions).set({ status }).where(eq(estimateVersions.id, d.version.id));
+      const response = await request(appFor()).patch(url).send({ scopeOfWork: "no" });
+      expect(response.status).toBe(409); expect(response.body.error).toBe("VERSION_LOCKED");
+    }
+    const revision = await request(appFor()).post(`${url}/revise`).send({});
+    expect(revision.status).toBe(200); expect(revision.body.version.scopeOfWork).toBe("Copied scope");
+    await request(appFor()).post(`/api/estimates/${d.id}/void`).send({ reason: "test" });
+    const voided = await request(appFor()).patch(`/api/estimates/${d.id}/versions/${revision.body.version.id}`).send({ scopeOfWork: "no" });
+    expect(voided.status).toBe(409); expect(voided.body.error).toBe("ESTIMATE_VOIDED");
+  }, 30000);
   it("enforces estimate/version/company ownership including historical versions", async () => {
     let d = await fresh();
     const line = await postLine(d, { lineType: "custom", name: "Customer work", unit: "ea", unitPriceCents: 1250, umbrellaKey: "landscape_labor" });

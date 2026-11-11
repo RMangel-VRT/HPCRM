@@ -48,3 +48,13 @@ change or database drift exists.
 
 **How to apply:** Preserve source and TypeScript build inputs needed for the
 baseline, but omit the archive's Drizzle config before completion validation.
+
+Serialize real-Chromium document suites rather than trusting Vitest's default
+worker count in this container.
+
+**Why:** The advertised CPU count can exceed the available process/thread budget.
+Parallel Chromium launches and test workers produced `EAGAIN` and unrelated
+timeouts, obscuring otherwise valid regression results.
+
+**How to apply:** Use `--maxWorkers=1 --no-file-parallelism` for document baselines
+and final checks; keep render timeouts proportional to the actual fixture.

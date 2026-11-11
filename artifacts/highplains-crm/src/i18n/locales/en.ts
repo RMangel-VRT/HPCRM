@@ -512,6 +512,8 @@ const en = {
       loadFailed: "The ticket could not be checked or updated. Retry to refresh its current state.", changed: "The ticket changed during the update. Retry to refresh its current state." },
   },
   estimateBuilder: {
+    scope: { title: "Scope of work", hint: "Prints on the estimate under the project title",
+      empty: "No scope of work", saving: "Saving…", saved: "Saved", error: "Could not save. Your text is still here.", retry: "Retry" },
     eyebrow: "Estimate builder", listTitle: "Estimates", listSubtitle: "Draft mixed landscaping estimates from captured catalog prices.",
     searchLabel: "Search estimates", searchPlaceholder: "Number, title or customer", showVoid: "Show void",
     newEstimate: "New estimate", newTitle: "New estimate", newBody: "Pick the customer and a working title. You can rename it later.",

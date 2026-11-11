@@ -18,7 +18,7 @@ interface DocumentInput {
   version: {
     versionNumber: number; status: string; sentAt: DateValue | null;
     acceptedOn: string | null; poNumber: string | null;
-    frozenSubtotalCents: number | null;
+    frozenSubtotalCents: number | null; scopeOfWork?: string | null;
     totals: { subtotalCents: number; bySection: Record<string, number> };
     sections: {
       id: string; name: string; sortOrder: number;
@@ -27,6 +27,7 @@ interface DocumentInput {
   };
 }
 export interface EstimateDocumentModel {
+  scopeOfWork: string | null; hasPlants: boolean;
   companyName: string; estimateNumber: string; versionNumber: number; documentDate: string;
   status: string; statusLine: string; draft: boolean;
   customerName: string; customerAddress: string; projectTitle: string; linkedTicketTitle: string | null;
@@ -85,6 +86,8 @@ export function buildEstimateDocumentModel(payload: DocumentInput, display: Disp
     }
   }
   return {
+    scopeOfWork: v.scopeOfWork ?? null,
+    hasPlants: v.sections.some(section => section.lines.some(line => line.umbrellaKey === "plants")),
     categorySummary: [...categories].map(([label, cents]) => ({ label, cents })),
     companyDocument: documentSettingsModel(companyDocument), workLocation: display.workLocation ?? null,
     companyName: display.companyName, estimateNumber: payload.estimateNumber, versionNumber: v.versionNumber,

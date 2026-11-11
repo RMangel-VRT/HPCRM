@@ -13,6 +13,6 @@ it("renders the shared estimate design", async () => {
   const bytes = await renderEstimateDocument(estimateFixture(12));
   const text = execFileSync("pdftotext", ["-layout", "-", "-"], { input: bytes }).toString();
   expect(text).toContain("Acceptance");
-  expect(text).toContain("BY CATEGORY");
+  expect(text).not.toContain("BY CATEGORY");
   expect(text).not.toContain("SECRET");
 }, 30_000);

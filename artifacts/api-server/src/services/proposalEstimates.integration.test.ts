@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { proposalCoverPatch, coverSelectionError } from "./proposalCover";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { readFile } from "node:fs/promises";
 import { transform } from "esbuild";
 import express from "express";
@@ -99,7 +100,7 @@ beforeAll(async () => {
       return path;
     }
   }
-  const deps = { app, db, storage, sql, and, eq, express, proposalZ: z, estimateAccess,
+  const deps = { app, db, storage, sql, and, eq, express, proposalZ: z, estimateAccess, accessRole,
     loadProposalEstimateSummaries, readTicketEstimate, validateProposalEstimate, prepareProposalEstimate,
     loadProposalExhibits, proposalExhibitSettingsSchema, proposalCoverPatch, coverSelectionError,
     EstimateError, randomUUID, ObjectStorageService, generateProposalPdf: render,

@@ -74,6 +74,12 @@ export function retitleEstimate(companyId: string, id: string, title: string) {
     await tx.update(estimates).set({ title }).where(and(eq(estimates.companyId, companyId), eq(estimates.id, id)));
   });
 }
+export function patchVersion(companyId: string, id: string, versionId: string, scopeOfWork: string | null) {
+  return mutateEstimate(companyId, id, versionId, async ({ tx }) => {
+    await tx.update(estimateVersions).set({ scopeOfWork: scopeOfWork?.trim() ? scopeOfWork : null })
+      .where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, id), eq(estimateVersions.id, versionId)));
+  });
+}
 async function sectionFor(tx: AppTransaction, companyId: string, versionId: string, sectionId: string) {
   return requireEstimate((await tx.select().from(estimateSections).where(and(eq(estimateSections.companyId, companyId), eq(estimateSections.versionId, versionId), eq(estimateSections.id, sectionId))))[0]);
 }

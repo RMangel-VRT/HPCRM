@@ -24,6 +24,15 @@ function fixture(status = "draft", count = 2) {
   };
 }
 describe("customer estimate document model", () => {
+  it("projects version-owned scope and detects captured Plants umbrellas for catalog and custom lines", () => {
+    const input = { ...fixture(), version: { ...fixture().version, scopeOfWork: "Version scope" } };
+    expect(buildEstimateDocumentModel(input, display, "2026-10-30")).toMatchObject({ scopeOfWork: "Version scope", hasPlants: true });
+    const services = { ...input, version: { ...input.version, scopeOfWork: null,
+      sections: input.version.sections.map(s => ({ ...s, lines: s.lines.map(l => ({ ...l, lineType: "custom", umbrellaKey: "landscape_labor" })) })) } };
+    expect(buildEstimateDocumentModel(services, display, "2026-10-30")).toMatchObject({ scopeOfWork: null, hasPlants: false });
+    services.version.sections[0].lines[0].umbrellaKey = "plants";
+    expect(buildEstimateDocumentModel(services, display, "2026-10-30").hasPlants).toBe(true);
+  });
   it("allowlists fields recursively and uses exact captured prices / authoritative totals", () => {
     const input = fixture();
     const model = buildEstimateDocumentModel(input, display, "2026-10-30");

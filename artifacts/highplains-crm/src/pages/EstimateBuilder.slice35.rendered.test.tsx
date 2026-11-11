@@ -13,7 +13,7 @@ import { EstimatesRail, isEstimatesHubPage } from "@/components/nav/estimatesRai
 import { distinctContexts } from "@/lib/estimateBuilder";
 
 const auth = vi.hoisted(() => ({ user: { id: "u1", activeCompanyId: "c1", activeRole: "office" } as Record<string, string> }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: auth.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { ...auth.user, accessRole: auth.user.activeRole } }) }));
 const toastSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: toastSpy }), toast: toastSpy }));
 vi.mock("@/components/CustomerSearchInput", () => ({

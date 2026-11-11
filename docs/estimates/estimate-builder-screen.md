@@ -4,6 +4,26 @@ The builder consumes the Slice 3.1 driver-free DTOs and strict input schemas.
 The draft API and all captured snapshot/totals behavior remain unchanged.
 Lifecycle actions belong to the following slice.
 
+## Version-owned scope of work
+
+Migration `0077_estimate_scope_of_work.sql` adds nullable text to estimate versions.
+Every detail envelope includes `version.scopeOfWork`; revisions copy their source.
+`PATCH /api/estimates/:id/versions/:versionId` accepts only `{scopeOfWork:
+string | null}`, up to 10,000 characters. Whitespace-only text becomes null;
+other text is preserved verbatim. `{}` returns 400 `EMPTY_PATCH`; unknown/missing
+fields and overlength return 400 `INVALID_REQUEST`. Normal estimate access,
+expected-company guard, container-first mutation locking, draft-only
+`VERSION_LOCKED` and existing `ESTIMATE_VOIDED` rules apply. Success returns
+the normal authoritative detail envelope.
+
+The Scope of work card appears before sections, even with zero sections. It uses
+the section-card shell, FileText header/hint and a seven-row vertically resizable
+textarea. Changed blur saves once with captured `X-Company-Id`, using the existing
+identity/company/version response guards and newest-response cache installation.
+Saves are serialized and newer local typing survives older responses. Quiet
+Saving/Saved status and retained-text retry handle failures. Locked views show
+read-only scope or localized “No scope of work.” All new strings are EN/ES.
+
 ## Rates preview read metadata
 
 `GET /api/estimates/rates/preview?customerId=…` retains its existing `items`

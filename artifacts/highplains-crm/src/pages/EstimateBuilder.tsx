@@ -24,6 +24,7 @@ import {
 import { SectionRailLayout } from "@/components/nav/SectionRail";
 import { EstimatesRail } from "@/components/nav/estimatesRail";
 import { AddLineButtons, LINE_TYPE_ICON } from "@/components/estimates/AddLineButtons";
+import { ScopeOfWorkCard } from "@/components/estimates/ScopeOfWorkCard";
 import { PdfPreviewDialog } from "@/components/estimates/PdfPreviewDialog";
 import { DocumentBadge, EstimateStatePill, IdentityHeaderCard, MetadataCell, MetadataStrip } from "@/components/estimates/EstimateIdentityHeader";
 import "@/components/estimates/estimateBuilder.css";
@@ -552,6 +553,12 @@ function BuilderContent({ id }: { id: string }) {
 
         <div className="estimate-builder-grid mt-5 items-start gap-6" data-testid="layout-builder">
           <div className="estimate-builder-sections min-w-0 space-y-4">
+            <ScopeOfWorkCard key={v.id} value={v.scopeOfWork} editable={editable}
+              onSave={async (scopeOfWork) => {
+                if (!await run("PATCH", vBase, { scopeOfWork })) return null;
+                const detail = qc.getQueryData<EstimateDetailDto>(key);
+                return detail?.version.id === v.id ? { scopeOfWork: detail.version.scopeOfWork } : null;
+              }} />
             {sections.map((s) => (
               <SectionCard key={s.id} section={s} sections={sections} paletteDefaults={v.plantPaletteDefaults} subtotal={v.totals.bySection[s.id] ?? 0} editable={editable} lang={lang}
                 vBase={vBase} run={run} invalid={invalid} canRemove={sections.length > 1}

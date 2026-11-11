@@ -28,6 +28,7 @@ export function buildProposalDocumentModel(i: ProposalDocumentInput): ProposalDo
       status: m.status, statusLine: m.statusLine, draft: m.draft, customerName: m.customerName,
       customerAddress: m.customerAddress, projectTitle: m.projectTitle, linkedTicketTitle: m.linkedTicketTitle,
       totalCents: m.totalCents, terms: null, workLocation: m.workLocation,
+      scopeOfWork: m.scopeOfWork, hasPlants: m.hasPlants,
       companyDocument: documentSettingsModel(m.companyDocument),
       sections: m.sections.map(s => ({ name: s.name, subtotalCents: s.subtotalCents,
         lines: s.lines.map(l => ({ name: l.name, detail: l.detail, quantity: l.quantity, unit: l.unit,

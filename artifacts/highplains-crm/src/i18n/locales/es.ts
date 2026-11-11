@@ -512,6 +512,8 @@ const es = {
       loadFailed: "No se pudo consultar o actualizar el ticket. Reintente para consultar su estado actual.", changed: "El ticket cambió durante la actualización. Reintente para consultar su estado actual." },
   },
   estimateBuilder: {
+    scope: { title: "Alcance del trabajo", hint: "Se imprime en el estimado debajo del título del proyecto",
+      empty: "Sin alcance del trabajo", saving: "Guardando…", saved: "Guardado", error: "No se pudo guardar. Tu texto sigue aquí.", retry: "Reintentar" },
     eyebrow: "Constructor de estimados", listTitle: "Estimados", listSubtitle: "Arme estimados de paisajismo con precios capturados del catálogo.",
     searchLabel: "Buscar estimados", searchPlaceholder: "Número, título o cliente", showVoid: "Mostrar anulados",
     newEstimate: "Nuevo estimado", newTitle: "Nuevo estimado", newBody: "Elija el cliente y un título de trabajo. Puede cambiarlo después.",

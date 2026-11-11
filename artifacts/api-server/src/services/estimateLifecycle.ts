@@ -75,7 +75,7 @@ export async function transitionEstimate(companyId: string, userId: string | nul
         const next = versions[0].versionNumber + 1;
         if (next > 2147483647) throw new RangeError("Version number overflow");
         const [copy] = await tx.insert(estimateVersions).values({ companyId, estimateId: id, versionNumber: next,
-          createdFromVersionId: version.id, createdById: userId }).returning();
+          createdFromVersionId: version.id, scopeOfWork: version.scopeOfWork, createdById: userId }).returning();
         const sections = await tx.select().from(estimateSections)
           .where(and(eq(estimateSections.companyId, companyId), eq(estimateSections.versionId, version.id)));
         const lines = await tx.select().from(estimateLines)

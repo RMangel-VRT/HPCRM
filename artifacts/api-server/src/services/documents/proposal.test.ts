@@ -35,7 +35,7 @@ describe("proposal pure allowlist and shared fragments", () => {
     m.estimate.companyDocument.estimateTerms = "<b>literal terms</b>";
     const html = proposalDocumentHtml(m);
     expect(html).toContain(estimatePricingFragment(m.estimate));
-    expect(html.split('<div class="label">By category</div>')).toHaveLength(2);
+    expect(html).not.toContain("By category");
     expect(html.match(/<strong>Acceptance<\/strong>/g)).toHaveLength(1);
     expect(html).not.toContain("<h1>Estimate</h1>");
     expect(html).toContain("&lt;script&gt;never execute&lt;/script&gt;");
@@ -45,12 +45,12 @@ describe("proposal pure allowlist and shared fragments", () => {
   });
   it.each([12, 60])("recomposes the existing standalone structure for %i lines", count => {
     const m = estimateFixture(count);
-    const expected = documentHtml(`${firstHeader({ title: "Estimate", number: `${m.estimateNumber} · Version ${m.versionNumber}`, dateLine: `${displayDate(m.documentDate)} · ${m.statusLine}`, draft: m.draft, settings: m.companyDocument })}<main class="content">${estimateCustomerFragment(m)}<h2>${m.projectTitle}</h2>${estimatePricingTable(m)}${estimatePricingSummary(m)}<div class="final keep terms-page">${estimateAcceptanceFragment(m)}</div></main>`);
+    const expected = documentHtml(`${firstHeader({ title: "Estimate", number: `${m.estimateNumber} · Version ${m.versionNumber}`, dateLine: `${displayDate(m.documentDate)} · ${m.statusLine}`, draft: m.draft, settings: m.companyDocument })}<main class="content">${estimateCustomerFragment(m)}<h2>${m.projectTitle}</h2>${estimatePricingTable(m)}${estimatePricingSummary(m)}<div class="final terms-page">${estimateAcceptanceFragment(m)}</div></main>`);
     expect(estimateDocumentHtml(m)).toBe(expected);
-    // Updated solely for the intended Acceptance reserve-outside-border change.
+    // Intended scope styling, category-box removal and flowing legal fragment.
     expect(createHash("sha256").update(estimateDocumentHtml(m)).digest("hex")).toBe(count === 12
-      ? "c656aa8e411a58dd4701bf04d4a4a25ae0229b5eed2049ddb9f167e4ab30a77c"
-      : "d0fd99d0af3ac056e39565ce8903093d0b3b238c8637f58648e85c266db32c3e");
+      ? "24df212676fbba9d2309933ed5154b679fe68e14606ea4eeaf1fde7e5ba33a89"
+      : "ff8c41be9d110c8d46dcc0dffca93556fc586f902003f2c27f853ff423eeb684");
   });
   it("drops internal fields even when added to nested models and orders valid captioned photos", () => {
     const input = proposalFixture(2);
@@ -86,19 +86,19 @@ describe("real Chromium proposal pagination", () => {
     writeFileSync(`${output}${name}.pdf`, bytes);
     writeFileSync(`${output}${name}.txt`, pages.join("\n--- PAGE ---\n"));
     execFileSync("pdftoppm", ["-scale-to", "900", "-png", `${output}${name}.pdf`, `${output}${name}`]);
-    // All non-Acceptance pages retain the pre-change raster fingerprints.
-    // Only page 4's shorter border is intentionally rebaselined.
+    // Scope/cover/exhibits retain their fingerprints. Only shared pricing
+    // (removed category box) and legal typography/warranty intentionally change.
     if (layout === "large" && (count === 0 || count === 1)) {
       const expected = count === 0 ? [
         "7d57f88c9d6ae498f27b96c85612721742960b2039ff8ccb06cfa1f2d24275cf",
         "f55fcdaa672cd62ccda1f66501843ec35184011eef126cc08caa706e1c5f99fc",
-        "8f6ab524364aac1202a6f352903d295539f881b29a5fe39078c2928f7ec9a3a0",
-        "08947aafd1be1e6bbfed66978c62c2abcf85ffbf970c0f49272232dc6bc24f92",
+        "87ac452ec5df381350ef5e9f0bbdbe28cf9f3f9c5fa59b15b9598ab065f62671",
+        "ea6c667c14891a3f5fdad1c3df1eca3b55d68273c69e7907ef7a3ea362a36a85",
       ] : [
         "7d57f88c9d6ae498f27b96c85612721742960b2039ff8ccb06cfa1f2d24275cf",
         "ea8e61c220d5caf66d69a50a98546712e0fdf75a903d442bab59ac9aa6f0dc41",
-        "e960079b4732850b70ed7bf5bfe7690434c26bed32eea67f08493fdb3e3510c2",
-        "4395e8a4cbd3e3899fb287b2450663e3acf7d51a2d598de974636e90fcc30a7f",
+        "6a15d723673580904d80e36d7bacc9a985e71025d715ba7d0c688fa6256d6da4",
+        "96b98d9d4d06b102e79b8afd050f2a1f825325a90fbdce1e7893b67cca295f23",
         "edf530b0d3b78b3c69d72adb435b1fdc6dde0b54d744e1c657122bc3d81e2a3b",
       ];
       expect(pdf.getPageCount()).toBe(expected.length);

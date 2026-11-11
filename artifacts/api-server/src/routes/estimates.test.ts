@@ -2,7 +2,7 @@ import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
-  createEstimate: vi.fn(), retitleEstimate: vi.fn(), createSection: vi.fn(), patchSection: vi.fn(), deleteSection: vi.fn(),
+  createEstimate: vi.fn(), retitleEstimate: vi.fn(), patchVersion: vi.fn(), createSection: vi.fn(), patchSection: vi.fn(), deleteSection: vi.fn(),
   createLine: vi.fn(), patchLine: vi.fn(), deleteLine: vi.fn(), readEstimate: vi.fn(), listEstimates: vi.fn(), log: vi.fn(),
   readTicketEstimate: vi.fn(), renderEstimatePdf: vi.fn(),
 }));
@@ -31,6 +31,7 @@ const endpoints = [
   ["post", "/api/estimates", { customerId: "c", title: "T" }, "createEstimate"],
   ["get", "/api/estimates/e", {}, "readEstimate"],
   ["patch", "/api/estimates/e", { title: "T" }, "retitleEstimate"],
+  ["patch", "/api/estimates/e/versions/v", { scopeOfWork: "Work" }, "patchVersion"],
   ["post", "/api/estimates/e/versions/v/sections", { name: "S" }, "createSection"],
   ["patch", "/api/estimates/e/versions/v/sections/s", { name: "S" }, "patchSection"],
   ["delete", "/api/estimates/e/versions/v/sections/s", {}, "deleteSection"],

@@ -134,7 +134,7 @@ export async function chromiumPdf(html: string, finish: (bytes: Buffer) => Promi
       await step(page.setContent(html, { waitUntil: "load", timeout: DEADLINE }));
       await step(page.evaluate("document.fonts.ready"));
       await step(page.evaluate(paginatePricing));
-      const oversizedFinal = await step(page.evaluate("Array.from(document.querySelectorAll('.final.keep')).some(node => node.getBoundingClientRect().height > 884)"));
+      const oversizedFinal = await step(page.evaluate("Array.from(document.querySelectorAll('.acceptance-group, .invoice-content .final.keep')).some(node => node.getBoundingClientRect().height > 884)"));
       if (oversizedFinal === true) throw new Error("DOCUMENT_FINAL_BLOCK_TOO_LARGE");
       const bytes = Buffer.from(await step(page.pdf({ format: "letter", printBackground: true, preferCSSPageSize: true, timeout: DEADLINE })));
       const result = await finish(bytes);

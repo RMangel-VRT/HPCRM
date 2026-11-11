@@ -1,6 +1,6 @@
 import { Router, type Express, type RequestHandler } from "express";
 import { z } from "zod/v4";
-import { createEstimateSchema, patchEstimateSchema, createEstimateSectionSchema, patchEstimateSectionSchema,
+import { createEstimateSchema, patchEstimateSchema, patchEstimateVersionSchema, createEstimateSectionSchema, patchEstimateSectionSchema,
   createEstimateLineSchema, patchEstimateLineSchema, estimateListQuerySchema, estimateDetailQuerySchema, estimateIdSchema,
   sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema } from "@workspace/db";
 import type { UserWithContext } from "../auth";
@@ -8,7 +8,7 @@ import { estimateAccess } from "../lib/estimateAccess";
 import { logger } from "../lib/logger";
 import { EstimateError, postgresCode } from "../services/estimateErrors";
 import { listEstimates, readEstimate } from "../services/estimateReads";
-import { createEstimate, retitleEstimate, createSection, patchSection, deleteSection, createLine, patchLine, deleteLine } from "../services/estimates";
+import { createEstimate, retitleEstimate, patchVersion, createSection, patchSection, deleteSection, createLine, patchLine, deleteLine } from "../services/estimates";
 import { transitionEstimate } from "../services/estimateLifecycle";
 import { readTicketEstimate } from "../services/ticketEstimates";
 import { renderEstimatePdf } from "../services/estimatePdf";
@@ -51,6 +51,13 @@ export function registerEstimateRoutes(app: Express) {
     res.json(await retitleEstimate((req.user as UserWithContext).activeCompanyId, id, patchEstimateSchema.parse(req.body).title));
   }));
   const versionPath = "/:id/versions/:versionId";
+  router.patch(versionPath, handle(async (req, res) => {
+    const { id, versionId } = pathSchema.parse(req.params);
+    if (req.body && typeof req.body === "object" && !Array.isArray(req.body) && Object.keys(req.body).length === 0)
+      throw new EstimateError(400, "EMPTY_PATCH");
+    const input = patchEstimateVersionSchema.parse(req.body);
+    res.json(await patchVersion((req.user as UserWithContext).activeCompanyId, id, versionId!, input.scopeOfWork));
+  }));
   router.get(`${versionPath}/pdf`, async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     try {

@@ -66,11 +66,11 @@ describe.skipIf(unavailable)("real offline Chromium and two-pass pagination (req
       expect(bytes.subarray(0, 4).toString()).toBe("%PDF"); expect(hits).toBe(0);
     } finally { server.close(); }
   }, 30_000);
-  it("fails explicitly rather than splitting a final block taller than one printable page", async () => {
+  it("lets long legal text flow instead of rejecting the entire final area", async () => {
     const model = estimateFixture(12);
     model.companyDocument.estimateTerms = "Lengthy terms supplied by the company. ".repeat(200);
-    await expect(renderDocumentPdf({ html: estimateDocumentHtml(model), footerLabel: "Estimate", shortHeaderNumber: model.estimateNumber }))
-      .rejects.toThrow("DOCUMENT_FINAL_BLOCK_TOO_LARGE");
+    const bytes = await renderDocumentPdf({ html: estimateDocumentHtml(model), footerLabel: "Estimate", shortHeaderNumber: model.estimateNumber });
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(2);
   }, 30_000);
 });
 describe("HTML safety and document grouping", () => {

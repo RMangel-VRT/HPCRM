@@ -12,7 +12,7 @@ import { EstimatesRail, isEstimatesHubPage } from "@/components/nav/estimatesRai
 import { distinctContexts } from "@/lib/estimateBuilder";
 
 const auth = vi.hoisted(() => ({ user: { id: "u1", activeCompanyId: "c1", activeRole: "office" } as Record<string, string> }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: auth.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { ...auth.user, accessRole: auth.user.activeRole } }) }));
 const toastSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: toastSpy }), toast: toastSpy }));
 vi.mock("@/components/CustomerSearchInput", () => ({
@@ -50,7 +50,7 @@ function makeDetail(o: { status?: string; sections?: number; subtotal?: number; 
       { id: "v1", versionNumber: 1, status: "superseded", createdAt: T0, updatedAt: T0 },
     ],
     version: {
-      id: vn === 2 ? "v2" : "v1", versionNumber: vn, status: vn === 2 ? status : "superseded", companyId: "c1", estimateId: "e1", createdFromVersionId: null,
+      id: vn === 2 ? "v2" : "v1", versionNumber: vn, scopeOfWork: null as string | null, status: vn === 2 ? status : "superseded", companyId: "c1", estimateId: "e1", createdFromVersionId: null,
       sentAt: null, sentById: null, sentMethod: null, acceptedAt: null, acceptedById: null, acceptanceMethod: null, poNumber: null,
       declinedAt: null, declinedById: null, declineReason: null, supersededAt: null, frozenSubtotalCents: null, frozenCostKnownCents: null,
       frozenCostUnknownLines: null, createdById: null, createdAt: T0, updatedAt: o.updatedAt ?? T0, sections,
@@ -118,6 +118,93 @@ function renderAt(path: string) {
 const ready = () => screen.findByTestId("text-estimate-total");
 
 describe("builder rendering", () => {
+  it("renders scope above sections, saves once on changed blur with captured company and uses returned detail", async () => {
+    detail.version.scopeOfWork = "Initial scope";
+    renderAt("/dashboard/estimates/builder/e1"); await ready();
+    const input = screen.getByRole("textbox", { name: "Scope of work" }) as HTMLTextAreaElement;
+    expect(input.value).toBe("Initial scope");
+    fireEvent.blur(input); expect(mutations()).toHaveLength(0);
+    handler = c => {
+      if (c.method === "PATCH") {
+        detail = makeDetail({ updatedAt: "2025-04-03T10:00:00Z" });
+        detail.version.scopeOfWork = "Server scope";
+        return res(detail);
+      }
+      return undefined;
+    };
+    fireEvent.change(input, { target: { value: "New scope" } });
+    fireEvent.blur(input); fireEvent.blur(input);
+    await waitFor(() => expect(input.value).toBe("Server scope"));
+    expect(mutations()).toHaveLength(1);
+    expect(mutations()[0]).toMatchObject({ url: "/api/estimates/e1/versions/v2", body: { scopeOfWork: "New scope" }, headers: { "X-Company-Id": "c1" } });
+    fireEvent.blur(input); expect(mutations()).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toContain("Saved");
+  });
+  it("keeps newer typing during a save and saves the queued blur after the first response", async () => {
+    renderAt("/dashboard/estimates/builder/e1"); await ready();
+    let finish!: (v: unknown) => void;
+    handler = c => c.method === "PATCH" ? new Promise(resolve => { finish = resolve; }) : undefined;
+    const input = screen.getByRole("textbox", { name: "Scope of work" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "First scope" } }); fireEvent.blur(input);
+    fireEvent.change(input, { target: { value: "Newer typing" } }); fireEvent.blur(input);
+    const first = makeDetail({ updatedAt: "2025-04-03T10:00:00Z" }); first.version.scopeOfWork = "First scope";
+    await act(async () => finish(res(first)));
+    expect(input.value).toBe("Newer typing");
+    await waitFor(() => expect(mutations()).toHaveLength(2));
+    expect(mutations()[1].body).toEqual({ scopeOfWork: "Newer typing" });
+    const second = makeDetail({ updatedAt: "2025-04-04T10:00:00Z" }); second.version.scopeOfWork = "Newer typing";
+    await act(async () => finish(res(second)));
+    fireEvent.blur(input); expect(mutations()).toHaveLength(2);
+  });
+  it("retains failed text with retry and normalizes blank text to null", async () => {
+    detail.version.scopeOfWork = "Existing";
+    renderAt("/dashboard/estimates/builder/e1"); await ready();
+    const input = screen.getByRole("textbox", { name: "Scope of work" }) as HTMLTextAreaElement;
+    handler = c => c.method === "PATCH" ? res({ error: "INTERNAL_ERROR" }, 500) : undefined;
+    fireEvent.change(input, { target: { value: " \n " } }); fireEvent.blur(input);
+    await screen.findByRole("button", { name: "Retry" });
+    expect(input.value).toBe(" \n "); expect(mutations()[0].body).toEqual({ scopeOfWork: null });
+    handler = c => {
+      if (c.method === "PATCH") { detail.version.scopeOfWork = null; return res(detail); }
+      return undefined;
+    };
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+  it.each(["sent", "accepted", "declined", "superseded", "void"])("shows localized locked empty scope for %s", async status => {
+    await i18n.changeLanguage("es");
+    detail = makeDetail({ status });
+    renderAt("/dashboard/estimates/builder/e1"); await ready();
+    expect(screen.getByText("Sin alcance del trabajo")).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "Alcance del trabajo" })).toBeNull();
+  });
+  it("shows the scope card even without sections", async () => {
+    detail.version.sections = [];
+    renderAt("/dashboard/estimates/builder/e1"); await ready();
+    expect(screen.getByRole("textbox", { name: "Scope of work" })).toBeTruthy();
+  });
+  it("renders stored scope read-only on a voided container even when the version is draft", async () => {
+    detail = makeDetail({ voidedAt: T0 }); detail.version.scopeOfWork = "Read-only scope\nSecond line";
+    renderAt("/dashboard/estimates/builder/e1"); await ready();
+    expect(screen.getByText(/Read-only scope/).textContent).toBe("Read-only scope\nSecond line");
+    expect(screen.queryByRole("textbox", { name: "Scope of work" })).toBeNull();
+  });
+  it.each(["company", "user", "version"])("ignores late scope results after a %s switch", async kind => {
+    const page = renderAt("/dashboard/estimates/builder/e1"); await ready();
+    let finish!: (v: unknown) => void;
+    handler = c => c.method === "PATCH" ? new Promise(resolve => { finish = resolve; }) : undefined;
+    const input = screen.getByRole("textbox", { name: "Scope of work" });
+    fireEvent.change(input, { target: { value: "Old pending scope" } }); fireEvent.blur(input);
+    const old = makeDetail({ updatedAt: "2025-04-03T10:00:00Z" }); old.version.scopeOfWork = "Old pending scope";
+    detail = makeDetail(); detail.version.scopeOfWork = "New context scope";
+    if (kind === "version") act(() => page.loc.navigate("/dashboard/estimates/builder/e1?version=1"));
+    else { auth.user = { ...auth.user, ...(kind === "company" ? { activeCompanyId: "c2" } : { id: "u2" }) }; page.rerenderPage(); }
+    await ready();
+    await act(async () => finish(res(old)));
+    expect(screen.queryByDisplayValue("Old pending scope")).toBeNull();
+    expect(screen.queryByText("Old pending scope")).toBeNull();
+    expect(mutations()).toHaveLength(1);
+  });
   it("renders header, every line type, server totals, margin box, hidden zero buckets and lit draft flow", async () => {
     renderAt("/dashboard/estimates/builder/e1");
     await ready();

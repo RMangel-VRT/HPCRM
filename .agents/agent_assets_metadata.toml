@@ -294,3 +294,45 @@ mtime_ms = 1793919054777
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/77e8e6ad-ab9c-4646-86f5-97457d0d0822/6d4fc9a3-dadf-41eb-a203-b35e78175e36"
 storage_version_token = "1793919056195980"
 content_type = "text/plain"
+
+[[outputs]]
+id = "1jUFP-Dc9aOLzk1HtUGhK"
+uri = "file://generated-artifacts/eb45/plants-scope-review.png"
+type = "image"
+title = "Estimate with plants and scope"
+description = "All three rendered pages: scope under the title, pricing total without the category box, conditional warranty and intact Acceptance."
+logical_id = "b3e3c09b-161b-4204-9cf3-cefe8490091e"
+content_hash = "sha256:9b555497395a75a922e33f913701547b63b43becd2f74f658a47d1c956735845"
+size = 257977
+mtime_ms = 1794421091981
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/b3e3c09b-161b-4204-9cf3-cefe8490091e/e2d08139-8e31-4105-a5a4-f6d476ea066c"
+storage_version_token = "1794421296943729"
+content_type = "image/png"
+
+[[outputs]]
+id = "UP4tb7NRzxNWU5fsfEkSk"
+uri = "file://generated-artifacts/eb45/services-only-review.png"
+type = "image"
+title = "Services-only estimate"
+description = "All three rendered pages, with configured terms but no plant warranty."
+logical_id = "62b5605c-178a-4913-88b9-550ddb81c4b6"
+content_hash = "sha256:da987ebf2b43bff9f3be2311b32e9d01a437237dfabcf0f18b80ec033f0cf144"
+size = 251615
+mtime_ms = 1794421092049
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/62b5605c-178a-4913-88b9-550ddb81c4b6/21b983dc-c92a-4f84-9c33-9d3428b65b46"
+storage_version_token = "1794421297527082"
+content_type = "image/png"
+
+[[outputs]]
+id = "gpoqor7J3R2hwn65tSpAC"
+uri = "file://generated-artifacts/eb45/long-legal-review.png"
+type = "image"
+title = "Long terms and warranty"
+description = "All four rendered pages with 2,500 characters each of terms and warranty; Acceptance stays together and clears the mountain reserve."
+logical_id = "bdd4566c-577e-44e6-8e87-84187bd5ddc0"
+content_hash = "sha256:acc73194b8b4df80f1ced3195bf582bbf52f8fe40cea1d12760f3feab9dd2d60"
+size = 518792
+mtime_ms = 1794421092137
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/bdd4566c-577e-44e6-8e87-84187bd5ddc0/d9fd327a-490e-4af7-a8fc-b9837eef5e6a"
+storage_version_token = "1794421298232788"
+content_type = "image/png"

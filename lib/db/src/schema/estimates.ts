@@ -30,6 +30,7 @@ export const estimateNumberCounters = pgTable("estimate_number_counters", {
 export const estimateVersions = pgTable("estimate_versions", {
   id: id(), companyId: company(), estimateId: varchar("estimate_id").notNull().references(() => estimates.id, { onDelete: "cascade" }),
   versionNumber: integer("version_number").notNull(),
+  scopeOfWork: text("scope_of_work"),
   status: text("status").notNull().default("draft").$type<typeof ESTIMATE_STATUSES[number]>(),
   createdFromVersionId: varchar("created_from_version_id"),
   sentAt: timestamp("sent_at"), sentById: userRef("sent_by_id"), sentMethod: text("sent_method").$type<typeof ESTIMATE_SENT_METHODS[number]>(),

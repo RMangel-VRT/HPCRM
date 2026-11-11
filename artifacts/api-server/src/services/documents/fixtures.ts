@@ -7,11 +7,12 @@ const companyDocument = { ...emptyDocumentSettings(), addressLine1: "100 Example
   phone: "303-555-0100", email: "office@example.test", website: "highplains.example",
   remitTo: "High Plains Property Maintenance\n100 Example Road\nDenver, CO 80000",
   estimateTerms: "Work will be scheduled by mutual agreement.", warrantyText: "Plant warranty details supplied by the company." };
-export function estimateFixture(count: number) {
-  const lines = Array.from({ length: count }, (_, i) => ({ name: `Blue Spruce ${i + 1}`, detail: "5 gallon container", quantity: "2.00", unit: "ea",
-    unitPriceCents: 12500, sortOrder: i, umbrellaKey: i % 3 === 0 ? "landscape_labor" : "plants" }));
+export function estimateFixture(count: number, options: { servicesOnly?: boolean; scopeOfWork?: string | null } = {}) {
+  const lines = Array.from({ length: count }, (_, i) => ({ name: options.servicesOnly ? `Landscape service ${i + 1}` : `Blue Spruce ${i + 1}`,
+    detail: options.servicesOnly ? "Landscape maintenance" : "5 gallon container", quantity: "2.00", unit: options.servicesOnly ? "hour" : "ea",
+    unitPriceCents: 12500, sortOrder: i, umbrellaKey: options.servicesOnly || i % 3 === 0 ? "landscape_labor" : "plants" }));
   return buildEstimateDocumentModel({ estimateNumber: "EST-2026-0042", title: "Entrance landscape improvements",
-    version: { versionNumber: 2, status: "sent", sentAt: "2026-11-02T18:00:00Z", acceptedOn: null, poNumber: null,
+    version: { versionNumber: 2, scopeOfWork: options.scopeOfWork ?? null, status: "sent", sentAt: "2026-11-02T18:00:00Z", acceptedOn: null, poNumber: null,
       frozenSubtotalCents: count * 25000, totals: { subtotalCents: count * 25000, bySection: { a: count * 25000 } },
       sections: [{ id: "a", name: "Entrance & common areas", sortOrder: 0, lines }] } },
     { companyName: "High Plains Property Maintenance", customerName: "Example Ranch HOA", customerAddress: "250 Example Lane\nBroomfield, CO 80020",

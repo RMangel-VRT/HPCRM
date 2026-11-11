@@ -39,7 +39,7 @@ async function render(name: string, html: string, invoice = false, draft = false
   return pages;
 }
 function checkOrphan(pages: string[], count: number, invoice: boolean) {
-  const totalPage = pages.findIndex(p => p.includes(invoice ? "How to pay" : "BY CATEGORY"));
+  const totalPage = pages.findIndex(p => p.includes(invoice ? "How to pay" : "Estimate total"));
   expect(totalPage).toBeGreaterThanOrEqual(0);
   const text = pages[totalPage];
   const rowCount = (text.match(/Blue Spruce \d+|Landscape installation \d+/g) ?? []).length;
@@ -100,7 +100,7 @@ describe.skipIf(unavailable)("IC4.1 actual printed pagination and clearance", ()
       const mid = Math.floor((lo + hi) / 2);
       const bytes = await renderDocumentPdf({ html: spaced(mid), footerLabel: "Boundary", shortHeaderNumber: "Boundary" });
       const pages = pageText(bytes);
-      const totalPage = pages.findIndex(p => p.includes(invoice ? "How to pay" : "BY CATEGORY"));
+      const totalPage = pages.findIndex(p => p.includes(invoice ? "How to pay" : "Estimate total"));
       if (totalPage === 0) lo = mid; else hi = mid;
     }
     const stem = `${invoice ? "invoice" : "estimate"}-boundary`;

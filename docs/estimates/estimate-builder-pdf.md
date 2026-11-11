@@ -14,7 +14,7 @@ Header styles are mirrored with ticket hue/state tokens, not extracted from Tick
 - `renderEstimateDocument(model)`: Buffer renderer, also useful for deterministic fixtures.
 - `renderEstimatePdf(companyId, estimateId, versionId)`: scoped read-only, repeatable-read resolver plus renderer. Phase 4 can call it directly without invoking an HTTP handler.
 
-The model contains only customer document facts: company, estimate/version/date/status, customer/address, project and distinct linked-ticket title, ordered sections, safe descriptions, quantities/units, captured unit prices, line/section totals and total. `terms: null` remains for compatibility; configured terms now come from the separate `companyDocument` owner. The model also carries customer-labeled category aggregates and available ticket work location. IDs, internal costs/margins, unknown-cost counts, pricing provenance, rate-term IDs, raw umbrellas and pricing flags never enter the model.
+The model contains only customer document facts: company, estimate/version/date/status, customer/address, project and distinct linked-ticket title, version-owned nullable scope, ordered sections, safe descriptions, quantities/units, captured unit prices, line/section totals and total. `hasPlants` derives from captured line umbrellas (including custom Plants lines), never live catalogs. `terms: null` remains for compatibility; configured terms now come from the separate `companyDocument` owner. The model also retains tested customer-labeled category aggregates and available ticket work location. IDs, internal costs/margins, unknown-cost counts, pricing provenance, rate-term IDs, raw umbrellas and pricing flags never enter the model.
 
 SKU sanitation is conservative: hardscape/irrigation snapshots have a known `category · SKU` format, whose SKU segment is omitted. Explicit `SKU:` segments are omitted on other types. Ambiguous model numbers and sizes, including `5-GAL`, `2-IN` and `MP-3000`, remain. Names and plant size references remain intact.
 
@@ -24,14 +24,18 @@ The current renderer uses the shared HTML/Chromium two-pass document kit: Letter
 pages, 64px side padding, Inter, full first/short later green bands, repeated
 table headings, counted footer, final-page-only mountains and draft-only marks.
 Estimate sections retain their grouping and stored unit words. A customer-safe
-By category summary and optional company terms/warranty precede Acceptance.
+total-only summary and optional company terms/warranty precede Acceptance.
+Scope prints immediately after the project title and optional ticket line, before
+pricing. The printed By category box is removed, not the tested `categorySummary`
+data. Warranty requires `hasPlants`; configured terms remain independent.
+Legal text can continue across pages; only Acceptance plus mountain reserve is
+indivisible. Linked proposals reuse these fragments, but retain proposal-owned scope.
 See `docs/documents/document-kit.md`.
 
-The former PDFKit implementation is preserved as `renderEstimateDocumentLegacy`
-and is used only when Chromium cannot launch, with fixed diagnostic
-`DOCUMENT_RENDERER_UNAVAILABLE`. Its legacy typography/pagination tests remain;
-new real-Chromium tests verify the new output. Content/stamp failures do not
-silently select the legacy design.
+Estimates use only the shared kit; Chromium unavailability returns the safe
+`DOCUMENT_RENDERER_UNAVAILABLE` response, never a legacy-design fallback.
+The historical verification notes below describe earlier slices, not current
+fallback behavior.
 
 ## Authorization and preview
 
@@ -81,3 +85,10 @@ No Phase 4 integration, palette, email/e-signature, legal terms, QuickBooks beha
 Final review identified browser-cache disclosure in incoming Mentions/notifications work from main, not in the estimate preview. Notification list/count keys previously contained only the filter. The shared notification helpers and all mention/general-bell/page consumers now include captured user/company/role scope, disable queries while signed out, and send the captured company header. Read-one/read-all deduplication, cancellation, optimistic cache writes and invalidation target only the initiating scope.
 
 The notification rendered suite passes 36 tests, including company, user, role, logout/login switches with pending responses and still-populated old caches, plus read-one/read-all mutation isolation. CRM typechecking remains at the same 221 original diagnostics with no additions/removals. This narrowly related security fix was added in response to the completion review; no notification server behavior or lifecycle was redesigned.
+
+## Scope and PDF cleanup
+
+See [Slice 4.5 verification](reports/estimate-scope-pdf-cleanup.md) for the migration,
+API contract, test/typecheck delta and repeatable three-scenario PNG evidence.
+No historical PDF was regenerated or published. The four target reference PNGs
+were not supplied; screenshot parity remains unverified.
