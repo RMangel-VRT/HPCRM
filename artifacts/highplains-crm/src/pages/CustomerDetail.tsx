@@ -8,6 +8,8 @@ import { insertNoteSchema } from "@shared/schema";
 import { CustomerContracts } from "@/components/contracts/CustomerContracts";
 import { useCustomerContractSummary, openSnowTriggerFlagCount } from "@/hooks/useCustomerContractSummary";
 import { useCustomerServices } from "@/hooks/useCustomerServices";
+import { useContractCustomerServices } from "@/hooks/useContractCustomerServices";
+import { summarizeContractServices } from "@/lib/contractCustomerServices";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -121,6 +123,7 @@ export default function CustomerDetail() {
 
   const summary = useCustomerContractSummary(customer && !isParent ? id : undefined);
   const services = useCustomerServices(customer && !isParent ? id : undefined);
+  const demand = useContractCustomerServices(customer && !isParent ? id : undefined);
 
   const ticketsQuery = useQuery<Ticket[]>({
     queryKey: ["/api/customers", id, "tickets", ...scope.scope],
@@ -188,7 +191,7 @@ export default function CustomerDetail() {
   const addBadge = (key: CustomerPageKey, count: number, warning = false) => { if (pages.includes(key) && count > 0) badges[key] = { count, warning }; };
   addBadge("tickets", openTickets);
   if (!isParent) {
-    addBadge("services", services.overdueCount, true);
+    addBadge("services", summarizeContractServices(demand.data?.rows ?? []).overdue, true);
     addBadge("snow", openSnowTriggerFlagCount(summary.data), true);
     addBadge("proposals", pendingProposals);
   }
@@ -361,7 +364,7 @@ export default function CustomerDetail() {
               accountManagerName={amName} accountManagerLoaded={amLoaded} tags={customer.tags ?? []} />
           : <CustomerDashboard customer={customer} pages={pages} privileged={isPrivilegedUser} canEditCustomer={canEditCustomer}
               contacts={contactsQuery} notes={notesQuery} tickets={ticketsQuery} ticketStatuses={ticketStatuses}
-              proposals={isPrivilegedUser ? proposalsQuery : undefined} summary={summary} services={services}
+              proposals={isPrivilegedUser ? proposalsQuery : undefined} summary={summary} services={services} demand={demand}
               qboCard={isPrivilegedUser ? qboCard : undefined} qboState={qboState} qboAttention={qboAttention}
               setup={setup} snowFlagCount={openSnowTriggerFlagCount(summary.data)}
               accountManagerName={amName} accountManagerLoaded={amLoaded} pmCompany={pmCompany} pmManager={pmManager} management={managedBy} />;
@@ -379,7 +382,7 @@ export default function CustomerDetail() {
       case "communications":
         return <CommunicationListTab queryKey={["/api/customers", customer.id, "communications"]} customerId={customer.id} showLogButton={false} />;
       case "services":
-        return <ServicesPage customerId={customer.id} />;
+        return <ServicesPage key={`${scope.scope.join(":")}:${customer.id}`} customerId={customer.id} parentName={customer.parentCustomer?.name} />;
       case "tickets":
         return isParent ? <ParentTicketsPage customer={customer} /> : <CustomerTicketsPage customerId={customer.id} />;
       case "snow":

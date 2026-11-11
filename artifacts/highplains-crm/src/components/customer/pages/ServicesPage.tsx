@@ -1,226 +1,208 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
-import { AlertCircle, CheckCircle2, Clock, CalendarClock, MinusCircle } from "lucide-react";
-import type { Season } from "@shared/schema";
-import { useCustomerServices, type CustomerService, type ServiceState } from "@/hooks/useCustomerServices";
-import { useCustomerScope } from "@/lib/customerScope";
-import { Badge } from "@/components/ui/badge";
-import { DisplayStatusBadge, PageEmptyState, TableSkeleton, displayStatus, fromNestedControl, rowKeyOpen, useCustomerDates } from "@/components/customer/page";
+import { AlertCircle, CheckCircle2, Lock, ExternalLink } from "lucide-react";
+import type { ServiceFulfillment, ServiceRound } from "@workspace/api-client-react";
+import { SCOPE_CATALOG } from "@shared/contractCatalog";
+import { useCustomerServices } from "@/hooks/useCustomerServices";
+import { useContractCustomerServices, useServiceSeason } from "@/hooks/useContractCustomerServices";
+import { useAuth } from "@/hooks/use-auth";
+import { DisplayStatusBadge, PageEmptyState, TableSkeleton, useCustomerDates } from "@/components/customer/page";
+import { serviceDisplayStatus, serviceStatusLabel } from "@/lib/contractCustomerServices";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import ChecklistItemDetailPanel from "@/components/ChecklistItemDetailPanel";
+import { DASH, RoundItemPanel, ServiceRowItem, ServiceTile, accessFor, seasonOptionLabel } from "./services/ServiceParts";
 
-export const SERVICE_GROUP_ORDER = ["overdue", "in_window", "upcoming", "done"] as const;
-type GroupKey = typeof SERVICE_GROUP_ORDER[number];
+type Drawer =
+  | { kind: "item"; row: ServiceFulfillment | null; itemId: string; title: string; start: string; end: string }
+  | { kind: "route"; row: ServiceFulfillment };
 
-interface Row {
-  service: CustomerService;
-  category: string;
-  seasonId: string | null;
-  completedAt: string | null;
-  item: any | null;
+const UNCOUNTED_DEFAULT: Record<string, string> = { on_request: "On request", event: "Snow", none: "Not scheduled" };
+
+function RetainedRoundTitle({ customerId, campaignId }: { customerId: string; campaignId: string }) {
+  const { items } = useCustomerServices(customerId);
+  const title = items.find((item: any) => item.campaignId === campaignId)?.campaignTitle;
+  return <span className="text-xs text-muted-foreground">{title || "Round"}</span>;
 }
 
-const groupOf = (state: ServiceState): GroupKey => (state === "skipped" ? "done" : state);
-
-export function buildServiceRows(services: CustomerService[], items: any[]): Row[] {
-  const byId = new Map(items.map(i => [`campaign:${i.id}`, i]));
-  return services.map(service => {
-    const item = byId.get(service.id) ?? null;
-    return {
-      service,
-      item,
-      category: String(item?.campaign?.category || item?.campaignCategory || (service.source === "route" ? "route" : "general")).toLowerCase(),
-      seasonId: item?.campaign?.seasonId ?? null,
-      completedAt: service.completedAt ?? item?.completedAt ?? null,
-    };
-  });
-}
-
-/** Compact category tiles from in-contract rows only, so extra billable is never double counted. */
-export function categorySummary(rows: Row[]) {
-  const map = new Map<string, { done: number; total: number }>();
-  for (const r of rows) {
-    if (!r.service.inContract) continue;
-    const cur = map.get(r.category) ?? { done: 0, total: 0 };
-    cur.total += 1;
-    if (r.service.state === "done") cur.done += 1;
-    map.set(r.category, cur);
-  }
-  return Array.from(map.entries()).map(([category, v]) => ({ category, ...v }));
-}
-
-function StateIcon({ state }: { state: ServiceState }) {
-  if (state === "done") return <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success))]" aria-hidden="true" />;
-  if (state === "skipped") return <MinusCircle className="w-4 h-4 text-muted-foreground" aria-hidden="true" />;
-  if (state === "overdue") return <AlertCircle className="w-4 h-4 text-destructive" aria-hidden="true" />;
-  if (state === "in_window") return <Clock className="w-4 h-4 text-[hsl(var(--est-warn))]" aria-hidden="true" />;
-  return <CalendarClock className="w-4 h-4 text-muted-foreground" aria-hidden="true" />;
-}
-
-export default function ServicesPage({ customerId }: { customerId: string }) {
+export default function ServicesPage({ customerId, parentName }: { customerId: string; parentName?: string }) {
   const { t } = useTranslation();
-  const { services, items, isLoading, error } = useCustomerServices(customerId);
-  const fmtDay = useCustomerDates().day;
-  const [groupBy, setGroupBy] = useState<"status" | "season">("status");
-  const [selected, setSelected] = useState<Row | null>(null);
-  const scope = useCustomerScope();
-  const { data: seasons = [] } = useQuery<Season[]>({
-    queryKey: ["/api/seasons", ...scope.scope], enabled: scope.enabled && groupBy === "season",
-    queryFn: ({ signal }) => scope.getJson<Season[]>("/api/seasons", signal),
-  });
+  const { user } = useAuth();
+  const day = useCustomerDates().day;
+  const access = accessFor((user as any)?.accessRole ?? user?.activeRole);
+  const { termId, selectTerm, resetTerm, scopeKey } = useServiceSeason(customerId);
+  const query = useContractCustomerServices(customerId, termId);
+  const { data, isLoading, error, refetch, isFetching, unavailable } = query;
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [drawer, setDrawer] = useState<Drawer | null>(null);
 
-  const rows = useMemo(() => buildServiceRows(services, items), [services, items]);
-  const inContract = rows.filter(r => r.service.inContract);
-  const extra = rows.filter(r => !r.service.inContract);
-  const summary = categorySummary(rows);
-  const categoryLabel = (c: string) => t(`cp1.categories.${c}`, { defaultValue: t(`customerPages.services.categoryFallback.${c}`, { defaultValue: c }) });
+  // Clear local UI state when the scope (company/customer/viewer/role) changes.
+  useEffect(() => { setExpanded(new Set()); setDrawer(null); }, [scopeKey]);
 
-  const groups = useMemo(() => {
-    if (groupBy === "status") {
-      return SERVICE_GROUP_ORDER.map(g => ({
-        key: g, label: t(`customerPages.services.groups.${g}`),
-        rows: inContract.filter(r => groupOf(r.service.state) === g),
-      })).filter(g => g.rows.length > 0);
-    }
-    const keys: string[] = [];
-    const map: Record<string, Row[]> = {};
-    for (const r of inContract) {
-      const k = r.seasonId ?? "none";
-      if (!map[k]) { map[k] = []; keys.push(k); }
-      map[k].push(r);
-    }
-    return keys.map(k => ({
-      key: k,
-      label: k === "none" ? t("customerPages.services.noSeason") : seasons.find(s => s.id === k)?.name ?? t("customerPages.services.season"),
-      rows: map[k],
-    }));
-  }, [groupBy, inContract, seasons, t]);
+  const status = (error as any)?.status as number | undefined;
+  // A disappeared explicit season resets to default once; a default 404 is shown as an error.
+  useEffect(() => { if (status === 404 && termId) resetTerm(); }, [status, termId, resetTerm]);
 
-  if (isLoading) {
-    return <TableSkeleton rows={5} cols={3} testId="services-skeleton" />;
+  const rows = data?.rows ?? [];
+  const term = data?.selectedTerm ?? null;
+  const toggle = (k: string) => setExpanded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const openItem = (row: ServiceFulfillment | null, itemId: string, title: string, start: string, end: string) =>
+    setDrawer({ kind: "item", row, itemId, title, start, end });
+  const openRound = (row: ServiceFulfillment) => (r: ServiceRound) =>
+    r.itemId && openItem(row, r.itemId, row.label, r.windowStart, r.windowEnd);
+
+  const uncounted = useMemo(() => data?.alsoInContract ?? [], [data]);
+
+  if (unavailable || status === 403) {
+    return <PageEmptyState icon={Lock} message={t("customerPages.services.notAvailable", { defaultValue: "Services are not available for your role." })} testId="services-unavailable" />;
   }
-  if (error) {
-    return <div role="alert"><PageEmptyState icon={AlertCircle} message={t("cp1.loadFailed")} testId="services-error" /></div>;
+  if (isLoading || (status === 404 && termId)) return <TableSkeleton rows={5} cols={3} testId="services-skeleton" />;
+  if (error || !data) {
+    return (
+      <div role="alert">
+        <PageEmptyState icon={AlertCircle} message={t("cp1.loadFailed")} testId="services-error"
+          action={<Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching} data-testid="button-services-retry">{t("common.retry", { defaultValue: "Retry" })}</Button>} />
+      </div>
+    );
   }
 
-  const statusPill = (r: Row) => {
-    const s = r.service.state;
-    if (s === "done") return r.completedAt ? t("customerPages.services.doneOn", { date: fmtDay(r.completedAt) }) : t("customerPages.services.groups.done");
-    if (s === "skipped") return t("cp1.serviceStates.skipped");
-    return t(`customerPages.services.groups.${s}`);
-  };
-
-  const renderRow = (r: Row) => (
-    <div
-      role="button"
-      tabIndex={0}
-      key={r.service.id}
-      onClick={e => { if (!fromNestedControl(e)) setSelected(r); }}
-      onKeyDown={rowKeyOpen(() => setSelected(r))}
-      className="w-full min-h-[44px] cursor-pointer flex items-center gap-3 px-3 py-2 text-left hover:bg-muted/50 border-b last:border-b-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
-      data-testid={`row-service-${r.service.id}`}
-    >
-      <StateIcon state={r.service.state} />
-      <span className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center md:gap-3">
-        <span className="text-sm font-medium md:flex-1 md:min-w-0 md:truncate">{r.service.title || t("customerPages.services.untitled")}</span>
-        <span className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
-          <span className="md:w-28 md:truncate" data-testid={`text-service-category-${r.service.id}`}>{categoryLabel(r.category)}</span>
-          <span className="md:w-32 tabular-nums" data-testid={`text-service-window-${r.service.id}`}>
-            {r.service.start === r.service.end ? fmtDay(r.service.start) : `${fmtDay(r.service.start)} – ${fmtDay(r.service.end)}`}
-          </span>
-        </span>
-      </span>
-      <DisplayStatusBadge status={displayStatus("service", r.service.state)} label={statusPill(r)} testId={`status-service-${r.service.id}`} />
-    </div>
-  );
+  const terms = data.availableTerms;
+  const campaignLink = (id: string, testId: string) => access.campaigns
+    ? <Link href={`/dashboard/campaigns/${id}`} className="inline-flex items-center gap-0.5 text-xs text-primary hover:underline" data-testid={testId}>{t("customerPages.services.openRound", { defaultValue: "Round" })}<ExternalLink className="w-3 h-3" aria-hidden="true" /></Link>
+    : null;
 
   return (
     <div className="space-y-5" data-testid="services-page">
-      {summary.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2" data-testid="services-summary">
-          {summary.map(s => (
-            <div key={s.category} className="rounded-md border bg-card px-3 py-2" data-testid={`tile-category-${s.category}`}>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-xs text-muted-foreground truncate">{categoryLabel(s.category)}</span>
-                <span className="text-sm font-semibold tabular-nums">{s.done} / {s.total}</span>
-              </div>
-              <div className="mt-1.5 h-1 rounded-full bg-muted overflow-hidden">
-                <div className="h-full bg-primary" style={{ width: `${s.total ? (s.done / s.total) * 100 : 0}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="flex items-center justify-end gap-2">
-        <span className="text-xs text-muted-foreground">{t("customerPages.services.groupBy")}</span>
-        <Select value={groupBy} onValueChange={v => setGroupBy(v as "status" | "season")}>
-          <SelectTrigger className="w-36 h-8" data-testid="select-services-group-by"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="status">{t("customerPages.services.byStatus")}</SelectItem>
-            <SelectItem value="season">{t("customerPages.services.bySeason")}</SelectItem>
-          </SelectContent>
-        </Select>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground" data-testid="text-services-asof">
+          {t("customerPages.services.asOf", { date: day(data.asOf), defaultValue: "As of {{date}}" })}
+        </p>
+        {terms.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">{t("customerPages.services.season", { defaultValue: "Season" })}</span>
+            <Select value={term?.termId ?? ""} onValueChange={v => { setExpanded(new Set()); setDrawer(null); selectTerm(v); }}>
+              <SelectTrigger className="w-full sm:w-80 h-8 text-left" data-testid="select-services-season"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {terms.map(s => (
+                  <SelectItem key={s.termId} value={s.termId} data-testid={`option-season-${s.termId}`}>{seasonOptionLabel(s, day, t, parentName)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
-      {rows.length === 0 ? (
-        <PageEmptyState icon={CheckCircle2} message={t("customerPages.services.empty")} testId="services-empty" />
+      {!term ? (
+        <PageEmptyState icon={CheckCircle2} message={t("customerPages.services.noSeason", { defaultValue: "No contract season for this property." })} testId="services-no-season" />
       ) : (
         <>
-          {groups.map(g => (
-            <section key={g.key} data-testid={`services-group-${g.key}`}>
+          {rows.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2" data-testid="services-summary">
+              {rows.map(r => <ServiceTile key={r.serviceKey} row={r} />)}
+            </div>
+          )}
+
+          {rows.length === 0 ? (
+            <PageEmptyState icon={CheckCircle2} message={t("customerPages.services.empty")} testId="services-empty" />
+          ) : (
+            <section data-testid="services-counted">
               <h3 className="text-[13px] font-semibold text-muted-foreground mb-1.5">
-                {g.label} <span className="tabular-nums">({g.rows.length})</span>
+                {t("customerPages.services.counted", { defaultValue: "Contracted services" })} <span className="tabular-nums">({rows.length})</span>
               </h3>
-              <div className="rounded-md border bg-card">{g.rows.map(renderRow)}</div>
+              <div className="rounded-md border bg-card">
+                {rows.map(r => (
+                  <ServiceRowItem key={r.serviceKey} row={r} term={term} access={access}
+                    expanded={expanded.has(r.serviceKey)} onToggle={() => toggle(r.serviceKey)}
+                    onOpen={() => r.scheduling === "route" ? setDrawer({ kind: "route", row: r }) : toggle(r.serviceKey)}
+                    onOpenItem={openRound(r)} />
+                ))}
+              </div>
             </section>
-          ))}
-          {extra.length > 0 && (
-            <section data-testid="services-not-in-contract">
+          )}
+
+          {uncounted.length > 0 && (
+            <section data-testid="services-also-in-contract">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                {t("customerPages.services.notInContract")} <span className="tabular-nums">({extra.length})</span>
+                {t("customerPages.services.alsoInContract", { defaultValue: "Also in this contract" })}
               </h3>
-              <p className="text-xs text-muted-foreground mb-1.5">{t("customerPages.services.notInContractHint")}</p>
-              <div className="rounded-md border bg-card">{extra.map(renderRow)}</div>
+              <ul className="flex flex-wrap gap-1.5">
+                {uncounted.map(u => (
+                  <li key={u.serviceKey} className="rounded-md border bg-card px-2 py-1 text-xs" data-testid={`item-uncounted-${u.serviceKey}`}>
+                    {u.label} <span className="text-muted-foreground">{DASH} {t(`customerPages.services.uncounted.${u.scheduling}`, { defaultValue: UNCOUNTED_DEFAULT[u.scheduling] ?? u.scheduling })}</span>
+                  </li>
+                ))}
+              </ul>
             </section>
           )}
         </>
       )}
 
-      <Sheet open={!!selected} onOpenChange={open => { if (!open) setSelected(null); }}>
+      {data.retainedWork.length > 0 && (
+        <section data-testid="services-retained">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+            {t("customerPages.services.retained", { defaultValue: "Retained rounds" })} <span className="tabular-nums">({data.retainedWork.length})</span>
+          </h3>
+          <p className="text-xs text-muted-foreground mb-1.5">{t("customerPages.services.retainedHint", { defaultValue: "Kept because work had started. Review on the round." })}</p>
+          <div className="rounded-md border bg-card">
+            {data.retainedWork.map(w => {
+              const label = rows.find(r => r.serviceKey === w.serviceKey)?.label ?? uncounted.find(u => u.serviceKey === w.serviceKey)?.label ?? SCOPE_CATALOG.find(s => s.key === w.serviceKey)?.label ?? w.serviceKey ?? DASH;
+              return (
+                <div key={w.itemId} className="min-h-[44px] flex items-center gap-3 px-3 py-2 border-b last:border-b-0" data-testid={`row-retained-${w.itemId}`}>
+                  <span className="flex-1 min-w-0 text-sm font-medium truncate">{label}</span>
+                  <RetainedRoundTitle customerId={customerId} campaignId={w.campaignId} />
+                  <button type="button" className="text-xs text-primary hover:underline" onClick={() => openItem(null, w.itemId, label, "", "")} data-testid={`button-retained-item-${w.itemId}`}>{t("customerPages.services.openItem", { defaultValue: "Item" })}</button>
+                  {campaignLink(w.campaignId, `link-retained-campaign-${w.itemId}`)}
+                  <DisplayStatusBadge status={serviceDisplayStatus(w.status)} label={serviceStatusLabel(w.status, t)} testId={`status-retained-${w.itemId}`} />
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {data.otherWork.length > 0 && (
+        <section data-testid="services-other-work">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+            {t("customerPages.services.otherWork", { defaultValue: "Other work" })} <span className="tabular-nums">({data.otherWork.length})</span>
+          </h3>
+          <p className="text-xs text-muted-foreground mb-1.5">{t("customerPages.services.otherWorkHint", { defaultValue: "Hand-built campaigns. These never count toward contracted services." })}</p>
+          <div className="rounded-md border bg-card">
+            {data.otherWork.map(w => (
+              <div key={w.itemId} className="min-h-[44px] flex items-center gap-3 px-3 py-2 border-b last:border-b-0" data-testid={`row-other-${w.itemId}`}>
+                <button type="button" className="flex-1 min-w-0 text-left text-sm font-medium truncate hover:underline" onClick={() => openItem(null, w.itemId, w.title, "", "")} data-testid={`button-other-item-${w.itemId}`}>{w.title}</button>
+                {campaignLink(w.campaignId, `link-other-campaign-${w.itemId}`)}
+                <DisplayStatusBadge status={serviceDisplayStatus(w.status)} label={serviceStatusLabel(w.status, t)} testId={`status-other-${w.itemId}`} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <Sheet open={!!drawer} onOpenChange={open => { if (!open) setDrawer(null); }}>
         <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
-          {selected && (
+          {drawer && (
             <>
               <SheetHeader className="mb-4">
-                <SheetTitle data-testid="drawer-title">{selected.service.title || t("customerPages.services.untitled")}</SheetTitle>
+                <SheetTitle data-testid="drawer-title">{drawer.kind === "item" ? drawer.title : drawer.row.label}</SheetTitle>
                 <SheetDescription>{t("customerPages.services.detailReadOnly")}</SheetDescription>
               </SheetHeader>
-              {selected.item ? <ChecklistItemDetailPanel item={{
-                ...selected.item,
-                campaignTitle: selected.item.campaignTitle ?? selected.item.campaign?.title ?? "",
-                campaignWindowStart: selected.item.campaignWindowStart ?? selected.item.campaign?.windowStart ?? selected.service.start,
-                campaignWindowEnd: selected.item.campaignWindowEnd ?? selected.item.campaign?.windowEnd ?? selected.service.end,
-                campaignCategory: selected.category,
-              }} onClose={() => setSelected(null)} /> : <div className="space-y-4 text-sm">
-                <div className="flex gap-2 flex-wrap">
-                  <DisplayStatusBadge status={displayStatus("service", selected.service.state)} label={statusPill(selected)} testId="drawer-status" />
-                  <Badge variant="outline" data-testid="drawer-category">{categoryLabel(selected.category)}</Badge>
-                  {!selected.service.inContract && <Badge variant="secondary">{t("customerPages.services.notInContract")}</Badge>}
+              {drawer.kind === "item" ? (
+                <RoundItemPanel customerId={customerId} itemId={drawer.itemId} onClose={() => setDrawer(null)}
+                  fallback={{ title: drawer.title, start: drawer.start, end: drawer.end, category: drawer.row?.serviceKey ?? "" }} />
+              ) : (
+                <div className="space-y-4 text-sm">
+                  <DisplayStatusBadge status={serviceDisplayStatus(drawer.row.status)} label={serviceStatusLabel(drawer.row.status, t)} testId="drawer-status" />
+                  <p className="text-muted-foreground tabular-nums" data-testid="drawer-counts">
+                    {t("customerPages.services.owed", { defaultValue: "Owed" })} {drawer.row.owed ?? DASH} · {t("customerPages.services.done", { defaultValue: "Done" })} {drawer.row.done} · {t("customerPages.services.planned", { defaultValue: "Planned" })} {drawer.row.planned} · {t("customerPages.services.inProgress", { defaultValue: "In progress" })} {drawer.row.inProgress}
+                  </p>
+                  {access.routes && (
+                    <Button asChild variant="outline" size="sm">
+                      <Link href="/dashboard/routes" data-testid="link-route-visit">{t("customerPages.services.openRoutes")}</Link>
+                    </Button>
+                  )}
                 </div>
-                <p className="text-muted-foreground" data-testid="drawer-window">
-                  {t("customerPages.services.window")}: {fmtDay(selected.service.start)}
-                  {selected.service.end !== selected.service.start && ` – ${fmtDay(selected.service.end)}`}
-                </p>
-                {selected.service.source === "route" && (
-                  <Button asChild variant="outline" size="sm">
-                    <Link href="/dashboard/routes" data-testid="link-route-visit">{t("customerPages.services.openRoutes")}</Link>
-                  </Button>
-                )}
-              </div>}
+              )}
             </>
           )}
         </SheetContent>

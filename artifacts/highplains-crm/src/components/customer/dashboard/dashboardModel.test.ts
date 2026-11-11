@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { aggregateTerms, calendarAge, customerInitials, evaluateAttention, serviceDashboardRows } from "./dashboardModel";
 import type { ContractSummaryTerm } from "@/hooks/useCustomerContractSummary";
-import type { CustomerService } from "@/hooks/useCustomerServices";
+import type { ServiceFulfillment } from "@workspace/api-client-react";
+import { serviceRowFixture } from "@/lib/contractCustomerServices.fixtures";
 
 const term = (over: Partial<ContractSummaryTerm> = {}): ContractSummaryTerm => ({
   agreementId: "a", termId: "t", label: "2026–27", line: "both", annualCents: 1353600,
   startDate: "2026-11-01", endDate: "2027-10-31", ...over,
 });
-const service = (id: string, state: CustomerService["state"], over = {}): CustomerService => ({
-  id, state, source: "campaign", title: id, serviceKey: null, start: "2026-01-01", end: "2026-11-01", inContract: true, ...over,
-});
+const service = (id: string, status: string, over: Partial<ServiceFulfillment> = {}): ServiceFulfillment =>
+  serviceRowFixture({ serviceKey: id, status, issues: [], ...over });
 describe("CP3 identity and commercial projection", () => {
   it("excludes billed fees from both annual and monthly contract values", () => {
     expect(aggregateTerms([term({ annualCents: 2224800, billingMonths: [
@@ -93,13 +93,12 @@ describe("CP3 Colorado day and observed services", () => {
     expect(calendarAge("invalid")).toBeNull();
     expect(calendarAge("2026-02-30")).toBeNull();
   });
-  it("orders overdue/in-window/upcoming then last three actual completions and counts remaining", () => {
+  it("preserves endpoint order and sums supplied known values only", () => {
     const result = serviceDashboardRows([
-      service("upcoming", "upcoming"), service("window", "in_window"), service("late", "overdue"),
-      ...[1, 2, 3, 4].map(n => service(`done${n}`, "done", { completedAt: `2026-10-0${n}T12:00:00Z` })),
-      service("skip", "skipped"),
+      service("track", "on_track", { owed: 10, done: 4 }), service("late", "overdue", { owed: 3, done: 1 }),
+      service("setup", "no_count", { owed: null, done: 15 }), service("skip", "closed_with_skips", { owed: 2, done: 0, skipped: 2 }),
     ]);
-    expect(result.rows.map(s => s.id)).toEqual(["late", "window", "upcoming", "done4", "done3", "done2"]);
-    expect(result).toMatchObject({ done: 4, total: 8, remainingCompleted: 1, overdue: 1, inWindow: 1 });
+    expect(result.rows.map(s => s.serviceKey)).toEqual(["track", "late", "setup", "skip"]);
+    expect(result).toMatchObject({ done: 5, owed: 15, unknownCount: 1, overdue: 1, setup: 1 });
   });
 });

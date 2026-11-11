@@ -1,5 +1,6 @@
 import type { ContractSummaryTerm } from "@/hooks/useCustomerContractSummary";
-import type { CustomerService } from "@/hooks/useCustomerServices";
+import type { ServiceFulfillment } from "@workspace/api-client-react";
+import { summarizeContractServices } from "@/lib/contractCustomerServices";
 import { isOpenTicket } from "@/components/customer/customerBadges";
 import { companyToday } from "@/lib/schedulingStatus";
 
@@ -56,7 +57,7 @@ export function calendarAge(instant: string | Date | null | undefined, today = c
 
 type AttentionTicket = { createdAt?: string | Date | null; currentStatusId?: string | null; completedAt?: unknown };
 export interface AttentionInput {
-  customerId: string; today: string; services?: CustomerService[]; tickets?: AttentionTicket[];
+  customerId: string; today: string; services?: ServiceFulfillment[]; tickets?: AttentionTicket[];
   statuses?: { id: string; isFinal?: string | boolean | null }[];
   proposals?: { status?: string | null }[]; missingSetupCount?: number; snowFlagCount?: number;
   managerName?: string | null; qboAttention?: boolean;
@@ -74,8 +75,10 @@ export function evaluateAttention(input: AttentionInput): AttentionItem[] {
     if (input.branchOpenTickets) add("branchTickets", "tickets", { count: input.branchOpenTickets });
     if (input.uncoveredBranches) add("uncovered", "branches", { count: input.uncoveredBranches });
   } else {
-    const overdue = input.services?.filter(s => s.state === "overdue").length ?? 0;
+    const overdue = input.services?.filter(s => s.status === "overdue").length ?? 0;
     if (overdue) add("overdue", "services", { count: overdue });
+    const setup = input.services ? summarizeContractServices(input.services).setup : 0;
+    if (setup) result.push({ key: "serviceSetup", labelKey: "cp6.setupCount", values: { count: setup }, tab: "services" });
     if (input.snowFlagCount) add("snow", "snow", { manager: input.managerName || "" });
     const old = input.tickets?.filter(t => isOpenTicket(t, input.statuses) && (calendarAge(t.createdAt, input.today) ?? 0) > 30).length ?? 0;
     if (old) add("oldTickets", "tickets", { count: old });
@@ -93,13 +96,4 @@ export function evaluateAttention(input: AttentionInput): AttentionItem[] {
   return result;
 }
 
-export function serviceDashboardRows(services: CustomerService[]) {
-  const pending = services.filter(s => ["overdue", "in_window", "upcoming"].includes(s.state));
-  const rank = { overdue: 0, in_window: 1, upcoming: 2, done: 3, skipped: 4 };
-  pending.sort((a, b) => rank[a.state] - rank[b.state] || a.end.localeCompare(b.end) || a.id.localeCompare(b.id));
-  const done = services.filter(s => s.state === "done").sort((a, b) =>
-    (b.completedAt ?? "").localeCompare(a.completedAt ?? "") || a.id.localeCompare(b.id));
-  return { rows: [...pending, ...done.slice(0, 3)], remainingCompleted: Math.max(0, done.length - 3),
-    done: done.length, total: services.length,
-    overdue: pending.filter(s => s.state === "overdue").length, inWindow: pending.filter(s => s.state === "in_window").length };
-}
+export const serviceDashboardRows = summarizeContractServices;

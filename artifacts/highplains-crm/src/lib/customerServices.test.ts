@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyCustomerService, inContractCategory, normalizeCampaignItem } from "@/hooks/useCustomerServices";
+import { classifyCustomerService, normalizeCampaignItem } from "@/hooks/useCustomerServices";
 import { companyToday } from "./schedulingStatus";
 describe("Colorado customer service activity", () => {
   it("classifies either side of Colorado midnight, not UTC midnight", () => {
@@ -18,7 +18,5 @@ describe("Colorado customer service activity", () => {
   it("normalizes real nested campaign responses without losing identity", () => {
     expect(normalizeCampaignItem({ id: "a", campaign: { title: "Fall", category: "Extra_billable", windowStart: "2026-10-01", windowEnd: "2026-10-31" } }))
       .toMatchObject({ id: "a", campaignTitle: "Fall", campaignCategory: "Extra_billable", campaignWindowEnd: "2026-10-31" });
-    expect(inContractCategory("Extra_billable")).toBe(false);
-    expect(inContractCategory("chemical")).toBe(true);
   });
 });

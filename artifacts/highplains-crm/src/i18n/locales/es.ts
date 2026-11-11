@@ -1,5 +1,16 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const es = {
+  cp6: {
+    setupCount: "{{count}} servicios necesitan configuración",
+    serviceSub: "{{overdue}} atrasados · {{setup}} necesitan configuración",
+    status: {
+      on_track: "En curso", complete: "Completo", closed_with_skips: "Cerrado con omisiones", not_owed: "No se debe",
+      overdue: "Atrasado", missing_item: "Aún no está en una ronda", waiting_on_signature: "Esperando firma",
+      no_route: "Sin ruta configurada", no_count: "El contrato no indica cantidad", no_timing: "Sin período de servicio",
+      invalid_count: "Cantidad inválida", duplicate_lines: "Líneas duplicadas", count_mismatch: "Diferencia de cantidad",
+      completed: "Completado", skipped: "Omitido", pending: "Pendiente",
+    },
+  },
   customerPages: {
     railLabel: "Secciones del cliente",
     groups: { main: "Cliente", work: "Trabajo", money: "Dinero" },
@@ -11,7 +22,20 @@ const es = {
     notAvailable: { title: "No disponible", body: "Esta página no está disponible para este cliente o tu rol.", back: "Volver al panel" },
     services: {
       groups: { overdue: "Atrasado", in_window: "En ventana", upcoming: "Próximo", done: "Hecho" },
-      doneOn: "Hecho {{date}}", groupBy: "Agrupar por", byStatus: "Estado", bySeason: "Temporada", season: "Temporada", noSeason: "Sin temporada",
+      doneOn: "Hecho {{date}}", groupBy: "Agrupar por", byStatus: "Estado", bySeason: "Temporada", season: "Temporada", noSeason: "No hay temporada de contrato para esta propiedad.",
+      notAvailable: "Los servicios no están disponibles para su rol.", asOf: "Al {{date}}", viaParent: "vía {{name}}", parent: "cliente principal",
+      waitingSignature: "Esperando firma", counted: "Servicios contratados", alsoInContract: "También en este contrato",
+      retained: "Rondas conservadas", retainedHint: "Se conservó porque el trabajo había comenzado. Revise la ronda.",
+      otherWork: "Otros trabajos", otherWorkHint: "Campañas creadas a mano. Nunca cuentan para los servicios contratados.",
+      openRound: "Ronda", openItem: "Elemento", owed: "Debidos", done: "Hechos", remaining: "Restantes", planned: "Planificados",
+      inProgress: "En curso", skippedN: "Omitidos {{count}}", tagRound: "Ronda", tagRoute: "Ruta",
+      round: "Ronda {{seq}}", windowRange: "Período {{range}}", promisedBy: "Prometido {{date}}",
+      fixTiming: "Configurar período de servicio", fixRoute: "Abrir rutas", fixContract: "Revisar temporada del contrato",
+      askOffice: "La oficina puede corregir la configuración.", itemUnavailable: "El historial del elemento no está disponible.",
+      uncounted: { on_request: "A solicitud", event: "Nieve", none: "Sin programar" },
+      countSource: { contract: "Cantidad del contrato", standard: "Cantidad estándar" },
+      timing: { contract: "Período del contrato", program: "Período del programa" },
+      roundStates: { completed: "Completado", skipped: "Omitido", pending: "Pendiente", overdue: "Atrasado", waiting_on_signature: "Esperando firma", missing_item: "Aún no está en una ronda" },
       empty: "Todavía no hay servicios programados para este cliente.", untitled: "Servicio sin título",
       notInContract: "Fuera de contrato", notInContractHint: "Trabajo extra facturable. No se cuenta en los totales de arriba.",
       detailReadOnly: "Detalle del servicio (solo lectura)", window: "Ventana",

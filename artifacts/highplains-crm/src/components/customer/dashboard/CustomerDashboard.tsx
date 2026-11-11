@@ -22,9 +22,11 @@ import { customerPageHref, type CustomerPageKey } from "@/components/customer/cu
 import { useDashboardActivity } from "@/hooks/useDashboardActivity";
 import type { CustomerContractSummary } from "@/hooks/useCustomerContractSummary";
 import type { CustomerService } from "@/hooks/useCustomerServices";
+import type { useContractCustomerServices } from "@/hooks/useContractCustomerServices";
+import { serviceDisplayStatus, serviceStatusLabel } from "@/lib/contractCustomerServices";
 import type { QuickBooksCard } from "@/lib/qboReview";
 import { aggregateTerms, calendarAge, evaluateAttention, serviceDashboardRows, type AttentionItem } from "./dashboardModel";
-import { CustomerCard } from "@/components/customer/page";
+import { CustomerCard, DisplayStatusBadge } from "@/components/customer/page";
 import { dashboardNote } from "@/hooks/useCustomerNotes";
 import { QBO_TONE, type Loadable, type QboStateKind } from "@/components/customer/header/CustomerHeader";
 import type { SetupState } from "@/components/customerWizard/FinishSetupBanner";
@@ -142,6 +144,7 @@ export interface CustomerDashboardProps {
   proposals?: Q<ProposalWithDetails[]>;
   summary: Q<CustomerContractSummary>;
   services: { services: CustomerService[]; isLoading: boolean; error: unknown };
+  demand: ReturnType<typeof useContractCustomerServices>;
   qboCard?: { data?: QuickBooksCard; isLoading: boolean; isError: boolean; refetch: () => void };
   qboState: QboStateKind | null;
   qboAttention: boolean;
@@ -174,7 +177,7 @@ export default function CustomerDashboard(p: CustomerDashboardProps) {
 
   const terms = p.summary.data?.current ?? [];
   const agg = aggregateTerms(terms);
-  const svc = serviceDashboardRows(p.services.services);
+   const svc = serviceDashboardRows(p.demand.data?.rows ?? []);
   const tickets = p.tickets.data ?? [];
   const openTickets = tickets.filter(tk => isOpenTicket(tk, p.ticketStatuses))
     .sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime());
@@ -182,7 +185,7 @@ export default function CustomerDashboard(p: CustomerDashboardProps) {
   const openProposals = (p.proposals?.data ?? []).filter(pr => !(FINAL_PROPOSAL_STATUSES as readonly string[]).includes(pr.status ?? ""));
 
   const attention = evaluateAttention({
-    customerId: id, today, services: p.services.services, tickets: tickets as never, statuses: p.ticketStatuses,
+    customerId: id, today, services: p.demand.data?.rows, tickets: tickets as never, statuses: p.ticketStatuses,
     proposals: p.privileged ? p.proposals?.data : undefined, missingSetupCount: p.setup.fields.length,
     snowFlagCount: p.snowFlagCount, managerName: p.accountManagerName ?? t("accountManagers.notAssigned"),
     qboAttention: p.privileged && p.qboAttention, terms: p.privileged ? terms : undefined,
@@ -216,12 +219,8 @@ export default function CustomerDashboard(p: CustomerDashboardProps) {
   const lng = p.customer.locationLng != null ? Number(p.customer.locationLng) : NaN;
   const pin: [number, number] | null = Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
 
-  const servicesLoading = p.services.isLoading;
-  const pct = svc.total ? Math.round((svc.done / svc.total) * 100) : 0;
-  const stateTone: Record<string, string> = {
-    overdue: "bg-destructive/10 text-destructive", in_window: "bg-[hsl(var(--est-warn-bg))] text-[hsl(var(--est-warn))]",
-    upcoming: "bg-muted text-muted-foreground", done: "bg-primary/15 text-[hsl(var(--rail-heading))]", skipped: "bg-muted text-muted-foreground",
-  };
+  const servicesLoading = p.demand.isLoading;
+  const pct = svc.owed ? Math.min(100, (svc.done / svc.owed) * 100) : 0;
 
   return (
     <div className="space-y-4" data-testid="customer-dashboard">
@@ -243,10 +242,13 @@ export default function CustomerDashboard(p: CustomerDashboardProps) {
             ].filter(Boolean).join(" \u00b7 ") : undefined} />
         )}
         <Kpi testId="kpi-services" label={t("cp3.kpi.services")}
-          value={servicesLoading ? <Skeleton className="h-7 w-28" /> : p.services.error ? t("cp3.unavailable") : t("cp3.kpi.doneOf", { done: svc.done, total: svc.total })}
-          sub={!servicesLoading && !p.services.error ? t("cp3.kpi.serviceSub", { overdue: svc.overdue, inWindow: svc.inWindow }) : undefined}>
-          {!servicesLoading && !p.services.error && (
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={svc.total} aria-valuenow={svc.done}
+          value={servicesLoading ? <Skeleton className="h-7 w-28" /> : p.demand.error ? t("cp3.unavailable") : <>
+            {svc.knownCount ? `${svc.done} / ${svc.owed}` : "—"}
+            {svc.unknownCount > 0 && <span className="text-sm"> · {t("cp6.setupCount", { count: svc.unknownCount, defaultValue: `${svc.unknownCount} services need setup` })}</span>}
+          </>}
+          sub={!servicesLoading && !p.demand.error ? t("cp6.serviceSub", { overdue: svc.overdue, setup: svc.setup, defaultValue: `${svc.overdue} overdue · ${svc.setup} need setup` }) : undefined}>
+          {!servicesLoading && !p.demand.error && svc.knownCount > 0 && svc.owed > 0 && (
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={svc.owed} aria-valuenow={svc.done}
               aria-label={t("cp3.kpi.services")} data-testid="progress-services">
               <div className="h-full origin-left bg-primary transition-transform" style={{ transform: `scaleX(${pct / 100})` }} />
             </div>
@@ -267,20 +269,19 @@ export default function CustomerDashboard(p: CustomerDashboardProps) {
           <DashCard icon={CalendarCheck} title={t("cp3.cards.thisSeason")} testId="card-season-services"
             link={pageLink("services", t("cp3.links.allServices"), "link-dashboard-services")}>
             {servicesLoading ? <div className="space-y-2">{[0, 1, 2].map(i => <Skeleton key={i} className="h-9 w-full" />)}</div>
-              : p.services.error ? <CardError onRetry={() => p.summary.refetch()} testId="error-season-services" />
+              : p.demand.unavailable ? <p>{t("customerPages.notAvailable.title")}</p>
+              : p.demand.error ? <CardError onRetry={() => p.demand.refetch()} testId="error-season-services" />
               : !svc.rows.length ? <p className="py-3 text-sm text-muted-foreground" data-testid="empty-season-services">{t("cp3.empty.services")}</p>
               : <div className="divide-y" data-testid="list-season-services">
                   {svc.rows.map(s => (
-                    <div key={s.id} className="flex min-h-[44px] items-center gap-3 py-2" data-testid={`row-season-service-${s.id}`} data-state={s.state}>
-                      <span className={`shrink-0 rounded-full px-2 py-px text-[11.5px] font-medium ${stateTone[s.state]}`}>{t(`cp1.serviceStates.${s.state}`)}</span>
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{s.title}</span>
+                     <div key={s.serviceKey} className="flex min-h-[44px] flex-wrap items-center gap-3 py-2" data-testid={`row-season-service-${s.serviceKey}`} data-state={s.status}>
+                       <DisplayStatusBadge status={serviceDisplayStatus(s.status)} label={serviceStatusLabel(s.status, t)} />
+                       <span className="min-w-0 flex-1 text-sm font-medium">{s.label}</span>
                       <span className="shrink-0 text-right text-xs text-muted-foreground">
-                        {s.state === "done" && s.completedAt ? t("cp3.services.completedOn", { date: dates.day(s.completedAt) })
-                          : s.start === s.end ? dates.ymd(s.start) : `${dates.ymd(s.start)} \u2013 ${dates.ymd(s.end)}`}
+                         {s.done} / {s.owed ?? "—"}
                       </span>
                     </div>
                   ))}
-                  {svc.remainingCompleted > 0 && <p className="pt-2 text-xs text-muted-foreground" data-testid="text-more-completed">{t("cp3.services.moreCompleted", { count: svc.remainingCompleted })}</p>}
                 </div>}
           </DashCard>
 

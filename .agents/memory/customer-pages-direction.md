@@ -21,11 +21,17 @@ Contract Center owns customer contract figures and snow coverage. Missing snow t
 
 **How to apply:** Keep the production comparison and gap resolution as an explicit release gate. Do not execute production writes or publish merely because this overview was uploaded.
 
-Parent customers share the customer-page frame and add Branches. Preserve old links through redirects. The Services “owed vs done” view waits for campaigns generated from contract scope. Edit-page archive/delete requires separate approval. Operational role changes and customer assignment are not authorized by reference intake alone.
+Parent customers share the customer-page frame and add Branches. Preserve old links through redirects. Services “owed vs done” belongs to contract-generated demand, not the manual campaign/activity history. Edit-page archive/delete requires separate approval. Operational role changes and customer assignment are not authorized by reference intake alone.
 
 **Why:** The pack separates the page redesign from campaign fulfillment and destructive customer lifecycle decisions.
 
 **How to apply:** Preserve these boundaries when scoping subsequent slices; do not add archive/delete or invent fulfillment figures.
+
+The customer contract-services reader deliberately uses the existing generated helper despite the project's general preference for direct `apiRequest` callers. This is a bounded consumer exception, not permission to generate a new API or migrate other frontend callers.
+
+**Why:** The approved customer Services brief explicitly requires the already-merged helper and keeps calculation ownership on the server. Replacing it merely to satisfy the older general convention would contradict the brief.
+
+**How to apply:** Preserve that integration when maintaining contract-demand consumers. Keep activity/item history separate, and do not broaden the exception to unrelated pages.
 
 The Contract chip and This season KPI must support multiple in-effect terms from the actual contract-summary interface. Sum annual amounts of priced terms, show the term labels and combined lines, and describe time-and-materials snow without fabricating an amount. The Contract chip links to Contracts.
 

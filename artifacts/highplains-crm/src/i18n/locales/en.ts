@@ -1,5 +1,16 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
+  cp6: {
+    setupCount: "{{count}} services need setup",
+    serviceSub: "{{overdue}} overdue · {{setup}} need setup",
+    status: {
+      on_track: "On track", complete: "Complete", closed_with_skips: "Closed with skips", not_owed: "Not owed",
+      overdue: "Overdue", missing_item: "Not on a round yet", waiting_on_signature: "Waiting on signature",
+      no_route: "No route set up", no_count: "Contract gives no count", no_timing: "No service timing set",
+      invalid_count: "Invalid count", duplicate_lines: "Duplicate lines", count_mismatch: "Count mismatch",
+      completed: "Completed", skipped: "Skipped", pending: "Pending",
+    },
+  },
   customerPages: {
     railLabel: "Customer sections",
     groups: { main: "Customer", work: "Work", money: "Money" },
@@ -11,7 +22,20 @@ const en = {
     notAvailable: { title: "Not available", body: "This page isn't available for this customer or your role.", back: "Back to dashboard" },
     services: {
       groups: { overdue: "Overdue", in_window: "In window", upcoming: "Upcoming", done: "Done" },
-      doneOn: "Done {{date}}", groupBy: "Group by", byStatus: "Status", bySeason: "Season", season: "Season", noSeason: "No season",
+      doneOn: "Done {{date}}", groupBy: "Group by", byStatus: "Status", bySeason: "Season", season: "Season", noSeason: "No contract season for this property.",
+      notAvailable: "Services are not available for your role.", asOf: "As of {{date}}", viaParent: "via {{name}}", parent: "parent",
+      waitingSignature: "Waiting on signature", counted: "Contracted services", alsoInContract: "Also in this contract",
+      retained: "Retained rounds", retainedHint: "Kept because work had started. Review on the round.",
+      otherWork: "Other work", otherWorkHint: "Hand-built campaigns. These never count toward contracted services.",
+      openRound: "Round", openItem: "Item", owed: "Owed", done: "Done", remaining: "Remaining", planned: "Planned",
+      inProgress: "In progress", skippedN: "Skipped {{count}}", tagRound: "Round", tagRoute: "Route",
+      round: "Round {{seq}}", windowRange: "Window {{range}}", promisedBy: "Promised {{date}}",
+      fixTiming: "Set service timing", fixRoute: "Open Routes", fixContract: "Review contract season",
+      askOffice: "Office can fix this setup.", itemUnavailable: "Item history is not available.",
+      uncounted: { on_request: "On request", event: "Snow", none: "Not scheduled" },
+      countSource: { contract: "Contract count", standard: "Standard count" },
+      timing: { contract: "Contract timing", program: "Program timing" },
+      roundStates: { completed: "Completed", skipped: "Skipped", pending: "Pending", overdue: "Overdue", waiting_on_signature: "Waiting on signature", missing_item: "Not on a round yet" },
       empty: "No services scheduled for this customer yet.", untitled: "Untitled service",
       notInContract: "Not in contract", notInContractHint: "Extra billable work. Not counted in the totals above.",
       detailReadOnly: "Read-only service detail", window: "Window",

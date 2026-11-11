@@ -8,11 +8,23 @@ The ledger each CG slice updates when it finishes. The next slice's pre-flight r
 | CG2 Demand engine and Generate screen | merged; verification and handoff recorded |
 | CG3 Membership follows contracts | merged; verification and handoff recorded |
 | CG4 Crew lists | merged; verification and handoff recorded |
-| CG5 Owed and done calculation | implemented; verification and handoff recorded; awaiting merge |
+| CG5 Owed and done calculation | merged; verification and handoff recorded |
+| CP6 Contract-owned customer Services | implemented; client verification and handoff recorded |
 
 ## Log
 
 (Each slice adds a block here: date, migration, new tables/columns/functions/endpoints with exact names, deviations, open items.)
+
+### 2026-11-11 — CP6 customer Services reads contract-owned demand
+
+- Client only, using merged CG5's actual endpoint/DTOs and existing generated `useGetCustomerServices` as the CP6 brief explicitly requires. No API generation, server/authorization/calculation changes, schema/migration, Generate, production operations, mobile work or publication.
+- New `src/hooks/useContractCustomerServices.ts` scopes the generated reader by company/customer/default-or-explicit-term/viewer/active-role/access-role, sends initiating `X-Company-Id`, disables absent properties, hides failed-refresh payloads and keeps page selection independent of default consumers. `useServiceSeason` resets selection across scope changes; Services handles explicit-season 404 recovery and 403 denial.
+- `ServicesPage.tsx` and new `pages/services/ServiceParts.tsx` retain Services visual language, tiles, bordered rows, status badges and existing item/route drawers while presenting endpoint season options, ordered owed/done/remaining/status/issues/next, every round/provenance and permission-gated gap links. Uncounted, manual and retained work remain separate.
+- `src/lib/contractCustomerServices.ts` provides presentation labels/tones, Colorado-safe localized next wording and only the approved supplied-value aggregation. Dashboard, attention, next summary and Services badge now use independent default demand; recent activity stays on item/visit history.
+- Remaining `useCustomerServices` consumers: CustomerDetail → dashboard recent-activity history; ServiceParts item drawer → real existing item data; ServicesPage retained-title lookup → campaign title omitted by CG5, never demand. Unused legacy next/overdue/inContract/category-as-contract outputs removed; historical state/actual completion data preserved.
+- Changed files: the modules above, `CustomerDashboard.tsx`, `dashboardModel.ts`, `CustomerNextService.tsx`, `CustomerDetail.tsx`, `useCustomerServices.ts`, en/es locales; updated CP2/CP3/CP4, dashboard-model and history tests; new adapter/presentation/next-summary regressions and synthetic test builders. Exact paths, cache keys, checks, browser evidence and limitations: [CP6 verification](../../scheduling/reports/CP6-verification.md).
+- Verification: 229 customer regressions across 22 files passed; library declarations passed; CRM baseline comparison remained 212/212 with no additions. A final narrow follow-up passed 29 rendered/adapter checks after closing stale drawers on season changes and preventing ratio wrapping. CRM/API served successfully; existing schema/extensions checks passed.
+- Browser evidence: one signed-in journey passed after replacing the absent documented demo account with a cleaned-up disposable development company/admin/property. Actual authenticated empty-services GET returned 200; populated generated/gap/manual/retained layouts, independent default summaries, both drawers, alternate seasons, explicit-404 recovery and 390px width used clearly labeled browser-only synthetic GET fixtures. Screenshot observations and limitations are recorded in the report; no production evidence or populated persisted fulfillment audit is claimed.
 
 ### 2026-11-11 — CG5 shared season fulfillment and authorized customer API
 

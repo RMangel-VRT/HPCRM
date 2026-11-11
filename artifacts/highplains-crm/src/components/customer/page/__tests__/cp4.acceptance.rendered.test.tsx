@@ -10,11 +10,16 @@ import ProposalsPage from "@/components/customer/pages/ProposalsPage";
 import ServicesPage from "@/components/customer/pages/ServicesPage";
 import SnowPage from "@/components/customer/pages/SnowPage";
 import { TermPicker } from "@/components/customer/pages/BillingPage";
+import { customerServicesFixture, serviceRowFixture } from "@/lib/contractCustomerServices.fixtures";
 
 const fx = vi.hoisted(() => ({ api: vi.fn(), navigate: vi.fn(), services: [] as unknown[] }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u1", activeCompanyId: "co", activeRole: "admin", accessRole: "admin" } }) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock("@/hooks/useCustomerServices", () => ({ useCustomerServices: () => ({ services: fx.services, items: [], isLoading: false, error: null, overdueCount: 0 }) }));
+vi.mock("@/hooks/useContractCustomerServices", () => ({
+  useContractCustomerServices: () => ({ data: customerServicesFixture({ rows: fx.services as never }), isLoading: false, error: null }),
+  useServiceSeason: () => ({ scopeKey: "scope", termId: undefined, selectTerm: vi.fn(), resetTerm: vi.fn() }),
+}));
 vi.mock("wouter", async () => {
   const actual = await vi.importActual<typeof import("wouter")>("wouter");
   return { ...actual, useLocation: () => ["/", fx.navigate] };
@@ -40,17 +45,22 @@ describe("CP4 acceptance corrections", () => {
   });
 
   it("services: localized dates (en/es) and keyboard row ignores nested controls", async () => {
-    fx.services = [{ id: "s1", title: "Spring cleanup", start: "2026-04-14", end: "2026-04-20", state: "upcoming", inContract: true, source: "campaign" }];
+    fx.services = [serviceRowFixture({ serviceKey: "s1", rounds: [{
+      ...serviceRowFixture().rounds[0], windowStart: "2026-04-14", windowEnd: "2026-04-20", itemId: null,
+    }] })];
     wrap(<ServicesPage customerId="c1" />);
-    expect(screen.getByTestId("text-service-window-s1").textContent).toBe("Apr 14, 2026 – Apr 20, 2026");
-    const row = screen.getByTestId("row-service-s1");
+    const row = within(screen.getByTestId("row-service-s1")).getByRole("button");
     expect(row.getAttribute("tabindex")).toBe("0");
     fireEvent.keyDown(row, { key: "Enter" });
-    expect(await screen.findByText(new RegExp(i18n.t("customerPages.services.window")))).toBeTruthy();
+    expect(screen.getByTestId("text-round-window-s1-2026-04-01-1").textContent).toContain("Apr 14, 2026 – Apr 20, 2026");
+    const campaignLink = screen.getByTestId("link-round-campaign-s1-2026-04-01-1");
+    fireEvent.keyDown(campaignLink, { key: "Enter" });
+    expect(screen.getByTestId("rounds-s1")).toBeTruthy();
     cleanup();
     await act(() => i18n.changeLanguage("es"));
     wrap(<ServicesPage customerId="c1" />);
-    expect(screen.getByTestId("text-service-window-s1").textContent).toMatch(/abr/i);
+    fireEvent.keyDown(within(screen.getByTestId("row-service-s1")).getByRole("button"), { key: "Enter" });
+    expect(screen.getByTestId("text-round-window-s1-2026-04-01-1").textContent).toMatch(/abr/i);
   });
 
   it("snow: localized term dates, translated statuses/types/hours, keyboard cards", async () => {

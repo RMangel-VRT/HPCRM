@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
+import { customerServicesFixture, serviceRowFixture } from "@/lib/contractCustomerServices.fixtures";
 
 /* CP3: shared Banner header, redesigned dashboards, role gating and honest loading/error states. */
 const fx = vi.hoisted(() => ({
   role: "admin", data: {} as Record<string, unknown>, errors: [] as string[], loading: [] as string[],
   services: { services: [] as unknown[], isLoading: false, error: null as unknown, overdueCount: 0 },
+  demand: { rows: [] as unknown[] },
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u1", activeRole: fx.role, accessRole: fx.role, activeCompanyId: "co1" } }) }));
 vi.mock("@/hooks/use-breadcrumbs", () => ({ useSetBreadcrumbs: () => {} }));
@@ -25,6 +27,9 @@ vi.mock("@tanstack/react-query", async original => ({
   },
 }));
 vi.mock("@/hooks/useCustomerServices", async o => ({ ...await o<object>(), useCustomerServices: () => fx.services }));
+vi.mock("@/hooks/useContractCustomerServices", () => ({ useContractCustomerServices: (id?: string) => ({
+  data: id ? fx.demand : undefined, isLoading: false, error: null, unavailable: false, refetch: vi.fn(),
+}) }));
 vi.mock("@/components/LayerMapViewer", () => ({ default: () => <div data-testid="map-stub" /> }));
 vi.mock("@/components/CustomerLocationEditor", () => ({ default: () => null }));
 vi.mock("@/components/CustomerSchedulingSection", () => ({ default: () => null }));
@@ -52,6 +57,7 @@ const svc = (id: string, state: string, extra: Record<string, unknown> = {}) =>
 beforeEach(() => {
   fx.role = "admin"; fx.errors = []; fx.loading = [];
   fx.services = { services: [], isLoading: false, error: null, overdueCount: 0 };
+  fx.demand = customerServicesFixture({ rows: [] });
   fx.data = {
     "/api/customers|c1": regular, "/api/customers|p1": parent,
     "/api/customers|c1|contract-summary": { asOf: "2026-06-01", coverage: { landscape: true, snow: false }, snowTriggerFlags: [], current: [term({})] },
@@ -132,7 +138,7 @@ describe("CP3 header", () => {
 });
 
 describe("CP3 dashboards", () => {
-  it("Ute Creek acceptance fixture shows $13,536 / 2026–27, 10 of 13 observed services, and two open tickets", () => {
+  it("Ute Creek acceptance fixture shows $13,536 / 2026–27, 10 / 13 contract demand, and two open tickets", () => {
     fx.data["/api/customers|c1"] = { ...regular, name: "18 at Ute Creek" };
     fx.data["/api/customers|c1|contract-summary"] = {
       asOf: "2026-11-05", coverage: { landscape: true, snow: true }, current: [
@@ -147,10 +153,13 @@ describe("CP3 dashboards", () => {
       ...Array.from({ length: 10 }, (_, n) => svc(`done-${n}`, "done", { completedAt: `2026-10-${String(n + 1).padStart(2, "0")}` })),
       svc("late-1", "overdue"), svc("late-2", "overdue"), svc("next", "upcoming"),
     ], isLoading: false, error: null, overdueCount: 2 };
+    fx.demand = customerServicesFixture({ rows: [
+      serviceRowFixture({ owed: 13, done: 10, status: "overdue", issues: [] }),
+    ] });
     const html = page("c1");
     expect(html).toMatch(/data-testid="kpi-this-season-value"[^>]*>\$13,536</);
     expect(html).toContain("2026–27");
-    expect(html).toMatch(/cp3\.kpi\.doneOf\{&quot;done&quot;:10,&quot;total&quot;:13\}/);
+    expect(html).toMatch(/data-testid="kpi-services-value"[^>]*>10 \/ 13</);
     expect(html).toMatch(/data-testid="kpi-open-tickets-value"[^>]*>2</);
     expect(html).toContain('href="/dashboard/customers/c1?tab=contracts"');
   });
@@ -169,8 +178,16 @@ describe("CP3 dashboards", () => {
   it("services KPI counts skipped in the denominator but not as done; overdue drives attention", () => {
     fx.services = { services: [svc("a", "done", { completedAt: "2026-05-03" }), svc("b", "skipped"), svc("c", "overdue"), svc("d", "upcoming")],
       isLoading: false, error: null, overdueCount: 1 };
+    fx.demand = customerServicesFixture({ rows: [
+      serviceRowFixture({ owed: 4, done: 1, skipped: 1, status: "overdue", issues: [] }),
+      serviceRowFixture({ serviceKey: "gap", owed: null, done: 99, status: "no_timing", issues: ["no_timing"] }),
+    ] });
     const html = page("c1");
-    expect(html).toMatch(/cp3\.kpi\.doneOf\{&quot;done&quot;:1,&quot;total&quot;:4\}/);
+    expect(html).toMatch(/data-testid="kpi-services-value"[^>]*>1 \/ 4/);
+    expect(html).toContain("cp6.setupCount");
+    expect(html).toContain('data-testid="chip-attention-serviceSetup"');
+    expect(html).toContain('data-testid="row-season-service-gap"');
+    expect(html).toContain('data-testid="row-activity-svc-a"');
     expect(html).toContain('data-testid="chip-attention-overdue"');
     expect(html).toContain('href="/dashboard/customers/c1?tab=services"');
   });
