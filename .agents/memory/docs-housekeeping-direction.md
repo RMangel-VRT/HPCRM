@@ -1,16 +1,18 @@
 ---
 name: Documentation housekeeping direction
-description: Uploaded H2 docs reorganization brief and preservation boundaries, not a record of implementation.
+description: Historical housekeeping scope and the user's later revocation of mandatory specification packs.
 ---
 
-The user supplied `attached_assets/Pasted--H2-Tidy-the-docs-tree-and-set-up-slice-packs-Housekeep_1794339585520.txt` as the H2 reference. It calls for docs/agent-note housekeeping before CG1: area folders with standing references at their roots, evidence and evidence scripts under area `reports/`, and canonical slice packs under `docs/slices/<pack>/`. Receiving the brief does not establish that this reorganization has happened.
+The earlier H2 brief concerned documentation organization and link preservation,
+not product behavior. On 2026-11-11 the user revoked its repository-only
+specification workflow; it must not be reapplied as a current source gate.
 
-**Why:** Loose references and chat-only slice packs can leave queued tasks without shared rules/results; moving documents can also break code comments, memory links and evidence scripts.
+**Why:** The user retained the value of organized references and evidence but
+explicitly chose discussion-refined task plans over mandatory checked-in packs.
 
-**How to apply:** When execution is requested, enforce the brief's clean-tree preflight, preserve existing slice-pack contents untouched, move without renaming, classify new files by the stated rules, fix absolute and relative references everywhere, and distinguish pre-existing missing paths from regressions. No behavior, schema, routes, UI or production change is in scope.
-
-The intended slice-pack workflow is one slice per task, naming and reading repository rules, STATUS and slice files; stop on failed preflight, never rebuild an earlier slice's ownership, build only the named slice, then record exact integration details/deviations in STATUS and write area verification evidence. The slice source files remain user-controlled and are not edited by implementing tasks.
-
-**Why:** Future slices need a stable shared source and explicit handoff instead of relying on pasted text or invented predecessor interfaces.
-
-**How to apply:** H2 must create the requested repository guidance and report before claiming the workflow/tree is installed. Keep this reference note separate from the implementation's required slice-pack workflow note.
+**How to apply:** Preserve existing packs, historical reports and links during
+housekeeping. Follow the current documentation map for placement, and consult
+`slice-pack-workflow.md` for the source-policy decision. Do not require another
+housekeeping task or manufacture specifications before implementing an approved
+plan. Historical reports describe what was required at their time, not current
+policy.

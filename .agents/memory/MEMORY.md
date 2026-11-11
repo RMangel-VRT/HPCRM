@@ -55,5 +55,5 @@
 - [Contract-stated rates](contract-stated-rates.md) — seasons contain only stated rates; card defaults stay separate; existing rows require signed-PDF re-audit, never automatic conversion.
 - [Contract payments](contract-payment-direction.md) — fees stay outside contract price; exact dated schedules never re-expand; production corrections require separate approval.
 - [Customer upload integrity](customer-document-upload-grants.md) — parallel grants must avoid session overwrite races; accepted files never reuse a signed PUT path.
-- [Docs housekeeping direction](docs-housekeeping-direction.md) — H2 reference scopes area/report organization and canonical slice packs; preserve links and existing packs.
-- [Slice-pack workflow](slice-pack-workflow.md) — read repository rules, status and one slice; stop on failed preflight; record exact integration handoff and area verification.
+- [Docs housekeeping direction](docs-housekeeping-direction.md) — retain organized references and history without reviving mandatory specification packs.
+- [Task-plan workflow decisions](slice-pack-workflow.md) — repository-only source gates were revoked; verify predecessor code separately from merged task status.

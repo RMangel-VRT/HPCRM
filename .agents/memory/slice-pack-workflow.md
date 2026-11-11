@@ -1,19 +1,19 @@
 ---
-name: Slice-pack workflow
-description: Required repository-first workflow and handoff boundaries for slice-pack tasks.
+name: Task-plan workflow decisions
+description: User revocation of repository-only source gates and non-obvious predecessor verification lessons.
 ---
 
-1. One slice per task. The task names the repository rules file, pack `STATUS.md` and slice file by path.
-2. Read all three from the repository. Never implement from a pasted or attached copy.
-3. Run the slice's pre-flight first. Stop and report any failure; never rebuild a piece an earlier slice owns.
-4. Build only that slice. Do not start the next one.
-5. Finish by adding the slice's block to the pack's `STATUS.md`, naming exact tables, columns, functions, endpoints, migration file and deviations, and write verification to the area's `reports/` directory.
+On 2026-11-11 the user explicitly revoked the repository-only specification
+requirement, including the missing-file authorization gates previously treated
+as necessary for Campaigns work.
 
-Slice source files remain user-controlled: do not edit them; Randy replaces them when requirements change.
+**Why:** The user wants task plans refined through discussion and codebase
+investigation to govern implementation, with pasted and attached requirements
+accepted through the normal task workflow, not treated as one-task exceptions.
 
-**Why:** Pack tasks share integration contracts and must see predecessors' actual results instead of relying on chat attachments or assumed interfaces.
-
-**How to apply:** Follow `docs/slices/README.md` for every slice-pack task. If a required pack file is absent, report the missing prerequisite rather than inventing it or silently using an attached version.
+**How to apply:** Use the current workflow in `replit.md` and
+`docs/slices/README.md`. Do not revive old source gates from historical reports
+or status entries. Missing pack files alone are not a technical preflight failure.
 
 A prerequisite's merged task status does not refresh an already-running successor's
 checkout. Fetch the actual GitHub `origin/main` before concluding that the merged
@@ -23,18 +23,15 @@ implementation is absent; integrate its handoff without overwriting local work.
 merged, making repeated local pre-flights report obsolete missing-code failures.
 
 **How to apply:** Verify the latest fetched source and handoff separately from the
-task status. A successful prerequisite merge does not waive a successor's separate
-specification-revision gate; obtain explicit owner authorization for that deviation.
+task status. Preserve technical preflight checks without adding a specification
+storage or revision-authorization gate.
 
 The owner deliberately kept the obsolete numbered Campaigns slice documents
-removed and separately authorized building campaign demand/generation,
-contract-driven membership, and crew-list/calendar work from their assigned task requirements. Each exception
-was approved after its own source gate stopped work. Do not restore those old
-specifications.
+removed. Do not restore those old specifications.
 
 **Why:** The checked-in versions predated the reviewed count/status/gap decisions;
 restoring them would reintroduce the version ambiguity the owner removed.
 
-**How to apply:** For subsequent Campaigns work, obtain the current owner-approved
-requirements and actual predecessor handoff. Do not treat this one-slice source
-authorizations as approval to invent or automatically begin later slices.
+**How to apply:** For subsequent Campaigns work, use the approved task plan and
+actual predecessor handoff, not obsolete specifications. Approval of a task is
+not approval to invent or automatically begin later slices.

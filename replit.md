@@ -2,17 +2,34 @@
 
 A full-featured property maintenance CRM for High Plains Property Maintenance — manages customers, tickets, contracts, campaigns, communications, scheduling, and visual scope mapping.
 
-## Working from slice packs
+## Working from approved task plans
 
-See [Slice packs](docs/slices/README.md) and the [documentation map](docs/README.md).
+The approved task plan, refined through discussion and codebase investigation,
+is the working implementation specification. Pasted and attached requirements
+are valid inputs; approval follows the normal task workflow.
 
-1. One slice per task; name the repository rules, `STATUS.md` and slice file by path.
-2. Read all three from the repo, never a pasted or attached copy.
-3. Run pre-flight first; stop and report failures, and never rebuild an earlier slice's work.
-4. Build only the named slice; do not start the next one.
-5. Add exact integration details and deviations to the pack's `STATUS.md`, and write verification to the area's `reports/`.
+1. Keep one bounded objective per task. Build only the approved scope; do not
+   automatically plan or start the next slice.
+2. Consult relevant code, ownership boundaries and technical contracts. Existing
+   [slice packs](docs/slices/README.md) are contextual references unless the user
+   explicitly designates one as governing requirements. This workflow supersedes
+   their older repository-source and mandatory `STATUS.md` instructions, not
+   their technical safeguards or acceptance contracts.
+3. Missing repository rules, `STATUS.md` or numbered slice files do not block
+   planning or implementation and do not require an authorization question.
+   Do not create a pack, synchronize the plan into slice files, or edit user-owned
+   specifications merely to satisfy a storage convention.
+4. Run relevant technical preflight checks first. Verify required predecessors
+   are integrated in the actual checkout and inspect their handoffs; a merged
+   task status alone is not proof. Stop and report genuine technical failures
+   before dependent work; never duplicate or rebuild a predecessor's ownership.
+5. Record exact integration details, deviations and verification results in the
+   appropriate area's `reports/`, following the [documentation map](docs/README.md).
+   Consult or update an existing pack status when useful or explicitly requested;
+   no new pack or status file is required.
 
-Slice files are user-controlled; Randy replaces them when a slice changes.
+Resolve genuine requirement conflicts through discussion, not a missing-file
+approval gate. Preserve user-owned specifications and historical reports.
 
 ## Run & Operate
 
