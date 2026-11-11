@@ -1,4 +1,5 @@
 import { campaignProjection, campaignJoin } from "./lib/crewProjection";
+import { updateCampaignRoundItem } from "./lib/campaignRoundWork";
 import { CrewLinkError, validateCampaignOwner } from "./lib/crewLinks";
 import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrewWithMembers } from "@workspace/db";
 import { hardscapeStorage } from "./lib/hardscapeStorage";
@@ -3804,8 +3805,7 @@ export class PgStorage implements IStorage {
   }
 
   async updateCampaignItem(id: string, companyId: string, updates: Partial<InsertCampaignItem & { updatedAt: Date }>): Promise<CampaignItem | undefined> {
-    const [row] = await db.update(campaignItems).set(updates as Partial<typeof campaignItems.$inferInsert>).where(and(eq(campaignItems.id, id), eq(campaignItems.companyId, companyId))).returning();
-    return row;
+    return updateCampaignRoundItem(id, companyId, updates as Partial<typeof campaignItems.$inferInsert>);
   }
 
   async deleteCampaignItem(id: string, companyId: string): Promise<void> {

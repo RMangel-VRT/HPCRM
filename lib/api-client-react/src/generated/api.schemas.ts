@@ -5,6 +5,100 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface CampaignRoundMove {
+  /**
+   * @minItems 1
+   * @maxItems 500
+   */
+  itemIds: string[];
+  /**
+   * @minLength 1
+   * @nullable
+   */
+  assignedCampaignCrewId: string | null;
+  /**
+   * @minLength 1
+   * @nullable
+   */
+  beforeItemId?: string | null;
+}
+
+export interface CampaignRoundStart {
+  confirm: boolean;
+}
+
+export interface CampaignRoundChange {
+  /** @minimum 0 */
+  updated: number;
+}
+
+export interface CampaignRound {
+  id: string;
+  title: string;
+  category: string;
+  source: string;
+  windowStart: string;
+  windowEnd: string;
+  status: string;
+  /** @nullable */
+  startedAt: string | null;
+  [key: string]: unknown;
+}
+
+export interface CampaignRoundTeam {
+  id: string;
+  /** @nullable */
+  crewId: string | null;
+  name: string;
+  color: string;
+  leaderUserId: string;
+  [key: string]: unknown;
+}
+
+export interface CampaignRoundItem {
+  id: string;
+  campaignId: string;
+  customerId: string;
+  customerName: string;
+  /** @nullable */
+  customerCity?: string | null;
+  customerAddress?: string;
+  status: string;
+  /** @nullable */
+  assignedCampaignCrewId: string | null;
+  /** @nullable */
+  crewPosition: number | null;
+  /** @nullable */
+  targetDate: string | null;
+  /** @nullable */
+  backupDate: string | null;
+  [key: string]: unknown;
+}
+
+export interface CampaignRoundLists {
+  campaign: CampaignRound;
+  teams: CampaignRoundTeam[];
+  items: CampaignRoundItem[];
+  canManage: boolean;
+  today: string;
+}
+
+export type CampaignRoundCalendarRoundsItem = CampaignRound & {
+  teams: CampaignRoundTeam[];
+  unassigned: number;
+  remaining: number;
+};
+
+export type CampaignRoundCalendarChemicalItemsItem = CampaignRoundItem & {
+  /** @nullable */
+  crewId: string | null;
+};
+
+export interface CampaignRoundCalendar {
+  rounds: CampaignRoundCalendarRoundsItem[];
+  chemicalItems: CampaignRoundCalendarChemicalItemsItem[];
+}
+
 export const CampaignGenerationInputValue = {
   confirm: true,
 } as const;
@@ -954,6 +1048,17 @@ export interface OwnerResponseTicket {
   followUpNote?: string | null;
   [key: string]: unknown;
 }
+
+export type GetCampaignRoundCalendarParams = {
+  /**
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  from: string;
+  /**
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  through: string;
+};
 
 export type ListVisitsParams = {
   /**

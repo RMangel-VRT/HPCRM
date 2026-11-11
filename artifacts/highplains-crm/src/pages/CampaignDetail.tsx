@@ -70,6 +70,7 @@ import {
 import type { Campaign, CampaignItem, Season, CampaignChecklistTask, Customer, CompanyUser, User as UserType } from "@shared/schema";
 import ExtraBillableCampaignView from "@/components/ExtraBillableCampaignView";
 import CampaignContractNotice from "@/components/CampaignContractNotice";
+import GeneratedRoundView from "@/components/campaigns/GeneratedRoundView";
 import type { CampaignContractState } from "../../../../lib/db/src/campaignGenerationContracts";
 
 interface CampaignItemWithUser extends CampaignItem {
@@ -140,6 +141,7 @@ export default function CampaignDetail() {
   const [completedSectionCollapsed, setCompletedSectionCollapsed] = useState(false);
   const [sortBy, setSortBy] = useState<string>("name_asc");
   const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
+  const [roundView, setRoundView] = useState<"crews" | "all">("crews");
 
   const { data: campaign, isLoading } = useQuery<CampaignDetailData>({
     queryKey: ["/api/campaigns", id, user?.activeCompanyId],
@@ -571,7 +573,16 @@ export default function CampaignDetail() {
         </div>
       )}
 
-      {isExtraBillableCampaign ? (
+      {campaign.source === "contract" && !isExtraBillableCampaign && activeTab === "items" && (
+        <div className="flex items-center gap-1" data-testid="round-view-toggle">
+          <Button variant={roundView === "crews" ? "default" : "outline"} size="sm" onClick={() => setRoundView("crews")} data-testid="button-round-view-crews">Crew lists</Button>
+          <Button variant={roundView === "all" ? "default" : "outline"} size="sm" onClick={() => setRoundView("all")} data-testid="button-round-view-all">All items</Button>
+        </div>
+      )}
+
+      {campaign.source === "contract" && !isExtraBillableCampaign && activeTab === "items" && roundView === "crews" ? (
+        <GeneratedRoundView campaignId={id!} contractStates={Object.fromEntries(campaign.items.map(i => [i.id, i.contractState]))} />
+      ) : isExtraBillableCampaign ? (
         <ExtraBillableCampaignView campaign={campaign} campaignId={id!} />
       ) : activeTab === "report" && isChemicalCampaign ? (
         <div className="space-y-4">

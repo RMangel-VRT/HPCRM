@@ -13,6 +13,7 @@ import { registerCrewsAndMobileRoutes } from "./crewsAndMobile";
 import { linkCrewsByName } from "../lib/linkCrews";
 import { CrewLinkError, lockCrewCompany, recordCrewLinkChoice } from "../lib/crewLinks";
 import { pickProvided } from "../lib/patchBody";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 
 describe("campaign links against real PostgreSQL", () => {
   let f: Awaited<ReturnType<typeof createRouteFixture>>, campaignId: string;
@@ -25,7 +26,7 @@ describe("campaign links against real PostgreSQL", () => {
   function app(role = "admin", companyId: string = f.companyId) {
     const app = express(); app.use(express.json());
     app.use((req, _res, next) => {
-      Object.assign(req, { isAuthenticated: () => true, user: { id: f.userId, activeRole: role, activeCompanyId: companyId } }); next();
+      Object.assign(req, { isAuthenticated: () => true, user: { id: f.userId, activeRole: role, accessRole: accessRole(role), activeCompanyId: companyId } }); next();
     });
     registerCrewsAndMobileRoutes(app);
     const source = readFileSync(new URL("./routes.ts", import.meta.url), "utf8");

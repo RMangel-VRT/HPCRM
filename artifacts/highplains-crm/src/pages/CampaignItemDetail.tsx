@@ -329,6 +329,8 @@ export default function CampaignItemDetail() {
 
   const canManage = user?.accessRole === "admin" || user?.accessRole === "office";
   const canComplete = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor"].includes(user?.accessRole || "");
+  // Generated (contract) irrigation rounds have no checklist tasks; field roles complete them directly.
+  const canCompleteGeneral = canComplete || ["crew_supervisor", "irrigation_manager"].includes(user?.accessRole || "");
   const canSendChemEmails = ["admin", "office", "chemical_manager"].includes(user?.accessRole || "");
   const canFinishWithoutComms = ["admin", "office", "chemical_manager"].includes(user?.accessRole || "");
   const canSkip = ["admin", "office", "chemical_manager"].includes(user?.accessRole || "");
@@ -423,10 +425,11 @@ export default function CampaignItemDetail() {
       return apiRequest("PATCH", `/api/campaigns/${campaignId}/items/${itemId}`, {
         targetDate: chemTargetDate || null,
         backupDate: chemBackupDate || null,
-      });
+      }, { headers: { "X-Company-Id": user?.activeCompanyId ?? "" } });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaign-rounds/calendar"] });
       toast({ title: t("campaigns.chemVisitSaved") });
     },
     onError: () => {
@@ -499,12 +502,13 @@ export default function CampaignItemDetail() {
           return res.json();
         }
       }
-      const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}/items/${itemId}`, data);
+      const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}/items/${itemId}`, data, { headers: { "X-Company-Id": user?.activeCompanyId ?? "" } });
       return res.json();
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaign-rounds/calendar"] });
       if (variables.chemAction) {
         if (variables.chemAction === "reset") {
           toast({ title: t("campaigns.chemWorkflowReset") });
@@ -545,6 +549,7 @@ export default function CampaignItemDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaign-rounds/calendar"] });
       toast({ title: t("campaigns.chemStepAdvanced") });
       setShowCompleteWorkDialog(false);
       setLabelPdfOverrideKey(null);
@@ -855,6 +860,7 @@ export default function CampaignItemDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaign-rounds/calendar"] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "items", itemId, "checklist", "audit"] });
     },
     onError: () => {
@@ -2164,7 +2170,28 @@ export default function CampaignItemDetail() {
         </Card>
       )}
 
-      {!isChemicalCampaign && !isIrrigationCampaign && canComplete && !isArchivedCampaign && (
+      {isIrrigationCampaign && campaign.source === "contract" && (!campaign.checklistTasks || campaign.checklistTasks.length === 0) && canCompleteGeneral && !isArchivedCampaign && (
+        <Card data-testid="card-generated-irrigation-complete">
+          <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-2">
+            {item.status === "pending" ? (
+              <Button disabled={updateItemMutation.isPending} onClick={() => updateItemMutation.mutate({ status: "completed", notes })} data-testid="button-generated-irrigation-complete">
+                <CheckCircle2 className="w-4 h-4 mr-2" />Mark complete
+              </Button>
+            ) : (
+              <>
+                <span className="text-sm text-muted-foreground flex-1">This property is {item.status}.</span>
+                {canReopen && (
+                  <Button variant="outline" disabled={updateItemMutation.isPending} onClick={() => updateItemMutation.mutate({ status: "pending" })} data-testid="button-generated-irrigation-reopen">
+                    <RotateCcw className="w-4 h-4 mr-2" />Reopen
+                  </Button>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {!isChemicalCampaign && !isIrrigationCampaign && (canComplete || (campaign.source === "contract" && canCompleteGeneral)) && !isArchivedCampaign && (
         <Card>
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2">

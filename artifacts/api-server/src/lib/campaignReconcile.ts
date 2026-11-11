@@ -11,6 +11,8 @@ import { campaignServices } from "../shared/contractCatalog";
 import { companyToday, addCalendarDays } from "./companyDay";
 import { campaignItemRow } from "./campaignItemRow";
 import { GenerateContractCampaignsResponse } from "@workspace/api-zod";
+import { inheritedRoundTeam } from "./campaignRoundLists";
+import { denseRoundOrder } from "./campaignRoundWork";
 
 const keyOf = (r: { serviceKey: string | null; roundMonth: string | null; roundSeq: number | null }) => `${r.serviceKey}:${r.roundMonth}:${r.roundSeq}`;
 function monthEnd(month: string) {
@@ -115,7 +117,9 @@ async function reconcile(tx: AppTransaction, companyId: string, year: number,
     }
     for (const member of round.members) {
       if (present.has(member.propertyId)) continue;
-      const [item] = await tx.insert(campaignItems).values(campaignItemRow(campaign, properties.get(member.propertyId)!)).returning();
+      const inherited = await inheritedRoundTeam(tx, campaign, member.propertyId);
+      const [item] = await tx.insert(campaignItems).values({ ...campaignItemRow(campaign, properties.get(member.propertyId)!),
+        assignedCampaignCrewId: inherited }).returning();
       const itemRef = { ...ref, propertyId: member.propertyId, propertyName: member.propertyName, itemId: item.id };
       report.added.push(itemRef); row.added++;
       remaining.set(campaign.id, (remaining.get(campaign.id) ?? 0) + 1);
@@ -143,6 +147,8 @@ async function reconcile(tx: AppTransaction, companyId: string, year: number,
   }
   report.rounds.sort((a, b) => a.roundMonth.localeCompare(b.roundMonth) ||
     services.findIndex(s => s.key === a.serviceKey) - services.findIndex(s => s.key === b.serviceKey) || a.roundSeq - b.roundSeq);
+  for (const campaign of byRound.values()) if (!report.deleted.some(r => r.campaignId === campaign.id))
+    await denseRoundOrder(tx, companyId, campaign.id);
   return report;
 }
 

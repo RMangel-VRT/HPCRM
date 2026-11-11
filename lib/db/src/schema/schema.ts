@@ -2564,6 +2564,8 @@ export const campaigns = pgTable("campaigns", {
   serviceKey: text("service_key"),
   roundMonth: date("round_month", { mode: "string" }),
   roundSeq: smallint("round_seq"),
+  startedAt: timestamp("started_at"),
+  startedById: varchar("started_by_id").references(() => users.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   description: text("description"),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
@@ -2588,6 +2590,7 @@ export const campaigns = pgTable("campaigns", {
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   id: true,
   source: true, serviceKey: true, roundMonth: true, roundSeq: true,
+  startedAt: true, startedById: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
@@ -2658,6 +2661,7 @@ export const campaignItems = pgTable("campaign_items", {
   customTemplateVars: jsonb("custom_template_vars").$type<Record<string, string>>(),
   // Extra Billable campaign columns (Slice 1)
   assignedCampaignCrewId: varchar("assigned_campaign_crew_id").references((): AnyPgColumn => campaignCrews.id, { onDelete: "set null" }),
+  crewPosition: integer("crew_position"),
   billingStatus: text("billing_status").$type<"not_created" | "ticket_created" | "invoiced" | "paid">().notNull().default("not_created"),
   ticketId: varchar("ticket_id").references((): AnyPgColumn => tickets.id, { onDelete: "set null" }),
   estimatedAmount: numeric("estimated_amount", { precision: 10, scale: 2 }),
@@ -2669,6 +2673,7 @@ export const campaignItems = pgTable("campaign_items", {
   campaignItemsCustomerIdIdx: index("campaign_items_customer_id_idx").on(table.customerId),
   campaignItemsPropertyIdIdx: index("campaign_items_property_id_idx").on(table.propertyId),
   campaignItemsAssignedCrewIdx: index("campaign_items_assigned_campaign_crew_id_idx").on(table.assignedCampaignCrewId),
+  crewPriority: index("campaign_items_crew_priority_idx").on(table.companyId, table.campaignId, table.assignedCampaignCrewId, table.crewPosition).where(sql`${table.status} = 'pending'`),
   companyIdentity: unique("campaign_items_id_company_unique").on(table.id, table.companyId),
   campaignCompany: foreignKey({ name: "campaign_items_campaign_company_fk", columns: [table.campaignId, table.companyId], foreignColumns: [campaigns.id, campaigns.companyId] }).onDelete("cascade"),
 }));

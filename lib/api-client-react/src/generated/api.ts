@@ -20,6 +20,12 @@ import type {
   CampaignGenerationInput,
   CampaignGenerationReport,
   CampaignMembershipStatus,
+  CampaignRound,
+  CampaignRoundCalendar,
+  CampaignRoundChange,
+  CampaignRoundLists,
+  CampaignRoundMove,
+  CampaignRoundStart,
   Crew,
   CrewInput,
   CrewPatch,
@@ -27,6 +33,7 @@ import type {
   EligibleSupervisor,
   EnrichedVisit,
   ErrorResponse,
+  GetCampaignRoundCalendarParams,
   HealthStatus,
   ListVisitsParams,
   LoadTemplateRequest,
@@ -82,6 +89,426 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getGetCampaignRoundListsUrl = (id: string) => {
+  return `/api/campaigns/${id}/round-lists`;
+};
+
+export const getCampaignRoundLists = async (
+  id: string,
+  options?: RequestInit,
+): Promise<CampaignRoundLists> => {
+  return customFetch<CampaignRoundLists>(getGetCampaignRoundListsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetCampaignRoundListsQueryKey = (id: string) => {
+  return [`/api/campaigns/${id}/round-lists`] as const;
+};
+
+export const getGetCampaignRoundListsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCampaignRoundLists>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCampaignRoundLists>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetCampaignRoundListsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCampaignRoundLists>>
+  > = ({ signal }) => getCampaignRoundLists(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCampaignRoundLists>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCampaignRoundListsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCampaignRoundLists>>
+>;
+export type GetCampaignRoundListsQueryError = ErrorType<void>;
+
+export function useGetCampaignRoundLists<
+  TData = Awaited<ReturnType<typeof getCampaignRoundLists>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCampaignRoundLists>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCampaignRoundListsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getMoveCampaignRoundItemsUrl = (id: string) => {
+  return `/api/campaigns/${id}/round-order`;
+};
+
+export const moveCampaignRoundItems = async (
+  id: string,
+  campaignRoundMove: CampaignRoundMove,
+  options?: RequestInit,
+): Promise<CampaignRoundChange> => {
+  return customFetch<CampaignRoundChange>(getMoveCampaignRoundItemsUrl(id), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(campaignRoundMove),
+  });
+};
+
+export const getMoveCampaignRoundItemsMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof moveCampaignRoundItems>>,
+    TError,
+    { id: string; data: BodyType<CampaignRoundMove> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof moveCampaignRoundItems>>,
+  TError,
+  { id: string; data: BodyType<CampaignRoundMove> },
+  TContext
+> => {
+  const mutationKey = ["moveCampaignRoundItems"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof moveCampaignRoundItems>>,
+    { id: string; data: BodyType<CampaignRoundMove> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return moveCampaignRoundItems(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MoveCampaignRoundItemsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof moveCampaignRoundItems>>
+>;
+export type MoveCampaignRoundItemsMutationBody = BodyType<CampaignRoundMove>;
+export type MoveCampaignRoundItemsMutationError = ErrorType<void>;
+
+export const useMoveCampaignRoundItems = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof moveCampaignRoundItems>>,
+    TError,
+    { id: string; data: BodyType<CampaignRoundMove> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof moveCampaignRoundItems>>,
+  TError,
+  { id: string; data: BodyType<CampaignRoundMove> },
+  TContext
+> => {
+  return useMutation(getMoveCampaignRoundItemsMutationOptions(options));
+};
+
+export const getCopyCampaignRoundSplitUrl = (id: string) => {
+  return `/api/campaigns/${id}/copy-previous-split`;
+};
+
+export const copyCampaignRoundSplit = async (
+  id: string,
+  options?: RequestInit,
+): Promise<CampaignRoundChange> => {
+  return customFetch<CampaignRoundChange>(getCopyCampaignRoundSplitUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCopyCampaignRoundSplitMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof copyCampaignRoundSplit>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof copyCampaignRoundSplit>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["copyCampaignRoundSplit"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof copyCampaignRoundSplit>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return copyCampaignRoundSplit(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CopyCampaignRoundSplitMutationResult = NonNullable<
+  Awaited<ReturnType<typeof copyCampaignRoundSplit>>
+>;
+
+export type CopyCampaignRoundSplitMutationError = ErrorType<void>;
+
+export const useCopyCampaignRoundSplit = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof copyCampaignRoundSplit>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof copyCampaignRoundSplit>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getCopyCampaignRoundSplitMutationOptions(options));
+};
+
+export const getStartCampaignRoundUrl = (id: string) => {
+  return `/api/campaigns/${id}/start-round`;
+};
+
+export const startCampaignRound = async (
+  id: string,
+  campaignRoundStart: CampaignRoundStart,
+  options?: RequestInit,
+): Promise<CampaignRound> => {
+  return customFetch<CampaignRound>(getStartCampaignRoundUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(campaignRoundStart),
+  });
+};
+
+export const getStartCampaignRoundMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startCampaignRound>>,
+    TError,
+    { id: string; data: BodyType<CampaignRoundStart> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof startCampaignRound>>,
+  TError,
+  { id: string; data: BodyType<CampaignRoundStart> },
+  TContext
+> => {
+  const mutationKey = ["startCampaignRound"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof startCampaignRound>>,
+    { id: string; data: BodyType<CampaignRoundStart> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return startCampaignRound(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StartCampaignRoundMutationResult = NonNullable<
+  Awaited<ReturnType<typeof startCampaignRound>>
+>;
+export type StartCampaignRoundMutationBody = BodyType<CampaignRoundStart>;
+export type StartCampaignRoundMutationError = ErrorType<void>;
+
+export const useStartCampaignRound = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startCampaignRound>>,
+    TError,
+    { id: string; data: BodyType<CampaignRoundStart> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof startCampaignRound>>,
+  TError,
+  { id: string; data: BodyType<CampaignRoundStart> },
+  TContext
+> => {
+  return useMutation(getStartCampaignRoundMutationOptions(options));
+};
+
+export const getGetCampaignRoundCalendarUrl = (
+  params: GetCampaignRoundCalendarParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/campaign-rounds/calendar?${stringifiedParams}`
+    : `/api/campaign-rounds/calendar`;
+};
+
+export const getCampaignRoundCalendar = async (
+  params: GetCampaignRoundCalendarParams,
+  options?: RequestInit,
+): Promise<CampaignRoundCalendar> => {
+  return customFetch<CampaignRoundCalendar>(
+    getGetCampaignRoundCalendarUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetCampaignRoundCalendarQueryKey = (
+  params?: GetCampaignRoundCalendarParams,
+) => {
+  return [
+    `/api/campaign-rounds/calendar`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetCampaignRoundCalendarQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCampaignRoundCalendar>>,
+  TError = ErrorType<void>,
+>(
+  params: GetCampaignRoundCalendarParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCampaignRoundCalendar>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetCampaignRoundCalendarQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCampaignRoundCalendar>>
+  > = ({ signal }) =>
+    getCampaignRoundCalendar(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCampaignRoundCalendar>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCampaignRoundCalendarQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCampaignRoundCalendar>>
+>;
+export type GetCampaignRoundCalendarQueryError = ErrorType<void>;
+
+export function useGetCampaignRoundCalendar<
+  TData = Awaited<ReturnType<typeof getCampaignRoundCalendar>>,
+  TError = ErrorType<void>,
+>(
+  params: GetCampaignRoundCalendarParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCampaignRoundCalendar>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCampaignRoundCalendarQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 export const getGetCampaignMembershipStatusUrl = (year: number) => {
   return `/api/campaign-generation/${year}/status`;

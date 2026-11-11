@@ -17,6 +17,7 @@ import { VisitDialog, type VisitDialogMode, type VisitDialogVisit } from "@/comp
 import { CrewDaySheet } from "@/components/scheduling/CrewDaySheet";
 import { QueueCard, QueueCardBody, VisitCard, VisitCardBody, queueDisplayType, queueDisplayFilterIdentity, type DragData } from "@/components/scheduling/SchedulingCards";
 import { RouteBlock } from "@/components/scheduling/RouteBlock";
+import { RoundProjections } from "@/components/scheduling/RoundProjections";
 import { RainDayDialog } from "@/components/scheduling/RainDayDialog";
 import { BoardDayCell, BoardOverlay, CapacityMeter, CrewLaneHeader, useBoardDnd } from "@/components/scheduling/BoardPrimitives";
 import "@/components/scheduling/scheduling-board.css";
@@ -266,6 +267,8 @@ function SchedulingBoardPage() {
           <EyeOff className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />Hide routes
         </label>
       </div>
+
+      <RoundProjections days={days} crews={crews} today={today} />
 
       <DndContext
         sensors={sensors} collisionDetection={boardCollision}

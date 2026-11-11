@@ -134,6 +134,10 @@ import { registerInvoiceRoutes } from "./invoices";
 import { registerDocumentSettingsRoutes } from "./documentSettings";
 import { registerServiceProgramRoutes } from "./servicePrograms";
 import { registerCampaignGenerationRoutes } from "./campaignGeneration";
+import { registerCampaignRoundLists } from "./campaignRoundLists";
+import { canAccessGeneratedRound, roundField, roundAssigned, roundTeamIds } from "../lib/campaignRoundAccess";
+import { moveRoundItems } from "../lib/campaignRoundLists";
+import { toggleRoundChecklist } from "../lib/campaignRoundWork";
 import { campaignItemRow } from "../lib/campaignItemRow";
 import { CampaignGuardError, registerCampaignIdentityGuards } from "../lib/campaignIdentity";
 import { registerTicketExpectedCompany } from "../lib/ticketExpectedCompany";
@@ -2757,6 +2761,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerServiceProgramRoutes(app);
   registerCampaignGenerationRoutes(app);
   registerCampaignIdentityGuards(app);
+  registerCampaignRoundLists(app);
   registerContractCenterRoutes(app);
 
   // ── Communication Center permission constants & helpers ──────────────────────
@@ -13783,6 +13788,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
+    if (["crew_supervisor", "irrigation_manager"].includes(user.accessRole)) {
+      const rounds = (await storage.getCampaigns(user.activeCompanyId)).filter(c => c.source === "contract");
+      const allowed = [];
+      for (const round of rounds) if (await canAccessGeneratedRound(user, round)) allowed.push(round);
+      return res.json(allowed);
+    }
     if (!campaignAllowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
@@ -13795,6 +13806,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Non-admins see campaigns directly assigned to them OR (for field/landscape_supervisor)
     // any extra_billable campaign on which they are a member of any crew.
     const directlyAssigned = await storage.getCampaigns(user.activeCompanyId, user.id);
+    if (roundField(user)) {
+      const allRounds = await storage.getCampaigns(user.activeCompanyId);
+      for (const round of allRounds.filter(c => c.source === "contract" && !directlyAssigned.some(d => d.id === c.id)))
+        if (await canAccessGeneratedRound(user, round)) directlyAssigned.push(round);
+    }
     if (user.activeRole !== "field" && user.activeRole !== "landscape_supervisor") {
       return res.json(directlyAssigned);
     }
@@ -13951,12 +13967,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId)
       return res.status(409).json({ message: "Active company changed. Reload and try again." });
-    if (!campaignAllowedRoles.includes(user.accessRole)) {
+    if (!campaignAllowedRoles.includes(user.accessRole) && !res.locals.generatedRound) {
       return res.status(403).send("Insufficient permissions");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Not found" });
-    if ((user.activeRole === "field" || user.activeRole === "landscape_supervisor") && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
+    if ((user.activeRole === "field" || user.activeRole === "landscape_supervisor") && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id && !await canAccessGeneratedRound(user, campaign)) {
       let allowedViaCrew = false;
       if (campaign.category === "extra_billable") {
         const userCampaignIds = await storage.getCampaignIdsForUserCrews(user.id, user.activeCompanyId);
@@ -13967,6 +13983,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
     let items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    if (campaign.source === "contract" && roundField(user) && !roundAssigned(user, campaign)) {
+      const teamIds = await roundTeamIds(user, campaign);
+      items = items.filter(i => !!i.assignedCampaignCrewId && teamIds.includes(i.assignedCampaignCrewId));
+    }
     // Field/landscape_supervisor on extra_billable: only see items for crews they belong to
     // (always enforced for these roles, regardless of campaign-level assignment)
     if (
@@ -14495,7 +14515,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id/crews", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    if (!campaignAllowedRoles.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
+    if (!campaignAllowedRoles.includes(user.accessRole) && !res.locals.generatedRound) return res.status(403).send("Insufficient permissions");
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     if (
@@ -14507,7 +14527,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).send("Not assigned to a crew on this campaign");
       }
     }
-    const crews = await storage.getCampaignCrews(req.params.id, user.activeCompanyId);
+    let crews = await storage.getCampaignCrews(req.params.id, user.activeCompanyId);
+    if (campaign.source === "contract" && roundField(user) && !roundAssigned(user, campaign)) {
+      const ids = await roundTeamIds(user, campaign);
+      crews = crews.filter(c => ids.includes(c.id));
+    }
     res.json(crews);
   });
 
@@ -14519,13 +14543,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
-    if (campaign.category !== "extra_billable") {
+    if (campaign.category !== "extra_billable" && campaign.source !== "contract") {
       return res.status(400).json({ error: "Crews are only supported on extra-billable campaigns" });
     }
     const parsed = z.object({ crewId: z.string().min(1), leaderUserId: z.string().min(1).optional() }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid campaign team", errors: parsed.error.flatten() });
     const [owner] = await db.select().from(standingCrews).where(and(eq(standingCrews.id, parsed.data.crewId), eq(standingCrews.companyId, user.activeCompanyId)));
     if (!owner) return res.status(400).json({ error: "Standing crew must belong to this company" });
+    if (campaign.source === "contract" && !owner.isActive)
+      return res.status(400).json({ error: "Choose an active standing crew" });
     const { name, color } = owner;
     const leaderUserId = parsed.data.leaderUserId ?? owner.supervisorUserId;
     const companyUsers = await storage.getCompanyUsersByCompanyId(user.activeCompanyId);
@@ -14638,11 +14664,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
-    if (campaign.category !== "extra_billable") {
+    if (campaign.category !== "extra_billable" && campaign.source !== "contract") {
       return res.status(400).json({ error: "Crew assignment only supported on extra-billable campaigns" });
     }
     const item = await storage.getCampaignItemById(req.params.itemId, user.activeCompanyId);
     if (!item || item.campaignId !== req.params.id) return res.status(404).json({ error: "Item not found" });
+    if (campaign.source === "contract") {
+      try {
+        const input = z.object({ assignedCampaignCrewId: z.string().min(1).nullable() }).strict().parse(req.body);
+        await moveRoundItems(user.activeCompanyId, campaign.id, { ...input, itemIds: [item.id] });
+        return res.json(await storage.getCampaignItemById(item.id, user.activeCompanyId));
+      } catch (err) {
+        if (err instanceof CrewLinkError) return res.status(err.status).json({ error: err.message });
+        if (err instanceof z.ZodError) return res.status(400).json({ error: "Invalid crew assignment" });
+        throw err;
+      }
+    }
     const { assignedCampaignCrewId } = req.body as { assignedCampaignCrewId?: string | null };
     if (assignedCampaignCrewId) {
       const newCrew = await storage.getCampaignCrewById(assignedCampaignCrewId, user.activeCompanyId);
@@ -14665,6 +14702,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Pre-fetch the inputs the pure validator needs
     const campaign = await storage.getCampaignById(req.params.campaignId, user.activeCompanyId);
+    if (campaign?.source === "contract") {
+      if (!["admin", "office"].includes(user.accessRole)) return res.sendStatus(403);
+      const parsed = z.object({ itemIds: z.array(z.string().min(1)).min(1).max(500),
+        assignedCampaignCrewId: z.string().min(1).nullable() }).strict().safeParse(req.body);
+      if (!parsed.success || new Set(parsed.data.itemIds).size !== parsed.data.itemIds.length)
+        return res.status(400).json({ error: "Invalid crew assignment" });
+      try { return res.json(await moveRoundItems(user.activeCompanyId, campaign.id, parsed.data)); }
+      catch (err) { if (err instanceof CrewLinkError) return res.status(err.status).json({ error: err.message }); throw err; }
+    }
     const requestedCrewId =
       req.body && typeof req.body === "object" && typeof (req.body as Record<string, unknown>).assignedCampaignCrewId === "string"
         ? ((req.body as Record<string, unknown>).assignedCampaignCrewId as string)
@@ -14873,13 +14919,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     if (campaign.category !== "irrigation") return res.status(400).json({ error: "Not an irrigation campaign" });
     if (campaign.status === "archived") return res.status(403).json({ error: "Campaign is archived — checklist is read-only" });
-    if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id && !await canAccessGeneratedRound(user, campaign, String(req.params.itemId))) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
     const targetItem = items.find(i => i.id === req.params.itemId);
     if (!targetItem) return res.status(404).json({ error: "Item not found" });
     if (targetItem.status === "skipped") return res.status(400).json({ error: "Cannot toggle tasks on a skipped item" });
+    if (campaign.source === "contract") {
+      try { return res.json(await toggleRoundChecklist(user.activeCompanyId, campaign.id, targetItem.id,
+        String(req.params.taskId), user.id, req.body?.completedAt)); }
+      catch (err) { if (err instanceof CrewLinkError) return res.status(err.status).json({ error: err.message }); throw err; }
+    }
 
     const existingCompletions = await storage.getCampaignItemTaskCompletions(req.params.itemId);
     const alreadyCompleted = !!existingCompletions.find(c => c.campaignChecklistTaskId === req.params.taskId);
@@ -14942,7 +14993,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
-    if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id && !await canAccessGeneratedRound(user, campaign, String(req.params.itemId))) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -14955,16 +15006,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/campaigns/:id/items/:itemId", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
-    const allowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor", "crew_supervisor"];
+    const allowedRoles = ["admin", "office", "field_manager", "field", "chemical_manager", "landscape_supervisor", "crew_supervisor", "irrigation_manager"];
     if (!allowedRoles.includes(user.accessRole)) {
       return res.status(403).send("Insufficient permissions");
     }
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
-    if ((user.activeRole === "field" || user.activeRole === "landscape_supervisor") && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
+    if ((user.activeRole === "field" || user.activeRole === "landscape_supervisor") && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id && !await canAccessGeneratedRound(user, campaign, String(req.params.itemId))) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const existingItems = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
+    if (user.accessRole === "irrigation_manager" && campaign.source !== "contract")
+      return res.status(403).send("Insufficient permissions");
     const targetItem = existingItems.find(i => i.id === req.params.itemId);
     if (!targetItem) {
       return res.status(404).json({ error: "Item not found in this campaign" });
@@ -15488,7 +15541,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
-      if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
+      if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id && !await canAccessGeneratedRound(user, campaign, String(req.params.itemId))) {
         return res.status(403).send("Not assigned to this campaign");
       }
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -15628,7 +15681,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
-      if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
+      if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id && !await canAccessGeneratedRound(user, campaign, String(req.params.itemId))) {
         return res.status(403).send("Not assigned to this campaign");
       }
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -15667,7 +15720,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
       if (!campaign || campaign.category !== "chemical") return res.status(404).json({ error: "Chemical campaign not found" });
-      if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
+      if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id && !await canAccessGeneratedRound(user, campaign, String(req.params.itemId))) {
         return res.status(403).send("Not assigned to this campaign");
       }
       const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);
@@ -16001,7 +16054,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const campaign = await storage.getCampaignById(req.params.id, user.activeCompanyId);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     if (campaign.category !== "chemical") return res.status(400).json({ error: "Weather capture is only available for chemical campaigns" });
-    if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id) {
+    if (user.activeRole === "field" && campaign.assignedToId !== user.id && campaign.assignedToId2 !== user.id && !await canAccessGeneratedRound(user, campaign, String(req.params.itemId))) {
       return res.status(403).send("Not assigned to this campaign");
     }
     const items = await storage.getCampaignItems(req.params.id, user.activeCompanyId);

@@ -13,6 +13,7 @@
 - [Contract Center boundaries](contract-center-phase-boundaries.md) — renewals preserve seasons; early slices leave legacy behavior unchanged; import old date-picker dates using UTC components.
 - [Contract outcome boundaries](contract-outcome-boundaries.md) — non-renewal does not end worked seasons; customer inactivation is the narrow authorized background-job exception.
 - [Crew table rollout](crew-table-rollout.md) — standing identity is canonical; preserve intentional campaign None choices across restarts.
+- [Round access projections](round-access-projections.md) — crew-derived access stays start-gated and team-scoped on calendar, count and detail reads; explicit assignees retain broader access.
 - [Validation durability](validation-durability.md) — workspace restarts can lose temporary logs; persist long-running checks in ignored project output.
 - [Scoped dependency peer resolution](scoped-dependency-peers.md) — temporarily enabling automatic peer resolution can change unrelated workspace dependencies; preserve their baseline.
 - [Visit transaction order](visit-transaction-order.md) — company scheduling gate precedes sorted ticket locks; finer-grained gates need coordinated phantom/deadlock protection.

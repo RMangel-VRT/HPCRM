@@ -23,6 +23,85 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /campaigns/{id}/round-lists:
+    get:
+      operationId: getCampaignRoundLists
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Authorized generated-round crew lists, including finished history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignRoundLists" }
+        "401": { description: Not authenticated }
+        "403": { description: Not authorized }
+        "404": { description: Generated round not found }
+  /campaigns/{id}/round-order:
+    put:
+      operationId: moveCampaignRoundItems
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CampaignRoundMove" }
+      responses:
+        "200":
+          description: Properties moved in priority order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignRoundChange" }
+        "400": { description: Invalid move }
+        "403": { description: Admin or office required }
+        "409": { description: Priority changed or work already finished }
+  /campaigns/{id}/copy-previous-split:
+    post:
+      operationId: copyCampaignRoundSplit
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Previous same-service round split copied onto unfinished properties
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignRoundChange" }
+        "403": { description: Admin or office required }
+        "409": { description: No previous applicable round }
+  /campaigns/{id}/start-round:
+    post:
+      operationId: startCampaignRound
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CampaignRoundStart" }
+      responses:
+        "200":
+          description: Started round; no communications sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignRound" }
+        "400": { description: Confirmation required }
+        "403": { description: Admin or office required }
+        "409": { description: Round not active }
+  /campaign-rounds/calendar:
+    get:
+      operationId: getCampaignRoundCalendar
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
+        - { name: through, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
+      responses:
+        "200":
+          description: Read-only non-capacity round windows and existing chemical target dates
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignRoundCalendar" }
+        "400": { description: Invalid date range }
+        "403": { description: Scheduling access required }
   /campaign-generation/{year}/status:
     get:
       operationId: getCampaignMembershipStatus
@@ -1184,6 +1263,97 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    CampaignRoundMove:
+      type: object
+      additionalProperties: false
+      required: [itemIds, assignedCampaignCrewId]
+      properties:
+        itemIds: { type: array, minItems: 1, maxItems: 500, uniqueItems: true, items: { type: string, minLength: 1 } }
+        assignedCampaignCrewId: { type: [string, "null"], minLength: 1 }
+        beforeItemId: { type: [string, "null"], minLength: 1 }
+    CampaignRoundStart:
+      type: object
+      additionalProperties: false
+      required: [confirm]
+      properties:
+        confirm: { type: boolean, enum: [true] }
+    CampaignRoundChange:
+      type: object
+      required: [updated]
+      properties:
+        updated: { type: integer, minimum: 0 }
+    CampaignRound:
+      type: object
+      additionalProperties: true
+      required: [id, title, category, source, windowStart, windowEnd, status, startedAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        category: { type: string }
+        source: { type: string }
+        windowStart: { type: string }
+        windowEnd: { type: string }
+        status: { type: string }
+        startedAt: { type: [string, "null"] }
+    CampaignRoundTeam:
+      type: object
+      additionalProperties: true
+      required: [id, crewId, name, color, leaderUserId]
+      properties:
+        id: { type: string }
+        crewId: { type: [string, "null"] }
+        name: { type: string }
+        color: { type: string }
+        leaderUserId: { type: string }
+    CampaignRoundItem:
+      type: object
+      additionalProperties: true
+      required: [id, campaignId, customerId, customerName, status, assignedCampaignCrewId, crewPosition, targetDate, backupDate]
+      properties:
+        id: { type: string }
+        campaignId: { type: string }
+        customerId: { type: string }
+        customerName: { type: string }
+        customerCity: { type: [string, "null"] }
+        customerAddress: { type: string }
+        status: { type: string }
+        assignedCampaignCrewId: { type: [string, "null"] }
+        crewPosition: { type: [integer, "null"] }
+        targetDate: { type: [string, "null"] }
+        backupDate: { type: [string, "null"] }
+    CampaignRoundLists:
+      type: object
+      required: [campaign, teams, items, canManage, today]
+      properties:
+        campaign: { $ref: "#/components/schemas/CampaignRound" }
+        teams: { type: array, items: { $ref: "#/components/schemas/CampaignRoundTeam" } }
+        items: { type: array, items: { $ref: "#/components/schemas/CampaignRoundItem" } }
+        canManage: { type: boolean }
+        today: { type: string }
+    CampaignRoundCalendar:
+      type: object
+      required: [rounds, chemicalItems]
+      properties:
+        rounds:
+          type: array
+          items:
+            allOf:
+              - { $ref: "#/components/schemas/CampaignRound" }
+              - type: object
+                required: [teams, unassigned, remaining]
+                properties:
+                  teams: { type: array, items: { $ref: "#/components/schemas/CampaignRoundTeam" } }
+                  unassigned: { type: integer }
+                  remaining: { type: integer }
+        chemicalItems:
+          type: array
+          items:
+            allOf:
+              - { $ref: "#/components/schemas/CampaignRoundItem" }
+              - type: object
+                required: [crewId]
+                properties:
+                  crewId: { type: [string, "null"] }
     CampaignGenerationInput:
       type: object
       additionalProperties: false

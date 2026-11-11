@@ -7,6 +7,165 @@
  */
 import * as zod from "zod";
 
+export const GetCampaignRoundListsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetCampaignRoundListsResponse = zod.object({
+  campaign: zod.object({
+    id: zod.string(),
+    title: zod.string(),
+    category: zod.string(),
+    source: zod.string(),
+    windowStart: zod.string(),
+    windowEnd: zod.string(),
+    status: zod.string(),
+    startedAt: zod.string().nullable(),
+  }),
+  teams: zod.array(
+    zod.object({
+      id: zod.string(),
+      crewId: zod.string().nullable(),
+      name: zod.string(),
+      color: zod.string(),
+      leaderUserId: zod.string(),
+    }),
+  ),
+  items: zod.array(
+    zod.object({
+      id: zod.string(),
+      campaignId: zod.string(),
+      customerId: zod.string(),
+      customerName: zod.string(),
+      customerCity: zod.string().nullish(),
+      customerAddress: zod.string().optional(),
+      status: zod.string(),
+      assignedCampaignCrewId: zod.string().nullable(),
+      crewPosition: zod.number().nullable(),
+      targetDate: zod.string().nullable(),
+      backupDate: zod.string().nullable(),
+    }),
+  ),
+  canManage: zod.boolean(),
+  today: zod.string(),
+});
+
+export const MoveCampaignRoundItemsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const moveCampaignRoundItemsBodyItemIdsMax = 500;
+
+export const MoveCampaignRoundItemsBody = zod.object({
+  itemIds: zod
+    .array(zod.string().min(1))
+    .min(1)
+    .max(moveCampaignRoundItemsBodyItemIdsMax),
+  assignedCampaignCrewId: zod.string().min(1).nullable(),
+  beforeItemId: zod.string().min(1).nullish(),
+});
+
+export const moveCampaignRoundItemsResponseUpdatedMin = 0;
+
+export const MoveCampaignRoundItemsResponse = zod.object({
+  updated: zod.number().min(moveCampaignRoundItemsResponseUpdatedMin),
+});
+
+export const CopyCampaignRoundSplitParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const copyCampaignRoundSplitResponseUpdatedMin = 0;
+
+export const CopyCampaignRoundSplitResponse = zod.object({
+  updated: zod.number().min(copyCampaignRoundSplitResponseUpdatedMin),
+});
+
+export const StartCampaignRoundParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const StartCampaignRoundBody = zod.object({
+  confirm: zod.literal(true),
+});
+
+export const StartCampaignRoundResponse = zod.object({
+  id: zod.string(),
+  title: zod.string(),
+  category: zod.string(),
+  source: zod.string(),
+  windowStart: zod.string(),
+  windowEnd: zod.string(),
+  status: zod.string(),
+  startedAt: zod.string().nullable(),
+});
+
+export const getCampaignRoundCalendarQueryFromRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+export const getCampaignRoundCalendarQueryThroughRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const GetCampaignRoundCalendarQueryParams = zod.object({
+  from: zod.coerce.string().regex(getCampaignRoundCalendarQueryFromRegExp),
+  through: zod.coerce
+    .string()
+    .regex(getCampaignRoundCalendarQueryThroughRegExp),
+});
+
+export const GetCampaignRoundCalendarResponse = zod.object({
+  rounds: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        title: zod.string(),
+        category: zod.string(),
+        source: zod.string(),
+        windowStart: zod.string(),
+        windowEnd: zod.string(),
+        status: zod.string(),
+        startedAt: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          teams: zod.array(
+            zod.object({
+              id: zod.string(),
+              crewId: zod.string().nullable(),
+              name: zod.string(),
+              color: zod.string(),
+              leaderUserId: zod.string(),
+            }),
+          ),
+          unassigned: zod.number(),
+          remaining: zod.number(),
+        }),
+      ),
+  ),
+  chemicalItems: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        campaignId: zod.string(),
+        customerId: zod.string(),
+        customerName: zod.string(),
+        customerCity: zod.string().nullish(),
+        customerAddress: zod.string().optional(),
+        status: zod.string(),
+        assignedCampaignCrewId: zod.string().nullable(),
+        crewPosition: zod.number().nullable(),
+        targetDate: zod.string().nullable(),
+        backupDate: zod.string().nullable(),
+      })
+      .and(
+        zod.object({
+          crewId: zod.string().nullable(),
+        }),
+      ),
+  ),
+});
+
 export const GetCampaignMembershipStatusParams = zod.object({
   year: zod.coerce.number(),
 });
