@@ -11,10 +11,28 @@ The ledger each CG slice updates when it finishes. The next slice's pre-flight r
 | CG5 Owed and done calculation | merged; verification and handoff recorded |
 | CP6 Contract-owned customer Services | implemented; client verification and handoff recorded |
 | SC1 Service calendar | implemented; development verification recorded below |
+| SC2 Calendar round generation | implemented; final verification recorded in SC2 report |
 
 ## Log
 
 (Each slice adds a block here: date, migration, new tables/columns/functions/endpoints with exact names, deviations, open items.)
+
+### 2026-11-11 — SC2 calendar entries and deadline years govern generated rounds
+
+- Resumed after the required authenticated read-only production query returned **0** contract-source campaigns. Development also had **0**: no test-round cleanup or unrelated deletion. The earlier blocked preflight below is historical. No production Generate, starting load, schema mutation or publication was performed.
+- Development-only strict migration **`0083_calendar_campaign_identity.sql`** added `campaigns.calendar_entry_id` (FK to `service_calendar`, `ON DELETE RESTRICT`) and `round_year smallint`, replaced `campaigns_identity_check` using the Publish-compatible `IS TRUE` shape, added `campaigns_calendar_round_unique(company_id,calendar_entry_id,round_year) WHERE source='contract'` and retired `campaigns_contract_round_unique`. Existing month/sequence columns remain nullable and unused. Both schema declarations and shared SQL mirror the identity/category/subtype/manual restrictions. Existing 0074 checksum warning was reported, not repaired or reapplied.
+- `coverageResolver.forDate` is additive, inclusive and firm-before-sent; `forMonth` and yearly Routes resolution remain unchanged. `campaignDemand` takes `calendar`, exports `calendarInstance`/`DemandCalendarEntry`, identifies rounds by service/entry/year and projects named opening/deadline windows. Positive stated months allocate distinct compatible windows; standards/all-round selection, checklist annual obligations, zero/invalid/duplicate safeguards, informational mismatch/coexisting legacy and the new gaps share this one engine.
+- `campaignReconcile`, `campaignContractState`, `campaignRoundLists`, automatic membership, fulfillment loader/calculator, item/operations projections, shared contracts, OpenAPI and regenerated clients/validators now use entry/year identity. Titles are year + entry name. Preview still rolls back all writer changes; company serialization, opt-in, historical work, closed-round and missed/kept behavior remain. Pre-opening snapshot refresh refuses started/protected work. Calendar replacement/load acquire the generation company gate; referenced-entry deletion returns **“Archive or finish its rounds first”** atomically.
+- Backflow stays a generated checklist accessible from its round page, absent from calendar bars/Rounds queue and Start round. Direct release is refused under the round lock. Its item completion/reopen does not create a crew-day trip; normal round completion/reopen is unchanged.
+- Generate renders service-grouped named windows and new plain gap wording. Customer Services uses shared deadline demand across selected-term years, exposes true snapshot windows and opening-date next actions, includes owed/done annual checklists and permission-aware contract/calendar links. Chemical target/backup promises remain item-owned; Routes remain visit-owned. English/Spanish status/timing/gap resources were updated; native-mobile UI was not changed.
+- Detailed test commands, migration/constraint evidence, root typecheck baseline, development starting-calendar capture and operational limits: [SC2 verification](../../scheduling/reports/SC2-verification.md). No SC3 work or production generation was started.
+
+### 2026-11-11 — SC2 production safety preflight blocked
+
+- Inspected integrated SC1 calendar implementation and handoff, current monthly demand and shared generation contracts. SC1 is present; no predecessor was rebuilt and no obsolete specification gate was introduced.
+- Required read-only production query `SELECT count(*)::integer AS contract_campaign_count FROM campaigns WHERE source = 'contract'` could not run: production database access requires an authenticated user. The count remains **unknown**, not zero.
+- Stopped at the assigned safety gate. No application/schema/migration changes, cleanup, database writes, starting-calendar load, Generate, opt-in or publication. SC2 remains **not implemented**; no functional verification or 2027 preview is claimed.
+- Resume after authenticated production read access is restored and the required query returns exactly zero. Evidence and limitations: [SC2 preflight report](../../scheduling/reports/SC2-verification.md).
 
 ### 2026-11-11 — SC1 named service calendar replaces unused month programs
 

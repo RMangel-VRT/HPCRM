@@ -1,12 +1,22 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const es = {
+  sc2: {
+    unspecified: "{{service}} × {{n}} sin fechas: indique cuáles en el contrato",
+    outsideMonth: "El contrato indica {{month}}; ninguna ronda de {{service}} se realiza en {{month}}",
+    gaps: {
+      needs_rounds: { title: "El contrato debe indicar las rondas", fix: "La cantidad no identifica un conjunto de rondas. Indique las rondas en el contrato." },
+      month_outside_calendar: { title: "Mes fuera del calendario", fix: "El contrato indica un mes sin período de servicio compatible." },
+      legacy_chemical: { title: "Fertilización/químicos anteriores", fix: "Fertilización/químicos anteriores a la división: revise fertilización y control de malezas de hoja ancha" },
+    },
+  },
   cp6: {
     setupCount: "{{count}} servicios necesitan configuración",
     serviceSub: "{{overdue}} atrasados · {{setup}} necesitan configuración",
     status: {
       on_track: "En curso", complete: "Completo", closed_with_skips: "Cerrado con omisiones", not_owed: "No se debe",
       overdue: "Atrasado", missing_item: "Aún no está en una ronda", waiting_on_signature: "Esperando firma",
-      no_route: "Sin ruta configurada", no_count: "El contrato no indica cantidad", no_timing: "Sin período de servicio",
+      no_route: "Sin ruta configurada", no_count: "El contrato no indica cantidad",
+      needs_rounds: "El contrato debe indicar las rondas", month_outside_calendar: "Mes fuera del calendario", legacy_chemical: "Revisar fertilización/químicos anteriores",
       invalid_count: "Cantidad inválida", duplicate_lines: "Líneas duplicadas", count_mismatch: "Diferencia de cantidad",
       completed: "Completado", skipped: "Omitido", pending: "Pendiente",
     },
@@ -34,7 +44,7 @@ const es = {
       askOffice: "La oficina puede corregir la configuración.", itemUnavailable: "El historial del elemento no está disponible.",
       uncounted: { on_request: "A solicitud", event: "Nieve", none: "Sin programar" },
       countSource: { contract: "Cantidad del contrato", standard: "Cantidad estándar" },
-      timing: { contract: "Período del contrato", program: "Período del programa" },
+      timing: { contract: "Período del contrato", calendar: "Período del calendario" },
       roundStates: { completed: "Completado", skipped: "Omitido", pending: "Pendiente", overdue: "Atrasado", waiting_on_signature: "Esperando firma", missing_item: "Aún no está en una ronda" },
       empty: "Todavía no hay servicios programados para este cliente.", untitled: "Servicio sin título",
       notInContract: "Fuera de contrato", notInContractHint: "Trabajo extra facturable. No se cuenta en los totales de arriba.",

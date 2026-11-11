@@ -10,8 +10,8 @@ export const serviceRowFixture = (over: Partial<ServiceFulfillment> = {}): Servi
   owed: 2, done: 1, skipped: 0, remaining: 1, planned: 0, inProgress: 0, status: "missing_item",
   issues: ["missing_item"], next: { kind: "round_window", date: "2026-04-07", campaignId: "round1", itemId: "item1", visitId: null },
   rounds: [{
-    roundMonth: "2026-04-01", roundSeq: 1, campaignId: "round1", itemId: "item1", dueDate: "2026-04-20",
-    windowStart: "2026-04-01", windowEnd: "2026-04-20", dateKind: "round_window", state: "pending", timing: "program", countSource: "standard",
+    calendarEntryId: "calendar1", roundYear: 2026, name: "Spring round", campaignId: "round1", itemId: "item1", dueDate: "2026-04-20",
+    windowStart: "2026-04-01", windowEnd: "2026-04-20", dateKind: "round_window", state: "pending", timing: "calendar", countSource: "standard",
   }], ...over,
 });
 export const customerServicesFixture = (over: Partial<CustomerServices> = {}): CustomerServices => ({

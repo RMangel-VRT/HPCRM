@@ -129,7 +129,7 @@ export default function GeneratedRoundView({ campaignId, contractStates = {} }: 
           <Button size="sm" variant="outline" disabled={!addCrewId || actions.addCrew.isPending} onClick={() => actions.addCrew.mutate(addCrewId, { onSuccess: () => setAddCrewId(""), onError: fail })} data-testid="button-add-round-crew">
             <Plus className="w-4 h-4 mr-1" />Add
           </Button>
-          {!campaign.startedAt && (
+          {!campaign.startedAt && campaign.serviceKey !== "backflow" && (
             <Button size="sm" onClick={() => setStartOpen(true)} data-testid="button-start-round"><Play className="w-4 h-4 mr-2" />Start round</Button>
           )}
         </div>

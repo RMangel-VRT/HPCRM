@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import "@/i18n";
 
 const fx = vi.hoisted(() => ({
   user: { id: "u1", activeCompanyId: "co1", activeRole: "admin", accessRole: "admin", isSuperAdminBool: false, activeTags: [] as string[] },
@@ -13,10 +14,10 @@ vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: fx.user }) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: fx.toast }) }));
 vi.mock("@/hooks/use-breadcrumbs", () => ({ useSetBreadcrumbs: () => {} }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: (...a: unknown[]) => fx.api(...a) }));
-import CampaignGeneratePage, { yearChoices } from "@/pages/CampaignGeneratePage";
+import CampaignGeneratePage, { yearChoices, roundWindowLabel } from "@/pages/CampaignGeneratePage";
 
 const ok = (d: unknown) => Promise.resolve({ json: async () => d });
-const ref = { serviceKey: "aeration", roundMonth: "2026-04", roundSeq: 1, title: "Aeration April 2026", windowStart: "2026-04-01", windowEnd: "2026-04-30", campaignId: null };
+const ref = { serviceKey: "aeration", calendarEntryId: "2026-04", roundYear: 1, title: "2026 Spring aeration", windowStart: "2026-04-01", windowEnd: "2026-04-30", campaignId: null };
 const report = (over: Record<string, unknown> = {}) => ({
   year: 2026, today: "2025-10-14", enabledAt: null,
   rounds: [{ ...ref, newRound: true, added: 1, removed: 0, members: [{ propertyId: "p1", propertyName: "Aspen Ridge HOA", termId: "t1", agreementId: "a1", seasonLabel: "2026", termStatus: "up_for_renewal", timing: "contract", count: "standard" }] }],
@@ -46,6 +47,22 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("Campaign generation", () => {
+  it("labels named windows without month/sequence assumptions and shows all new gaps", async () => {
+    expect(roundWindowLabel({...ref, title: "2027 Fall shrub trim", windowStart: "2027-09-01", windowEnd: "2027-10-31"}))
+      .toBe("Fall shrub trim · Sep 1 – Oct 31, 2027");
+    fx.api.mockImplementation((_m: string, path: string) => ok(path.endsWith("/status") ? {} : report({
+      gaps: [
+        {propertyId: "p", propertyName: "Property", termId: "t", agreementId: "a", seasonLabel: "2027", serviceKey: "cleanups", kind: "needs_rounds", count: 2},
+        {propertyId: "p", propertyName: "Property", termId: "t", agreementId: "a", seasonLabel: "2027", serviceKey: "cleanups", kind: "month_outside_calendar", month: 6},
+        {propertyId: "p", propertyName: "Property", termId: "t", agreementId: "a", seasonLabel: "2027", serviceKey: "chemical", kind: "legacy_chemical", informational: true},
+      ],
+    })));
+    mount();
+    await screen.findByTestId("gaps-needs_rounds");
+    expect(document.body.textContent).toContain("Clean-ups × 2 with no dates: say which two on the contract");
+    expect(document.body.textContent).toContain("Contract says June; no clean-up round runs in June");
+    expect(document.body.textContent).toContain("Fert/chem from before the split: review fertilization and broadleaf");
+  });
   it("defaults year by Colorado month", () => {
     expect(yearChoices(new Date("2025-10-02T12:00:00Z")).defaultYear).toBe(2026);
     expect(yearChoices(new Date("2025-06-02T12:00:00Z")).defaultYear).toBe(2025);

@@ -64,5 +64,7 @@ export function coverageResolver(data: CoverageInputs, options: { statuses?: rea
     const next = m === 12 ? `${year + 1}-01-01` : `${year}-${String(m + 1).padStart(2, "0")}-01`;
     return select(customerId, serviceKey, month, addCalendarDays(next, -1), true);
   };
+  resolver.forDate = (customerId: string, serviceKey: string, date: string) =>
+    select(customerId, serviceKey, date, date, true);
   return resolver;
 }

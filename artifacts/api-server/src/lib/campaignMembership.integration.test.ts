@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { companies, customers, agreements, agreementTerms, termScopeLines,
-  campaignGenerationYears, campaigns, campaignItems, pool as schemaPool } from "@workspace/db";
+  campaignGenerationYears, campaigns, campaignItems, serviceCalendar, pool as schemaPool } from "@workspace/db";
 import { db, pool } from "../db";
 import { campaignMembershipStatus, reconcileEnabledCampaignYears, scheduleCampaignMembership } from "./campaignMembership";
 import { withCampaignContractStates } from "./campaignContractState";
@@ -33,7 +33,10 @@ describe("CG3 membership on disposable development companies, without Generate",
     await db.insert(agreements).values({ id: agreement, companyId: a, customerId: property });
     await db.insert(agreementTerms).values({ id: term, companyId: a, agreementId: agreement, line: "landscape",
       form: "ours", seasonLabel: "CG3 fixture", startDate: `${year}-01-01`, endDate: `${year}-12-31`, status: "sent", billingType: "seasonal" });
-    await db.insert(termScopeLines).values({ companyId: a, termId: term, serviceKey: "chemical", line: "landscape", included: true, quantity: 1, monthSpread: spread(6) });
+    await db.insert(serviceCalendar).values([6, 9, 10].map((month, i) => ({companyId: a, kind: "round", serviceKey: "fertilization",
+      position: i + 1, name: `Fertilizer ${month}`, opensMd: `${month.toString().padStart(2, "0")}-01`,
+      dueMd: `${month.toString().padStart(2, "0")}-30`, inStandard: true})));
+    await db.insert(termScopeLines).values({ companyId: a, termId: term, serviceKey: "fertilization", line: "landscape", included: true, quantity: 1, monthSpread: spread(6) });
   });
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -88,7 +91,7 @@ describe("CG3 membership on disposable development companies, without Generate",
     await enable(); await scheduleCampaignMembership(a, today);
     await db.update(termScopeLines).set({ monthSpread: spread(9) }).where(eq(termScopeLines.termId, term));
     await scheduleCampaignMembership(a, today);
-    expect((await rounds()).map(r => r.roundMonth)).toEqual([`${year}-09-01`]);
+    expect((await rounds()).map(r => r.windowStart)).toEqual([`${year}-09-01`]);
     expect(await items()).toHaveLength(1);
   });
   it.each(["completed", "skipped", "chemical_progress"] as const)("never deletes or moves %s work after contract removal", async kind => {
@@ -106,7 +109,7 @@ describe("CG3 membership on disposable development companies, without Generate",
     await enable(); await scheduleCampaignMembership(a, today);
     await db.update(termScopeLines).set({ monthSpread: spread(10) }).where(eq(termScopeLines.termId, term));
     await scheduleCampaignMembership(a, today);
-    expect((await rounds()).map(r => r.roundMonth)).toEqual([`${year}-10-01`]);
+    expect((await rounds()).map(r => r.windowStart)).toEqual([`${year}-10-01`]);
   });
   it("handles parent changes and never adds parents as campaign items", async () => {
     const parent = randomUUID();

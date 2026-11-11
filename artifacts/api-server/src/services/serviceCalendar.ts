@@ -1,5 +1,5 @@
 import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
-import { agreementTerms, agreements, customers, serviceCalendar, termScopeLines, type ServiceCalendar } from "@workspace/db";
+import { agreementTerms, agreements, campaigns, customers, serviceCalendar, termScopeLines, type ServiceCalendar } from "@workspace/db";
 import {
   CAMPAIGN_TERM_STATUSES, STARTING_SERVICE_CALENDAR, summarizeServiceUsage,
   serviceCalendarReplacementSchema, type ServiceCalendarEntry, type ServiceCalendarResponse,
@@ -49,6 +49,7 @@ export async function listServiceCalendar(companyId: string) {
 export async function replaceServiceCalendar(companyId: string, updatedById: string, serviceKey: string, body: unknown) {
   const input = serviceCalendarReplacementSchema(SCOPE_CATALOG, serviceKey).parse(body);
   return db.transaction(async tx => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${'campaign-gen:' + companyId},0))`);
     await lockCompany(tx, companyId);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`service-calendar:${companyId}:${serviceKey}`},0))`);
     const filter = and(eq(serviceCalendar.companyId, companyId), eq(serviceCalendar.serviceKey, serviceKey));
@@ -65,7 +66,12 @@ export async function replaceServiceCalendar(companyId: string, updatedById: str
     await tx.execute(sql`set constraints service_calendar_position_unique deferred`);
     const keep = new Set(input.entries.flatMap(e => e.id ? [e.id] : []));
     const removed = old.filter(e => !keep.has(e.id)).map(e => e.id);
-    if (removed.length) await tx.delete(serviceCalendar).where(and(filter, inArray(serviceCalendar.id, removed)));
+    if (removed.length) {
+      const linked = await tx.select({ id: campaigns.id }).from(campaigns).where(and(
+        eq(campaigns.companyId, companyId), inArray(campaigns.calendarEntryId, removed))).limit(1);
+      if (linked.length) throw new CalendarConflict("Archive or finish its rounds first");
+      await tx.delete(serviceCalendar).where(and(filter, inArray(serviceCalendar.id, removed)));
+    }
     for (const entry of input.entries) {
       const { id, ...fields } = entry;
       const values = { ...fields, pattern: fields.pattern ?? null, includes: fields.includes ?? null,
@@ -79,6 +85,7 @@ export async function replaceServiceCalendar(companyId: string, updatedById: str
 }
 export async function loadStartingServiceCalendar(companyId: string, updatedById: string) {
   return db.transaction(async tx => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${'campaign-gen:' + companyId},0))`);
     await lockCompany(tx, companyId, true);
     const existing = await tx.select({ id: serviceCalendar.id }).from(serviceCalendar)
       .where(eq(serviceCalendar.companyId, companyId)).limit(1);

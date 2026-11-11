@@ -1303,10 +1303,11 @@ components:
         visitId: { type: [string, "null"] }
     ServiceRound:
       type: object
-      required: [roundMonth, roundSeq, campaignId, itemId, dueDate, windowStart, windowEnd, dateKind, state, timing, countSource]
+      required: [calendarEntryId, roundYear, name, campaignId, itemId, dueDate, windowStart, windowEnd, dateKind, state, timing, countSource]
       properties:
-        roundMonth: { type: string }
-        roundSeq: { type: integer }
+        calendarEntryId: { type: string }
+        roundYear: { type: integer }
+        name: { type: string }
         campaignId: { type: [string, "null"] }
         itemId: { type: [string, "null"] }
         dueDate: { type: string }
@@ -1314,7 +1315,7 @@ components:
         windowEnd: { type: string }
         dateKind: { type: string, enum: [round_window, chemical_promise] }
         state: { type: string, enum: [completed, skipped, missing_item, waiting_on_signature, overdue, pending] }
-        timing: { type: string, enum: [contract, program] }
+        timing: { type: string, enum: [contract, calendar] }
         countSource: { type: string, enum: [contract, standard] }
     ServiceFulfillment:
       type: object
@@ -1322,7 +1323,7 @@ components:
       properties:
         serviceKey: { type: string }
         label: { type: string }
-        scheduling: { type: string, enum: [campaign, route] }
+        scheduling: { type: string, enum: [campaign, checklist, route] }
         statedQuantity: { type: [number, "null"] }
         owed: { type: [integer, "null"] }
         done: { type: integer }
@@ -1397,6 +1398,9 @@ components:
         title: { type: string }
         category: { type: string }
         source: { type: string }
+        serviceKey: { type: [string, "null"] }
+        calendarEntryId: { type: [string, "null"] }
+        roundYear: { type: [integer, "null"] }
         windowStart: { type: string }
         windowEnd: { type: string }
         status: { type: string }
@@ -1476,7 +1480,7 @@ components:
         agreementId: { type: string }
         seasonLabel: { type: string }
         termStatus: { type: string }
-        timing: { type: string, enum: [contract, program] }
+        timing: { type: string, enum: [contract, calendar] }
         count: { type: string, enum: [contract, standard] }
     CampaignDemandGap:
       type: object
@@ -1488,16 +1492,18 @@ components:
         agreementId: { type: string }
         seasonLabel: { type: string }
         serviceKey: { type: string }
-        kind: { type: string, enum: [no_count, no_timing, invalid_count, duplicate_lines, count_mismatch] }
+        kind: { type: string, enum: [no_count, needs_rounds, month_outside_calendar, legacy_chemical, invalid_count, duplicate_lines, count_mismatch] }
         count: { type: integer }
         monthTotal: { type: integer }
+        month: { type: integer }
+        informational: { type: boolean }
     CampaignRoundRef:
       type: object
-      required: [serviceKey, roundMonth, roundSeq, title, windowStart, windowEnd, campaignId]
+      required: [serviceKey, calendarEntryId, roundYear, title, windowStart, windowEnd, campaignId]
       properties:
         serviceKey: { type: string }
-        roundMonth: { type: string }
-        roundSeq: { type: integer }
+        calendarEntryId: { type: string }
+        roundYear: { type: integer }
         title: { type: string }
         windowStart: { type: string }
         windowEnd: { type: string }

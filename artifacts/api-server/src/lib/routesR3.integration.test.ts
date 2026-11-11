@@ -28,7 +28,7 @@ describe.skipIf(!enabled)("Routes with handmade stops and no migration data", ()
   function app(role = "admin", companyId: string = f.companyId, authenticated = true) {
     const a = express(); a.use(express.json());
     a.use((req, _res, next) => {
-      Object.assign(req, { isAuthenticated: () => authenticated, user: { id: f.userId, activeCompanyId: companyId, activeRole: role } }); next();
+      Object.assign(req, { isAuthenticated: () => authenticated, user: { id: f.userId, activeCompanyId: companyId, activeRole: role, accessRole: role } }); next();
     });
     registerRouteStopRoutes(a); registerVisitRoutes(a); registerCrewsAndMobileRoutes(a);
     return a;

@@ -100,8 +100,8 @@ describe("CG3 independent membership queue", () => {
       await request(app).post(path);
     await request(app).get("/api/customers");
     expect(mocks.reconcile).toHaveBeenCalledTimes(1);
-    // SC1 calendar is not a generation input until SC2; its writes do not reconcile.
+    // Calendar changes now refresh opted-in rounds using the captured company.
     await request(app).put("/api/service-calendar/native_areas");
-    expect(mocks.reconcile).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(mocks.reconcile).toHaveBeenCalledTimes(2));
   });
 });

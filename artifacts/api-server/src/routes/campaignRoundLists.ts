@@ -118,6 +118,7 @@ export function registerCampaignRoundLists(app: Express) {
       const round = await db.transaction(async tx => {
         const round = await lockedRound(tx, user.activeCompanyId, String(req.params.id));
         if (round.status !== "active") throw new CrewLinkError(409, "Only an active round can be started");
+        if (round.serviceKey === "backflow") throw new CrewLinkError(409, "Checklists are completed from their round page, not started on crew days");
         if (round.startedAt) return round;
         const [started] = await tx.update(campaigns).set({ startedAt: new Date(), startedById: user.id, updatedAt: new Date() })
           .where(eq(campaigns.id, round.id)).returning();
@@ -140,6 +141,7 @@ export function registerCampaignRoundLists(app: Express) {
       eq(campaigns.source, "contract")));
     const output = [], chemicalItems = [];
     for (const round of rounds) {
+      if (round.serviceKey === "backflow") continue;
       const scoped = roundField(user) && !roundAssigned(user, round);
       const authorizedTeams = scoped ? await roundTeamIds(user, round) : null;
       // Use the same start-gated projection for bars, counts, queue entries and

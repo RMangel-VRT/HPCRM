@@ -14,16 +14,16 @@ describe("batched fulfillment reads", () => {
       return [];
     } }) }) };
     const loaded = await loadServiceFulfillmentInputs(reader as any, "company-fixture");
-    expect(loaded.programs).toEqual([]);
-    expect(calls).toHaveLength(8);
+    expect(loaded.calendar).toEqual([]);
+    expect(calls).toHaveLength(9);
     expect(calls.map(c => c.table)).toEqual([
       "customers", "agreements", "agreement_terms", "term_scope_lines",
-      "campaigns", "campaign_items", "route_stops", "visits",
+      "campaigns", "campaign_items", "route_stops", "visits", "service_calendar",
     ]);
     for (const call of calls) {
       expect(call.sql).toContain("company_id");
       expect(call.params).toContain("company-fixture");
     }
-    expect(calls.at(-1)!.params).toEqual(["company-fixture", "route", "2026-10-01", "2027-09-30"]);
+    expect(calls.find(c => c.table === "visits")!.params).toEqual(["company-fixture", "route", "2026-10-01", "2027-09-30"]);
   });
 });

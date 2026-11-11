@@ -11,7 +11,9 @@ export type CampaignDemandGapKind =
 
 export const CampaignDemandGapKind = {
   no_count: "no_count",
-  no_timing: "no_timing",
+  needs_rounds: "needs_rounds",
+  month_outside_calendar: "month_outside_calendar",
+  legacy_chemical: "legacy_chemical",
   invalid_count: "invalid_count",
   duplicate_lines: "duplicate_lines",
   count_mismatch: "count_mismatch",

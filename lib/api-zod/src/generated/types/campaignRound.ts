@@ -11,6 +11,12 @@ export interface CampaignRound {
   title: string;
   category: string;
   source: string;
+  /** @nullable */
+  serviceKey?: string | null;
+  /** @nullable */
+  calendarEntryId?: string | null;
+  /** @nullable */
+  roundYear?: number | null;
   windowStart: string;
   windowEnd: string;
   status: string;

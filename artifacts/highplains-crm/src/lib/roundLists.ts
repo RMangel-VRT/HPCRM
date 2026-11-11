@@ -7,7 +7,7 @@ export type RoundTeam = Pick<CampaignRoundTeam, "id" | "crewId" | "name" | "colo
 export type RoundItem = Pick<CampaignRoundItem, "id" | "customerName" | "status" | "assignedCampaignCrewId" | "crewPosition"> &
   Partial<Pick<CampaignRoundItem, "targetDate" | "backupDate" | "customerCity" | "customerAddress">>;
 export type RoundListsResponse = Omit<CampaignRoundLists, "campaign" | "teams" | "items"> & {
-  campaign: Pick<CampaignRound, "id" | "title" | "category" | "source" | "windowStart" | "windowEnd" | "startedAt" | "status">;
+  campaign: Pick<CampaignRound, "id" | "title" | "category" | "source" | "windowStart" | "windowEnd" | "startedAt" | "status" | "serviceKey">;
   teams: RoundTeam[]; items: RoundItem[];
 };
 export interface StandingCrew { id: string; name: string; color?: string; isActive?: boolean; active?: boolean }

@@ -27,7 +27,7 @@ beforeEach(() => {
     agreements: [{ id: "a", customerId: "p", companyId }],
     terms: [{ id: "t", agreementId: "a", companyId, line: "landscape", status: "signed",
       startDate: "2026-01-01", endDate: "2028-12-31", seasonLabel: "Fixture" }],
-    scope: [], programs: [], campaigns: [], items: [], stops: [], visits: [],
+    scope: [], calendar: [], campaigns: [], items: [], stops: [], visits: [],
   }));
 });
 describe("authorized customer services endpoint", () => {

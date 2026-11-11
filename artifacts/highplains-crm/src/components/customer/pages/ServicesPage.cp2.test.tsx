@@ -32,7 +32,7 @@ const rowButton = (key = "irrigation_activation") => within(screen.getByTestId(`
 
 describe("CP2 preserved details with CP6 contract demand", () => {
   it.each(["on_track", "complete", "closed_with_skips", "not_owed", "overdue", "missing_item",
-    "waiting_on_signature", "no_route", "no_count", "no_timing", "invalid_count", "duplicate_lines"])(
+    "waiting_on_signature", "no_route", "no_count", "needs_rounds", "month_outside_calendar", "legacy_chemical", "invalid_count", "duplicate_lines"])(
     "renders returned primary %s without replacing it with a secondary issue", status => {
       fx.data.rows = [serviceRowFixture({ status, issues: ["count_mismatch", "waiting_on_signature"] })];
       page();
@@ -43,10 +43,10 @@ describe("CP2 preserved details with CP6 contract demand", () => {
   it("expands rounds and opens the existing real checklist panel with canonical links", async () => {
     page();
     fireEvent.click(rowButton());
-    const round = screen.getByTestId("round-irrigation_activation-2026-04-01-1");
+    const round = screen.getByTestId("round-irrigation_activation-calendar1-2026");
     expect(round.textContent).toContain("Apr 1, 2026 – Apr 20, 2026");
     expect(round.textContent).toContain("Standard count");
-    expect(round.textContent).toContain("Program timing");
+    expect(round.textContent).toContain("Calendar timing");
     expect(within(round).getByText("Round", { selector: "a" }).getAttribute("href")).toBe("/dashboard/campaigns/round1");
     fireEvent.click(within(round).getByText("Item"));
     expect(await screen.findByTestId("checklist-item-detail-panel")).toBeDefined();
@@ -56,7 +56,7 @@ describe("CP2 preserved details with CP6 contract demand", () => {
   it("renders ordered counts/null setup tiles and every secondary issue, without manual inflation", () => {
     fx.data = customerServicesFixture({
       rows: [serviceRowFixture({ skipped: 1, status: "overdue", issues: ["overdue", "no_route", "count_mismatch"] }),
-        serviceRowFixture({ serviceKey: "gap", label: "Gap", owed: null, remaining: null, status: "no_timing", issues: ["no_timing"] })],
+        serviceRowFixture({ serviceKey: "gap", label: "Gap", owed: null, remaining: null, status: "needs_rounds", issues: ["needs_rounds"] })],
       otherWork: [{ campaignId: "manual", itemId: "manual-item", title: "Hand-built special", status: "pending" }],
     });
     page();
@@ -64,7 +64,7 @@ describe("CP2 preserved details with CP6 contract demand", () => {
     expect(screen.getByTestId("text-service-counts-irrigation_activation").textContent).toBe("Owed 2 / Done 1 / Remaining 1");
     expect(screen.getByTestId("text-service-skipped-irrigation_activation").textContent).toBe("Skipped 1");
     const gap = screen.getByTestId("tile-service-gap");
-    expect(gap.textContent).toContain("—"); expect(gap.textContent).toContain("No service timing set");
+    expect(gap.textContent).toContain("—"); expect(gap.textContent).toContain("Contract must specify rounds");
     expect(gap.querySelector("[style]")).toBeNull();
     expect(screen.getByTestId("chip-issue-irrigation_activation-count_mismatch")).toBeTruthy();
     expect(screen.getByTestId("chip-issue-irrigation_activation-no_route")).toBeTruthy();
@@ -75,13 +75,13 @@ describe("CP2 preserved details with CP6 contract demand", () => {
   });
   it("shows all round states, no broken missing-item links and chemical promise plus window", () => {
     const states = ["completed", "skipped", "pending", "overdue", "waiting_on_signature", "missing_item"] as const;
-    fx.data.rows[0].rounds = states.map((state, index) => ({ ...fx.data.rows[0].rounds[0], roundSeq: index + 1, state,
+    fx.data.rows[0].rounds = states.map((state, index) => ({ ...fx.data.rows[0].rounds[0], calendarEntryId: `calendar${index + 1}`, state,
       itemId: state === "missing_item" ? null : "item1", dateKind: state === "pending" ? "chemical_promise" : "round_window" }));
     page(); fireEvent.keyDown(rowButton(), { key: "Enter" });
-    for (const [index] of states.entries()) expect(screen.getByTestId(`status-round-irrigation_activation-2026-04-01-${index + 1}`)).toBeTruthy();
-    expect(screen.queryByTestId("button-round-item-irrigation_activation-2026-04-01-6")).toBeNull();
-    expect(screen.getByTestId("text-round-window-irrigation_activation-2026-04-01-3").textContent).toContain("Window Apr 1");
-    expect(screen.getByTestId("text-round-window-irrigation_activation-2026-04-01-3").textContent).toContain("Promised Apr 20");
+    for (const [index] of states.entries()) expect(screen.getByTestId(`status-round-irrigation_activation-calendar${index + 1}-2026`)).toBeTruthy();
+    expect(screen.queryByTestId("button-round-item-irrigation_activation-calendar6-2026")).toBeNull();
+    expect(screen.getByTestId("text-round-window-irrigation_activation-calendar3-2026").textContent).toContain("Window Apr 1");
+    expect(screen.getByTestId("text-round-window-irrigation_activation-calendar3-2026").textContent).toContain("Promised Apr 20");
     expect(screen.getByTestId("text-service-next-irrigation_activation").textContent).toBe("Window opens Apr 7");
   });
   it("shows uncounted classes, manual history with no season, and retained only when supplied", () => {
@@ -103,7 +103,7 @@ describe("CP2 preserved details with CP6 contract demand", () => {
   it("keeps route drawer and gap links permission-bound and targets exact season", () => {
     expect(gapLink("no_count", serviceSeasonFixture, accessFor("admin"))).toBe("/dashboard/contracts/agreement1#term-term1");
     for (const status of ["invalid_count", "duplicate_lines"]) expect(gapLink(status, serviceSeasonFixture, accessFor("admin"))).toContain("#term-term1");
-    expect(gapLink("no_timing", serviceSeasonFixture, accessFor("field"))).toBeNull();
+    expect(gapLink("needs_rounds", serviceSeasonFixture, accessFor("field"))).toBeNull();
     expect(gapLink("no_route", serviceSeasonFixture, accessFor("field"))).toBeNull();
     fx.data.rows = [serviceRowFixture({ scheduling: "route" })];
     page(); fireEvent.keyDown(rowButton(), { key: " " });

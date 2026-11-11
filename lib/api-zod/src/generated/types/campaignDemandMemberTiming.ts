@@ -11,5 +11,5 @@ export type CampaignDemandMemberTiming =
 
 export const CampaignDemandMemberTiming = {
   contract: "contract",
-  program: "program",
+  calendar: "calendar",
 } as const;

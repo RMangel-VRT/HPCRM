@@ -92,7 +92,7 @@ export async function updateCampaignRoundItem(id: string, companyId: string,
       throw new CrewLinkError(409, "Crew assignment changed. Reload your list before recording work.");
     const [after] = await tx.update(campaignItems).set(updates).where(and(eq(campaignItems.id, id),
       eq(campaignItems.companyId, companyId))).returning();
-    if (campaign.source !== "contract" || campaign.category === "extra_billable") return after;
+    if (campaign.source !== "contract" || campaign.category === "extra_billable" || campaign.serviceKey === "backflow") return after;
     if (before.status !== "completed" && after.status === "completed") {
       const [team] = after.assignedCampaignCrewId ? await tx.select().from(campaignCrews).where(and(
         eq(campaignCrews.id, after.assignedCampaignCrewId), eq(campaignCrews.campaignId, campaign.id),

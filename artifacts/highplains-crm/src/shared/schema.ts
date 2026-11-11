@@ -2544,6 +2544,8 @@ export const campaigns = pgTable("campaigns", {
   serviceKey: text("service_key"),
   roundMonth: date("round_month", { mode: "string" }),
   roundSeq: smallint("round_seq"),
+  calendarEntryId: varchar("calendar_entry_id").references(() => serviceCalendar.id, { onDelete: "restrict" }),
+  roundYear: smallint("round_year"),
   startedAt: timestamp("started_at"),
   startedById: varchar("started_by_id").references(() => users.id, { onDelete: "set null" }),
   title: text("title").notNull(),
@@ -2563,19 +2565,20 @@ export const campaigns = pgTable("campaigns", {
 }, (table) => ({
   campaignsCompanyIdIdx: index("campaigns_company_id_idx").on(table.companyId),
   companyIdentity: unique("campaigns_id_company_unique").on(table.id, table.companyId),
-  contractRound: uniqueIndex("campaigns_contract_round_unique").on(table.companyId, table.serviceKey, table.roundMonth, table.roundSeq).where(sql`${table.source} = 'contract'`),
+  calendarRound: uniqueIndex("campaigns_calendar_round_unique").on(table.companyId, table.calendarEntryId, table.roundYear).where(sql`${table.source} = 'contract'`),
   generatedIdentity: check("campaigns_identity_check", campaignIdentityCheckSql),
 }));
 
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   id: true,
-  source: true, serviceKey: true, roundMonth: true, roundSeq: true,
+  source: true, serviceKey: true, roundMonth: true, roundSeq: true, calendarEntryId: true, roundYear: true,
   startedAt: true, startedById: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
   source: z.never().optional(), serviceKey: z.never().optional(),
   roundMonth: z.never().optional(), roundSeq: z.never().optional(),
+  calendarEntryId: z.never().optional(), roundYear: z.never().optional(),
   seasonId: z.string().nullable().optional(),
   notificationTemplateId: z.string().nullable().optional(),
 });

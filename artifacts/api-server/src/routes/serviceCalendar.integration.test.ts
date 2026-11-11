@@ -153,7 +153,7 @@ describe("SC1 calendar on disposable development companies", () => {
     expect(usage.needsRounds.every(link => link.agreementId === agreement && link.customerId === p)).toBe(true);
     expect((await listServiceCalendar(b)).usage.every(u => u.seasons === 0)).toBe(true);
   });
-  it("runs demand preview, reconcile and customer fulfillment with empty programs, never calendar timing", async () => {
+  it("uses calendar timing consistently in preview, reconcile and fulfillment", async () => {
     const property = randomUUID(), agreement = randomUUID(), term = randomUUID();
     await db.insert(customers).values({ id: property, companyId: a, name: "Transition fixture", street: "Test", city: "Test", state: "CO", zip: "00000" });
     await db.insert(agreements).values({ id: agreement, companyId: a, customerId: property });
@@ -165,20 +165,20 @@ describe("SC1 calendar on disposable development companies", () => {
     ]);
     await loadStartingServiceCalendar(a, uid);
     const loaded = await loadServiceFulfillmentInputs(db, a);
-    expect(loaded.programs).toEqual([]);
+    expect(loaded.calendar.length).toBeGreaterThan(0);
     const fulfillment = customerServiceFulfillment(loaded, property, term, "2026-11-11")!;
-    expect(fulfillment.rows.find(r => r.serviceKey === "cleanups")!.issues).toContain("no_timing");
-    expect(fulfillment.rows.find(r => r.serviceKey === "aeration")!.issues).toContain("no_count");
+    expect(fulfillment.rows.find(r => r.serviceKey === "cleanups")!.issues).toContain("needs_rounds");
+    expect(fulfillment.rows.find(r => r.serviceKey === "aeration")!.owed).toBe(1);
     for (const dryRun of [true, false]) {
       const report = await db.transaction(tx => reconcileCampaigns(tx, a, 2027, { dryRun, today: "2026-11-11" }));
-      expect(report.created).toEqual([]);
-      expect(report.gaps.map(g => [g.serviceKey, g.kind]).sort()).toEqual([["aeration", "no_count"], ["cleanups", "no_timing"]]);
+      expect(report.rounds).toHaveLength(1);
+      expect(report.gaps.map(g => [g.serviceKey, g.kind]).sort()).toEqual([["cleanups", "needs_rounds"]]);
     }
     // Contract-stated months still work without program rows, and never get rewritten.
-    const stated = [0,0,1,0,0,0,0,0,0,1,0,0];
+    const stated = [0,0,1,0,0,0,0,0,0,0,1,0];
     await db.update(termScopeLines).set({ monthSpread: stated }).where(and(eq(termScopeLines.companyId, a), eq(termScopeLines.termId, term), eq(termScopeLines.serviceKey, "cleanups")));
     const report = await db.transaction(tx => reconcileCampaigns(tx, a, 2027, { dryRun: true, today: "2026-11-11" }));
-    expect(report.rounds.map(r => r.roundMonth)).toEqual(["2027-03-01", "2027-10-01"]);
+    expect(report.rounds.filter(r => r.serviceKey === "cleanups").map(r => r.windowEnd)).toEqual(["2027-04-15", "2027-11-30"]);
     expect((await loadServiceFulfillmentInputs(db, a)).scope!.find(s => s.serviceKey === "cleanups")!.monthSpread).toEqual(stated);
   });
   it("enforces every SQL check and mirrors the shared SQL expression", async () => {

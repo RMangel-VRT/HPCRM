@@ -6,7 +6,8 @@ import { es } from "date-fns/locale";
 export const SERVICE_STATUS_LABELS: Record<string, string> = {
   on_track: "On track", complete: "Complete", closed_with_skips: "Closed with skips", not_owed: "Not owed",
   overdue: "Overdue", missing_item: "Not on a round yet", waiting_on_signature: "Waiting on signature",
-  no_route: "No route set up", no_count: "Contract gives no count", no_timing: "No service timing set",
+  no_route: "No route set up", no_count: "Contract gives no count",
+  needs_rounds: "Contract must specify rounds", month_outside_calendar: "Stated month outside calendar", legacy_chemical: "Review legacy fert/chem",
   invalid_count: "Invalid count", duplicate_lines: "Duplicate lines", count_mismatch: "Count mismatch",
   completed: "Completed", skipped: "Skipped", pending: "Pending",
 };
@@ -22,7 +23,7 @@ export function serviceDisplayStatus(status: string): DisplayStatus {
   if (status === "on_track") return "active";
   return "pending";
 }
-const SETUP = new Set(["no_count", "no_timing", "invalid_count", "duplicate_lines", "no_route", "missing_item"]);
+const SETUP = new Set(["no_count", "needs_rounds", "month_outside_calendar", "legacy_chemical", "invalid_count", "duplicate_lines", "no_route", "missing_item"]);
 export function isServiceSetup(row: ServiceFulfillment) {
   return SETUP.has(row.status) || row.issues.some(issue => SETUP.has(issue));
 }

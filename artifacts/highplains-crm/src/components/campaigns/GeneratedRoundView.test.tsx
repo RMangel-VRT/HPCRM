@@ -38,6 +38,12 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("generated crew list interactions", () => {
+  it("does not offer Start round for annual checklists", () => {
+    state.data!.campaign.serviceKey = "backflow";
+    mount();
+    expect(screen.queryByTestId("button-start-round")).toBeNull();
+    expect(screen.getByTestId("link-round-item-p1")).toBeTruthy();
+  });
   it("separates history from priority and reorders with the exact insertion contract", () => {
     mount();
     expect(screen.getByTestId("closed-ta").textContent).toContain("Finished property");

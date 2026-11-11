@@ -54,7 +54,7 @@ export const GetCustomerServicesResponse = zod.object({
     zod.object({
       serviceKey: zod.string(),
       label: zod.string(),
-      scheduling: zod.enum(["campaign", "route"]),
+      scheduling: zod.enum(["campaign", "checklist", "route"]),
       statedQuantity: zod.number().nullable(),
       owed: zod.number().nullable(),
       done: zod.number(),
@@ -76,8 +76,9 @@ export const GetCustomerServicesResponse = zod.object({
       ]),
       rounds: zod.array(
         zod.object({
-          roundMonth: zod.string(),
-          roundSeq: zod.number(),
+          calendarEntryId: zod.string(),
+          roundYear: zod.number(),
+          name: zod.string(),
           campaignId: zod.string().nullable(),
           itemId: zod.string().nullable(),
           dueDate: zod.string(),
@@ -92,7 +93,7 @@ export const GetCustomerServicesResponse = zod.object({
             "overdue",
             "pending",
           ]),
-          timing: zod.enum(["contract", "program"]),
+          timing: zod.enum(["contract", "calendar"]),
           countSource: zod.enum(["contract", "standard"]),
         }),
       ),
@@ -133,6 +134,9 @@ export const GetCampaignRoundListsResponse = zod.object({
     title: zod.string(),
     category: zod.string(),
     source: zod.string(),
+    serviceKey: zod.string().nullish(),
+    calendarEntryId: zod.string().nullish(),
+    roundYear: zod.number().nullish(),
     windowStart: zod.string(),
     windowEnd: zod.string(),
     status: zod.string(),
@@ -210,6 +214,9 @@ export const StartCampaignRoundResponse = zod.object({
   title: zod.string(),
   category: zod.string(),
   source: zod.string(),
+  serviceKey: zod.string().nullish(),
+  calendarEntryId: zod.string().nullish(),
+  roundYear: zod.number().nullish(),
   windowStart: zod.string(),
   windowEnd: zod.string(),
   status: zod.string(),
@@ -238,6 +245,9 @@ export const GetCampaignRoundCalendarResponse = zod.object({
         title: zod.string(),
         category: zod.string(),
         source: zod.string(),
+        serviceKey: zod.string().nullish(),
+        calendarEntryId: zod.string().nullish(),
+        roundYear: zod.number().nullish(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
         status: zod.string(),
@@ -316,8 +326,8 @@ export const PreviewCampaignGenerationResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -333,7 +343,7 @@ export const PreviewCampaignGenerationResponse = zod.object({
               agreementId: zod.string(),
               seasonLabel: zod.string(),
               termStatus: zod.string(),
-              timing: zod.enum(["contract", "program"]),
+              timing: zod.enum(["contract", "calendar"]),
               count: zod.enum(["contract", "standard"]),
             }),
           ),
@@ -346,8 +356,8 @@ export const PreviewCampaignGenerationResponse = zod.object({
   created: zod.array(
     zod.object({
       serviceKey: zod.string(),
-      roundMonth: zod.string(),
-      roundSeq: zod.number(),
+      calendarEntryId: zod.string(),
+      roundYear: zod.number(),
       title: zod.string(),
       windowStart: zod.string(),
       windowEnd: zod.string(),
@@ -357,8 +367,8 @@ export const PreviewCampaignGenerationResponse = zod.object({
   deleted: zod.array(
     zod.object({
       serviceKey: zod.string(),
-      roundMonth: zod.string(),
-      roundSeq: zod.number(),
+      calendarEntryId: zod.string(),
+      roundYear: zod.number(),
       title: zod.string(),
       windowStart: zod.string(),
       windowEnd: zod.string(),
@@ -369,8 +379,8 @@ export const PreviewCampaignGenerationResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -388,8 +398,8 @@ export const PreviewCampaignGenerationResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -407,8 +417,8 @@ export const PreviewCampaignGenerationResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -426,8 +436,8 @@ export const PreviewCampaignGenerationResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -445,8 +455,8 @@ export const PreviewCampaignGenerationResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -470,13 +480,17 @@ export const PreviewCampaignGenerationResponse = zod.object({
       serviceKey: zod.string(),
       kind: zod.enum([
         "no_count",
-        "no_timing",
+        "needs_rounds",
+        "month_outside_calendar",
+        "legacy_chemical",
         "invalid_count",
         "duplicate_lines",
         "count_mismatch",
       ]),
       count: zod.number().optional(),
       monthTotal: zod.number().optional(),
+      month: zod.number().optional(),
+      informational: zod.boolean().optional(),
     }),
   ),
   waitingOnSignature: zod.number(),
@@ -511,8 +525,8 @@ export const GenerateContractCampaignsResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -528,7 +542,7 @@ export const GenerateContractCampaignsResponse = zod.object({
               agreementId: zod.string(),
               seasonLabel: zod.string(),
               termStatus: zod.string(),
-              timing: zod.enum(["contract", "program"]),
+              timing: zod.enum(["contract", "calendar"]),
               count: zod.enum(["contract", "standard"]),
             }),
           ),
@@ -541,8 +555,8 @@ export const GenerateContractCampaignsResponse = zod.object({
   created: zod.array(
     zod.object({
       serviceKey: zod.string(),
-      roundMonth: zod.string(),
-      roundSeq: zod.number(),
+      calendarEntryId: zod.string(),
+      roundYear: zod.number(),
       title: zod.string(),
       windowStart: zod.string(),
       windowEnd: zod.string(),
@@ -552,8 +566,8 @@ export const GenerateContractCampaignsResponse = zod.object({
   deleted: zod.array(
     zod.object({
       serviceKey: zod.string(),
-      roundMonth: zod.string(),
-      roundSeq: zod.number(),
+      calendarEntryId: zod.string(),
+      roundYear: zod.number(),
       title: zod.string(),
       windowStart: zod.string(),
       windowEnd: zod.string(),
@@ -564,8 +578,8 @@ export const GenerateContractCampaignsResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -583,8 +597,8 @@ export const GenerateContractCampaignsResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -602,8 +616,8 @@ export const GenerateContractCampaignsResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -621,8 +635,8 @@ export const GenerateContractCampaignsResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -640,8 +654,8 @@ export const GenerateContractCampaignsResponse = zod.object({
     zod
       .object({
         serviceKey: zod.string(),
-        roundMonth: zod.string(),
-        roundSeq: zod.number(),
+        calendarEntryId: zod.string(),
+        roundYear: zod.number(),
         title: zod.string(),
         windowStart: zod.string(),
         windowEnd: zod.string(),
@@ -665,13 +679,17 @@ export const GenerateContractCampaignsResponse = zod.object({
       serviceKey: zod.string(),
       kind: zod.enum([
         "no_count",
-        "no_timing",
+        "needs_rounds",
+        "month_outside_calendar",
+        "legacy_chemical",
         "invalid_count",
         "duplicate_lines",
         "count_mismatch",
       ]),
       count: zod.number().optional(),
       monthTotal: zod.number().optional(),
+      month: zod.number().optional(),
+      informational: zod.boolean().optional(),
     }),
   ),
   waitingOnSignature: zod.number(),

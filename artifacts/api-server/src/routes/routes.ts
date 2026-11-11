@@ -10101,8 +10101,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         campaignTitle: campaignsTable.title,
         campaignServiceKey: campaignsTable.serviceKey,
         campaignSource: campaignsTable.source,
-        campaignRoundMonth: campaignsTable.roundMonth,
-        campaignRoundSeq: campaignsTable.roundSeq,
+        campaignCalendarEntryId: campaignsTable.calendarEntryId,
+        campaignRoundYear: campaignsTable.roundYear,
         windowStart: campaignsTable.windowStart,
         windowEnd: campaignsTable.windowEnd,
         category: campaignsTable.category,
@@ -14810,8 +14810,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           campaignTitle: campaignsTable.title,
           campaignServiceKey: campaignsTable.serviceKey,
           campaignSource: campaignsTable.source,
-          campaignRoundMonth: campaignsTable.roundMonth,
-          campaignRoundSeq: campaignsTable.roundSeq,
+          campaignCalendarEntryId: campaignsTable.calendarEntryId,
+          campaignRoundYear: campaignsTable.roundYear,
           windowStart: campaignsTable.windowStart,
           windowEnd: campaignsTable.windowEnd,
           category: campaignsTable.category,
@@ -16287,7 +16287,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const reportItems: Array<{
       campaignName: string; campaignId: string; customerName: string; customerCity: string;
       campaignServiceKey: string | null; campaignSource: "manual" | "contract";
-      campaignRoundMonth: string | null; campaignRoundSeq: number | null;
+      campaignCalendarEntryId: string | null; campaignRoundYear: number | null;
       customerAddress: string;
       completedAt: string | null; notes: string | null; photoCount: number;
       weatherTemp: number | null; weatherWindSpeed: number | null; weatherWindDirection: number | null;
@@ -16309,8 +16309,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             campaignId: camp.id,
             campaignServiceKey: camp.serviceKey,
             campaignSource: camp.source,
-            campaignRoundMonth: camp.roundMonth,
-            campaignRoundSeq: camp.roundSeq,
+            campaignCalendarEntryId: camp.calendarEntryId,
+            campaignRoundYear: camp.roundYear,
             customerName: item.customerName,
             customerCity: item.customerCity || "",
             customerAddress,
@@ -16915,8 +16915,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     campaignCategory: string;
     campaignServiceKey: string | null;
     campaignSource: "manual" | "contract";
-    campaignRoundMonth: string | null;
-    campaignRoundSeq: number | null;
+    campaignCalendarEntryId: string | null;
+    campaignRoundYear: number | null;
     windowStart: string;
     windowEnd: string;
     customerId: string;
@@ -16984,8 +16984,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           campaignCategory: campaign.category,
           campaignServiceKey: campaign.serviceKey,
           campaignSource: campaign.source,
-          campaignRoundMonth: campaign.roundMonth,
-          campaignRoundSeq: campaign.roundSeq,
+          campaignCalendarEntryId: campaign.calendarEntryId,
+          campaignRoundYear: campaign.roundYear,
           windowStart: campaign.windowStart,
           windowEnd: campaign.windowEnd,
           customerId: customer.id,
@@ -17046,8 +17046,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           campaignCategory: campaign.category,
           campaignServiceKey: campaign.serviceKey,
           campaignSource: campaign.source,
-          campaignRoundMonth: campaign.roundMonth,
-          campaignRoundSeq: campaign.roundSeq,
+          campaignCalendarEntryId: campaign.calendarEntryId,
+          campaignRoundYear: campaign.roundYear,
           windowStart: campaign.windowStart,
           windowEnd: campaign.windowEnd,
           customerId: customer.id,
@@ -17204,8 +17204,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           campaignCategory: campaign.category,
           campaignServiceKey: campaign.serviceKey,
           campaignSource: campaign.source,
-          campaignRoundMonth: campaign.roundMonth,
-          campaignRoundSeq: campaign.roundSeq,
+          campaignCalendarEntryId: campaign.calendarEntryId,
+          campaignRoundYear: campaign.roundYear,
           windowStart: campaign.windowStart,
           windowEnd: campaign.windowEnd,
           customerId: customer.id,

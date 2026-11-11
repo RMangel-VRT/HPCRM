@@ -23,10 +23,9 @@ export function accessFor(role: string | undefined): ServiceAccess {
   };
 }
 
-const BLOCKING_GAPS = ["no_count", "invalid_count", "duplicate_lines"];
+const BLOCKING_GAPS = ["no_count", "invalid_count", "duplicate_lines", "needs_rounds", "month_outside_calendar", "legacy_chemical"];
 
 export function gapLink(issue: string, term: ServiceSeason | null, access: ServiceAccess): string | null {
-  if (issue === "no_timing") return access.timing ? "/dashboard/settings/service-calendar" : null;
   if (BLOCKING_GAPS.includes(issue)) return access.contracts && term ? `/dashboard/contracts/${encodeURIComponent(term.agreementId)}#term-${encodeURIComponent(term.termId)}` : null;
   if (issue === "no_route") return access.routes ? "/dashboard/routes" : null;
   return null;
@@ -76,18 +75,18 @@ const ROUND_STATE_DEFAULT: Record<string, string> = {
 function RoundLine({ round, row, access, onOpenItem }: { round: ServiceRound; row: ServiceFulfillment; access: ServiceAccess; onOpenItem: (r: ServiceRound) => void }) {
   const { t } = useTranslation();
   const day = useCustomerDates().day;
-  const id = `${row.serviceKey}-${round.roundMonth}-${round.roundSeq}`;
+  const id = `${row.serviceKey}-${round.calendarEntryId}-${round.roundYear}`;
   const windowText = round.windowStart === round.windowEnd ? day(round.windowStart) : `${day(round.windowStart)} – ${day(round.windowEnd)}`;
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[7rem_minmax(0,1fr)_9rem_auto] items-center gap-x-3 gap-y-0.5 px-3 py-1.5 text-xs border-t first:border-t-0" data-testid={`round-${id}`}>
-      <span className="font-medium tabular-nums">{t("customerPages.services.round", { seq: round.roundSeq, defaultValue: "Round {{seq}}" })} <span className="text-muted-foreground">{round.roundMonth}</span></span>
+      <span className="font-medium">{round.name} <span className="text-muted-foreground">{round.roundYear}</span></span>
       <span className="text-muted-foreground tabular-nums order-3 md:order-none col-span-2 md:col-span-1" data-testid={`text-round-window-${id}`}>
         {t("customerPages.services.windowRange", { range: windowText, defaultValue: "Window {{range}}" })}
         {round.dateKind === "chemical_promise" && <> · {t("customerPages.services.promisedBy", { date: day(round.dueDate), defaultValue: "Promised {{date}}" })}</>}
         <span className="ml-2" data-testid={`text-round-provenance-${id}`}>
           <span className="inline-flex rounded border px-1">{t(`customerPages.services.countSource.${round.countSource}`, { defaultValue: round.countSource === "contract" ? "Contract count" : "Standard count" })}</span>
           {" "}
-          <span className="inline-flex rounded border px-1">{t(`customerPages.services.timing.${round.timing}`, { defaultValue: round.timing === "contract" ? "contract timing" : "program timing" })}</span>
+          <span className="inline-flex rounded border px-1">{t(`customerPages.services.timing.${round.timing}`, { defaultValue: round.timing === "contract" ? "contract timing" : "calendar timing" })}</span>
         </span>
       </span>
       <span className={`font-medium ${ROUND_STATE_VAR[round.state] ?? ""}`} data-testid={`status-round-${id}`}>
@@ -119,6 +118,7 @@ export function ServiceRowItem({ row, term, access, expanded, onToggle, onOpen, 
   const issues = row.issues.filter(i => i !== row.status);
   const gapIssues = [row.status, ...issues];
   const links = Array.from(new Set(gapIssues.map(i => gapLink(i, term, access)).filter(Boolean))) as string[];
+  if (gapIssues.includes("needs_rounds") && access.timing) links.push("/dashboard/settings/service-calendar");
   const k = row.serviceKey;
   const Icon = row.status === "overdue" ? AlertCircle : row.status === "complete" ? CheckCircle2 : Clock;
   return (
@@ -175,7 +175,7 @@ export function ServiceRowItem({ row, term, access, expanded, onToggle, onOpen, 
       )}
       {expandable && expanded && (
         <ul className="mx-3 mb-2 ml-10 rounded border bg-muted/30" data-testid={`rounds-${k}`}>
-          {row.rounds.map(r => <RoundLine key={`${r.roundMonth}-${r.roundSeq}`} round={r} row={row} access={access} onOpenItem={onOpenItem} />)}
+          {row.rounds.map(r => <RoundLine key={`${r.calendarEntryId}-${r.roundYear}`} round={r} row={row} access={access} onOpenItem={onOpenItem} />)}
         </ul>
       )}
     </div>

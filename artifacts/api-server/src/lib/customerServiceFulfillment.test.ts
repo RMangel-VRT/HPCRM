@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { customerServiceFulfillment as calculate, ServiceTermUnavailable, type ServiceFulfillmentInputs } from "./customerServiceFulfillment";
 import { campaignDemand } from "./campaignDemand";
+import { STARTING_SERVICE_CALENDAR } from "../../../../lib/db/src/serviceCalendarContracts";
 
 const months = (entries: Record<number, number>) => Array.from({ length: 12 }, (_, i) => entries[i + 1] ?? 0);
 export function serviceFixture(): ServiceFulfillmentInputs {
@@ -9,9 +10,8 @@ export function serviceFixture(): ServiceFulfillmentInputs {
     agreements: [{ id: "a", companyId: "c", customerId: "p" }],
     terms: [{ id: "t", agreementId: "a", companyId: "c", line: "landscape", status: "signed",
       startDate: "2026-10-01", endDate: "2027-09-30", seasonLabel: "2026–27" }],
-    scope: [{ id: "s", companyId: "c", termId: "t", serviceKey: "chemical", included: true, quantity: 3, monthSpread: null }],
-    programs: [{ companyId: "c", serviceKey: "chemical", rounds: 3, isStandard: true,
-      monthSpread: months({ 3: 1, 6: 1, 11: 1 }) }],
+    scope: [{ id: "s", companyId: "c", termId: "t", serviceKey: "fertilization", included: true, quantity: 3, monthSpread: null }],
+    calendar: STARTING_SERVICE_CALENDAR.map((e, i) => ({...e, id: `entry-${i}`})),
     campaigns: [], items: [], stops: [], visits: [],
   } as unknown as ServiceFulfillmentInputs;
 }
@@ -19,8 +19,8 @@ function materialize(data: ServiceFulfillmentInputs, states = ["completed", "ski
   const rounds = [2026, 2027].flatMap(y => campaignDemand(data, y, "2027-07-01").rounds);
   rounds.forEach((r, n) => {
     data.campaigns.push({ id: `r${n}`, companyId: "c", source: "contract", serviceKey: r.serviceKey,
-      roundMonth: r.roundMonth, roundSeq: r.roundSeq, windowStart: r.roundMonth,
-      windowEnd: `${r.roundMonth.slice(0, 7)}-28`, title: "Generated", status: "active" } as any);
+      calendarEntryId: r.calendarEntryId, roundYear: r.roundYear, windowStart: r.opens,
+      windowEnd: r.due, title: `${r.roundYear} ${r.name}`, status: "active" } as any);
     data.items.push({ id: `i${n}`, companyId: "c", campaignId: `r${n}`, customerId: "p",
       propertyId: null, status: states[n] ?? "pending", targetDate: null, backupDate: null } as any);
   });
@@ -31,9 +31,29 @@ describe("season service fulfillment", () => {
   it("matches governing demand across New Year, not a single selected calendar year", () => {
     const data = materialize(serviceFixture());
     const row = result(data).rows[0];
-    expect(row).toMatchObject({ owed: 3, done: 1, skipped: 1, remaining: 1, status: "overdue" });
-    expect(row.rounds.map(r => r.roundMonth)).toEqual(["2026-11-01", "2027-03-01", "2027-06-01"]);
-    expect(row.next).toMatchObject({ itemId: "i2", date: "2027-06-01" });
+    expect(row).toMatchObject({ owed: 3, done: 1, skipped: 1, remaining: 1, status: "on_track" });
+    expect(row.rounds.map(r => r.windowEnd)).toEqual(["2027-04-30", "2027-07-31", "2027-09-30"]);
+    expect(row.next).toMatchObject({ itemId: "i2", date: "2027-08-15", kind: "round_window" });
+  });
+  it("matches October deadline demand for shrubs, fall fertilizer, January grass and annual backflow", () => {
+    const data = serviceFixture();
+    data.scope = ["shrub_trimming", "fertilization", "ornamental_grass", "backflow"].map(serviceKey => ({
+      ...data.scope![0], serviceKey, quantity: serviceKey === "backflow" ? 8 : null,
+    }));
+    materialize(data, ["completed", "pending", "pending", "pending", "pending", "pending", "pending"]);
+    const result = calculate(data, "p", "t", "2026-11-11")!;
+    for (const row of result.rows) {
+      const expected = [2026, 2027].flatMap(year => campaignDemand(data, year, "2026-11-11").rounds)
+        .filter(r => r.serviceKey === row.serviceKey);
+      expect(row.owed).toBe(expected.length);
+      expect(row.rounds.map(r => r.windowEnd)).toEqual(expected.map(r => r.due));
+    }
+    const backflow = result.rows.find(r => r.serviceKey === "backflow")!;
+    expect(backflow).toMatchObject({scheduling: "checklist", owed: 1, done: 0});
+    const item = data.items.find(i => data.campaigns.find(c => c.id === i.campaignId)?.serviceKey === "backflow")!;
+    item.status = "completed";
+    expect(calculate(data, "p", "t", "2026-11-11")!.rows.find(r => r.serviceKey === "backflow")!.done).toBe(1);
+    expect(result.rows.find(r => r.serviceKey === "ornamental_grass")!.next).toMatchObject({kind: "round_window", date: "2026-12-01"});
   });
   it("keeps missing past items distinct from pending overdue work and never infers completion from visits", () => {
     const data = materialize(serviceFixture(), ["pending", "pending", "pending"]);
@@ -41,19 +61,19 @@ describe("season service fulfillment", () => {
     data.visits.push({ companyId: "c", sourceType: "campaign_item", campaignItemId: "i1", status: "done", customerId: "p" } as any);
     const row = result(data).rows[0];
     expect(row.done).toBe(0);
-    expect(row.rounds.map(r => r.state)).toEqual(["missing_item", "overdue", "overdue"]);
-    expect(row.issues).toEqual(expect.arrayContaining(["missing_item", "overdue"]));
+    expect(row.rounds.map(r => r.state)).toEqual(["missing_item", "pending", "pending"]);
+    expect(row.issues).toEqual(["missing_item"]);
   });
   it("uses contract timing before program, preserves mismatch, and backup before target", () => {
     const data = serviceFixture();
-    data.scope![0].monthSpread = months({ 3: 2 });
+    data.scope![0].monthSpread = months({ 3: 1, 6: 1 });
     materialize(data, ["pending", "pending"]);
     data.items[0].targetDate = "2027-03-10";
     data.items[0].backupDate = "2027-03-20";
     const row = result(data, "2027-03-15").rows[0];
     expect(row).toMatchObject({ owed: 2, done: 0, issues: ["count_mismatch"] });
     expect(row.rounds[0]).toMatchObject({ dueDate: "2027-03-20", state: "pending", timing: "contract" });
-    expect(data.scope![0].monthSpread[2]).toBe(2);
+    expect(data.scope![0].monthSpread[2]).toBe(1);
   });
   it("reports signature waits before overdue, while preserving missing-item issues", () => {
     const data = serviceFixture(); data.terms[0].status = "sent";
@@ -63,10 +83,10 @@ describe("season service fulfillment", () => {
     expect(row.rounds[0].state).toBe("waiting_on_signature");
     expect(row.issues).toContain("missing_item");
   });
-  it.each(["no_count", "no_timing", "invalid_count", "duplicate_lines"])("keeps %s unknown rather than inventing zero", kind => {
+  it.each(["no_count", "needs_rounds", "invalid_count", "duplicate_lines"])("keeps %s unknown rather than inventing zero", kind => {
     const data = serviceFixture();
-    if (kind === "no_count") { data.scope![0].quantity = null; data.programs = []; }
-    if (kind === "no_timing") data.programs = [];
+    if (kind === "no_count") { data.scope![0].quantity = null; data.calendar = []; }
+    if (kind === "needs_rounds") data.scope![0].quantity = 2;
     if (kind === "invalid_count") data.scope![0].quantity = -1;
     if (kind === "duplicate_lines") data.scope!.push({ ...data.scope![0], id: "dup", included: false });
     expect(result(data).rows[0]).toMatchObject({ owed: null, remaining: null, done: 0, status: kind });
@@ -79,15 +99,15 @@ describe("season service fulfillment", () => {
   });
   it("separates manual and uncounted services, retains generated work no longer owed, and is pure", () => {
     const data = materialize(serviceFixture());
-    data.scope!.push({ ...data.scope![0], id: "other", serviceKey: "backflow" });
+    data.scope!.push({ ...data.scope![0], id: "other", serviceKey: "crabgrass" });
     data.campaigns.push({ ...data.campaigns[0], id: "manual", source: "manual", serviceKey: null });
     data.items.push({ ...data.items[0], id: "manual-item", campaignId: "manual" });
     data.items.push({ ...data.items[0], id: "retained", campaignId: "extra" });
-    data.campaigns.push({ ...data.campaigns[0], id: "extra", roundSeq: 2 });
+    data.campaigns.push({ ...data.campaigns[0], id: "extra", calendarEntryId: "retired" });
     const before = structuredClone(data), r = result(data);
     expect(r.rows[0].done).toBe(1);
     expect(r.otherWork).toMatchObject([{ itemId: "manual-item" }]);
-    expect(r.alsoInContract).toMatchObject([{ serviceKey: "backflow", scheduling: "checklist" }]);
+    expect(r.alsoInContract).toMatchObject([{ serviceKey: "crabgrass", scheduling: "on_request" }]);
     expect(r.retainedWork).toMatchObject([{ itemId: "retained" }]);
     expect(data).toEqual(before);
   });

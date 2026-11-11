@@ -1,7 +1,7 @@
 import { and, eq, gte, inArray, lte, sql, asc } from "drizzle-orm";
 import {
   campaigns, campaignItems, campaignItemTaskCompletions, campaignChecklistAuditLog, visits,
-  campaignGenerationYears, type Campaign, type CampaignItem,
+  campaignGenerationYears, serviceCalendar, type Campaign, type CampaignItem,
 } from "@workspace/db";
 import { db, type AppTransaction } from "../db";
 import type { CampaignGenerationReport, RoundRef, ItemRef } from "../../../../lib/db/src/campaignGenerationContracts";
@@ -14,13 +14,9 @@ import { GenerateContractCampaignsResponse } from "@workspace/api-zod";
 import { inheritedRoundTeam } from "./campaignRoundLists";
 import { denseRoundOrder } from "./campaignRoundWork";
 
-const keyOf = (r: { serviceKey: string | null; roundMonth: string | null; roundSeq: number | null }) => `${r.serviceKey}:${r.roundMonth}:${r.roundSeq}`;
-function monthEnd(month: string) {
-  const [year, m] = month.split("-").map(Number);
-  return addCalendarDays(m === 12 ? `${year + 1}-01-01` : `${year}-${String(m + 1).padStart(2, "0")}-01`, -1);
-}
+const keyOf = (r: { calendarEntryId: string | null; roundYear: number | null }) => `${r.calendarEntryId}:${r.roundYear}`;
 function roundRef(c: Campaign): RoundRef {
-  return { campaignId: c.id, serviceKey: c.serviceKey!, roundMonth: c.roundMonth!, roundSeq: c.roundSeq!,
+  return { campaignId: c.id, serviceKey: c.serviceKey!, calendarEntryId: c.calendarEntryId!, roundYear: c.roundYear!,
     title: c.title, windowStart: c.windowStart, windowEnd: c.windowEnd };
 }
 /** Conservative protection includes promised chemical dates and recorded work,
@@ -50,10 +46,10 @@ async function reconcile(tx: AppTransaction, companyId: string, year: number,
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${'campaign-gen:' + companyId}, 0))`);
   const today = opts.today ?? companyToday(), from = `${year}-01-01`, through = `${year}-12-31`;
   const inputs = await loadCustomerContractInputs(tx, companyId);
-  // SC1 transition: the unused timing owner is retired; calendar allocation is SC2.
-  const demand = campaignDemand({ ...inputs, programs: [] }, year, today);
+  const calendar = await tx.select().from(serviceCalendar).where(eq(serviceCalendar.companyId, companyId));
+  const demand = campaignDemand({ ...inputs, calendar }, year, today);
   const existing = await tx.select().from(campaigns).where(and(eq(campaigns.companyId, companyId),
-    eq(campaigns.source, "contract"), gte(campaigns.roundMonth, from), lte(campaigns.roundMonth, through)))
+    eq(campaigns.source, "contract"), eq(campaigns.roundYear, year)))
     .orderBy(asc(campaigns.id)).for("update");
   const ids = existing.map(c => c.id);
   // Lock items before examining progress or dependent rows. FOR UPDATE also
@@ -85,15 +81,20 @@ async function reconcile(tx: AppTransaction, companyId: string, year: number,
   const desired = new Map(demand.rounds.map(r => [keyOf(r), new Set(r.members.map(m => m.propertyId))]));
   const properties = new Map(inputs.customers.map(c => [c.id, c]));
   const remaining = new Map(existing.map(c => [c.id, items.filter(i => i.campaignId === c.id).length]));
-  const services = SCOPE_CATALOG.filter(s => s.scheduling === "campaign" || s.scheduling === "legacy");
+  const services = SCOPE_CATALOG.filter(s => s.scheduling === "campaign" || s.scheduling === "checklist");
   for (const round of demand.rounds) {
     const key = keyOf(round), service = services.find(s => s.key === round.serviceKey)!;
-    const n = Math.max(...demand.rounds.filter(r => r.serviceKey === round.serviceKey && r.roundMonth === round.roundMonth).map(r => r.roundSeq));
-    const monthName = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" }).format(new Date(`${round.roundMonth}T12:00:00Z`));
-    const title = `${year} ${service.campaignName} – ${monthName}${n > 1 ? ` (${round.roundSeq} of ${n})` : ""}`;
+    const title = `${year} ${round.name}`;
     let campaign = byRound.get(key);
+    if (campaign && (campaign.title !== title || campaign.windowStart !== round.opens || campaign.windowEnd !== round.due) &&
+      campaign.windowStart > today && !campaign.startedAt &&
+      !items.filter(i => i.campaignId === campaign!.id).some(i => campaignItemProtected(i, visited.has(i.id), checked.has(i.id)))) {
+      [campaign] = await tx.update(campaigns).set({title, windowStart: round.opens, windowEnd: round.due, updatedAt: new Date()})
+        .where(eq(campaigns.id, campaign.id)).returning();
+      byRound.set(key, campaign);
+    }
     let ref: RoundRef = campaign ? roundRef(campaign) : { ...round, title, campaignId: null,
-      windowStart: round.roundMonth, windowEnd: monthEnd(round.roundMonth) };
+      windowStart: round.opens, windowEnd: round.due };
     const newRound = !campaign;
     const row = { ...ref, members: round.members, newRound, added: 0, removed: 0 };
     report.rounds.push(row);
@@ -106,9 +107,10 @@ async function reconcile(tx: AppTransaction, companyId: string, year: number,
     }
     if (!campaign) {
       [campaign] = await tx.insert(campaigns).values({ companyId, source: "contract", serviceKey: round.serviceKey,
-        roundMonth: round.roundMonth, roundSeq: round.roundSeq, title,
+        calendarEntryId: round.calendarEntryId, roundYear: round.roundYear, title,
         windowStart: ref.windowStart, windowEnd: ref.windowEnd, status: "active",
-        category: round.serviceKey === "chemical" ? "chemical" : service.line === "irrigation" ? "irrigation" : "general",
+        category: ["fertilization", "broadleaf"].includes(round.serviceKey) ? "chemical" :
+          ["irrigation_open", "irrigation_winterization"].includes(round.serviceKey) ? "irrigation" : "general",
         subtype: round.serviceKey === "irrigation_open" ? "spring_turn_on" : round.serviceKey === "irrigation_winterization" ? "winterization" : null,
         createdById: opts.userId ?? null }).returning();
       ref = roundRef(campaign); Object.assign(row, ref);
@@ -140,13 +142,13 @@ async function reconcile(tx: AppTransaction, companyId: string, year: number,
       report.removed.push(itemRef); row.removed++;
       remaining.set(campaign.id, remaining.get(campaign.id)! - 1);
     }
-    if (remaining.get(campaign.id) === 0 && campaign.windowStart > today && campaign.status === "active") {
+    if (remaining.get(campaign.id) === 0 && campaign.windowStart > today && !campaign.startedAt && campaign.status === "active") {
       await tx.delete(campaigns).where(and(eq(campaigns.id, campaign.id), eq(campaigns.companyId, companyId)));
       report.deleted.push(ref);
     }
   }
-  report.rounds.sort((a, b) => a.roundMonth.localeCompare(b.roundMonth) ||
-    services.findIndex(s => s.key === a.serviceKey) - services.findIndex(s => s.key === b.serviceKey) || a.roundSeq - b.roundSeq);
+  report.rounds.sort((a, b) => a.windowEnd.localeCompare(b.windowEnd) ||
+    services.findIndex(s => s.key === a.serviceKey) - services.findIndex(s => s.key === b.serviceKey) || a.calendarEntryId.localeCompare(b.calendarEntryId));
   for (const campaign of byRound.values()) if (!report.deleted.some(r => r.campaignId === campaign.id))
     await denseRoundOrder(tx, companyId, campaign.id);
   return report;

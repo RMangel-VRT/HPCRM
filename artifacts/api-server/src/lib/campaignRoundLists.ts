@@ -15,8 +15,8 @@ export async function lockedRound(tx: AppTransaction, companyId: string, id: str
 export async function previousRound(tx: AppTransaction, round: Campaign) {
   const [previous] = await tx.select().from(campaigns).where(and(eq(campaigns.companyId, round.companyId),
     eq(campaigns.source, "contract"), eq(campaigns.serviceKey, round.serviceKey!),
-    or(lt(campaigns.roundMonth, round.roundMonth!), and(eq(campaigns.roundMonth, round.roundMonth!), lt(campaigns.roundSeq, round.roundSeq!)))))
-    .orderBy(desc(campaigns.roundMonth), desc(campaigns.roundSeq)).limit(1);
+    or(lt(campaigns.windowEnd, round.windowEnd), and(eq(campaigns.windowEnd, round.windowEnd), lt(campaigns.calendarEntryId, round.calendarEntryId!)))))
+    .orderBy(desc(campaigns.windowEnd), desc(campaigns.calendarEntryId)).limit(1);
   return previous;
 }
 /** Reuse standing identity, never copy roster/name ownership from another round. */
@@ -25,8 +25,8 @@ export async function inheritedRoundTeam(tx: AppTransaction, round: Campaign, cu
     .innerJoin(campaignItems, and(eq(campaignItems.campaignId, campaigns.id),
       eq(campaignItems.companyId, round.companyId), eq(campaignItems.customerId, customerId)))
     .where(and(eq(campaigns.companyId, round.companyId), eq(campaigns.source, "contract"), eq(campaigns.serviceKey, round.serviceKey!),
-      or(lt(campaigns.roundMonth, round.roundMonth!), and(eq(campaigns.roundMonth, round.roundMonth!), lt(campaigns.roundSeq, round.roundSeq!)))))
-    .orderBy(desc(campaigns.roundMonth), desc(campaigns.roundSeq)).limit(1);
+      or(lt(campaigns.windowEnd, round.windowEnd), and(eq(campaigns.windowEnd, round.windowEnd), lt(campaigns.calendarEntryId, round.calendarEntryId!)))))
+    .orderBy(desc(campaigns.windowEnd), desc(campaigns.calendarEntryId)).limit(1);
   if (!previous) return null;
   const [old] = await tx.select({ crew: crews }).from(campaignItems)
     .innerJoin(campaignCrews, and(eq(campaignCrews.id, campaignItems.assignedCampaignCrewId), eq(campaignCrews.companyId, round.companyId)))

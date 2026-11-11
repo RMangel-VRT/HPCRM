@@ -61,7 +61,7 @@ export type ServiceRoundTiming =
 
 export const ServiceRoundTiming = {
   contract: "contract",
-  program: "program",
+  calendar: "calendar",
 } as const;
 
 export type ServiceRoundCountSource =
@@ -73,8 +73,9 @@ export const ServiceRoundCountSource = {
 } as const;
 
 export interface ServiceRound {
-  roundMonth: string;
-  roundSeq: number;
+  calendarEntryId: string;
+  roundYear: number;
+  name: string;
   /** @nullable */
   campaignId: string | null;
   /** @nullable */
@@ -93,6 +94,7 @@ export type ServiceFulfillmentScheduling =
 
 export const ServiceFulfillmentScheduling = {
   campaign: "campaign",
+  checklist: "checklist",
   route: "route",
 } as const;
 
@@ -180,6 +182,12 @@ export interface CampaignRound {
   title: string;
   category: string;
   source: string;
+  /** @nullable */
+  serviceKey?: string | null;
+  /** @nullable */
+  calendarEntryId?: string | null;
+  /** @nullable */
+  roundYear?: number | null;
   windowStart: string;
   windowEnd: string;
   status: string;
@@ -252,7 +260,7 @@ export type CampaignDemandMemberTiming =
 
 export const CampaignDemandMemberTiming = {
   contract: "contract",
-  program: "program",
+  calendar: "calendar",
 } as const;
 
 export type CampaignDemandMemberCount =
@@ -279,7 +287,9 @@ export type CampaignDemandGapKind =
 
 export const CampaignDemandGapKind = {
   no_count: "no_count",
-  no_timing: "no_timing",
+  needs_rounds: "needs_rounds",
+  month_outside_calendar: "month_outside_calendar",
+  legacy_chemical: "legacy_chemical",
   invalid_count: "invalid_count",
   duplicate_lines: "duplicate_lines",
   count_mismatch: "count_mismatch",
@@ -295,12 +305,14 @@ export interface CampaignDemandGap {
   kind: CampaignDemandGapKind;
   count?: number;
   monthTotal?: number;
+  month?: number;
+  informational?: boolean;
 }
 
 export interface CampaignRoundRef {
   serviceKey: string;
-  roundMonth: string;
-  roundSeq: number;
+  calendarEntryId: string;
+  roundYear: number;
   title: string;
   windowStart: string;
   windowEnd: string;

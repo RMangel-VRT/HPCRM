@@ -11,5 +11,5 @@ export type ServiceRoundTiming =
 
 export const ServiceRoundTiming = {
   contract: "contract",
-  program: "program",
+  calendar: "calendar",
 } as const;

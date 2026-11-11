@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { transformSync } from "esbuild";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { companies, customers, campaigns, campaignItems, campaignCrews, campaignChecklistTasks, crews, users, visits, pool as schemaPool } from "@workspace/db";
+import { companies, customers, campaigns, campaignItems, campaignCrews, campaignChecklistTasks, crews, users, visits, serviceCalendar, pool as schemaPool } from "@workspace/db";
 import { db, pool } from "../db";
 import { updateCampaignRoundItem, toggleRoundChecklist } from "./campaignRoundWork";
 import { storage } from "../storage";
@@ -80,8 +80,10 @@ describe("CG4 development-only disposable round lists and work history", () => {
     const roster = await db.insert(crews).values([{ companyId: company, name: "Crew A", supervisorUserId: supervisor },
       { companyId: company, name: "Crew B", supervisorUserId: actor }]).returning();
     crewIds = roster.map(c => c.id);
+    await db.insert(serviceCalendar).values([1, 2, 3].map(position => ({id: `${company}-${position}`, companyId: company,
+      kind: "round", serviceKey: "aeration", position, name: `Fixture ${position}`, opensMd: "06-01", dueMd: "06-30", inStandard: true})));
     const [campaign] = await db.insert(campaigns).values({ companyId: company, source: "contract", serviceKey: "aeration",
-      roundMonth: "2027-06-01", roundSeq: 1, title: "Fixture aeration", windowStart: "2027-06-01", windowEnd: "2027-06-30", category: "general" }).returning();
+      calendarEntryId: `${company}-1`, roundYear: 2027, title: "Fixture aeration", windowStart: "2027-06-01", windowEnd: "2027-06-30", category: "general" }).returning();
     round = campaign.id;
     const teams = await db.insert(campaignCrews).values(roster.map(c => ({ companyId: company, campaignId: round,
       crewId: c.id, name: c.name, color: "#2563eb", leaderUserId: c.supervisorUserId }))).returning();
@@ -174,9 +176,25 @@ describe("CG4 development-only disposable round lists and work history", () => {
     expect(first.body.startedAt).toBe(second.body.startedAt);
     expect(await history()).toEqual([]);
   });
+  it("excludes checklist rounds from calendar/queue and rejects direct release but permits completion without a trip", async () => {
+    await db.insert(serviceCalendar).values({id: `${company}-checklist`, companyId: company, kind: "checklist",
+      serviceKey: "backflow", position: 1, name: "Backflow testing", opensMd: "01-01", dueMd: "12-31", inStandard: false});
+    await db.update(campaigns).set({serviceKey: "backflow", calendarEntryId: `${company}-checklist`}).where(eq(campaigns.id, round));
+    const app = appFor();
+    const result = await request(app).get("/api/campaign-rounds/calendar?from=2027-01-01&through=2027-12-31");
+    expect(result.status).toBe(200); expect(result.body.rounds).toEqual([]);
+    expect(result.body.chemicalItems).toEqual([]);
+    expect((await request(app).post(`/api/campaigns/${round}/start-round`).send({confirm: true})).status).toBe(409);
+    expect((await request(app).get(`/api/campaigns/${round}/round-lists`)).status).toBe(200);
+    await updateCampaignRoundItem(ids[0], company, {status: "completed", completedAt: companyNoon("2027-06-10"), completedById: actor});
+    expect((await rows()).find(i => i.id === ids[0])!.status).toBe("completed");
+    expect(await history()).toEqual([]);
+    await updateCampaignRoundItem(ids[0], company, {status: "pending", completedAt: null, completedById: null});
+    expect(await history()).toEqual([]);
+  });
   it("copies the previous same-service split, preserves finished rows, and inherits new arrivals without copying dates", async () => {
-    const [next] = await db.insert(campaigns).values({ companyId: company, source: "contract", serviceKey: "aeration", roundMonth: "2027-09-01",
-      roundSeq: 1, title: "Fixture next", windowStart: "2027-09-01", windowEnd: "2027-09-30", category: "general" }).returning();
+    const [next] = await db.insert(campaigns).values({ companyId: company, source: "contract", serviceKey: "aeration", calendarEntryId: `${company}-2`,
+      roundYear: 2027, title: "Fixture next", windowStart: "2027-09-01", windowEnd: "2027-09-30", category: "general" }).returning();
     const original = (await rows()).find(i => i.id === ids[0])!;
     const inherited = await db.transaction(tx => inheritedRoundTeam(tx, next, original.customerId));
     const [team] = await db.select().from(campaignCrews).where(eq(campaignCrews.id, inherited!));
@@ -204,7 +222,7 @@ describe("CG4 development-only disposable round lists and work history", () => {
     expect(await history()).toHaveLength(1);
   });
   it.each(["work", "work-v2"] as const)("actual chemical %s writer retains workflow and final completion/reset history", async action => {
-    await db.update(campaigns).set({ serviceKey: "chemical", category: "chemical" }).where(eq(campaigns.id, round));
+    await db.update(campaigns).set({ serviceKey: "fertilization", category: "chemical" }).where(eq(campaigns.id, round));
     await db.update(campaignItems).set({ workflowStep: "work_in_progress" }).where(eq(campaignItems.id, ids[0]));
     const worked = await request(legacyApp(action)).post(`/api/campaigns/${round}/items/${ids[0]}/${action === "work" ? "complete-work" : "complete-work-v2"}`)
       .send({ workCompletedAt: "2027-06-10" });
@@ -227,7 +245,7 @@ describe("CG4 development-only disposable round lists and work history", () => {
     expect((await history())[0].status).toBe("cancelled");
   });
   it.each(["post", "patch"] as const)("actual chemical %s finalization records work only after successful delivery", async action => {
-    await db.update(campaigns).set({ serviceKey: "chemical", category: "chemical" }).where(eq(campaigns.id, round));
+    await db.update(campaigns).set({ serviceKey: "fertilization", category: "chemical" }).where(eq(campaigns.id, round));
     await db.update(campaignItems).set({ workflowStep: "work_completed" }).where(eq(campaignItems.id, ids[0]));
     const path = `/api/campaigns/${round}/items/${ids[0]}${action === "post" ? "/send-post-comm" : ""}`;
     const body = { chemAction: "send_post_communication", completedAt: "2027-06-10" };
@@ -276,7 +294,7 @@ describe("CG4 development-only disposable round lists and work history", () => {
     expect(await history()).toEqual([]);
   });
   it("projects chemical target dates outside their round window without inventing visits", async () => {
-    await db.update(campaigns).set({ serviceKey: "chemical", category: "chemical", windowStart: "2027-06-01", windowEnd: "2027-06-30" }).where(eq(campaigns.id, round));
+    await db.update(campaigns).set({ serviceKey: "fertilization", category: "chemical", windowStart: "2027-06-01", windowEnd: "2027-06-30" }).where(eq(campaigns.id, round));
     await db.update(campaignItems).set({ targetDate: "2027-07-03", backupDate: "2027-07-05" }).where(eq(campaignItems.id, ids[0]));
     const res = await request(appFor()).get("/api/campaign-rounds/calendar?from=2027-07-01&through=2027-07-07");
     expect(res.status).toBe(200); expect(res.body.rounds).toEqual([]);
@@ -284,11 +302,11 @@ describe("CG4 development-only disposable round lists and work history", () => {
     expect(await history()).toEqual([]);
   });
   it("scopes irrigation-manager calendar bars and chemical dates by start, team and explicit assignment", async () => {
-    await db.update(campaigns).set({ serviceKey: "chemical", category: "chemical" }).where(eq(campaigns.id, round));
+    await db.update(campaigns).set({ serviceKey: "fertilization", category: "chemical" }).where(eq(campaigns.id, round));
     await db.update(campaignItems).set({ targetDate: "2027-06-10", backupDate: "2027-06-11" }).where(eq(campaignItems.campaignId, round));
     await moveRoundItems(company, round, { itemIds: [ids[2]], assignedCampaignCrewId: teamB });
-    const [hidden] = await db.insert(campaigns).values({ companyId: company, source: "contract", serviceKey: "chemical", category: "chemical",
-      roundMonth: "2027-06-01", roundSeq: 2, title: "Other crew's round", windowStart: "2027-06-01", windowEnd: "2027-06-30", startedAt: new Date() }).returning();
+    const [hidden] = await db.insert(campaigns).values({ companyId: company, source: "contract", serviceKey: "fertilization", category: "chemical",
+      calendarEntryId: `${company}-3`, roundYear: 2027, title: "Other crew's round", windowStart: "2027-06-01", windowEnd: "2027-06-30", startedAt: new Date() }).returning();
     await db.insert(campaignItems).values({ campaignId: hidden.id, companyId: company, customerId: (await rows())[0].customerId,
       customerName: "Hidden property", targetDate: "2027-06-10" });
     const app = appFor("irrigation_manager", supervisor), path = "/api/campaign-rounds/calendar?from=2027-06-01&through=2027-06-30";

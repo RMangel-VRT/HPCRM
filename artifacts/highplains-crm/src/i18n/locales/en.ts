@@ -1,12 +1,22 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
+  sc2: {
+    unspecified: "{{service}} × {{n}} with no dates: say which {{which}} on the contract",
+    outsideMonth: "Contract says {{month}}; no {{service}} round runs in {{month}}",
+    gaps: {
+      needs_rounds: { title: "Contract needs to specify rounds", fix: "The count does not identify a set of calendar rounds. Say which rounds on the contract." },
+      month_outside_calendar: { title: "Stated month outside calendar", fix: "The contract states a month with no compatible service window." },
+      legacy_chemical: { title: "Fert/chem from before the split", fix: "Fert/chem from before the split: review fertilization and broadleaf" },
+    },
+  },
   cp6: {
     setupCount: "{{count}} services need setup",
     serviceSub: "{{overdue}} overdue · {{setup}} need setup",
     status: {
       on_track: "On track", complete: "Complete", closed_with_skips: "Closed with skips", not_owed: "Not owed",
       overdue: "Overdue", missing_item: "Not on a round yet", waiting_on_signature: "Waiting on signature",
-      no_route: "No route set up", no_count: "Contract gives no count", no_timing: "No service timing set",
+      no_route: "No route set up", no_count: "Contract gives no count",
+      needs_rounds: "Contract must specify rounds", month_outside_calendar: "Stated month outside calendar", legacy_chemical: "Review legacy fert/chem",
       invalid_count: "Invalid count", duplicate_lines: "Duplicate lines", count_mismatch: "Count mismatch",
       completed: "Completed", skipped: "Skipped", pending: "Pending",
     },
@@ -34,7 +44,7 @@ const en = {
       askOffice: "Office can fix this setup.", itemUnavailable: "Item history is not available.",
       uncounted: { on_request: "On request", event: "Snow", none: "Not scheduled" },
       countSource: { contract: "Contract count", standard: "Standard count" },
-      timing: { contract: "Contract timing", program: "Program timing" },
+      timing: { contract: "Contract timing", calendar: "Calendar timing" },
       roundStates: { completed: "Completed", skipped: "Skipped", pending: "Pending", overdue: "Overdue", waiting_on_signature: "Waiting on signature", missing_item: "Not on a round yet" },
       empty: "No services scheduled for this customer yet.", untitled: "Untitled service",
       notInContract: "Not in contract", notInContractHint: "Extra billable work. Not counted in the totals above.",

@@ -7,7 +7,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   companies, users, customers, agreements, agreementTerms, termScopeLines,
   campaigns, campaignItems, visits, campaignGenerationYears, campaignChecklistTasks, campaignItemTaskCompletions,
-  tickets, ticketTypes, ticketTypeStatuses, campaignChecklistAuditLog,
+  tickets, ticketTypes, ticketTypeStatuses, campaignChecklistAuditLog, serviceCalendar,
   pool as schemaPool,
 } from "@workspace/db";
 import { db, pool } from "../db";
@@ -16,6 +16,7 @@ import { reconcileCampaigns, runCampaignGeneration } from "../lib/campaignReconc
 import { companyToday } from "../lib/companyDay";
 import { campaignItemRow } from "../lib/campaignItemRow";
 import { storage } from "../storage";
+import { replaceServiceCalendar } from "../services/serviceCalendar";
 const a = `cg2-test-${randomUUID()}`, b = `cg2-test-${randomUUID()}`, uid = randomUUID();
 const p = randomUUID(), agreement = randomUUID(), term = randomUUID();
 const year = Number(companyToday().slice(0, 4)) + 1;
@@ -36,7 +37,9 @@ async function fixture() {
   await db.insert(agreements).values({ id: agreement, companyId: a, customerId: p });
   await db.insert(agreementTerms).values({ id: term, companyId: a, agreementId: agreement, line: "landscape", form: "ours",
     seasonLabel: "CG2 fixture", startDate: `${year}-01-01`, endDate: `${year}-12-31`, status: "sent", billingType: "seasonal" });
-  await db.insert(termScopeLines).values({ companyId: a, termId: term, serviceKey: "chemical", line: "landscape", included: true, quantity: 1, monthSpread: spread });
+  await db.insert(serviceCalendar).values({ id: `calendar-${a}`, companyId: a, serviceKey: "fertilization", kind: "round", position: 1,
+    name: "Summer fertilizer", opensMd: "06-01", dueMd: "06-30", inStandard: true });
+  await db.insert(termScopeLines).values({ companyId: a, termId: term, serviceKey: "fertilization", line: "landscape", included: true, quantity: 1, monthSpread: spread });
 }
 async function rows() {
   return {
@@ -75,7 +78,7 @@ describe("CG2 disposable development fixtures: rollback, generation and authoriz
   it("generates valid chemical rows, enables the year once and is idempotent including timestamps", async () => {
     const first = await runCampaignGeneration(a, year, opts), snapshot = await rows();
     expect(first.enabledAt).toBeTruthy();
-    expect(snapshot.campaigns[0]).toMatchObject({ source: "contract", serviceKey: "chemical", category: "chemical", subtype: null, roundMonth: month, roundSeq: 1 });
+    expect(snapshot.campaigns[0]).toMatchObject({ source: "contract", serviceKey: "fertilization", category: "chemical", subtype: null, calendarEntryId: `calendar-${a}`, roundYear: year });
     expect(snapshot.items[0]).toMatchObject({ customerName: "Fixture property", customerCity: "Test", workflowStep: "pre_communication", servicePlanCategory: null });
     const second = await runCampaignGeneration(a, year, opts);
     expect([second.created, second.added, second.removed, second.deleted]).toEqual([[], [], [], []]);
@@ -171,6 +174,8 @@ describe("CG2 disposable development fixtures: rollback, generation and authoriz
   it("creates general/irrigation identities and sequences multiple rounds in one month", async () => {
     await db.delete(termScopeLines).where(eq(termScopeLines.termId, term));
     for (const serviceKey of ["aeration", "irrigation_open", "irrigation_winterization"]) {
+      await db.insert(serviceCalendar).values([1, 2].map(position => ({companyId: a, serviceKey, kind: "round", position,
+        name: `${serviceKey} ${position}`, opensMd: "06-01", dueMd: position === 1 ? "06-15" : "06-30", inStandard: true})));
       await db.insert(termScopeLines).values({ companyId: a, termId: term, serviceKey,
         line: serviceKey === "aeration" ? "landscape" : "irrigation", included: true,
         quantity: 2, monthSpread: spread.map(n => n * 2) });
@@ -179,7 +184,7 @@ describe("CG2 disposable development fixtures: rollback, generation and authoriz
     expect(r.created).toHaveLength(6);
     const state = await rows();
     for (const campaign of state.campaigns) {
-      expect(campaign.title).toContain(`(${campaign.roundSeq} of 2)`);
+      expect(campaign.title).toMatch(new RegExp(`^${year} ${campaign.serviceKey} [12]$`));
       expect(campaign).toMatchObject(campaign.serviceKey === "aeration" ? { category: "general", subtype: null } :
         { category: "irrigation", subtype: campaign.serviceKey === "irrigation_open" ? "spring_turn_on" : "winterization" });
     }
@@ -221,10 +226,10 @@ describe("CG2 disposable development fixtures: rollback, generation and authoriz
     const foreign = await runCampaignGeneration(b, year, opts); expect(foreign.created).toEqual([]); expect(foreign.rounds).toEqual([]);
   });
   it("returns actionable real fixture gaps and refuses public company/user/dry-run overrides", async () => {
-    await db.update(termScopeLines).set({ monthSpread: null }).where(eq(termScopeLines.termId, term));
+    await db.update(termScopeLines).set({ monthSpread: null, quantity: 2 }).where(eq(termScopeLines.termId, term));
     const preview = await request(app("office")).get(`/api/campaign-generation/${year}/preview`).set("X-Company-Id", a);
     expect(preview.status).toBe(200); expect(preview.headers["cache-control"]).toBe("no-store");
-    expect(preview.body.gaps).toMatchObject([{ propertyId: p, termId: term, agreementId: agreement, kind: "no_timing" }]);
+    expect(preview.body.gaps).toMatchObject([{ propertyId: p, termId: term, agreementId: agreement, kind: "needs_rounds" }]);
     expect((await request(app()).post(`/api/campaign-generation/${year}`).set("X-Company-Id", a).send({ confirm: true, companyId: b })).status).toBe(400);
     expect((await request(app()).post(`/api/campaign-generation/${year}`).send({ confirm: true })).status).toBe(409);
     expect((await rows()).years).toEqual([]);
@@ -248,5 +253,55 @@ describe("CG2 disposable development fixtures: rollback, generation and authoriz
   it("rolls back generation entirely on failure, including year opt-in", async () => {
     await expect(runCampaignGeneration(a, year, { ...opts, userId: "nonexistent-fixture-user" })).rejects.toThrow();
     expect(await rows()).toEqual({ campaigns: [], items: [], years: [] });
+  });
+  it("refreshes unopened snapshots but preserves opened, started and protected snapshots", async () => {
+    await runCampaignGeneration(a, year, opts);
+    const id = `calendar-${a}`;
+    const edit = async (name: string) => replaceServiceCalendar(a, uid, "fertilization", {entries: [{
+      id, kind: "round", position: 1, name, opensMd: "05-15", dueMd: "06-29", inStandard: true,
+    }]});
+    await edit("Renamed summer fertilizer");
+    await runCampaignGeneration(a, year, opts);
+    let saved = (await rows()).campaigns[0];
+    expect(saved).toMatchObject({title: `${year} Renamed summer fertilizer`, windowStart: `${year}-05-15`, windowEnd: `${year}-06-29`});
+    await edit("Later calendar name");
+    await runCampaignGeneration(a, year, {...opts, today: `${year}-05-15`});
+    expect((await rows()).campaigns[0]).toEqual(saved);
+    await db.update(campaigns).set({startedAt: new Date()}).where(eq(campaigns.id, saved.id));
+    saved = (await rows()).campaigns[0];
+    await runCampaignGeneration(a, year, opts);
+    expect((await rows()).campaigns[0]).toEqual(saved);
+    await db.update(campaigns).set({startedAt: null}).where(eq(campaigns.id, saved.id));
+    await db.update(campaignItems).set({notes: "Protected"}).where(eq(campaignItems.companyId, a));
+    saved = (await rows()).campaigns[0];
+    await runCampaignGeneration(a, year, opts);
+    expect((await rows()).campaigns[0]).toEqual(saved);
+  });
+  it("refuses referenced entry deletion atomically, including concurrent generation", async () => {
+    await runCampaignGeneration(a, year, opts);
+    const before = await rows();
+    await expect(replaceServiceCalendar(a, uid, "fertilization", {entries: [], allowEmptyStandard: true}))
+      .rejects.toThrow("Archive or finish its rounds first");
+    expect(await rows()).toEqual(before);
+    const concurrent = await Promise.allSettled([
+      runCampaignGeneration(a, year, opts),
+      replaceServiceCalendar(a, uid, "fertilization", {entries: [], allowEmptyStandard: true}),
+    ]);
+    expect(concurrent.map(r => r.status)).toEqual(["fulfilled", "rejected"]);
+    expect(await rows()).toEqual(before);
+    expect(await db.select().from(serviceCalendar).where(eq(serviceCalendar.id, `calendar-${a}`))).toHaveLength(1);
+  });
+  it("enforces calendar identity, category, FK and unique identity in actual PostgreSQL", async () => {
+    await runCampaignGeneration(a, year, opts);
+    const [round] = (await rows()).campaigns;
+    for (const changes of [{calendarEntryId: null}, {roundYear: null}, {category: "general" as const}, {serviceKey: "chemical"}]) {
+      await expect(db.update(campaigns).set(changes).where(eq(campaigns.id, round.id))).rejects.toThrow();
+    }
+    await expect(db.insert(campaigns).values({...round, id: randomUUID()})).rejects.toThrow();
+    await expect(db.update(campaigns).set({calendarEntryId: "missing"}).where(eq(campaigns.id, round.id))).rejects.toThrow();
+    await expect(db.delete(serviceCalendar).where(eq(serviceCalendar.id, round.calendarEntryId!))).rejects.toThrow();
+    await expect(db.insert(campaigns).values({companyId: a, title: "Manual", windowStart: month, windowEnd: month,
+      calendarEntryId: round.calendarEntryId})).rejects.toThrow();
+    expect(round.roundMonth).toBeNull(); expect(round.roundSeq).toBeNull();
   });
 });

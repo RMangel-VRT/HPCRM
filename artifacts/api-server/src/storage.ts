@@ -33,7 +33,7 @@ export interface MyExtraBillableBatch {
 }
 export type CampaignItemIdentity = {
   campaignSource: "manual" | "contract"; campaignServiceKey: string | null;
-  campaignRoundMonth: string | null; campaignRoundSeq: number | null;
+  campaignCalendarEntryId: string | null; campaignRoundYear: number | null;
 };
 import { type User, type InsertUser, type Customer, type InsertCustomer, type Contact, type InsertContact, type Company, type InsertCompany, type CompanyUser, type InsertCompanyUser, type Settings, type InsertSettings, type Note, type InsertNote, type Contract, type InsertContract, type ContractStatusHistory, type InsertContractStatusHistory, type ContractDocument, type InsertContractDocument, type ContractMonthlyAmount, type InsertContractMonthlyAmount, type CustomerRateSheet, type InsertCustomerRateSheet, type ContractService, type InsertContractService, type ContractTemplate, type InsertContractTemplate, type ContractBuilderDocument, type InsertContractBuilderDocument, type ContractBuilderSection, type InsertContractBuilderSection, type ContractBuilderVariable, type InsertContractBuilderVariable, type TicketType, type InsertTicketType, type TicketTypeStatus, type InsertTicketTypeStatus, type TicketTypeField, type InsertTicketTypeField, type Ticket, type InsertTicket, type TicketFieldValue, type InsertTicketFieldValue, type TicketStatusHistory, type InsertTicketStatusHistory, type TicketComment, type TicketCommentWithAuthor, type InsertTicketComment, type TicketCommentMention, type InsertTicketCommentMention, type TicketSource, type InsertTicketSource, type TicketLink, type InsertTicketLink, type TicketTypeCategory, type CustomerMapLayer, type InsertCustomerMapLayer, type CustomerMapDocument, type InsertCustomerMapDocument, type TicketNotification, type InsertTicketNotification, type NotificationType, type PropertyManagementCompany, type InsertPropertyManagementCompany, type PropertyManager, type InsertPropertyManager, type PropertyManagerEmail, type InsertPropertyManagerEmail, type PropertyManagerPhone, type InsertPropertyManagerPhone, type PropertyManagerWithContacts, type Equipment, type InsertEquipment, type EquipmentFile, type InsertEquipmentFile, type EquipmentTicket, type InsertEquipmentTicket, type EquipmentTicketStatusHistory, type InsertEquipmentTicketStatusHistory, type EquipmentWithTicketCount, type SnowEvent, type InsertSnowEvent, type SnowEventAttachment, type InsertSnowEventAttachment, type SnowEventPropertyImpact, type InsertSnowEventPropertyImpact, type SnowEventWithDetails, type SnowEventPropertyImpactWithCustomer, type EmailTemplate, type InsertEmailTemplate, type EmailRule, type InsertEmailRule, type EmailLog, type InsertEmailLog, type EmailLogWithDetails, type Proposal, type InsertProposal, type ProposalFile, type InsertProposalFile, type ProposalWithDetails, type ProposalVersion, type InsertProposalVersion, type ProposalVersionWithUser, type VisualScopeSheet, type InsertVisualScopeSheet, type VisualScopeSheetWithCustomer, type Campaign, type InsertCampaign, type CampaignItem, type InsertCampaignItem, type CampaignWithProgress, type Season, type InsertSeason, type CampaignChecklistTask, type InsertCampaignChecklistTask, type CampaignItemTaskCompletion, type InsertCampaignItemTaskCompletion, type CampaignChecklistAuditLog, type InsertCampaignChecklistAuditLog, type CampaignChecklistAuditLogWithUser, type Communication, type InsertCommunication, type CommunicationTemplate, type InsertCommunicationTemplate, type CommunicationThread, type InsertCommunicationThread, type CommunicationLink, type InsertCommunicationLink, type CommunicationWithDetails, type CommunicationAnalytics, type InsertCommunicationAuditLog, type CommunicationAuditLog, type CommunicationAuditLogWithUser, type ChemicalProduct, type InsertChemicalProduct, type ChemicalNotificationTemplate, type InsertChemicalNotificationTemplate, type MailboxBackfillRun, type InsertMailboxBackfillRun } from "@workspace/db";
 import { db } from "./db";
@@ -3693,8 +3693,8 @@ export class PgStorage implements IStorage {
         campaignTitle: campaigns.title,
         campaignSource: campaigns.source,
         campaignServiceKey: campaigns.serviceKey,
-        campaignRoundMonth: campaigns.roundMonth,
-        campaignRoundSeq: campaigns.roundSeq,
+        campaignCalendarEntryId: campaigns.calendarEntryId,
+        campaignRoundYear: campaigns.roundYear,
         campaignCategory: campaigns.category,
         campaignSubtype: campaigns.subtype,
         campaignStatus: campaigns.status,
@@ -3747,8 +3747,8 @@ export class PgStorage implements IStorage {
         campaignTitle: campaigns.title,
         campaignSource: campaigns.source,
         campaignServiceKey: campaigns.serviceKey,
-        campaignRoundMonth: campaigns.roundMonth,
-        campaignRoundSeq: campaigns.roundSeq,
+        campaignCalendarEntryId: campaigns.calendarEntryId,
+        campaignRoundYear: campaigns.roundYear,
         campaignCategory: campaigns.category,
         campaignSubtype: campaigns.subtype,
         campaignStatus: campaigns.status,
@@ -3783,8 +3783,8 @@ export class PgStorage implements IStorage {
         campaignTitle: campaigns.title,
         campaignSource: campaigns.source,
         campaignServiceKey: campaigns.serviceKey,
-        campaignRoundMonth: campaigns.roundMonth,
-        campaignRoundSeq: campaigns.roundSeq,
+        campaignCalendarEntryId: campaigns.calendarEntryId,
+        campaignRoundYear: campaigns.roundYear,
         campaignWindowStart: campaigns.windowStart,
         campaignWindowEnd: campaigns.windowEnd,
         campaignCategory: campaigns.category,

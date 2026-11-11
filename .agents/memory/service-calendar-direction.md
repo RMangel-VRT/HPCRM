@@ -38,3 +38,16 @@ During the SC1-to-SC2 transition, retiring the old timing owner must give the ex
 **Why:** The user approved a bounded compatibility transition rather than keeping retired-table reads or implementing SC2 early.
 
 **How to apply:** Replace old program loading with empty inputs in all three consumers, preserving contract-stated timing, recorded-work protections and safe gap behavior. Do not infer authorization to run Generate or load production data from this historical fact. Only an explicitly authorized later slice may introduce calendar-based allocation.
+
+The owner's contract-year rule is that a round belongs to the season containing
+its deadline, not a season overlapping its opening window. In particular an
+October–September season owes the preceding fall shrub trim, not a second fall
+trim at its end. Backflow quantities describe devices, not repeated annual trips.
+
+**Why:** The November 11 calendar brief explicitly resolves the disputed extra
+fall trim and distinguishes annual checklist fulfillment from service counts.
+
+**How to apply:** Preserve deadline-based ownership across later customer
+schedule/reporting work, including mid-month season boundaries and windows
+opening in the preceding year. Do not turn annual checklist device quantities
+into scheduled crew-day trips.

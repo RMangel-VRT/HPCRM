@@ -11,5 +11,6 @@ export type ServiceFulfillmentScheduling =
 
 export const ServiceFulfillmentScheduling = {
   campaign: "campaign",
+  checklist: "checklist",
   route: "route",
 } as const;

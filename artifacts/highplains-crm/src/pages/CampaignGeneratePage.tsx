@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { AlertTriangle, CalendarRange, CheckCircle2, ChevronDown, ChevronRight, Lock, RotateCcw, Sprout } from "lucide-react";
@@ -12,7 +13,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { campaignServices } from "@shared/contractCatalog";
+import { campaignServices, checklistServices, scopeServiceByKey } from "@shared/contractCatalog";
 import type {
   CampaignGenerationReport, CampaignMembershipStatus, DemandGap, DemandGapKind, ItemRef, PreviewRound, RoundRef,
 } from "../../../../lib/db/src/campaignGenerationContracts";
@@ -37,8 +38,10 @@ function errorText(err: unknown): string {
 }
 
 const GAP_TEXT: Record<DemandGapKind, { title: string; fix: string }> = {
-  no_count: { title: "No round count", fix: "Contract states no count and this service has no standard count. Set a count on the contract or a standard in Service timing." },
-  no_timing: { title: "No months", fix: "Count is known but no months are stated and no program timing exists for that count." },
+  no_count: { title: "No round count", fix: "Set up rounds and a standard in the Service calendar, or state a count on the contract." },
+  needs_rounds: { title: "Contract needs to specify rounds", fix: "The count does not identify a set of calendar rounds. Say which rounds on the contract." },
+  month_outside_calendar: { title: "Stated month outside calendar", fix: "The contract states a month with no compatible service window." },
+  legacy_chemical: { title: "Fert/chem from before the split", fix: "Fert/chem from before the split: review fertilization and broadleaf" },
   invalid_count: { title: "Invalid count or months", fix: "The contract count or month spread is invalid. Use whole nonnegative months and a count from 0 to 24." },
   duplicate_lines: { title: "Duplicate lines", fix: "The same service appears more than once on this season. Merge the lines on the contract." },
   count_mismatch: { title: "Months don't match count", fix: "Stated months do not add up to the stated count. Correct one on the contract." },
@@ -49,7 +52,13 @@ const fmtMonth = (ym: string) => {
   return new Date(y, (m || 1) - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 };
 const fmtDate = (d: string) => { const x = new Date(d.length <= 10 ? d + "T00:00:00" : d); return isNaN(+x) ? d : x.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
-const roundKey = (r: RoundRef) => `${r.serviceKey}|${r.roundMonth}|${r.roundSeq}`;
+const roundKey = (r: RoundRef) => `${r.serviceKey}|${r.calendarEntryId}|${r.roundYear}`;
+export const roundWindowLabel = (r: RoundRef) => {
+  const short = (date: string, year: boolean) => new Intl.DateTimeFormat("en-US",
+    { month: "short", day: "numeric", ...(year ? { year: "numeric" as const } : {}), timeZone: "UTC" })
+    .format(new Date(`${date}T12:00:00Z`));
+  return `${r.title.replace(/^\d{4} /, "")} · ${short(r.windowStart, r.windowStart.slice(0, 4) !== r.windowEnd.slice(0, 4))} – ${short(r.windowEnd, true)}`;
+};
 const termHref = (agreementId: string, termId: string) => `/dashboard/contracts/${agreementId}#term-${termId}`;
 
 /* ------------------------------------------------------------------ */
@@ -275,6 +284,9 @@ function ResultSummary({ report }: { report: CampaignGenerationReport }) {
 }
 
 function GapPanel({ gaps }: { gaps: DemandGap[] }) {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const calendarAccess = ["admin", "office"].includes(user?.accessRole ?? "") || !!user?.isSuperAdminBool;
   if (gaps.length === 0) return (
     <p className="text-xs text-muted-foreground" data-testid="text-no-gaps">No contract gaps. Every eligible season has a usable count and months.</p>
   );
@@ -283,25 +295,30 @@ function GapPanel({ gaps }: { gaps: DemandGap[] }) {
     <section className="rounded-lg border border-[hsl(var(--warning))]/40 bg-[hsl(var(--est-warn-bg))]/40 px-4 py-3 space-y-2" data-testid="panel-gaps">
       <p className="text-sm font-medium flex items-center gap-1.5"><AlertTriangle className="h-4 w-4 text-[hsl(var(--warning))]" />
         Contract issues to review ({gaps.length}). Missing or invalid scope prevents scheduling; count mismatches keep the stated months.</p>
-      {gaps.some(g => g.kind === "no_count" || g.kind === "no_timing") &&
+      {calendarAccess && gaps.some(g => g.kind === "no_count" || g.kind === "needs_rounds") &&
         <Link href="/dashboard/settings/service-calendar" className="inline-block text-xs text-primary hover:underline">Open Settings → Service calendar</Link>}
       {kinds.map(k => {
         const list = gaps.filter(g => g.kind === k);
         if (!list.length) return null;
         return (
           <details key={k} open={list.length <= 5} data-testid={`gaps-${k}`}>
-            <summary className="cursor-pointer text-xs font-medium">{GAP_TEXT[k].title} ({list.length})</summary>
-            <p className="text-xs text-muted-foreground mt-0.5">{GAP_TEXT[k].fix}</p>
-            {k === "no_timing" && [...new Set(list.map(g => `${g.serviceKey}:${g.count}`))].map(key => {
+            <summary className="cursor-pointer text-xs font-medium">{t(`sc2.gaps.${k}.title`, {defaultValue: GAP_TEXT[k].title})} ({list.length})</summary>
+            <p className="text-xs text-muted-foreground mt-0.5">{t(`sc2.gaps.${k}.fix`, {defaultValue: GAP_TEXT[k].fix})}</p>
+            {k === "needs_rounds" && [...new Set(list.map(g => `${g.serviceKey}:${g.count}`))].map(key => {
               const group = list.filter(g => `${g.serviceKey}:${g.count}` === key);
-              return <p key={key} className="text-xs font-medium">{serviceLabel(group[0].serviceKey)} × {group[0].count}: no timing set · {group.length} seasons</p>;
+              return <p key={key} className="text-xs font-medium">{t("sc2.unspecified", {service: group[0].serviceKey === "cleanups" ? "Clean-ups" : serviceLabel(group[0].serviceKey), n: group[0].count, which: group[0].count === 2 ? "two" : group[0].count,
+                defaultValue: "{{service}} × {{n}} with no dates: say which {{which}} on the contract"})}</p>;
             })}
             <ul className="mt-1 space-y-0.5 text-xs">
               {list.map(g => (
-                <li key={`${g.termId}-${g.serviceKey}-${k}`} className="flex flex-wrap gap-2">
+                <li key={`${g.propertyId}-${g.termId}-${g.serviceKey}-${k}-${g.month ?? ""}`} className="flex flex-wrap gap-2">
                   <Link href={termHref(g.agreementId, g.termId)} className="text-primary hover:underline" data-testid={`link-gap-${g.termId}-${g.serviceKey}-${k}`}>{g.propertyName}</Link>
                   <span className="text-muted-foreground">{serviceLabel(g.serviceKey)} · {g.seasonLabel}
                     {g.count !== undefined && <> · count {g.count}</>}{g.monthTotal !== undefined && <> · months total {g.monthTotal}</>}</span>
+                  {g.month && <span>{t("sc2.outsideMonth", {month: new Intl.DateTimeFormat("en-US", {month: "long", timeZone: "UTC"}).format(new Date(Date.UTC(2027, g.month - 1, 1))),
+                    service: g.serviceKey === "cleanups" ? "clean-up" : serviceLabel(g.serviceKey).toLowerCase(),
+                    defaultValue: "Contract says {{month}}; no {{service}} round runs in {{month}}"})}</span>}
+                  {g.informational && <span className="text-muted-foreground">Informational — valid rounds are kept</span>}
                 </li>
               ))}
             </ul>
@@ -331,10 +348,10 @@ function ItemList({ title, testId, items }: { title: string; testId: string; ite
   );
 }
 
-const serviceLabel = (key: string) => campaignServices().find(s => s.key === key)?.label ?? key;
+const serviceLabel = (key: string) => scopeServiceByKey(key)?.label ?? key;
 
 function Rounds({ rounds, deleted }: { rounds: PreviewRound[]; deleted: RoundRef[] }) {
-  const order = campaignServices().map(s => s.key);
+  const order = [...campaignServices(), ...checklistServices()].map(s => s.key);
   const keys = Array.from(new Set([...rounds.map(r => r.serviceKey), ...deleted.map(d => d.serviceKey)]))
     .sort((a, b) => (order.indexOf(a) + 1 || 999) - (order.indexOf(b) + 1 || 999));
   if (!keys.length) return (
@@ -346,7 +363,7 @@ function Rounds({ rounds, deleted }: { rounds: PreviewRound[]; deleted: RoundRef
   return (
     <div className="space-y-4">
       {keys.map(svc => {
-        const list = rounds.filter(r => r.serviceKey === svc).sort((a, b) => a.roundMonth.localeCompare(b.roundMonth) || a.roundSeq - b.roundSeq);
+        const list = rounds.filter(r => r.serviceKey === svc).sort((a, b) => a.windowEnd.localeCompare(b.windowEnd) || a.calendarEntryId.localeCompare(b.calendarEntryId));
         const del = deleted.filter(d => d.serviceKey === svc);
         return (
           <section key={svc} className="rounded-lg border bg-card" data-testid={`card-service-${svc}`}>
@@ -360,7 +377,7 @@ function Rounds({ rounds, deleted }: { rounds: PreviewRound[]; deleted: RoundRef
                 <div key={roundKey(d)} className="px-4 py-2 text-sm flex flex-wrap gap-2 bg-destructive/5" data-testid={`row-deleted-${roundKey(d)}`}>
                   <span className="rounded border border-destructive/40 px-1.5 text-[11px] font-medium text-destructive">Delete</span>
                   <span className="line-through text-muted-foreground">{d.title}</span>
-                  <span className="text-xs text-muted-foreground">{fmtMonth(d.roundMonth)}</span>
+                  <span className="text-xs text-muted-foreground">{fmtDate(d.windowStart)} – {fmtDate(d.windowEnd)}</span>
                 </div>
               ))}
             </div>
@@ -379,8 +396,7 @@ function RoundRow({ round: r }: { round: PreviewRound }) {
       <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
         className="w-full px-4 py-2 flex flex-wrap items-center gap-2 text-left text-sm hover:bg-muted/40" data-testid={`button-toggle-${id}`}>
         {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        <span className="font-medium">{r.title}</span>
-        <span className="text-xs text-muted-foreground">{fmtDate(r.windowStart)} – {fmtDate(r.windowEnd)}</span>
+        <span className="font-medium">{roundWindowLabel(r)}</span>
         {r.newRound && <span className="rounded bg-primary/15 px-1.5 text-[11px] font-medium" data-testid={`badge-new-${id}`}>New round</span>}
         {!r.newRound && !r.added && !r.removed && <span className="text-xs text-muted-foreground">No change</span>}
         {r.members.some(m => m.termStatus === "sent") && <span className="text-xs text-muted-foreground">{r.members.filter(m => m.termStatus === "sent").length} waiting on signature</span>}
@@ -397,9 +413,9 @@ function RoundRow({ round: r }: { round: PreviewRound }) {
             <li key={`${m.propertyId}-${m.termId}`} className="flex flex-wrap gap-2">
               <Link href={termHref(m.agreementId, m.termId)} className="text-primary hover:underline" data-testid={`link-member-${id}-${m.termId}`}>{m.propertyName}</Link>
               {m.termStatus === "sent" && <span className="rounded border border-[hsl(var(--warning))]/50 px-1.5 text-[11px] font-medium text-[hsl(var(--warning))]" data-testid={`chip-waiting-${id}-${m.termId}`}>Waiting on signature</span>}
-              {m.timing === "program" && <span className="rounded border px-1.5 text-[11px]">Program timing</span>}
+              {m.timing === "calendar" && <span className="rounded border px-1.5 text-[11px]">Calendar timing</span>}
               {m.count === "standard" && <span className="rounded border px-1.5 text-[11px]">Standard count</span>}
-              <span className="text-muted-foreground">{m.seasonLabel} · {m.termStatus.replace(/_/g, " ")} · count from {m.count === "contract" ? "contract" : "standard"} · months from {m.timing === "contract" ? "contract" : "program"}</span>
+              <span className="text-muted-foreground">{m.seasonLabel} · {m.termStatus.replace(/_/g, " ")} · count from {m.count === "contract" ? "contract" : "standard"} · timing from {m.timing === "contract" ? "contract" : "calendar"}</span>
             </li>
           ))}
         </ul>

@@ -11,8 +11,9 @@ import type { ServiceRoundState } from "./serviceRoundState";
 import type { ServiceRoundTiming } from "./serviceRoundTiming";
 
 export interface ServiceRound {
-  roundMonth: string;
-  roundSeq: number;
+  calendarEntryId: string;
+  roundYear: number;
+  name: string;
   /** @nullable */
   campaignId: string | null;
   /** @nullable */

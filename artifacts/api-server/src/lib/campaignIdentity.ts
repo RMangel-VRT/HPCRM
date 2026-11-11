@@ -8,7 +8,7 @@ export class CampaignGuardError extends Error {
   readonly statusCode = 409;
 }
 export const membershipMessage = "Membership follows contracts. Change the property's contract scope.";
-export const campaignIdentityFields = ["source", "serviceKey", "roundMonth", "roundSeq", "service_key", "round_month", "round_seq", "startedAt", "startedById", "started_at", "started_by_id"];
+export const campaignIdentityFields = ["source", "serviceKey", "calendarEntryId", "roundYear", "calendar_entry_id", "round_year", "roundMonth", "roundSeq", "service_key", "round_month", "round_seq", "startedAt", "startedById", "started_at", "started_by_id"];
 const shapeFields = ["title", "windowStart", "windowEnd", "window_start", "window_end", "category", "subtype", "seasonId", "season_id"];
 export function campaignWriteConflict(source: string, body: Record<string, unknown>, action: "create" | "patch" | "membership" | "delete" | "season"): string | undefined {
   if (campaignIdentityFields.some(k => Object.hasOwn(body, k))) return "Campaign identity is engine-owned and cannot be supplied here.";

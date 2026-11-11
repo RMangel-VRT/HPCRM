@@ -29,7 +29,7 @@ describe("CP6 returned demand presentation", () => {
   });
   it("has an explicit label for every CG5 primary status and informational count mismatch", () => {
     for (const status of ["on_track", "complete", "closed_with_skips", "not_owed", "overdue", "missing_item",
-      "waiting_on_signature", "no_route", "no_count", "no_timing", "invalid_count", "duplicate_lines", "count_mismatch"]) {
+      "waiting_on_signature", "no_route", "no_count", "needs_rounds", "month_outside_calendar", "legacy_chemical", "invalid_count", "duplicate_lines", "count_mismatch"]) {
       expect(SERVICE_STATUS_LABELS[status]).toBeTruthy();
       expect(serviceStatusLabel(status)).not.toContain("_");
     }

@@ -1,15 +1,14 @@
 import type { AgreementTerm, Campaign, CampaignItem, RouteStop, Visit } from "@workspace/db";
-import type { DemandTimingProgram } from "../../../../lib/db/src/campaignGenerationContracts";
 import type { CustomerServices, ServiceFulfillment as FulfillmentRow, ServiceRound as FulfillmentRound } from "@workspace/api-zod";
 import type { CustomerContractInputs } from "./customerContractSummary";
-import { campaignDemand } from "./campaignDemand";
+import { campaignDemand, type DemandCalendarEntry } from "./campaignDemand";
 import { compareTermPriority } from "./contractCenterService";
 import { addCalendarDays, companyToday } from "./companyDay";
 import { SCOPE_CATALOG } from "../shared/contractCatalog";
 import { CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceCalendarContracts";
 
 export interface ServiceFulfillmentInputs extends CustomerContractInputs {
-  programs: DemandTimingProgram[];
+  calendar: DemandCalendarEntry[];
   campaigns: Campaign[];
   items: CampaignItem[];
   visits: Visit[];
@@ -18,7 +17,7 @@ export interface ServiceFulfillmentInputs extends CustomerContractInputs {
 export class ServiceTermUnavailable extends Error {}
 
 const propertyOf = (item: CampaignItem) => item.propertyId ?? item.customerId;
-const roundKey = (key: string, month: string, seq: number) => `${key}:${month}:${seq}`;
+const roundKey = (key: string, entry: string, year: number) => `${key}:${entry}:${year}`;
 const termRef = (term: AgreementTerm, owner: string, customerId: string) => ({
   termId: term.id, agreementId: term.agreementId, label: term.seasonLabel,
   startDate: term.startDate, endDate: term.endDate, status: term.status,
@@ -81,8 +80,8 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
     .filter(m => m.propertyId === customerId && m.termId === term.id).map(member => ({ ...r, member }))));
   const gaps = reports.flatMap(r => r.gaps).filter(g => g.termId === term.id);
   const companyCampaigns = data.campaigns.filter(c => c.companyId === customer.companyId);
-  const campaigns = new Map(companyCampaigns.filter(c => c.source === "contract" && c.serviceKey && c.roundMonth && c.roundSeq)
-    .map(c => [roundKey(c.serviceKey!, c.roundMonth!, c.roundSeq!), c]));
+  const campaigns = new Map(companyCampaigns.filter(c => c.source === "contract" && c.serviceKey && c.calendarEntryId && c.roundYear)
+    .map(c => [roundKey(c.serviceKey!, c.calendarEntryId!, c.roundYear!), c]));
   const items = data.items.filter(i => i.companyId === customer.companyId && propertyOf(i) === customerId);
   const byCampaign = new Map(items.map(i => [i.campaignId, i]));
   const included = data.scope?.filter(s => s.companyId === customer.companyId && s.termId === term.id && s.included) ?? [];
@@ -93,43 +92,42 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
   for (const key of serviceKeys) {
     const service = SCOPE_CATALOG.find(s => s.key === key);
     const scope = included.find(s => s.serviceKey === key)!;
-    if (service?.scheduling !== "campaign" && service?.scheduling !== "legacy" && service?.scheduling !== "route") {
+    if (service?.scheduling !== "campaign" && service?.scheduling !== "checklist" && service?.scheduling !== "legacy" && service?.scheduling !== "route") {
       alsoInContract.push({ serviceKey: key, label: service?.label ?? key, scheduling: service?.scheduling ?? "none" });
       continue;
     }
     const row: FulfillmentRow = { serviceKey: key, label: service.label, scheduling: service.scheduling === "legacy" ? "campaign" : service.scheduling,
       statedQuantity: scope.quantity, owed: null, done: 0, skipped: 0, remaining: null,
       planned: 0, inProgress: 0, status: "on_track", issues: [], next: null, rounds: [] };
-    if (service.scheduling === "campaign" || service.scheduling === "legacy") {
+    if (service.scheduling === "campaign" || service.scheduling === "checklist" || service.scheduling === "legacy") {
       row.issues = [...new Set(gaps.filter(g => g.serviceKey === key).map(g => g.kind))];
       for (const round of demand.filter(r => r.serviceKey === key)) {
-        const campaign = campaigns.get(roundKey(key, round.roundMonth, round.roundSeq));
+        const campaign = campaigns.get(roundKey(key, round.calendarEntryId, round.roundYear));
         const item = campaign && byCampaign.get(campaign.id);
         if (item) countedItems.add(item.id);
-        const [year, month] = round.roundMonth.split("-").map(Number);
-        const end = addCalendarDays(month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, "0")}-01`, -1);
-        const windowEnd = [campaign?.windowEnd ?? end, term.endDate].sort()[0];
-        const windowStart = [campaign?.windowStart ?? round.roundMonth, term.startDate].sort().at(-1)!;
+        const windowEnd = campaign?.windowEnd ?? round.due;
+        const windowStart = campaign?.windowStart ?? round.opens;
         // Fert/chem target/backup remain item-owned. Backup is the latest promise.
         // Other campaigns have a window, never an invented property appointment.
-        const promise = key === "chemical" && item && (item.backupDate || item.targetDate);
+        const promise = ["chemical", "fertilization", "broadleaf"].includes(key) && item && (item.backupDate || item.targetDate);
         const dueDate = promise || windowEnd;
         const state: RoundState = item?.status === "completed" ? "completed" : item?.status === "skipped" ? "skipped" :
           !item ? "missing_item" : round.member.termStatus === "sent" ? "waiting_on_signature" :
           dueDate < today ? "overdue" : "pending";
-        row.rounds.push({ roundMonth: round.roundMonth, roundSeq: round.roundSeq, campaignId: campaign?.id ?? null,
+        row.rounds.push({ calendarEntryId: round.calendarEntryId, roundYear: round.roundYear, name: campaign?.title.replace(/^\d{4} /, "") ?? round.name, campaignId: campaign?.id ?? null,
           itemId: item?.id ?? null, dueDate, windowStart, windowEnd, dateKind: promise ? "chemical_promise" : "round_window",
           state, timing: round.member.timing, countSource: round.member.count });
         if (round.member.termStatus === "sent") row.issues.push("waiting_on_signature");
         if (["missing_item", "overdue"].includes(state)) row.issues.push(state);
       }
-      row.owed = row.issues.some(i => ["no_count", "no_timing", "invalid_count", "duplicate_lines"].includes(i))
+      row.owed = gaps.some(g => g.serviceKey === key && !g.informational &&
+        ["no_count", "needs_rounds", "month_outside_calendar", "legacy_chemical", "invalid_count", "duplicate_lines"].includes(g.kind))
         ? null : row.rounds.length;
       row.done = row.rounds.filter(r => r.state === "completed").length;
       row.skipped = row.rounds.filter(r => r.state === "skipped").length;
       const next = row.rounds.filter(r => !["completed", "skipped"].includes(r.state))
         .sort((a, b) => (a.dateKind === "chemical_promise" ? a.dueDate : a.windowStart)
-          .localeCompare(b.dateKind === "chemical_promise" ? b.dueDate : b.windowStart) || a.roundSeq - b.roundSeq)[0];
+          .localeCompare(b.dateKind === "chemical_promise" ? b.dueDate : b.windowStart) || a.calendarEntryId.localeCompare(b.calendarEntryId))[0];
       if (next) row.next = { date: next.dateKind === "chemical_promise" ? next.dueDate : next.windowStart,
         kind: next.dateKind, campaignId: next.campaignId, itemId: next.itemId, visitId: null };
     } else {
@@ -159,7 +157,7 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
     row.remaining = row.owed === null ? null : Math.max(0, row.owed - row.done - row.skipped);
     if (service.scheduling === "route" && row.remaining !== null && row.remaining > 0 && term.endDate < today)
       row.issues = [...new Set([...row.issues, "overdue"])];
-    row.status = ["duplicate_lines", "invalid_count", "no_count", "no_timing", "waiting_on_signature",
+    row.status = ["duplicate_lines", "invalid_count", "no_count", "needs_rounds", "month_outside_calendar", "legacy_chemical", "waiting_on_signature",
       "overdue", "missing_item", "no_route"].find(s => row.issues.includes(s)) ??
       (row.owed === 0 ? "not_owed" : row.remaining === 0 ? (row.skipped ? "closed_with_skips" : "complete") : "on_track");
     rows.push(row);

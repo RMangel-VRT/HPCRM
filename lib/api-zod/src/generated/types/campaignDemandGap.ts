@@ -17,4 +17,6 @@ export interface CampaignDemandGap {
   kind: CampaignDemandGapKind;
   count?: number;
   monthTotal?: number;
+  month?: number;
+  informational?: boolean;
 }

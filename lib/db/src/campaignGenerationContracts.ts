@@ -1,9 +1,4 @@
 /** Read-only demand projections; commercial counts/months remain Contract Center owned. */
-/** Transitional engine input only, not persisted configuration. SC1 callers pass
- * an empty list until SC2 replaces the monthly allocator. */
-export interface DemandTimingProgram {
-  serviceKey: string; rounds: number; monthSpread: number[]; isStandard: boolean;
-}
 export interface CampaignMembershipStatus {
   enabledAt: string | null; checkedAt: string | null; succeededAt: string | null;
   error: string | null; changes: number; keptNotOwed: number; missed: number;
@@ -12,23 +7,24 @@ export interface CampaignContractState {
   state: "owed" | "waiting_on_signature" | "no_longer_in_contract";
   agreementId: string | null; termId: string | null;
 }
-export type DemandGapKind = "no_count" | "no_timing" | "invalid_count" | "duplicate_lines" | "count_mismatch";
+export type DemandGapKind = "no_count" | "needs_rounds" | "month_outside_calendar" | "legacy_chemical" | "invalid_count" | "duplicate_lines" | "count_mismatch";
 export interface DemandMember {
   propertyId: string; propertyName: string; termId: string; agreementId: string;
   seasonLabel: string; termStatus: string;
-  timing: "contract" | "program"; count: "contract" | "standard";
+  timing: "contract" | "calendar"; count: "contract" | "standard";
 }
 export interface DemandGap {
   propertyId: string; propertyName: string; termId: string; agreementId: string;
   seasonLabel: string; serviceKey: string; kind: DemandGapKind;
-  count?: number; monthTotal?: number;
+  count?: number; monthTotal?: number; month?: number; informational?: boolean;
 }
 export interface DemandRound {
-  serviceKey: string; roundMonth: string; roundSeq: number; members: DemandMember[];
+  serviceKey: string; calendarEntryId: string; roundYear: number;
+  name: string; opens: string; due: string; members: DemandMember[];
 }
 export interface DemandReport { rounds: DemandRound[]; gaps: DemandGap[] }
 export interface RoundRef {
-  serviceKey: string; roundMonth: string; roundSeq: number;
+  serviceKey: string; calendarEntryId: string; roundYear: number;
   title: string; windowStart: string; windowEnd: string; campaignId: string | null;
 }
 export interface ItemRef extends RoundRef {

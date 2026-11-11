@@ -1,4 +1,5 @@
-import { type Campaign, type CampaignItem } from "@workspace/db";
+import { serviceCalendar, type Campaign, type CampaignItem } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { campaignDemand } from "./campaignDemand";
 import { loadCustomerContractInputs } from "./customerContractSummary";
@@ -10,11 +11,12 @@ import type { CampaignContractState } from "../../../../lib/db/src/campaignGener
 export async function withCampaignContractStates<T extends Pick<CampaignItem, "customerId">>(
   campaign: Campaign, items: T[], today = companyToday(),
 ): Promise<(T & { contractState?: CampaignContractState })[]> {
-  if (campaign.source !== "contract" || !campaign.roundMonth || !items.length) return items;
+  if (campaign.source !== "contract" || !campaign.roundYear || !items.length) return items;
   const inputs = await loadCustomerContractInputs(db, campaign.companyId);
-  const demand = campaignDemand({ ...inputs, programs: [] }, Number(campaign.roundMonth.slice(0, 4)), today);
+  const calendar = await db.select().from(serviceCalendar).where(eq(serviceCalendar.companyId, campaign.companyId));
+  const demand = campaignDemand({ ...inputs, calendar }, campaign.roundYear, today);
   const round = demand.rounds.find(r => r.serviceKey === campaign.serviceKey &&
-    r.roundMonth === campaign.roundMonth && r.roundSeq === campaign.roundSeq);
+    r.calendarEntryId === campaign.calendarEntryId && r.roundYear === campaign.roundYear);
   const members = new Map(round?.members.map(m => [m.propertyId, m]) ?? []);
   return items.map(item => {
     const member = members.get(item.customerId);

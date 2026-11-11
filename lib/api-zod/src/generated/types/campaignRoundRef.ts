@@ -8,8 +8,8 @@
 
 export interface CampaignRoundRef {
   serviceKey: string;
-  roundMonth: string;
-  roundSeq: number;
+  calendarEntryId: string;
+  roundYear: number;
   title: string;
   windowStart: string;
   windowEnd: string;

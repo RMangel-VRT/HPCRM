@@ -1,5 +1,5 @@
 import { and, eq, gte, lte } from "drizzle-orm";
-import { campaigns, campaignItems, routeStops, termScopeLines, visits } from "@workspace/db";
+import { campaigns, campaignItems, routeStops, serviceCalendar, termScopeLines, visits } from "@workspace/db";
 import type { Reader } from "./contractCenterPersistence";
 import { loadCustomerContractInputs } from "./customerContractSummary";
 import type { ServiceFulfillmentInputs } from "./customerServiceFulfillment";
@@ -18,5 +18,6 @@ export async function loadServiceFulfillmentInputs(reader: Reader, companyId: st
   const end = contract.terms.map(t => t.endDate).sort().at(-1);
   const activity = start && end ? await reader.select().from(visits).where(and(
     eq(visits.companyId, companyId), eq(visits.sourceType, "route"), gte(visits.visitDate, start), lte(visits.visitDate, end))) : [];
-  return { ...contract, scope, programs: [], campaigns: rounds, items, stops, visits: activity };
+  const calendar = await reader.select().from(serviceCalendar).where(eq(serviceCalendar.companyId, companyId));
+  return { ...contract, scope, calendar, campaigns: rounds, items, stops, visits: activity };
 }
