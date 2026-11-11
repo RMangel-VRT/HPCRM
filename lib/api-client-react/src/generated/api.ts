@@ -30,10 +30,12 @@ import type {
   CrewInput,
   CrewPatch,
   CrewWithSupervisor,
+  CustomerServices,
   EligibleSupervisor,
   EnrichedVisit,
   ErrorResponse,
   GetCampaignRoundCalendarParams,
+  GetCustomerServicesParams,
   HealthStatus,
   ListVisitsParams,
   LoadTemplateRequest,
@@ -89,6 +91,115 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+/**
+ * Read-only season fulfillment with contract-summary roles and company access. Account managers retain projected admin access, not assignment-limited access. No commercial prices or files.
+ */
+export const getGetCustomerServicesUrl = (
+  id: string,
+  params?: GetCustomerServicesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/customers/${id}/services?${stringifiedParams}`
+    : `/api/customers/${id}/services`;
+};
+
+export const getCustomerServices = async (
+  id: string,
+  params?: GetCustomerServicesParams,
+  options?: RequestInit,
+): Promise<CustomerServices> => {
+  return customFetch<CustomerServices>(getGetCustomerServicesUrl(id, params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetCustomerServicesQueryKey = (
+  id: string,
+  params?: GetCustomerServicesParams,
+) => {
+  return [
+    `/api/customers/${id}/services`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetCustomerServicesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCustomerServices>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  params?: GetCustomerServicesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCustomerServices>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetCustomerServicesQueryKey(id, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCustomerServices>>
+  > = ({ signal }) =>
+    getCustomerServices(id, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCustomerServices>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCustomerServicesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCustomerServices>>
+>;
+export type GetCustomerServicesQueryError = ErrorType<void>;
+
+export function useGetCustomerServices<
+  TData = Awaited<ReturnType<typeof getCustomerServices>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  params?: GetCustomerServicesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCustomerServices>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCustomerServicesQueryOptions(id, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 export const getGetCampaignRoundListsUrl = (id: string) => {
   return `/api/campaigns/${id}/round-lists`;

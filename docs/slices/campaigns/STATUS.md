@@ -7,12 +7,32 @@ The ledger each CG slice updates when it finishes. The next slice's pre-flight r
 | CG1 Catalog, service timing, schema | merged |
 | CG2 Demand engine and Generate screen | merged; verification and handoff recorded |
 | CG3 Membership follows contracts | merged; verification and handoff recorded |
-| CG4 Crew lists | implemented; verification and handoff recorded; awaiting merge |
-| CG5 Owed and done calculation | not started |
+| CG4 Crew lists | merged; verification and handoff recorded |
+| CG5 Owed and done calculation | implemented; verification and handoff recorded; awaiting merge |
 
 ## Log
 
 (Each slice adds a block here: date, migration, new tables/columns/functions/endpoints with exact names, deviations, open items.)
+
+### 2026-11-11 — CG5 shared season fulfillment and authorized customer API
+
+- **Source resolution:** the owner changed project-wide rules to task-plan-led requirements. Missing repository specifications and stale merge labels are no longer source gates; safety, actual dependency and scope checks remain. Implemented from the assigned CG5 plan and actual CG1–CG4 handoffs without restoring removed specifications. Fresh fetched `origin/main` is `0d4f47ee`; CG4 implementation `a5bb028b` is its ancestor, so the CG4 state above now records the observed merge.
+- Migration: **none**. New tables/columns: **none**. No CG5 database writes, Generate runs, opt-in, dedicated backfills, production operations or publishing.
+- `lib/customerServiceFulfillment.ts`: `customerServiceFulfillment`, `ServiceFulfillmentInputs`, `ServiceTermUnavailable`; generated DTO re-exports `CustomerServices`, `FulfillmentRow`, `FulfillmentRound`. Calls the existing `campaignDemand` across every intersecting year, filters governing property/term membership and preserves all demand gaps. Item status alone owns campaign done/skipped; route visits own route activity. Manual `otherWork`, uncounted `alsoInContract` and unmatched generated `retainedWork` stay separate.
+- `lib/customerServiceFulfillmentLoader.ts`: `loadServiceFulfillmentInputs`, fixed nine company-scoped batch reads (eight with no dated terms), no rates/payments/documents or per-row storage calls. Inputs can be reused by later authorized report consumers.
+- `registerCustomerServices` registers `GET /api/customers/:id/services?termId=...` once in `routes/routes.ts`. Auth and company-header checks match contract-summary; shared `CUSTOMER_CONTRACT_READERS` is its unchanged role set. Account managers retain existing admin projection; customer assignments remain attribution, not a new restriction. Explicit terms are same-company own/immediate-parent eligible seasons; invalid requests never fall back.
+- OpenAPI operation `getCustomerServices`; generated `GetCustomerServicesResponse`, `useGetCustomerServices`, `CustomerServices`, `ServiceSeason`, `ServiceNext`, `ServiceRound`, `ServiceFulfillment`, `UncountedService`, `ManualServiceWork`, `RetainedServiceWork` and enum helpers. API Zod barrel explicitly resolves Orval's path/query naming collision, exposing query alias `CustomerServicesQuery`.
+- Verification: 73 focused pure/loader/mounted-handler and predecessor tests passed; codegen/library declarations passed. API leaf typecheck remains at the documented 695-diagnostic baseline, with none in the changed feature modules/tests. Full evidence: [CG5 verification](../../scheduling/reports/CG5-verification.md); consumer fields/statuses: [integration contract](../../scheduling/reports/CG5-services-integration.md).
+- Final runtime checks: API rebuilt/restarted successfully, proxy health 200, signed-out services 401, health-route browser snapshot rendered, existing schema/extensions workflow passed, diff whitespace check passed. Existing unrelated QuickBooks fixture-token warnings remain; no new startup/backfill behavior.
+- Deviations/interpretations: unknown demand keeps owed/remaining null; route activity is within selected season dates, not exclusive term attribution; `retainedWork` preserves visibility without inflating owed totals; no-term manual history remains visible. No legacy `getServiceFulfillment` change, customer Services UI or company-wide report. Open issues: existing broad API typecheck baseline; company-history load narrowing is a later optimization, not a functional blocker. Earlier blocked entries below are historical.
+
+### 2026-11-11 — CG5 source and predecessor merge pre-flight blocked
+
+- Required owner-controlled `docs/slices/campaigns/CG5-owed-done-calculation.md` is absent locally and on freshly fetched `origin/main`. Its full requirements and named pre-flight cannot be read or executed. Earlier CG2/CG3/CG4 source exceptions are slice-specific; no CG5 exception was authorized, and no removed specification was restored.
+- CG4 implementation and verification are present in this checkout (`a5bb028b`), but freshly fetched `origin/main` ends at CG3 (`3f4beefa`). Neither `artifacts/api-server/src/lib/campaignRoundWork.ts` nor `.migration-backup/migrations/0076_campaign_crew_lists.sql` exists on fetched main. CG4's required merge gate is not satisfied; its awaiting-merge ledger state is preserved.
+- Migration: **none**. New tables, columns, functions and endpoints: **none**. No application code, user-controlled specification, database data, Generate state, workflows or production resources changed.
+- Deviation: stopped at the prerequisite gates as required. No fulfillment calculation, endpoint, consumer contract or functional verification is claimed. Open items: merge CG4 with its verified handoff and supply the approved CG5 repository specification before rerunning pre-flight.
+- Evidence: [CG5 pre-flight verification](../../scheduling/reports/CG5-preflight-verification.md). No production writes, Generate runs, publishing or backfills.
 
 ### 2026-11-11 — FIX-CG generated round page
 

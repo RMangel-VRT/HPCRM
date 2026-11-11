@@ -5,12 +5,12 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { flags } from "@workspace/db";
 import { customerContractProjector, loadCustomerContractInputs, projectContractSummary, snowCoveredCustomerIds } from "../lib/customerContractSummary";
 
-const READERS = new Set(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "mapping", "landscape_supervisor", "crew_supervisor"]);
+export const CUSTOMER_CONTRACT_READERS = new Set(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "mapping", "landscape_supervisor", "crew_supervisor"]);
 export function registerCustomerContractSummary(app: Express) {
   app.get(["/api/customers/:id/contract-summary", "/api/customers/snow-covered"], async (req, res): Promise<void> => {
     if (!req.isAuthenticated?.()) { res.status(401).json({ message: "Not authenticated" }); return; }
     const user = req.user as UserWithContext;
-    if (!user.activeCompanyId || !READERS.has(user.accessRole)) { res.status(403).json({ message: "Forbidden" }); return; }
+    if (!user.activeCompanyId || !CUSTOMER_CONTRACT_READERS.has(user.accessRole)) { res.status(403).json({ message: "Forbidden" }); return; }
     if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
       res.status(409).json({ message: "Active company changed. Reload and try again." }); return;
     }

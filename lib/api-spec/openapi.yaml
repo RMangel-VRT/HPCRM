@@ -23,6 +23,24 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /customers/{id}/services:
+    get:
+      operationId: getCustomerServices
+      description: Read-only season fulfillment with contract-summary roles and company access. Account managers retain projected admin access, not assignment-limited access. No commercial prices or files.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: termId, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 100 } }
+      responses:
+        "200":
+          description: Season, counted services, uncounted scope and separate manual work
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomerServices" }
+        "400": { description: Invalid query }
+        "401": { description: Sign-in required }
+        "403": { description: Role not permitted }
+        "404": { description: Customer or season unavailable in this company }
+        "409": { description: Active company changed }
   /campaigns/{id}/round-lists:
     get:
       operationId: getCampaignRoundLists
@@ -1263,6 +1281,94 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    ServiceSeason:
+      type: object
+      required: [termId, agreementId, label, startDate, endDate, status, parentCustomerId]
+      properties:
+        termId: { type: string }
+        agreementId: { type: string }
+        label: { type: string }
+        startDate: { type: string }
+        endDate: { type: string }
+        status: { type: string }
+        parentCustomerId: { type: [string, "null"] }
+    ServiceNext:
+      type: object
+      required: [date, kind, campaignId, itemId, visitId]
+      properties:
+        date: { type: string }
+        kind: { type: string, enum: [round_window, chemical_promise, route_visit] }
+        campaignId: { type: [string, "null"] }
+        itemId: { type: [string, "null"] }
+        visitId: { type: [string, "null"] }
+    ServiceRound:
+      type: object
+      required: [roundMonth, roundSeq, campaignId, itemId, dueDate, windowStart, windowEnd, dateKind, state, timing, countSource]
+      properties:
+        roundMonth: { type: string }
+        roundSeq: { type: integer }
+        campaignId: { type: [string, "null"] }
+        itemId: { type: [string, "null"] }
+        dueDate: { type: string }
+        windowStart: { type: string }
+        windowEnd: { type: string }
+        dateKind: { type: string, enum: [round_window, chemical_promise] }
+        state: { type: string, enum: [completed, skipped, missing_item, waiting_on_signature, overdue, pending] }
+        timing: { type: string, enum: [contract, program] }
+        countSource: { type: string, enum: [contract, standard] }
+    ServiceFulfillment:
+      type: object
+      required: [serviceKey, label, scheduling, statedQuantity, owed, done, skipped, remaining, planned, inProgress, status, issues, next, rounds]
+      properties:
+        serviceKey: { type: string }
+        label: { type: string }
+        scheduling: { type: string, enum: [campaign, route] }
+        statedQuantity: { type: [number, "null"] }
+        owed: { type: [integer, "null"] }
+        done: { type: integer }
+        skipped: { type: integer }
+        remaining: { type: [integer, "null"] }
+        planned: { type: integer }
+        inProgress: { type: integer }
+        status: { type: string }
+        issues: { type: array, items: { type: string } }
+        next: { anyOf: [{ $ref: "#/components/schemas/ServiceNext" }, { type: "null" }] }
+        rounds: { type: array, items: { $ref: "#/components/schemas/ServiceRound" } }
+    UncountedService:
+      type: object
+      required: [serviceKey, label, scheduling]
+      properties:
+        serviceKey: { type: string }
+        label: { type: string }
+        scheduling: { type: string }
+    ManualServiceWork:
+      type: object
+      required: [campaignId, itemId, title, status]
+      properties:
+        campaignId: { type: string }
+        itemId: { type: string }
+        title: { type: string }
+        status: { type: string }
+    RetainedServiceWork:
+      type: object
+      required: [campaignId, itemId, serviceKey, status]
+      properties:
+        campaignId: { type: string }
+        itemId: { type: string }
+        serviceKey: { type: [string, "null"] }
+        status: { type: string }
+    CustomerServices:
+      type: object
+      required: [asOf, customerId, availableTerms, selectedTerm, rows, alsoInContract, otherWork, retainedWork]
+      properties:
+        asOf: { type: string }
+        customerId: { type: string }
+        availableTerms: { type: array, items: { $ref: "#/components/schemas/ServiceSeason" } }
+        selectedTerm: { anyOf: [{ $ref: "#/components/schemas/ServiceSeason" }, { type: "null" }] }
+        rows: { type: array, items: { $ref: "#/components/schemas/ServiceFulfillment" } }
+        alsoInContract: { type: array, items: { $ref: "#/components/schemas/UncountedService" } }
+        otherWork: { type: array, items: { $ref: "#/components/schemas/ManualServiceWork" } }
+        retainedWork: { type: array, items: { $ref: "#/components/schemas/RetainedServiceWork" } }
     CampaignRoundMove:
       type: object
       additionalProperties: false

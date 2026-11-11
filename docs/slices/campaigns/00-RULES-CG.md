@@ -1,6 +1,6 @@
 # 00-RULES-CG: Campaigns generated from contract scope
 
-> Read this at the start of **every** CG task, together with the slice file and `STATUS.md` in this folder. Also assumes 00-RULES-O (ownership) and the scheduling rules (00-RULES-P3, 00-RULES-R). Read `docs/scheduling/Master-schedule-design.md` and `.agents/memory/` first. Base: current `main`; find code by its content, not line numbers.
+> Follow the assigned task plan as the primary requirements source and the task-plan-led policy in `replit.md` and `docs/slices/README.md`. Read these rules, the available ledger/specification, ownership map and scheduling guidance for context; missing or outdated documents alone do not block implementation. Inspect actual predecessor code and handoffs; find code by its content, not line numbers.
 
 ## Goal
 
@@ -52,11 +52,16 @@ Every counted seasonal service a property is owed (aeration, clean-ups, shrub tr
 4. **CG4** – crew lists per round (priority order, split between crews, start round), the round as a window on the board, fert/chem dates from the list, a done visit on completion.
 5. **CG5** – the shared owed / done calculation for the customer Services page (and later the step 4 fulfillment report).
 
-Each slice merges and is checked before the next starts. They touch the same files.
+Preserve this dependency order and verify each required predecessor implementation
+before consuming it. These slices touch the same files. Required code available
+and verifiable in the working branch is sufficient to proceed; a stale
+awaiting-merge label or missing specification alone is not a blocker. Fetch and
+integrate predecessor changes when needed, without overwriting local work, and
+record actual merge status separately.
 
 ## Working rules for every task
 
 - **One slice per task.** Don't start or plan the next slice in the same task.
-- **Run the slice's pre-flight first.** If anything fails, stop and report what's missing. Never rebuild a piece an earlier slice owns; that's how duplicates happen.
+- **Run applicable pre-flight checks first.** Verify actual dependencies and handoffs using the assigned task plan. Stop for unavailable required code, material unresolved conflicts, integration-invalidating failures, missing required access or data/security risks—not missing specifications or stale ledger labels. Never rebuild a piece an earlier slice owns.
 - **Find before you write.** Before adding a helper, table or endpoint, search for an existing one that does the job.
 - **Finish by updating `STATUS.md`** with the exact names you added. These files live in the repo; don't edit the slice files themselves.

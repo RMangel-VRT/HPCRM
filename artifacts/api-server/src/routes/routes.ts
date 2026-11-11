@@ -82,6 +82,7 @@ import { billingInputProblem, protectedBillingWrite } from "../services/customer
 import { customerQboReads } from "./qboCustomerReads";
 import { customerSetupRouter, createCustomerRequest, setupFailure, customerSyncBusyFailure } from "./customerSetup";
 import { registerCustomerContractSummary } from "./customerContractSummary";
+import { registerCustomerServices } from "./customerServices";
 import { registerCustomerNotePins } from "./customerNotePins";
 import { registerCustomerListSummary } from "./customerListSummary";
 import { registerCustomerDocuments } from "./customerDocuments";
@@ -2738,6 +2739,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     rejectLegacySnowCoverageWrite(req, res, next);
   });
   registerCustomerContractSummary(app);
+  registerCustomerServices(app);
   registerCustomerNotePins(app, storage);
   registerCustomerListSummary(app);
   registerTicketExpectedCompany(app);

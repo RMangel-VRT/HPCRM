@@ -5,6 +5,149 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface ServiceSeason {
+  termId: string;
+  agreementId: string;
+  label: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  /** @nullable */
+  parentCustomerId: string | null;
+}
+
+export type ServiceNextKind =
+  (typeof ServiceNextKind)[keyof typeof ServiceNextKind];
+
+export const ServiceNextKind = {
+  round_window: "round_window",
+  chemical_promise: "chemical_promise",
+  route_visit: "route_visit",
+} as const;
+
+export interface ServiceNext {
+  date: string;
+  kind: ServiceNextKind;
+  /** @nullable */
+  campaignId: string | null;
+  /** @nullable */
+  itemId: string | null;
+  /** @nullable */
+  visitId: string | null;
+}
+
+export type ServiceRoundDateKind =
+  (typeof ServiceRoundDateKind)[keyof typeof ServiceRoundDateKind];
+
+export const ServiceRoundDateKind = {
+  round_window: "round_window",
+  chemical_promise: "chemical_promise",
+} as const;
+
+export type ServiceRoundState =
+  (typeof ServiceRoundState)[keyof typeof ServiceRoundState];
+
+export const ServiceRoundState = {
+  completed: "completed",
+  skipped: "skipped",
+  missing_item: "missing_item",
+  waiting_on_signature: "waiting_on_signature",
+  overdue: "overdue",
+  pending: "pending",
+} as const;
+
+export type ServiceRoundTiming =
+  (typeof ServiceRoundTiming)[keyof typeof ServiceRoundTiming];
+
+export const ServiceRoundTiming = {
+  contract: "contract",
+  program: "program",
+} as const;
+
+export type ServiceRoundCountSource =
+  (typeof ServiceRoundCountSource)[keyof typeof ServiceRoundCountSource];
+
+export const ServiceRoundCountSource = {
+  contract: "contract",
+  standard: "standard",
+} as const;
+
+export interface ServiceRound {
+  roundMonth: string;
+  roundSeq: number;
+  /** @nullable */
+  campaignId: string | null;
+  /** @nullable */
+  itemId: string | null;
+  dueDate: string;
+  windowStart: string;
+  windowEnd: string;
+  dateKind: ServiceRoundDateKind;
+  state: ServiceRoundState;
+  timing: ServiceRoundTiming;
+  countSource: ServiceRoundCountSource;
+}
+
+export type ServiceFulfillmentScheduling =
+  (typeof ServiceFulfillmentScheduling)[keyof typeof ServiceFulfillmentScheduling];
+
+export const ServiceFulfillmentScheduling = {
+  campaign: "campaign",
+  route: "route",
+} as const;
+
+export interface ServiceFulfillment {
+  serviceKey: string;
+  label: string;
+  scheduling: ServiceFulfillmentScheduling;
+  /** @nullable */
+  statedQuantity: number | null;
+  /** @nullable */
+  owed: number | null;
+  done: number;
+  skipped: number;
+  /** @nullable */
+  remaining: number | null;
+  planned: number;
+  inProgress: number;
+  status: string;
+  issues: string[];
+  next: ServiceNext | null;
+  rounds: ServiceRound[];
+}
+
+export interface UncountedService {
+  serviceKey: string;
+  label: string;
+  scheduling: string;
+}
+
+export interface ManualServiceWork {
+  campaignId: string;
+  itemId: string;
+  title: string;
+  status: string;
+}
+
+export interface RetainedServiceWork {
+  campaignId: string;
+  itemId: string;
+  /** @nullable */
+  serviceKey: string | null;
+  status: string;
+}
+
+export interface CustomerServices {
+  asOf: string;
+  customerId: string;
+  availableTerms: ServiceSeason[];
+  selectedTerm: ServiceSeason | null;
+  rows: ServiceFulfillment[];
+  alsoInContract: UncountedService[];
+  otherWork: ManualServiceWork[];
+  retainedWork: RetainedServiceWork[];
+}
+
 export interface CampaignRoundMove {
   /**
    * @minItems 1
@@ -1048,6 +1191,14 @@ export interface OwnerResponseTicket {
   followUpNote?: string | null;
   [key: string]: unknown;
 }
+
+export type GetCustomerServicesParams = {
+  /**
+   * @minLength 1
+   * @maxLength 100
+   */
+  termId?: string;
+};
 
 export type GetCampaignRoundCalendarParams = {
   /**

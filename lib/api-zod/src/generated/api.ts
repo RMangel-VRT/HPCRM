@@ -7,6 +7,122 @@
  */
 import * as zod from "zod";
 
+/**
+ * Read-only season fulfillment with contract-summary roles and company access. Account managers retain projected admin access, not assignment-limited access. No commercial prices or files.
+ */
+export const GetCustomerServicesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const getCustomerServicesQueryTermIdMax = 100;
+
+export const GetCustomerServicesQueryParams = zod.object({
+  termId: zod.coerce
+    .string()
+    .min(1)
+    .max(getCustomerServicesQueryTermIdMax)
+    .optional(),
+});
+
+export const GetCustomerServicesResponse = zod.object({
+  asOf: zod.string(),
+  customerId: zod.string(),
+  availableTerms: zod.array(
+    zod.object({
+      termId: zod.string(),
+      agreementId: zod.string(),
+      label: zod.string(),
+      startDate: zod.string(),
+      endDate: zod.string(),
+      status: zod.string(),
+      parentCustomerId: zod.string().nullable(),
+    }),
+  ),
+  selectedTerm: zod.union([
+    zod.object({
+      termId: zod.string(),
+      agreementId: zod.string(),
+      label: zod.string(),
+      startDate: zod.string(),
+      endDate: zod.string(),
+      status: zod.string(),
+      parentCustomerId: zod.string().nullable(),
+    }),
+    zod.null(),
+  ]),
+  rows: zod.array(
+    zod.object({
+      serviceKey: zod.string(),
+      label: zod.string(),
+      scheduling: zod.enum(["campaign", "route"]),
+      statedQuantity: zod.number().nullable(),
+      owed: zod.number().nullable(),
+      done: zod.number(),
+      skipped: zod.number(),
+      remaining: zod.number().nullable(),
+      planned: zod.number(),
+      inProgress: zod.number(),
+      status: zod.string(),
+      issues: zod.array(zod.string()),
+      next: zod.union([
+        zod.object({
+          date: zod.string(),
+          kind: zod.enum(["round_window", "chemical_promise", "route_visit"]),
+          campaignId: zod.string().nullable(),
+          itemId: zod.string().nullable(),
+          visitId: zod.string().nullable(),
+        }),
+        zod.null(),
+      ]),
+      rounds: zod.array(
+        zod.object({
+          roundMonth: zod.string(),
+          roundSeq: zod.number(),
+          campaignId: zod.string().nullable(),
+          itemId: zod.string().nullable(),
+          dueDate: zod.string(),
+          windowStart: zod.string(),
+          windowEnd: zod.string(),
+          dateKind: zod.enum(["round_window", "chemical_promise"]),
+          state: zod.enum([
+            "completed",
+            "skipped",
+            "missing_item",
+            "waiting_on_signature",
+            "overdue",
+            "pending",
+          ]),
+          timing: zod.enum(["contract", "program"]),
+          countSource: zod.enum(["contract", "standard"]),
+        }),
+      ),
+    }),
+  ),
+  alsoInContract: zod.array(
+    zod.object({
+      serviceKey: zod.string(),
+      label: zod.string(),
+      scheduling: zod.string(),
+    }),
+  ),
+  otherWork: zod.array(
+    zod.object({
+      campaignId: zod.string(),
+      itemId: zod.string(),
+      title: zod.string(),
+      status: zod.string(),
+    }),
+  ),
+  retainedWork: zod.array(
+    zod.object({
+      campaignId: zod.string(),
+      itemId: zod.string(),
+      serviceKey: zod.string().nullable(),
+      status: zod.string(),
+    }),
+  ),
+});
+
 export const GetCampaignRoundListsParams = zod.object({
   id: zod.coerce.string(),
 });
