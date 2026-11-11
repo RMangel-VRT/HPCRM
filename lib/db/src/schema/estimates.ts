@@ -71,7 +71,7 @@ export const estimateLines = pgTable("estimate_lines", {
   sortOrder: integer("sort_order").notNull().default(0), ...times(),
 }, t => ({
   order: index("estimate_lines_version_section_order_idx").on(t.versionId, t.sectionId, t.sortOrder),
-   type: check("estimate_lines_type_check", sql`${t.lineType} IN ('plant','hardscape','irrigation','labor','service','equipment','fee','custom')`),
+   type: check("estimate_lines_type_v2_check", sql`${t.lineType} IN ('plant','hardscape','irrigation','labor','service','equipment','fee','custom')`),
   source: check("estimate_lines_source_check", sql`${t.priceSource} IN ('catalog','contract','rate_card','quick_list','manual')`),
   quantity: check("estimate_lines_quantity_check", sql`${t.quantity} > 0`),
   price: check("estimate_lines_price_check", sql`${t.unitPriceCents} >= 0`),

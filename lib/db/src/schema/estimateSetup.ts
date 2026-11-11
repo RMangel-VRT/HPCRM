@@ -98,7 +98,7 @@ export const estimateQuickItems = pgTable("estimate_quick_items", {
 }, t => ({
   companyKind: index("estimate_quick_items_company_idx").on(t.companyId, t.kind),
   companyLabel: uniqueIndex("estimate_quick_items_company_label_idx").on(t.companyId, sql`lower(${t.label})`),
-   kindCheck: check("estimate_quick_items_kind_check", sql`${t.kind} IN ('equipment','fee','service')`),
+   kindCheck: check("estimate_quick_items_kind_v2_check", sql`${t.kind} IN ('equipment','fee','service')`),
    categoryCheck: check("estimate_quick_items_category_check", sql`(${t.kind} = 'service') = (${t.serviceCategoryId} IS NOT NULL)`),
    unitCheck: check("estimate_quick_items_unit_check", sql`${t.defaultUnit} IN ('hour','day','week','ea','flat','sq ft','1,000 sq ft','lin ft','visit')`),
   rateCheck: check("estimate_quick_items_rate_check", sql`${t.defaultRateCents} >= 0`),
