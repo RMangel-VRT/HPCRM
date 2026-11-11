@@ -13,10 +13,11 @@ describe("batched fulfillment reads", () => {
       if (name === "agreement_terms") return [{ startDate: "2026-10-01", endDate: "2027-09-30" }];
       return [];
     } }) }) };
-    await loadServiceFulfillmentInputs(reader as any, "company-fixture");
-    expect(calls).toHaveLength(9);
+    const loaded = await loadServiceFulfillmentInputs(reader as any, "company-fixture");
+    expect(loaded.programs).toEqual([]);
+    expect(calls).toHaveLength(8);
     expect(calls.map(c => c.table)).toEqual([
-      "customers", "agreements", "agreement_terms", "term_scope_lines", "service_programs",
+      "customers", "agreements", "agreement_terms", "term_scope_lines",
       "campaigns", "campaign_items", "route_stops", "visits",
     ]);
     for (const call of calls) {

@@ -1,12 +1,13 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, check } from "drizzle-orm/pg-core";
+import { pgTable, text, char, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { isCalendarDate } from "./calendarDate";
 import { NON_RENEWAL_REASONS } from "../contractNonRenewal";
 import { estimates, estimateVersions } from "./estimates";
-import { campaignIdentityCheckSql, serviceProgramCheckSql } from "../campaignSql";
-export { serviceProgramSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../serviceProgramContracts";
+import { campaignIdentityCheckSql } from "../campaignSql";
+import { serviceCalendarCheckSql } from "../serviceCalendarSql";
+export { serviceCalendarReplacementSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../serviceCalendarContracts";
 export { routeStopBody, routeStopFields, routeDate, routeService, validRouteSeason } from "../routeContracts";
 
 export const visitFields = {
@@ -2682,22 +2683,27 @@ export const campaignItems = pgTable("campaign_items", {
   // See docs/scheduling/reports/publish-foreign-key-stage-one.md.
 }));
 
-export const servicePrograms = pgTable("service_programs", {
+export const serviceCalendar = pgTable("service_calendar", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   serviceKey: text("service_key").notNull(),
-  rounds: smallint("rounds").notNull(),
-  monthSpread: smallint("month_spread").array().notNull(),
-  isStandard: boolean("is_standard").notNull().default(false),
+  kind: text("kind").notNull(),
+  position: smallint("position").notNull(),
+  name: text("name").notNull(),
+  opensMd: char("opens_md", { length: 5 }).notNull(),
+  dueMd: char("due_md", { length: 5 }).notNull(),
+  inStandard: boolean("in_standard").notNull().default(false),
+  pattern: text("pattern"),
+  includes: text("includes"),
   updatedById: varchar("updated_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, t => ({
-  identity: unique("service_programs_unique").on(t.companyId, t.serviceKey, t.rounds),
-  standard: uniqueIndex("service_programs_one_standard").on(t.companyId, t.serviceKey).where(sql`${t.isStandard}`),
-  valid: check("service_programs_valid_check", sql.raw(serviceProgramCheckSql)),
+  identity: unique("service_calendar_position_unique").on(t.companyId, t.serviceKey, t.kind, t.position),
+  checklist: uniqueIndex("service_calendar_one_checklist").on(t.companyId, t.serviceKey).where(sql`${t.kind} = 'checklist'`),
+  valid: check("service_calendar_valid_check", sql.raw(serviceCalendarCheckSql)),
 }));
-export type ServiceProgram = typeof servicePrograms.$inferSelect;
+export type ServiceCalendar = typeof serviceCalendar.$inferSelect;
 
 /** Explicit generation opt-in, not a second owner of contractual demand. */
 export const campaignGenerationYears = pgTable("campaign_generation_years", {

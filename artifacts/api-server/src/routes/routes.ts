@@ -133,7 +133,7 @@ import { registerCatalogRoutes } from "./catalog";
 import { registerEstimateRoutes } from "./estimates";
 import { registerInvoiceRoutes } from "./invoices";
 import { registerDocumentSettingsRoutes } from "./documentSettings";
-import { registerServiceProgramRoutes } from "./servicePrograms";
+import { registerServiceCalendarRoutes } from "./serviceCalendar";
 import { registerCampaignGenerationRoutes } from "./campaignGeneration";
 import { registerCampaignRoundLists } from "./campaignRoundLists";
 import { canAccessGeneratedRound, roundField, roundAssigned, roundTeamIds } from "../lib/campaignRoundAccess";
@@ -2760,7 +2760,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerEstimateRoutes(app);
   registerInvoiceRoutes(app);
   registerDocumentSettingsRoutes(app);
-  registerServiceProgramRoutes(app);
+  registerServiceCalendarRoutes(app);
   registerCampaignGenerationRoutes(app);
   registerCampaignIdentityGuards(app);
   registerCampaignRoundLists(app);

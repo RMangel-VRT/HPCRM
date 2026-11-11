@@ -87,7 +87,7 @@ describe("season service fulfillment", () => {
     const before = structuredClone(data), r = result(data);
     expect(r.rows[0].done).toBe(1);
     expect(r.otherWork).toMatchObject([{ itemId: "manual-item" }]);
-    expect(r.alsoInContract).toMatchObject([{ serviceKey: "backflow", scheduling: "none" }]);
+    expect(r.alsoInContract).toMatchObject([{ serviceKey: "backflow", scheduling: "checklist" }]);
     expect(r.retainedWork).toMatchObject([{ itemId: "retained" }]);
     expect(data).toEqual(before);
   });

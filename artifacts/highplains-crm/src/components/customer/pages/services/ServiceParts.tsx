@@ -26,7 +26,7 @@ export function accessFor(role: string | undefined): ServiceAccess {
 const BLOCKING_GAPS = ["no_count", "invalid_count", "duplicate_lines"];
 
 export function gapLink(issue: string, term: ServiceSeason | null, access: ServiceAccess): string | null {
-  if (issue === "no_timing") return access.timing ? "/dashboard/settings/service-timing" : null;
+  if (issue === "no_timing") return access.timing ? "/dashboard/settings/service-calendar" : null;
   if (BLOCKING_GAPS.includes(issue)) return access.contracts && term ? `/dashboard/contracts/${encodeURIComponent(term.agreementId)}#term-${encodeURIComponent(term.termId)}` : null;
   if (issue === "no_route") return access.routes ? "/dashboard/routes" : null;
   return null;
@@ -163,7 +163,7 @@ export function ServiceRowItem({ row, term, access, expanded, onToggle, onOpen, 
           ))}
           {links.map(href => (
             <Link key={href} href={href} className="text-[11px] text-primary hover:underline" data-testid={`link-gap-${k}-${href.split("/")[2]}`}>
-              {href.includes("service-timing") ? t("customerPages.services.fixTiming", { defaultValue: "Set service timing" })
+              {href.includes("service-calendar") ? t("customerPages.services.fixTiming", { defaultValue: "Set service timing" })
                 : href.includes("/routes") ? t("customerPages.services.fixRoute", { defaultValue: "Open Routes" })
                 : t("customerPages.services.fixContract", { defaultValue: "Review contract season" })}
             </Link>

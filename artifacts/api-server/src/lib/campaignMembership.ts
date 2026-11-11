@@ -70,7 +70,7 @@ export function scheduleCampaignMembership(companyId: string, today?: string) {
 export function registerCampaignMembershipReconciliation(app: Express) {
   app.use((req, res, next) => {
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) ||
-      !/^\/api\/(customers|contract-center|admin\/contract-center|service-programs|estimates|bids|proposals|qbo)(?:\/|$)/.test(req.path)) return next();
+      !/^\/api\/(customers|contract-center|admin\/contract-center|estimates|bids|proposals|qbo)(?:\/|$)/.test(req.path)) return next();
     const companyId = (req.user as UserWithContext | undefined)?.activeCompanyId;
     if (companyId) res.once("finish", () => {
       if (res.statusCode >= 200 && res.statusCode < 300) void scheduleCampaignMembership(companyId);

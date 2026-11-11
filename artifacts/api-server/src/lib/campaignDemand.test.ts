@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AgreementTerm, Customer, TermScopeLine, ServiceProgram } from "@workspace/db";
+import type { AgreementTerm, Customer, TermScopeLine } from "@workspace/db";
+import type { DemandTimingProgram } from "../../../../lib/db/src/campaignGenerationContracts";
 import { campaignDemand } from "./campaignDemand";
 import { coverageResolver } from "./contractCoverage";
 import { campaignServices } from "../shared/contractCatalog";
@@ -10,8 +11,8 @@ const term = (overrides = {}) => ({ id: "t", agreementId: "a", line: "landscape"
 const line = (overrides = {}) => ({ termId: "t", serviceKey: "chemical", included: true, quantity: 3,
   monthSpread: null, ...overrides } as TermScopeLine);
 const program = (overrides = {}) => ({ serviceKey: "chemical", rounds: 3, monthSpread: months({ 3: 1, 6: 1, 9: 1 }),
-  isStandard: false, ...overrides } as ServiceProgram);
-function inputs(overrides: Partial<CustomerContractInputs & { programs: ServiceProgram[] }> = {}) {
+  isStandard: false, ...overrides } as DemandTimingProgram);
+function inputs(overrides: Partial<CustomerContractInputs & { programs: DemandTimingProgram[] }> = {}) {
   return { customers: [{ id: "p", name: "Property", parentCustomerId: null, isParent: "false" } as Customer],
     agreements: [{ id: "a", customerId: "p" }] as CustomerContractInputs["agreements"],
     terms: [term()], scope: [line()], programs: [program()], ...overrides };
@@ -88,7 +89,7 @@ describe("contract-driven campaign demand", () => {
   it("never produces route, on-request or event rounds", () => {
     expect(demand({ scope: ["mowing", "fall_aeration", "crabgrass", "snow_walks"].map(serviceKey =>
       line({ serviceKey, monthSpread: months({ 3: 3 }) })) }).rounds).toEqual([]);
-    expect(campaignServices()).toHaveLength(8);
+    expect(campaignServices()).toHaveLength(10);
   });
   it("retains the Routes default signature, status set and own-property precedence", () => {
     const d = inputs({ terms: [term({ status: "sent" })], scope: [line({ monthSpread: months({ 4: 3 }) })] });

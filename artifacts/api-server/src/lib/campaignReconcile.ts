@@ -1,13 +1,13 @@
 import { and, eq, gte, inArray, lte, sql, asc } from "drizzle-orm";
 import {
-  campaigns, campaignItems, campaignItemTaskCompletions, campaignChecklistAuditLog, visits, servicePrograms,
+  campaigns, campaignItems, campaignItemTaskCompletions, campaignChecklistAuditLog, visits,
   campaignGenerationYears, type Campaign, type CampaignItem,
 } from "@workspace/db";
 import { db, type AppTransaction } from "../db";
 import type { CampaignGenerationReport, RoundRef, ItemRef } from "../../../../lib/db/src/campaignGenerationContracts";
 import { campaignDemand } from "./campaignDemand";
 import { loadCustomerContractInputs } from "./customerContractSummary";
-import { campaignServices } from "../shared/contractCatalog";
+import { SCOPE_CATALOG } from "../shared/contractCatalog";
 import { companyToday, addCalendarDays } from "./companyDay";
 import { campaignItemRow } from "./campaignItemRow";
 import { GenerateContractCampaignsResponse } from "@workspace/api-zod";
@@ -50,8 +50,8 @@ async function reconcile(tx: AppTransaction, companyId: string, year: number,
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${'campaign-gen:' + companyId}, 0))`);
   const today = opts.today ?? companyToday(), from = `${year}-01-01`, through = `${year}-12-31`;
   const inputs = await loadCustomerContractInputs(tx, companyId);
-  const programs = await tx.select().from(servicePrograms).where(eq(servicePrograms.companyId, companyId));
-  const demand = campaignDemand({ ...inputs, programs }, year, today);
+  // SC1 transition: the unused timing owner is retired; calendar allocation is SC2.
+  const demand = campaignDemand({ ...inputs, programs: [] }, year, today);
   const existing = await tx.select().from(campaigns).where(and(eq(campaigns.companyId, companyId),
     eq(campaigns.source, "contract"), gte(campaigns.roundMonth, from), lte(campaigns.roundMonth, through)))
     .orderBy(asc(campaigns.id)).for("update");
@@ -85,7 +85,7 @@ async function reconcile(tx: AppTransaction, companyId: string, year: number,
   const desired = new Map(demand.rounds.map(r => [keyOf(r), new Set(r.members.map(m => m.propertyId))]));
   const properties = new Map(inputs.customers.map(c => [c.id, c]));
   const remaining = new Map(existing.map(c => [c.id, items.filter(i => i.campaignId === c.id).length]));
-  const services = campaignServices();
+  const services = SCOPE_CATALOG.filter(s => s.scheduling === "campaign" || s.scheduling === "legacy");
   for (const round of demand.rounds) {
     const key = keyOf(round), service = services.find(s => s.key === round.serviceKey)!;
     const n = Math.max(...demand.rounds.filter(r => r.serviceKey === round.serviceKey && r.roundMonth === round.roundMonth).map(r => r.roundSeq));

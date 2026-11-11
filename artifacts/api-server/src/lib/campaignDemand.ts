@@ -1,17 +1,17 @@
-import type { ServiceProgram } from "@workspace/db";
-import { CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceProgramContracts";
-import type { DemandGapKind, DemandReport, DemandRound } from "../../../../lib/db/src/campaignGenerationContracts";
+import { CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceCalendarContracts";
+import type { DemandGapKind, DemandReport, DemandRound, DemandTimingProgram } from "../../../../lib/db/src/campaignGenerationContracts";
 import type { CustomerContractInputs } from "./customerContractSummary";
 import { coverageResolver } from "./contractCoverage";
-import { campaignServices } from "../shared/contractCatalog";
+import { SCOPE_CATALOG } from "../shared/contractCatalog";
 
 /** Pure governing monthly demand. No catalog quantity/month defaults, no writes. */
-export function campaignDemand(inputs: CustomerContractInputs & { programs: ServiceProgram[] }, year: number, _today: string): DemandReport {
+export function campaignDemand(inputs: CustomerContractInputs & { programs: DemandTimingProgram[] }, year: number, _today: string): DemandReport {
   if (!inputs.scope) throw new Error("Campaign demand requires scope inputs");
   const resolve = coverageResolver({ ...inputs, scopes: inputs.scope }, { statuses: CAMPAIGN_TERM_STATUSES });
   const rounds = new Map<string, DemandRound>(), gaps: DemandReport["gaps"] = [];
   const seenGaps = new Set<string>();
-  const services = campaignServices();
+  // Legacy chemical still honors stated contract months; new selection hides it.
+  const services = SCOPE_CATALOG.filter(s => s.scheduling === "campaign" || s.scheduling === "legacy");
   for (const property of inputs.customers.filter(c => c.isParent !== "true")) {
     for (const service of services) {
       for (let m = 0; m < 12; m++) {

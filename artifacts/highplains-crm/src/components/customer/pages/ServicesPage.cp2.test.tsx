@@ -68,7 +68,7 @@ describe("CP2 preserved details with CP6 contract demand", () => {
     expect(gap.querySelector("[style]")).toBeNull();
     expect(screen.getByTestId("chip-issue-irrigation_activation-count_mismatch")).toBeTruthy();
     expect(screen.getByTestId("chip-issue-irrigation_activation-no_route")).toBeTruthy();
-    expect(screen.getByTestId("link-gap-gap-settings").getAttribute("href")).toBe("/dashboard/settings/service-timing");
+    expect(screen.getByTestId("link-gap-gap-settings").getAttribute("href")).toBe("/dashboard/settings/service-calendar");
     expect(screen.getByTestId("services-summary").textContent).not.toContain("Hand-built");
     expect(screen.getByTestId("services-other-work").textContent).toContain("These never count");
     expect(screen.queryByTestId("services-retained")).toBeNull();

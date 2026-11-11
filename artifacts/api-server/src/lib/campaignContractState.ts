@@ -1,5 +1,4 @@
-import { eq } from "drizzle-orm";
-import { servicePrograms, type Campaign, type CampaignItem } from "@workspace/db";
+import { type Campaign, type CampaignItem } from "@workspace/db";
 import { db } from "../db";
 import { campaignDemand } from "./campaignDemand";
 import { loadCustomerContractInputs } from "./customerContractSummary";
@@ -13,8 +12,7 @@ export async function withCampaignContractStates<T extends Pick<CampaignItem, "c
 ): Promise<(T & { contractState?: CampaignContractState })[]> {
   if (campaign.source !== "contract" || !campaign.roundMonth || !items.length) return items;
   const inputs = await loadCustomerContractInputs(db, campaign.companyId);
-  const programs = await db.select().from(servicePrograms).where(eq(servicePrograms.companyId, campaign.companyId));
-  const demand = campaignDemand({ ...inputs, programs }, Number(campaign.roundMonth.slice(0, 4)), today);
+  const demand = campaignDemand({ ...inputs, programs: [] }, Number(campaign.roundMonth.slice(0, 4)), today);
   const round = demand.rounds.find(r => r.serviceKey === campaign.serviceKey &&
     r.roundMonth === campaign.roundMonth && r.roundSeq === campaign.roundSeq);
   const members = new Map(round?.members.map(m => [m.propertyId, m]) ?? []);

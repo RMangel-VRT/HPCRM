@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
-  companies, users, customers, agreements, agreementTerms, termScopeLines, servicePrograms,
+  companies, users, customers, agreements, agreementTerms, termScopeLines,
   campaigns, campaignItems, visits, campaignGenerationYears, campaignChecklistTasks, campaignItemTaskCompletions,
   tickets, ticketTypes, ticketTypeStatuses, campaignChecklistAuditLog,
   pool as schemaPool,
@@ -36,8 +36,7 @@ async function fixture() {
   await db.insert(agreements).values({ id: agreement, companyId: a, customerId: p });
   await db.insert(agreementTerms).values({ id: term, companyId: a, agreementId: agreement, line: "landscape", form: "ours",
     seasonLabel: "CG2 fixture", startDate: `${year}-01-01`, endDate: `${year}-12-31`, status: "sent", billingType: "seasonal" });
-  await db.insert(termScopeLines).values({ companyId: a, termId: term, serviceKey: "chemical", line: "landscape", included: true, quantity: 1 });
-  await db.insert(servicePrograms).values({ companyId: a, serviceKey: "chemical", rounds: 1, monthSpread: spread, isStandard: true });
+  await db.insert(termScopeLines).values({ companyId: a, termId: term, serviceKey: "chemical", line: "landscape", included: true, quantity: 1, monthSpread: spread });
 }
 async function rows() {
   return {
@@ -222,7 +221,7 @@ describe("CG2 disposable development fixtures: rollback, generation and authoriz
     const foreign = await runCampaignGeneration(b, year, opts); expect(foreign.created).toEqual([]); expect(foreign.rounds).toEqual([]);
   });
   it("returns actionable real fixture gaps and refuses public company/user/dry-run overrides", async () => {
-    await db.delete(servicePrograms).where(eq(servicePrograms.companyId, a));
+    await db.update(termScopeLines).set({ monthSpread: null }).where(eq(termScopeLines.termId, term));
     const preview = await request(app("office")).get(`/api/campaign-generation/${year}/preview`).set("X-Company-Id", a);
     expect(preview.status).toBe(200); expect(preview.headers["cache-control"]).toBe("no-store");
     expect(preview.body.gaps).toMatchObject([{ propertyId: p, termId: term, agreementId: agreement, kind: "no_timing" }]);

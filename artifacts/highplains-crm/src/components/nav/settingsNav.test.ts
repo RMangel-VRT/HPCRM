@@ -6,7 +6,7 @@ import { SETTINGS_SECTIONS, isSettingsRailPage, settingsRailFor, settingsSection
 const expected = [
   ["Company", ["company", "documents", "seasons", "benchmarks", "crews", "property-management"]],
   ["Services & catalog", ["service-plans", "work-item-templates", "chemical-products", "contracts"]],
-  ["Scheduling", ["service-timing"]],
+  ["Scheduling", ["service-calendar"]],
   ["Communication", ["email-templates", "notification-templates", "shared-mailboxes"]],
   ["Integrations", ["billing", "qbo-customers"]],
   ["System", ["features", "database"]],
@@ -14,7 +14,7 @@ const expected = [
 const labels = [
   "Company profile", "Documents", "Seasons", "Benchmarks", "Crews", "Property managers",
   "Service plans", "Work item templates", "Chemical products", "Contract defaults",
-  "Service timing", "Email templates", "Notification templates", "Shared mailboxes",
+  "Service calendar", "Email templates", "Notification templates", "Shared mailboxes",
   "QuickBooks invoicing", "QuickBooks customer mapping", "Feature flags", "Database",
 ];
 const spanish = [
@@ -36,11 +36,11 @@ describe("Settings navigation source of truth", () => {
     );
     expect(SETTINGS_SECTIONS).toHaveLength(6);
   });
-  it("shows office only Property managers and Service timing and drops all empty groups", () => {
+  it("shows office only Property managers and Service calendar and drops all empty groups", () => {
     expect(settingsRailFor({ activeRole: "office" })).toEqual([{
       label: "Company", items: [{ key: "property-management", label: "Property managers", href: "/dashboard/settings/property-management" }],
     }, {
-      label: "Scheduling", items: [{ key: "service-timing", label: "Service timing", href: "/dashboard/settings/service-timing" }],
+      label: "Scheduling", items: [{ key: "service-calendar", label: "Service calendar", href: "/dashboard/settings/service-calendar" }],
     }]);
   });
   it("keeps Platform Admin visibility, with no Settings items for other roles", () => {

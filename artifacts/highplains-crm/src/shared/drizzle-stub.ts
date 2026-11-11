@@ -11,6 +11,7 @@ const colBuilder = (): any => {
 
 export const text = (_n: string) => colBuilder();
 export const varchar = (_n: string, _o?: any) => colBuilder();
+export const char = (_n: string, _o?: any) => colBuilder();
 export const timestamp = (_n: string, _o?: any) => colBuilder();
 export const integer = (_n: string) => colBuilder();
 export const smallint = (_n: string) => colBuilder();

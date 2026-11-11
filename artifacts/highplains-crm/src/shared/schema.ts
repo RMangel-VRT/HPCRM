@@ -47,9 +47,10 @@ function isCalendarDate(value: string): boolean {
   const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1];
 }
-import { sql, pgTable, text, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, createInsertSchema, check } from "./drizzle-stub";
-export { serviceProgramSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceProgramContracts";
-import { campaignIdentityCheckSql, serviceProgramCheckSql } from "../../../../lib/db/src/campaignSql";
+import { sql, pgTable, text, char, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, createInsertSchema, check } from "./drizzle-stub";
+export { serviceCalendarReplacementSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceCalendarContracts";
+import { campaignIdentityCheckSql } from "../../../../lib/db/src/campaignSql";
+import { serviceCalendarCheckSql } from "../../../../lib/db/src/serviceCalendarSql";
 
 export const visitFields = {
   companyId: z.string().min(1),
@@ -2657,22 +2658,27 @@ export const campaignItems = pgTable("campaign_items", {
   // See docs/scheduling/reports/publish-foreign-key-stage-one.md.
 }));
 
-export const servicePrograms = pgTable("service_programs", {
+export const serviceCalendar = pgTable("service_calendar", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   serviceKey: text("service_key").notNull(),
-  rounds: smallint("rounds").notNull(),
-  monthSpread: smallint("month_spread").array().notNull(),
-  isStandard: boolean("is_standard").notNull().default(false),
+  kind: text("kind").notNull(),
+  position: smallint("position").notNull(),
+  name: text("name").notNull(),
+  opensMd: char("opens_md", { length: 5 }).notNull(),
+  dueMd: char("due_md", { length: 5 }).notNull(),
+  inStandard: boolean("in_standard").notNull().default(false),
+  pattern: text("pattern"),
+  includes: text("includes"),
   updatedById: varchar("updated_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t: any) => ({
-  identity: unique("service_programs_unique").on(t.companyId, t.serviceKey, t.rounds),
-  standard: uniqueIndex("service_programs_one_standard").on(t.companyId, t.serviceKey).where(sql`${t.isStandard}`),
-  valid: check("service_programs_valid_check", serviceProgramCheckSql),
+  identity: unique("service_calendar_position_unique").on(t.companyId, t.serviceKey, t.kind, t.position),
+  checklist: uniqueIndex("service_calendar_one_checklist").on(t.companyId, t.serviceKey).where(sql`${t.kind} = 'checklist'`),
+  valid: check("service_calendar_valid_check", serviceCalendarCheckSql),
 }));
-export type ServiceProgram = typeof servicePrograms.$inferSelect;
+export type ServiceCalendar = typeof serviceCalendar.$inferSelect;
 
 export const campaignGenerationYears = pgTable("campaign_generation_years", {
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),

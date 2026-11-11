@@ -1,4 +1,9 @@
 /** Read-only demand projections; commercial counts/months remain Contract Center owned. */
+/** Transitional engine input only, not persisted configuration. SC1 callers pass
+ * an empty list until SC2 replaces the monthly allocator. */
+export interface DemandTimingProgram {
+  serviceKey: string; rounds: number; monthSpread: number[]; isStandard: boolean;
+}
 export interface CampaignMembershipStatus {
   enabledAt: string | null; checkedAt: string | null; succeededAt: string | null;
   error: string | null; changes: number; keptNotOwed: number; missed: number;

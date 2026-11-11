@@ -3,21 +3,27 @@ import { describe, expect, it } from "vitest";
 import {
   SCOPE_CATALOG, RATE_CARD_DEFAULTS, LEGACY_SERVICE_TO_SCOPE,
   LEGACY_CONTRACT_LINE, scopeServiceByKey,
-  campaignServices,
+  campaignServices, checklistServices,
 } from "./contractCatalog";
 import { routeService } from "../../../../lib/db/src/routeContracts";
 import { campaignServiceSql } from "../../../../lib/db/src/campaignSql";
+import { checklistServiceSql, recurringServiceSql } from "../../../../lib/db/src/serviceCalendarSql";
 
 describe("Contract Center catalog", () => {
   it("classifies all services, preserves Routes, and matches database campaign integrity keys", () => {
-    expect(SCOPE_CATALOG.every(s => ["route", "campaign", "on_request", "event", "none"].includes(s.scheduling))).toBe(true);
+    expect(SCOPE_CATALOG.every(s => ["route", "campaign", "checklist", "legacy", "on_request", "event", "none"].includes(s.scheduling))).toBe(true);
     expect(SCOPE_CATALOG.filter(s => s.scheduling === "route").map(s => s.key).sort()).toEqual([...routeService.options].sort());
-    expect(campaignServices().map(s => s.key)).toEqual(["aeration", "cleanups", "shrub_trimming", "ornamental_grass", "tree_pruning", "chemical", "irrigation_open", "irrigation_winterization"]);
+    expect(campaignServices().map(s => s.key)).toEqual(["aeration", "cleanups", "shrub_trimming", "ornamental_grass", "tree_pruning", "native_areas", "fertilization", "broadleaf", "irrigation_open", "irrigation_winterization"]);
     expect(campaignServiceSql.match(/'([^']+)'/g)?.map(s => s.slice(1, -1))).toEqual(campaignServices().map(s => s.key));
+    expect(checklistServiceSql.match(/'([^']+)'/g)?.map(s => s.slice(1, -1))).toEqual(checklistServices().map(s => s.key));
+    expect(recurringServiceSql.match(/'([^']+)'/g)?.map(s => s.slice(1, -1)).sort()).toEqual([...routeService.options, "native_areas"].sort());
+    expect(scopeServiceByKey("chemical")?.scheduling).toBe("legacy");
+    expect(LEGACY_SERVICE_TO_SCOPE.chemical).toEqual({ key: "chemical" });
+    for (const key of ["fertilization", "broadleaf"]) expect(scopeServiceByKey(key)).toMatchObject({ defaultQuantity: null, defaultMonthSpread: null, unit: "applications", line: "landscape" });
     expect(scopeServiceByKey("other:bed-weeding")).toBeUndefined();
   });
-  it("contains all 25 scope services and 43 distinct rate defaults", () => {
-    expect(SCOPE_CATALOG).toHaveLength(25);
+  it("contains all 27 scope services and 43 distinct rate defaults", () => {
+    expect(SCOPE_CATALOG).toHaveLength(27);
     expect(RATE_CARD_DEFAULTS).toHaveLength(43);
     for (const items of [SCOPE_CATALOG, RATE_CARD_DEFAULTS]) {
       expect(new Set(items.map((item) => item.key)).size).toBe(items.length);

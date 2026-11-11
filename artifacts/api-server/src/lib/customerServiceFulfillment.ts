@@ -1,14 +1,15 @@
-import type { AgreementTerm, Campaign, CampaignItem, RouteStop, ServiceProgram, Visit } from "@workspace/db";
+import type { AgreementTerm, Campaign, CampaignItem, RouteStop, Visit } from "@workspace/db";
+import type { DemandTimingProgram } from "../../../../lib/db/src/campaignGenerationContracts";
 import type { CustomerServices, ServiceFulfillment as FulfillmentRow, ServiceRound as FulfillmentRound } from "@workspace/api-zod";
 import type { CustomerContractInputs } from "./customerContractSummary";
 import { campaignDemand } from "./campaignDemand";
 import { compareTermPriority } from "./contractCenterService";
 import { addCalendarDays, companyToday } from "./companyDay";
 import { SCOPE_CATALOG } from "../shared/contractCatalog";
-import { CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceProgramContracts";
+import { CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceCalendarContracts";
 
 export interface ServiceFulfillmentInputs extends CustomerContractInputs {
-  programs: ServiceProgram[];
+  programs: DemandTimingProgram[];
   campaigns: Campaign[];
   items: CampaignItem[];
   visits: Visit[];
@@ -92,14 +93,14 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
   for (const key of serviceKeys) {
     const service = SCOPE_CATALOG.find(s => s.key === key);
     const scope = included.find(s => s.serviceKey === key)!;
-    if (service?.scheduling !== "campaign" && service?.scheduling !== "route") {
+    if (service?.scheduling !== "campaign" && service?.scheduling !== "legacy" && service?.scheduling !== "route") {
       alsoInContract.push({ serviceKey: key, label: service?.label ?? key, scheduling: service?.scheduling ?? "none" });
       continue;
     }
-    const row: FulfillmentRow = { serviceKey: key, label: service.label, scheduling: service.scheduling,
+    const row: FulfillmentRow = { serviceKey: key, label: service.label, scheduling: service.scheduling === "legacy" ? "campaign" : service.scheduling,
       statedQuantity: scope.quantity, owed: null, done: 0, skipped: 0, remaining: null,
       planned: 0, inProgress: 0, status: "on_track", issues: [], next: null, rounds: [] };
-    if (service.scheduling === "campaign") {
+    if (service.scheduling === "campaign" || service.scheduling === "legacy") {
       row.issues = [...new Set(gaps.filter(g => g.serviceKey === key).map(g => g.kind))];
       for (const round of demand.filter(r => r.serviceKey === key)) {
         const campaign = campaigns.get(roundKey(key, round.roundMonth, round.roundSeq));

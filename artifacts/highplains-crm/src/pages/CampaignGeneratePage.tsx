@@ -239,7 +239,7 @@ function GenerateBody({ companyId, year, canGenerate }: { companyId: string; yea
                   <li>{r.keptNotOwed.length} kept not owed · {r.missed.length} missed · {r.addedToClosedRound.length} added to closed rounds</li>
                   {r.gaps.length > 0 && <li>{r.gaps.length} contract issues to review; count mismatches keep stated months</li>}
                 </ul>
-                <p>After generation, membership follows successful contract and service-timing changes. Startup and hourly checks retry failures. Recorded work is retained.</p>
+                <p>After generation, membership follows successful contract changes. Startup and hourly checks retry failures. Recorded work is retained. Service-calendar timing will be used by the next generation update; until then, seasons without stated months remain gaps.</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -284,7 +284,7 @@ function GapPanel({ gaps }: { gaps: DemandGap[] }) {
       <p className="text-sm font-medium flex items-center gap-1.5"><AlertTriangle className="h-4 w-4 text-[hsl(var(--warning))]" />
         Contract issues to review ({gaps.length}). Missing or invalid scope prevents scheduling; count mismatches keep the stated months.</p>
       {gaps.some(g => g.kind === "no_count" || g.kind === "no_timing") &&
-        <Link href="/dashboard/settings/service-timing" className="inline-block text-xs text-primary hover:underline">Open Settings → Service timing</Link>}
+        <Link href="/dashboard/settings/service-calendar" className="inline-block text-xs text-primary hover:underline">Open Settings → Service calendar</Link>}
       {kinds.map(k => {
         const list = gaps.filter(g => g.kind === k);
         if (!list.length) return null;

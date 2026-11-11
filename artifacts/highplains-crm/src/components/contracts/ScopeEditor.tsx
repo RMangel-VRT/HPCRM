@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { History, Plus, Split } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -60,6 +60,26 @@ export function scopePayload(rows: ScopeRow[]) {
   }));
 }
 
+/** Legacy services stay readable on seasons that already have them, but new lines can't add them. */
+export const isLegacyService = (key: string) => SCOPE_CATALOG.find(c => c.key === key)?.scheduling === "legacy";
+export const rowVisible = (r: ScopeRow, editing: boolean) =>
+  editing ? (!isLegacyService(r.serviceKey) || r.existed || r.included) : r.included;
+
+/**
+ * Stage the fert/chem split in the draft only: chemical off, fertilization carries the old count,
+ * broadleaf opens blank. Nothing persists until the user's explicit Save.
+ */
+export function splitChemical(rows: ScopeRow[]): ScopeRow[] {
+  const chem = rows.find(r => r.serviceKey === "chemical");
+  if (!chem || !chem.existed || !chem.included) return rows;
+  return rows.map(r => {
+    if (r.serviceKey === "chemical") return { ...r, included: false };
+    if (r.serviceKey === "fertilization") return { ...r, included: true, quantity: chem.quantity, monthSpread: null };
+    if (r.serviceKey === "broadleaf") return { ...r, included: true, quantity: null, monthSpread: null };
+    return r;
+  });
+}
+
 export function ScopeEditor(props: {
   line: AgreementLine; rows: ScopeRow[]; editing: boolean; onChange: (rows: ScopeRow[]) => void;
   snowTriggers: string | null; onSnowTriggers: (value: string) => void;
@@ -68,6 +88,7 @@ export function ScopeEditor(props: {
 }) {
   const { rows, editing, onChange } = props;
   const [custom, setCustom] = useState("");
+  const [split, setSplit] = useState(false);
   const patch = (key: string, p: Partial<ScopeRow>) => onChange(rows.map(r => (r.serviceKey === key ? { ...r, ...p } : r)));
   const customLine: ScopeRow["line"] = props.line === "snow" ? "snow" : "landscape";
 
@@ -85,7 +106,7 @@ export function ScopeEditor(props: {
   return (
     <div className="space-y-6" data-testid="editor-scope">
       {linesFor(props.line).map(group => {
-        const groupRows = rows.filter(r => r.line === group && (editing || r.included));
+        const groupRows = rows.filter(r => r.line === group && rowVisible(r, editing));
         return (
           <section key={group} data-testid={`scope-group-${group}`}>
             <h3 className="text-sm font-semibold mb-2">{GROUP_LABEL[group]}</h3>
@@ -104,6 +125,8 @@ export function ScopeEditor(props: {
             <div className="divide-y rounded-md border">
               {groupRows.map(r => {
                 const problem = spreadProblem(r);
+                const legacy = isLegacyService(r.serviceKey) && r.existed;
+                const staged = split && (r.serviceKey === "fertilization" || r.serviceKey === "broadleaf") && r.included;
                 return (
                   <div key={r.serviceKey} className="p-3 space-y-2" data-testid={`scope-row-${r.serviceKey}`}>
                     <div className="flex flex-wrap items-center gap-3">
@@ -145,6 +168,24 @@ export function ScopeEditor(props: {
                     ) : r.included && r.monthSpread ? (
                       <MonthBar spread={r.monthSpread} />
                     ) : null}
+                    {legacy && (
+                      <div className="flex flex-wrap items-center gap-2 rounded-md border border-[hsl(var(--warning))]/40 bg-[hsl(var(--est-warn-bg))]/40 px-2.5 py-1.5 text-xs" data-testid={`note-legacy-${r.serviceKey}`}>
+                        <History className="h-3.5 w-3.5 text-[hsl(var(--warning))]" />
+                        <span className="flex-1">From before the split: replace with fertilization and broadleaf.</span>
+                        {editing && r.included && (
+                          <Button type="button" size="sm" variant="outline" className="h-7" data-testid={`button-split-${r.serviceKey}`}
+                            onClick={() => { onChange(splitChemical(rows)); setSplit(true); }}>
+                            <Split className="w-3.5 h-3.5 mr-1" />Split
+                          </Button>
+                        )}
+                        {editing && split && !r.included && <span className="text-muted-foreground" data-testid="text-split-staged">Split staged. Save to keep it.</span>}
+                      </div>
+                    )}
+                    {editing && staged && (
+                      <p className="text-xs text-[hsl(var(--rail-heading))]" data-testid={`note-split-${r.serviceKey}`}>
+                        {r.serviceKey === "fertilization" ? "From fert/chem: carries the old count. Confirm and save." : "From fert/chem: enter a count, or leave blank to use the standard. Confirm and save."}
+                      </p>
+                    )}
                     {editing && problem && <p className="text-xs text-destructive" data-testid={`warn-spread-${r.serviceKey}`}>{problem}</p>}
                   </div>
                 );

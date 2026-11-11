@@ -3,7 +3,7 @@ import request from "supertest";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
-import { companies, customers, agreements, agreementTerms, termScopeLines, servicePrograms,
+import { companies, customers, agreements, agreementTerms, termScopeLines,
   campaignGenerationYears, campaigns, campaignItems, pool as schemaPool } from "@workspace/db";
 import { db, pool } from "../db";
 import { campaignMembershipStatus, reconcileEnabledCampaignYears, scheduleCampaignMembership } from "./campaignMembership";
@@ -33,8 +33,7 @@ describe("CG3 membership on disposable development companies, without Generate",
     await db.insert(agreements).values({ id: agreement, companyId: a, customerId: property });
     await db.insert(agreementTerms).values({ id: term, companyId: a, agreementId: agreement, line: "landscape",
       form: "ours", seasonLabel: "CG3 fixture", startDate: `${year}-01-01`, endDate: `${year}-12-31`, status: "sent", billingType: "seasonal" });
-    await db.insert(termScopeLines).values({ companyId: a, termId: term, serviceKey: "chemical", line: "landscape", included: true, quantity: 1 });
-    await db.insert(servicePrograms).values({ companyId: a, serviceKey: "chemical", rounds: 1, monthSpread: spread(6), isStandard: true });
+    await db.insert(termScopeLines).values({ companyId: a, termId: term, serviceKey: "chemical", line: "landscape", included: true, quantity: 1, monthSpread: spread(6) });
   });
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -85,9 +84,9 @@ describe("CG3 membership on disposable development companies, without Generate",
     expect((await project())[0].contractState?.state).toBe("no_longer_in_contract");
     expect(await campaignMembershipStatus(a, year)).toMatchObject({ keptNotOwed: 1, error: null });
   });
-  it("moves only unworked membership after service-program timing changes", async () => {
+  it("moves only unworked membership after contract-stated timing changes with empty programs", async () => {
     await enable(); await scheduleCampaignMembership(a, today);
-    await db.update(servicePrograms).set({ monthSpread: spread(9) }).where(eq(servicePrograms.companyId, a));
+    await db.update(termScopeLines).set({ monthSpread: spread(9) }).where(eq(termScopeLines.termId, term));
     await scheduleCampaignMembership(a, today);
     expect((await rounds()).map(r => r.roundMonth)).toEqual([`${year}-09-01`]);
     expect(await items()).toHaveLength(1);

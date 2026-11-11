@@ -37,4 +37,4 @@ During the SC1-to-SC2 transition, retiring the old timing owner must give the ex
 
 **Why:** The user approved a bounded compatibility transition rather than keeping retired-table reads or implementing SC2 early.
 
-**How to apply:** Replace old program loading with empty inputs in all three consumers, preserving contract-stated timing and safe gap behavior. Do not infer authorization to run Generate or load production data from this historical fact.
+**How to apply:** Replace old program loading with empty inputs in all three consumers, preserving contract-stated timing, recorded-work protections and safe gap behavior. Do not infer authorization to run Generate or load production data from this historical fact. Only an explicitly authorized later slice may introduce calendar-based allocation.
