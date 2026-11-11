@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
 import { accessRole } from "../../../../lib/db/src/accessRole";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { parseApiValidationError } from "@/lib/apiError";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { DatePickerField } from "@/components/DatePickerField";
@@ -15,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -179,6 +181,9 @@ export default function CampaignDetail() {
       toast({ title: "Season updated" });
       setSeasonDialogOpen(false);
     },
+    onError: (error) => {
+      toast({ title: parseApiValidationError(error).message ?? "Failed to update season", variant: "destructive" });
+    },
   });
 
   const handleExportCSV = () => {
@@ -315,8 +320,8 @@ export default function CampaignDetail() {
       toast({ title: t("campaigns.deleted") });
       navigate("/dashboard/campaigns");
     },
-    onError: () => {
-      toast({ title: t("campaigns.deleteFailed"), variant: "destructive" });
+    onError: (error) => {
+      toast({ title: parseApiValidationError(error).message ?? t("campaigns.deleteFailed"), variant: "destructive" });
     },
   });
 
@@ -352,6 +357,7 @@ export default function CampaignDetail() {
   const isChemicalCampaign = campaign?.category === "chemical";
   const isIrrigationCampaign = campaign?.category === "irrigation";
   const isExtraBillableCampaign = campaign?.category === "extra_billable";
+  const isGenerated = campaign.source === "contract";
 
   const getChemStepLabel = (step: string | null, itemStatus?: string) => {
     if (itemStatus === "completed") return t("campaigns.chemStepComplete");
@@ -390,6 +396,14 @@ export default function CampaignDetail() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold truncate" data-testid="text-campaign-detail-title">{campaign.title}</h1>
+            {isGenerated && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} data-testid="badge-from-contracts"><Badge variant="outline">From contracts</Badge></span>
+                </TooltipTrigger>
+                <TooltipContent>This round is built from contract scope. Its properties, dates and title follow the contracts.</TooltipContent>
+              </Tooltip>
+            )}
             {campaign.status === "completed" && <Badge className="bg-green-600">{t("campaigns.completed")}</Badge>}
             {campaign.status === "archived" && <Badge variant="secondary">{t("campaigns.archived")}</Badge>}
             {campaign.status === "active" && <Badge>{t("campaigns.active")}</Badge>}
@@ -523,7 +537,7 @@ export default function CampaignDetail() {
               {t("campaigns.reactivate")}
             </Button>
           )}
-          <Button
+          {!isGenerated && <Button
             variant="outline"
             size="sm"
             className="text-destructive"
@@ -532,11 +546,14 @@ export default function CampaignDetail() {
           >
             <Trash2 className="w-4 h-4 mr-2" />
             {t("common.delete")}
-          </Button>
+          </Button>}
         </div>
       )}
 
-      {canManageSeasons && (
+      {isGenerated && campaign.seasonName && (
+        <p className="text-sm text-muted-foreground" data-testid="text-campaign-season">Season: {campaign.seasonName}</p>
+      )}
+      {!isGenerated && canManageSeasons && (
         <Button
           variant="outline"
           size="sm"
@@ -1209,6 +1226,7 @@ function EditCampaignDialog({
     (campaign as { notificationTemplateId?: string | null }).notificationTemplateId || "default"
   );
   const isChemicalCampaign = campaign.category === "chemical";
+  const isGenerated = campaign.source === "contract";
 
   useEffect(() => {
     if (open) {
@@ -1234,7 +1252,7 @@ function EditCampaignDialog({
 
   const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
     queryKey: ["/api/customers"],
-    enabled: open,
+    enabled: open && !isGenerated,
   });
   const customers = customersResp?.customers ?? [];
 
@@ -1278,7 +1296,7 @@ function EditCampaignDialog({
   }, [availableCustomers, propertySearch]);
 
   const updateMutation = useMutation({
-    mutationFn: async (data: { title: string; description: string | null; assignedToId: string | null; assignedToId2: string | null; windowStart: string; windowEnd: string; notificationTemplateId?: string | null }) => {
+    mutationFn: async (data: { title?: string; description: string | null; assignedToId: string | null; assignedToId2: string | null; windowStart?: string; windowEnd?: string; notificationTemplateId?: string | null }) => {
       const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}`, data);
       return res.json();
     },
@@ -1299,41 +1317,39 @@ function EditCampaignDialog({
   });
 
   const handleSave = async () => {
-    if (!title.trim()) {
+    if (!isGenerated && !title.trim()) {
       toast({ title: "Title is required", variant: "destructive" });
       return;
     }
-    if (!windowStart || !windowEnd) {
+    if (!isGenerated && (!windowStart || !windowEnd)) {
       toast({ title: "Start and end dates are required", variant: "destructive" });
       return;
     }
-    const startStr = format(windowStart, "yyyy-MM-dd");
-    const endStr = format(windowEnd, "yyyy-MM-dd");
-    if (startStr > endStr) {
+    const startStr = !isGenerated && windowStart ? format(windowStart, "yyyy-MM-dd") : "";
+    const endStr = !isGenerated && windowEnd ? format(windowEnd, "yyyy-MM-dd") : "";
+    if (!isGenerated && startStr > endStr) {
       toast({ title: "Start date must be before or equal to end date", variant: "destructive" });
       return;
     }
 
     try {
       await updateMutation.mutateAsync({
-        title: title.trim(),
+        ...(!isGenerated ? { title: title.trim(), windowStart: startStr, windowEnd: endStr } : {}),
         description: description.trim() || null,
         assignedToId: assignedToId === "none" ? null : assignedToId || null,
         assignedToId2: assignedToId2 === "none" ? null : assignedToId2 || null,
-        windowStart: startStr,
-        windowEnd: endStr,
         ...(isChemicalCampaign
           ? { notificationTemplateId: notificationTemplateId === "default" ? null : notificationTemplateId }
           : {}),
       });
 
-      if (itemsToRemove.size > 0) {
+      if (!isGenerated && itemsToRemove.size > 0) {
         for (const itemId of Array.from(itemsToRemove)) {
           await removeItemMutation.mutateAsync(itemId);
         }
       }
 
-      if (selectedNewCustomerIds.size > 0) {
+      if (!isGenerated && selectedNewCustomerIds.size > 0) {
         await addItemsMutation.mutateAsync(Array.from(selectedNewCustomerIds));
       }
 
@@ -1341,8 +1357,8 @@ function EditCampaignDialog({
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       toast({ title: "Campaign updated successfully" });
       onOpenChange(false);
-    } catch {
-      toast({ title: "Failed to save changes", variant: "destructive" });
+    } catch (error) {
+      toast({ title: parseApiValidationError(error).message ?? "Failed to save changes", variant: "destructive" });
     }
   };
 
@@ -1379,11 +1395,11 @@ function EditCampaignDialog({
         <div className="overflow-y-auto flex-1 space-y-5 py-2 pr-1">
           <div className="space-y-2">
             <Label>Title</Label>
-            <Input
+            {isGenerated ? <p className="text-sm" data-testid="text-edit-campaign-title">{campaign.title}</p> : <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               data-testid="input-edit-campaign-title"
-            />
+            />}
           </div>
 
           <div className="space-y-2">
@@ -1399,21 +1415,21 @@ function EditCampaignDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Window Start</Label>
-              <DatePickerField
+              {isGenerated ? <p className="text-sm" data-testid="text-edit-start-date">{campaign.windowStart}</p> : <DatePickerField
                 value={windowStart}
                 onChange={setWindowStart}
                 placeholder="Select"
                 data-testid="button-edit-start-date"
-              />
+              />}
             </div>
             <div className="space-y-2">
               <Label>Window End</Label>
-              <DatePickerField
+              {isGenerated ? <p className="text-sm" data-testid="text-edit-end-date">{campaign.windowEnd}</p> : <DatePickerField
                 value={windowEnd}
                 onChange={setWindowEnd}
                 placeholder="Select"
                 data-testid="button-edit-end-date"
-              />
+              />}
             </div>
           </div>
 
@@ -1490,7 +1506,7 @@ function EditCampaignDialog({
                       <Badge variant="outline" className="text-xs">
                         {item.status}
                       </Badge>
-                      {item.status === "pending" && (
+                      {!isGenerated && item.status === "pending" && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -1511,7 +1527,12 @@ function EditCampaignDialog({
             )}
           </div>
 
-          <div className="space-y-3">
+          {isGenerated ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-contract-scope-note">
+              Properties follow contract scope. To add or remove one, change its contract in the{" "}
+              <a href="/dashboard/contracts" className="text-primary underline underline-offset-2">Contract Center</a>.
+            </p>
+          ) : <div className="space-y-3">
             <Label>Add Properties</Label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1553,7 +1574,7 @@ function EditCampaignDialog({
             {selectedNewCustomerIds.size > 0 && (
               <p className="text-xs text-muted-foreground">{selectedNewCustomerIds.size} {selectedNewCustomerIds.size === 1 ? "property" : "properties"} will be added on save.</p>
             )}
-          </div>
+          </div>}
         </div>
 
         <DialogFooter className="pt-4">
