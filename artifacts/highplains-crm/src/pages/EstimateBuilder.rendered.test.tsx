@@ -601,10 +601,12 @@ describe("pickers", () => {
     await waitFor(() => expect(posted()).toEqual({ lineType: "fee", sectionId: "s1", quantity: "1", quickItemId: "q1" }));
   });
 
-  it("custom form defaults to Landscape Materials and validates rate", async () => {
-    handler = (c) => c.method === "POST" ? ok() : undefined;
+  it("custom form requires a category (no default) and validates rate", async () => {
+    handler = (c) => c.method === "POST" ? ok() : c.url.startsWith("/api/estimates/service-categories") ? res([]) : undefined;
     await open("custom");
-    expect((screen.getByTestId("select-free-umbrella") as HTMLSelectElement).value).toBe("landscape_materials");
+    expect(screen.queryByTestId("select-free-umbrella")).toBeNull();
+    expect((screen.getByTestId("button-free-add") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("chip-custom-category-hardscape"));
     fireEvent.change(screen.getByTestId("input-free-name"), { target: { value: "Boulder set" } });
     fireEvent.change(screen.getByTestId("input-free-rate"), { target: { value: "abc" } });
     fireEvent.click(screen.getByTestId("button-free-add"));

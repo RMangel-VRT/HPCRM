@@ -9,6 +9,7 @@ import { estimatePayload } from "./estimateReads";
 import { EstimateError, requireEstimate, postgresCode } from "./estimateErrors";
 import { normalizeQuantity, calculateExtendedCents } from "./estimateMath";
 import { snapshotEstimateLine } from "./estimateSnapshots";
+import { saveCustomCatalogItem, conflictingQuickItem } from "./estimateCatalogSaves";
 
 export async function createEstimate(companyId: string, userId: string | null, input: CreateEstimateInput, now = new Date()) {
   try {
@@ -108,18 +109,28 @@ export function deleteSection(companyId: string, id: string, versionId: string, 
     await tx.delete(estimateSections).where(and(eq(estimateSections.companyId, companyId), eq(estimateSections.id, sectionId)));
   });
 }
-export function createLine(companyId: string, id: string, versionId: string, input: CreateEstimateLineInput) {
-  return mutateEstimate(companyId, id, versionId, async ({ tx, estimate }) => {
+export async function createLine(companyId: string, id: string, versionId: string, input: CreateEstimateLineInput) {
+  try {
+  return await mutateEstimate(companyId, id, versionId, async ({ tx, estimate }) => {
     await sectionFor(tx, companyId, versionId, input.sectionId);
-    const snapshot = await snapshotEstimateLine(tx, companyId, estimate.customerId, input);
+    const reference = input.lineType === "custom" && input.saveToCatalog
+      ? await saveCustomCatalogItem(tx, companyId, input) : input;
+    const snapshot = await snapshotEstimateLine(tx, companyId, estimate.customerId, reference);
     const quantity = normalizeQuantity(input.quantity);
     const rows = await tx.select({ sortOrder: estimateLines.sortOrder }).from(estimateLines).where(and(eq(estimateLines.companyId, companyId), eq(estimateLines.versionId, versionId), eq(estimateLines.sectionId, input.sectionId)));
     const sortOrder = rows.reduce((max, l) => Math.max(max, l.sortOrder), -1) + 1;
     if (sortOrder > 2147483647) throw new RangeError("Sort order overflow");
-    await tx.insert(estimateLines).values({ ...snapshot, companyId, versionId, sectionId: input.sectionId, lineType: input.lineType, quantity,
+    await tx.insert(estimateLines).values({ ...snapshot, companyId, versionId, sectionId: input.sectionId, lineType: reference.lineType, quantity,
       extendedCents: calculateExtendedCents(quantity, snapshot.unitPriceCents), includeInPalette: input.lineType === "plant", sortOrder });
     await touchSection(tx, companyId, input.sectionId);
   });
+  } catch (error) {
+    if (input.lineType === "custom" && input.saveToCatalog && input.saveToCatalog.catalog !== "hardscape" && postgresCode(error) === "23505") {
+      const existing = await conflictingQuickItem(companyId, input.name);
+      if (existing) throw new EstimateError(409, "CATALOG_ITEM_EXISTS", { existing });
+    }
+    throw error;
+  }
 }
 export function patchLine(companyId: string, id: string, versionId: string, lineId: string, raw: PatchEstimateLineInput) {
   // Drop undefined while retaining explicit null. No create defaults are reused.

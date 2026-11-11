@@ -37,6 +37,24 @@ export const createEstimateSectionSchema = z.object({ name }).strict();
 export const patchEstimateSectionSchema = z.object({ name: name.optional(), sortOrder: order.optional() }).strict();
 const base = { sectionId: estimateIdSchema, quantity: estimateQuantitySchema };
 const free = { name, detail: detail.optional(), unit: name, unitPriceCents: cents, umbrellaKey: z.enum(ESTIMATE_UMBRELLAS) };
+export const saveToCatalogSchema = z.discriminatedUnion("catalog", [
+  z.object({ catalog: z.literal("hardscape") }).strict(),
+  z.object({ catalog: z.literal("equipment") }).strict(),
+  z.object({ catalog: z.literal("fee") }).strict(),
+  z.object({ catalog: z.literal("service"), serviceCategoryId: estimateIdSchema }).strict(),
+]);
+export const catalogMatchesQuerySchema = z.object({
+  catalog: z.enum(["hardscape", "equipment", "fee", "service"]),
+  name: z.string().trim().min(3).max(500),
+  serviceCategoryId: estimateIdSchema.optional(),
+}).strict().superRefine((value, ctx) => {
+  if ((value.catalog === "service") !== !!value.serviceCategoryId)
+    ctx.addIssue({ code: "custom", path: ["serviceCategoryId"], message: "Only services require a category" });
+});
+export type CatalogMatchesQuery = z.infer<typeof catalogMatchesQuerySchema>;
+export interface CatalogMatchDto {
+  id: string; name: string; unit: string; priceCents: number | null; categoryName: string | null;
+}
 // Equipment/fee use an exclusive reference-or-free-entry union inside each
 // discriminator branch: a reference plus a client price must never be accepted.
 const quickOrFree = z.union([
@@ -57,7 +75,7 @@ export const createEstimateLineSchema = z.discriminatedUnion("lineType", [
   z.object({ ...base, lineType: z.literal("irrigation"), irrigationCatalogItemId: estimateIdSchema }).strict(),
   z.object({ ...base, lineType: z.literal("labor"), rateKey: name }).strict(),
   quickBranch("service"), quickBranch("equipment"), quickBranch("fee"),
-  z.object({ ...base, lineType: z.literal("custom"), ...free }).strict(),
+  z.object({ ...base, lineType: z.literal("custom"), ...free, saveToCatalog: saveToCatalogSchema.optional() }).strict(),
 ]);
 // Explicit PATCH fields have NO defaults. Null is a real clear operation.
 export const patchEstimateLineSchema = z.object({

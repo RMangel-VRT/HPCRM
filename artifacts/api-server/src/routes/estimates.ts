@@ -2,7 +2,7 @@ import { Router, type Express, type RequestHandler } from "express";
 import { z } from "zod/v4";
 import { createEstimateSchema, patchEstimateSchema, patchEstimateVersionSchema, createEstimateSectionSchema, patchEstimateSectionSchema,
   createEstimateLineSchema, patchEstimateLineSchema, estimateListQuerySchema, estimateDetailQuerySchema, estimateIdSchema,
-  sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema } from "@workspace/db";
+   sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, catalogMatchesQuerySchema } from "@workspace/db";
 import type { UserWithContext } from "../auth";
 import { estimateAccess } from "../lib/estimateAccess";
 import { logger } from "../lib/logger";
@@ -14,6 +14,7 @@ import { readTicketEstimate } from "../services/ticketEstimates";
 import { renderEstimatePdf } from "../services/estimatePdf";
 import { DocumentRendererUnavailable } from "../services/documents/browser";
 import { customerActivation } from "../services/customerActivation";
+import { catalogMatches } from "../services/estimateCatalogSaves";
 
 const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) => {
   try { await fn(req, res, next); } catch (error) {
@@ -31,6 +32,9 @@ const pathSchema = z.object({ id: estimateIdSchema, versionId: estimateIdSchema.
 export function registerEstimateRoutes(app: Express) {
   const router = Router();
   router.use(estimateAccess);
+  router.get("/catalog-matches", handle(async (req, res) => {
+    res.json(await catalogMatches((req.user as UserWithContext).activeCompanyId, catalogMatchesQuerySchema.parse(req.query)));
+  }));
   router.get("/", handle(async (req, res) => {
     res.json(await listEstimates((req.user as UserWithContext).activeCompanyId, estimateListQuerySchema.parse(req.query)));
   }));

@@ -14,8 +14,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { TicketAdvanceNotice, RECOVERY_KEY } from "@/components/estimates/TicketAdvanceNotice";
 import { advanceLinkedTicket, ticketRequest } from "@/lib/advanceLinkedTicket";
-import { centsToInput, fetchJson, formatCents, parseDollarsToCents } from "@/lib/hardscapeCatalog";
-import { RATES_PREVIEW_API, scopeOf } from "@/lib/estimateSettings";
+import { centsToInput, fetchJson, formatCents, parseDollarsToCents, HARDSCAPE_API } from "@/lib/hardscapeCatalog";
+import { RATES_PREVIEW_API, scopeOf, QUICK_ITEMS_API, SERVICE_CATEGORIES_API } from "@/lib/estimateSettings";
 import {
   ESTIMATES_API, ESTIMATE_BUILDER_PATH, FREE_UNITS, FREE_UNIT_TYPES, LINE_TINT, UMBRELLAS, builderPath, distinctContexts,
   conflictOf, errorStatus, formatCalendarDate, formatDate, isVersionLocked, sendEstimate, validQuantity,
@@ -29,7 +29,8 @@ import { PdfPreviewDialog } from "@/components/estimates/PdfPreviewDialog";
 import { DocumentBadge, EstimateStatePill, IdentityHeaderCard, MetadataCell, MetadataStrip } from "@/components/estimates/EstimateIdentityHeader";
 import "@/components/estimates/estimateBuilder.css";
 import { TicketStatusPill, type TicketStatusLike } from "@/components/TicketIdentity";
-import { AddLineDialog, type AddLineBody } from "@/components/estimates/AddLineDialog";
+import { AddLineDialog, type AddLineBody, type AddLineInitial, type AddLineResult } from "@/components/estimates/AddLineDialog";
+import type { SearchHandoff } from "@/components/estimates/SectionSearch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -164,34 +165,40 @@ function BuilderContent({ id }: { id: string }) {
     enabled: !!ticketId && !(data as DetailWithDisplay | undefined)?.display?.ticket,
   });
 
-  /** Single mutation path: scoped header, stale-view drop, newest-response-wins install. */
-  const run: Run = async (method, url, body) => {
-    if (viewRef.current !== viewTag || activeVersionRef.current !== data?.version.id || !contentEditableRef.current) return false;
+  /** Single mutation path: scoped header, stale-view drop, newest-response-wins install.
+   *  `inline` keeps the error envelope for the caller (custom saves) instead of toasting it. */
+  const runDetailed = async (method: string, url: string, body?: unknown, inline = false): Promise<AddLineResult> => {
+    if (viewRef.current !== viewTag || activeVersionRef.current !== data?.version.id || !contentEditableRef.current) return { ok: false, error: null };
     const view = viewTag;
     try {
       const d = await sendEstimate(method, url, companyId, body);
-      if (viewRef.current !== view) return false;
+      if (viewRef.current !== view) return { ok: false, error: null };
       qc.invalidateQueries({ queryKey: [ESTIMATES_API, "list"] });
       await qc.cancelQueries({ queryKey: key });
-      if (viewRef.current !== view) return false;
+      if (viewRef.current !== view) return { ok: false, error: null };
       // Server order, not request order: never replace a newer authoritative payload.
       const cached = qc.getQueryData<EstimateDetailDto>(key);
       if (!cached || freshness(d) >= freshness(cached)) qc.setQueryData(key, d);
       void qc.invalidateQueries({ queryKey: [EXHIBITS_KEY, companyId] });
-      return true;
+      return { ok: true };
     } catch (err) {
-      if (viewRef.current !== view) return false;
+      if (viewRef.current !== view) return { ok: false, error: null };
       if (isVersionLocked(err)) {
         setLocked(true);
         void qc.invalidateQueries({ queryKey: key });
         toast({ title: t("estimateBuilder.saveFailed"), description: t("estimateBuilder.locked"), variant: "destructive" });
       } else {
-        toast({ title: t("estimateBuilder.saveFailed"), description: errorText(err, t), variant: "destructive" });
-        if (errorStatus(err) === 409 || errorStatus(err) === 404) void qc.invalidateQueries({ queryKey: key });
+        const c = conflictOf(err);
+        const catalogError = inline && (c?.error === "CATALOG_ITEM_EXISTS" || c?.error === "UMBRELLA_MISMATCH" || errorStatus(err) === 422 || errorStatus(err) === 400);
+        if (!inline) toast({ title: t("estimateBuilder.saveFailed"), description: errorText(err, t), variant: "destructive" });
+        if (!catalogError && (errorStatus(err) === 409 || errorStatus(err) === 404)) void qc.invalidateQueries({ queryKey: key });
+        // Catalog rows may have been reused/created elsewhere; refresh pickers and search.
+        if (catalogError) void qc.invalidateQueries({ queryKey: ["estimate-picker"] });
       }
-      return false;
+      return { ok: false, error: err };
     }
   };
+  const run: Run = async (method, url, body) => (await runDetailed(method, url, body)).ok;
   const invalid = (msg: string) => toast({ title: t("estimateBuilder.saveFailed"), description: msg, variant: "destructive" });
 
   // ---- Lifecycle (send/accept/decline/revise/discard/void) ----
@@ -291,7 +298,8 @@ function BuilderContent({ id }: { id: string }) {
   const dialogRef = useRef<LifeDialog>(null);
   dialogRef.current = dialog;
 
-  const [addFor, setAddFor] = useState<{ type: EstimateLineType; sectionId: string } | null>(null);
+  const [addFor, setAddFor] = useState<{ type: EstimateLineType; sectionId: string; initial?: AddLineInitial } | null>(null);
+  useEffect(() => { setAddFor(null); }, [viewTag]);
   const [removeSection, setRemoveSection] = useState<EstimateSectionDto | null>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
   useEffect(() => { setPdfOpen(false); }, [viewTag]);
@@ -385,6 +393,20 @@ function BuilderContent({ id }: { id: string }) {
     const ok = await run("POST", `${vBase}/lines`, body);
     if (ok) toast({ title: t("estimateBuilder.lineAdded") });
     return ok;
+  }
+  /** Custom dialog path: errors keep their envelope so the dialog shows them inline and stays recoverable. */
+  async function addLineDetailed(body: AddLineBody): Promise<AddLineResult> {
+    const r = await runDetailed("POST", `${vBase}/lines`, body, true);
+    if (r.ok) {
+      toast({ title: t("estimateBuilder.lineAdded") });
+      if (body.saveToCatalog) {
+        // The catalog is the owner. Refresh its management lists/counts as well
+        // as builder projections, including a later reopen of the matches panel.
+        for (const prefix of ["estimate-picker", "estimate-catalog-matches", HARDSCAPE_API, QUICK_ITEMS_API, SERVICE_CATEGORIES_API])
+          void qc.invalidateQueries({ queryKey: [prefix] });
+      }
+    }
+    return r;
   }
   async function reorder(section: EstimateSectionDto, from: number, to: number) {
     const list = [...section.lines];
@@ -563,6 +585,7 @@ function BuilderContent({ id }: { id: string }) {
               <SectionCard key={s.id} section={s} sections={sections} paletteDefaults={v.plantPaletteDefaults} subtotal={v.totals.bySection[s.id] ?? 0} editable={editable} lang={lang}
                 vBase={vBase} run={run} invalid={invalid} canRemove={sections.length > 1}
                 onRemove={() => setRemoveSection(s)} onAdd={(type) => setAddFor({ type, sectionId: s.id })}
+                search={{ customerId: data.customerId, companyId, onOpen: ({ type, ...initial }) => setAddFor({ type, sectionId: s.id, initial }) }}
                 onReorder={(from, to) => void reorder(s, from, to)} onMoveTo={moveTo} />
             ))}
             {editable && (
@@ -578,8 +601,9 @@ function BuilderContent({ id }: { id: string }) {
       </div>
 
       {editable && (
-        <AddLineDialog type={addFor?.type ?? null} sectionId={addFor?.sectionId ?? ""} customerId={data.customerId} companyId={companyId}
-          onClose={() => setAddFor(null)} onSubmit={addLine} />
+        <AddLineDialog type={addFor && sections.some((x) => x.id === addFor.sectionId) ? addFor.type : null} sectionId={addFor?.sectionId ?? ""}
+          customerId={data.customerId} companyId={companyId} initial={addFor?.initial}
+          onClose={() => setAddFor(null)} onSubmit={addLine} onSubmitCustom={addLineDetailed} />
       )}
       <AlertDialog open={!!removeSection && editable} onOpenChange={(o) => { if (!o) setRemoveSection(null); }}>
         <AlertDialogContent data-testid="dialog-remove-section">
@@ -702,6 +726,7 @@ function SectionCard(props: {
   paletteDefaults?: Record<string, string>;
   section: EstimateSectionDto; sections: EstimateSectionDto[]; subtotal: number; editable: boolean; lang: string; vBase: string; run: Run;
   invalid: (m: string) => void; canRemove: boolean; onRemove: () => void; onAdd: (t: EstimateLineType) => void;
+  search?: { customerId: string; companyId: string; onOpen: (h: SearchHandoff) => void };
   onReorder: (from: number, to: number) => void; onMoveTo: (line: EstimateLineDto, sectionId: string) => void;
 }) {
   const { section: s, editable, lang, run, vBase } = props;
@@ -734,7 +759,7 @@ function SectionCard(props: {
           ))}
         </ul>
       )}
-      {editable && <AddLineButtons sectionId={s.id} onAdd={props.onAdd} />}
+      {editable && <AddLineButtons sectionId={s.id} onAdd={props.onAdd} search={props.search} />}
     </section>
   );
 }

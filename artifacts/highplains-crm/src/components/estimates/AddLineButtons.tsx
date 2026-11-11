@@ -3,6 +3,7 @@ import { Droplets, Hammer, Leaf, Mountain, PenLine, Receipt, Sprout, Tractor } f
 import type { LucideIcon } from "lucide-react";
 import { LINE_TINT, LINE_TYPES, type EstimateLineType } from "@/lib/estimateBuilder";
 import { Button } from "@/components/ui/button";
+import { SectionSearch, type SearchHandoff } from "@/components/estimates/SectionSearch";
 import { cn } from "@/lib/utils";
 
 export const LINE_TYPE_ICON: Record<EstimateLineType, LucideIcon> = {
@@ -10,13 +11,19 @@ export const LINE_TYPE_ICON: Record<EstimateLineType, LucideIcon> = {
 };
 
 /** "Add line" group: eight outlined buttons, each with the line type's tinted icon chip. */
-export function AddLineButtons({ sectionId, onAdd }: { sectionId: string; onAdd: (t: EstimateLineType) => void }) {
+export function AddLineButtons({ sectionId, onAdd, search }: {
+  sectionId: string; onAdd: (t: EstimateLineType) => void;
+  /** Section-wide catalog search above the type buttons (Slice 4.7). */
+  search?: { customerId: string; companyId: string; onOpen: (h: SearchHandoff) => void };
+}) {
   const { t } = useTranslation();
   return (
     <div className="border-t bg-muted/30 px-3 py-2.5" data-testid={`bar-add-${sectionId}`}>
       <div className="mb-1.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground" id={`add-line-label-${sectionId}`}>
         {t("estimateBuilder.addLine")}
       </div>
+      {search && <SectionSearch sectionId={sectionId} {...search} />}
+      {search && <div className="mb-1.5 text-[11.5px] text-muted-foreground" data-testid={`text-browse-${sectionId}`}>{t("estimateBuilder.inlineSearch.browse")}</div>}
       <div role="group" aria-labelledby={`add-line-label-${sectionId}`} data-testid={`group-add-${sectionId}`}
         className="estimate-add-buttons">
         {LINE_TYPES.map((type) => {

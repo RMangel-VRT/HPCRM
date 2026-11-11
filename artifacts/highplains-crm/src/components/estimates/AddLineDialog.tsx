@@ -4,13 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ArrowLeft, Search } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { HARDSCAPE_API, catalogListUrl, fetchJson, formatCents, parseDollarsToCents, type HardscapeListResponse } from "@/lib/hardscapeCatalog";
-import { irrigationListUrl, type IrrigationListResponse } from "@/lib/irrigationCatalog";
-import { QUICK_ITEMS_API, RATES_PREVIEW_API, moneyOrText, type QuickItem } from "@/lib/estimateSettings";
+import { parseDollarsToCents } from "@/lib/hardscapeCatalog";
 import {
   DEFAULT_UMBRELLA, FREE_UNITS, UMBRELLAS, validQuantity,
-  type EstimateLineType, type EstimateUmbrella, type PlantVariety, type RatesPreviewWithContext,
+  type EstimateLineType, type EstimateUmbrella,
 } from "@/lib/estimateBuilder";
+import { idPart, pickerFetch, pickerQueryKey, pickerRows, type PickerRow } from "@/lib/pickerSources";
+import { CustomForm } from "@/components/estimates/CustomLineForm";
+import { RequiredMark } from "@/components/estimates/RequiredMark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,8 +20,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { cn } from "@/lib/utils";
 
 export type AddLineBody = Record<string, unknown> & { lineType: EstimateLineType; sectionId: string; quantity: string };
+/** Detailed result for custom saves: the error envelope is kept so the dialog can show it inline and recover. */
+export type AddLineResult = { ok: true } | { ok: false; error: unknown };
+/** Handoff from section search: query prefill, row to select, or custom Name prefill. */
+export interface AddLineInitial { search?: string; rowKey?: string; name?: string }
 
-interface Row { key: string; title: string; detail?: string; meta?: string; badge?: string; warn?: string; disabled?: string; body?: Record<string, unknown>; free?: boolean }
+type Row = PickerRow;
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
@@ -28,37 +33,30 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
-/** Plant dollar strings ("12.5") -> cents for display only. */
-function plantDollars(s: string | null, lang: string): string | null {
-  if (s == null || s === "") return null;
-  const c = parseDollarsToCents(s);
-  return typeof c === "number" ? formatCents(c, lang) : s;
+interface DialogProps {
+  type: EstimateLineType | null; sectionId: string; customerId: string; companyId: string; initial?: AddLineInitial;
+  onClose: () => void; onSubmit: (body: AddLineBody) => Promise<boolean>; onSubmitCustom?: (body: AddLineBody) => Promise<AddLineResult>;
 }
 
-export function AddLineDialog(props: {
-  type: EstimateLineType | null; sectionId: string; customerId: string; companyId: string;
-  onClose: () => void; onSubmit: (body: AddLineBody) => Promise<boolean>;
-}) {
+export function AddLineDialog(props: DialogProps) {
   const { type } = props;
   return (
     <Dialog open={!!type} onOpenChange={(o) => { if (!o) props.onClose(); }}>
-      <DialogContent className="max-w-2xl" data-testid="dialog-add-line">
-        {type && <PickerBody key={`${type}-${props.sectionId}`} {...props} type={type} />}
+      <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto" data-testid="dialog-add-line">
+        {type === "custom" ? <CustomForm key={`custom-${props.sectionId}`} {...props} />
+          : type && <PickerBody key={`${type}-${props.sectionId}-${props.initial?.search ?? ""}-${props.initial?.rowKey ?? ""}`} {...props} type={type} />}
       </DialogContent>
     </Dialog>
   );
 }
 
-function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit }: {
-  type: EstimateLineType; sectionId: string; customerId: string; companyId: string;
-  onClose: () => void; onSubmit: (body: AddLineBody) => Promise<boolean>;
-}) {
+function PickerBody({ type, sectionId, customerId, companyId, initial, onClose, onSubmit }: DialogProps & { type: EstimateLineType }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const { user } = useAuth();
   const scopeKey = [user?.activeCompanyId, user?.id, user?.activeRole] as const;
-  const [freeMode, setFreeMode] = useState(type === "custom");
-  const [searchInput, setSearchInput] = useState("");
+  const [freeMode, setFreeMode] = useState(false);
+  const [searchInput, setSearchInput] = useState(initial?.search ?? "");
   const search = useDebounced(searchInput.trim(), 250);
   const [category, setCategory] = useState<string | null>(null);
   const [brand, setBrand] = useState<string | null>(null);
@@ -68,91 +66,33 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
   const [pending, setPending] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
+  // Row handed off from section search; applied once, after its rows arrive.
+  const pendingKey = useRef<string | null>(initial?.rowKey ?? null);
   // Synchronous guard: a double-click (click, click, dblclick) or Enter repeat submits exactly once.
   const submittingRef = useRef(false);
 
-  const enabled = !freeMode;
+  const filters = { search, category, brand, customerId };
   const q = useQuery<unknown>({
-    queryKey: ["estimate-picker", type, ...scopeKey, search, type === "service" ? null : category, brand, customerId],
-    enabled,
-    queryFn: ({ signal }) => {
-      switch (type) {
-        case "plant": {
-          const p = new URLSearchParams({ inStockOnly: "false", activeOnly: "true" }); if (search) p.set("search", search);
-          return fetchJson<PlantVariety[]>(`/api/plant-library/items?${p}`, companyId, signal);
-        }
-        case "hardscape": return fetchJson<HardscapeListResponse>(catalogListUrl({ search, category, includeInactive: false }), companyId, signal);
-        case "irrigation": return fetchJson<IrrigationListResponse>(irrigationListUrl({ search, category, brand, includeInactive: false }), companyId, signal);
-        case "labor": return fetchJson<RatesPreviewWithContext>(`${RATES_PREVIEW_API}?customerId=${encodeURIComponent(customerId)}`, companyId, signal);
-        default: return fetchJson<QuickItem[]>(`${QUICK_ITEMS_API}?kind=${type}`, companyId, signal);
-      }
-    },
+    queryKey: pickerQueryKey(type, scopeKey, filters),
+    staleTime: 30_000,
+    enabled: !freeMode,
+    queryFn: ({ signal }) => pickerFetch(type, filters, companyId, signal),
   });
 
-  const { rows, categories, brands, serviceCats } = useMemo(() => {
-    const d = q.data;
-    const s = search.toLowerCase();
-    let rows: Row[] = []; let categories: string[] = []; let brands: string[] = [];
-    const serviceCats: { id: string; name: string }[] = [];
-    if (!d) return { rows, categories, brands, serviceCats };
-    if (type === "plant") {
-      for (const v of d as PlantVariety[]) for (const sz of v.sizes.filter((x) => x.isActive !== false)) {
-        rows.push({
-          key: `${v.varietyKey}-${sz.productCode}`, title: v.commonName, detail: [v.botanicalName, sz.sizeLabel].filter(Boolean).join(" · "),
-          meta: [t("estimateBuilder.picker.onHand", { count: sz.onHand }), plantDollars(sz.wholesaleCost, lang) && t("estimateBuilder.picker.cost", { amount: plantDollars(sz.wholesaleCost, lang) }),
-            plantDollars(sz.salePrice, lang) && t("estimateBuilder.picker.price", { amount: plantDollars(sz.salePrice, lang) })].filter(Boolean).join(" · "),
-          disabled: sz.id ? undefined : t("estimateBuilder.picker.noRef"),
-          body: sz.id ? { plantCatalogItemId: sz.id } : undefined,
-        });
-      }
-    } else if (type === "hardscape" || type === "irrigation") {
-      const r = d as HardscapeListResponse & Partial<IrrigationListResponse>;
-      categories = r.categories ?? []; brands = r.brands ?? [];
-      rows = r.items.filter((i) => i.isActive).map((i) => ({
-        key: i.id, title: i.name, detail: [i.sku, i.description].filter(Boolean).join(" · "),
-        meta: [i.unit, i.retailPriceCents != null && t("estimateBuilder.picker.price", { amount: formatCents(i.retailPriceCents, lang) }),
-          i.wholesaleCostCents != null && t("estimateBuilder.picker.cost", { amount: formatCents(i.wholesaleCostCents, lang) })].filter(Boolean).join(" · "),
-        body: type === "hardscape" ? { hardscapeCatalogItemId: i.id } : { irrigationCatalogItemId: i.id },
-      }));
-    } else if (type === "labor") {
-      rows = (d as RatesPreviewWithContext).items.filter((r) => !s || r.label.toLowerCase().includes(s) || r.rateKey.toLowerCase().includes(s)).map((r) => {
-        const textOnly = r.rateCents == null && !!r.priceText?.trim();
-        return {
-          key: r.rateKey, title: r.label, detail: r.unit ?? undefined,
-          meta: moneyOrText(r.rateCents, null, lang) ?? undefined,
-          badge: r.source === "unset" ? undefined : t(`estimateBuilder.line.source.${r.source}`),
-          warn: textOnly ? t("estimateBuilder.picker.textRate", { text: r.priceText }) : undefined,
-          disabled: r.source === "unset" || (r.rateCents == null && !textOnly) ? t("estimateBuilder.picker.unset") : undefined,
-          body: { rateKey: r.rateKey },
-        };
-      });
-    } else if (type === "service") {
-      // Picker shows only active services in active categories; category chips filter client-side.
-      const pickable = (d as QuickItem[]).filter((i) => i.kind === "service" && i.isActive && i.serviceCategoryId && i.serviceCategoryIsActive === true);
-      for (const i of pickable) if (!serviceCats.some((c) => c.id === i.serviceCategoryId)) serviceCats.push({ id: i.serviceCategoryId!, name: i.serviceCategoryName ?? "" });
-      serviceCats.sort((a, b) => a.name.localeCompare(b.name));
-      rows = pickable.filter((i) => (!category || i.serviceCategoryId === category) && (!s || i.label.toLowerCase().includes(s)))
-        .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label))
-        .map((i) => ({
-          key: i.id, title: i.label,
-          detail: [i.serviceCategoryName, t(`estimateBuilder.unit.${i.defaultUnit}`, { defaultValue: i.defaultUnit })].filter(Boolean).join(" · "),
-          meta: i.defaultRateCents != null ? formatCents(i.defaultRateCents, lang) : t("estimateBuilder.picker.noDefault"),
-          body: { quickItemId: i.id },
-        }));
-      rows.push({ key: "__free", title: t("estimateBuilder.picker.freeType"), detail: t("estimateBuilder.picker.freeTypeHint"), free: true });
-    } else {
-      rows = (d as QuickItem[]).filter((i) => i.isActive && (!s || i.label.toLowerCase().includes(s))).sort((a, b) => a.sortOrder - b.sortOrder)
-        .map((i) => ({
-          key: i.id, title: i.label, detail: t(`estimateBuilder.unit.${i.defaultUnit}`, { defaultValue: i.defaultUnit }),
-          meta: i.defaultRateCents != null ? formatCents(i.defaultRateCents, lang) : t("estimateBuilder.picker.noDefault"),
-          body: { quickItemId: i.id },
-        }));
-      rows.push({ key: "__free", title: t("estimateBuilder.picker.freeType"), detail: t("estimateBuilder.picker.freeTypeHint"), free: true });
-    }
-    return { rows, categories, brands, serviceCats };
-  }, [q.data, type, search, category, lang, t]);
+  const { rows, categories, brands, serviceCats } = useMemo(
+    () => pickerRows(type, q.data, { search, category, t, lang, withFree: true }),
+    [q.data, type, search, category, lang, t]);
 
   useEffect(() => { setHighlight(0); }, [rows.length, search, category, brand]);
+  useEffect(() => {
+    // Declared after the reset effect so the handed-off row wins within the same commit.
+    const k = pendingKey.current;
+    if (!k || !q.data) return;
+    const idx = rows.findIndex((r) => r.key === k);
+    if (idx < 0) return;
+    pendingKey.current = null;
+    select(idx);
+  }, [rows, q.data]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>(`[data-index="${highlight}"]`);
     el?.scrollIntoView?.({ block: "nearest" });
@@ -189,13 +129,13 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
   const title = t(`estimateBuilder.picker.title.${type}`);
   if (freeMode) {
     return <FreeForm type={type} title={title} pending={pending} quantity={quantity} setQuantity={setQuantity} qtyError={qtyError}
-      onBack={type === "custom" ? undefined : () => setFreeMode(false)} onCancel={onClose}
+      onBack={() => setFreeMode(false)} onCancel={onClose}
       onSubmit={(fields) => void submit(fields)} />;
   }
 
   const chip = (on: boolean) => cn("h-7 rounded-full border px-3 text-[12.5px] transition-colors",
     on ? "border-transparent bg-rail-active font-semibold text-rail-active-foreground" : "bg-background text-muted-foreground hover:bg-rail-hover");
-  const activeId = rows[highlight] ? `pick-${rows[highlight].key}` : undefined;
+  const activeId = rows[highlight] ? `pick-${idPart(rows[highlight].key)}` : undefined;
 
   return (
     <>
@@ -250,7 +190,7 @@ function PickerBody({ type, sectionId, customerId, companyId, onClose, onSubmit 
         ) : (
           <ul id="picker-list" ref={listRef} role="listbox" aria-label={t("estimateBuilder.picker.results")} className="max-h-[46vh] divide-y overflow-y-auto rounded-md border bg-card" data-testid="list-picker">
             {rows.map((r, i) => (
-              <li key={r.key} id={`pick-${r.key}`} data-index={i} role="option" aria-selected={i === highlight} aria-disabled={!!r.disabled}
+              <li key={r.key} id={`pick-${idPart(r.key)}`} data-index={i} role="option" aria-selected={i === highlight} aria-disabled={!!r.disabled}
                 onClick={() => select(i)} onDoubleClick={() => choose(r)} data-testid={`option-${r.key}`}
                 className={cn("flex cursor-pointer select-none items-start justify-between gap-3 border-l-2 border-l-transparent px-3 py-2.5 text-sm hover:bg-muted/50",
                   i === highlight && "border-l-[hsl(var(--rail-active-icon))] bg-rail-hover hover:bg-rail-hover", r.disabled && "cursor-not-allowed opacity-60", r.free && "border-t-2 border-dashed")}>
@@ -315,12 +255,12 @@ function FreeForm({ type, title, pending, quantity, setQuantity, qtyError, onBac
     <>
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{t("estimateBuilder.picker.freeTypeHint")}</DialogDescription>
+        <DialogDescription>{t("estimateBuilder.picker.freeTypeHint")} {t("estimateBuilder.customLine.requiredHint")}</DialogDescription>
       </DialogHeader>
       <form onSubmit={submit} noValidate className="grid gap-3" data-testid="form-free-entry">
         <div className="grid gap-1">
-          <Label htmlFor="free-name">{t("estimateBuilder.picker.name")}</Label>
-          <Input id="free-name" autoFocus maxLength={500} value={name} onChange={(e) => setName(e.target.value)} aria-invalid={!!errs.name} data-testid="input-free-name" />
+          <Label htmlFor="free-name">{t("estimateBuilder.picker.name")}<RequiredMark /></Label>
+          <Input id="free-name" aria-required="true" autoFocus maxLength={500} value={name} onChange={(e) => setName(e.target.value)} aria-invalid={!!errs.name} data-testid="input-free-name" />
           {errs.name && <p className="text-xs text-destructive">{errs.name}</p>}
         </div>
         <div className="grid gap-1">
@@ -329,19 +269,19 @@ function FreeForm({ type, title, pending, quantity, setQuantity, qtyError, onBac
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="grid gap-1">
-            <Label htmlFor="free-unit">{t("estimateBuilder.picker.unit")}</Label>
+            <Label htmlFor="free-unit">{t("estimateBuilder.picker.unit")}<RequiredMark /></Label>
             <select id="free-unit" className={sel} value={unit} onChange={(e) => setUnit(e.target.value)} data-testid="select-free-unit">
               {FREE_UNITS.map((u) => <option key={u} value={u}>{t(`estimateBuilder.unit.${u}`)}</option>)}
             </select>
           </div>
           <div className="grid gap-1">
-            <Label htmlFor="free-rate">{t("estimateBuilder.picker.rate")}</Label>
-            <Input id="free-rate" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} aria-invalid={!!errs.rate} className="tabular-nums" data-testid="input-free-rate" />
+            <Label htmlFor="free-rate">{t("estimateBuilder.picker.rate")}<RequiredMark /></Label>
+            <Input id="free-rate" aria-required="true" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} aria-invalid={!!errs.rate} className="tabular-nums" data-testid="input-free-rate" />
             {errs.rate && <p className="text-xs text-destructive">{errs.rate}</p>}
           </div>
           <div className="grid gap-1">
-            <Label htmlFor="free-qty">{t("estimateBuilder.picker.quantity")}</Label>
-            <Input id="free-qty" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="tabular-nums" data-testid="input-free-quantity" />
+            <Label htmlFor="free-qty">{t("estimateBuilder.picker.quantity")}<RequiredMark /></Label>
+            <Input id="free-qty" aria-required="true" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="tabular-nums" data-testid="input-free-quantity" />
             {qtyError && <p className="text-xs text-destructive" data-testid="error-picker-quantity">{qtyError}</p>}
           </div>
         </div>

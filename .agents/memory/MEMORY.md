@@ -58,3 +58,4 @@
 - [Customer upload integrity](customer-document-upload-grants.md) — parallel grants must avoid session overwrite races; accepted files never reuse a signed PUT path.
 - [Docs housekeeping direction](docs-housekeeping-direction.md) — retain organized references and history without reviving mandatory specification packs.
 - [Task-plan workflow decisions](slice-pack-workflow.md) — repository-only source gates were revoked; verify predecessor code separately from merged task status.
+- [Custom catalog saves](custom-catalog-save-boundary.md) — category-led custom service saves require the current category default; general catalog umbrella overrides remain allowed.
