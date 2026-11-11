@@ -12,6 +12,7 @@ assert(socket?.startsWith("/tmp/") && socket.startsWith("/"), "An isolated /tmp 
 const config = { host: socket, port: 55439, user: userInfo().username, ssl: false };
 const catalog = JSON.parse(readFileSync("generated-artifacts/publish-checks/production-catalog.json", "utf8"));
 const diff = JSON.parse(readFileSync("generated-artifacts/publish-fk-order/before.json", "utf8"));
+const verifyStageOne = process.argv[3] === "--stage-one";
 assert(diff.success && diff.hasDiff);
 const q = name => `"${name.replaceAll('"', '""')}"`;
 const admin = new pg.Client({ ...config, database: "postgres" });
@@ -98,7 +99,44 @@ try {
     for (const statement of newFks) await db.query(statement);
     console.log("PASS Two-stage sequence also succeeds without changing or deleting rows");
   } finally { await db.query("ROLLBACK"); }
+  let actualStageOneStatements;
+  if (verifyStageOne) {
+    const stage = JSON.parse(readFileSync("generated-artifacts/publish-fk-order/stage-one.json", "utf8"));
+    assert(stage.success && stage.hasDiff && !stage.hasStructuralDataLoss);
+    assert(!stage.statementsToExecute.some(s =>
+      /campaign_items_campaign_company_fk|visits_campaign_item_company_fk/.test(s)));
+    actualStageOneStatements = stage.statementsToExecute.length;
+    assert.equal(actualStageOneStatements, statements.length - 2);
+    await db.query("BEGIN");
+    try {
+      for (const statement of stage.statementsToExecute) await db.query(statement);
+      const keys = await db.query(`SELECT conname FROM pg_constraint WHERE conname IN
+        ('campaigns_id_company_unique','campaign_items_id_company_unique') AND contype='u'`);
+      assert.equal(keys.rowCount, 2);
+      const oldGuards = await db.query(`SELECT conname FROM pg_constraint WHERE conname IN
+        ('campaign_items_campaign_id_fkey','visits_campaign_item_id_campaign_items_id_fk') AND contype='f' AND convalidated`);
+      assert.equal(oldGuards.rowCount, 2);
+      console.log(`PASS All ${actualStageOneStatements} actual approved stage-one Publish statements execute in emitted order; prerequisite keys and old guards remain`);
+    } finally { await db.query("ROLLBACK"); }
+    // Separately check the real development migration against the complete schema.
+    await db.query("BEGIN");
+    try {
+      for (const statement of corrected) await db.query(statement);
+      // Migration contains its own transaction; strip boundaries only inside
+      // this already-isolated test transaction so rollback remains possible.
+      const removal = readFileSync(".migration-backup/migrations/0082_publish_company_key_stage_one.sql", "utf8")
+        .replace(/^BEGIN;\s*$/m, "").replace(/^COMMIT;\s*$/m, "");
+      await db.query(removal);
+      await db.query(removal);
+      assert.equal((await db.query(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname IN
+        ('campaign_items_campaign_company_fk','visits_campaign_item_company_fk')`)).rows[0].n, 0);
+      assert.equal((await db.query(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname IN
+        ('campaigns_id_company_unique','campaign_items_id_company_unique')`)).rows[0].n, 2);
+      console.log("PASS Approved development migration safely removes only the two new FKs and is idempotent");
+    } finally { await db.query("ROLLBACK"); }
+  }
   writeFileSync("generated-artifacts/publish-fk-order/results.json",
     JSON.stringify({ failure, fullDiffStatements: statements.length, correctedOrderPassed: true,
-      sameCompanyAccepted: true, crossCompanyRejected: true, stagedSequencePassed: true }, null, 2) + "\n");
+      sameCompanyAccepted: true, crossCompanyRejected: true, stagedSequencePassed: true,
+      actualStageOneStatements, actualStageOnePassed: verifyStageOne }, null, 2) + "\n");
 } finally { await db.end(); }

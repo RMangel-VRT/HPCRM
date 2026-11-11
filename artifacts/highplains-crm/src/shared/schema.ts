@@ -111,7 +111,9 @@ export const visits = pgTable("visits", {
   campaignItem: index("visits_campaign_item_idx").on(table.campaignItemId),
   campaignDone: uniqueIndex("visits_campaign_item_done_unique").on(table.campaignItemId).where(sql`${table.campaignItemId} IS NOT NULL AND ${table.status} = 'done'`),
   campaignIdentity: check("visits_campaign_identity_check", sql`(${table.sourceType} = 'campaign_item') = (${table.campaignItemId} IS NOT NULL)`),
-  campaignCompany: foreignKey({ name: "visits_campaign_item_company_fk", columns: [table.campaignItemId, table.companyId], foreignColumns: [campaignItems.id, campaignItems.companyId] }).onDelete("no action"),
+  // Approved Publish stage one: restore the composite company FK after the
+  // prerequisite unique keys reach production. Existing item/company FKs stay.
+  // See docs/scheduling/reports/publish-foreign-key-stage-one.md.
   companyDateCrew: index("visits_company_date_crew_idx").on(table.companyId, table.visitDate, table.crewId),
   ticket: index("visits_ticket_idx").on(table.ticketId),
   companyCustomerDate: index("visits_company_customer_date_idx").on(table.companyId, table.customerId, table.visitDate),
@@ -2650,7 +2652,9 @@ export const campaignItems = pgTable("campaign_items", {
   campaignItemsPropertyIdIdx: index("campaign_items_property_id_idx").on(table.propertyId),
   crewPriority: index("campaign_items_crew_priority_idx").on(table.companyId, table.campaignId, table.assignedCampaignCrewId, table.crewPosition).where(sql`${table.status} = 'pending'`),
   companyIdentity: unique("campaign_items_id_company_unique").on(table.id, table.companyId),
-  campaignCompany: foreignKey({ name: "campaign_items_campaign_company_fk", columns: [table.campaignId, table.companyId], foreignColumns: [campaigns.id, campaigns.companyId] }).onDelete("cascade"),
+  // Approved Publish stage one: restore the composite company FK after the
+  // prerequisite unique keys reach production. Existing campaign/company FKs stay.
+  // See docs/scheduling/reports/publish-foreign-key-stage-one.md.
 }));
 
 export const servicePrograms = pgTable("service_programs", {

@@ -22,3 +22,17 @@ development guards. Do not implement that workaround implicitly, weaken company
 isolation, patch installed dependencies, or add deployment/startup DDL.
 
 Evidence: `docs/scheduling/reports/publish-foreign-key-order-verification.md`.
+
+For an explicitly approved staged rollout, never place restoration SQL into the
+active migration directory in the same stage as removal. Restore only after
+read-only production inspection confirms the prerequisite unique keys landed.
+
+**Why:** The normal migration runner applies all pending files; pre-creating both
+stages would immediately undo the approved first-stage schema and reproduce the
+same failing Publish diff. The user approved temporary removal, not permanent
+loss of company guards.
+
+**How to apply:** Keep the restoration procedure in the rollout report, use a
+fresh guarded development migration only after the first successful Publish,
+and preserve old single-column FKs throughout. See
+`docs/scheduling/reports/publish-foreign-key-stage-one.md` for the approved scope.
