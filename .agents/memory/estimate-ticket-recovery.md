@@ -18,3 +18,16 @@ there is no evidence to distinguish them from a failed write.
 the panel or builder. Read the event-precedence and single-decline-reason
 interpretation in `docs/estimates/estimate-ticket-integration.md`; do not infer the
 effective lifecycle event from the current-version pointer alone.
+
+Estimate follow-up initialization/clearing belongs to an actual linked-ticket
+status move, not at-target recovery replay.
+
+**Why:** Reinitializing a send's date on every recovery would keep postponing
+customer follow-ups. Clearing a date while already at the acceptance target
+could erase a new follow-up that Scheduling legitimately set after the win.
+Recovery's field reconciliation and the next section's follow-ups have
+different ownership.
+
+**How to apply:** Keep follow-up changes in the combined transition PATCH while
+leaving the recovery planner unchanged. Do not add repeated follow-up repair to
+at-target retries or duplicate it in individual lifecycle callers.

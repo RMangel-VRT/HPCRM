@@ -2,10 +2,12 @@ import type { EstimateDetailDto, EstimateVersionSummaryDto } from "@shared/schem
 import { apiRequest } from "./queryClient";
 import { companyHeaders } from "./hardscapeCatalog";
 import { denverToday } from "./estimateBuilder";
+import { addDaysYmd } from "./schedulingStatus";
 
 export type EstimateState = Pick<EstimateDetailDto, "id" | "ticketId" | "voidedAt" | "versions">;
 export interface TicketState {
   id: string; companyId: string; ticketTypeId: string; currentStatusId: string;
+  followUpDate?: string | null; followUpNote?: string | null;
 }
 export interface TicketStatus { id: string; statusKey?: string | null; name: string; displayOrder: number; isFinal: string }
 export interface TicketField { id: string; fieldKey: string; options?: string[] | null; fieldType: string }
@@ -98,7 +100,7 @@ export function planLinkedTicket(estimate: EstimateState, state: LinkedTicketSta
 export interface AdvanceResult { moved: boolean; ticketNumber?: string | number; statusName?: string; reason: RecoveryReason | null }
 /** Only this routine writes status, through the existing PATCH, before any PUT.
  * At-target recovery repairs just mismatched fields without replaying PATCH. */
-export async function advanceLinkedTicket(estimate: EstimateState, request: TicketRequest): Promise<AdvanceResult> {
+export async function advanceLinkedTicket(estimate: EstimateState, request: TicketRequest, now = new Date()): Promise<AdvanceResult> {
   if (!linkedTicketEvent(estimate) || !estimate.ticketId) return { moved: false, reason: null };
   let moved = false;
   try {
@@ -110,7 +112,14 @@ export async function advanceLinkedTicket(estimate: EstimateState, request: Tick
     if (!plan.target) return { moved, reason: plan.reason };
     if (!plan.reason) return { moved, reason: null };
     if (plan.move) {
-      await request("PATCH", `/api/tickets/${enc(estimate.ticketId)}`, { currentStatusId: plan.target.id });
+      const kind = linkedTicketEvent(authoritative)!.kind;
+      const today = denverToday(now);
+      // Only with an actual transition: recovery at the target must not perpetually
+      // reschedule old sends or clear a follow-up subsequently set by Scheduling.
+      const followUp = kind === "send"
+        ? (!state.ticket.followUpDate || state.ticket.followUpDate < today ? { followUpDate: addDaysYmd(today, 7) } : {})
+        : state.ticket.followUpDate ? { followUpDate: null, followUpNote: null } : {};
+      await request("PATCH", `/api/tickets/${enc(estimate.ticketId)}`, { currentStatusId: plan.target.id, ...followUp });
       moved = true;
     }
     for (const write of plan.writes) {

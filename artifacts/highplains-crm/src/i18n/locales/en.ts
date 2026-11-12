@@ -1,5 +1,43 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
+  estimateActions: {
+    reason: {
+      answered_one: "Customer answered 1 day ago", expires_one: "Expires in 1 day", overdue_one: "Follow-up 1 day overdue", unanswered_one: "No reply in 1 day", sent_one: "Sent 1 day ago", ready_one: "Ready to send · 1 day", untouched_one: "Draft untouched 1 day", edited_one: "Edited 1 day ago", prices_one: "1 line needs a price", unassigned_one: "Unassigned · 1 day", new_one: "New · 1 day",
+      answered: "Customer answered {{count}} days ago", expired: "Expired on {{date}}", expires: "Expires in {{count}} days",
+      due: "Follow-up due today", overdue: "Follow-up {{count}} days overdue", unanswered: "No reply in {{count}} days",
+      unscheduled: "No follow-up scheduled", scheduled: "Follow up on {{date}}", sent: "Sent {{count}} days ago",
+      ready: "Ready to send · {{count}} days", untouched: "Draft untouched {{count}} days", edited: "Edited {{count}} days ago",
+      prices: "{{count}} lines need a price", unassigned: "Unassigned · {{count}} days", new: "New · {{count}} days", note: "{{note}}",
+    },
+    eyebrow: "Estimates", title: "What needs you", loading: "Loading estimates…",
+    summary: { need_one: "{{count}} estimate request needs an action", need_other: "{{count}} estimate requests need an action", urgent: "{{count}} urgent", out: "{{amount}} out with customers" },
+    newRequest: "Estimate request", filterByAction: "Filter by action", hasUrgent: "Has urgent items", toolbar: "Filter the list", show: "Show",
+    bucket: {
+      follow_up: { label: "Follow up", hint: "Sent, no answer" }, decide: { label: "Record decision", hint: "Customer answered" },
+      send: { label: "Ready to send", hint: "Draft is done" }, finish: { label: "Finish drafts", hint: "Estimate in progress" },
+      start: { label: "Start estimate", hint: "New requests" },
+    },
+    scope: { urgent: "Urgent", action: "Needs action", waiting: "Waiting on customer", won: "Recently won", all: "All" },
+    search: "Search estimates", searchPlaceholder: "Search customer, title or EST #", assignee: "Assigned to", everyone: "Everyone", unassigned: "Unassigned",
+    showingOnly: "Showing {{bucket}} only", clear: "clear", listLabel: "Estimate requests", noCustomer: "No customer",
+    emptyUrgent: "Nothing urgent right now.", emptyUrgentLink: "See everything that needs action", empty: "Nothing matches these filters.",
+    error: "Estimates could not be loaded.", teamError: "Team members could not be loaded. Retry before assigning a request.", retry: "Try again",
+    actions: {
+      logFollowUp: "Log follow-up", markWon: "Mark won", markLost: "Mark lost", send: "Send", sendNumber: "Send {{number}}", openDraft: "Open draft",
+      build: "Build estimate", assign: "Assign", assignTo: "Assign to", me: "Me ({{name}})", noTeam: "No team members", more: "More actions for {{customer}}",
+      openTicket: "Open ticket", openEstimate: "Open estimate", previewPdf: "Preview PDF", setFollowUp: "Set follow-up date", reassign: "Reassign",
+    },
+    toast: {
+      assigned: "Assigned to {{name}}", assignFailed: "Could not assign this request", followUpSaved: "Follow-up logged",
+      followUpFailed: "Could not save the follow-up. Try again.", buildFailed: "Could not create the estimate",
+      noCustomer: "Add a customer to this request before building an estimate",
+    },
+    followUp: {
+      title: "Log follow-up — {{customer}}", sentOn: "Sent {{date}}", validUntil: "Valid until {{date}}", lastNote: "Last note",
+      what: "What happened?", placeholder: "Left a voicemail, customer wants to talk next week…", next: "Next follow-up",
+      d3: "3 days", w1: "1 week", w2: "2 weeks", date: "Follow-up date", errDate: "Choose a valid date", save: "Save follow-up",
+    },
+  },
   sc2: {
     scopeTimingHint: "The Service calendar supplies round timing. Stored months do not affect rounds and do not need to match the count.",
     gaps: {

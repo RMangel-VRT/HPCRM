@@ -1,11 +1,12 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { estimates, estimateVersions, estimateLines, tickets, type EstimateLine, type EstimateBoardSummaryDto } from "@workspace/db";
+import { estimates, estimateVersions, estimateLines, estimateSections, tickets, ESTIMATE_VALIDITY_DAYS, estimateLineNeedsPrice, type EstimateLine, type EstimateBoardSummaryDto } from "@workspace/db";
+import { addCalendarDays, companyDateString } from "../lib/companyDay";
 import { db } from "../db";
 import { computeVersionTotals } from "./estimateMath";
 import { readEstimate } from "./estimateReads";
 import { requireEstimate } from "./estimateErrors";
 
-/** One company-qualified query for the entire board; draft math reuses snapshot math. */
+/** Two company-qualified bulk queries regardless of board size; no section/line cross product. */
 export async function loadTicketEstimateSummaries(companyId: string, ticketIds: string[]): Promise<Map<string, EstimateBoardSummaryDto>> {
   if (!ticketIds.length) return new Map<string, EstimateBoardSummaryDto>();
   const rows = await db.select({ estimate: estimates, version: estimateVersions, line: estimateLines })
@@ -16,6 +17,11 @@ export async function loadTicketEstimateSummaries(companyId: string, ticketIds: 
       eq(estimateLines.companyId, companyId), eq(estimateVersions.status, "draft")))
     .where(and(eq(estimates.companyId, companyId), isNull(estimates.voidedAt), inArray(estimates.ticketId, ticketIds)));
   const groups = new Map<string, { row: typeof rows[number]; lines: EstimateLine[] }>();
+  const draftIds = [...new Set(rows.filter(r => r.version.status === "draft").map(r => r.version.id))];
+  const sections = draftIds.length ? await db.select({ versionId: estimateSections.versionId, updatedAt: estimateSections.updatedAt })
+    .from(estimateSections).where(and(eq(estimateSections.companyId, companyId), inArray(estimateSections.versionId, draftIds))) : [];
+  const sectionEdited = new Map<string, number>();
+  for (const section of sections) sectionEdited.set(section.versionId, Math.max(sectionEdited.get(section.versionId) ?? 0, section.updatedAt.getTime()));
   for (const row of rows) {
     if (!row.estimate.ticketId) continue;
     const group = groups.get(row.estimate.ticketId) ?? { row, lines: [] };
@@ -24,6 +30,14 @@ export async function loadTicketEstimateSummaries(companyId: string, ticketIds: 
   }
   return new Map([...groups].map(([ticketId, { row: { estimate, version }, lines }]) => [ticketId, {
     id: estimate.id, number: estimate.estimateNumber, versionNumber: version.versionNumber,
+    versionId: version.id, sentAt: version.sentAt?.toISOString() ?? null, acceptedAt: version.acceptedAt?.toISOString() ?? null,
+    validUntil: version.sentAt ? addCalendarDays(companyDateString(version.sentAt), ESTIMATE_VALIDITY_DAYS) : null,
+    draftEditedAt: version.status === "draft" ? new Date(Math.max(
+      version.updatedAt.getTime(), ...lines.map(l => l.updatedAt.getTime()),
+      sectionEdited.get(version.id) ?? 0,
+    )).toISOString() : null,
+    linesNeedingPrice: version.status === "draft" ? lines.filter(estimateLineNeedsPrice).length : 0,
+    lineCount: lines.length,
     status: version.status, subtotalCents: version.status === "draft"
       ? computeVersionTotals(lines).subtotalCents : version.frozenSubtotalCents,
   }]));

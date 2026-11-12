@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { companyUsers, tickets, ticketStatusHistory, users } from "@workspace/db";
+import { companyUsers, tickets, ticketStatusHistory, users, type EstimateBoardSummaryDto, type EstimateNextAction } from "@workspace/db";
 import { db } from "../db";
 import { storage } from "../storage";
 import type { UserWithContext } from "../auth";
@@ -8,6 +8,7 @@ import { findSeededTicketType } from "../shared/ticketCapabilities";
 import { companyDateString } from "../lib/companyDay";
 import { loadTicketEstimateSummaries } from "../services/ticketEstimates";
 import { estimateAccess } from "../lib/estimateAccess";
+import { estimateNextAction } from "../services/estimateNextAction";
 
 /** Estimate-only workflow. Display names never determine membership. */
 export const ESTIMATE_STAGES = [
@@ -26,7 +27,8 @@ interface BoardTicket {
   assignee: { id: string; name: string } | null;
   owner: { sectionKey: "scheduling" | "invoicing"; label: string; href: string } | null;
   priority: string; estimateNumber: string | null; daysInStage: number;
-  estimate?: { id: string; number: string; versionNumber: number; status: string; subtotalCents: number | null } | null;
+  estimate?: EstimateBoardSummaryDto | null;
+  followUpDate?: string | null; followUpNote?: string | null; nextAction?: EstimateNextAction;
 }
 
 /** Subtract Colorado calendar day numbers, not elapsed hours or host midnights. */
@@ -68,6 +70,7 @@ export async function loadOpportunityBoard<T extends Parameters<typeof findSeede
     currentStatusId: tickets.currentStatusId, customerId: tickets.customerId,
     assignedToId: tickets.assignedToId, priority: tickets.priority,
     estimateNumber: tickets.estimateNumber, createdAt: tickets.createdAt,
+    ...(typeKey === "estimate_request" ? { followUpDate: tickets.followUpDate, followUpNote: tickets.followUpNote } : {}),
   }).from(tickets).where(and(
     eq(tickets.companyId, companyId), inArray(tickets.ticketTypeId, [type.id]),
     inArray(tickets.currentStatusId, [...statusMap.keys()]),
@@ -97,7 +100,7 @@ export async function loadOpportunityBoard<T extends Parameters<typeof findSeede
     const status = statusMap.get(row.currentStatusId);
     if (!status || status.typeId !== row.ticketTypeId) continue;
     const customer = row.customerId ? customersById.get(row.customerId) : null;
-    stages.find(stage => stage.key === status.stageKey)!.tickets.push({
+    const ticket: BoardTicket = {
       id: row.id, title: row.title, typeKey: status.typeKey, statusKey: status.statusKey,
       statusName: status.statusName, customer: customer ? { id: customer.id, name: customer.name } : null,
       assignee: row.assignedToId ? assigneesById.get(row.assignedToId) ?? null : null,
@@ -110,7 +113,13 @@ export async function loadOpportunityBoard<T extends Parameters<typeof findSeede
       daysInStage: estimateDaysInStage(enteredById.get(row.id) ?? row.createdAt, now),
       ...(linked ? { contracts: linked.filter(c => c.bidTicketId === row.id) } : {}),
       ...(estimates ? { estimate: estimates.get(row.id) ?? null } : {}),
-    });
+      ...(typeKey === "estimate_request" ? { followUpDate: row.followUpDate ?? null, followUpNote: row.followUpNote ?? null } : {}),
+    };
+    if (typeKey === "estimate_request") ticket.nextAction = estimateNextAction({
+      ...ticket, stage: status.stageKey, estimate: ticket.estimate ?? null,
+      followUpDate: ticket.followUpDate ?? null, followUpNote: ticket.followUpNote ?? null,
+    }, companyDateString(now));
+    stages.find(stage => stage.key === status.stageKey)!.tickets.push(ticket);
   }
   for (const stage of stages) stage.tickets.sort((a, b) => b.daysInStage - a.daysInStage || a.id.localeCompare(b.id));
   return { stages };

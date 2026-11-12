@@ -6,7 +6,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { companies, customers, users, tickets, ticketTypes, ticketTypeStatuses, ticketTypeFields,
-  ticketFieldValues, ticketStatusHistory, estimateLines, insertTicketSchema, insertTicketFieldValueSchema, pool as schemaPool } from "@workspace/db";
+  ticketFieldValues, ticketStatusHistory, ticketComments, estimateLines, insertTicketSchema, insertTicketFieldValueSchema, pool as schemaPool } from "@workspace/db";
 import { db, pool } from "../db";
 import { storage } from "../storage";
 import { createEstimate, createLine } from "./estimates";
@@ -24,6 +24,7 @@ import { isSeededTicketType, isSeededStatus, findSeededStatus } from "../shared/
 import { maybeAutoCreateInvoiceOnRfb } from "../lib/rfbInvoiceAutoCreate";
 import { canSeeBilling, isBillingInvoiceAction } from "../lib/billing";
 import { assertNotParentCustomer } from "../utils/parentGuard";
+import { registerSchedulingQueue } from "../routes/schedulingQueue";
 
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 const company = `ticket-estimate-${randomUUID()}`, foreign = `ticket-estimate-${randomUUID()}`, actor = randomUUID();
@@ -49,9 +50,11 @@ function appFor(activeCompanyId = company, role = "admin") {
   const app = express(); app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => true) as typeof req.isAuthenticated;
-    req.user = { id: actor, activeCompanyId, activeRole: role, activeTags: [] } as unknown as Express.User; next();
+    req.user = { id: actor, activeCompanyId, activeRole: role, accessRole: role, activeTags: [] } as unknown as Express.User; next();
   });
-  registerTicketExpectedCompany(app); registerEstimateRoutes(app); mountTicketWrites(app);
+  registerTicketExpectedCompany(app); registerEstimateRoutes(app);
+  registerSchedulingQueue(app, req => req.user as any, (res) => { res.status(500).json({ error: "QUEUE_ERROR" }); });
+  mountTicketWrites(app);
   return app;
 }
 async function ticket(ticketTypeId = type) {
@@ -73,7 +76,7 @@ beforeAll(async () => {
   [type, custom] = (await db.insert(ticketTypes).values([
     { companyId: company, name: "Renamed seeded", typeKey: "estimate_request" }, { companyId: company, name: "Estimate Request" },
   ]).returning()).map(r => r.id);
-  await db.insert(ticketTypeStatuses).values(["proposal_sent", "decision_received", "ready_to_schedule", "closed_lost"].map((key, i) => ({
+  await db.insert(ticketTypeStatuses).values(["proposal_sent", "decision_received", "ready_to_schedule", "closed_lost", "scheduled"].map((key, i) => ({
     id: `${type}-${key}`, ticketTypeId: type, statusKey: key, name: `Renamed ${key}`, displayOrder: i,
     isFinal: key === "closed_lost" ? "true" as const : "false" as const, actionType: "needs_action" as const,
   })));
@@ -125,10 +128,16 @@ describe("real PostgreSQL ticket estimate integration", () => {
     const [field] = await db.insert(ticketTypeFields).values({ ticketTypeId: type, fieldKey: "decision_outcome",
       fieldLabel: "Decision", fieldType: "select", options: ["Approved", "Denied"], displayOrder: 0 }).returning();
     const app = appFor();
+    await db.update(tickets).set({ followUpDate: "2026-11-20", followUpNote: "Estimate follow-up" }).where(eq(tickets.id, t.id));
     const patched = await request(app).patch(`/api/tickets/${t.id}`).set("X-Company-Id", company)
-      .send({ currentStatusId: `${type}-ready_to_schedule` });
+      .send({ currentStatusId: `${type}-ready_to_schedule`, followUpDate: null, followUpNote: null });
     expect(patched.status, JSON.stringify(patched.body)).toBe(200);
-    expect(patched.body).toMatchObject({ currentStatusId: `${type}-ready_to_schedule`, billingBehavior: "invoice_required" });
+    expect(patched.body).toMatchObject({ currentStatusId: `${type}-ready_to_schedule`, billingBehavior: "invoice_required", followUpDate: null, followUpNote: null });
+    const queue = await request(app).get("/api/scheduling/queue");
+    expect(queue.status).toBe(200);
+    expect(JSON.stringify(queue.body)).toContain(t.id);
+    expect(JSON.stringify(queue.body)).not.toContain("2026-11-20");
+    expect(await db.select().from(ticketComments).where(eq(ticketComments.ticketId, t.id))).toContainEqual(expect.objectContaining({ body: "Customer replied" }));
     expect((await db.select().from(ticketStatusHistory).where(eq(ticketStatusHistory.ticketId, t.id)))).toContainEqual(
       expect.objectContaining({ fromStatusId: `${type}-proposal_sent`, toStatusId: `${type}-ready_to_schedule` }));
     const put = await request(app).put(`/api/tickets/${t.id}/field-values/${field.id}`).set("X-Company-Id", company).send({ value: "Approved" });

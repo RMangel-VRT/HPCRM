@@ -112,6 +112,25 @@ it("batches estimates once for all IDs and never adds estimate payloads to Bids"
   expect((await loadBidsBoard("company-a", now)).stages[0].tickets[0]).not.toHaveProperty("estimate");
   expect(estimateMocks.loadTicketEstimateSummaries).not.toHaveBeenCalled();
 });
+it("serializes the complete action contract over HTTP and preserves the exact Bids ticket shape", async () => {
+  const app = express();
+  app.use((req, _res, next) => {
+    (req as any).isAuthenticated = () => true;
+    (req as any).user = { activeRole: "office", accessRole: "office", activeCompanyId: "company-a" }; next();
+  });
+  registerEstimatesBoardRoutes(app); registerBidsBoardRoutes(app);
+  rows = [{ ...ticket(), followUpDate: "2026-11-19", followUpNote: "Called" }, ticket("rfp_request")];
+  const summary = { id: "e", number: "EST-1", versionNumber: 1, versionId: "v", status: "draft", subtotalCents: 100,
+    sentAt: null, acceptedAt: null, validUntil: null, draftEditedAt: "2026-11-12T18:00:00.000Z", linesNeedingPrice: 2, lineCount: 3 };
+  estimateMocks.loadTicketEstimateSummaries.mockResolvedValue(new Map([[rows[0].id, summary]]));
+  const response = await request(app).get("/api/estimates/board");
+  expect(response.status).toBe(200);
+  expect(response.body.stages[0].tickets[0]).toMatchObject({
+    followUpDate: "2026-11-19", followUpNote: "Called", estimate: summary, nextAction: { bucket: "start", urgency: "amber" },
+  });
+  const bid = (await request(app).get("/api/bids/board")).body.stages[0].tickets[0];
+  expect(Object.keys(bid).sort()).toEqual(["id", "title", "typeKey", "statusKey", "statusName", "customer", "assignee", "priority", "estimateNumber", "owner", "daysInStage", "contracts"].sort());
+});
 
 describe("Won ownership", () => {
   it.each([
@@ -144,7 +163,7 @@ describe("Won ownership", () => {
     const app = express();
     app.use((req, _res, next) => {
       (req as any).isAuthenticated = () => true;
-      (req as any).user = { activeRole: "office", activeCompanyId: "company-a" };
+      (req as any).user = { activeRole: "office", accessRole: "office", activeCompanyId: "company-a" };
       next();
     });
     registerEstimatesBoardRoutes(app);
@@ -266,7 +285,7 @@ describe.each([
     const app = express();
     app.use((req, _res, next) => {
       (req as any).isAuthenticated = () => authenticated;
-      (req as any).user = { activeRole: role, activeCompanyId };
+      (req as any).user = { activeRole: role, accessRole: role, activeCompanyId };
       next();
     });
     register(app);

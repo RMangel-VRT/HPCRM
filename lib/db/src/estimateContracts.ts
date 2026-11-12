@@ -5,6 +5,12 @@ import { isCalendarDate } from "./schema/calendarDate";
 export { isCalendarDate } from "./schema/calendarDate";
 
 export const ESTIMATE_STATUSES = ["draft", "sent", "accepted", "declined", "superseded", "void"] as const;
+/** PDF price-validity promise; no company-level validity setting exists. */
+export const ESTIMATE_VALIDITY_DAYS = 30;
+/** The send gate and action-list price count must always use the same predicate. */
+export function estimateLineNeedsPrice(line: { unitPriceCents: number; priceSource: string }): boolean {
+  return line.unitPriceCents === 0 && line.priceSource !== "manual";
+}
 export const ESTIMATE_LINE_TYPES = ["plant", "hardscape", "irrigation", "labor", "service", "equipment", "fee", "custom"] as const;
 export const ESTIMATE_PRICE_SOURCES = ["catalog", "contract", "rate_card", "quick_list", "manual"] as const;
 export const ESTIMATE_SENT_METHODS = ["email", "hard_copy", "portal", "other"] as const;
@@ -169,4 +175,20 @@ export interface EstimateTicketSummaryDto extends EstimateContainerDto {
 export interface EstimateBoardSummaryDto {
   id: string; number: string; versionNumber: number;
   status: typeof ESTIMATE_STATUSES[number]; subtotalCents: number | null;
+  versionId: string; sentAt: string | null; acceptedAt: string | null; validUntil: string | null;
+  draftEditedAt: string | null; linesNeedingPrice: number; lineCount: number;
+}
+export type EstimateActionBucket = "follow_up" | "decide" | "send" | "finish" | "start" | "waiting" | "won";
+export interface EstimateActionMessage { key: string; params?: Record<string, string | number> }
+export interface EstimateNextAction {
+  bucket: EstimateActionBucket; urgency: "red" | "amber" | null;
+  reason: EstimateActionMessage; detail?: EstimateActionMessage | null;
+}
+export interface EstimateActionTicket {
+  id: string; title: string; typeKey: string; statusKey: string; statusName: string;
+  customer: { id: string; name: string } | null; assignee: { id: string; name: string } | null;
+  owner: { sectionKey: "scheduling" | "invoicing"; label: string; href: string } | null;
+  priority: string; estimateNumber: string | null; daysInStage: number;
+  followUpDate: string | null; followUpNote: string | null;
+  estimate: EstimateBoardSummaryDto | null; nextAction: EstimateNextAction;
 }

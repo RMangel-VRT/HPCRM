@@ -12,8 +12,8 @@ import {
 import type { EstimateTicketSummaryDto } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { TicketAdvanceNotice, RECOVERY_KEY } from "@/components/estimates/TicketAdvanceNotice";
-import { advanceLinkedTicket, ticketRequest } from "@/lib/advanceLinkedTicket";
+import { TicketAdvanceNotice } from "@/components/estimates/TicketAdvanceNotice";
+import { runEstimateLifecycle, estimateErrorText as errorText } from "@/lib/estimateLifecycleActions";
 import { centsToInput, fetchJson, formatCents, parseDollarsToCents, HARDSCAPE_API } from "@/lib/hardscapeCatalog";
 import { RATES_PREVIEW_API, scopeOf, QUICK_ITEMS_API, SERVICE_CATEGORIES_API } from "@/lib/estimateSettings";
 import {
@@ -56,14 +56,6 @@ type DetailWithDisplay = EstimateDetailDto & { display?: EstimateDisplay };
 /** Max of container and version timestamps; ISO strings from the server. */
 function freshness(d: EstimateDetailDto): number {
   return Math.max(Date.parse(d.updatedAt) || 0, Date.parse(d.version.updatedAt) || 0);
-}
-function errorText(err: unknown, t: (k: string) => string): string {
-  const s = errorStatus(err);
-  if (s === 404) return t("estimateBuilder.notFound");
-  if (s === 409) return /void/i.test(String(err)) ? t("estimateBuilder.voidedError") : t("estimateBuilder.conflict");
-  if (s === 422) return t("estimateBuilder.err.unprocessable");
-  if (s === 400) return t("estimateBuilder.err.invalid");
-  return t("estimateBuilder.err.generic");
 }
 
 type Run = (method: string, url: string, body?: unknown) => Promise<boolean>;
@@ -256,27 +248,21 @@ function BuilderContent({ id }: { id: string }) {
     const op = ++opRef.current;
     busyRef.current = true; setBusy(true); setDialogError(null);
     try {
-      const d = await sendEstimate(method, url, companyId, body);
-      void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "list"] });
-      if (viewRef.current !== view) { refreshScope(); return; }
-      if (!(await installCurrent(d, view))) return;
-      setDialog(null); setNeedPrice(null);
-      toast({ title: t(`estimateBuilder.life.done.${kind}`) });
-      if (kind === "accept") activation.offer(d, d.display?.customerName ?? customer.data?.name ?? t("estimateBuilder.customer"));
-      if (["send", "accept", "decline"].includes(kind) && d.ticketId) {
-        const result = await advanceLinkedTicket(d, ticketRequest(companyId, () => viewRef.current === view));
-        if (viewRef.current !== view) return;
-        if (result.moved && !result.reason) toast({ title: t("estimateTicket.moved", { number: result.ticketNumber, status: result.statusName }) });
-        void qc.invalidateQueries({ queryKey: [RECOVERY_KEY] });
-        void qc.invalidateQueries({ queryKey: ["/api/tickets"] });
+      const result = await runEstimateLifecycle({
+        kind, method, url, body, companyId, queryClient: qc,
+        isActive: () => viewRef.current === view && opRef.current === op,
+        t, toast, offerActivation: activation.offer,
+        customerName: customer.data?.name ?? t("estimateBuilder.customer"),
+        install: d => installCurrent(d, view),
+        onCommitted: () => { setDialog(null); setNeedPrice(null); },
+      });
+      if (result.kind === "stale") { refreshScope(); return; }
+      if (result.kind === "success") {
+        if (requestedVersion) setLocation(builderPath(result.data.id));
+        return;
       }
-      void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "by-ticket"] });
-      void qc.invalidateQueries({ queryKey: ["/api/estimates/board"] });
-      if (requestedVersion) setLocation(builderPath(d.id));
-    } catch (err) {
-      if (viewRef.current !== view) return;
-      const c = conflictOf(err);
-      if (kind === "send" && c?.error === "LINES_NEED_PRICE" && c.lineIds?.length) { setNeedPrice(c.lineIds); return; }
+      if (result.kind === "needsPrice") { setNeedPrice(result.lineIds); return; }
+      const c = result.conflict;
       if (c?.error === "DRAFT_EXISTS") {
         setDialog(null);
         toast({ title: t("estimateBuilder.life.failed"), description: t("estimateBuilder.life.err.DRAFT_EXISTS") });
@@ -285,11 +271,10 @@ function BuilderContent({ id }: { id: string }) {
         setLocation(!target || target.id === data?.currentVersionId ? builderPath(id) : builderPath(id, target.versionNumber));
         return;
       }
-      const known = c && ["INVALID_TRANSITION", "NO_LINES", "HAS_ACCEPTED_VERSION", "ESTIMATE_VOIDED", "CONFLICT", "LINES_NEED_PRICE"].includes(c.error);
-      const msg = known ? t(`estimateBuilder.life.err.${c!.error}`) : errorText(err, t);
+      const msg = result.message;
       if (dialogRef.current) setDialogError(msg);
       else toast({ title: t("estimateBuilder.life.failed"), description: msg, variant: "destructive" });
-      const st = errorStatus(err);
+      const st = result.status;
       if (st === 409 || st === 404) refreshScope();
     } finally {
       if (opRef.current === op) { busyRef.current = false; if (viewRef.current === view) setBusy(false); }

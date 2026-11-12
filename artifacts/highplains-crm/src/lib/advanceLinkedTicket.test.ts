@@ -34,6 +34,24 @@ function transport(e: EstimateDetailDto, s: LinkedTicketState, failPut = false) 
   });
 }
 describe("estimate ticket orchestration", () => {
+  it.each([null, "2026-11-11", "2026-11-12", "2026-11-20"])("send combines status and follow-up, preserving today/future %s", async followUpDate => {
+    const e = estimate("send"), s = state("new");
+    s.ticket.followUpDate = followUpDate; s.ticket.followUpNote = "Keep note";
+    const request = transport(e, s);
+    await advanceLinkedTicket(e, request, new Date("2026-11-13T02:00:00Z"));
+    expect(request.mock.calls.find(([m]) => m === "PATCH")?.[2]).toEqual({
+      currentStatusId: "proposal_sent", ...(!followUpDate || followUpDate < "2026-11-12" ? { followUpDate: "2026-11-19" } : {}),
+    });
+  });
+  it.each(["accept", "decline"])("%s clears both follow-up fields with the status PATCH", async kind => {
+    const e = estimate(kind), s = state();
+    s.ticket.followUpDate = "2026-11-20"; s.ticket.followUpNote = "Old estimate note";
+    const request = transport(e, s);
+    await advanceLinkedTicket(e, request);
+    expect(request.mock.calls.find(([m]) => m === "PATCH")?.[2]).toEqual({
+      currentStatusId: kind === "accept" ? "ready_to_schedule" : "closed_lost", followUpDate: null, followUpNote: null,
+    });
+  });
   it("uses real key identity, PATCH before all field PUTs and only { currentStatusId }", async () => {
     const e = estimate(), s = state(), request = transport(e, s);
     expect(await advanceLinkedTicket(e, request)).toEqual({ moved: true, reason: null, ticketNumber: "ticket", statusName: "Renamed ready_to_schedule" });

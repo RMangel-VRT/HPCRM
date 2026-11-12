@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, isNotNull, ilike, or, desc, asc } from "drizzle-orm";
-import { estimates, estimateVersions, estimateSections, estimateLines, customers, type Estimate, type EstimateVersion, type EstimateLine } from "@workspace/db";
+import { estimates, estimateVersions, estimateSections, estimateLines, customers, estimateLineNeedsPrice, type Estimate, type EstimateVersion, type EstimateLine } from "@workspace/db";
 import { db, type AppTransaction } from "../db";
 import { computeVersionTotals } from "./estimateMath";
 import { requireEstimate } from "./estimateErrors";
@@ -8,7 +8,7 @@ import { loadPlantLinesForVersion, derivePaletteTypeLabel } from "./proposalExhi
 
 export type EstimateConnection = typeof db | AppTransaction;
 export function estimateLinePayload(line: EstimateLine) {
-  return { ...line, needsPrice: line.unitPriceCents === 0 && line.priceSource !== "manual" };
+  return { ...line, needsPrice: estimateLineNeedsPrice(line) };
 }
 export async function versionPayload(tx: EstimateConnection, companyId: string, version: EstimateVersion) {
   const sections = await tx.select().from(estimateSections).where(and(eq(estimateSections.companyId, companyId), eq(estimateSections.versionId, version.id)))

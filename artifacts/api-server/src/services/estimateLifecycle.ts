@@ -1,7 +1,7 @@
 import { and, eq, inArray, ne, desc } from "drizzle-orm";
 import { estimates, estimateVersions, estimateSections, estimateLines,
   sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema,
-  type EstimateVersion } from "@workspace/db";
+  estimateLineNeedsPrice, type EstimateVersion } from "@workspace/db";
 import { db } from "../db";
 import { companyToday } from "../lib/companyDay";
 import { EstimateError, requireEstimate } from "./estimateErrors";
@@ -51,7 +51,7 @@ export async function transitionEstimate(companyId: string, userId: string | nul
         const lines = await tx.select().from(estimateLines)
           .where(and(eq(estimateLines.companyId, companyId), eq(estimateLines.versionId, version.id)));
         if (!lines.length) throw new EstimateError(409, "NO_LINES");
-        const lineIds = lines.filter(l => l.unitPriceCents === 0 && l.priceSource !== "manual").map(l => l.id);
+        const lineIds = lines.filter(estimateLineNeedsPrice).map(l => l.id);
         if (lineIds.length && !confirmZeroPriced) throw new EstimateError(409, "LINES_NEED_PRICE", { lineIds });
         const totals = computeVersionTotals(lines);
         await tx.update(estimateVersions).set({ status: "superseded", supersededAt: now, updatedAt: now })

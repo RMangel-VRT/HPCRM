@@ -1,5 +1,43 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const es = {
+  estimateActions: {
+    reason: {
+      answered_one: "El cliente respondió hace 1 día", expires_one: "Vence en 1 día", overdue_one: "Seguimiento con 1 día de atraso", unanswered_one: "Sin respuesta en 1 día", sent_one: "Enviado hace 1 día", ready_one: "Listo para enviar · 1 día", untouched_one: "Borrador sin cambios en 1 día", edited_one: "Editado hace 1 día", prices_one: "1 partida necesita precio", unassigned_one: "Sin asignar · 1 día", new_one: "Nueva · 1 día",
+      answered: "El cliente respondió hace {{count}} días", expired: "Venció el {{date}}", expires: "Vence en {{count}} días",
+      due: "Seguimiento pendiente hoy", overdue: "Seguimiento con {{count}} días de atraso", unanswered: "Sin respuesta en {{count}} días",
+      unscheduled: "Sin seguimiento programado", scheduled: "Seguimiento el {{date}}", sent: "Enviado hace {{count}} días",
+      ready: "Listo para enviar · {{count}} días", untouched: "Borrador sin cambios en {{count}} días", edited: "Editado hace {{count}} días",
+      prices: "{{count}} partidas necesitan precio", unassigned: "Sin asignar · {{count}} días", new: "Nueva · {{count}} días", note: "{{note}}",
+    },
+    eyebrow: "Estimaciones", title: "Lo que necesita su atención", loading: "Cargando estimaciones…",
+    summary: { need_one: "{{count}} solicitud de estimación necesita una acción", need_other: "{{count}} solicitudes de estimación necesitan una acción", urgent: "{{count}} urgentes", out: "{{amount}} con los clientes" },
+    newRequest: "Solicitud de estimación", filterByAction: "Filtrar por acción", hasUrgent: "Tiene elementos urgentes", toolbar: "Filtrar la lista", show: "Mostrar",
+    bucket: {
+      follow_up: { label: "Dar seguimiento", hint: "Enviada, sin respuesta" }, decide: { label: "Registrar decisión", hint: "El cliente respondió" },
+      send: { label: "Listas para enviar", hint: "Borrador terminado" }, finish: { label: "Terminar borradores", hint: "Estimación en curso" },
+      start: { label: "Iniciar estimación", hint: "Solicitudes nuevas" },
+    },
+    scope: { urgent: "Urgentes", action: "Requieren acción", waiting: "Esperando al cliente", won: "Ganadas recientemente", all: "Todas" },
+    search: "Buscar estimaciones", searchPlaceholder: "Buscar cliente, título o núm. EST", assignee: "Asignada a", everyone: "Todos", unassigned: "Sin asignar",
+    showingOnly: "Mostrando solo {{bucket}}", clear: "quitar", listLabel: "Solicitudes de estimación", noCustomer: "Sin cliente",
+    emptyUrgent: "Nada urgente por ahora.", emptyUrgentLink: "Ver todo lo que requiere acción", empty: "Nada coincide con estos filtros.",
+    error: "No se pudieron cargar las estimaciones.", teamError: "No se pudieron cargar los miembros del equipo. Intente de nuevo antes de asignar una solicitud.", retry: "Reintentar",
+    actions: {
+      logFollowUp: "Registrar seguimiento", markWon: "Marcar ganada", markLost: "Marcar perdida", send: "Enviar", sendNumber: "Enviar {{number}}", openDraft: "Abrir borrador",
+      build: "Crear estimación", assign: "Asignar", assignTo: "Asignar a", me: "Yo ({{name}})", noTeam: "Sin miembros del equipo", more: "Más acciones para {{customer}}",
+      openTicket: "Abrir ticket", openEstimate: "Abrir estimación", previewPdf: "Vista previa del PDF", setFollowUp: "Fijar fecha de seguimiento", reassign: "Reasignar",
+    },
+    toast: {
+      assigned: "Asignada a {{name}}", assignFailed: "No se pudo asignar esta solicitud", followUpSaved: "Seguimiento registrado",
+      followUpFailed: "No se pudo guardar el seguimiento. Inténtelo de nuevo.", buildFailed: "No se pudo crear la estimación",
+      noCustomer: "Agregue un cliente a esta solicitud antes de crear una estimación",
+    },
+    followUp: {
+      title: "Registrar seguimiento — {{customer}}", sentOn: "Enviada {{date}}", validUntil: "Válida hasta {{date}}", lastNote: "Última nota",
+      what: "¿Qué pasó?", placeholder: "Dejé un mensaje de voz, el cliente quiere hablar la próxima semana…", next: "Próximo seguimiento",
+      d3: "3 días", w1: "1 semana", w2: "2 semanas", date: "Fecha de seguimiento", errDate: "Elija una fecha válida", save: "Guardar seguimiento",
+    },
+  },
   sc2: {
     scopeTimingHint: "El calendario de servicios determina las fechas de las rondas. Los meses guardados no afectan las rondas ni tienen que coincidir con la cantidad.",
     gaps: {
