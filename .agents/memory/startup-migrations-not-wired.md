@@ -8,3 +8,9 @@ The exported startup-migration runner in the API server's routes file is NOT inv
 **Why:** repo policy (replit.md "Production schema & extensions") forbids startup-time DDL / prod self-healing; a past slice was rejected in review because its backfill lived only in the never-called runner.
 
 **How to apply:** ship DDL as a numbered SQL migration file (IF NOT EXISTS guards). If data backfill must run after boot-time logic (e.g. name-based backfills that depend on the ticket-type rename), add a DML-only, idempotent backfill call in route registration after the rename, guarded by an information_schema column-existence check so it skips cleanly when the SQL migration hasn't run yet.
+
+Keep already-applied SQL seed migrations immutable when introducing shared runtime defaults.
+
+**Why:** The user explicitly chose semantic consistency checks over editing applied migration SQL or importing TypeScript into SQL. Runtime/company-creation seeds should share the live defaults; historical SQL is a frozen compatibility contract.
+
+**How to apply:** Execute historical seed DML in an isolated disposable database and compare its resulting values with the shared defaults. Never exercise a broad company initializer against unrelated real company data just to test it.
