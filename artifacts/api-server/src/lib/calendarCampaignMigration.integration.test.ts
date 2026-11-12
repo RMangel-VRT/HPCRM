@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { campaigns, pool as schemaPool } from "@workspace/db";
 import { db, pool } from "../db";
-import { campaignIdentityCheckSql } from "../../../../lib/db/src/campaignSql";
+import { campaignIdentityCheckName, campaignIdentityCheckSql } from "../../../../lib/db/src/campaignSql";
 
 describe("SC2 migration safety and constraint parity", () => {
   afterAll(async () => { await Promise.all([pool.end(), schemaPool.end()]); });
@@ -23,11 +23,12 @@ describe("SC2 migration safety and constraint parity", () => {
     });
   });
   it("uses the exact shared expression in Drizzle and the migration-equivalent installed check", async () => {
-    const check = getTableConfig(campaigns).checks.find(c => c.name === "campaigns_identity_check")!;
+    expect(campaignIdentityCheckName).toBe("campaigns_identity_v2_check");
+    const check = getTableConfig(campaigns).checks.find(c => c.name === campaignIdentityCheckName)!;
     expect(new PgDialect().sqlToQuery(check.value).sql).toBe(campaignIdentityCheckSql);
     const mirror = readFileSync(new URL("../../../highplains-crm/src/shared/schema.ts", import.meta.url), "utf8");
     expect(mirror).toContain('calendarRound: uniqueIndex("campaigns_calendar_round_unique").on(table.companyId, table.calendarEntryId, table.roundYear)');
-    expect(mirror).toContain('generatedIdentity: check("campaigns_identity_check", campaignIdentityCheckSql)');
+    expect(mirror).toContain('generatedIdentity: check(campaignIdentityCheckName, campaignIdentityCheckSql)');
     // Compare Postgres's own canonical rendering rather than formatting SQL text.
     await db.transaction(async tx => {
       await tx.execute(sql.raw(`CREATE TEMP TABLE sc2_expression_probe (
@@ -36,9 +37,41 @@ describe("SC2 migration safety and constraint parity", () => {
         CONSTRAINT sc2_probe_check CHECK (${campaignIdentityCheckSql})
       ) ON COMMIT DROP`));
       const result = await tx.execute(sql`SELECT
-        (SELECT pg_get_expr(conbin, conrelid) FROM pg_constraint WHERE conrelid='campaigns'::regclass AND conname='campaigns_identity_check') =
+        (SELECT pg_get_expr(conbin, conrelid) FROM pg_constraint WHERE conrelid='campaigns'::regclass AND conname=${campaignIdentityCheckName}) =
         (SELECT pg_get_expr(conbin, conrelid) FROM pg_constraint WHERE conrelid='sc2_expression_probe'::regclass AND conname='sc2_probe_check') AS equal`);
       expect(result.rows[0].equal).toBe(true);
+    });
+  });
+  it("replaces a legacy month check idempotently and accepts calendar-only generated identity", async () => {
+    const migration = readFileSync(new URL("../../../../.migration-backup/migrations/0084_campaign_identity_v2_check.sql", import.meta.url), "utf8")
+      .replace(/^BEGIN;\s*$/m, "").replace(/^COMMIT;\s*$/m, "")
+      .replace(/\bcampaigns\b/g, "sc21_publish_probe");
+    await db.transaction(async tx => {
+      await tx.execute(sql.raw(`CREATE TEMP TABLE sc21_publish_probe (
+        source text, service_key text, calendar_entry_id varchar, round_year smallint,
+        round_month date, round_seq smallint, category text, subtype text,
+        CONSTRAINT campaigns_identity_check CHECK (source <> 'contract' OR round_month IS NOT NULL)
+      ) ON COMMIT DROP`));
+      await tx.execute(sql.raw(migration));
+      await tx.execute(sql.raw(migration));
+      const checks = await tx.execute(sql`SELECT conname FROM pg_constraint
+        WHERE conrelid='sc21_publish_probe'::regclass AND contype='c'`);
+      expect(checks.rows.map(row => row.conname)).toEqual([campaignIdentityCheckName]);
+      await tx.execute(sql`INSERT INTO sc21_publish_probe
+        (source, service_key, calendar_entry_id, round_year, category)
+        VALUES ('contract','aeration','calendar-entry',2027,'general'),('manual',NULL,NULL,NULL,'general')`);
+      for (const bad of [
+        { service: "aeration", calendar: null, year: 2027, category: "general" },
+        { service: "aeration", calendar: "entry", year: null, category: "general" },
+        { service: "chemical", calendar: "entry", year: 2027, category: "chemical" },
+        { service: "fertilization", calendar: "entry", year: 2027, category: "general" },
+      ]) {
+        await expect(tx.transaction(async nested => {
+          await nested.execute(sql`INSERT INTO sc21_publish_probe
+            (source, service_key, calendar_entry_id, round_year, category)
+            VALUES ('contract',${bad.service},${bad.calendar},${bad.year},${bad.category})`);
+        })).rejects.toThrow();
+      }
     });
   });
 });

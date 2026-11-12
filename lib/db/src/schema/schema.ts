@@ -5,7 +5,7 @@ import { z } from "zod/v4";
 import { isCalendarDate } from "./calendarDate";
 import { NON_RENEWAL_REASONS } from "../contractNonRenewal";
 import { estimates, estimateVersions } from "./estimates";
-import { campaignIdentityCheckSql } from "../campaignSql";
+import { campaignIdentityCheckName, campaignIdentityCheckSql } from "../campaignSql";
 import { serviceCalendarCheckSql } from "../serviceCalendarSql";
 export { serviceCalendarReplacementSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../serviceCalendarContracts";
 export { routeStopBody, routeStopFields, routeDate, routeService, validRouteSeason } from "../routeContracts";
@@ -2589,7 +2589,7 @@ export const campaigns = pgTable("campaigns", {
   campaignsCompanyIdIdx: index("campaigns_company_id_idx").on(table.companyId),
   companyIdentity: unique("campaigns_id_company_unique").on(table.id, table.companyId),
   calendarRound: uniqueIndex("campaigns_calendar_round_unique").on(table.companyId, table.calendarEntryId, table.roundYear).where(sql`${table.source} = 'contract'`),
-  generatedIdentity: check("campaigns_identity_check", sql.raw(campaignIdentityCheckSql)),
+  generatedIdentity: check(campaignIdentityCheckName, sql.raw(campaignIdentityCheckSql)),
 }));
 
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({

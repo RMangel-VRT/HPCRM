@@ -2,6 +2,9 @@
  * Kept browser-safe so both schema declarations preserve the same constraints.
  */
 export const campaignServiceSql = "('aeration','cleanups','shrub_trimming','ornamental_grass','tree_pruning','native_areas','fertilization','broadleaf','irrigation_open','irrigation_winterization')";
+// Publish compares CHECK identity by name; version the calendar rule so the
+// legacy month-based expression is replaced rather than silently retained.
+export const campaignIdentityCheckName = "campaigns_identity_v2_check";
 export const campaignIdentityCheckSql = `(source IN ('manual','contract') AND (
   (source = 'manual' AND service_key IS NULL AND calendar_entry_id IS NULL AND round_year IS NULL AND round_month IS NULL AND round_seq IS NULL)
   OR (source = 'contract' AND service_key IS NOT NULL AND service_key IN ${campaignServiceSql.slice(0, -1)},'backflow')

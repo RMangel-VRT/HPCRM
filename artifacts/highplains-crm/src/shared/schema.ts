@@ -49,7 +49,7 @@ function isCalendarDate(value: string): boolean {
 }
 import { sql, pgTable, text, char, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, createInsertSchema, check } from "./drizzle-stub";
 export { serviceCalendarReplacementSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceCalendarContracts";
-import { campaignIdentityCheckSql } from "../../../../lib/db/src/campaignSql";
+import { campaignIdentityCheckName, campaignIdentityCheckSql } from "../../../../lib/db/src/campaignSql";
 import { serviceCalendarCheckSql } from "../../../../lib/db/src/serviceCalendarSql";
 
 export const visitFields = {
@@ -2566,7 +2566,7 @@ export const campaigns = pgTable("campaigns", {
   campaignsCompanyIdIdx: index("campaigns_company_id_idx").on(table.companyId),
   companyIdentity: unique("campaigns_id_company_unique").on(table.id, table.companyId),
   calendarRound: uniqueIndex("campaigns_calendar_round_unique").on(table.companyId, table.calendarEntryId, table.roundYear).where(sql`${table.source} = 'contract'`),
-  generatedIdentity: check("campaigns_identity_check", campaignIdentityCheckSql),
+  generatedIdentity: check(campaignIdentityCheckName, campaignIdentityCheckSql),
 }));
 
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({
