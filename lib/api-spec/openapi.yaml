@@ -1315,7 +1315,7 @@ components:
         windowEnd: { type: string }
         dateKind: { type: string, enum: [round_window, chemical_promise] }
         state: { type: string, enum: [completed, skipped, missing_item, waiting_on_signature, overdue, pending] }
-        timing: { type: string, enum: [contract, calendar] }
+        timing: { type: string, enum: [calendar] }
         countSource: { type: string, enum: [contract, standard] }
     ServiceFulfillment:
       type: object
@@ -1480,7 +1480,7 @@ components:
         agreementId: { type: string }
         seasonLabel: { type: string }
         termStatus: { type: string }
-        timing: { type: string, enum: [contract, calendar] }
+        timing: { type: string, enum: [calendar] }
         count: { type: string, enum: [contract, standard] }
     CampaignDemandGap:
       type: object
@@ -1492,10 +1492,8 @@ components:
         agreementId: { type: string }
         seasonLabel: { type: string }
         serviceKey: { type: string }
-        kind: { type: string, enum: [no_count, needs_rounds, month_outside_calendar, legacy_chemical, invalid_count, duplicate_lines, count_mismatch] }
+        kind: { type: string, enum: [no_count, needs_rounds, legacy_chemical, invalid_count, duplicate_lines] }
         count: { type: integer }
-        monthTotal: { type: integer }
-        month: { type: integer }
         informational: { type: boolean }
     CampaignRoundRef:
       type: object

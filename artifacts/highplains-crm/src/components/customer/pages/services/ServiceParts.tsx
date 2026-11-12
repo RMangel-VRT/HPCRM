@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
-import { ChevronDown, ChevronRight, ExternalLink, Info, AlertCircle, CheckCircle2, Clock } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink, AlertCircle, CheckCircle2, Clock } from "lucide-react";
 import type { ServiceFulfillment, ServiceRound, ServiceSeason } from "@workspace/api-client-react";
 import { DisplayStatusBadge, rowKeyOpen, fromNestedControl, useCustomerDates } from "@/components/customer/page";
 import { serviceDisplayStatus, serviceNextLabel, serviceStatusLabel, isServiceSetup } from "@/lib/contractCustomerServices";
@@ -23,7 +23,7 @@ export function accessFor(role: string | undefined): ServiceAccess {
   };
 }
 
-const BLOCKING_GAPS = ["no_count", "invalid_count", "duplicate_lines", "needs_rounds", "month_outside_calendar", "legacy_chemical"];
+const BLOCKING_GAPS = ["no_count", "invalid_count", "duplicate_lines", "needs_rounds", "legacy_chemical"];
 
 export function gapLink(issue: string, term: ServiceSeason | null, access: ServiceAccess): string | null {
   if (BLOCKING_GAPS.includes(issue)) return access.contracts && term ? `/dashboard/contracts/${encodeURIComponent(term.agreementId)}#term-${encodeURIComponent(term.termId)}` : null;
@@ -86,7 +86,7 @@ function RoundLine({ round, row, access, onOpenItem }: { round: ServiceRound; ro
         <span className="ml-2" data-testid={`text-round-provenance-${id}`}>
           <span className="inline-flex rounded border px-1">{t(`customerPages.services.countSource.${round.countSource}`, { defaultValue: round.countSource === "contract" ? "Contract count" : "Standard count" })}</span>
           {" "}
-          <span className="inline-flex rounded border px-1">{t(`customerPages.services.timing.${round.timing}`, { defaultValue: round.timing === "contract" ? "contract timing" : "calendar timing" })}</span>
+          <span className="inline-flex rounded border px-1">{t(`customerPages.services.timing.${round.timing}`, { defaultValue: "Calendar timing" })}</span>
         </span>
       </span>
       <span className={`font-medium ${ROUND_STATE_VAR[round.state] ?? ""}`} data-testid={`status-round-${id}`}>
@@ -156,8 +156,7 @@ export function ServiceRowItem({ row, term, access, expanded, onToggle, onOpen, 
       {(issues.length > 0 || links.length > 0) && (
         <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2 pl-10 -mt-1">
           {issues.map(i => (
-            <span key={i} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${i === "count_mismatch" ? "text-muted-foreground" : "text-foreground"}`} data-testid={`chip-issue-${k}-${i}`}>
-              {i === "count_mismatch" && <Info className="w-3 h-3" aria-hidden="true" />}
+            <span key={i} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-foreground" data-testid={`chip-issue-${k}-${i}`}>
               {serviceStatusLabel(i, t)}
             </span>
           ))}

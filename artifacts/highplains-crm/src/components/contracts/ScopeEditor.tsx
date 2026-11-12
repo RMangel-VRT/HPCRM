@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { History, Plus, Split } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,8 +45,13 @@ export function buildScopeRows(server: TermScopeRow[], line: AgreementLine): Sco
   return rows;
 }
 
+export const calendarTimed = (key: string) =>
+  ["campaign", "checklist"].includes(SCOPE_CATALOG.find(c => c.key === key)?.scheduling ?? "");
 export const spreadProblem = (r: ScopeRow): string | null => {
-  // A null spread means no timing was chosen; an explicit spread (even all zeros) must match the quantity.
+  // Calendar services use counts only. Preserve their stored months, even when
+  // changing quantity; route and other existing spread validation stays intact.
+  if (calendarTimed(r.serviceKey)) return null;
+  // A null spread means no timing was chosen; an explicit spread must match quantity.
   if (!r.included || !r.monthSpread || r.quantity == null) return null;
   const sum = r.monthSpread.reduce((a, b) => a + b, 0);
   return sum === r.quantity ? null : `Months add up to ${sum}, quantity is ${r.quantity}`;
@@ -86,6 +92,7 @@ export function ScopeEditor(props: {
   /** Hide the snow-triggers field (edited from Contract details instead). */
   hideSnowTriggers?: boolean;
 }) {
+  const { t } = useTranslation();
   const { rows, editing, onChange } = props;
   const [custom, setCustom] = useState("");
   const [split, setSplit] = useState(false);
@@ -150,6 +157,11 @@ export function ScopeEditor(props: {
                         <span className="text-sm tabular-nums">{r.quantity ?? "\u2014"} {r.unit ?? ""}</span>
                       )}
                     </div>
+                    {r.included && calendarTimed(r.serviceKey) && (
+                      <p className="text-xs text-muted-foreground" data-testid={`note-calendar-timing-${r.serviceKey}`}>
+                        {t("sc2.scopeTimingHint", { defaultValue: "The Service calendar supplies round timing. Stored months do not affect rounds and do not need to match the count." })}
+                      </p>
+                    )}
                     {editing && r.included ? (
                       <div className="grid grid-cols-12 gap-1">
                         {MONTH_LETTERS.map((m, i) => (

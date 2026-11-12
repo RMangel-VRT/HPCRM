@@ -60,4 +60,4 @@
 - [Docs housekeeping direction](docs-housekeeping-direction.md) — retain organized references and history without reviving mandatory specification packs.
 - [Task-plan workflow decisions](slice-pack-workflow.md) — repository-only source gates were revoked; verify predecessor code separately from merged task status.
 - [Custom catalog saves](custom-catalog-save-boundary.md) — category-led custom service saves require the current category default; general catalog umbrella overrides remain allowed.
-- [Service calendar direction](service-calendar-direction.md) — named windows replace month cells; contracts win; split chemical only by confirmation; retire old timing only if empty.
+- [Service calendar direction](service-calendar-direction.md) — contracts supply counts; calendar alone supplies timing; preserve deadline ownership and annual checklist semantics.

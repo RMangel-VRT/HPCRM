@@ -10,6 +10,5 @@ export type CampaignDemandMemberTiming =
   (typeof CampaignDemandMemberTiming)[keyof typeof CampaignDemandMemberTiming];
 
 export const CampaignDemandMemberTiming = {
-  contract: "contract",
   calendar: "calendar",
 } as const;

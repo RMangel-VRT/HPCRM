@@ -16,7 +16,7 @@ vi.mock("@/lib/queryClient", () => ({ apiRequest: (...a: unknown[]) => fx.api(..
 vi.mock("@/lib/contractUpload", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/contractUpload")>()), uploadContractFile: (...a: unknown[]) => fx.upload(...a) }));
 import NewContractPage from "@/pages/NewContractPage";
 import { applyPreset, blankLine } from "@/components/contracts/paymentDraft";
-import { newDraft, sessionKey } from "@/components/contracts/newContractDraft";
+import { initialScope, newDraft, sessionKey } from "@/components/contracts/newContractDraft";
 import i18n from "@/i18n";
 
 const customer = (o: object = {}) => ({ id: "c1", companyId: "co1", name: "Elm Court HOA", isParent: "false", street: "12 Elm St", city: "Denver", state: "CO", zip: "80202", ...o });
@@ -53,6 +53,25 @@ beforeEach(() => { posts = 0; fx.api.mockReset(); fx.toast.mockReset(); fx.uploa
 afterEach(cleanup);
 
 describe("New contract flow", () => {
+  it("creates a valid smaller campaign count without requiring changes to its stored months", async () => {
+    await i18n.changeLanguage("en");
+    const spread = [0,0,1,0,0,0,0,0,0,0,2,0];
+    store("u1", "co1", draft({step: 3, scope: initialScope("landscape")
+      .filter(r => r.serviceKey === "cleanups")
+      .map(r => ({...r, included: true, quantity: 3, monthSpread: spread})), rates: []}));
+    mount(); await settle();
+    fireEvent.change(screen.getByTestId("input-qty-cleanups"), {target: {value: "2"}});
+    expect(screen.queryByTestId("warn-spread-cleanups")).toBeNull();
+    expect(screen.getByTestId("note-calendar-timing-cleanups").textContent).toContain("Stored months do not affect rounds");
+    await userEvent.click(screen.getByTestId("button-next"));
+    expect(screen.getByTestId("step-body-4")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("button-next"));
+    await userEvent.click(screen.getByTestId("button-next"));
+    await userEvent.click(screen.getByTestId("button-create-contract"));
+    await waitFor(() => expect(posts).toBe(1));
+    const body = fx.api.mock.calls.find(([method, url]) => method === "POST" && url === "/api/contract-center/contracts")?.[2];
+    expect(body.scope).toEqual([expect.objectContaining({serviceKey: "cleanups", quantity: 2, monthSpread: spread})]);
+  });
   it.each(["en", "es"])("prefills an isolated RFP draft with its explanatory banner in %s", async language => {
     await i18n.changeLanguage(language);
     store("u1", "co1", draft({ notes: "Unrelated ordinary draft" }));

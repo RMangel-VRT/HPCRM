@@ -9,11 +9,21 @@ Read `attached_assets/Pasted--SC1-The-service-calendar-replaces-month-based-Serv
 
 **How to apply:** SC1 covers catalog, persistence, settings and scope-editor changes only. SC2 changes generation; SC3 handles the customer schedule. Do not expand SC1 into those later slices or reinstate repository-only specification gates.
 
-Contract counts and stated months always win. The calendar fills only silent contract details and never writes timing back to contracts. The standard count is the number of rounds marked in the standard, not an independent count. Windows use month/day without a year and may cross New Year; reject February 29 and equal opening/deadline dates. Preserve row identities through editing and ordering because later generated rounds reference them.
+The November 12, 2026 owner decision supersedes SC2's stated-month placement and exact-standard/all-only selection: contracts supply counts, and the Service calendar alone supplies round timing. Ignore stored months completely for campaign allocation and count validation, without rewriting them. Blank quantity selects standard entries; an explicit valid N selects the first N entries in calendar position order even if a different standard subset has that cardinality. Over-capacity means needs-rounds and no rounds; absent calendar/standard behavior remains unknown, not zero. The standard count is the number of checked rounds, not an independent count. Windows use month/day without a year and may cross New Year; preserve stable row identities through editing and ordering.
 
-**Why:** Separate timing ownership avoids rewriting signed obligations; stable identities prevent later generation links from breaking.
+**Why:** The owner explicitly chose one company timetable for every contract while retaining contract counts and the SC2 deadline rule. Reordering is the owner's control over which rounds a smaller explicit count receives; stored months no longer override it.
 
-**How to apply:** Use one company calendar owner and atomic, company/service-locked replacement of ordered entries. Allow clearing every standard only explicitly, with a warning that blank-count contracts then become gaps. Starting-calendar loading is an explicit admin action into an empty company calendar, not automatic seeding or a production operation during this slice.
+**How to apply:** Use one company calendar owner and atomic, company/service-locked replacement of ordered entries. Preserve count/duplicate/zero/legacy safeguards and annual checklists. Allow clearing every standard only explicitly, warning that blank-count contracts become gaps. Starting-calendar loading is an explicit admin action into an empty company calendar, never automatic seeding or permission for production operations.
+
+Changing a calendar-timed contract count must not require rewriting its stored
+months. Keep route-service month validation separate from calendar-service
+count editing.
+
+**Why:** A single timetable would be inconsistent if contract forms still made
+irrelevant stored months a condition for saving a valid count.
+
+**How to apply:** Apply the ownership decision to create/edit validation and
+guidance as well as demand allocation; preserve unchanged stored values.
 
 Fertilization and broadleaf weed control become separately counted services. Existing combined chemical scope stays readable as legacy; never rewrite it automatically. A user-confirmed Split prefills fertilization with the old count and broadleaf blank, persisting nothing until save. Native full mowing becomes counted spring/fall rounds; beauty bands remain recurring. Backflow is an annual checklist, never pre-dated onto crew days or the customer schedule. Recurring and on-request displays do not change Routes.
 
@@ -33,11 +43,11 @@ The replacement endpoint accepts every kind permitted for a service, not one kin
 
 **How to apply:** Preserve mixed-kind rows and stable IDs across edits and UI sections; do not overwrite recurring rows when editing rounds or enforce service-wide position uniqueness.
 
-During the SC1-to-SC2 transition, retiring the old timing owner must give the existing demand engine, reconcile and customer fulfillment an empty program list. They keep compiling/running, while seasons formerly relying on program timing show gaps in Generate preview. No calendar-based generation belongs in SC1. The user confirmed on November 11, 2026 that Generate has never run in production.
+Historical SC1-to-SC2 transition only: retiring the old timing owner used empty program inputs without prematurely implementing generation. This is not a current allocation rule. The user confirmed on November 11, 2026 that Generate had never run in production.
 
 **Why:** The user approved a bounded compatibility transition rather than keeping retired-table reads or implementing SC2 early.
 
-**How to apply:** Replace old program loading with empty inputs in all three consumers, preserving contract-stated timing, recorded-work protections and safe gap behavior. Do not infer authorization to run Generate or load production data from this historical fact. Only an explicitly authorized later slice may introduce calendar-based allocation.
+**How to apply:** Do not restore the retired program owner or contract-stated placement. Do not infer authorization to run Generate or load production data from this historical fact. Preserve recorded-work protections and safe gaps.
 
 The owner's contract-year rule is that a round belongs to the season containing
 its deadline, not a season overlapping its opening window. In particular an

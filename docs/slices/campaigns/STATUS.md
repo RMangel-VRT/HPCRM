@@ -12,10 +12,22 @@ The ledger each CG slice updates when it finishes. The next slice's pre-flight r
 | CP6 Contract-owned customer Services | implemented; client verification and handoff recorded |
 | SC1 Service calendar | implemented; development verification recorded below |
 | SC2 Calendar round generation | implemented; final verification recorded in SC2 report |
+| SC2.1 Calendar-only round timing | implemented; development preview and verification recorded |
 
 ## Log
 
 (Each slice adds a block here: date, migration, new tables/columns/functions/endpoints with exact names, deviations, open items.)
+
+### 2026-11-12 — SC2.1 contracts supply counts; Service calendar supplies all timing
+
+- The November 12 owner decision supersedes SC2's stated-month allocation and exact-standard/all-only selection. `campaignDemand` never reads or validates `monthSpread`: blank quantity selects `inStandard` entries; explicit valid N selects the first N entries by calendar position, including when N equals a different standard subset's size. Over-capacity returns `needs_rounds` and no rounds; no-calendar/no-standard, quantity/duplicate/zero, legacy chemical and annual-checklist behavior remain intact.
+- Removed active `month_outside_calendar` / `count_mismatch`, their month-only metadata and contract-timing provenance from shared generation contracts, OpenAPI and regenerated React/Zod outputs. All emitted members have `timing: calendar`. Shared fulfillment, Generate, Services, usage guidance and English/Spanish resources agree; there is no independent client allocation.
+- `summarizeServiceUsage` drops `withoutMonths` / `noCountWithoutMonths` and all month-derived count problems. Valid smaller counts are accepted; campaign counts above the number of available round entries identify linked `needsRounds` seasons. Blank/zero/invalid/duplicate/legacy reporting and device-count checklist semantics remain.
+- No schema declaration, migration, stored contract month/count, Routes algorithm, native-mobile or SC3 change. Deadline ownership, stable entry/year identity, coverage precedence, company isolation, opt-in, locks, reconciliation/history protections and rollback-only preview remain SC2-owned.
+- Completion-check correction: shared `ScopeEditor.spreadProblem` no longer requires campaign/checklist counts to match stored months, so both `newContractDraft.stepProblems` and existing `ContractView` saves accept count-only edits. Stored month payloads are preserved, route/other month-sum validation remains, and the editor now explains calendar timing in English/Spanish. Rendered create/edit and persisted contract-save → demand/fulfillment regressions cover clean-ups 3 → 2 without changing the stored spread.
+- Verification: 97 pure server checks, 100 database/handler checks and 19 enabled Routes checks passed across the documented final focused subsets; 130 CRM checks passed across rendered/adapter/form subsets (85 original + 45 contract checks). The final generation/contract-save database suite passed 31 checks. Codegen/declarations passed. Baseline-aware comparisons added zero API/CRM diagnostics; root typecheck still has the pre-existing leaf failures. One transient fixture-cleanup deadlock passed on rerun without application lock changes.
+- Actual signed-in **2027 development preview** on one disposable company showed clean-ups 3 → all three entries, 2 → Spring + Fall leaf 1, blank → standards, 4 → only `needs_rounds`; shrubs used spring/fall despite June/October stated months. Services and calendar usage agreed. Preview/reload left **0 campaigns, 0 items, 0 year opt-ins**, and contract rows unchanged. Fixture/account/session were removed afterward.
+- Full commands, browser evidence and operational limits: [SC2.1 verification](../../scheduling/reports/SC2.1-verification.md). **No production Generate, production calendar load, production data changes or publication.** Historical SC1/SC2 reports and ledger blocks below remain historical, not current timing rules.
 
 ### 2026-11-11 — SC2 calendar entries and deadline years govern generated rounds
 

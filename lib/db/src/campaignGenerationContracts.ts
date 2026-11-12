@@ -7,16 +7,16 @@ export interface CampaignContractState {
   state: "owed" | "waiting_on_signature" | "no_longer_in_contract";
   agreementId: string | null; termId: string | null;
 }
-export type DemandGapKind = "no_count" | "needs_rounds" | "month_outside_calendar" | "legacy_chemical" | "invalid_count" | "duplicate_lines" | "count_mismatch";
+export type DemandGapKind = "no_count" | "needs_rounds" | "legacy_chemical" | "invalid_count" | "duplicate_lines";
 export interface DemandMember {
   propertyId: string; propertyName: string; termId: string; agreementId: string;
   seasonLabel: string; termStatus: string;
-  timing: "contract" | "calendar"; count: "contract" | "standard";
+  timing: "calendar"; count: "contract" | "standard";
 }
 export interface DemandGap {
   propertyId: string; propertyName: string; termId: string; agreementId: string;
   seasonLabel: string; serviceKey: string; kind: DemandGapKind;
-  count?: number; monthTotal?: number; month?: number; informational?: boolean;
+  count?: number; informational?: boolean;
 }
 export interface DemandRound {
   serviceKey: string; calendarEntryId: string; roundYear: number;

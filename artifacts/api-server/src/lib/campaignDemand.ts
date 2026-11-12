@@ -11,15 +11,6 @@ export const calendarInstance = (entry: DemandCalendarEntry, year: number) => ({
   opens: `${entry.dueMd < entry.opensMd ? year - 1 : year}-${entry.opensMd}`,
   due: `${year}-${entry.dueMd}`,
 });
-const containsMonth = (instance: ReturnType<typeof calendarInstance>, month: number) => {
-  for (let y = Number(instance.opens.slice(0, 4)); y <= instance.roundYear; y++) {
-    const first = `${y}-${String(month).padStart(2, "0")}-01`;
-    // First of next month is exclusive; lexical ISO comparisons are timezone free.
-    const next = month === 12 ? `${y + 1}-01-01` : `${y}-${String(month + 1).padStart(2, "0")}-01`;
-    if (first <= instance.due && next > instance.opens) return true;
-  }
-  return false;
-};
 
 /** Pure calendar demand. Deadline alone selects the contract. No catalog defaults. */
 export function campaignDemand(inputs: CustomerContractInputs & { calendar: DemandCalendarEntry[] }, year: number, _today: string): DemandReport {
@@ -43,7 +34,7 @@ export function campaignDemand(inputs: CustomerContractInputs & { calendar: Dema
       }
       for (const { term, scope, lines } of coverages.values()) {
         const gap = (kind: DemandGapKind, extra: Partial<DemandReport["gaps"][number]> = {}) => {
-          const id = `${property.id}:${term.id}:${service.key}:${kind}:${extra.month ?? ""}`;
+          const id = `${property.id}:${term.id}:${service.key}:${kind}`;
           if (seenGaps.has(id)) return;
           seenGaps.add(id);
           gaps.push({ propertyId: property.id, propertyName: property.name, termId: term.id, agreementId: term.agreementId,
@@ -58,33 +49,15 @@ export function campaignDemand(inputs: CustomerContractInputs & { calendar: Dema
           const split = inputs.scope.some(l => l.termId === term.id && ["fertilization", "broadleaf"].includes(l.serviceKey));
           gap("legacy_chemical", { informational: split }); continue;
         }
-        const months = scope.monthSpread;
-        if (months !== null && (months.length !== 12 || months.some(n => !Number.isSafeInteger(n) || n < 0))) {
-          gap("invalid_count"); continue;
-        }
-        const sum = months?.reduce((a, b) => a + b, 0) ?? 0;
-        if (sum > 24) { gap("invalid_count"); continue; }
         const standard = entries.filter(e => e.inStandard);
         const count = quantity ?? (standard.length || undefined);
         let selected: typeof instances = [];
         if (!entries.length) { gap("no_count"); continue; }
         if (service.scheduling === "checklist") selected = instances;
-        else if (sum > 0) {
-          if (count !== undefined && count !== sum) gap("count_mismatch", { count, monthTotal: sum, informational: true });
-          const used = new Set<string>();
-          for (let m = 1; m <= 12; m++) {
-            const n = months![m - 1];
-            const compatible = instances.filter(i => containsMonth(i, m))
-              .sort((a, b) => Number(b.due.slice(5, 7)) === m ? (Number(a.due.slice(5, 7)) === m ? 0 : 1) :
-                (Number(a.due.slice(5, 7)) === m ? -1 : 0));
-            const available = compatible.filter(i => !used.has(i.calendarEntryId));
-            if (available.length < n) { gap("month_outside_calendar", { month: m, count: n }); continue; }
-            for (const i of available.slice(0, n)) { used.add(i.calendarEntryId); selected.push(i); }
-          }
-        } else if (count === undefined) gap("no_count");
-        else if (count === standard.length) selected = instances.filter(i => standard.some(e => e.id === i.calendarEntryId));
-        else if (count === entries.length) selected = instances;
-        else gap("needs_rounds", { count });
+        else if (count === undefined) gap("no_count");
+        else if (count > entries.length) gap("needs_rounds", { count });
+        else if (quantity === null) selected = instances.filter(i => standard.some(e => e.id === i.calendarEntryId));
+        else selected = instances.slice(0, count);
         for (const instance of selected) {
           const governing = resolve.forDate(property.id, service.key, instance.due);
           if (governing?.term.id !== term.id) continue;
@@ -92,7 +65,7 @@ export function campaignDemand(inputs: CustomerContractInputs & { calendar: Dema
           let round = rounds.get(id);
           if (!round) { round = { ...instance, members: [] }; rounds.set(id, round); }
           round.members.push({ propertyId: property.id, propertyName: property.name, termId: term.id, agreementId: term.agreementId,
-            seasonLabel: term.seasonLabel, termStatus: term.status, timing: sum > 0 ? "contract" : "calendar",
+            seasonLabel: term.seasonLabel, termStatus: term.status, timing: "calendar",
             count: quantity === null ? "standard" : "contract" });
         }
       }

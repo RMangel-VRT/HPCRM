@@ -24,7 +24,7 @@ const ok = (d: unknown) => Promise.resolve({ json: async () => d });
 const e = (id: string, serviceKey: string, kind: string, position: number, name: string, opensMd: string, dueMd: string, extra: object = {}) =>
   ({ id, serviceKey, kind, position, name, opensMd, dueMd, inStandard: kind === "round", pattern: null, includes: null, updatedAt: "x", ...extra });
 const usage = (serviceKey: string, over: object = {}) => ({
-  serviceKey, seasons: 0, byCount: [], noCount: 0, noCountWithoutMonths: 0, needsRounds: [], zero: 0, invalid: 0, duplicate: 0,
+  serviceKey, seasons: 0, byCount: [], noCount: 0, needsRounds: [], zero: 0, invalid: 0, duplicate: 0,
   problems: [], legacyChemical: [], ...over,
 });
 const link = (termId: string, customerName: string, reason: string) => ({ termId, agreementId: `a-${termId}`, customerId: "c", customerName, reason });
@@ -85,7 +85,7 @@ describe("Service calendar settings", () => {
     mount();
     await screen.findByTestId("card-service-cleanups");
     expect(screen.getByTestId("text-nocount-cleanups").textContent).toBe("Used by 33 seasons that give no count.");
-    expect(screen.getByTestId("flag-needs-rounds-cleanups").textContent).toContain("1 season states a count");
+    expect(screen.getByTestId("flag-needs-rounds-cleanups").textContent).toContain("1 season lists more visits than the calendar has rounds");
     expect(screen.getByTestId("link-problem-t4-needs_rounds").getAttribute("href")).toBe("/dashboard/contracts/a-t4#term-t4");
     expect(screen.getByTestId("flag-legacy-chemical").textContent).toContain("from before the split");
     expect(screen.getByTestId("text-broadleaf-none").textContent).toBe("No contract lists broadleaf on its own line yet.");

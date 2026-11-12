@@ -60,7 +60,6 @@ export type ServiceRoundTiming =
   (typeof ServiceRoundTiming)[keyof typeof ServiceRoundTiming];
 
 export const ServiceRoundTiming = {
-  contract: "contract",
   calendar: "calendar",
 } as const;
 
@@ -259,7 +258,6 @@ export type CampaignDemandMemberTiming =
   (typeof CampaignDemandMemberTiming)[keyof typeof CampaignDemandMemberTiming];
 
 export const CampaignDemandMemberTiming = {
-  contract: "contract",
   calendar: "calendar",
 } as const;
 
@@ -288,11 +286,9 @@ export type CampaignDemandGapKind =
 export const CampaignDemandGapKind = {
   no_count: "no_count",
   needs_rounds: "needs_rounds",
-  month_outside_calendar: "month_outside_calendar",
   legacy_chemical: "legacy_chemical",
   invalid_count: "invalid_count",
   duplicate_lines: "duplicate_lines",
-  count_mismatch: "count_mismatch",
 } as const;
 
 export interface CampaignDemandGap {
@@ -304,8 +300,6 @@ export interface CampaignDemandGap {
   serviceKey: string;
   kind: CampaignDemandGapKind;
   count?: number;
-  monthTotal?: number;
-  month?: number;
   informational?: boolean;
 }
 

@@ -39,18 +39,12 @@ function errorText(err: unknown): string {
 
 const GAP_TEXT: Record<DemandGapKind, { title: string; fix: string }> = {
   no_count: { title: "No round count", fix: "Set up rounds and a standard in the Service calendar, or state a count on the contract." },
-  needs_rounds: { title: "Contract needs to specify rounds", fix: "The count does not identify a set of calendar rounds. Say which rounds on the contract." },
-  month_outside_calendar: { title: "Stated month outside calendar", fix: "The contract states a month with no compatible service window." },
+  needs_rounds: { title: "More visits than calendar rounds", fix: "This contract lists more visits than the calendar has rounds; review it" },
   legacy_chemical: { title: "Fert/chem from before the split", fix: "Fert/chem from before the split: review fertilization and broadleaf" },
-  invalid_count: { title: "Invalid count or months", fix: "The contract count or month spread is invalid. Use whole nonnegative months and a count from 0 to 24." },
+  invalid_count: { title: "Invalid count", fix: "Use a whole contract count from 0 to 24." },
   duplicate_lines: { title: "Duplicate lines", fix: "The same service appears more than once on this season. Merge the lines on the contract." },
-  count_mismatch: { title: "Months don't match count", fix: "Stated months do not add up to the stated count. Correct one on the contract." },
 };
 
-const fmtMonth = (ym: string) => {
-  const [y, m] = ym.split("-").map(Number);
-  return new Date(y, (m || 1) - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-};
 const fmtDate = (d: string) => { const x = new Date(d.length <= 10 ? d + "T00:00:00" : d); return isNaN(+x) ? d : x.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
 const roundKey = (r: RoundRef) => `${r.serviceKey}|${r.calendarEntryId}|${r.roundYear}`;
 export const roundWindowLabel = (r: RoundRef) => {
@@ -246,9 +240,9 @@ function GenerateBody({ companyId, year, canGenerate }: { companyId: string; yea
                   <li>{r.created.length} rounds created · {r.deleted.length} rounds deleted</li>
                   <li>{r.added.length} properties added · {r.removed.length} removed</li>
                   <li>{r.keptNotOwed.length} kept not owed · {r.missed.length} missed · {r.addedToClosedRound.length} added to closed rounds</li>
-                  {r.gaps.length > 0 && <li>{r.gaps.length} contract issues to review; count mismatches keep stated months</li>}
+                  {r.gaps.length > 0 && <li>{r.gaps.length} contract issues to review</li>}
                 </ul>
-                <p>After generation, membership follows successful contract changes. Startup and hourly checks retry failures. Recorded work is retained. Service-calendar timing will be used by the next generation update; until then, seasons without stated months remain gaps.</p>
+                <p>After generation, membership follows successful contract changes. Startup and hourly checks retry failures. Recorded work is retained. Contracts supply counts; the Service calendar supplies timing. Blank counts use standard rounds; explicit counts use the first rounds in calendar order.</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -288,13 +282,13 @@ function GapPanel({ gaps }: { gaps: DemandGap[] }) {
   const { user } = useAuth();
   const calendarAccess = ["admin", "office"].includes(user?.accessRole ?? "") || !!user?.isSuperAdminBool;
   if (gaps.length === 0) return (
-    <p className="text-xs text-muted-foreground" data-testid="text-no-gaps">No contract gaps. Every eligible season has a usable count and months.</p>
+    <p className="text-xs text-muted-foreground" data-testid="text-no-gaps">No contract gaps. Every eligible season has a usable count and calendar rounds.</p>
   );
   const kinds = Object.keys(GAP_TEXT) as DemandGapKind[];
   return (
     <section className="rounded-lg border border-[hsl(var(--warning))]/40 bg-[hsl(var(--est-warn-bg))]/40 px-4 py-3 space-y-2" data-testid="panel-gaps">
       <p className="text-sm font-medium flex items-center gap-1.5"><AlertTriangle className="h-4 w-4 text-[hsl(var(--warning))]" />
-        Contract issues to review ({gaps.length}). Missing or invalid scope prevents scheduling; count mismatches keep the stated months.</p>
+        Contract issues to review ({gaps.length}). Missing or invalid scope prevents scheduling.</p>
       {calendarAccess && gaps.some(g => g.kind === "no_count" || g.kind === "needs_rounds") &&
         <Link href="/dashboard/settings/service-calendar" className="inline-block text-xs text-primary hover:underline">Open Settings → Service calendar</Link>}
       {kinds.map(k => {
@@ -304,20 +298,12 @@ function GapPanel({ gaps }: { gaps: DemandGap[] }) {
           <details key={k} open={list.length <= 5} data-testid={`gaps-${k}`}>
             <summary className="cursor-pointer text-xs font-medium">{t(`sc2.gaps.${k}.title`, {defaultValue: GAP_TEXT[k].title})} ({list.length})</summary>
             <p className="text-xs text-muted-foreground mt-0.5">{t(`sc2.gaps.${k}.fix`, {defaultValue: GAP_TEXT[k].fix})}</p>
-            {k === "needs_rounds" && [...new Set(list.map(g => `${g.serviceKey}:${g.count}`))].map(key => {
-              const group = list.filter(g => `${g.serviceKey}:${g.count}` === key);
-              return <p key={key} className="text-xs font-medium">{t("sc2.unspecified", {service: group[0].serviceKey === "cleanups" ? "Clean-ups" : serviceLabel(group[0].serviceKey), n: group[0].count, which: group[0].count === 2 ? "two" : group[0].count,
-                defaultValue: "{{service}} × {{n}} with no dates: say which {{which}} on the contract"})}</p>;
-            })}
             <ul className="mt-1 space-y-0.5 text-xs">
               {list.map(g => (
-                <li key={`${g.propertyId}-${g.termId}-${g.serviceKey}-${k}-${g.month ?? ""}`} className="flex flex-wrap gap-2">
+                <li key={`${g.propertyId}-${g.termId}-${g.serviceKey}-${k}`} className="flex flex-wrap gap-2">
                   <Link href={termHref(g.agreementId, g.termId)} className="text-primary hover:underline" data-testid={`link-gap-${g.termId}-${g.serviceKey}-${k}`}>{g.propertyName}</Link>
                   <span className="text-muted-foreground">{serviceLabel(g.serviceKey)} · {g.seasonLabel}
-                    {g.count !== undefined && <> · count {g.count}</>}{g.monthTotal !== undefined && <> · months total {g.monthTotal}</>}</span>
-                  {g.month && <span>{t("sc2.outsideMonth", {month: new Intl.DateTimeFormat("en-US", {month: "long", timeZone: "UTC"}).format(new Date(Date.UTC(2027, g.month - 1, 1))),
-                    service: g.serviceKey === "cleanups" ? "clean-up" : serviceLabel(g.serviceKey).toLowerCase(),
-                    defaultValue: "Contract says {{month}}; no {{service}} round runs in {{month}}"})}</span>}
+                    {g.count !== undefined && <> · count {g.count}</>}</span>
                   {g.informational && <span className="text-muted-foreground">Informational — valid rounds are kept</span>}
                 </li>
               ))}
@@ -415,7 +401,7 @@ function RoundRow({ round: r }: { round: PreviewRound }) {
               {m.termStatus === "sent" && <span className="rounded border border-[hsl(var(--warning))]/50 px-1.5 text-[11px] font-medium text-[hsl(var(--warning))]" data-testid={`chip-waiting-${id}-${m.termId}`}>Waiting on signature</span>}
               {m.timing === "calendar" && <span className="rounded border px-1.5 text-[11px]">Calendar timing</span>}
               {m.count === "standard" && <span className="rounded border px-1.5 text-[11px]">Standard count</span>}
-              <span className="text-muted-foreground">{m.seasonLabel} · {m.termStatus.replace(/_/g, " ")} · count from {m.count === "contract" ? "contract" : "standard"} · timing from {m.timing === "contract" ? "contract" : "calendar"}</span>
+              <span className="text-muted-foreground">{m.seasonLabel} · {m.termStatus.replace(/_/g, " ")} · count from {m.count === "contract" ? "contract" : "standard"} · timing from calendar</span>
             </li>
           ))}
         </ul>

@@ -121,7 +121,7 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
         if (["missing_item", "overdue"].includes(state)) row.issues.push(state);
       }
       row.owed = gaps.some(g => g.serviceKey === key && !g.informational &&
-        ["no_count", "needs_rounds", "month_outside_calendar", "legacy_chemical", "invalid_count", "duplicate_lines"].includes(g.kind))
+        ["no_count", "needs_rounds", "legacy_chemical", "invalid_count", "duplicate_lines"].includes(g.kind))
         ? null : row.rounds.length;
       row.done = row.rounds.filter(r => r.state === "completed").length;
       row.skipped = row.rounds.filter(r => r.state === "skipped").length;
@@ -157,7 +157,7 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
     row.remaining = row.owed === null ? null : Math.max(0, row.owed - row.done - row.skipped);
     if (service.scheduling === "route" && row.remaining !== null && row.remaining > 0 && term.endDate < today)
       row.issues = [...new Set([...row.issues, "overdue"])];
-    row.status = ["duplicate_lines", "invalid_count", "no_count", "needs_rounds", "month_outside_calendar", "legacy_chemical", "waiting_on_signature",
+    row.status = ["duplicate_lines", "invalid_count", "no_count", "needs_rounds", "legacy_chemical", "waiting_on_signature",
       "overdue", "missing_item", "no_route"].find(s => row.issues.includes(s)) ??
       (row.owed === 0 ? "not_owed" : row.remaining === 0 ? (row.skipped ? "closed_with_skips" : "complete") : "on_track");
     rows.push(row);

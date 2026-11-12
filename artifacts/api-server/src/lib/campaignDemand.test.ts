@@ -25,23 +25,34 @@ describe("calendar deadline demand", () => {
     Object.assign(data.terms[0], {startDate: "2026-10-15", endDate: "2027-10-14"});
     expect([...run(data, 2026).rounds, ...run(data).rounds].filter(r => r.name === "Fall shrub trim")).toHaveLength(1);
   });
-  it("selects clean-ups 3/all, 2/unspecified, blank/standard", () => {
+  it("selects clean-ups first N or blank standards regardless of stated months", () => {
     expect(run(demandFixture()).rounds).toHaveLength(3);
-    expect(run(demandFixture("cleanups", 2))).toMatchObject({rounds: [], gaps: [{kind: "needs_rounds", count: 2}]});
+    for (const spread of [null, months({11: 2}), months({6: 1}), [-1], [NaN], Array(12).fill(99)]) {
+      expect(run(demandFixture("cleanups", 2, spread)).rounds.map(r => r.name)).toEqual(["Spring clean-up", "Fall leaf clean-up 1"]);
+      expect(run(demandFixture("cleanups", 3, spread)).rounds).toHaveLength(3);
+      expect(run(demandFixture("cleanups", 4, spread))).toMatchObject({rounds: [], gaps: [{kind: "needs_rounds", count: 4}]});
+      expect(run(demandFixture("cleanups", null, spread)).rounds).toHaveLength(3);
+    }
     expect(run(demandFixture("cleanups", null)).rounds).toHaveLength(3);
     const data = demandFixture("cleanups", null); data.calendar.forEach((e: any) => e.inStandard = false);
     expect(run(data).gaps[0].kind).toBe("no_count");
     data.calendar = []; expect(run(data).gaps[0].kind).toBe("no_count");
   });
-  it("maps June/October shrubs and reports June clean-ups without inventing rounds", () => {
+  it("ignores June/October shrubs and June clean-up months", () => {
     expect(run(demandFixture("shrub_trimming", 2, months({6: 1, 10: 1}))).rounds.map(r => r.name))
       .toEqual(["Spring shrub trim", "Fall shrub trim"]);
-    expect(run(demandFixture("cleanups", 1, months({6: 1})))).toMatchObject({
-      rounds: [], gaps: [{kind: "month_outside_calendar", month: 6}]});
+    expect(run(demandFixture("cleanups", 1, months({6: 1}))).rounds.map(r => r.name)).toEqual(["Spring clean-up"]);
   });
-  it("maps two November occurrences to distinct leaf rounds in position order", () => {
-    expect(run(demandFixture("cleanups", 2, months({11: 2}))).rounds.map(r => r.name))
-      .toEqual(["Fall leaf clean-up 1", "Fall leaf clean-up 2"]);
+  it("distinguishes explicit first N from an equal-cardinality standard subset and observes reordering", () => {
+    const data = demandFixture("cleanups", null);
+    const entries = data.calendar.filter((e: any) => e.serviceKey === "cleanups");
+    entries[0].inStandard = false;
+    expect(run(data).rounds.map(r => r.name)).toEqual(["Fall leaf clean-up 1", "Fall leaf clean-up 2"]);
+    data.scope[0].quantity = 2;
+    expect(run(data).rounds.map(r => r.name)).toEqual(["Spring clean-up", "Fall leaf clean-up 1"]);
+    [entries[0].position, entries[2].position] = [entries[2].position, entries[0].position];
+    expect(run(data).rounds.map(r => r.name)).toEqual(["Fall leaf clean-up 1", "Fall leaf clean-up 2"]);
+    expect(run(data).rounds.flatMap(r => r.members).every(m => m.timing === "calendar")).toBe(true);
   });
   it("maps cross-year December grass to January deadline year", () => {
     const data = demandFixture("ornamental_grass", 1, months({12: 1}));
@@ -56,7 +67,7 @@ describe("calendar deadline demand", () => {
     expect(run(data).gaps).toMatchObject([{kind: "legacy_chemical", informational: true}]);
   });
   it.each([null, 1, 8])("owes one annual backflow independent of device count %s", quantity => {
-    const data = demandFixture("backflow", quantity);
+    const data = demandFixture("backflow", quantity, [-1]);
     Object.assign(data.terms[0], {startDate: "2026-10-01", endDate: "2027-09-30"});
     expect([...run(data, 2026).rounds, ...run(data).rounds].map(r => r.due)).toEqual(["2026-12-31"]);
   });
@@ -65,12 +76,7 @@ describe("calendar deadline demand", () => {
     for (const n of [-1, 1.5, 25]) expect(run(demandFixture("cleanups", n)).gaps[0].kind).toBe("invalid_count");
     const data = demandFixture(); data.scope.push({...data.scope[0], included: false});
     expect(run(data)).toMatchObject({rounds: [], gaps: [{kind: "duplicate_lines"}]});
-    expect(run(demandFixture("cleanups", 1, [-1])).gaps[0].kind).toBe("invalid_count");
-  });
-  it("keeps mismatch informational and uses explicit months", () => {
-    const report = run(demandFixture("cleanups", 3, months({11: 2})));
-    expect(report.rounds).toHaveLength(2);
-    expect(report.gaps).toMatchObject([{kind: "count_mismatch", informational: true}]);
+    expect(run(demandFixture("cleanups", 1, [-1])).gaps).toEqual([]);
   });
   it("uses firm before sent, term priority, inclusive exact boundaries and own exclusions", () => {
     const data = demandFixture("shrub_trimming", null);

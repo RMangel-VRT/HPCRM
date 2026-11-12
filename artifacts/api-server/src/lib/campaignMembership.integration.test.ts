@@ -87,12 +87,14 @@ describe("CG3 membership on disposable development companies, without Generate",
     expect((await project())[0].contractState?.state).toBe("no_longer_in_contract");
     expect(await campaignMembershipStatus(a, year)).toMatchObject({ keptNotOwed: 1, error: null });
   });
-  it("moves only unworked membership after contract-stated timing changes with empty programs", async () => {
+  it("keeps membership and identity unchanged after contract-stated month changes", async () => {
     await enable(); await scheduleCampaignMembership(a, today);
+    const before = await items(), beforeRounds = await rounds();
     await db.update(termScopeLines).set({ monthSpread: spread(9) }).where(eq(termScopeLines.termId, term));
     await scheduleCampaignMembership(a, today);
-    expect((await rounds()).map(r => r.windowStart)).toEqual([`${year}-09-01`]);
-    expect(await items()).toHaveLength(1);
+    expect(await rounds()).toEqual(beforeRounds);
+    expect(await items()).toEqual(before);
+    expect((await project())[0].contractState?.state).toBe("waiting_on_signature");
   });
   it.each(["completed", "skipped", "chemical_progress"] as const)("never deletes or moves %s work after contract removal", async kind => {
     await enable(); await scheduleCampaignMembership(a, today);
@@ -105,11 +107,11 @@ describe("CG3 membership on disposable development companies, without Generate",
     expect(await items()).toEqual(before);
     expect((await project())[0].contractState?.state).toBe("no_longer_in_contract");
   });
-  it("respects changed contract months ahead of program timing", async () => {
+  it("retains first calendar round when changed contract months name a later round", async () => {
     await enable(); await scheduleCampaignMembership(a, today);
     await db.update(termScopeLines).set({ monthSpread: spread(10) }).where(eq(termScopeLines.termId, term));
     await scheduleCampaignMembership(a, today);
-    expect((await rounds()).map(r => r.windowStart)).toEqual([`${year}-10-01`]);
+    expect((await rounds()).map(r => r.windowStart)).toEqual([`${year}-06-01`]);
   });
   it("handles parent changes and never adds parents as campaign items", async () => {
     const parent = randomUUID();

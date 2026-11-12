@@ -17,6 +17,11 @@ import { companyToday } from "../lib/companyDay";
 import { campaignItemRow } from "../lib/campaignItemRow";
 import { storage } from "../storage";
 import { replaceServiceCalendar } from "../services/serviceCalendar";
+import { STARTING_SERVICE_CALENDAR } from "../../../../lib/db/src/serviceCalendarContracts";
+import { GenerateContractCampaignsResponse, GetCustomerServicesResponse } from "@workspace/api-zod";
+import { loadServiceFulfillmentInputs } from "../lib/customerServiceFulfillmentLoader";
+import { customerServiceFulfillment } from "../lib/customerServiceFulfillment";
+import { registerContractCenterRoutes } from "./contractCenter";
 const a = `cg2-test-${randomUUID()}`, b = `cg2-test-${randomUUID()}`, uid = randomUUID();
 const p = randomUUID(), agreement = randomUUID(), term = randomUUID();
 const year = Number(companyToday().slice(0, 4)) + 1;
@@ -74,6 +79,52 @@ describe("CG2 disposable development fixtures: rollback, generation and authoriz
       await reconcileCampaigns(tx, a, year, { ...opts, dryRun: true });
       expect((await tx.select().from(campaigns).where(eq(campaigns.companyId, a)))).toEqual([]);
     });
+  });
+  it("previews first-N calendar clean-ups, validates fulfillment and observes stable-ID reorder without saving work", async () => {
+    await db.delete(termScopeLines).where(eq(termScopeLines.termId, term));
+    await db.insert(serviceCalendar).values(STARTING_SERVICE_CALENDAR.filter(e => e.serviceKey === "cleanups")
+      .map(e => ({...e, companyId: a, inStandard: e.position !== 1})));
+    const storedMonths = [0,0,1,0,0,0,0,0,0,0,2,0];
+    await db.insert(termScopeLines).values({companyId: a, termId: term, serviceKey: "cleanups",
+      line: "landscape", included: true, quantity: 3, monthSpread: storedMonths});
+    const instance = app();
+    registerContractCenterRoutes(instance);
+    const saved = await request(instance).put(`/api/contract-center/terms/${term}/scope`).set("X-Company-Id", a)
+      .send([{serviceKey: "cleanups", included: true, quantity: 2, monthSpread: storedMonths}]);
+    expect(saved.status).toBe(200);
+    const [line] = await db.select().from(termScopeLines).where(eq(termScopeLines.termId, term));
+    expect(line).toMatchObject({quantity: 2, monthSpread: storedMonths});
+    const preview = () => runCampaignGeneration(a, year, {...opts, dryRun: true});
+    const first = await preview();
+    expect(first.rounds.map(r => r.title)).toEqual([`${year} Spring clean-up`, `${year} Fall leaf clean-up 1`]);
+    expect(first.gaps).toEqual([]);
+    expect(first.rounds.flatMap(r => r.members).every(m => m.timing === "calendar")).toBe(true);
+    expect(GenerateContractCampaignsResponse.safeParse(first).success).toBe(true);
+    for (const kind of ["month_outside_calendar", "count_mismatch"]) {
+      expect(GenerateContractCampaignsResponse.safeParse({...first, gaps: [{
+        propertyId: p, propertyName: "Fixture property", termId: term, agreementId: agreement,
+        seasonLabel: "Fixture", serviceKey: "cleanups", kind,
+      }]}).success).toBe(false);
+    }
+    expect(GenerateContractCampaignsResponse.safeParse({...first, rounds: first.rounds.map(r => ({
+      ...r, members: r.members.map(m => ({...m, timing: "contract"})),
+    }))}).success).toBe(false);
+    const fulfillment = customerServiceFulfillment(await loadServiceFulfillmentInputs(db, a), p, term, today)!;
+    expect(GetCustomerServicesResponse.safeParse(fulfillment).success).toBe(true);
+    expect(fulfillment.rows[0]).toMatchObject({owed: 2, issues: ["waiting_on_signature", "missing_item"]});
+    expect(fulfillment.rows[0].rounds.map(r => r.calendarEntryId)).toEqual(first.rounds.map(r => r.calendarEntryId));
+    // Blank counts use standards, even when explicit 2 selected a different subset.
+    await db.update(termScopeLines).set({quantity: null}).where(eq(termScopeLines.id, line.id));
+    expect((await preview()).rounds.map(r => r.title)).toEqual([`${year} Fall leaf clean-up 1`, `${year} Fall leaf clean-up 2`]);
+    await db.update(termScopeLines).set({quantity: 4}).where(eq(termScopeLines.id, line.id));
+    expect(await preview()).toMatchObject({rounds: [], gaps: [{kind: "needs_rounds", count: 4}]});
+    await db.update(termScopeLines).set({quantity: 2}).where(eq(termScopeLines.id, line.id));
+    const entries = await db.select().from(serviceCalendar).where(and(eq(serviceCalendar.companyId, a), eq(serviceCalendar.serviceKey, "cleanups")));
+    await replaceServiceCalendar(a, uid, "cleanups", {entries: entries.sort((a, b) => b.position - a.position).map((e, i) => ({
+      id: e.id, kind: "round", position: i + 1, name: e.name, opensMd: e.opensMd, dueMd: e.dueMd, inStandard: e.inStandard,
+    }))});
+    expect((await preview()).rounds.map(r => r.title)).toEqual([`${year} Fall leaf clean-up 1`, `${year} Fall leaf clean-up 2`]);
+    expect(await rows()).toEqual({campaigns: [], items: [], years: []});
   });
   it("generates valid chemical rows, enables the year once and is idempotent including timestamps", async () => {
     const first = await runCampaignGeneration(a, year, opts), snapshot = await rows();

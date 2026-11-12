@@ -64,15 +64,15 @@ describe("season service fulfillment", () => {
     expect(row.rounds.map(r => r.state)).toEqual(["missing_item", "pending", "pending"]);
     expect(row.issues).toEqual(["missing_item"]);
   });
-  it("uses contract timing before program, preserves mismatch, and backup before target", () => {
+  it("uses calendar timing despite conflicting months, and backup before target", () => {
     const data = serviceFixture();
     data.scope![0].monthSpread = months({ 3: 1, 6: 1 });
     materialize(data, ["pending", "pending"]);
     data.items[0].targetDate = "2027-03-10";
     data.items[0].backupDate = "2027-03-20";
     const row = result(data, "2027-03-15").rows[0];
-    expect(row).toMatchObject({ owed: 2, done: 0, issues: ["count_mismatch"] });
-    expect(row.rounds[0]).toMatchObject({ dueDate: "2027-03-20", state: "pending", timing: "contract" });
+    expect(row).toMatchObject({ owed: 3, done: 0, issues: [] });
+    expect(row.rounds[0]).toMatchObject({ dueDate: "2027-03-20", state: "pending", timing: "calendar" });
     expect(data.scope![0].monthSpread[2]).toBe(1);
   });
   it("reports signature waits before overdue, while preserving missing-item issues", () => {
@@ -86,7 +86,7 @@ describe("season service fulfillment", () => {
   it.each(["no_count", "needs_rounds", "invalid_count", "duplicate_lines"])("keeps %s unknown rather than inventing zero", kind => {
     const data = serviceFixture();
     if (kind === "no_count") { data.scope![0].quantity = null; data.calendar = []; }
-    if (kind === "needs_rounds") data.scope![0].quantity = 2;
+    if (kind === "needs_rounds") data.scope![0].quantity = 4;
     if (kind === "invalid_count") data.scope![0].quantity = -1;
     if (kind === "duplicate_lines") data.scope!.push({ ...data.scope![0], id: "dup", included: false });
     expect(result(data).rows[0]).toMatchObject({ owed: null, remaining: null, done: 0, status: kind });

@@ -32,12 +32,12 @@ const rowButton = (key = "irrigation_activation") => within(screen.getByTestId(`
 
 describe("CP2 preserved details with CP6 contract demand", () => {
   it.each(["on_track", "complete", "closed_with_skips", "not_owed", "overdue", "missing_item",
-    "waiting_on_signature", "no_route", "no_count", "needs_rounds", "month_outside_calendar", "legacy_chemical", "invalid_count", "duplicate_lines"])(
+    "waiting_on_signature", "no_route", "no_count", "needs_rounds", "legacy_chemical", "invalid_count", "duplicate_lines"])(
     "renders returned primary %s without replacing it with a secondary issue", status => {
-      fx.data.rows = [serviceRowFixture({ status, issues: ["count_mismatch", "waiting_on_signature"] })];
+      fx.data.rows = [serviceRowFixture({ status, issues: ["invalid_count", "waiting_on_signature"] })];
       page();
       expect(screen.getByTestId("status-service-irrigation_activation").textContent).toBe(serviceStatusLabel(status));
-      expect(screen.getByTestId("chip-issue-irrigation_activation-count_mismatch")).toBeTruthy();
+      if (status !== "invalid_count") expect(screen.getByTestId("chip-issue-irrigation_activation-invalid_count")).toBeTruthy();
       if (status !== "waiting_on_signature") expect(screen.getByTestId("chip-issue-irrigation_activation-waiting_on_signature")).toBeTruthy();
     });
   it("expands rounds and opens the existing real checklist panel with canonical links", async () => {
@@ -55,7 +55,7 @@ describe("CP2 preserved details with CP6 contract demand", () => {
   });
   it("renders ordered counts/null setup tiles and every secondary issue, without manual inflation", () => {
     fx.data = customerServicesFixture({
-      rows: [serviceRowFixture({ skipped: 1, status: "overdue", issues: ["overdue", "no_route", "count_mismatch"] }),
+      rows: [serviceRowFixture({ skipped: 1, status: "overdue", issues: ["overdue", "no_route", "invalid_count"] }),
         serviceRowFixture({ serviceKey: "gap", label: "Gap", owed: null, remaining: null, status: "needs_rounds", issues: ["needs_rounds"] })],
       otherWork: [{ campaignId: "manual", itemId: "manual-item", title: "Hand-built special", status: "pending" }],
     });
@@ -64,9 +64,9 @@ describe("CP2 preserved details with CP6 contract demand", () => {
     expect(screen.getByTestId("text-service-counts-irrigation_activation").textContent).toBe("Owed 2 / Done 1 / Remaining 1");
     expect(screen.getByTestId("text-service-skipped-irrigation_activation").textContent).toBe("Skipped 1");
     const gap = screen.getByTestId("tile-service-gap");
-    expect(gap.textContent).toContain("—"); expect(gap.textContent).toContain("Contract must specify rounds");
+    expect(gap.textContent).toContain("—"); expect(gap.textContent).toContain("More visits than calendar rounds");
     expect(gap.querySelector("[style]")).toBeNull();
-    expect(screen.getByTestId("chip-issue-irrigation_activation-count_mismatch")).toBeTruthy();
+    expect(screen.getByTestId("chip-issue-irrigation_activation-invalid_count")).toBeTruthy();
     expect(screen.getByTestId("chip-issue-irrigation_activation-no_route")).toBeTruthy();
     expect(screen.getByTestId("link-gap-gap-settings").getAttribute("href")).toBe("/dashboard/settings/service-calendar");
     expect(screen.getByTestId("services-summary").textContent).not.toContain("Hand-built");

@@ -20,7 +20,7 @@ const ok = (d: unknown) => Promise.resolve({ json: async () => d });
 const ref = { serviceKey: "aeration", calendarEntryId: "2026-04", roundYear: 1, title: "2026 Spring aeration", windowStart: "2026-04-01", windowEnd: "2026-04-30", campaignId: null };
 const report = (over: Record<string, unknown> = {}) => ({
   year: 2026, today: "2025-10-14", enabledAt: null,
-  rounds: [{ ...ref, newRound: true, added: 1, removed: 0, members: [{ propertyId: "p1", propertyName: "Aspen Ridge HOA", termId: "t1", agreementId: "a1", seasonLabel: "2026", termStatus: "up_for_renewal", timing: "contract", count: "standard" }] }],
+  rounds: [{ ...ref, newRound: true, added: 1, removed: 0, members: [{ propertyId: "p1", propertyName: "Aspen Ridge HOA", termId: "t1", agreementId: "a1", seasonLabel: "2026", termStatus: "up_for_renewal", timing: "calendar", count: "standard" }] }],
   created: [ref], deleted: [], added: [{ ...ref, propertyId: "p1", propertyName: "Aspen Ridge HOA", itemId: null }], removed: [], keptNotOwed: [],
   missed: [], addedToClosedRound: [],
   gaps: [{ propertyId: "p2", propertyName: "Pine Bluff", termId: "t2", agreementId: "a2", seasonLabel: "2026", serviceKey: "aeration", kind: "duplicate_lines" }],
@@ -52,15 +52,14 @@ describe("Campaign generation", () => {
       .toBe("Fall shrub trim · Sep 1 – Oct 31, 2027");
     fx.api.mockImplementation((_m: string, path: string) => ok(path.endsWith("/status") ? {} : report({
       gaps: [
-        {propertyId: "p", propertyName: "Property", termId: "t", agreementId: "a", seasonLabel: "2027", serviceKey: "cleanups", kind: "needs_rounds", count: 2},
-        {propertyId: "p", propertyName: "Property", termId: "t", agreementId: "a", seasonLabel: "2027", serviceKey: "cleanups", kind: "month_outside_calendar", month: 6},
+        {propertyId: "p", propertyName: "Property", termId: "t", agreementId: "a", seasonLabel: "2027", serviceKey: "cleanups", kind: "needs_rounds", count: 4},
         {propertyId: "p", propertyName: "Property", termId: "t", agreementId: "a", seasonLabel: "2027", serviceKey: "chemical", kind: "legacy_chemical", informational: true},
       ],
     })));
     mount();
     await screen.findByTestId("gaps-needs_rounds");
-    expect(document.body.textContent).toContain("Clean-ups × 2 with no dates: say which two on the contract");
-    expect(document.body.textContent).toContain("Contract says June; no clean-up round runs in June");
+    expect(document.body.textContent).toContain("This contract lists more visits than the calendar has rounds; review it");
+    expect(document.body.textContent).not.toMatch(/stated month|say which|count mismatch/i);
     expect(document.body.textContent).toContain("Fert/chem from before the split: review fertilization and broadleaf");
   });
   it("defaults year by Colorado month", () => {

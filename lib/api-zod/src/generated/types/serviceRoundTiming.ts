@@ -10,6 +10,5 @@ export type ServiceRoundTiming =
   (typeof ServiceRoundTiming)[keyof typeof ServiceRoundTiming];
 
 export const ServiceRoundTiming = {
-  contract: "contract",
   calendar: "calendar",
 } as const;

@@ -67,8 +67,8 @@ export type UsageLine = {
 export type UsageProblem = Omit<UsageLine, "serviceKey" | "quantity" | "monthSpread"> & { reason: string };
 export type ServiceCalendarUsage = {
   serviceKey: string; seasons: number;
-  byCount: { rounds: number; seasons: number; withoutMonths: number }[];
-  noCount: number; noCountWithoutMonths: number; needsRounds: UsageProblem[];
+  byCount: { rounds: number; seasons: number }[];
+  noCount: number; needsRounds: UsageProblem[];
   zero: number; invalid: number; duplicate: number;
   problems: UsageProblem[]; legacyChemical: UsageProblem[];
 };
@@ -78,9 +78,8 @@ export function summarizeServiceUsage(catalog: readonly SchedulingService[], lin
   entries: readonly (CalendarEntryInput & { serviceKey: string })[]): ServiceCalendarUsage[] {
   return catalog.filter(s => ["campaign", "checklist"].includes(s.scheduling)).map(service => {
     const rounds = entries.filter(e => e.serviceKey === service.key && e.kind === "round");
-    const standard = rounds.filter(e => e.inStandard).length;
     const result: ServiceCalendarUsage = { serviceKey: service.key, seasons: 0, byCount: [], noCount: 0,
-      noCountWithoutMonths: 0, needsRounds: [], zero: 0, invalid: 0, duplicate: 0, problems: [], legacyChemical: [] };
+      needsRounds: [], zero: 0, invalid: 0, duplicate: 0, problems: [], legacyChemical: [] };
     const groups = new Map<string, UsageLine[]>();
     for (const line of lines.filter(l => l.serviceKey === service.key))
       groups.set(line.termId, [...(groups.get(line.termId) ?? []), line]);
@@ -89,23 +88,19 @@ export function summarizeServiceUsage(catalog: readonly SchedulingService[], lin
     });
     for (const group of groups.values()) {
       result.seasons++;
-      const l = group[0], q = l.quantity, months = l.monthSpread;
+      const l = group[0], q = l.quantity;
       const problem = (reason: string) => result.problems.push(ref(l, reason));
       if (group.length > 1) { result.duplicate++; problem("duplicate"); continue; }
       if (q !== null && (!Number.isInteger(q) || q < 0 || q > 24)) { result.invalid++; problem("invalid_count"); continue; }
-      const valid = months === null || (months.length === 12 && months.every(n => Number.isSafeInteger(n) && n >= 0));
-      const sum = months?.reduce((a, b) => a + b, 0) ?? 0;
-      if (!valid || sum > 24 || (sum > 0 && q !== null && sum !== q)) { result.invalid++; problem("invalid_months"); continue; }
-      const missing = sum === 0;
       if (q === 0) { result.zero++; problem("zero"); continue; }
       if (q === null) {
-        result.noCount++; if (missing) result.noCountWithoutMonths++;
+        result.noCount++;
         problem("no_count"); continue;
       }
       let count = result.byCount.find(c => c.rounds === q);
-      if (!count) { count = { rounds: q, seasons: 0, withoutMonths: 0 }; result.byCount.push(count); }
-      count.seasons++; if (missing) count.withoutMonths++;
-      if (service.scheduling === "campaign" && missing && q !== standard && q !== rounds.length)
+      if (!count) { count = { rounds: q, seasons: 0 }; result.byCount.push(count); }
+      count.seasons++;
+      if (service.scheduling === "campaign" && q > rounds.length)
         result.needsRounds.push(ref(l, "needs_rounds"));
     }
     if (service.key === "fertilization") {

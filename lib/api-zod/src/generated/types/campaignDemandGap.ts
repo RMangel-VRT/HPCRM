@@ -16,7 +16,5 @@ export interface CampaignDemandGap {
   serviceKey: string;
   kind: CampaignDemandGapKind;
   count?: number;
-  monthTotal?: number;
-  month?: number;
   informational?: boolean;
 }

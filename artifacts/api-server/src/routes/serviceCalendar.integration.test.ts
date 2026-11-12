@@ -148,9 +148,12 @@ describe("SC1 calendar on disposable development companies", () => {
     }
     await loadStartingServiceCalendar(a, uid);
     const usage = (await listServiceCalendar(a)).usage.find(e => e.serviceKey === "cleanups")!;
-    expect(usage).toMatchObject({ seasons: 5, byCount: [{ rounds: 2, seasons: 5, withoutMonths: 5 }] });
-    expect(usage.needsRounds).toHaveLength(5);
-    expect(usage.needsRounds.every(link => link.agreementId === agreement && link.customerId === p)).toBe(true);
+    expect(usage).toMatchObject({ seasons: 5, byCount: [{ rounds: 2, seasons: 5 }] });
+    expect(usage.needsRounds).toHaveLength(0);
+    await db.update(termScopeLines).set({quantity: 4}).where(eq(termScopeLines.companyId, a));
+    const over = (await listServiceCalendar(a)).usage.find(e => e.serviceKey === "cleanups")!;
+    expect(over.needsRounds).toHaveLength(5);
+    expect(over.needsRounds.every(link => link.agreementId === agreement && link.customerId === p)).toBe(true);
     expect((await listServiceCalendar(b)).usage.every(u => u.seasons === 0)).toBe(true);
   });
   it("uses calendar timing consistently in preview, reconcile and fulfillment", async () => {
@@ -167,14 +170,14 @@ describe("SC1 calendar on disposable development companies", () => {
     const loaded = await loadServiceFulfillmentInputs(db, a);
     expect(loaded.calendar.length).toBeGreaterThan(0);
     const fulfillment = customerServiceFulfillment(loaded, property, term, "2026-11-11")!;
-    expect(fulfillment.rows.find(r => r.serviceKey === "cleanups")!.issues).toContain("needs_rounds");
+    expect(fulfillment.rows.find(r => r.serviceKey === "cleanups")!).toMatchObject({owed: 2, issues: ["missing_item"]});
     expect(fulfillment.rows.find(r => r.serviceKey === "aeration")!.owed).toBe(1);
     for (const dryRun of [true, false]) {
       const report = await db.transaction(tx => reconcileCampaigns(tx, a, 2027, { dryRun, today: "2026-11-11" }));
-      expect(report.rounds).toHaveLength(1);
-      expect(report.gaps.map(g => [g.serviceKey, g.kind]).sort()).toEqual([["cleanups", "needs_rounds"]]);
+      expect(report.rounds).toHaveLength(3);
+      expect(report.gaps).toEqual([]);
     }
-    // Contract-stated months still work without program rows, and never get rewritten.
+    // Stored contract months never place rounds or get rewritten.
     const stated = [0,0,1,0,0,0,0,0,0,0,1,0];
     await db.update(termScopeLines).set({ monthSpread: stated }).where(and(eq(termScopeLines.companyId, a), eq(termScopeLines.termId, term), eq(termScopeLines.serviceKey, "cleanups")));
     const report = await db.transaction(tx => reconcileCampaigns(tx, a, 2027, { dryRun: true, today: "2026-11-11" }));

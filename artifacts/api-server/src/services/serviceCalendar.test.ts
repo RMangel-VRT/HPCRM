@@ -90,7 +90,7 @@ describe("SC1 shared calendar contracts", () => {
   });
 });
 describe("SC1 distinct eligible-season usage", () => {
-  it("counts by stated count/missing months, blank, zero, invalid, duplicate and linked needs-round buckets", () => {
+  it("counts quantity, blank, zero, invalid and duplicate lines while ignoring all months", () => {
     const lines = [
       usageLine("standard", 3), usageLine("needs", 2), usageLine("stated", 2, { monthSpread: [0,0,1,0,0,0,0,0,0,1,0,0] }),
       usageLine("blank", null), usageLine("blank-stated", null, { monthSpread: [1,0,0,0,0,0,0,0,0,0,0,0] }),
@@ -99,10 +99,14 @@ describe("SC1 distinct eligible-season usage", () => {
       usageLine("dup", 2), usageLine("dup", 3),
     ];
     const u = summarizeServiceUsage(SCOPE_CATALOG, lines, STARTING_SERVICE_CALENDAR).find(e => e.serviceKey === "cleanups")!;
-    expect(u).toMatchObject({ seasons: 10, noCount: 2, noCountWithoutMonths: 1, zero: 1, invalid: 3, duplicate: 1,
-      byCount: [{ rounds: 2, seasons: 2, withoutMonths: 1 }, { rounds: 3, seasons: 1, withoutMonths: 1 }] });
-    expect(u.needsRounds).toEqual([{ termId: "needs", agreementId: "a-needs", customerId: "p-needs", customerName: "needs", reason: "needs_rounds" }]);
-    expect(u.problems.map(p => p.reason)).toEqual(["no_count", "no_count", "zero", "invalid_count", "invalid_months", "invalid_months", "duplicate"]);
+    expect(u).toMatchObject({ seasons: 10, noCount: 2, zero: 1, invalid: 1, duplicate: 1,
+      byCount: [{ rounds: 2, seasons: 4 }, { rounds: 3, seasons: 1 }] });
+    expect(u.needsRounds).toEqual([]);
+    expect(u.problems.map(p => p.reason)).toEqual(["no_count", "no_count", "zero", "invalid_count", "duplicate"]);
+    const over = summarizeServiceUsage(SCOPE_CATALOG, [usageLine("over", 4, {monthSpread: [-1]})], STARTING_SERVICE_CALENDAR)
+      .find(e => e.serviceKey === "cleanups")!;
+    expect(over.needsRounds.map(p => p.termId)).toEqual(["over"]);
+    expect(over.invalid).toBe(0);
   });
   it("accepts total count independently of standard count and excludes recurring from counts", () => {
     const entries = STARTING_SERVICE_CALENDAR.map(e => e.serviceKey === "native_areas" && e.position === 2 ? { ...e, inStandard: false } : e);

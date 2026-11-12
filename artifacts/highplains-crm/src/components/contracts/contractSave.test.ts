@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildFieldPatch, saveSections } from "./contractSave";
-import { buildScopeRows, scopeProblems } from "./ScopeEditor";
+import { buildScopeRows, scopePayload, scopeProblems } from "./ScopeEditor";
+import { initialScope, newDraft, stepProblems } from "./newContractDraft";
 import { ratesFingerprint, toRateRows } from "./RatesEditor";
 
 describe("saveSections (Done coordinator)", () => {
@@ -42,6 +43,17 @@ describe("scope and rates validation", () => {
   });
   it("treats a null spread as no timing chosen", () => {
     expect(scopeProblems([row(null)])).toHaveLength(0);
+  });
+  it("allows campaign and checklist count changes without rewriting conflicting stored months in either save flow", () => {
+    const stored = [0,0,1,0,0,0,0,0,0,0,2,0];
+    for (const serviceKey of ["cleanups", "shrub_trimming", "backflow"]) {
+      const rows = initialScope("landscape").filter(r => r.serviceKey === serviceKey)
+        .map(r => ({...r, included: true, quantity: 2, monthSpread: stored}));
+      expect(scopeProblems(rows)).toEqual([]);
+      expect(stepProblems({...newDraft("2026-11-12"), scope: rows}, 3)).toEqual([]);
+      expect(scopePayload(rows)[0]).toMatchObject({serviceKey, quantity: 2, monthSpread: stored});
+      expect(stored).toEqual([0,0,1,0,0,0,0,0,0,0,2,0]);
+    }
   });
   it("sees invalid raw rate input as a change", () => {
     const base = toRateRows([{ rateKey: "r", line: "snow", category: "c", label: "L", priceCents: null, priceText: null, unit: "u", minimum: null, cardPriceCents: null, cardPriceText: null }]);
