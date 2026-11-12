@@ -9,6 +9,7 @@ import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RoundNonmembers, RenewalPendingChip } from "@/components/campaigns/RoundNonmembers";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -399,6 +400,7 @@ function RoundRow({ round: r }: { round: PreviewRound }) {
             <li key={`${m.propertyId}-${m.termId}`} className="flex flex-wrap gap-2">
               <Link href={termHref(m.agreementId, m.termId)} className="text-primary hover:underline" data-testid={`link-member-${id}-${m.termId}`}>{m.propertyName}</Link>
               {m.termStatus === "sent" && <span className="rounded border border-[hsl(var(--warning))]/50 px-1.5 text-[11px] font-medium text-[hsl(var(--warning))]" data-testid={`chip-waiting-${id}-${m.termId}`}>Waiting on signature</span>}
+              {m.renewalPending && <RenewalPendingChip />}
               {m.timing === "calendar" && <span className="rounded border px-1.5 text-[11px]">Calendar timing</span>}
               {m.count === "standard" && <span className="rounded border px-1.5 text-[11px]">Standard count</span>}
               <span className="text-muted-foreground">{m.seasonLabel} · {m.termStatus.replace(/_/g, " ")} · count from {m.count === "contract" ? "contract" : "standard"} · timing from calendar</span>
@@ -406,6 +408,7 @@ function RoundRow({ round: r }: { round: PreviewRound }) {
           ))}
         </ul>
       )}
+      <div className="px-4 pb-2"><RoundNonmembers rows={r.nonmembers} /></div>
     </div>
   );
 }

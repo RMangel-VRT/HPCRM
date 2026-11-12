@@ -13,10 +13,22 @@ The ledger each CG slice updates when it finishes. The next slice's pre-flight r
 | SC1 Service calendar | implemented; development verification recorded below |
 | SC2 Calendar round generation | implemented; final verification recorded in SC2 report |
 | SC2.1 Calendar-only round timing | implemented; development preview and verification recorded |
+| SC2.2 Standard landscape package | implemented; package, renewal continuation, editor and development rollback verification recorded |
 
 ## Log
 
 (Each slice adds a block here: date, migration, new tables/columns/functions/endpoints with exact names, deviations, open items.)
+
+### 2026-11-12 — SC2.2 standard landscape package and bounded renewal continuation
+
+- **Supersedes** silent-service skipping and legacy-only chemical blocking in the historical SC2/SC2.1 blocks. `inStandardPackage`, `standardRoundCount` and calendar-aware `initialScope` share the browser/server package policy. Identical catalogs mark `native_areas` and `backflow` `packageDefault:false`. Eligible landscape/both agreements receive silent standard services; explicit exclusions, zero, counts, duplicates and missing-calendar/standard gaps retain their own semantics. `legacy_chemical` is informational; stored months and legacy scope are never rewritten.
+- `campaignDemandCoverage` / `renewalDemandThrough` implement **campaign-only** latest-prior-season continuation, inclusive through twelve calendar months after the end, with non-renewal refusal and no older-season/parent revival. Shared `coverageResolver`, Routes and original-season obligations remain unchanged. `campaignDemand` is the common source for `renewalPending` and the five authoritative nonmember reasons.
+- `CampaignDemandNonmember`, `CampaignContractState` and optional `nonmembers` / `renewalPending` response fields flow through shared generation contracts, OpenAPI and regenerated React/Zod consumers. `campaignRoundNonmembers`, `withCampaignContractStates`, reconciliation and fulfillment expose the same decisions. Omission-only preview rounds do not create empty campaigns; renewal arrival changes provenance without replacing campaign items or protected work.
+- `useScopeCalendar`, `ScopeCalendarState`, `ScopeEditor`, new-contract defaults/HOA preset and changing-renewal planning use company-scoped calendar data with explicit loading, failure and empty states. Implicit defaults are projected without writes, explicitly saved with blank counts, and can be excluded even without a pre-existing row. Standard counts, differences/optional notes and line billing metadata are displayed and round-tripped. No billing automation or total changes.
+- Generate and actual generated rounds show collapsed **Not on this round** explanations; round members and Customer Services show **Renewal not entered** alongside sent-season treatment. Services adds implicit service rows and applicable carried-forward deadline years while explicitly selected historical seasons stay bounded. English and Spanish copy agree.
+- **No migration, schema declaration change, new endpoint, shared coverage/Routes generation change, native-mobile UI change, production operation or publication.** The named Standard Scope Mockup was not found among the available references; existing editor conventions and the explicit owner brief were used without changing canvas shapes.
+- Verification and complete round-by-round development comparisons: [SC2.2 verification](../../scheduling/reports/SC2.2-verification.md). The existing development calendar population was empty; a paired SC2.1/SC2.2 comparison against the **same eight-property disposable transaction** produced 2 → 112 memberships across all 19 annual/nonrecurring calendar entries. The fixture, Generate writes and opt-in are rolled back. Omission lists and limitations are recorded, not extrapolated to production.
+- Completion review also required a narrow estimate compatibility correction: existing labor-card `per hour` converts to `HR` only at estimate insertion, without changing rate/contract units or accepting unknowns. A real API rollback regression plus unit/rate/math/route checks passed 150/150; the report records this scope addition and unchanged safeguards.
 
 ### 2026-11-12 — SC2.1 contracts supply counts; Service calendar supplies all timing
 

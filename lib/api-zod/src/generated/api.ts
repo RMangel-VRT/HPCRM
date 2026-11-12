@@ -95,6 +95,7 @@ export const GetCustomerServicesResponse = zod.object({
           ]),
           timing: zod.enum(["calendar"]),
           countSource: zod.enum(["contract", "standard"]),
+          renewalPending: zod.boolean().optional(),
         }),
       ),
     }),
@@ -164,10 +165,40 @@ export const GetCampaignRoundListsResponse = zod.object({
       crewPosition: zod.number().nullable(),
       targetDate: zod.string().nullable(),
       backupDate: zod.string().nullable(),
+      contractState: zod
+        .object({
+          state: zod.enum([
+            "owed",
+            "waiting_on_signature",
+            "no_longer_in_contract",
+          ]),
+          agreementId: zod.string().nullable(),
+          termId: zod.string().nullable(),
+          renewalPending: zod.boolean().optional(),
+        })
+        .optional(),
     }),
   ),
   canManage: zod.boolean(),
   today: zod.string(),
+  nonmembers: zod
+    .array(
+      zod.object({
+        propertyId: zod.string(),
+        propertyName: zod.string(),
+        termId: zod.string(),
+        seasonLabel: zod.string(),
+        reason: zod.enum([
+          "excluded_by_contract",
+          "count_covers_fewer",
+          "not_in_package",
+          "not_renewing",
+          "renewal_beyond_12_months",
+        ]),
+        nonRenewalOn: zod.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const MoveCampaignRoundItemsParams = zod.object({
@@ -283,6 +314,18 @@ export const GetCampaignRoundCalendarResponse = zod.object({
         crewPosition: zod.number().nullable(),
         targetDate: zod.string().nullable(),
         backupDate: zod.string().nullable(),
+        contractState: zod
+          .object({
+            state: zod.enum([
+              "owed",
+              "waiting_on_signature",
+              "no_longer_in_contract",
+            ]),
+            agreementId: zod.string().nullable(),
+            termId: zod.string().nullable(),
+            renewalPending: zod.boolean().optional(),
+          })
+          .optional(),
       })
       .and(
         zod.object({
@@ -345,8 +388,27 @@ export const PreviewCampaignGenerationResponse = zod.object({
               termStatus: zod.string(),
               timing: zod.enum(["calendar"]),
               count: zod.enum(["contract", "standard"]),
+              renewalPending: zod.boolean().optional(),
             }),
           ),
+          nonmembers: zod
+            .array(
+              zod.object({
+                propertyId: zod.string(),
+                propertyName: zod.string(),
+                termId: zod.string(),
+                seasonLabel: zod.string(),
+                reason: zod.enum([
+                  "excluded_by_contract",
+                  "count_covers_fewer",
+                  "not_in_package",
+                  "not_renewing",
+                  "renewal_beyond_12_months",
+                ]),
+                nonRenewalOn: zod.string().optional(),
+              }),
+            )
+            .optional(),
           newRound: zod.boolean(),
           added: zod.number(),
           removed: zod.number(),
@@ -540,8 +602,27 @@ export const GenerateContractCampaignsResponse = zod.object({
               termStatus: zod.string(),
               timing: zod.enum(["calendar"]),
               count: zod.enum(["contract", "standard"]),
+              renewalPending: zod.boolean().optional(),
             }),
           ),
+          nonmembers: zod
+            .array(
+              zod.object({
+                propertyId: zod.string(),
+                propertyName: zod.string(),
+                termId: zod.string(),
+                seasonLabel: zod.string(),
+                reason: zod.enum([
+                  "excluded_by_contract",
+                  "count_covers_fewer",
+                  "not_in_package",
+                  "not_renewing",
+                  "renewal_beyond_12_months",
+                ]),
+                nonRenewalOn: zod.string().optional(),
+              }),
+            )
+            .optional(),
           newRound: zod.boolean(),
           added: zod.number(),
           removed: zod.number(),

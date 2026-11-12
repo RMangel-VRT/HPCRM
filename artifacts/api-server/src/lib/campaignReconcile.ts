@@ -95,10 +95,12 @@ async function reconcile(tx: AppTransaction, companyId: string, year: number,
     }
     let ref: RoundRef = campaign ? roundRef(campaign) : { ...round, title, campaignId: null,
       windowStart: round.opens, windowEnd: round.due };
-    const newRound = !campaign;
-    const row = { ...ref, members: round.members, newRound, added: 0, removed: 0 };
+    const newRound = !campaign && round.members.length > 0;
+    const row = { ...ref, members: round.members, nonmembers: round.nonmembers, newRound, added: 0, removed: 0 };
     report.rounds.push(row);
     report.waitingOnSignature += round.members.filter(m => m.termStatus === "sent").length;
+    // Explanation-only rounds are read projections, never empty campaigns.
+    if (!round.members.length && !campaign) continue;
     const present = new Set(items.filter(i => i.campaignId === campaign?.id).map(i => i.customerId));
     if (ref.windowEnd < today) {
       for (const member of round.members.filter(m => !present.has(m.propertyId)))

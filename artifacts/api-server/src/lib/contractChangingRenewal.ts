@@ -1,5 +1,5 @@
 import type { AgreementTerm, AgreementLine, TermRate, TermScopeLine, RateCardItem } from "@workspace/db";
-import { initialScope } from "@workspace/api-zod/contractScope";
+import { initialScope, type PackageCalendarEntry } from "@workspace/api-zod/contractScope";
 import { SCOPE_CATALOG } from "../shared/contractCatalog";
 import { addCalendarDays } from "./companyDay";
 import {
@@ -9,8 +9,8 @@ import {
 import type { z } from "zod/v4";
 
 export function renewalScope(old: Array<Omit<z.infer<typeof scopeSchema>[number], "details"> & { line?: string; details?: unknown; sortOrder?: number }>, oldLine: AgreementLine,
-  line: AgreementLine, mode: "carry" | "standard") {
-  const standard = initialScope(line, SCOPE_CATALOG).filter(s => s.included);
+  line: AgreementLine, mode: "carry" | "standard", calendar: readonly PackageCalendarEntry[] = []) {
+  const standard = initialScope(line, SCOPE_CATALOG, calendar).filter(s => s.included);
   if (mode === "standard") return buildScope(standard, line);
   const retained = old.filter(s => applies(line, SCOPE_CATALOG.find(c => c.key === s.serviceKey)?.line ?? s.line ?? (oldLine === "snow" ? "snow" : "landscape")));
   const added = standard.filter(s => !applies(oldLine, s.line) && !retained.some(r => r.serviceKey === s.serviceKey));
@@ -42,7 +42,7 @@ export function twelveMonthDates(end: string) {
   return { startDate, endDate, seasonLabel: sy === ey ? sy : `${sy}–${ey.slice(-2)}` };
 }
 export function planChangingRenewal(source: AgreementTerm, payments: Payments, oldScope: TermScopeLine[],
-  oldRates: TermRate[], card: RateCardItem[], body: z.infer<typeof renewSchema>) {
+  oldRates: TermRate[], card: RateCardItem[], body: z.infer<typeof renewSchema>, calendar: readonly PackageCalendarEntry[] = []) {
   if (body.paymentFees) {
     const names = body.paymentFees.map(p => p.component);
     if (new Set(names).size !== names.length || names.some(name => !payments.some(p => p.component === name)))
@@ -54,7 +54,7 @@ export function planChangingRenewal(source: AgreementTerm, payments: Payments, o
   const carried = renewalRates(oldRates, card, line);
   const rates = Array.isArray(body.rates) ? snapshotRates(card, body.rates, line) : carried.rates;
   const changesToRates = Array.isArray(body.rates) ? rateChanges(oldRates, rates) : carried.changes;
-  const scope = renewalScope(oldScope, source.line, line, body.scope);
+  const scope = renewalScope(oldScope, source.line, line, body.scope, calendar);
   const scopeChanges = {
     added: scope.filter(s => s.included && !oldScope.some(o => o.serviceKey === s.serviceKey && o.included)).map(s => s.serviceKey),
     removed: oldScope.filter(o => o.included && !scope.some(s => s.serviceKey === o.serviceKey && s.included)).map(s => s.serviceKey),

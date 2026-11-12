@@ -6,12 +6,19 @@ export interface CampaignMembershipStatus {
 export interface CampaignContractState {
   state: "owed" | "waiting_on_signature" | "no_longer_in_contract";
   agreementId: string | null; termId: string | null;
+  renewalPending?: boolean;
 }
 export type DemandGapKind = "no_count" | "needs_rounds" | "legacy_chemical" | "invalid_count" | "duplicate_lines";
 export interface DemandMember {
   propertyId: string; propertyName: string; termId: string; agreementId: string;
   seasonLabel: string; termStatus: string;
   timing: "calendar"; count: "contract" | "standard";
+  renewalPending?: boolean;
+}
+export interface DemandNonmember {
+  propertyId: string; propertyName: string; termId: string; seasonLabel: string;
+  reason: "excluded_by_contract" | "count_covers_fewer" | "not_in_package" | "not_renewing" | "renewal_beyond_12_months";
+  nonRenewalOn?: string;
 }
 export interface DemandGap {
   propertyId: string; propertyName: string; termId: string; agreementId: string;
@@ -21,6 +28,7 @@ export interface DemandGap {
 export interface DemandRound {
   serviceKey: string; calendarEntryId: string; roundYear: number;
   name: string; opens: string; due: string; members: DemandMember[];
+  nonmembers?: DemandNonmember[];
 }
 export interface DemandReport { rounds: DemandRound[]; gaps: DemandGap[] }
 export interface RoundRef {
@@ -32,6 +40,7 @@ export interface ItemRef extends RoundRef {
 }
 export interface PreviewRound extends RoundRef {
   members: DemandMember[]; newRound: boolean; added: number; removed: number;
+  nonmembers?: DemandNonmember[];
 }
 export interface CampaignGenerationReport {
   year: number; today: string;

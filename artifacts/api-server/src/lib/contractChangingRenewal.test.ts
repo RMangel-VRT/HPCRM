@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { AgreementTerm, TermScopeLine, TermRate } from "@workspace/db";
 import { RATE_CARD_DEFAULTS, SCOPE_CATALOG } from "../shared/contractCatalog";
 import { initialScope } from "@workspace/api-zod/contractScope";
+import { STARTING_SERVICE_CALENDAR } from "../../../../lib/db/src/serviceCalendarContracts";
 import { planChangingRenewal, renewalScope } from "./contractChangingRenewal";
 import { scaledPayments, renewalCoverage, renewSchema, renewalSet, increasedPayments, type Payments } from "./contractCenterService";
 
@@ -19,6 +20,18 @@ const run = (request: object, s = source, payments = pattern, rates: TermRate[] 
     rates, card, renewSchema.parse({ roundTo: "dollar", increasePct: 3, ...request }));
 
 describe("contract-changing renewal calculations", () => {
+  it("uses the company calendar for standard scope and preserves explicit scope on carry", () => {
+    const standard = renewalScope([], "landscape", "landscape", "standard", STARTING_SERVICE_CALENDAR);
+    for (const key of ["cleanups", "ornamental_grass", "fertilization", "broadleaf", "tree_pruning"])
+      expect(standard.find(s => s.serviceKey === key)).toMatchObject({ included: true, quantity: null });
+    expect(standard.some(s => ["chemical", "native_areas", "backflow"].includes(s.serviceKey))).toBe(false);
+    const old = [{ serviceKey: "chemical", included: true, quantity: 2, monthSpread: Array(12).fill(99), details: { billing: "billed_when_done" }, priceCents: 15500 }];
+    expect(renewalScope(old, "landscape", "landscape", "carry", STARTING_SERVICE_CALENDAR))
+      .toContainEqual(expect.objectContaining(old[0]));
+    expect(renewalScope([], "snow", "landscape", "carry", STARTING_SERVICE_CALENDAR).find(s => s.serviceKey === "cleanups")?.quantity).toBeNull();
+    expect(renewalScope([], "landscape", "landscape", "standard", []).map(s => s.serviceKey))
+      .toEqual(["mowing", "winter_visits", "irrigation_inspection"]);
+  });
   it("replaces rather than overlays rates, with explicit empty arrays clearing every row", () => {
     const custom = { rateKey: "custom_old", label: "Old", line: "landscape", unit: "hour", category: "Custom",
       minimum: null, priceCents: 123, priceText: null, cardPriceCents: null, cardPriceText: null, sortOrder: 0 } as TermRate;

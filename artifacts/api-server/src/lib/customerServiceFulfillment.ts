@@ -6,6 +6,7 @@ import { compareTermPriority } from "./contractCenterService";
 import { addCalendarDays, companyToday } from "./companyDay";
 import { SCOPE_CATALOG } from "../shared/contractCatalog";
 import { CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceCalendarContracts";
+import { renewalDemandThrough } from "./campaignDemandCoverage";
 
 export interface ServiceFulfillmentInputs extends CustomerContractInputs {
   calendar: DemandCalendarEntry[];
@@ -74,10 +75,13 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
   // hiding a branch's gap behind another branch. Keep ALL competing terms/scope.
   const inputs = { ...data, customers: [customer, ...(parent ? [parent] : [])] };
   const reports = [];
-  for (let year = Number(term.startDate.slice(0, 4)); year <= Number(term.endDate.slice(0, 4)); year++)
+  // Explicit historical selection stays season-bounded. Default views include
+  // demand-only continuation; every round is still assigned by the common engine.
+  const reportEnd = !termId && !term.nonRenewalOn ? renewalDemandThrough(term.endDate) : term.endDate;
+  for (let year = Number(term.startDate.slice(0, 4)); year <= Number(reportEnd.slice(0, 4)); year++)
     reports.push(campaignDemand(inputs, year, today));
   const demand = reports.flatMap(r => r.rounds.flatMap(r => r.members
-    .filter(m => m.propertyId === customerId && m.termId === term.id).map(member => ({ ...r, member }))));
+    .filter(m => m.propertyId === customerId && m.termId === term.id && (!termId || r.due <= term.endDate)).map(member => ({ ...r, member }))));
   const gaps = reports.flatMap(r => r.gaps).filter(g => g.termId === term.id);
   const companyCampaigns = data.campaigns.filter(c => c.companyId === customer.companyId);
   const campaigns = new Map(companyCampaigns.filter(c => c.source === "contract" && c.serviceKey && c.calendarEntryId && c.roundYear)
@@ -85,7 +89,7 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
   const items = data.items.filter(i => i.companyId === customer.companyId && propertyOf(i) === customerId);
   const byCampaign = new Map(items.map(i => [i.campaignId, i]));
   const included = data.scope?.filter(s => s.companyId === customer.companyId && s.termId === term.id && s.included) ?? [];
-  const serviceKeys = [...new Set(included.map(s => s.serviceKey))];
+  const serviceKeys = [...new Set([...included.map(s => s.serviceKey), ...demand.map(r => r.serviceKey), ...gaps.map(g => g.serviceKey)])];
   const rows: FulfillmentRow[] = [];
   const alsoInContract: { serviceKey: string; label: string; scheduling: string }[] = [];
   const countedItems = new Set<string>();
@@ -97,7 +101,7 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
       continue;
     }
     const row: FulfillmentRow = { serviceKey: key, label: service.label, scheduling: service.scheduling === "legacy" ? "campaign" : service.scheduling,
-      statedQuantity: scope.quantity, owed: null, done: 0, skipped: 0, remaining: null,
+      statedQuantity: scope?.quantity ?? null, owed: null, done: 0, skipped: 0, remaining: null,
       planned: 0, inProgress: 0, status: "on_track", issues: [], next: null, rounds: [] };
     if (service.scheduling === "campaign" || service.scheduling === "checklist" || service.scheduling === "legacy") {
       row.issues = [...new Set(gaps.filter(g => g.serviceKey === key).map(g => g.kind))];
@@ -116,7 +120,7 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
           dueDate < today ? "overdue" : "pending";
         row.rounds.push({ calendarEntryId: round.calendarEntryId, roundYear: round.roundYear, name: campaign?.title.replace(/^\d{4} /, "") ?? round.name, campaignId: campaign?.id ?? null,
           itemId: item?.id ?? null, dueDate, windowStart, windowEnd, dateKind: promise ? "chemical_promise" : "round_window",
-          state, timing: round.member.timing, countSource: round.member.count });
+          state, timing: round.member.timing, countSource: round.member.count, renewalPending: round.member.renewalPending });
         if (round.member.termStatus === "sent") row.issues.push("waiting_on_signature");
         if (["missing_item", "overdue"].includes(state)) row.issues.push(state);
       }
@@ -157,7 +161,7 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
     row.remaining = row.owed === null ? null : Math.max(0, row.owed - row.done - row.skipped);
     if (service.scheduling === "route" && row.remaining !== null && row.remaining > 0 && term.endDate < today)
       row.issues = [...new Set([...row.issues, "overdue"])];
-    row.status = ["duplicate_lines", "invalid_count", "no_count", "needs_rounds", "legacy_chemical", "waiting_on_signature",
+    row.status = ["duplicate_lines", "invalid_count", "no_count", "needs_rounds", "waiting_on_signature",
       "overdue", "missing_item", "no_route"].find(s => row.issues.includes(s)) ??
       (row.owed === 0 ? "not_owed" : row.remaining === 0 ? (row.skipped ? "closed_with_skips" : "complete") : "on_track");
     rows.push(row);

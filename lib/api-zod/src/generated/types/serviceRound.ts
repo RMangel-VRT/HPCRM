@@ -25,4 +25,5 @@ export interface ServiceRound {
   state: ServiceRoundState;
   timing: ServiceRoundTiming;
   countSource: ServiceRoundCountSource;
+  renewalPending?: boolean;
 }

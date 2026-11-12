@@ -1317,6 +1317,7 @@ components:
         state: { type: string, enum: [completed, skipped, missing_item, waiting_on_signature, overdue, pending] }
         timing: { type: string, enum: [calendar] }
         countSource: { type: string, enum: [contract, standard] }
+        renewalPending: { type: boolean }
     ServiceFulfillment:
       type: object
       required: [serviceKey, label, scheduling, statedQuantity, owed, done, skipped, remaining, planned, inProgress, status, issues, next, rounds]
@@ -1431,6 +1432,15 @@ components:
         crewPosition: { type: [integer, "null"] }
         targetDate: { type: [string, "null"] }
         backupDate: { type: [string, "null"] }
+        contractState: { $ref: "#/components/schemas/CampaignContractState" }
+    CampaignContractState:
+      type: object
+      required: [state, agreementId, termId]
+      properties:
+        state: { type: string, enum: [owed, waiting_on_signature, no_longer_in_contract] }
+        agreementId: { type: [string, "null"] }
+        termId: { type: [string, "null"] }
+        renewalPending: { type: boolean }
     CampaignRoundLists:
       type: object
       required: [campaign, teams, items, canManage, today]
@@ -1440,6 +1450,7 @@ components:
         items: { type: array, items: { $ref: "#/components/schemas/CampaignRoundItem" } }
         canManage: { type: boolean }
         today: { type: string }
+        nonmembers: { type: array, items: { $ref: "#/components/schemas/CampaignDemandNonmember" } }
     CampaignRoundCalendar:
       type: object
       required: [rounds, chemicalItems]
@@ -1482,6 +1493,17 @@ components:
         termStatus: { type: string }
         timing: { type: string, enum: [calendar] }
         count: { type: string, enum: [contract, standard] }
+        renewalPending: { type: boolean }
+    CampaignDemandNonmember:
+      type: object
+      required: [propertyId, propertyName, termId, seasonLabel, reason]
+      properties:
+        propertyId: { type: string }
+        propertyName: { type: string }
+        termId: { type: string }
+        seasonLabel: { type: string }
+        reason: { type: string, enum: [excluded_by_contract, count_covers_fewer, not_in_package, not_renewing, renewal_beyond_12_months] }
+        nonRenewalOn: { type: string }
     CampaignDemandGap:
       type: object
       required: [propertyId, propertyName, termId, agreementId, seasonLabel, serviceKey, kind]
@@ -1522,6 +1544,7 @@ components:
           required: [members, newRound, added, removed]
           properties:
             members: { type: array, items: { $ref: "#/components/schemas/CampaignDemandMember" } }
+            nonmembers: { type: array, items: { $ref: "#/components/schemas/CampaignDemandNonmember" } }
             newRound: { type: boolean }
             added: { type: integer }
             removed: { type: integer }

@@ -91,6 +91,7 @@ function RoundLine({ round, row, access, onOpenItem }: { round: ServiceRound; ro
       </span>
       <span className={`font-medium ${ROUND_STATE_VAR[round.state] ?? ""}`} data-testid={`status-round-${id}`}>
         {t(`customerPages.services.roundStates.${round.state}`, { defaultValue: ROUND_STATE_DEFAULT[round.state] ?? round.state })}
+        {round.renewalPending && <span className="block text-amber-700">{t("sc22.renewalPending")}</span>}
       </span>
       <span className="flex items-center gap-2 justify-end">
         {round.itemId && (
@@ -137,6 +138,7 @@ export function ServiceRowItem({ row, term, access, expanded, onToggle, onOpen, 
         <span className="flex-1 min-w-0 flex flex-col gap-1 md:flex-row md:items-center md:gap-3">
           <span className="md:flex-1 md:min-w-0 flex items-center gap-2">
             <span className="text-sm font-medium truncate" data-testid={`text-service-label-${k}`}>{row.label}</span>
+            {row.rounds.some(r => r.renewalPending) && <span className="text-xs text-amber-700">{t("sc22.renewalPending")}</span>}
             <span className="shrink-0 rounded border px-1.5 text-[10px] uppercase tracking-wide text-muted-foreground" data-testid={`tag-service-scheduling-${k}`}>
               {isRoute ? t("customerPages.services.tagRoute", { defaultValue: "Route" }) : t("customerPages.services.tagRound", { defaultValue: "Round" })}
             </span>

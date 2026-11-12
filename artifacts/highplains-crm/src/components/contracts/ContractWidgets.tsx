@@ -11,7 +11,8 @@ import { cardRateRows, isCustomRate, rateDisplay } from "./RatesEditor";
 import { useScopedRateCard } from "./useRateCard";
 import { equal12, msi } from "./paymentPresets";
 import { linesFromBilling, lineSum, startMonthOf } from "./paymentDraft";
-import type { ScopeRow } from "./ScopeEditor";
+import { calendarTimed, type ScopeRow } from "./ScopeEditor";
+import { standardRoundCount, type PackageCalendarEntry } from "@workspace/api-zod/contractScope";
 import { FeeTag } from "./PaymentEditor";
 import { ExplicitScheduleEditor } from "./ExplicitScheduleEditor";
 import { explicitFromBilling } from "./explicitSchedule";
@@ -228,7 +229,8 @@ export function DetailsList({ items }: { items: { key: string; label: string; va
   );
 }
 
-export function ScopeSummary({ rows }: { rows: ScopeRow[] }) {
+export function ScopeSummary({ rows, calendar = [] }: { rows: ScopeRow[]; calendar?: readonly PackageCalendarEntry[] }) {
+  const { t } = useTranslation();
   const [all, setAll] = useState(false);
   const included = rows.filter(r => r.included);
   if (!included.length) return <p className="text-sm text-muted-foreground" data-testid="empty-scope">No services on this season.</p>;
@@ -246,8 +248,19 @@ export function ScopeSummary({ rows }: { rows: ScopeRow[] }) {
           <tbody>
             {shown.map(r => (
               <tr key={r.serviceKey} className="border-t" data-testid={`scope-row-${r.serviceKey}`}>
-                <td className="py-1.5 pr-2">{r.label}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums whitespace-nowrap text-muted-foreground">{r.quantity ?? "\u2014"}{r.unit ? ` ${r.unit}` : ""}</td>
+                <td className="py-1.5 pr-2">{r.label}
+                  <div className="text-xs text-muted-foreground">
+                    {r.implicitDefault && <span>{t("sc22.default")} · </span>}
+                    {((r.packageService && !r.included) || (calendarTimed(r.serviceKey) && r.quantity !== null)) && <span>{t("sc22.differs")} · </span>}
+                    {t(r.details.billing === "billed_when_done" ? "sc22.billed" : "sc22.included")}
+                    {typeof r.details.billingPrice === "string" && r.details.billingPrice ? ` · ${r.details.billingPrice}` :
+                      r.priceCents != null ? ` · ${money(r.priceCents)}` : ""}
+                    {r.notes ? ` · ${r.notes}` : ""}
+                  </div>
+                </td>
+                <td className="py-1.5 pr-3 text-right tabular-nums whitespace-nowrap text-muted-foreground">
+                  {r.quantity ?? (calendarTimed(r.serviceKey) ? t("sc22.standard", { count: standardRoundCount(r.serviceKey, calendar) }) : "\u2014")}
+                  {r.unit ? ` ${r.unit}` : ""}</td>
                 <td className="py-1.5">
                   <div className="grid grid-cols-12 w-[9rem]" aria-label={`${r.label} months January to December`}>
                     {Array.from({ length: 12 }, (_, i) => {

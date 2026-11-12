@@ -17,4 +17,5 @@ export interface CampaignDemandMember {
   termStatus: string;
   timing: CampaignDemandMemberTiming;
   count: CampaignDemandMemberCount;
+  renewalPending?: boolean;
 }

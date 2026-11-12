@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { DatePickerField } from "@/components/DatePickerField";
 import CampaignContractNotice from "@/components/CampaignContractNotice";
+import { RoundNonmembers } from "./RoundNonmembers";
 import { format } from "date-fns";
 import { parseCalendarDate } from "@/lib/schedulingStatus";
 import { useToast } from "@/hooks/use-toast";
@@ -97,6 +98,7 @@ export default function GeneratedRoundView({ campaignId, contractStates = {} }: 
 
   return (
     <div className="space-y-4" data-testid="generated-round-view">
+      <RoundNonmembers rows={q.data?.nonmembers} />
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card><CardContent className="p-4">
           <div className="text-xs text-muted-foreground">Round progress</div>
@@ -200,7 +202,7 @@ export default function GeneratedRoundView({ campaignId, contractStates = {} }: 
                             <CalendarDays className="w-3 h-3" />{item.targetDate ?? "—"}{item.backupDate ? ` · backup ${item.backupDate}` : ""}
                           </div>
                         )}
-                        <CampaignContractNotice value={contractStates[item.id]} />
+                        <CampaignContractNotice value={contractStates[item.id] ?? item.contractState} />
                       </div>
                       <div className="flex items-center">
                         {canManage && <>

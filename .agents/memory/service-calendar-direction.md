@@ -52,7 +52,9 @@ Historical SC1-to-SC2 transition only: retiring the old timing owner used empty 
 The owner's contract-year rule is that a round belongs to the season containing
 its deadline, not a season overlapping its opening window. In particular an
 October–September season owes the preceding fall shrub trim, not a second fall
-trim at its end. Backflow quantities describe devices, not repeated annual trips.
+trim inside that season. The standard-package continuation decision below can
+owe the following fall trim as renewal-pending demand. Backflow quantities
+describe devices, not repeated annual trips.
 
 **Why:** The November 11 calendar brief explicitly resolves the disputed extra
 fall trim and distinguishes annual checklist fulfillment from service counts.
@@ -61,3 +63,31 @@ fall trim and distinguishes annual checklist fulfillment from service counts.
 schedule/reporting work, including mid-month season boundaries and windows
 opening in the preceding year. Do not turn annual checklist device quantities
 into scheduled crew-day trips.
+
+Landscape agreements receive the company's calendar-defined standard package
+unless explicitly excluded or counted. Native areas and backflow remain
+only-if-listed. Legacy combined chemical scope is informational, never a reason
+to suppress silent fertilization/broadleaf standards. Do not split or rewrite
+legacy scope or stored months automatically.
+
+**Why:** The November 12, 2026 owner decision supersedes silent-service skipping
+and legacy-only chemical blocking. The calendar owns package membership, not a
+hard-coded service list or catalog quantities.
+
+**How to apply:** Demand and all contract editor entry points must use the same
+company calendar policy. Missing package lines are implicit blank counts until
+an explicit Save, which must also persist exclusions of previously absent lines.
+Billing metadata is display/save only; no invoices or automatic extra charges.
+
+When no eligible season covers a campaign deadline, continue the latest eligible
+prior landscape/both season for at most twelve calendar months, unless it has a
+non-renewal. Select the latest season before testing that refusal; do not revive
+an older season or a parent's coverage to bypass it.
+
+**Why:** An unentered renewal must not drop continuing customers from rounds,
+but a refusal or stale season must not grant indefinite service.
+
+**How to apply:** Keep this continuation in campaign demand only, with the old
+season's exceptions and renewal-pending provenance. Never extend shared coverage
+or Routes, and never remove/re-add a campaign item merely because renewal
+provenance changes. Explicit historical season views remain season-bounded.

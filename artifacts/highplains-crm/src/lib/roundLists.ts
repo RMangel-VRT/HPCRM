@@ -5,7 +5,9 @@ import type { CampaignRound, CampaignRoundTeam, CampaignRoundItem, CampaignRound
 
 export type RoundTeam = Pick<CampaignRoundTeam, "id" | "crewId" | "name" | "color"> & Partial<Pick<CampaignRoundTeam, "leaderUserId">>;
 export type RoundItem = Pick<CampaignRoundItem, "id" | "customerName" | "status" | "assignedCampaignCrewId" | "crewPosition"> &
-  Partial<Pick<CampaignRoundItem, "targetDate" | "backupDate" | "customerCity" | "customerAddress">>;
+  Partial<Pick<CampaignRoundItem, "targetDate" | "backupDate" | "customerCity" | "customerAddress">> & {
+    contractState?: import("../../../../lib/db/src/campaignGenerationContracts").CampaignContractState;
+  };
 export type RoundListsResponse = Omit<CampaignRoundLists, "campaign" | "teams" | "items"> & {
   campaign: Pick<CampaignRound, "id" | "title" | "category" | "source" | "windowStart" | "windowEnd" | "startedAt" | "status" | "serviceKey">;
   teams: RoundTeam[]; items: RoundItem[];

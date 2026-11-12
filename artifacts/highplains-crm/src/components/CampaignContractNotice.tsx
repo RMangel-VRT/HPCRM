@@ -2,13 +2,16 @@ import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { CampaignContractState } from "../../../../lib/db/src/campaignGenerationContracts";
+import { RenewalPendingChip } from "./campaigns/RoundNonmembers";
 
 export default function CampaignContractNotice({ value, onSkip }: {
   value?: CampaignContractState; onSkip?: () => void;
 }) {
-  if (!value || value.state === "owed") return null;
+  if (!value) return null;
+  if (value.state === "owed") return value.renewalPending ? <RenewalPendingChip /> : null;
   const waiting = value.state === "waiting_on_signature";
   return <div className="flex flex-wrap items-center gap-2 text-xs" data-testid={`contract-${value.state}`}>
+    {value.renewalPending && <RenewalPendingChip />}
     <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-300">
       {waiting ? "Waiting on signature" : "No longer in contract"}
     </Badge>

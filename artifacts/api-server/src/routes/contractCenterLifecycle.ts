@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod/v4";
 import {
   agreements, agreementTerms, customers, propertyManagementCompanies, termLegacySources,
-  termScopeLines, termRates, termBillingMonths, termDocuments, type TermStatus,
+  termScopeLines, termRates, termBillingMonths, termDocuments, serviceCalendar, type TermStatus,
 } from "@workspace/db";
 import { db } from "../db";
 import type { UserWithContext } from "../auth";
@@ -201,7 +201,8 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
         throw new ContractCenterError(400, "Rebuild the schedule confirmation is required for an exact-date season");
       const sourceRows = await tx.select().from(termBillingMonths).where(termWhere(termBillingMonths, companyId, source.id));
       const before = recoverPayments(source.paymentSchedule === "explicit" ? sourceRows.filter(r => monthIndex(r.month) >= monthIndex(source.startDate) && monthIndex(r.month) < monthIndex(source.startDate) + 12) : sourceRows);
-      const plan = planChangingRenewal(source, before, scope, oldRates, await activeCard(tx, companyId), body);
+      const calendar = await tx.select().from(serviceCalendar).where(eq(serviceCalendar.companyId, companyId));
+      const plan = planChangingRenewal(source, before, scope, oldRates, await activeCard(tx, companyId), body, calendar);
       if (body.dryRun) return plan;
       let previous = source;
       const range = `${plan.years[0].startDate.slice(0, 4)}–${plan.years[plan.years.length - 1].endDate.slice(0, 4)}`;

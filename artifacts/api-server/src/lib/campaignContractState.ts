@@ -6,6 +6,14 @@ import { loadCustomerContractInputs } from "./customerContractSummary";
 import { companyToday } from "./companyDay";
 import type { CampaignContractState } from "../../../../lib/db/src/campaignGenerationContracts";
 
+export async function campaignRoundNonmembers(campaign: Campaign, today = companyToday()) {
+  if (campaign.source !== "contract" || !campaign.roundYear) return [];
+  const inputs = await loadCustomerContractInputs(db, campaign.companyId);
+  const calendar = await db.select().from(serviceCalendar).where(eq(serviceCalendar.companyId, campaign.companyId));
+  return campaignDemand({ ...inputs, calendar }, campaign.roundYear, today).rounds
+    .find(r => r.calendarEntryId === campaign.calendarEntryId)?.nonmembers ?? [];
+}
+
 /** One batch demand projection for the round's year, never a stored membership
  * flag. Uses exactly the same coverage/count/timing rules as the writer. */
 export async function withCampaignContractStates<T extends Pick<CampaignItem, "customerId">>(
@@ -22,7 +30,7 @@ export async function withCampaignContractStates<T extends Pick<CampaignItem, "c
     const member = members.get(item.customerId);
     return { ...item, contractState: member
       ? { state: member.termStatus === "sent" ? "waiting_on_signature" : "owed",
-        agreementId: member.agreementId, termId: member.termId }
+        agreementId: member.agreementId, termId: member.termId, renewalPending: member.renewalPending }
       : { state: "no_longer_in_contract", agreementId: null, termId: null } };
   });
 }

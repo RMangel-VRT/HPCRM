@@ -47,6 +47,20 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("Campaign generation", () => {
+  it("shows collapsed omission-only rounds and renewal chips beside signature waits", async () => {
+    const data = report();
+    data.rounds[0].members[0] = {...data.rounds[0].members[0], termStatus: "sent", renewalPending: true} as any;
+    (data.rounds[0] as any).nonmembers = [{propertyId: "excluded", propertyName: "Excluded HOA", termId: "e", seasonLabel: "2026",
+      reason: "excluded_by_contract"}];
+    fx.api.mockImplementation((_m: string, path: string) => ok(path.endsWith("/status") ? {} : data));
+    mount(); await screen.findByText("Not on this round (1)");
+    expect((screen.getByTestId("round-nonmembers") as HTMLDetailsElement).open).toBe(false);
+    fireEvent.click(screen.getByText("Not on this round (1)"));
+    expect(screen.getByText("Excluded HOA")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("button-toggle-aeration|2026-04|1"));
+    expect(screen.getByText("Renewal not entered")).toBeTruthy();
+    expect(screen.getByText("Waiting on signature")).toBeTruthy();
+  });
   it("labels named windows without month/sequence assumptions and shows all new gaps", async () => {
     expect(roundWindowLabel({...ref, title: "2027 Fall shrub trim", windowStart: "2027-09-01", windowEnd: "2027-10-31"}))
       .toBe("Fall shrub trim · Sep 1 – Oct 31, 2027");

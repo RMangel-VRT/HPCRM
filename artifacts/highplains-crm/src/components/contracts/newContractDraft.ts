@@ -11,7 +11,7 @@ import { GROUNDS_LINE, SNOW_LINE, applyPreset, blankLine, equalMonthly, annualCe
 import type { PaymentLine } from "./paymentDraft";
 import { parseDollarsToCents } from "./rateCardUtils";
 import type { RateCardItem } from "./rateCardUtils";
-import { initialScope as standardScope, standardScopeIncludes } from "@workspace/api-zod/contractScope";
+import { initialScope as standardScope, standardScopeIncludes, inStandardPackage, type PackageCalendarEntry } from "@workspace/api-zod/contractScope";
 import { SCOPE_CATALOG } from "@/shared/contractCatalog";
 
 export type SnowPricing = "time_and_materials" | "flat_rate";
@@ -25,6 +25,8 @@ export interface NewContractDraft {
   legalName: string; projectContact: string; contactPhone: string; contactEmail: string; projectAddress: string; po: string; notes: string;
   snowTriggers: string;
   scope: ScopeRow[] | null; rates: RateRow[] | null; payments: PaymentLine[] | null;
+  /** Older saved drafts need explicit scope review instead of silently retaining hard-coded defaults. */
+  scopePolicy?: "calendar-package";
   /** CC2-18: "explicit" saves the dated grid instead of the monthly pattern. */
   scheduleMode?: "pattern" | "explicit"; explicit?: ExplicitDraft | null;
   /** Set once the server accepted the create, so a failed upload never creates a second contract. */
@@ -58,7 +60,7 @@ export function newDraft(today: string): NewContractDraft {
     step: 1, customerId: "", customerName: "", line: "", form: "", snowPricing: "time_and_materials", flatPrice: "",
     managingAgentName: "", propertyManagementCompanyId: null, ...d, seasonLabel: seasonLabelFor(d.startDate, d.endDate),
     seasonEdited: false, datesEdited: false, legalName: "", projectContact: "", contactPhone: "", contactEmail: "", projectAddress: "",
-    po: "", notes: "", snowTriggers: DEFAULT_SNOW_TRIGGERS, scope: null, rates: null, payments: null, created: null,
+    po: "", notes: "", snowTriggers: DEFAULT_SNOW_TRIGGERS, scope: null, scopePolicy: "calendar-package", rates: null, payments: null, created: null,
   };
 }
 
@@ -82,18 +84,20 @@ export function setDates(d: NewContractDraft, p: { startDate?: string; endDate?:
 export type ScopePreset = "hoa" | "snow" | "clear";
 const realDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && addDays(v, 0) === v;
 export const monthSpan = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7)) + 1;
-export function applyScopePreset(rows: ScopeRow[], preset: ScopePreset): ScopeRow[] {
+export function applyScopePreset(rows: ScopeRow[], preset: ScopePreset, calendar: readonly PackageCalendarEntry[] = []): ScopeRow[] {
   return rows.map(r => {
     if (preset === "clear") return { ...r, included: false };
-    if (preset === "hoa" && r.line !== "snow") return { ...r, included: standardScopeIncludes(r.serviceKey, r.line) };
+    if (preset === "hoa" && r.line !== "snow") return { ...r, included: standardScopeIncludes(r.serviceKey, r.line, calendar, SCOPE_CATALOG),
+      quantity: ["campaign", "checklist"].includes(SCOPE_CATALOG.find(c => c.key === r.serviceKey)?.scheduling ?? "") ? null : r.quantity };
     if (preset === "snow" && r.line === "snow") return { ...r, included: standardScopeIncludes(r.serviceKey, r.line) };
     return r;
   });
 }
 
 /** Catalog defaults for the type: HOA landscape and/or standard snow switched on. */
-export function initialScope(line: AgreementLine): ScopeRow[] {
-  return standardScope(line, SCOPE_CATALOG);
+export function initialScope(line: AgreementLine, calendar: readonly PackageCalendarEntry[] = []): ScopeRow[] {
+  return standardScope(line, SCOPE_CATALOG, calendar).map(r => ({ ...r,
+    packageService: inStandardPackage(SCOPE_CATALOG.find(c => c.key === r.serviceKey)!, calendar) }));
 }
 
 /** Card rows for the type; used only when the user clicks "Start from the card". */
@@ -229,13 +233,15 @@ export function prefillRfp(d: NewContractDraft, rfp: RfpPrefill, today: string):
     propertyManagementCompanyId: rfp.customer?.propertyManagementCompanyId ?? null,
     projectAddress: [rfp.customer?.street, [rfp.customer?.city, rfp.customer?.state].filter(Boolean).join(", "), rfp.customer?.zip].filter(Boolean).join(" "),
     datesEdited: realDate(desired), seasonLabel: seasonLabelFor(startDate, dates.endDate),
-    scope: line ? initialScope(line) : null,
+    scope: null,
     notes: `Bid for RFP ${rfp.ticket.estimateNumber || rfp.ticket.id}: ${rfp.ticket.title}` };
 }
 export function loadDraft(key: string): NewContractDraft | null {
   try {
     const raw = window.sessionStorage.getItem(key);
-    return raw ? { ...newDraft("2000-01-01"), ...JSON.parse(raw) } : null;
+    if (!raw) return null;
+    const stored = JSON.parse(raw);
+    return { ...newDraft("2000-01-01"), ...stored, scopePolicy: stored.scopePolicy };
   } catch { return null; }
 }
 export function saveDraft(key: string, d: NewContractDraft) {

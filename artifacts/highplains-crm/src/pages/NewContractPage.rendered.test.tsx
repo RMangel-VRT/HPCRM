@@ -18,6 +18,7 @@ import NewContractPage from "@/pages/NewContractPage";
 import { applyPreset, blankLine } from "@/components/contracts/paymentDraft";
 import { initialScope, newDraft, sessionKey } from "@/components/contracts/newContractDraft";
 import i18n from "@/i18n";
+import { STARTING_SERVICE_CALENDAR } from "../../../../lib/db/src/serviceCalendarContracts";
 
 const customer = (o: object = {}) => ({ id: "c1", companyId: "co1", name: "Elm Court HOA", isParent: "false", street: "12 Elm St", city: "Denver", state: "CO", zip: "80202", ...o });
 const ok = (data: unknown) => Promise.resolve({ json: async () => data });
@@ -27,6 +28,7 @@ function routes(over: Record<string, unknown> = {}) {
     if (method === "POST" && url === "/api/contract-center/contracts") { posts++; return ok({ id: "a1", terms: [{ id: "t1" }] }); }
     const path = url.split("?")[0];
     if (path in over) return ok(over[path]);
+    if (path === "/api/service-calendar") return ok({entries: [], usage: []});
     if (path === "/api/customers/c1") return ok(customer());
     if (path === "/api/customers/c1/contacts") return ok([{ name: "Pat Lee", phones: ["303-555-0100"], emails: ["pat@elm.test"], isPrimary: "true" }]);
     if (path === "/api/contract-center/rate-card") return ok([]);
@@ -53,6 +55,57 @@ beforeEach(() => { posts = 0; fx.api.mockReset(); fx.toast.mockReset(); fx.uploa
 afterEach(cleanup);
 
 describe("New contract flow", () => {
+  it("requires review of an older draft without discarding entered scope or silently accepting hard-coded defaults", async () => {
+    store("u1", "co1", draft({step: 3, scope: initialScope("landscape"), scopePolicy: undefined}));
+    routes({"/api/service-calendar": {entries: STARTING_SERVICE_CALENDAR, usage: []}});
+    mount(); await settle();
+    expect(screen.getByRole("alert").textContent).toContain("predates calendar package defaults");
+    fireEvent.click(screen.getByTestId("button-next"));
+    expect(screen.getByTestId("step-body-3")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("button-scope-hoa")); await settle();
+    expect(screen.getByTestId("switch-scope-fertilization").getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByTestId("button-next"));
+    expect(screen.getByTestId("step-body-4")).toBeTruthy();
+    expect(fx.api.mock.calls.some(c => c[0] === "POST" || c[0] === "PUT")).toBe(false);
+  });
+  it("opens step 3 with live package defaults, and the HOA preset clears contract counts without writing", async () => {
+    store("u1", "co1", draft({step: 3}));
+    routes({"/api/service-calendar": {entries: STARTING_SERVICE_CALENDAR, usage: []}});
+    mount(); await settle();
+    expect(screen.getByTestId("switch-scope-fertilization").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("switch-scope-native_areas").getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByTestId("switch-scope-backflow").getAttribute("aria-checked")).toBe("false");
+    const qty = screen.getByTestId("input-qty-cleanups") as HTMLInputElement;
+    expect(qty.value).toBe(""); expect(qty.placeholder).toBe("Standard (3)");
+    fireEvent.change(qty, {target: {value: "2"}});
+    fireEvent.click(screen.getByTestId("button-scope-hoa"));
+    expect(qty.value).toBe("");
+    expect(fx.api.mock.calls.some(c => c[0] === "POST" || c[0] === "PUT")).toBe(false);
+  });
+  it("blocks landscape defaults during calendar loading/failure and does not reuse another company's package", async () => {
+    store("u1", "co1", draft({step: 3}));
+    let fail!: (e: Error) => void;
+    const route = fx.api.getMockImplementation()!;
+    fx.api.mockImplementation((method, url, ...args) => url === "/api/service-calendar"
+      ? new Promise((_resolve, reject) => {fail = reject;}) : route(method, url, ...args));
+    const page = mount(); await settle();
+    expect(screen.getByText("Loading this company's Service calendar…")).toBeTruthy();
+    expect((screen.getByTestId("button-scope-hoa") as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {fail(new Error("calendar unavailable"));}); await settle();
+    expect(screen.getByRole("alert").textContent).toContain("calendar could not be loaded");
+    fireEvent.click(screen.getByTestId("button-next"));
+    expect(screen.getByTestId("step-body-3")).toBeTruthy();
+    routes({"/api/service-calendar": {entries: STARTING_SERVICE_CALENDAR, usage: []}});
+    fireEvent.click(screen.getByText("Retry")); await settle();
+    expect(screen.getByTestId("switch-scope-cleanups").getAttribute("aria-checked")).toBe("true");
+    fx.user = {...fx.user, activeCompanyId: "co2"};
+    store("u1", "co2", draft({step: 3}));
+    routes({"/api/service-calendar": {entries: [], usage: []}});
+    page.rerender(); await settle();
+    expect(screen.getByText(/This company has no Service calendar/)).toBeTruthy();
+    expect(screen.getByTestId("switch-scope-cleanups").getAttribute("aria-checked")).toBe("false");
+    expect(fx.api).toHaveBeenCalledWith("GET", "/api/service-calendar", undefined, {headers: {"X-Company-Id": "co2"}});
+  });
   it("creates a valid smaller campaign count without requiring changes to its stored months", async () => {
     await i18n.changeLanguage("en");
     const spread = [0,0,1,0,0,0,0,0,0,0,2,0];
@@ -85,7 +138,8 @@ describe("New contract flow", () => {
     await waitFor(() => expect(JSON.parse(window.sessionStorage.getItem(sessionKey("co1", "u1", "r1"))!).line).toBe("both"));
     const saved = JSON.parse(window.sessionStorage.getItem(sessionKey("co1", "u1", "r1"))!);
     expect(saved.notes).toBe("Bid for RFP R-42: RFP test");
-    expect(saved.scope).not.toBeNull();
+    // Scope starts only when the company's calendar has been read at step 3.
+    expect(saved.scope).toBeNull();
     expect(JSON.parse(window.sessionStorage.getItem(sessionKey("co1", "u1"))!).notes).toBe("Unrelated ordinary draft");
   });
   it("restores user edits rather than overwriting them, binds the RFP on submit and returns to it", async () => {

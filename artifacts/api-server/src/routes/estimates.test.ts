@@ -15,7 +15,7 @@ import { registerEstimateRoutes } from "./estimates";
 import { EstimateError } from "../services/estimateErrors";
 import { DocumentRendererUnavailable } from "../services/documents/browser";
 
-const custom = { sectionId: "s", quantity: "1", lineType: "custom", name: "Line", unit: "ea", unitPriceCents: 0, umbrellaKey: "plants" };
+const custom = { sectionId: "s", quantity: "1", lineType: "custom", name: "Line", unit: "EA", unitPriceCents: 0, umbrellaKey: "plants" };
 it("returns safe 503 instead of any fallback PDF when Chromium is unavailable", async () => {
   mocks.renderEstimatePdf.mockRejectedValue(new DocumentRendererUnavailable());
   const response = await request(appFor()).get("/api/estimates/e/versions/v/pdf");

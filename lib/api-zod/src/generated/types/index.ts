@@ -6,11 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./campaignContractState";
+export * from "./campaignContractStateState";
 export * from "./campaignDemandGap";
 export * from "./campaignDemandGapKind";
 export * from "./campaignDemandMember";
 export * from "./campaignDemandMemberCount";
 export * from "./campaignDemandMemberTiming";
+export * from "./campaignDemandNonmember";
+export * from "./campaignDemandNonmemberReason";
 export * from "./campaignGenerationInput";
 export * from "./campaignGenerationItemRef";
 export * from "./campaignGenerationReport";

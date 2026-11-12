@@ -6,10 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CampaignDemandMember } from "./campaignDemandMember";
+import type { CampaignDemandNonmember } from "./campaignDemandNonmember";
 import type { CampaignRoundRef } from "./campaignRoundRef";
 
 export type CampaignPreviewRound = CampaignRoundRef & {
   members: CampaignDemandMember[];
+  nonmembers?: CampaignDemandNonmember[];
   newRound: boolean;
   added: number;
   removed: number;

@@ -13,11 +13,13 @@ vi.mock("@/hooks/use-auth", () => ({useAuth: () => ({user: {id: "u1", activeComp
 vi.mock("@/lib/queryClient", () => ({apiRequest: (...a: unknown[]) => fx.api(...a)}));
 vi.mock("@/hooks/use-toast", () => ({useToast: () => ({toast: fx.toast})}));
 import { ContractView } from "./ContractPage";
+import { STARTING_SERVICE_CALENDAR } from "../../../../lib/db/src/serviceCalendarContracts";
 
 afterEach(() => {cleanup(); fx.api.mockReset(); fx.toast.mockReset();});
 const spread = [0,0,1,0,0,0,0,0,0,0,2,0];
-function mount(serviceKey = "cleanups") {
-  fx.api.mockResolvedValue({json: async () => ({})});
+function mount(serviceKey = "cleanups", implicit = false) {
+  fx.api.mockImplementation((_method, url) => Promise.resolve({json: async () =>
+    url === "/api/service-calendar" ? {entries: implicit ? STARTING_SERVICE_CALENDAR : [], usage: []} : {}}));
   const detail = {
     id: "agreement", customerId: "customer", customer: {id: "customer", name: "Calendar property"},
     line: "landscape", form: "ours", currentTermId: "current", renewalDue: false, renewalDraftId: null,
@@ -25,7 +27,7 @@ function mount(serviceKey = "cleanups") {
       id: "current", line: "landscape", form: "ours", seasonLabel: "2027", startDate: "2027-01-01", endDate: "2027-12-31",
       status: "draft", displayStatus: "draft", editable: true, allowedMoves: [],
       snowPricing: null, annualPriceCents: null, billingType: "seasonal",
-      scope: [{serviceKey, line: "landscape", included: true, quantity: 3, unit: "visits", monthSpread: spread,
+      scope: implicit ? [] : [{serviceKey, line: "landscape", included: true, quantity: 3, unit: "visits", monthSpread: spread,
         details: {}, priceCents: null, notes: null}],
       rates: [], billingMonths: [], documents: [], history: [],
     }],
@@ -36,6 +38,20 @@ function mount(serviceKey = "cleanups") {
   </Router></QueryClientProvider>);
 }
 describe("calendar count scope saves", () => {
+  it("displays implicit defaults without writes and explicitly saves a previously absent exclusion plus billing", async () => {
+    mount("cleanups", true);
+    await screen.findByText("Standard (3) visits");
+    expect(fx.api.mock.calls.some(c => c[0] === "PUT")).toBe(false);
+    await userEvent.click(screen.getByTestId("button-edit-scope"));
+    expect(screen.getByTestId("switch-scope-cleanups").getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByTestId("switch-scope-cleanups"));
+    fireEvent.change(screen.getByLabelText("Spring and fall clean-ups billing"), {target: {value: "billed_when_done"}});
+    fireEvent.change(screen.getByLabelText("Spring and fall clean-ups price"), {target: {value: "$155"}});
+    await userEvent.click(screen.getByTestId("button-save-scope"));
+    expect(fx.api).toHaveBeenCalledWith("PUT", "/api/contract-center/terms/current/scope",
+      expect.arrayContaining([expect.objectContaining({serviceKey: "cleanups", included: false, quantity: null, priceCents: 15500,
+        details: {billing: "billed_when_done", billingPrice: "$155"}})]), {headers: {"X-Company-Id": "company"}});
+  });
   it("saves a smaller campaign count and preserves conflicting stored months", async () => {
     mount();
     await userEvent.click(screen.getByTestId("button-edit-scope"));

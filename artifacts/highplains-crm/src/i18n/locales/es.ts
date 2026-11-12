@@ -21,6 +21,23 @@ const es = {
     categoriesCreated: "Categorías creadas",
     hint: "El CSV usa kind,category,name,unit,price,posts_to,active. La exportación incluye todos los artículos, también los inactivos. Un precio vacío o Variable significa que no hay tarifa predeterminada.",
   },
+  sc22: {
+    renewalPending: "Renovación no ingresada", notOnRound: "Fuera de esta ronda ({{count}})",
+    standard: "Estándar ({{count}})", default: "por defecto", differs: "Difiere del estándar",
+    billing: "Facturación", included: "En el precio del contrato", billed: "Facturado al terminar", price: "Precio", notes: "Notas",
+    notesPrompt: "Explique la diferencia del estándar (opcional)",
+    calendarLoading: "Cargando el calendario de servicios de esta empresa…",
+    calendarError: "No se pudo cargar el calendario de la empresa. Reintente antes de guardar el alcance de paisajismo.",
+    calendarEmpty: "Esta empresa no tiene entradas en el calendario de servicios. No hay un paquete estándar disponible.",
+    retry: "Reintentar",
+    oldDraft: "Este borrador guardado es anterior a los valores del paquete del calendario. Aplique el paquete completo HOA o revise y conserve su alcance antes de continuar.",
+    keepDraftScope: "Conservar alcance revisado",
+    reasons: {
+      excluded_by_contract: "Excluido por contrato · {{season}}", count_covers_fewer: "La cantidad del contrato cubre menos rondas.",
+      not_in_package: "No pertenece al paquete estándar ni está incluido en este contrato.",
+      not_renewing: "No se renueva · {{date}}", renewal_beyond_12_months: "Han pasado más de doce meses desde el fin de la temporada; ingrese una renovación.",
+    },
+  },
   estimateActions: {
     reason: {
       answered_one: "El cliente respondió hace 1 día", expires_one: "Vence en 1 día", overdue_one: "Seguimiento con 1 día de atraso", unanswered_one: "Sin respuesta en 1 día", sent_one: "Enviado hace 1 día", ready_one: "Listo para enviar · 1 día", untouched_one: "Borrador sin cambios en 1 día", edited_one: "Editado hace 1 día", prices_one: "1 partida necesita precio", unassigned_one: "Sin asignar · 1 día", new_one: "Nueva · 1 día",

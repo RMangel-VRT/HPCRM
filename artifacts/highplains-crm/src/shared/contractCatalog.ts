@@ -15,6 +15,8 @@ export interface ScopeService {
   defaultMonthSpread: number[] | null;
   /** Optional, priced on request; carries a site-specific price instead of a count. */
   optionalPriced?: boolean;
+  /** Only-if-listed services never become implicit package obligations. */
+  packageDefault?: boolean;
 }
 
 export const SCOPE_CATALOG: ScopeService[] = [
@@ -25,7 +27,7 @@ export const SCOPE_CATALOG: ScopeService[] = [
   { key: "shrub_trimming", scheduling: "campaign", campaignName: "Shrub trimming", line: "landscape", label: "Shrub trimming", wordModule: null, unit: "visits", defaultQuantity: 2, defaultMonthSpread: [0,0,0,0,0,0,1,0,0,1,0,0] },
   { key: "ornamental_grass", scheduling: "campaign", campaignName: "Grass cutback", line: "landscape", label: "Ornamental grass cutback", wordModule: null, unit: "visits", defaultQuantity: 1, defaultMonthSpread: [0,0,0,0,0,0,0,0,0,1,0,0] },
   { key: "tree_pruning", scheduling: "campaign", campaignName: "Tree pruning", line: "landscape", label: "Light tree pruning", wordModule: null, unit: "visits", defaultQuantity: 1, defaultMonthSpread: [0,0,0,1,0,0,0,0,0,0,0,0] },
-  { key: "native_areas", scheduling: "campaign", campaignName: "Native full mow", line: "landscape", label: "Native grass areas", wordModule: "native_areas", unit: "visits", defaultQuantity: null, defaultMonthSpread: null },
+  { key: "native_areas", packageDefault: false, scheduling: "campaign", campaignName: "Native full mow", line: "landscape", label: "Native grass areas", wordModule: "native_areas", unit: "visits", defaultQuantity: null, defaultMonthSpread: null },
   { key: "retention_pond", scheduling: "none", line: "landscape", label: "Detention / retention pond", wordModule: "retention_pond", unit: "visits", defaultQuantity: 1, defaultMonthSpread: null },
   { key: "pool", scheduling: "none", line: "landscape", label: "Pool on site", wordModule: "pool", unit: null, defaultQuantity: null, defaultMonthSpread: null },
   { key: "chemical", scheduling: "legacy", campaignName: "Fert/chem", line: "landscape", label: "Fertilization and weed control", wordModule: null, unit: "applications", defaultQuantity: 12, defaultMonthSpread: [0,0,0,3,2,2,2,2,1,0,0,0] },
@@ -38,7 +40,7 @@ export const SCOPE_CATALOG: ScopeService[] = [
   { key: "irrigation_open", scheduling: "campaign", campaignName: "Irrigation start-up", line: "irrigation", label: "Spring activation", wordModule: "irrigation", unit: "visits", defaultQuantity: 1, defaultMonthSpread: null },
   { key: "irrigation_inspection", scheduling: "route", line: "irrigation", label: "Monthly system inspection", wordModule: "irrigation", unit: "visits", defaultQuantity: null, defaultMonthSpread: null },
   { key: "irrigation_winterization", scheduling: "campaign", campaignName: "Winterization", line: "irrigation", label: "Winterization", wordModule: "irrigation", unit: "visits", defaultQuantity: 1, defaultMonthSpread: null },
-  { key: "backflow", scheduling: "checklist", campaignName: "Backflow testing", line: "irrigation", label: "Backflow testing", wordModule: "irrigation", unit: "devices", defaultQuantity: null, defaultMonthSpread: null },
+  { key: "backflow", packageDefault: false, scheduling: "checklist", campaignName: "Backflow testing", line: "irrigation", label: "Backflow testing", wordModule: "irrigation", unit: "devices", defaultQuantity: null, defaultMonthSpread: null },
   { key: "snow_walks", scheduling: "event", line: "snow", label: "Sidewalks and steps", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
   { key: "snow_drives", scheduling: "event", line: "snow", label: "Streets, drives and lots", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },
   { key: "snow_alleys", scheduling: "event", line: "snow", label: "Alleys", wordModule: "snow", unit: null, defaultQuantity: null, defaultMonthSpread: null },

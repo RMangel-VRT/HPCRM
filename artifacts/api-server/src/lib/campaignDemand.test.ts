@@ -12,18 +12,24 @@ export function demandFixture(key = "cleanups", quantity: number | null = 3, spr
     calendar: STARTING_SERVICE_CALENDAR.map((e, i) => ({...e, id: `calendar-${i}`})),
   } as any;
 }
-const run = (data: any, year = 2027) => campaignDemand(data, year, "2026-11-11");
+// Predecessor allocation assertions isolate the explicitly tested services;
+// full-package and omission projections are covered by campaignDemand.sc22.
+const run = (data: any, year = 2027) => {
+  const keys = new Set(data.scope.map((s: any) => s.serviceKey));
+  const report = campaignDemand({ ...data, calendar: data.calendar.filter((e: any) => keys.has(e.serviceKey)) }, year, "2026-11-11");
+  return { ...report, rounds: report.rounds.filter(r => r.members.length) };
+};
 describe("calendar deadline demand", () => {
   it("allocates October seasons by deadline, including the preceding December opening", () => {
     const data = demandFixture("shrub_trimming", null);
     Object.assign(data.terms[0], {startDate: "2026-10-01", endDate: "2027-09-30"});
     data.scope.push({...data.scope[0], serviceKey: "fertilization"}, {...data.scope[0], serviceKey: "ornamental_grass"});
     const all = [...run(data, 2026).rounds, ...run(data).rounds];
-    expect(all.filter(r => r.name === "Fall shrub trim").map(r => r.due)).toEqual(["2026-10-31"]);
+    expect(all.filter(r => r.name === "Fall shrub trim").map(r => r.due)).toEqual(["2026-10-31", "2027-10-31"]);
     expect(all.filter(r => r.name === "Fall fertilizer").map(r => r.due)).toEqual(["2027-09-30"]);
     expect(all.find(r => r.serviceKey === "ornamental_grass")).toMatchObject({opens: "2026-12-01", due: "2027-01-30"});
     Object.assign(data.terms[0], {startDate: "2026-10-15", endDate: "2027-10-14"});
-    expect([...run(data, 2026).rounds, ...run(data).rounds].filter(r => r.name === "Fall shrub trim")).toHaveLength(1);
+    expect([...run(data, 2026).rounds, ...run(data).rounds].filter(r => r.name === "Fall shrub trim")).toHaveLength(2);
   });
   it("selects clean-ups first N or blank standards regardless of stated months", () => {
     expect(run(demandFixture()).rounds).toHaveLength(3);
@@ -61,7 +67,7 @@ describe("calendar deadline demand", () => {
   });
   it("reports legacy-only chemical, and informational legacy alongside valid new treatments", () => {
     const data = demandFixture("chemical", 3);
-    expect(run(data)).toMatchObject({rounds: [], gaps: [{kind: "legacy_chemical", informational: false}]});
+    expect(run(data)).toMatchObject({rounds: [], gaps: [{kind: "legacy_chemical", informational: true}]});
     data.scope.push({...data.scope[0], serviceKey: "fertilization"});
     expect(run(data).rounds).toHaveLength(3);
     expect(run(data).gaps).toMatchObject([{kind: "legacy_chemical", informational: true}]);
@@ -69,7 +75,7 @@ describe("calendar deadline demand", () => {
   it.each([null, 1, 8])("owes one annual backflow independent of device count %s", quantity => {
     const data = demandFixture("backflow", quantity, [-1]);
     Object.assign(data.terms[0], {startDate: "2026-10-01", endDate: "2027-09-30"});
-    expect([...run(data, 2026).rounds, ...run(data).rounds].map(r => r.due)).toEqual(["2026-12-31"]);
+    expect([...run(data, 2026).rounds, ...run(data).rounds].map(r => r.due)).toEqual(["2026-12-31", "2027-12-31"]);
   });
   it("preserves explicit zero, invalid and duplicate safeguards", () => {
     expect(run(demandFixture("cleanups", 0, months({11: 1})))).toEqual({rounds: [], gaps: []});
@@ -89,10 +95,10 @@ describe("calendar deadline demand", () => {
     data.terms.push({...data.terms[0], id: "newest", startDate: "2027-03-01"});
     resolver = coverageResolver({...data, scopes: data.scope});
     expect(resolver.forDate("p", "shrub_trimming", "2027-10-31")?.term.id).toBe("newest");
-    data.customers.push({id: "parent", isParent: "true", parentCustomerId: null});
+    data.customers.push({id: "parent", companyId: "c", isParent: "true", parentCustomerId: null});
     data.customers[0].parentCustomerId = "parent";
     data.agreements[0].customerId = "parent";
-    data.agreements.push({id: "own", customerId: "p"});
+    data.agreements.push({id: "own", companyId: "c", customerId: "p"});
     data.terms = [data.terms[0], {...data.terms[0], agreementId: "own", id: "own", status: "sent"}];
     data.scope.push({...data.scope[0], termId: "own", included: false});
     expect(run(data).rounds).toEqual([]);

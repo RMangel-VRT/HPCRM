@@ -86,6 +86,7 @@ export interface ServiceRound {
   state: ServiceRoundState;
   timing: ServiceRoundTiming;
   countSource: ServiceRoundCountSource;
+  renewalPending?: boolean;
 }
 
 export type ServiceFulfillmentScheduling =
@@ -205,6 +206,24 @@ export interface CampaignRoundTeam {
   [key: string]: unknown;
 }
 
+export type CampaignContractStateState =
+  (typeof CampaignContractStateState)[keyof typeof CampaignContractStateState];
+
+export const CampaignContractStateState = {
+  owed: "owed",
+  waiting_on_signature: "waiting_on_signature",
+  no_longer_in_contract: "no_longer_in_contract",
+} as const;
+
+export interface CampaignContractState {
+  state: CampaignContractStateState;
+  /** @nullable */
+  agreementId: string | null;
+  /** @nullable */
+  termId: string | null;
+  renewalPending?: boolean;
+}
+
 export interface CampaignRoundItem {
   id: string;
   campaignId: string;
@@ -222,7 +241,28 @@ export interface CampaignRoundItem {
   targetDate: string | null;
   /** @nullable */
   backupDate: string | null;
+  contractState?: CampaignContractState;
   [key: string]: unknown;
+}
+
+export type CampaignDemandNonmemberReason =
+  (typeof CampaignDemandNonmemberReason)[keyof typeof CampaignDemandNonmemberReason];
+
+export const CampaignDemandNonmemberReason = {
+  excluded_by_contract: "excluded_by_contract",
+  count_covers_fewer: "count_covers_fewer",
+  not_in_package: "not_in_package",
+  not_renewing: "not_renewing",
+  renewal_beyond_12_months: "renewal_beyond_12_months",
+} as const;
+
+export interface CampaignDemandNonmember {
+  propertyId: string;
+  propertyName: string;
+  termId: string;
+  seasonLabel: string;
+  reason: CampaignDemandNonmemberReason;
+  nonRenewalOn?: string;
 }
 
 export interface CampaignRoundLists {
@@ -231,6 +271,7 @@ export interface CampaignRoundLists {
   items: CampaignRoundItem[];
   canManage: boolean;
   today: string;
+  nonmembers?: CampaignDemandNonmember[];
 }
 
 export type CampaignRoundCalendarRoundsItem = CampaignRound & {
@@ -278,6 +319,7 @@ export interface CampaignDemandMember {
   termStatus: string;
   timing: CampaignDemandMemberTiming;
   count: CampaignDemandMemberCount;
+  renewalPending?: boolean;
 }
 
 export type CampaignDemandGapKind =
@@ -323,6 +365,7 @@ export type CampaignGenerationItemRef = CampaignRoundRef & {
 
 export type CampaignPreviewRound = CampaignRoundRef & {
   members: CampaignDemandMember[];
+  nonmembers?: CampaignDemandNonmember[];
   newRound: boolean;
   added: number;
   removed: number;

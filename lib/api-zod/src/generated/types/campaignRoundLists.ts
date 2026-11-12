@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { CampaignDemandNonmember } from "./campaignDemandNonmember";
 import type { CampaignRound } from "./campaignRound";
 import type { CampaignRoundItem } from "./campaignRoundItem";
 import type { CampaignRoundTeam } from "./campaignRoundTeam";
@@ -15,4 +16,5 @@ export interface CampaignRoundLists {
   items: CampaignRoundItem[];
   canManage: boolean;
   today: string;
+  nonmembers?: CampaignDemandNonmember[];
 }

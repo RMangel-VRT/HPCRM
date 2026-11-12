@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useScopeCalendar } from "@/hooks/useScopeCalendar";
+import { ScopeCalendarState } from "./ScopeCalendarState";
 import { useTranslation } from "react-i18next";
 import { RatesEditor, cardRateRows, rateApplies, rateProblems, ratesPayload, toRateRows } from "./RatesEditor";
 import type { RateRow } from "./RatesEditor";
@@ -72,6 +74,7 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
   const [pendingCard, setPendingCard] = useState(false);
   const { t } = useTranslation();
   const [scope, setScope] = useState<"carry" | "standard">("carry");
+  const calendar = useScopeCalendar();
   const [preview, setPreview] = useState<{ key: string; body: Record<string, unknown>; data: RenewPreview } | null>(null);
   const [attempt, setAttempt] = useState(0);
   const committing = useRef(false);
@@ -113,7 +116,8 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
   // CC2-18: an exact-dates source needs an explicit "Rebuild the schedule" confirmation; dated rows never carry forward.
   const explicitSource = srcTerm?.paymentSchedule === "explicit";
   const [rebuild, setRebuild] = useState(false);
-  const body = rateIssues.length || pendingCard || (explicitSource && !rebuild) ? null : built ? {
+  const needsCalendar = effLine !== "snow" && (scope === "standard" || source?.line === "snow");
+  const body = rateIssues.length || pendingCard || (needsCalendar && !calendar.entries) || (explicitSource && !rebuild) ? null : built ? {
     ...built, ...(explicitSource ? { rebuildSchedule: true } : {}),
     ...(Object.keys(paymentFees).length ? { paymentFees: Object.entries(paymentFees).map(([component, fee]) => ({ component, fee })) } : {}),
   } : null;
@@ -273,6 +277,8 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
           <Choice value={scope} disabled={creating} testId="button-scope" onChange={v => { touch(); setScope(v); }}
             options={[["carry", "Carry forward last season's scope"], ["standard", "Standard scope"]] as const} />
         </div>
+        {needsCalendar && <ScopeCalendarState loading={!calendar.entries && !calendar.isError} error={calendar.isError}
+          empty={calendar.entries?.length === 0} retry={() => void calendar.refetch()} />}
       </Section>
 
       {!!srcTerm?.billingMonths?.length && (

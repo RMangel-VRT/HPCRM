@@ -28,6 +28,8 @@ import type { NewContractDraft, ScopePreset } from "@/components/contracts/newCo
 import { startMonthOf } from "@/components/contracts/paymentDraft";
 import { prefillRfp, type RfpPrefill } from "@/components/contracts/newContractDraft";
 import { useTranslation } from "react-i18next";
+import { useScopeCalendar } from "@/hooks/useScopeCalendar";
+import { ScopeCalendarState } from "@/components/contracts/ScopeCalendarState";
 
 const STEPS = ["Customer and type", "Term and contacts", "Scope", "Rates", "Payments", "Review and create"];
 interface CustomerLite {
@@ -58,6 +60,7 @@ export default function NewContractPage() {
 function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId: string; userId: string; storageKey: string; fromRfp: string | null }) {
   const { t } = useTranslation();
   const today = coloradoToday();
+  const calendar = useScopeCalendar();
   const rfpApplied = useRef(!!loadDraft(storageKey)?.bidTicketId);
   const [d, setD] = useState<NewContractDraft>(() => { const s = loadDraft(storageKey); return s ? { ...s, step: s.created ? 6 : s.step } : newDraft(today); });
   const [errors, setErrors] = useState<string[]>([]);
@@ -159,7 +162,7 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
   }, [prefill.data]);
 
   const line = d.line as AgreementLine;
-  const scopeRows = d.scope ?? (d.line ? initialScope(line) : []);
+  const scopeRows = d.scope ?? (d.line ? initialScope(line, calendar.entries ?? []) : []);
   const rateRows = d.rates ?? [];
   const payLines = d.payments ?? [];
 
@@ -167,13 +170,20 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
     setErrors([]); setShowLineErrors(false);
     setD(cur => {
       const next = { ...cur, step };
-      if (step === 3 && !cur.scope && cur.line) next.scope = initialScope(cur.line);
+      if (step === 3 && !cur.scope && cur.line && (cur.line === "snow" || calendar.entries)) {
+        next.scope = initialScope(cur.line, calendar.entries ?? []);
+        next.scopePolicy = "calendar-package";
+      }
       if (step === 5) next.payments = ensurePayments(cur);
       return next;
     });
   }
   function gate(step: number): string[] {
     const problems = stepProblems(d, step);
+    if (step >= 2 && hasLandscape(d.line) && !calendar.entries)
+      problems.push(t(calendar.isError ? "sc22.calendarError" : "sc22.calendarLoading"));
+    if (step >= 3 && hasLandscape(d.line) && d.scope && d.scopePolicy !== "calendar-package")
+      problems.push(t("sc22.oldDraft"));
     if (fromRfp && !rfp.isSuccess) problems.push(t("rfpContracts.loadError"));
     if (step === 1 && d.customerId) {
       if (customerQ.isLoading) problems.push("Checking the customer, try again in a moment");
@@ -383,15 +393,28 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
 
       {d.step === 3 && (
         <section className="space-y-3" data-testid="step-body-3">
+          {hasLandscape(d.line) && d.scope && d.scopePolicy !== "calendar-package" && (
+            <div role="alert" className="rounded border border-amber-300 p-3 space-y-2">
+              <p>{t("sc22.oldDraft")}</p>
+              <Button type="button" variant="outline" onClick={() => patch({scopePolicy: "calendar-package"})}>
+                {t("sc22.keepDraftScope")}
+              </Button>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {([["hoa", "Full HOA landscape"], ["snow", "Standard snow"], ["clear", "Clear all"]] as [ScopePreset, string][]).map(([k, t]) => (
               <Button key={k} type="button" size="sm" variant="outline" data-testid={`button-scope-${k}`}
-                disabled={(k === "hoa" && !hasLandscape(d.line)) || (k === "snow" && !hasSnow(d.line))}
-                onClick={() => patch({ scope: applyScopePreset(scopeRows, k) })}>{t}</Button>
+                disabled={(k === "hoa" && (!hasLandscape(d.line) || !calendar.entries)) || (k === "snow" && !hasSnow(d.line))}
+                onClick={() => patch({ scope: applyScopePreset(scopeRows, k, calendar.entries ?? []),
+                  scopePolicy: k === "snow" ? d.scopePolicy : "calendar-package" })}>{t}</Button>
             ))}
           </div>
-          <ScopeEditor line={line} rows={scopeRows} editing onChange={rows => patch({ scope: rows })}
+          {hasLandscape(d.line) && <ScopeCalendarState loading={!calendar.entries && !calendar.isError} error={calendar.isError}
+            empty={calendar.entries?.length === 0} retry={() => void calendar.refetch()} />}
+          <fieldset disabled={hasLandscape(d.line) && !calendar.entries}>
+          <ScopeEditor calendar={calendar.entries ?? []} line={line} rows={scopeRows} editing onChange={rows => patch({ scope: rows })}
             snowTriggers={d.snowTriggers} onSnowTriggers={v => patch({ snowTriggers: v })} />
+          </fieldset>
         </section>
       )}
 

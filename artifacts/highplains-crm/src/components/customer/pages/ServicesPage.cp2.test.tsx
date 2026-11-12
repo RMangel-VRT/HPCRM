@@ -31,6 +31,13 @@ function page() { return render(<QueryClientProvider client={new QueryClient()}>
 const rowButton = (key = "irrigation_activation") => within(screen.getByTestId(`row-service-${key}`)).getByRole("button");
 
 describe("CP2 preserved details with CP6 contract demand", () => {
+  it("shows server-supplied renewal state in collapsed rows and expanded rounds", () => {
+    fx.data.rows[0].rounds[0].renewalPending = true;
+    page();
+    expect(screen.getByText("Renewal not entered")).toBeTruthy();
+    fireEvent.click(rowButton());
+    expect(screen.getAllByText("Renewal not entered")).toHaveLength(2);
+  });
   it.each(["on_track", "complete", "closed_with_skips", "not_owed", "overdue", "missing_item",
     "waiting_on_signature", "no_route", "no_count", "needs_rounds", "legacy_chemical", "invalid_count", "duplicate_lines"])(
     "renders returned primary %s without replacing it with a secondary issue", status => {

@@ -73,7 +73,7 @@ describe("driver-free strict contracts", () => {
   it.each(["service", "equipment", "fee"])("enforces exclusive quick-list/free entry for %s", lineType => {
     const base = { lineType, sectionId: "s", quantity: 1 };
     expect(createEstimateLineSchema.safeParse({ ...base, quickItemId: "q" }).success).toBe(true);
-    expect(createEstimateLineSchema.safeParse({ ...base, name: "Free", unit: "ea", unitPriceCents: 0, umbrellaKey: "fees_surcharges" }).success).toBe(true);
+    expect(createEstimateLineSchema.safeParse({ ...base, name: "Free", unit: "EA", unitPriceCents: 0, umbrellaKey: "fees_surcharges" }).success).toBe(true);
     expect(createEstimateLineSchema.safeParse({ ...base, quickItemId: "q", unitPriceCents: 0 }).success).toBe(false);
     expect(createEstimateLineSchema.safeParse({ ...base, name: "Incomplete" }).success).toBe(false);
   });

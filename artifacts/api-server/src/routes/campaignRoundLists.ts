@@ -11,7 +11,7 @@ import { lockedRound, moveRoundItems, inheritedRoundTeam, previousRound } from "
 import { denseRoundOrder } from "../lib/campaignRoundWork";
 import { roundOffice, roundField, roundAssigned, roundTeamIds, canAccessGeneratedRound } from "../lib/campaignRoundAccess";
 import { campaignProjection, campaignJoin } from "../lib/crewProjection";
-import { withCampaignContractStates } from "../lib/campaignContractState";
+import { withCampaignContractStates, campaignRoundNonmembers } from "../lib/campaignContractState";
 import { campaignRoundActor } from "../lib/campaignRoundContext";
 import { MoveCampaignRoundItemsBody, StartCampaignRoundBody, GetCampaignRoundListsResponse,
   GetCampaignRoundCalendarResponse, StartCampaignRoundResponse } from "@workspace/api-zod";
@@ -72,6 +72,7 @@ export function registerCampaignRoundLists(app: Express) {
       teams = teams.filter(t => ids.includes(t.id)); items = items.filter(i => !!i.assignedCampaignCrewId && ids.includes(i.assignedCampaignCrewId));
     }
     const response = JSON.parse(JSON.stringify({ campaign, teams, items: await withCampaignContractStates(campaign, items),
+      nonmembers: roundOffice(user) ? await campaignRoundNonmembers(campaign) : [],
       canManage: roundOffice(user), today: companyToday() }));
     GetCampaignRoundListsResponse.parse(response);
     res.set("Cache-Control", "no-store").json(response);

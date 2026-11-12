@@ -20,6 +20,23 @@ const en = {
     categoriesCreated: "Categories created",
     hint: "CSV uses kind,category,name,unit,price,posts_to,active. Export includes all items, including inactive ones. Blank or Variable prices mean no default rate.",
   },
+  sc22: {
+    renewalPending: "Renewal not entered", notOnRound: "Not on this round ({{count}})",
+    standard: "Standard ({{count}})", default: "default", differs: "Differs from standard",
+    billing: "Billing", included: "In contract price", billed: "Billed when done", price: "Price", notes: "Notes",
+    notesPrompt: "Explain the difference from standard (optional)",
+    calendarLoading: "Loading this company's Service calendar…",
+    calendarError: "The company calendar could not be loaded. Retry before saving landscape scope.",
+    calendarEmpty: "This company has no Service calendar entries. No calendar package defaults are available.",
+    retry: "Retry",
+    oldDraft: "This saved draft predates calendar package defaults. Apply Full HOA landscape or review and keep its saved scope before continuing.",
+    keepDraftScope: "Keep reviewed scope",
+    reasons: {
+      excluded_by_contract: "Excluded by contract · {{season}}", count_covers_fewer: "The contract count covers fewer rounds.",
+      not_in_package: "Not in the standard package and not included in this contract.",
+      not_renewing: "Not renewing · {{date}}", renewal_beyond_12_months: "More than twelve months past the season end; enter a renewal.",
+    },
+  },
   estimateActions: {
     reason: {
       answered_one: "Customer answered 1 day ago", expires_one: "Expires in 1 day", overdue_one: "Follow-up 1 day overdue", unanswered_one: "No reply in 1 day", sent_one: "Sent 1 day ago", ready_one: "Ready to send · 1 day", untouched_one: "Draft untouched 1 day", edited_one: "Edited 1 day ago", prices_one: "1 line needs a price", unassigned_one: "Unassigned · 1 day", new_one: "New · 1 day",

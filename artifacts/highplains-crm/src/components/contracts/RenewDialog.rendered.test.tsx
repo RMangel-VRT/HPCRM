@@ -27,7 +27,8 @@ beforeEach(() => {
   calls = []; fx.toast.mockReset(); fx.api.mockReset();
   // The display-current season differs from the renewal source (the later signed season).
   fx.detail = { id: "a1", line: "both", form: "ours", terms: [season("t0", { line: "both", form: "ours", startDate: "2025-10-01" }), season("t1")] };
-  fx.api.mockImplementation((m: string, _u: string, body: Call["body"]) => m === "GET" ? Promise.resolve({ json: async () => (_u === "/api/contract-center/rate-card" ? CARD : fx.detail) }) : new Promise((resolve, reject) => {
+  fx.api.mockImplementation((m: string, _u: string, body: Call["body"]) => m === "GET" ? Promise.resolve({ json: async () =>
+    _u === "/api/service-calendar" ? {entries: [], usage: []} : (_u === "/api/contract-center/rate-card" ? CARD : fx.detail) }) : new Promise((resolve, reject) => {
     calls.push({ body, resolve: v => resolve({ json: async () => v }), reject });
   }));
   vi.useFakeTimers();
@@ -45,6 +46,14 @@ function mount(onClose = vi.fn()) {
 const type = (v: string) => fireEvent.change(screen.getByTestId("input-increase-pct"), { target: { value: v } });
 
 describe("RenewDialog", () => {
+  it("reads the company calendar and shows its empty state when choosing standard scope", async () => {
+    mount(); await flush(400);
+    expect(fx.api).toHaveBeenCalledWith("GET", "/api/service-calendar", undefined, {headers: {"X-Company-Id": "fixture-company"}});
+    fireEvent.click(screen.getByTestId("button-scope-standard")); await flush(301);
+    expect(screen.getByText(/This company has no Service calendar/)).toBeTruthy();
+    expect(dry().at(-1)?.body).toMatchObject({scope: "standard"});
+    expect(commits()).toHaveLength(0);
+  });
   it("requires explicit rebuild consent and sends editable fee classification choices", async () => {
     (fx.detail as any).terms[1].paymentSchedule = "explicit";
     (fx.detail as any).terms[1].billingMonths = [

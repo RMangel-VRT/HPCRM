@@ -20,6 +20,8 @@ import { ContractUploadButton, TERM_UPLOAD_OPTIONS } from "@/components/contract
 import { RatesEditor, ratesFingerprint, ratesPayload, rateProblems, toRateRows } from "@/components/contracts/RatesEditor";
 import type { RateRow } from "@/components/contracts/RatesEditor";
 import { ScopeEditor, buildScopeRows, scopePayload, scopeProblems } from "@/components/contracts/ScopeEditor";
+import { useScopeCalendar } from "@/hooks/useScopeCalendar";
+import { ScopeCalendarState } from "@/components/contracts/ScopeCalendarState";
 import type { ScopeRow } from "@/components/contracts/ScopeEditor";
 import { centsToInput } from "@/components/contracts/rateCardUtils";
 import { buildFieldPatch, saveSections } from "@/components/contracts/contractSave";
@@ -64,6 +66,7 @@ const pick = (f: FieldDraft, keys: (keyof FieldDraft)[]) =>
 export function ContractView({ detail, initialHash }: { detail: ContractDetail; initialHash: string }) {
   const { user } = useAuth();
   const activation = useCustomerActivation();
+  const calendar = useScopeCalendar();
   const { t: translate, i18n } = useTranslation();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -94,7 +97,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
 
   const seasonLine = termLine(term, detail.line);
   const seasonForm = termForm(term, detail.form);
-  const scopeBase = useMemo(() => (term ? buildScopeRows(term.scope, seasonLine) : []), [term, seasonLine]);
+  const scopeBase = useMemo(() => (term ? buildScopeRows(term.scope, seasonLine, calendar.entries ?? []) : []), [term, seasonLine, calendar.entries]);
   const ratesBase = useMemo(() => (term ? toRateRows(term.rates) : []), [term]);
   const paymentsBase = useMemo(() => (term ? linesFromBilling(term.billingMonths) : []), [term]);
   const paymentRows = payments ?? paymentsBase;
@@ -108,7 +111,8 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const paymentsDirty = editingPanel === "billing" && (mode !== storedMode || (mode === "pattern"
     ? !!payments && paymentsFingerprint(payments) !== paymentsFingerprint(paymentsBase)
     : !!explicit && !!explicitBase && (explicitFingerprint(explicit) !== explicitFingerprint(explicitBase) || explicit.allowPreStart)));
-  const scopeDirty = editingPanel === "scope" && !!scope && JSON.stringify(scope) !== JSON.stringify(scopeBase);
+  const scopeDirty = editingPanel === "scope" && (scopeBase.some(r => r.implicitDefault) ||
+    !!scope && JSON.stringify(scope) !== JSON.stringify(scopeBase));
   const ratesDirty = editingPanel === "rates" && !!rates && ratesFingerprint(rates) !== ratesFingerprint(ratesBase);
   // Only the open panel's own field keys are ever patched.
   const panelFields = useMemo(() => (fields && (editingPanel === "billing" || editingPanel === "details") ? pick(fields, PANEL_FIELD_KEYS[editingPanel]) : null), [fields, editingPanel]);
@@ -208,6 +212,9 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   async function save(): Promise<boolean> {
     if (!term || !editingPanel) return true;
     const panel = editingPanel;
+    if (panel === "scope" && seasonLine !== "snow" && !calendar.entries) {
+      setErrors({ validation: translate(calendar.isError ? "sc22.calendarError" : "sc22.calendarLoading") }); return false;
+    }
     if (!dirty) { resetEdits(); return true; }
     const billing = panel === "billing";
     const effFlat = seasonLine !== "landscape" && (fields?.snowPricing ?? term.snowPricing) === "flat_rate";
@@ -556,13 +563,17 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
         </Panel>
 
         <Panel id="scope" title="Scope" meta={`${scopeCount} service${scopeCount === 1 ? "" : "s"}`} {...editProps("scope")}>
+          {seasonLine !== "snow" && <ScopeCalendarState loading={!calendar.entries && !calendar.isError} error={calendar.isError}
+            empty={calendar.entries?.length === 0} retry={() => void calendar.refetch()} />}
           {editingPanel === "scope" ? (
             <div className="space-y-3 overflow-x-auto">
               {/* Snow triggers belong to Contract details; the scope panel shows them read-only. */}
-              <ScopeEditor line={seasonLine} rows={scopeRows} editing onChange={setScope} snowTriggers={term.snowTriggers ?? null} onSnowTriggers={() => undefined} hideSnowTriggers />
+              <fieldset disabled={seasonLine !== "snow" && !calendar.entries}>
+              <ScopeEditor calendar={calendar.entries ?? []} line={seasonLine} rows={scopeRows} editing onChange={setScope} snowTriggers={term.snowTriggers ?? null} onSnowTriggers={() => undefined} hideSnowTriggers />
+              </fieldset>
               {editBar("scope", scopeDirty)}
             </div>
-          ) : <ScopeSummary key={term.id} rows={scopeBase} />}
+          ) : <ScopeSummary key={term.id} rows={scopeBase} calendar={calendar.entries ?? []} />}
         </Panel>
 
         <Panel id="rates" title="Rates" meta={translate("contractRates.count", { count: term.rates.length })} {...editProps("rates")}>
@@ -589,12 +600,15 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
 
 export default function ContractPage({ initialHash }: { initialHash?: string } = {}) {
   const { id } = useParams<{ id: string }>();
-  const detailQ = useQuery<ContractDetail>({ queryKey: [LIST_KEY, id], retry: false, staleTime: 30_000, refetchOnWindowFocus: true });
+  const { user } = useAuth();
+  const companyId = user?.activeCompanyId;
+  const detailQ = useQuery<ContractDetail>({ queryKey: [LIST_KEY, id, companyId, user?.id], retry: false, staleTime: 30_000, refetchOnWindowFocus: true,
+    queryFn: async () => (await apiRequest("GET", `${LIST_KEY}/${id}`, undefined, { headers: { "X-Company-Id": companyId ?? "" } })).json() });
   const notFound = detailQ.isError && errorStatus(detailQ.error) === 404;
   const legacyQ = useQuery<{ agreementId: string }>({ queryKey: [`${LIST_KEY}/by-legacy`, id], enabled: notFound, retry: false });
 
   if (detailQ.isLoading || (notFound && legacyQ.isLoading)) return <div className="space-y-3" data-testid="loading-contract"><Skeleton className="h-8 w-72" /><Skeleton className="h-24 w-full" /><Skeleton className="h-64 w-full" /></div>;
-  if (detailQ.data) return <ContractView key={detailQ.data.id} detail={detailQ.data} initialHash={initialHash ?? (typeof window !== "undefined" ? window.location.hash : "")} />;
+  if (detailQ.data) return <ContractView key={`${companyId}:${detailQ.data.id}`} detail={detailQ.data} initialHash={initialHash ?? (typeof window !== "undefined" ? window.location.hash : "")} />;
   if (notFound && legacyQ.data?.agreementId) return <Redirect to={`/dashboard/contracts/${legacyQ.data.agreementId}`} replace />;
   const uncopied = notFound && legacyQ.isError && errorStatus(legacyQ.error) === 404;
   if (uncopied) {

@@ -33,7 +33,11 @@ export async function snapshotEstimateLine(tx: AppTransaction, companyId: string
       const context = await loadEstimateRateContext(companyId, customerId, tx);
       const rate = await resolveEstimateRate(companyId, customerId, input.rateKey, context);
       if (rate.source === "unset") throw new EstimateError(422, "RATE_UNSET");
-      return { rateKey: input.rateKey, termId: rate.termId ?? null, name: rate.label, detail: rate.priceText, unit: canonicalEstimateUnit(rate.unit ?? "HR"),
+      // Standard/contract labor rate cards intentionally retain "per hour".
+      // Convert that known label only at the estimate snapshot boundary; do not
+      // rewrite the rate card or accept arbitrary unmapped commercial units.
+      const unit = rate.unit?.trim().toLowerCase() === "per hour" ? "HR" : canonicalEstimateUnit(rate.unit ?? "HR");
+      return { rateKey: input.rateKey, termId: rate.termId ?? null, name: rate.label, detail: rate.priceText, unit,
         unitPriceCents: rate.rateCents ?? 0, unitCostCents: null, priceSource: rate.source,
         umbrellaKey: context.card.find(c => c.rateKey === input.rateKey)?.line === "irrigation" ? "irrigation_labor" : "landscape_labor" };
     }

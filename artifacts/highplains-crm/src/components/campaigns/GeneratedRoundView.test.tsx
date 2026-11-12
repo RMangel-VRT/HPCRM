@@ -38,6 +38,16 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("generated crew list interactions", () => {
+  it("uses the actual round response for omissions and renewal status", () => {
+    state.data!.nonmembers = [{propertyId: "excluded", propertyName: "Excluded HOA", termId: "e", seasonLabel: "2027",
+      reason: "not_renewing", nonRenewalOn: "2027-09-30"}];
+    state.data!.items[0].contractState = {state: "owed", agreementId: "a", termId: "t", renewalPending: true};
+    mount();
+    expect(screen.getByText("Not on this round (1)")).toBeTruthy();
+    fireEvent.click(screen.getByText("Not on this round (1)"));
+    expect(screen.getByText("Excluded HOA")).toBeTruthy();
+    expect(screen.getByText("Renewal not entered")).toBeTruthy();
+  });
   it("does not offer Start round for annual checklists", () => {
     state.data!.campaign.serviceKey = "backflow";
     mount();

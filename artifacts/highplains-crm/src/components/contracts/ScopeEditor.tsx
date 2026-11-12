@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { SCOPE_CATALOG } from "@/shared/contractCatalog";
 import { MONTH_LETTERS } from "./contractFormat";
 import type { AgreementLine, TermScopeRow } from "./contractTypes";
+import { inStandardPackage, standardRoundCount, type PackageCalendarEntry } from "@workspace/api-zod/contractScope";
 
 export const DEFAULT_SNOW_TRIGGERS = "Two inches (2\u201D) on sidewalks and steps & Four inches (4\u201D) on streets and drives";
 
@@ -14,23 +15,26 @@ export interface ScopeRow {
   serviceKey: string; label: string; line: "landscape" | "irrigation" | "snow"; wordModule: string | null;
   included: boolean; quantity: number | null; unit: string | null; monthSpread: number[] | null;
   existed: boolean; details: Record<string, unknown>; priceCents: number | null; notes: string | null;
+  implicitDefault?: boolean; packageService?: boolean;
 }
 
 const linesFor = (line: AgreementLine): ScopeRow["line"][] =>
   line === "snow" ? ["snow"] : line === "landscape" ? ["landscape", "irrigation"] : ["landscape", "irrigation", "snow"];
 const GROUP_LABEL: Record<ScopeRow["line"], string> = { landscape: "Landscape", irrigation: "Irrigation", snow: "Snow" };
 
-export function buildScopeRows(server: TermScopeRow[], line: AgreementLine): ScopeRow[] {
+export function buildScopeRows(server: TermScopeRow[], line: AgreementLine, calendar: readonly PackageCalendarEntry[] = []): ScopeRow[] {
   const allowed = linesFor(line);
   const byKey = new Map(server.map(r => [r.serviceKey, r]));
   const rows: ScopeRow[] = [];
   for (const c of SCOPE_CATALOG) {
     if (!allowed.includes(c.line)) continue;
     const s = byKey.get(c.key);
+    const packageService = inStandardPackage(c, calendar);
     rows.push({
       serviceKey: c.key, label: c.label, line: c.line, wordModule: c.wordModule, existed: !!s,
-      included: s ? s.included : false, quantity: s ? s.quantity : c.defaultQuantity, unit: s ? s.unit : c.unit,
-      monthSpread: s ? s.monthSpread : c.defaultMonthSpread, details: s?.details ?? {}, priceCents: s?.priceCents ?? null, notes: s?.notes ?? null,
+      included: s ? s.included : packageService, quantity: s ? s.quantity : calendarTimed(c.key) ? null : c.defaultQuantity, unit: s ? s.unit : c.unit,
+      monthSpread: s ? s.monthSpread : calendarTimed(c.key) ? null : c.defaultMonthSpread, details: s?.details ?? {}, priceCents: s?.priceCents ?? null, notes: s?.notes ?? null,
+      implicitDefault: !s && packageService, packageService,
     });
   }
   for (const s of server) {
@@ -60,10 +64,19 @@ export const scopeProblems = (rows: ScopeRow[]) => rows.filter(r => spreadProble
 
 /** PUT body: included rows plus any row already stored for the term (so switching off is recorded). */
 export function scopePayload(rows: ScopeRow[]) {
-  return rows.filter(r => r.included || r.existed).map(r => ({
+  return rows.filter(r => r.included || r.existed || r.implicitDefault || r.packageService).map(r => ({
     serviceKey: r.serviceKey, included: r.included, quantity: r.quantity, unit: r.unit, monthSpread: r.monthSpread,
-    details: r.details, priceCents: r.priceCents, notes: r.notes,
+    details: { ...r.details, billing: r.details.billing === "billed_when_done" ? "billed_when_done" : "included" },
+    priceCents: r.priceCents, notes: r.notes,
   }));
+}
+
+/** Only a single dollar amount is numeric. Free-form billing text clears stale cents. */
+export function billingPriceCents(text: string): number | null {
+  const value = text.trim();
+  if (!/^\$?\s*(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(value)) return null;
+  const cents = Math.round(Number(value.replace(/[$,\s]/g, "")) * 100);
+  return Number.isSafeInteger(cents) && cents <= 2147483647 ? cents : null;
 }
 
 /** Legacy services stay readable on seasons that already have them, but new lines can't add them. */
@@ -91,6 +104,7 @@ export function ScopeEditor(props: {
   snowTriggers: string | null; onSnowTriggers: (value: string) => void;
   /** Hide the snow-triggers field (edited from Contract details instead). */
   hideSnowTriggers?: boolean;
+  calendar?: readonly PackageCalendarEntry[];
 }) {
   const { t } = useTranslation();
   const { rows, editing, onChange } = props;
@@ -134,6 +148,9 @@ export function ScopeEditor(props: {
                 const problem = spreadProblem(r);
                 const legacy = isLegacyService(r.serviceKey) && r.existed;
                 const staged = split && (r.serviceKey === "fertilization" || r.serviceKey === "broadleaf") && r.included;
+                const timed = calendarTimed(r.serviceKey);
+                const standard = t("sc22.standard", { count: standardRoundCount(r.serviceKey, props.calendar ?? []) });
+                const differs = (r.packageService && !r.included) || (calendarTimed(r.serviceKey) && r.quantity !== null);
                 return (
                   <div key={r.serviceKey} className="p-3 space-y-2" data-testid={`scope-row-${r.serviceKey}`}>
                     <div className="flex flex-wrap items-center gap-3">
@@ -148,15 +165,44 @@ export function ScopeEditor(props: {
                       {editing ? (
                         <div className="flex items-center gap-1">
                           <Input type="number" min={0} step={1} className="w-20 h-8" value={r.quantity ?? ""}
+                            placeholder={timed ? standard : undefined}
                             aria-label={`${r.label} quantity`} data-testid={`input-qty-${r.serviceKey}`}
                             onChange={e => patch(r.serviceKey, { quantity: e.target.value === "" ? null : Math.max(0, Math.trunc(Number(e.target.value))) })} />
+                          {timed && <Button type="button" size="sm" variant="outline" onClick={() => patch(r.serviceKey, { quantity: null })}>{standard}</Button>}
                           <Input className="w-24 h-8" value={r.unit ?? ""} placeholder="unit" aria-label={`${r.label} unit`}
                             onChange={e => patch(r.serviceKey, { unit: e.target.value || null })} />
                         </div>
                       ) : (
-                        <span className="text-sm tabular-nums">{r.quantity ?? "\u2014"} {r.unit ?? ""}</span>
+                        <span className="text-sm tabular-nums">{r.quantity ?? (timed ? standard : "\u2014")} {r.unit ?? ""}</span>
                       )}
                     </div>
+                    {r.implicitDefault && r.included && <p className="text-xs text-muted-foreground">{standard} · {t("sc22.default")}</p>}
+                    {differs && <p className="text-xs text-muted-foreground">{t("sc22.differs")}</p>}
+                    {editing ? <div className="flex flex-wrap gap-2">
+                      <label className="text-xs">{t("sc22.billing")}
+                        <select className="block h-8 rounded border bg-background px-2" aria-label={`${r.label} billing`}
+                          value={r.details.billing === "billed_when_done" ? "billed_when_done" : "included"}
+                          onChange={e => patch(r.serviceKey, { details: { ...r.details, billing: e.target.value } })}>
+                          <option value="included">{t("sc22.included")}</option>
+                          <option value="billed_when_done">{t("sc22.billed")}</option>
+                        </select>
+                      </label>
+                      <label className="text-xs">{t("sc22.price")}
+                        <Input className="h-8" aria-label={`${r.label} price`}
+                          value={typeof r.details.billingPrice === "string" ? r.details.billingPrice : r.priceCents == null ? "" : (r.priceCents / 100).toFixed(2)}
+                          onChange={e => patch(r.serviceKey, { details: { ...r.details, billingPrice: e.target.value },
+                            priceCents: billingPriceCents(e.target.value) })} />
+                      </label>
+                      <label className="text-xs flex-1">{t("sc22.notes")}
+                        <Input className="h-8" aria-label={`${r.label} notes`} value={r.notes ?? ""}
+                          placeholder={differs ? t("sc22.notesPrompt") : undefined}
+                          onChange={e => patch(r.serviceKey, { notes: e.target.value || null })} />
+                      </label>
+                    </div> : <p className="text-xs text-muted-foreground">
+                      {t(r.details.billing === "billed_when_done" ? "sc22.billed" : "sc22.included")}
+                      {r.details.billingPrice ? ` · ${r.details.billingPrice}` : r.priceCents != null ? ` · $${(r.priceCents / 100).toFixed(2)}` : ""}
+                      {r.notes ? ` · ${r.notes}` : ""}
+                    </p>}
                     {r.included && calendarTimed(r.serviceKey) && (
                       <p className="text-xs text-muted-foreground" data-testid={`note-calendar-timing-${r.serviceKey}`}>
                         {t("sc2.scopeTimingHint", { defaultValue: "The Service calendar supplies round timing. Stored months do not affect rounds and do not need to match the count." })}

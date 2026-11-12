@@ -9,14 +9,18 @@ export function serviceFixture(): ServiceFulfillmentInputs {
     customers: [{ id: "p", companyId: "c", name: "Property", parentCustomerId: null, isParent: "false", accountManagerId: "other-manager" }],
     agreements: [{ id: "a", companyId: "c", customerId: "p" }],
     terms: [{ id: "t", agreementId: "a", companyId: "c", line: "landscape", status: "signed",
-      startDate: "2026-10-01", endDate: "2027-09-30", seasonLabel: "2026–27" }],
+      startDate: "2026-10-01", endDate: "2027-09-30", nonRenewalOn: "2027-09-30", seasonLabel: "2026–27" }],
     scope: [{ id: "s", companyId: "c", termId: "t", serviceKey: "fertilization", included: true, quantity: 3, monthSpread: null }],
     calendar: STARTING_SERVICE_CALENDAR.map((e, i) => ({...e, id: `entry-${i}`})),
     campaigns: [], items: [], stops: [], visits: [],
   } as unknown as ServiceFulfillmentInputs;
 }
 function materialize(data: ServiceFulfillmentInputs, states = ["completed", "skipped", "pending"]) {
-  const rounds = [2026, 2027].flatMap(y => campaignDemand(data, y, "2027-07-01").rounds);
+  // These history regressions materialize the explicitly tested service only;
+  // implicit package and pending-renewal parity have separate SC2.2 checks.
+  const keys = new Set(data.scope?.map(s => s.serviceKey));
+  const rounds = [2026, 2027].flatMap(y => campaignDemand(data, y, "2027-07-01").rounds)
+    .filter(r => keys.has(r.serviceKey) && r.members.some(m => m.termId === "t"));
   rounds.forEach((r, n) => {
     data.campaigns.push({ id: `r${n}`, companyId: "c", source: "contract", serviceKey: r.serviceKey,
       calendarEntryId: r.calendarEntryId, roundYear: r.roundYear, windowStart: r.opens,
@@ -44,7 +48,7 @@ describe("season service fulfillment", () => {
     const result = calculate(data, "p", "t", "2026-11-11")!;
     for (const row of result.rows) {
       const expected = [2026, 2027].flatMap(year => campaignDemand(data, year, "2026-11-11").rounds)
-        .filter(r => r.serviceKey === row.serviceKey);
+        .filter(r => r.serviceKey === row.serviceKey && r.members.some(m => m.termId === "t"));
       expect(row.owed).toBe(expected.length);
       expect(row.rounds.map(r => r.windowEnd)).toEqual(expected.map(r => r.due));
     }
@@ -145,7 +149,8 @@ describe("season service fulfillment", () => {
     data.terms.push({ ...data.terms[0], id: "own", agreementId: "own" });
     data.scope!.push({ ...data.scope![0], termId: "own", included: false });
     expect(result(data).selectedTerm!.termId).toBe("own");
-    expect(result(data).rows).toEqual([]);
+    expect(result(data).rows.find(r => r.serviceKey === "fertilization")).toBeUndefined();
+    expect(result(data).rows.some(r => r.serviceKey === "cleanups" && r.owed! > 0)).toBe(true);
     expect(calculate(data, "p", "t", "2027-07-01")!.rows[0].owed).toBe(0);
   });
   it("selects current then upcoming then previous, rejects foreign/unrelated/ineligible seasons", () => {
@@ -186,7 +191,9 @@ describe("season service fulfillment", () => {
   });
   it("includes all intersecting years in a longer season without multiplying stated quantity", () => {
     const data = serviceFixture(); data.terms[0].endDate = "2028-09-30";
-    const expected = [2026, 2027, 2028].flatMap(y => campaignDemand(data, y, "2027-07-01").rounds);
+    data.terms[0].nonRenewalOn = "2028-09-30";
+    const expected = [2026, 2027, 2028].flatMap(y => campaignDemand(data, y, "2027-07-01").rounds)
+      .filter(r => r.serviceKey === "fertilization" && r.members.length);
     expect(result(data).rows[0].owed).toBe(expected.length);
     expect(result(data).rows[0].owed).toBe(6);
   });

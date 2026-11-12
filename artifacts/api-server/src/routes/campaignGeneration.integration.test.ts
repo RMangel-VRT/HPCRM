@@ -82,6 +82,7 @@ describe("CG2 disposable development fixtures: rollback, generation and authoriz
   });
   it("previews first-N calendar clean-ups, validates fulfillment and observes stable-ID reorder without saving work", async () => {
     await db.delete(termScopeLines).where(eq(termScopeLines.termId, term));
+    await db.delete(serviceCalendar).where(eq(serviceCalendar.companyId, a));
     await db.insert(serviceCalendar).values(STARTING_SERVICE_CALENDAR.filter(e => e.serviceKey === "cleanups")
       .map(e => ({...e, companyId: a, inStandard: e.position !== 1})));
     const storedMonths = [0,0,1,0,0,0,0,0,0,0,2,0];
@@ -94,7 +95,12 @@ describe("CG2 disposable development fixtures: rollback, generation and authoriz
     expect(saved.status).toBe(200);
     const [line] = await db.select().from(termScopeLines).where(eq(termScopeLines.termId, term));
     expect(line).toMatchObject({quantity: 2, monthSpread: storedMonths});
-    const preview = () => runCampaignGeneration(a, year, {...opts, dryRun: true});
+    // This predecessor test compares owed allocation. SC2.2 separately verifies
+    // explanation-only rounds, which do not create campaigns.
+    const preview = async () => {
+      const report = await runCampaignGeneration(a, year, {...opts, dryRun: true});
+      return {...report, rounds: report.rounds.filter(r => r.members.length)};
+    };
     const first = await preview();
     expect(first.rounds.map(r => r.title)).toEqual([`${year} Spring clean-up`, `${year} Fall leaf clean-up 1`]);
     expect(first.gaps).toEqual([]);
@@ -223,6 +229,7 @@ describe("CG2 disposable development fixtures: rollback, generation and authoriz
     }
   });
   it("creates general/irrigation identities and sequences multiple rounds in one month", async () => {
+    await db.delete(serviceCalendar).where(eq(serviceCalendar.companyId, a));
     await db.delete(termScopeLines).where(eq(termScopeLines.termId, term));
     for (const serviceKey of ["aeration", "irrigation_open", "irrigation_winterization"]) {
       await db.insert(serviceCalendar).values([1, 2].map(position => ({companyId: a, serviceKey, kind: "round", position,
