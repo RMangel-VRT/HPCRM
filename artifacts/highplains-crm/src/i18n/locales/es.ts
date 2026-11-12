@@ -607,7 +607,7 @@ const es = {
       palette: "Incluir {{name}} en la paleta", remove: "Quitar {{name}}", moveUp: "Subir {{name}}", moveDown: "Bajar {{name}}",
       moveTo: "Mover {{name}} a sección", moveToLabel: "Mover a sección…", extended: "Extendido",
     },
-    unit: { hour: "hora", day: "día", week: "semana", ea: "c/u", flat: "fijo", "sq ft": "pie²", "1,000 sq ft": "1,000 pie²", "lin ft": "pie lineal", visit: "visita", "cu yd": "yd³", ton: "tonelada" },
+    unit: { SF: "PIE²", LF: "PIE L.", "1,000 SF": "1,000 PIE²", HR: "HR", DAY: "DÍA", WEEK: "SEMANA", EA: "C/U", FLAT: "FIJO", GAL: "GAL", "CU. YD": "YD³", LB: "LB", BAG: "BOLSA", TON: "TON", "IN. DBH": "PULG. DAP" },
     addBar: "Agregar:", addLine: "Agregar línea",
     header: { badge: "Estimado {{number}}", changeOrder: "Orden de cambio", customer: "Cliente", ticket: "Ticket", rates: "Tarifas", total: "Total", frozen: "(congelado)", sent: "Enviado", accepted: "Aceptado", created: "Creado", by: "por {{name}}", po: "OC {{po}}", notLinked: "Sin vincular" },
     pdf: { preview: "Vista previa PDF", title: "{{number}} · v{{n}}", desc: "Documento para el cliente de la versión que está viendo.", draftHint: "Borrador — el PDF lleva la marca BORRADOR.", loading: "Cargando PDF", error: "No se pudo cargar el PDF.", frame: "Vista previa PDF de {{number}}", download: "Descargar", open: "Abrir en pestaña nueva", close: "Cerrar" },

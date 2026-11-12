@@ -1,4 +1,5 @@
 import { dollarsToCents, parseCsv } from "./csv";
+import { normalizeEstimateUnit } from "../../../../lib/db/src/estimateUnits";
 import type { IrrigationCatalogItem, IrrigationSkip } from "@workspace/db";
 
 export type IrrigationWrite = Pick<IrrigationCatalogItem, "externalSku" | "name" | "category" | "description" | "material" | "size" | "brand" | "fittingType" | "detail" | "unit" | "wholesaleCostCents" | "retailPriceCents" | "isActive">;
@@ -38,11 +39,13 @@ export function parseIrrigationCsv(text: string) {
       const active = (row.isactive ?? row.active ?? "").toLowerCase();
       if (!["", "true", "false", "1", "0", "yes", "no"].includes(active)) throw new Error("Active must be true/false, yes/no or 1/0");
       const optional = (name: string) => row[name] || null;
+      const unit = normalizeEstimateUnit(row.unit || "EA");
+      if (!unit) throw new Error(`Invalid unit: ${row.unit}`);
       rows.push({
         externalSku: sku, name: row.name, category: row.category || "Misc",
         description: optional("description"), material: optional("material"), size: optional("size"),
         brand: optional("brand"), fittingType: optional("fittingtype"), detail: optional("detail"),
-        unit: row.unit || "ea", wholesaleCostCents: dollarsToCents(row.cost ?? ""),
+        unit, wholesaleCostCents: dollarsToCents(row.cost ?? ""),
         retailPriceCents: dollarsToCents(row.price), isActive: !["false", "0", "no"].includes(active),
       });
     } catch (error) { skippedRows.push({ line: record.line, reason: (error as Error).message }); }

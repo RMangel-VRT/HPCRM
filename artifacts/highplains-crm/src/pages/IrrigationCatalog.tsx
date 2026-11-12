@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { unitLabel } from "@/lib/estimateUnits";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ShieldAlert, ChevronDown, ChevronRight, FileSpreadsheet, Lock, Search, Upload } from "lucide-react";
@@ -377,7 +378,7 @@ function IrrigationCatalogContent() {
                       <TableCell className="font-mono text-xs" data-testid={`text-sku-${it.id}`}>{it.externalSku}</TableCell>
                       <TableCell><span className="rounded bg-muted px-1.5 py-0.5 text-xs">{it.category}</span></TableCell>
                       <TableCell className="text-xs" data-testid={`text-spec-${it.id}`}>{condensedSpec(it)}</TableCell>
-                      <TableCell className="text-xs">{it.unit}</TableCell>
+                      <TableCell className="text-xs">{unitLabel(it.unit, t)}</TableCell>
                       <TableCell className="text-right tabular-nums" data-testid={`text-cost-${it.id}`}>{formatCents(it.wholesaleCostCents, lang)}</TableCell>
                       <TableCell className="text-right font-medium tabular-nums" data-testid={`text-price-${it.id}`}>{formatCents(it.retailPriceCents, lang)}</TableCell>
                     </TableRow>

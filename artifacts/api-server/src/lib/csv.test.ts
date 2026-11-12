@@ -32,7 +32,7 @@ describe("hardscape CSV contracts", () => {
     }
     expect(parseHardscapeCsv(`\uFEFF${header.toUpperCase()}`)).toEqual([]);
     expect(parseHardscapeCsv("active,retail_price,wholesale_cost,unit,description,name,category,sku\ntrue,,,ea,,Rock,general,")).toEqual([
-      { line: 2, data: { sku: null, name: "Rock", category: "general", description: null, unit: "ea", wholesaleCostCents: null, retailPriceCents: null, isActive: true } },
+      { line: 2, data: { sku: null, name: "Rock", category: "general", description: null, unit: "EA", wholesaleCostCents: null, retailPriceCents: null, isActive: true } },
     ]);
   });
   it("normalizes keys, preserves quoted descriptions and skips invalid values with physical line numbers", async () => {
@@ -63,7 +63,7 @@ describe("hardscape CSV contracts", () => {
   it("round-trips every field including null vs zero, quotes, multiline text and inactive state", async () => {
     const item = {
       id: "id", companyId: "company", sku: null, name: 'Rock, "large"', category: "general",
-      description: " first line\nsecond ", unit: "ea", wholesaleCostCents: null, retailPriceCents: 0,
+      description: " first line\nsecond ", unit: "EA", wholesaleCostCents: null, retailPriceCents: 0,
       isActive: false, umbrellaKey: "landscape_materials", createdAt: new Date(), updatedAt: new Date(),
     } satisfies HardscapeCatalogItem;
     const csv = exportHardscapeCsv([item]);
@@ -79,7 +79,7 @@ describe("hardscape CSV contracts", () => {
     expect(patchHardscapeBody.parse({ name: "Renamed", sku: "", description: null, wholesaleCostCents: null })).toEqual({
       name: "Renamed", sku: null, description: null, wholesaleCostCents: null,
     });
-    expect(createHardscapeBody.parse({ name: "Stone", category: "general" })).toEqual({ name: "Stone", category: "general", unit: "ea", isActive: true });
+    expect(createHardscapeBody.parse({ name: "Stone", category: "general" })).toEqual({ name: "Stone", category: "general", unit: "EA", isActive: true });
     for (const body of [{ companyId: "foreign" }, { umbrellaKey: "other" }, { wholesaleCostCents: -1 }, { retailPriceCents: 0.5 }, { category: " " }]) {
       expect(patchHardscapeBody.safeParse(body).success).toBe(false);
     }

@@ -43,14 +43,18 @@ describe("categorized estimate services", () => {
   it("creates company defaults transactionally, reruns migration and initialization without resetting edits", async () => {
     const seeded = await estimateCategoryCatalog.list(a);
     expect(seeded.map(c => [c.name, c.defaultUmbrellaKey, c.defaultUnit, c.sortOrder])).toEqual([
-      ["General Landscape", "landscape_labor", "1,000 sq ft", 0], ["Chemical Treatments", "landscape_labor", "1,000 sq ft", 1],
+      ["General Landscape", "landscape_labor", "1,000 SF", 0], ["Chemical Treatments", "landscape_labor", "1,000 SF", 1],
     ]);
-    await estimateCategoryCatalog.update(a, seeded[0].id, { defaultUnit: "visit", isActive: false });
+    await estimateCategoryCatalog.update(a, seeded[0].id, { defaultUnit: "FLAT", isActive: false });
     const migration = await readFile(new URL("../../../../.migration-backup/migrations/0078_estimate_services.sql", import.meta.url), "utf8");
-    await db.execute(sql.raw(migration)); await db.execute(sql.raw(migration));
+    const units = await readFile(new URL("../../../../.migration-backup/migrations/0085_estimate_units.sql", import.meta.url), "utf8");
+    // Historical migration remains immutable; the compatibility migration must
+    // precede any new writes after replaying its obsolete narrow check.
+    await db.execute(sql.raw(migration)); await db.execute(sql.raw(units));
+    await db.execute(sql.raw(migration)); await db.execute(sql.raw(units));
     await db.transaction(tx => initializeServiceCategories(tx, a));
     expect(await estimateCategoryCatalog.list(a)).toHaveLength(2);
-    expect((await estimateCategoryCatalog.list(a))[0]).toMatchObject({ id: seeded[0].id, defaultUnit: "visit", isActive: false });
+    expect((await estimateCategoryCatalog.list(a))[0]).toMatchObject({ id: seeded[0].id, defaultUnit: "FLAT", isActive: false });
     expect(await estimateCategoryCatalog.list(b)).toHaveLength(2);
     // A failed duplicate company insert must not produce any extra categories.
     const [company] = await db.select().from(companies).where(eq(companies.id, a));
@@ -74,17 +78,17 @@ describe("categorized estimate services", () => {
   it("validates category CRUD, case-insensitive duplicates, ordering, company scope and PATCH without defaults", async () => {
     const made = await request(appFor(a, "office")).post(categoriesUrl).send({ name: " Precision treatments " });
     expect(made.status).toBe(201);
-    expect(made.body).toMatchObject({ name: "Precision treatments", defaultUnit: "1,000 sq ft", defaultUmbrellaKey: "landscape_labor", isActive: true, itemCount: 0 });
+    expect(made.body).toMatchObject({ name: "Precision treatments", defaultUnit: "1,000 SF", defaultUmbrellaKey: "landscape_labor", isActive: true, itemCount: 0 });
     const url = `${categoriesUrl}/${made.body.id}`;
     const duplicate = await request(appFor()).post(categoriesUrl).send({ name: "PRECISION TREATMENTS" });
     expect(duplicate.status).toBe(409); expect(duplicate.body).toEqual({ message: "A category with this name already exists" });
     expect((await request(appFor(b)).patch(url).send({ name: "Stolen" })).status).toBe(404);
     expect((await request(appFor(b)).post(categoriesUrl).send({ name: "Precision treatments" })).status).toBe(201);
-    const patch = await request(appFor()).patch(url).send({ defaultUnit: "lin ft", defaultUmbrellaKey: "plants", sortOrder: -12, isActive: false });
+    const patch = await request(appFor()).patch(url).send({ defaultUnit: "LF", defaultUmbrellaKey: "plants", sortOrder: -12, isActive: false });
     expect(patch.status).toBe(200);
-    expect(patch.body).toMatchObject({ defaultUnit: "lin ft", defaultUmbrellaKey: "plants", sortOrder: -12, isActive: false });
+    expect(patch.body).toMatchObject({ defaultUnit: "LF", defaultUmbrellaKey: "plants", sortOrder: -12, isActive: false });
     const renamed = await request(appFor()).patch(url).send({ name: "Renamed" });
-    expect(renamed.body).toMatchObject({ defaultUnit: "lin ft", defaultUmbrellaKey: "plants", sortOrder: -12, isActive: false });
+    expect(renamed.body).toMatchObject({ defaultUnit: "LF", defaultUmbrellaKey: "plants", sortOrder: -12, isActive: false });
     expect(patchServiceCategorySchema.parse({ name: "One field" })).toEqual({ name: "One field" });
     expect((await request(appFor()).get(categoriesUrl)).body[0].id).toBe(made.body.id);
     const second = await category();
@@ -95,22 +99,22 @@ describe("categorized estimate services", () => {
     }
   });
   it("defaults from category on the server, honors per-service overrides, joins category state and counts all members", async () => {
-    const cat = await category({ defaultUnit: "visit", defaultUmbrellaKey: "irrigation_labor" });
+    const cat = await category({ defaultUnit: "FLAT", defaultUmbrellaKey: "irrigation_labor" });
     const response = await request(appFor()).post("/api/quick-items").send({ kind: "service", label: randomUUID(), serviceCategoryId: cat.id });
     expect(response.status).toBe(201);
-    expect(response.body).toMatchObject({ defaultUnit: "visit", umbrellaKey: "irrigation_labor", defaultRateCents: null });
-    const other = await estimateQuickCatalog.create(a, item({ kind: "service", serviceCategoryId: cat.id, defaultUnit: "sq ft", umbrellaKey: "fees_surcharges", defaultRateCents: 50, isActive: false }));
-    expect(other).toMatchObject({ defaultUnit: "sq ft", umbrellaKey: "fees_surcharges", isActive: false });
+    expect(response.body).toMatchObject({ defaultUnit: "FLAT", umbrellaKey: "irrigation_labor", defaultRateCents: null });
+    const other = await estimateQuickCatalog.create(a, item({ kind: "service", serviceCategoryId: cat.id, defaultUnit: "SF", umbrellaKey: "fees_surcharges", defaultRateCents: 50, isActive: false }));
+    expect(other).toMatchObject({ defaultUnit: "SF", umbrellaKey: "fees_surcharges", isActive: false });
     const rows = await request(appFor()).get("/api/quick-items?kind=service");
     expect(rows.body.find((r: { id: string }) => r.id === response.body.id)).toMatchObject({ serviceCategoryName: cat.name, serviceCategoryIsActive: true });
     expect((await estimateCategoryCatalog.list(a)).find(c => c.id === cat.id)?.itemCount).toBe(2);
-    await estimateCategoryCatalog.update(a, cat.id, { defaultUnit: "lin ft", defaultUmbrellaKey: "plants", isActive: false });
+    await estimateCategoryCatalog.update(a, cat.id, { defaultUnit: "LF", defaultUmbrellaKey: "plants", isActive: false });
     const retained = (await estimateQuickCatalog.list(a, "service")).find(i => i.id === response.body.id);
-    expect(retained).toMatchObject({ isActive: true, serviceCategoryIsActive: false, defaultUnit: "visit", umbrellaKey: "irrigation_labor" });
+    expect(retained).toMatchObject({ isActive: true, serviceCategoryIsActive: false, defaultUnit: "FLAT", umbrellaKey: "irrigation_labor" });
     expect((await estimateQuickCatalog.update(a, response.body.id, { label: "Retained inactive category" }))?.serviceCategoryId).toBe(cat.id);
     await expect(estimateQuickCatalog.create(a, item({ kind: "service", serviceCategoryId: cat.id }))).rejects.toMatchObject({ status: 400 });
     const active = await category();
-    expect(await estimateQuickCatalog.update(a, response.body.id, { serviceCategoryId: active.id })).toMatchObject({ defaultUnit: "visit", umbrellaKey: "irrigation_labor" });
+    expect(await estimateQuickCatalog.update(a, response.body.id, { serviceCategoryId: active.id })).toMatchObject({ defaultUnit: "FLAT", umbrellaKey: "irrigation_labor" });
     await expect(db.delete(estimateServiceCategories).where(eq(estimateServiceCategories.id, cat.id))).rejects.toMatchObject({ cause: { code: "23503" } });
   });
   it("enforces category/kind on create and merged PATCH, same-company active assignments and cross-kind uniqueness", async () => {
@@ -123,7 +127,7 @@ describe("categorized estimate services", () => {
     }
     const equipment = await estimateQuickCatalog.create(a, item());
     const fee = await estimateQuickCatalog.create(a, item({ kind: "fee" }));
-    expect(equipment).toMatchObject({ defaultUnit: "hour", umbrellaKey: "landscape_labor" });
+    expect(equipment).toMatchObject({ defaultUnit: "HR", umbrellaKey: "landscape_labor" });
     expect(fee.umbrellaKey).toBe("fees_surcharges");
     expect(patchQuickItemSchema.parse({ label: "Only name" })).toEqual({ label: "Only name" });
     await expect(estimateQuickCatalog.update(a, equipment.id, { kind: "service" })).rejects.toMatchObject({ status: 400 });
@@ -155,22 +159,22 @@ describe("categorized estimate services", () => {
     const first = await create({ quickItemId: source.id });
     expect(first.status).toBe(201);
     const snapshot = first.body.version.sections[0].lines[0];
-    expect(snapshot).toMatchObject({ name: "Aeration snapshot", detail: null, unit: "1,000 sq ft", priceSource: "quick_list", quickItemId: source.id, umbrellaKey: "landscape_labor", extendedCents: 2400 });
+    expect(snapshot).toMatchObject({ name: "Aeration snapshot", detail: null, unit: "1,000 SF", priceSource: "quick_list", quickItemId: source.id, umbrellaKey: "landscape_labor", extendedCents: 2400 });
     expect((await create({ quickItemId: other.id })).status).toBe(404);
     expect(createEstimateLineSchema.safeParse({ lineType: "service", sectionId: "s", quantity: "1", quickItemId: "q", unitPriceCents: 100 }).success).toBe(false);
-    const free = await create({ name: "Free service", detail: "Customer visible", unit: "visit", unitPriceCents: 90, umbrellaKey: "irrigation_labor" });
+    const free = await create({ name: "Free service", detail: "Customer visible", unit: "FLAT", unitPriceCents: 90, umbrellaKey: "irrigation_labor" });
     expect(free.status).toBe(201);
-    expect(free.body.version.sections[0].lines.find((l: { name: string }) => l.name === "Free service")).toMatchObject({ priceSource: "manual", quickItemId: null, unit: "visit" });
-    await estimateCategoryCatalog.update(a, cat.id, { defaultUmbrellaKey: "plants", defaultUnit: "hour", isActive: false });
+    expect(free.body.version.sections[0].lines.find((l: { name: string }) => l.name === "Free service")).toMatchObject({ priceSource: "manual", quickItemId: null, unit: "FLAT" });
+    await estimateCategoryCatalog.update(a, cat.id, { defaultUmbrellaKey: "plants", defaultUnit: "HR", isActive: false });
     expect((await create({ quickItemId: source.id })).status).toBe(404);
     await estimateQuickCatalog.update(a, source.id, { label: "Catalog changed", defaultRateCents: 9000 });
     const unchanged = await request(appFor()).get(`/api/estimates/${d.id}`);
     expect(unchanged.body.version.sections[0].lines.find((l: { id: string }) => l.id === snapshot.id)).toMatchObject(snapshot);
-    const edited = await request(appFor()).patch(`${path}/lines/${snapshot.id}`).send({ name: "Manual name", detail: "Manual detail", unit: "lin ft", umbrellaKey: "fees_surcharges" });
+    const edited = await request(appFor()).patch(`${path}/lines/${snapshot.id}`).send({ name: "Manual name", detail: "Manual detail", unit: "LF", umbrellaKey: "fees_surcharges" });
     expect(edited.status).toBe(200);
-    expect(edited.body.version.sections[0].lines.find((l: { id: string }) => l.id === snapshot.id)).toMatchObject({ name: "Manual name", detail: "Manual detail", unit: "lin ft", umbrellaKey: "fees_surcharges", priceSource: "quick_list" });
+    expect(edited.body.version.sections[0].lines.find((l: { id: string }) => l.id === snapshot.id)).toMatchObject({ name: "Manual name", detail: "Manual detail", unit: "LF", umbrellaKey: "fees_surcharges", priceSource: "quick_list" });
     await db.update(estimateVersions).set({ status: "sent" }).where(eq(estimateVersions.id, d.version.id));
-    expect((await create({ name: "Locked", unit: "visit", unitPriceCents: 1, umbrellaKey: "landscape_labor" })).status).toBe(409);
+    expect((await create({ name: "Locked", unit: "FLAT", unitPriceCents: 1, umbrellaKey: "landscape_labor" })).status).toBe(409);
     expect((await request(appFor()).patch(`${path}/lines/${snapshot.id}`).send({ name: "Locked" })).status).toBe(409);
     await db.update(estimateVersions).set({ status: "draft" }).where(eq(estimateVersions.id, d.version.id));
     await db.update(estimates).set({ voidedAt: new Date() }).where(eq(estimates.id, d.id));

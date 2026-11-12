@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, char, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { ESTIMATE_UNITS } from "../estimateUnits";
 import { isCalendarDate } from "./calendarDate";
 import { NON_RENEWAL_REASONS } from "../contractNonRenewal";
 import { estimates, estimateVersions } from "./estimates";
@@ -149,7 +150,7 @@ export const hardscapeCatalogItems = pgTable("hardscape_catalog_items", {
   category: text("category").notNull(),
   name: text("name").notNull(),
   description: text("description"),
-  unit: text("unit").notNull().default("ea"),
+  unit: text("unit").notNull().default("EA"),
   wholesaleCostCents: integer("wholesale_cost_cents"),
   retailPriceCents: integer("retail_price_cents"),
   umbrellaKey: text("umbrella_key").notNull().default("landscape_materials"),
@@ -172,7 +173,7 @@ export const hardscapeCatalogFields = {
   category: z.string().trim().min(1),
   name: z.string().trim().min(1),
   description: z.string().transform(value => value === "" ? null : value).nullable().optional(),
-  unit: z.string().trim().min(1),
+  unit: z.enum(ESTIMATE_UNITS),
   wholesaleCostCents: z.number().int().min(0).max(2147483647).nullable().optional(),
   retailPriceCents: z.number().int().min(0).max(2147483647).nullable().optional(),
   isActive: z.boolean(),
@@ -180,7 +181,7 @@ export const hardscapeCatalogFields = {
 export const insertHardscapeCatalogItemSchema = z.object({
   ...hardscapeCatalogFields,
   companyId: z.string().min(1),
-  unit: hardscapeCatalogFields.unit.default("ea"),
+  unit: hardscapeCatalogFields.unit.default("EA"),
   isActive: hardscapeCatalogFields.isActive.default(true),
 });
 export type InsertHardscapeCatalogItem = z.infer<typeof insertHardscapeCatalogItemSchema>;

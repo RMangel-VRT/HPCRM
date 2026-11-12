@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { unitLabel, normalizeEstimateUnit } from "@/lib/estimateUnits";
 import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -44,9 +45,9 @@ type FormErrors = Partial<Record<"category" | "name" | "unit" | "cost" | "price"
 
 function toForm(item: HardscapeCatalogItem | null): FormState {
   return item
-    ? { sku: item.sku ?? "", category: item.category, name: item.name, description: item.description ?? "", unit: item.unit,
+    ? { sku: item.sku ?? "", category: item.category, name: item.name, description: item.description ?? "", unit: normalizeEstimateUnit(item.unit) ?? "",
         cost: centsToInput(item.wholesaleCostCents), price: centsToInput(item.retailPriceCents), isActive: item.isActive }
-    : { sku: "", category: "general", name: "", description: "", unit: "ea", cost: "", price: "", isActive: true };
+    : { sku: "", category: "general", name: "", description: "", unit: "EA", cost: "", price: "", isActive: true };
 }
 
 function ItemDialog(props: {
@@ -97,7 +98,7 @@ function ItemDialog(props: {
     const category = form.category.trim(), name = form.name.trim(), unit = form.unit.trim();
     if (!category) errs.category = t("hardscapeCatalog.err.required");
     if (!name) errs.name = t("hardscapeCatalog.err.required");
-    if (!unit) errs.unit = t("hardscapeCatalog.err.required");
+    if (!(SUGGESTED_UNITS as readonly string[]).includes(unit)) errs.unit = t("hardscapeCatalog.err.required");
     const cost = parseDollarsToCents(form.cost), price = parseDollarsToCents(form.price);
     if (cost === "invalid") errs.cost = t("hardscapeCatalog.err.dollars");
     if (cost === "tooLarge") errs.cost = t("hardscapeCatalog.err.tooLarge");
@@ -165,8 +166,10 @@ function ItemDialog(props: {
             </div>
             <div className="grid content-start gap-1.5">
               <Label htmlFor="hc-unit">{t("hardscapeCatalog.field.unit")}</Label>
-              <Input id="hc-unit" list="hc-unit-options" autoComplete="off" value={form.unit} onChange={(e) => set("unit")(e.target.value)} aria-invalid={!!errors.unit} data-testid="input-unit" />
-              <datalist id="hc-unit-options">{SUGGESTED_UNITS.map((u) => <option key={u} value={u} />)}</datalist>
+              {item && !normalizeEstimateUnit(item.unit) && <p className="text-sm text-destructive">{unitLabel(item.unit, t)}</p>}
+              <select id="hc-unit" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.unit} onChange={(e) => set("unit")(e.target.value)} aria-invalid={!!errors.unit} data-testid="input-unit">
+                {SUGGESTED_UNITS.map(u => <option key={u} value={u}>{unitLabel(u, t)}</option>)}
+              </select>
               {fieldErr("unit")}
             </div>
           </div>
@@ -458,7 +461,7 @@ function HardscapeCatalogContent() {
                       </TableCell>
                       <TableCell className="font-mono text-xs">{it.sku ?? ""}</TableCell>
                       <TableCell><span className="rounded bg-muted px-1.5 py-0.5 text-xs">{it.category}</span></TableCell>
-                      <TableCell className="text-xs">{it.unit}</TableCell>
+                      <TableCell className="text-xs">{unitLabel(it.unit, t)}</TableCell>
                       <TableCell className="text-right tabular-nums" data-testid={`text-cost-${it.id}`}>{formatCents(it.wholesaleCostCents, lang)}</TableCell>
                       <TableCell className="text-right font-medium tabular-nums" data-testid={`text-price-${it.id}`}>{formatCents(it.retailPriceCents, lang)}</TableCell>
                       <TableCell>

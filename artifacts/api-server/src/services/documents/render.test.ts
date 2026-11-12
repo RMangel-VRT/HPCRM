@@ -82,7 +82,7 @@ describe("HTML safety and document grouping", () => {
     m.customerName = "<script>customer</script>"; m.companyDocument.estimateTerms = ""; m.companyDocument.warrantyText = "";
     const html = estimateDocumentHtml(m);
     expect(html).toContain("&lt;script&gt;customer&lt;/script&gt;"); expect(html).not.toContain("<h2>Terms</h2>"); expect(html).not.toContain("<h2>Plant warranty</h2>");
-    expect(html).toContain("Acceptance"); expect(html).toContain(">ea<"); expect(html).not.toContain("umbrellaKey");
+    expect(html).toContain("Acceptance"); expect(html).toContain(">EA<"); expect(html).not.toContain("umbrellaKey");
   });
   it("renders revision/draft, category grouping, safe substitution and unpriced dashes", () => {
     const m = invoiceFixture(); m.companyName = '<script>"&';

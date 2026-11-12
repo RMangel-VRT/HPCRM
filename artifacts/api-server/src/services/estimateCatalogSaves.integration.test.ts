@@ -24,21 +24,21 @@ const fresh = () => createEstimate(a, null, { customerId, title: "Catalog save v
 type Draft = Awaited<ReturnType<typeof fresh>>;
 const body = (d: Draft, extra = {}) => ({
   sectionId: d.version.sections[0].id, quantity: "2.5", lineType: "custom", name: randomUUID(),
-  detail: "Entered detail", unit: "ea", unitPriceCents: 1234, umbrellaKey: "landscape_labor", ...extra,
+  detail: "Entered detail", unit: "EA", unitPriceCents: 1234, umbrellaKey: "landscape_labor", ...extra,
 });
 const post = (d: Draft, extra = {}) => request(appFor()).post(`/api/estimates/${d.id}/versions/${d.version.id}/lines`).send(body(d, extra));
 const quick = async (extra = {}, companyId = a) => (await db.insert(estimateQuickItems).values({
-  companyId, kind: "equipment", label: randomUUID(), defaultUnit: "ea", umbrellaKey: "landscape_labor", ...extra,
+  companyId, kind: "equipment", label: randomUUID(), defaultUnit: "EA", umbrellaKey: "landscape_labor", ...extra,
 }).returning())[0];
 const hard = async (name: string, extra = {}, companyId = a) => (await db.insert(hardscapeCatalogItems).values({
-  companyId, category: "general", name, unit: "ea", ...extra,
+  companyId, category: "general", name, unit: "EA", ...extra,
 }).returning())[0];
 
 describe("catalog matching and transactional custom saves", () => {
   beforeAll(async () => {
     [a, b] = (await db.insert(companies).values(["a", "b"].map(name => ({ name, slug: randomUUID() }))).returning()).map(c => c.id);
     customerId = (await db.insert(customers).values({ companyId: a, name: "Fixture", street: "", city: "", state: "CO", zip: "" }).returning())[0].id;
-    categoryId = (await db.insert(estimateServiceCategories).values({ companyId: a, name: "Treatments", defaultUnit: "visit", defaultUmbrellaKey: "irrigation_labor" }).returning())[0].id;
+    categoryId = (await db.insert(estimateServiceCategories).values({ companyId: a, name: "Treatments", defaultUnit: "FLAT", defaultUmbrellaKey: "irrigation_labor" }).returning())[0].id;
   });
   afterAll(async () => {
     await db.delete(companies).where(inArray(companies.id, [a, b]));
@@ -64,7 +64,7 @@ describe("catalog matching and transactional custom saves", () => {
     await hard(prefix, { isActive: false }); await hard(prefix, {}, b);
     const r = await matches({ catalog: "hardscape", name: prefix.toUpperCase() });
     expect(r.status).toBe(200); expect(r.body).toHaveLength(5);
-    expect(r.body[0]).toMatchObject({ name: prefix, priceCents: null, unit: "ea", categoryName: "general" });
+    expect(r.body[0]).toMatchObject({ name: prefix, priceCents: null, unit: "EA", categoryName: "general" });
     const score = await db.execute(sql`SELECT similarity(lower(${prefix}), lower(${prefix + " extra"})) AS score`);
     expect(Number(score.rows[0].score)).toBeGreaterThanOrEqual(.3);
     const rows = await matches({ catalog: "hardscape", name: prefix.slice(0, -1) });
@@ -95,7 +95,7 @@ describe("catalog matching and transactional custom saves", () => {
     await quick({ label: `${label} fee`, kind: "fee" });
     await quick({ label: `${label} inactive`, kind: "service", serviceCategoryId: categoryId, isActive: false });
     const r = await matches({ catalog: "service", serviceCategoryId: categoryId, name: label });
-    expect(r.body).toEqual([{ id: active.id, name: label, unit: "ea", priceCents: null, categoryName: "Treatments" }]);
+    expect(r.body).toEqual([{ id: active.id, name: label, unit: "EA", priceCents: null, categoryName: "Treatments" }]);
     expect((await matches({ catalog: "service", serviceCategoryId: categoryId, name: label }, b)).body).toEqual([]);
     await db.update(estimateServiceCategories).set({ isActive: false }).where(eq(estimateServiceCategories.id, categoryId));
     expect((await matches({ catalog: "service", serviceCategoryId: categoryId, name: label })).body).toEqual([]);
@@ -118,17 +118,17 @@ describe("catalog matching and transactional custom saves", () => {
         expect(line.detail).toBe("general");
       } else {
         const [row] = await db.select().from(estimateQuickItems).where(eq(estimateQuickItems.id, line.quickItemId));
-        expect(row).toMatchObject({ kind: catalog, defaultRateCents: 1234, defaultUnit: "ea", isActive: true, sortOrder: 0 });
+        expect(row).toMatchObject({ kind: catalog, defaultRateCents: 1234, defaultUnit: "EA", isActive: true, sortOrder: 0 });
         expect(row.serviceCategoryId).toBe(catalog === "service" ? categoryId : null); expect(line.detail).toBeNull();
       }
     });
   }
   it("keeps unsaved custom behavior and permits duplicate hardscape names", async () => {
     const d = await fresh(), name = randomUUID();
-    const manual = await post(d, { name, unit: "anything" });
+    const manual = await post(d, { name, unit: "GAL" });
     expect(manual.status).toBe(201);
-    expect(manual.body.version.sections[0].lines[0]).toMatchObject({ lineType: "custom", priceSource: "manual", unit: "anything", quickItemId: null });
-    for (let i = 0; i < 2; i++) expect((await post(d, { name, unit: "cu yd", umbrellaKey: "landscape_materials", saveToCatalog: { catalog: "hardscape" } })).status).toBe(201);
+    expect(manual.body.version.sections[0].lines[0]).toMatchObject({ lineType: "custom", priceSource: "manual", unit: "GAL", quickItemId: null });
+    for (let i = 0; i < 2; i++) expect((await post(d, { name, unit: "CU. YD", umbrellaKey: "landscape_materials", saveToCatalog: { catalog: "hardscape" } })).status).toBe(201);
     expect((await db.select().from(hardscapeCatalogItems).where(eq(hardscapeCatalogItems.name, name)))).toHaveLength(2);
   });
   it("rejects umbrella/unit/category errors before any row survives", async () => {
@@ -138,11 +138,11 @@ describe("catalog matching and transactional custom saves", () => {
       const r = await post(d, { umbrellaKey: "plants", saveToCatalog: target });
       expect(r.status).toBe(422); expect(r.body.error).toBe("UMBRELLA_MISMATCH");
     }
-    for (const unit of ["ton", "cu yd"]) {
+    for (const unit of ["pallet", "anything"]) {
       const r = await post(d, { unit, saveToCatalog: { catalog: "equipment" } });
-      expect(r.status).toBe(422); expect(r.body.error).toBe("INVALID_CATALOG_UNIT");
+      expect(r.status).toBe(400); // rejected by the shared request contract before catalog insertion
     }
-    const foreign = (await db.insert(estimateServiceCategories).values({ companyId: b, name: "Foreign", defaultUnit: "ea", defaultUmbrellaKey: "plants" }).returning())[0];
+    const foreign = (await db.insert(estimateServiceCategories).values({ companyId: b, name: "Foreign", defaultUnit: "EA", defaultUmbrellaKey: "plants" }).returning())[0];
     for (const id of [foreign.id, randomUUID()]) {
       const r = await post(d, { saveToCatalog: { catalog: "service", serviceCategoryId: id } });
       expect(r.status).toBe(422); expect(r.body.error).toBe("INVALID_SERVICE_CATEGORY");

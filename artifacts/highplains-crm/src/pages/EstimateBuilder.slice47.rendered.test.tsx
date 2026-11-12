@@ -331,7 +331,7 @@ describe("custom line dialog", () => {
     expect(screen.queryByTestId("select-free-umbrella")).toBeNull();
     expect(screen.queryByTestId("chip-custom-category-service-sc3")).toBeNull();
     expect([...(screen.getByTestId("select-free-unit") as HTMLSelectElement).options].map((o) => o.value))
-      .toEqual(["ea", "hour", "day", "week", "flat", "sq ft", "1,000 sq ft", "lin ft", "cu yd", "ton", "visit"]);
+      .toEqual(["SF", "LF", "1,000 SF", "HR", "DAY", "WEEK", "EA", "FLAT", "GAL", "CU. YD", "LB", "BAG", "TON", "IN. DBH"]);
     expect((screen.getByTestId("button-free-add") as HTMLButtonElement).disabled).toBe(true);
     for (const [chip, label] of [["plants", "Plants"], ["hardscape", "Landscape Materials"], ["irrigation_parts", "Irrigation Materials"], ["fees", "Fees & Surcharges"], ["service-sc2", "Irrigation Labor"]]) {
       fireEvent.click(screen.getByTestId(`chip-custom-category-${chip}`));
@@ -339,13 +339,13 @@ describe("custom line dialog", () => {
     }
     fireEvent.click(screen.getByTestId("chip-custom-category-landscape_labor"));
     fill("Boulder set", "450", "1");
-    fireEvent.change(screen.getByTestId("select-free-unit"), { target: { value: "ton" } });
+    fireEvent.change(screen.getByTestId("select-free-unit"), { target: { value: "TON" } });
     fireEvent.click(screen.getByTestId("button-free-add"));
-    await waitFor(() => expect(posts()[0]?.body).toEqual({ lineType: "custom", sectionId: "s1", quantity: "1", name: "Boulder set", unit: "ton", unitPriceCents: 45000, umbrellaKey: "landscape_labor" }));
+    await waitFor(() => expect(posts()[0]?.body).toEqual({ lineType: "custom", sectionId: "s1", quantity: "1", name: "Boulder set", unit: "TON", unitPriceCents: 45000, umbrellaKey: "landscape_labor" }));
     await waitFor(() => expect(screen.queryByTestId("dialog-add-line")).toBeNull());
   });
 
-  it("save checkbox: disabled reasons per category and unit; hardscape accepts any unit", async () => {
+  it("save checkbox: disabled reasons per category; equipment and hardscape accept the shared units", async () => {
     handler = catalogs();
     await openCustom();
     const cb = () => screen.getByTestId("checkbox-save-catalog") as HTMLInputElement;
@@ -356,9 +356,8 @@ describe("custom line dialog", () => {
       expect(screen.getByTestId("text-save-reason").textContent).toBe(reason);
     }
     fireEvent.click(screen.getByTestId("chip-custom-category-equipment"));
-    fireEvent.change(screen.getByTestId("select-free-unit"), { target: { value: "cu yd" } });
-    expect(cb().disabled).toBe(true);
-    expect(screen.getByTestId("text-save-reason").textContent).toContain("Equipment & Fees");
+    fireEvent.change(screen.getByTestId("select-free-unit"), { target: { value: "CU. YD" } });
+    expect(cb().disabled).toBe(false);
     fireEvent.click(screen.getByTestId("chip-custom-category-hardscape"));
     expect(cb().disabled).toBe(false);
     expect(screen.getByTestId("card-save-catalog").textContent).toContain("Also save to the Hardscape catalog");
@@ -367,7 +366,7 @@ describe("custom line dialog", () => {
     fill("Rip rap", "60", "3");
     fireEvent.change(screen.getByTestId("input-free-detail"), { target: { value: "6in" } });
     fireEvent.click(screen.getByTestId("button-free-add"));
-    await waitFor(() => expect(posts()[0]?.body).toEqual({ lineType: "custom", sectionId: "s1", quantity: "3", name: "Rip rap", detail: "6in", unit: "cu yd",
+    await waitFor(() => expect(posts()[0]?.body).toEqual({ lineType: "custom", sectionId: "s1", quantity: "3", name: "Rip rap", detail: "6in", unit: "CU. YD",
       unitPriceCents: 6000, umbrellaKey: "landscape_materials", saveToCatalog: { catalog: "hardscape" } }));
   });
 
@@ -375,7 +374,7 @@ describe("custom line dialog", () => {
     handler = catalogs({ "/api/estimates/catalog-matches": () => res([{ id: "sv1", name: "Pa mow", unit: "visit", priceCents: 4500, categoryName: "Mowing" }]) });
     await openCustom();
     fireEvent.click(screen.getByTestId("chip-custom-category-service-sc1"));
-    fireEvent.change(screen.getByTestId("select-free-unit"), { target: { value: "visit" } });
+    fireEvent.change(screen.getByTestId("select-free-unit"), { target: { value: "FLAT" } });
     fireEvent.click(screen.getByTestId("checkbox-save-catalog"));
     fill("Pa", "40", "6");
     await new Promise((r) => setTimeout(r, 300));

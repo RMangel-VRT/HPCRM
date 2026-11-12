@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { unitLabel } from "@/lib/estimateUnits";
 import type { FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -42,7 +43,7 @@ export function CustomForm({ sectionId, companyId, initial, onClose, onSubmit, o
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [name, setName] = useState(initial?.name ?? "");
   const [detail, setDetail] = useState("");
-  const [unit, setUnit] = useState<string>("ea");
+  const [unit, setUnit] = useState<string>("EA");
   const [rate, setRate] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [save, setSave] = useState(false);
@@ -76,7 +77,7 @@ export function CustomForm({ sectionId, companyId, initial, onClose, onSubmit, o
   const catalogName = (c: SaveCatalog) => t(`estimateBuilder.customLine.catalogName.${c}`);
   const saveReason = !target ? t("estimateBuilder.customLine.saveReason.category")
     : !saveTarget ? t(`estimateBuilder.customLine.saveReason.${(target.save as { reason: string }).reason}`)
-    : !unitAllowed(saveTarget.catalog, unit) ? t("estimateBuilder.customLine.saveReason.unit", { unit: t(`estimateBuilder.unit.${unit}`, { defaultValue: unit }), catalog: catalogName(saveTarget.catalog) })
+    : !unitAllowed(saveTarget.catalog, unit) ? t("estimateBuilder.customLine.saveReason.unit", { unit: unitLabel(unit, t), catalog: catalogName(saveTarget.catalog) })
     : null;
   const saveOn = save && !saveReason && !!saveTarget;
 
@@ -198,7 +199,7 @@ export function CustomForm({ sectionId, companyId, initial, onClose, onSubmit, o
           <div className="grid gap-1">
             <Label htmlFor="free-unit">{t("estimateBuilder.picker.unit")}<RequiredMark /></Label>
             <select id="free-unit" aria-required="true" className={sel} value={unit} onChange={(e) => setUnit(e.target.value)} data-testid="select-free-unit">
-              {CUSTOM_UNITS.map((u) => <option key={u} value={u}>{t(`estimateBuilder.unit.${u}`)}</option>)}
+              {CUSTOM_UNITS.map((u) => <option key={u} value={u}>{unitLabel(u, t)}</option>)}
             </select>
           </div>
           <div className="grid gap-1">
@@ -239,7 +240,7 @@ export function CustomForm({ sectionId, companyId, initial, onClose, onSubmit, o
                   <div className="min-w-0">
                     <div className="truncate font-semibold">{m.name}</div>
                     <div className="truncate text-xs text-muted-foreground">
-                      {[m.categoryName, t(`estimateBuilder.unit.${m.unit}`, { defaultValue: m.unit }), m.priceCents != null ? formatCents(m.priceCents, lang) : t("estimateBuilder.picker.noDefault")].filter(Boolean).join(" · ")}
+                      {[m.categoryName, unitLabel(m.unit, t), m.priceCents != null ? formatCents(m.priceCents, lang) : t("estimateBuilder.picker.noDefault")].filter(Boolean).join(" · ")}
                     </div>
                   </div>
                   <Button type="button" size="sm" variant="outline" className="h-7 shrink-0" disabled={pending} onClick={() => reuse(saveTarget!.catalog, m.id)} data-testid={`button-use-match-${m.id}`}>

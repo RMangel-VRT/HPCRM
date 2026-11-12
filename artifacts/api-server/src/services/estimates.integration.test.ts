@@ -53,7 +53,7 @@ describe("customer-safe version PDFs and display reads", () => {
     expect((await request(appFor(a, "field")).patch(url).send({ scopeOfWork: "no" })).status).toBe(403);
     expect((await request(appFor()).patch(url).set("X-Company-Id", b).send({ scopeOfWork: "no" })).status).toBe(409);
     await request(appFor()).patch(url).send({ scopeOfWork: "Copied scope" });
-    await postLine(d, { lineType: "custom", name: "Work", unit: "ea", unitPriceCents: 100, umbrellaKey: "landscape_labor" });
+    await postLine(d, { lineType: "custom", name: "Work", unit: "EA", unitPriceCents: 100, umbrellaKey: "landscape_labor" });
     expect((await request(appFor()).post(`${url}/send`).send({ method: "email" })).status).toBe(200);
     const locked = await request(appFor()).patch(url).send({ scopeOfWork: "no" });
     expect(locked.status).toBe(409); expect(locked.body.error).toBe("VERSION_LOCKED");
@@ -70,7 +70,7 @@ describe("customer-safe version PDFs and display reads", () => {
   }, 30000);
   it("enforces estimate/version/company ownership including historical versions", async () => {
     let d = await fresh();
-    const line = await postLine(d, { lineType: "custom", name: "Customer work", unit: "ea", unitPriceCents: 1250, umbrellaKey: "landscape_labor" });
+    const line = await postLine(d, { lineType: "custom", name: "Customer work", unit: "EA", unitPriceCents: 1250, umbrellaKey: "landscape_labor" });
     expect(line.status).toBe(201);
     d = await readEstimate(a, d.id);
     expect(d.display.customerName).toBeTruthy();
@@ -103,7 +103,7 @@ async function plant(companyId = a, overrides = {}) {
   return (await db.insert(plantCatalogItems).values({ companyId, productCode: randomUUID(), varietyKey: "test-variety", rawDescription: "Test shrub", commonName: "Test shrub", category: "shrub", sizeLabel: "5 gal", wholesaleCost: "12.34", salePrice: "99.00", ...overrides }).returning())[0];
 }
 async function quick(kind: "equipment" | "fee" = "equipment", companyId = a, overrides = {}) {
-  return (await db.insert(estimateQuickItems).values({ companyId, kind, label: randomUUID(), defaultUnit: "day", defaultRateCents: 12345, umbrellaKey: kind === "equipment" ? "landscape_labor" : "fees_surcharges", ...overrides }).returning())[0];
+  return (await db.insert(estimateQuickItems).values({ companyId, kind, label: randomUUID(), defaultUnit: "DAY", defaultRateCents: 12345, umbrellaKey: kind === "equipment" ? "landscape_labor" : "fees_surcharges", ...overrides }).returning())[0];
 }
 async function card(rateKey: string, overrides = {}) {
   return (await db.insert(rateCardItems).values({ companyId: a, rateKey, label: "Irrigation technician", category: "Labor", line: "irrigation", unit: "hour", priceCents: 12000, ...overrides }).returning())[0];
@@ -174,7 +174,7 @@ describe("real PostgreSQL estimate model and constraints", () => {
     for (const update of ["status = 'bogus'", "sent_method = 'sms'", "acceptance_method = 'sms'"]) {
       await expect(db.execute(sql.raw(`UPDATE estimate_versions SET ${update} WHERE id = '${d.version.id}'`))).rejects.toBeDefined();
     }
-    const response = await postLine(d, { lineType: "custom", name: "Manual", unit: "ea", unitPriceCents: 1, umbrellaKey: "fees_surcharges" });
+    const response = await postLine(d, { lineType: "custom", name: "Manual", unit: "EA", unitPriceCents: 1, umbrellaKey: "fees_surcharges" });
     const lineId = allLines(response.body)[0].id;
     for (const update of ["line_type = 'bogus'", "price_source = 'live'", "quantity = 0", "unit_price_cents = -1", "unit_cost_cents = -1", "umbrella_key = 'bogus'"]) {
       await expect(db.execute(sql.raw(`UPDATE estimate_lines SET ${update} WHERE id = '${lineId}'`))).rejects.toBeDefined();
@@ -231,7 +231,7 @@ describe("immutable snapshots and exact totals over HTTP", () => {
     const d = await fresh(), p = await plant();
     const response = await postLine(d, { lineType: "plant", plantCatalogItemId: p.id, quantity: "2.5" });
     expect(response.status).toBe(201);
-    expect(allLines(response.body)[0]).toMatchObject({ plantCatalogItemId: p.id, name: "Test shrub 5 gal", detail: "Plant Library · shrub · 5 gal", unit: "ea",
+    expect(allLines(response.body)[0]).toMatchObject({ plantCatalogItemId: p.id, name: "Test shrub 5 gal", detail: "Plant Library · shrub · 5 gal", unit: "EA",
       quantity: "2.50", unitPriceCents: 2468, unitCostCents: 1234, extendedCents: 6170, umbrellaKey: "plants", priceSource: "catalog", includeInPalette: true, needsPrice: false });
     expect(response.body.version.totals).toMatchObject({ subtotalCents: 6170, costKnownCents: 3085, costUnknownLines: 0, materialMarginPct: 50 });
     for (const ref of [p.varietyKey, p.productCode]) expect((await postLine(d, { lineType: "plant", plantCatalogItemId: ref })).status).toBe(404);
@@ -253,20 +253,20 @@ describe("immutable snapshots and exact totals over HTTP", () => {
     const d = await fresh(), h = await hardscape();
     const [i] = await db.insert(irrigationCatalogItems).values({ companyId: a, externalSku: randomUUID(), name: "Valve", category: "Valves", unit: "ea", retailPriceCents: null, wholesaleCostCents: null }).returning();
     const first = await postLine(d, { lineType: "hardscape", hardscapeCatalogItemId: h.id, quantity: "2.5" });
-    expect(allLines(first.body)[0]).toMatchObject({ name: h.name, detail: `Stone · ${h.sku}`, unit: "sqft", unitPriceCents: 33, unitCostCents: 10, extendedCents: 83, umbrellaKey: "landscape_materials", includeInPalette: false });
+    expect(allLines(first.body)[0]).toMatchObject({ name: h.name, detail: `Stone · ${h.sku}`, unit: "SF", unitPriceCents: 33, unitCostCents: 10, extendedCents: 83, umbrellaKey: "landscape_materials", includeInPalette: false });
     const second = await postLine(d, { lineType: "irrigation", irrigationCatalogItemId: i.id });
-    expect(allLines(second.body)[1]).toMatchObject({ name: "Valve", detail: `Valves · ${i.externalSku}`, unit: "ea", unitPriceCents: 0, unitCostCents: null, umbrellaKey: "irrigation_materials", needsPrice: true });
+    expect(allLines(second.body)[1]).toMatchObject({ name: "Valve", detail: `Valves · ${i.externalSku}`, unit: "EA", unitPriceCents: 0, unitCostCents: null, umbrellaKey: "irrigation_materials", needsPrice: true });
   });
   it("quick list enforces matching kind, captures null rate and allows free equipment, fee and custom entries", async () => {
     const d = await fresh(), equipment = await quick(), fee = await quick("fee", a, { defaultRateCents: null });
     for (const row of [equipment, fee]) {
       const response = await postLine(d, { lineType: row.kind, quickItemId: row.id });
       expect(response.status).toBe(201);
-      expect(allLines(response.body).find(l => l.quickItemId === row.id)).toMatchObject({ name: row.label, unit: "day", unitPriceCents: row.defaultRateCents ?? 0, unitCostCents: null, umbrellaKey: row.umbrellaKey, priceSource: "quick_list", needsPrice: row.defaultRateCents === null });
+      expect(allLines(response.body).find(l => l.quickItemId === row.id)).toMatchObject({ name: row.label, unit: "DAY", unitPriceCents: row.defaultRateCents ?? 0, unitCostCents: null, umbrellaKey: row.umbrellaKey, priceSource: "quick_list", needsPrice: row.defaultRateCents === null });
     }
     expect((await postLine(d, { lineType: "fee", quickItemId: equipment.id })).status).toBe(404);
     for (const lineType of ["equipment", "fee", "custom"]) {
-      const response = await postLine(d, { lineType, name: `Free ${lineType}`, detail: "As entered", unit: "flat", unitPriceCents: 0, umbrellaKey: "fees_surcharges" });
+      const response = await postLine(d, { lineType, name: `Free ${lineType}`, detail: "As entered", unit: "FLAT", unitPriceCents: 0, umbrellaKey: "fees_surcharges" });
       expect(response.status).toBe(201);
       expect(allLines(response.body).at(-1)).toMatchObject({ priceSource: "manual", unitPriceCents: 0, needsPrice: false, includeInPalette: false });
     }
@@ -276,7 +276,7 @@ describe("immutable snapshots and exact totals over HTTP", () => {
     await db.insert(termRates).values({ companyId: a, termId: t.id, rateKey: key, line: "irrigation", category: "Labor", label: "Negotiated technician", unit: "hour", priceCents: 9000 });
     const response = await postLine(d, { lineType: "labor", rateKey: key, quantity: "2" });
     expect(response.status).toBe(201);
-    expect(allLines(response.body)[0]).toMatchObject({ name: "Negotiated technician", unit: "hour", unitPriceCents: 9000, termId: t.id, rateKey: key, priceSource: "contract", umbrellaKey: "irrigation_labor" });
+    expect(allLines(response.body)[0]).toMatchObject({ name: "Negotiated technician", unit: "HR", unitPriceCents: 9000, termId: t.id, rateKey: key, priceSource: "contract", umbrellaKey: "irrigation_labor" });
     await db.update(rateCardItems).set({ priceCents: 100, line: "landscape" }).where(eq(rateCardItems.id, rate.id));
     await db.delete(agreementTerms).where(eq(agreementTerms.id, t.id));
     const persisted = allLines(await readEstimate(a, d.id))[0];
@@ -366,12 +366,12 @@ describe("serialized draft edits, read payloads and isolation", () => {
   it("manual display fields are allowed only for equipment/fee/custom; palette fields are plant-only", async () => {
     const d = await fresh(), app = appFor();
     for (const lineType of ["equipment", "fee", "custom"]) {
-      const added = await postLine(d, { lineType, name: lineType, detail: "Keep?", unit: "ea", unitPriceCents: 50, umbrellaKey: "fees_surcharges" });
+      const added = await postLine(d, { lineType, name: lineType, detail: "Keep?", unit: "EA", unitPriceCents: 50, umbrellaKey: "fees_surcharges" });
       const line = allLines(added.body).at(-1)!;
       const path = `${versionPath(d)}/lines/${line.id}`;
       for (const patch of [{ includeInPalette: false }, { paletteTypeLabel: null }]) expect((await request(app).patch(path).send(patch)).status).toBe(400);
-      const edited = await request(app).patch(path).send({ name: "Edited", detail: null, unit: "day", umbrellaKey: "landscape_labor" });
-      expect(allLines(edited.body).find(l => l.id === line.id)).toMatchObject({ name: "Edited", detail: null, unit: "day", umbrellaKey: "landscape_labor", quantity: "1.00", unitPriceCents: 50 });
+      const edited = await request(app).patch(path).send({ name: "Edited", detail: null, unit: "DAY", umbrellaKey: "landscape_labor" });
+      expect(allLines(edited.body).find(l => l.id === line.id)).toMatchObject({ name: "Edited", detail: null, unit: "DAY", umbrellaKey: "landscape_labor", quantity: "1.00", unitPriceCents: 50 });
       const deleted = await request(app).delete(path);
       expect(deleted.status).toBe(200); expect(allLines(deleted.body).find(l => l.id === line.id)).toBeUndefined();
     }
@@ -389,13 +389,13 @@ describe("serialized draft edits, read payloads and isolation", () => {
     expect((await readEstimate(a, d.id)).version.sections).toHaveLength(1);
   });
   it("draft and void gates cover every mutation; retitling a sent nonvoid container is allowed", async () => {
-    const d = await fresh(), added = await postLine(d, { lineType: "custom", name: "x", unit: "ea", unitPriceCents: 1, umbrellaKey: "plants" });
+    const d = await fresh(), added = await postLine(d, { lineType: "custom", name: "x", unit: "EA", unitPriceCents: 1, umbrellaKey: "plants" });
     const line = allLines(added.body)[0], app = appFor(), base = versionPath(d), section = d.version.sections[0].id;
     const writes = [
       ["post", `${base}/sections`, { name: "Other" }],
       ["patch", `${base}/sections/${section}`, { name: "Other" }],
       ["delete", `${base}/sections/${section}`, {}],
-      ["post", `${base}/lines`, { sectionId: section, lineType: "custom", name: "x", unit: "ea", quantity: "1", unitPriceCents: 1, umbrellaKey: "plants" }],
+      ["post", `${base}/lines`, { sectionId: section, lineType: "custom", name: "x", unit: "EA", quantity: "1", unitPriceCents: 1, umbrellaKey: "plants" }],
       ["patch", `${base}/lines/${line.id}`, { quantity: "2" }],
       ["delete", `${base}/lines/${line.id}`, {}],
     ] as const;
@@ -415,13 +415,13 @@ describe("serialized draft edits, read payloads and isolation", () => {
   });
   it("cross-estimate/version/section/line ownership and same-version moves are enforced", async () => {
     const d = await fresh(), other = await fresh(), app = appFor();
-    const added = await postLine(d, { lineType: "custom", name: "x", unit: "ea", unitPriceCents: 1, umbrellaKey: "plants" });
+    const added = await postLine(d, { lineType: "custom", name: "x", unit: "EA", unitPriceCents: 1, umbrellaKey: "plants" });
     const line = allLines(added.body)[0];
     const [historical] = await db.insert(estimateVersions).values({ companyId: a, estimateId: d.id, versionNumber: 2, status: "sent" }).returning();
     const [section] = await db.insert(estimateSections).values({ companyId: a, versionId: historical.id, name: "Historical" }).returning();
     for (const sectionId of [section.id, other.version.sections[0].id]) {
       expect((await request(app).patch(`${versionPath(d)}/lines/${line.id}`).send({ sectionId })).status).toBe(404);
-      expect((await postLine(d, { lineType: "custom", name: "x", unit: "ea", unitPriceCents: 1, umbrellaKey: "plants", sectionId })).status).toBe(404);
+      expect((await postLine(d, { lineType: "custom", name: "x", unit: "EA", unitPriceCents: 1, umbrellaKey: "plants", sectionId })).status).toBe(404);
     }
     expect((await request(app).delete(`${versionPath(other)}/lines/${line.id}`)).status).toBe(404);
     expect((await request(app).patch(`${versionPath(d)}/sections/${other.version.sections[0].id}`).send({ name: "No" })).status).toBe(404);
@@ -431,12 +431,12 @@ describe("serialized draft edits, read payloads and isolation", () => {
   });
   it("overflow rolls back the line and timestamps, including aggregate and cost overflow", async () => {
     const d = await fresh(), app = appFor();
-    expect((await postLine(d, { lineType: "custom", name: "Overflow", unit: "ea", quantity: "9999999999.99", unitPriceCents: 2147483647, umbrellaKey: "plants" })).status).toBe(422);
+    expect((await postLine(d, { lineType: "custom", name: "Overflow", unit: "EA", quantity: "9999999999.99", unitPriceCents: 2147483647, umbrellaKey: "plants" })).status).toBe(422);
     expect(allLines(await readEstimate(a, d.id))).toHaveLength(0);
-    const first = await postLine(d, { lineType: "custom", name: "Max", unit: "ea", unitPriceCents: 2147483647, umbrellaKey: "plants" });
+    const first = await postLine(d, { lineType: "custom", name: "Max", unit: "EA", unitPriceCents: 2147483647, umbrellaKey: "plants" });
     expect(first.status).toBe(201);
     const before = await readEstimate(a, d.id);
-    expect((await postLine(d, { lineType: "custom", name: "One too many", unit: "ea", unitPriceCents: 1, umbrellaKey: "plants" })).status).toBe(422);
+    expect((await postLine(d, { lineType: "custom", name: "One too many", unit: "EA", unitPriceCents: 1, umbrellaKey: "plants" })).status).toBe(422);
     const line = allLines(before)[0];
     expect((await request(app).patch(`${versionPath(d)}/lines/${line.id}`).send({ quantity: "2" })).status).toBe(422);
     expect(await readEstimate(a, d.id)).toEqual(before);
@@ -446,7 +446,7 @@ describe("serialized draft edits, read payloads and isolation", () => {
   it("lists filter and order documents, use frozen non-draft totals, and expose historical detail", async () => {
     const marker = randomUUID(), app = appFor();
     const t = await ticket(), first = await createEstimate(a, actor, { customerId: customerA, title: marker, ticketId: t.id });
-    await postLine(first, { lineType: "custom", name: "One", unit: "ea", unitPriceCents: 123, umbrellaKey: "plants" });
+    await postLine(first, { lineType: "custom", name: "One", unit: "EA", unitPriceCents: 123, umbrellaKey: "plants" });
     await db.update(estimateVersions).set({ status: "sent", frozenSubtotalCents: 999 }).where(eq(estimateVersions.id, first.version.id));
     const [v2] = await db.insert(estimateVersions).values({ companyId: a, estimateId: first.id, versionNumber: 2, status: "declined", frozenSubtotalCents: 777 }).returning();
     await db.insert(estimateSections).values({ companyId: a, versionId: v2.id, name: "Historical empty" });
@@ -470,13 +470,13 @@ describe("serialized draft edits, read payloads and isolation", () => {
   });
   it("company isolation holds on every ID operation and filtered list; expected-company mismatch cannot write", async () => {
     const d = await fresh(b, customerB), app = appFor();
-    const response = await postLine(d, { lineType: "custom", name: "Foreign", unit: "ea", unitPriceCents: 1, umbrellaKey: "plants" }, b);
+    const response = await postLine(d, { lineType: "custom", name: "Foreign", unit: "EA", unitPriceCents: 1, umbrellaKey: "plants" }, b);
     const line = allLines(response.body)[0], base = versionPath(d);
     const calls = [
       ["get", `/api/estimates/${d.id}`, {}], ["patch", `/api/estimates/${d.id}`, { title: "No" }],
       ["post", `${base}/sections`, { name: "No" }], ["patch", `${base}/sections/${d.version.sections[0].id}`, { name: "No" }],
       ["delete", `${base}/sections/${d.version.sections[0].id}`, {}],
-      ["post", `${base}/lines`, { sectionId: d.version.sections[0].id, lineType: "custom", name: "No", unit: "ea", unitPriceCents: 1, quantity: "1", umbrellaKey: "plants" }],
+      ["post", `${base}/lines`, { sectionId: d.version.sections[0].id, lineType: "custom", name: "No", unit: "EA", unitPriceCents: 1, quantity: "1", umbrellaKey: "plants" }],
       ["patch", `${base}/lines/${line.id}`, { quantity: "2" }], ["delete", `${base}/lines/${line.id}`, {}],
     ] as const;
     for (const [method, url, body] of calls) {
@@ -494,7 +494,7 @@ describe("serialized draft edits, read payloads and isolation", () => {
   it("ticket deletion sets null; customer deletion cascades estimate/version/section/line records", async () => {
     const [customer] = await db.insert(customers).values({ companyId: a, name: "Delete verification", street: "Test", city: "Test", state: "CO", zip: "00000" }).returning();
     const t = await ticket(a, customer.id), d = await createEstimate(a, actor, { customerId: customer.id, title: "Delete", ticketId: t.id });
-    await postLine(d, { lineType: "custom", name: "Delete", unit: "ea", unitPriceCents: 1, umbrellaKey: "plants" });
+    await postLine(d, { lineType: "custom", name: "Delete", unit: "EA", unitPriceCents: 1, umbrellaKey: "plants" });
     await db.delete(tickets).where(eq(tickets.id, t.id));
     expect((await readEstimate(a, d.id)).ticketId).toBeNull();
     await db.delete(customers).where(eq(customers.id, customer.id));

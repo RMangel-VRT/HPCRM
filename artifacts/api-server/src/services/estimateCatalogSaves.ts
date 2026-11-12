@@ -40,17 +40,17 @@ export async function saveCustomCatalogItem(tx: AppTransaction, companyId: strin
     umbrella = category.defaultUmbrellaKey;
   }
   if (input.umbrellaKey !== umbrella) throw new EstimateError(422, "UMBRELLA_MISMATCH");
+  const unit = QUICK_ITEM_UNITS.find(unit => unit === input.unit);
+  if (!unit) throw new EstimateError(422, "INVALID_CATALOG_UNIT");
   const base = { sectionId: input.sectionId, quantity: input.quantity };
   if (target.catalog === "hardscape") {
     const [item] = await tx.insert(hardscapeCatalogItems).values({
       companyId, name: input.name, category: "general", description: input.detail ?? null,
-      unit: input.unit, retailPriceCents: input.unitPriceCents, wholesaleCostCents: null,
+      unit, retailPriceCents: input.unitPriceCents, wholesaleCostCents: null,
       umbrellaKey: "landscape_materials", isActive: true,
     }).returning({ id: hardscapeCatalogItems.id });
     return { ...base, lineType: "hardscape", hardscapeCatalogItemId: item.id };
   }
-  const unit = QUICK_ITEM_UNITS.find(unit => unit === input.unit);
-  if (!unit) throw new EstimateError(422, "INVALID_CATALOG_UNIT");
   if (input.name.length > 200) throw new EstimateError(422, "INVALID_CATALOG_NAME");
   const [item] = await tx.insert(estimateQuickItems).values({
     companyId, kind: target.catalog, label: input.name, defaultUnit: unit,

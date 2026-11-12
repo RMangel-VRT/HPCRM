@@ -95,7 +95,7 @@ describe("Services Catalog page", () => {
     expect(await screen.findByTestId("text-label-s1")).toBeTruthy();
     expect(screen.getByTestId("chip-category-cat1").textContent).toBe("General Landscape · 2");
     expect(screen.getByTestId("chip-category-cat2").textContent).toBe("Chemical Treatments · 1");
-    expect(screen.getByTestId("text-unit-s1").textContent).toBe("per 1,000 sq ft");
+    expect(screen.getByTestId("text-unit-s1").textContent).toBe("1,000 SF");
     expect(screen.getByTestId("text-rate-s2").textContent).toBe("—");
     expect(screen.getByTestId("text-category-s4").textContent).toContain("(inactive)");
     fireEvent.click(screen.getByTestId("chip-category-cat2"));
@@ -115,18 +115,18 @@ describe("Services Catalog page", () => {
     fireEvent.click(await screen.findByTestId("chip-category-cat2"));
     fireEvent.click(screen.getByTestId("button-add-item"));
     const dlg = screen.getByTestId("dialog-service");
-    expect(within(dlg).getByTestId("select-unit").textContent).toBe("per visit");
+    expect(within(dlg).getByTestId("select-unit").textContent).toBe("FLAT");
     expect(within(dlg).getByTestId("select-umbrella").textContent).toBe("Fees & Surcharges");
-    await pickSelect("select-unit", "per sq ft");
+    await pickSelect("select-unit", "SF");
     await pickSelect("select-category", "General Landscape");
-    expect(screen.getByTestId("select-unit").textContent).toBe("per sq ft");
+    expect(screen.getByTestId("select-unit").textContent).toBe("SF");
     expect(screen.getByTestId("select-umbrella").textContent).toBe("Landscape Labor");
     fireEvent.change(screen.getByTestId("input-label"), { target: { value: "Aeration Plus" } });
     fireEvent.click(screen.getByTestId("button-save-item"));
     await waitFor(() => expect(calls().some((c) => c.method === "POST")).toBe(true));
     const post = calls().find((c) => c.method === "POST")!;
     expect(post.url).toBe("/api/quick-items");
-    expect(post.body).toEqual({ kind: "service", label: "Aeration Plus", serviceCategoryId: "cat1", defaultRateCents: null, isActive: true, defaultUnit: "sq ft" });
+    expect(post.body).toEqual({ kind: "service", label: "Aeration Plus", serviceCategoryId: "cat1", defaultRateCents: null, isActive: true, defaultUnit: "SF" });
   });
 
   it("edit sends only changed fields; deactivate and reactivate services", async () => {
@@ -135,7 +135,7 @@ describe("Services Catalog page", () => {
     fireEvent.click(await screen.findByTestId("button-edit-s4"));
     fireEvent.change(screen.getByTestId("input-rate"), { target: { value: "20" } });
     fireEvent.click(screen.getByTestId("button-save-item"));
-    await waitFor(() => expect(calls().find((c) => c.method === "PATCH")?.body).toEqual({ defaultRateCents: 2000 }));
+    await waitFor(() => expect(calls().find((c) => c.method === "PATCH")?.body).toEqual({ defaultRateCents: 2000, defaultUnit: "1,000 SF" }));
     fireEvent.click(await screen.findByTestId("button-deactivate-s1"));
     fireEvent.click(await screen.findByTestId("button-confirm-deactivate"));
     await waitFor(() => expect(calls().some((c) => c.method === "DELETE" && c.url === "/api/quick-items/s1")).toBe(true));
@@ -152,7 +152,7 @@ describe("Services Catalog page", () => {
     fireEvent.change(screen.getByTestId("input-category-name"), { target: { value: "General Landscape" } });
     fireEvent.click(screen.getByTestId("button-save-category"));
     expect((await screen.findByTestId("error-category-form")).textContent).toBe("A category with this name already exists");
-    expect(calls().find((c) => c.method === "POST")!.body).toEqual({ name: "General Landscape", defaultUmbrellaKey: "landscape_labor", defaultUnit: "1,000 sq ft" });
+    expect(calls().find((c) => c.method === "POST")!.body).toEqual({ name: "General Landscape", defaultUmbrellaKey: "landscape_labor", defaultUnit: "1,000 SF" });
   });
 
   it("edit category from chip and manage list toggles active", async () => {
@@ -176,7 +176,7 @@ describe("Services Catalog page", () => {
     await pickSelect("select-umbrella", "Plants");
     await pickSelect("select-category", "Chemical Treatments");
     expect(screen.getByTestId("select-umbrella").textContent).toBe("Plants");
-    expect(screen.getByTestId("select-unit").textContent).toBe("per visit");
+    expect(screen.getByTestId("select-unit").textContent).toBe("FLAT");
     fireEvent.change(screen.getByTestId("input-label"), { target: { value: "Treatment override" } });
     fireEvent.click(screen.getByTestId("button-save-item"));
     await waitFor(() => expect(calls().find(c => c.method === "POST")?.body).toMatchObject({ umbrellaKey: "plants", serviceCategoryId: "cat2" }));
@@ -222,7 +222,7 @@ describe("Services Catalog page", () => {
     handler = catalogHandler();
     renderAt(() => <ServicesCatalog />);
     expect((await screen.findByTestId("text-page-title")).textContent).toBe("Catálogo de servicios");
-    expect((await screen.findByTestId("text-unit-s3")).textContent).toBe("por visita");
+    expect((await screen.findByTestId("text-unit-s3")).textContent).toBe("FIJO");
     expect(screen.getByTestId("button-add-category").textContent).toBe("Agregar categoría");
   });
 });
@@ -274,6 +274,6 @@ describe("builder service line", () => {
     fireEvent.change(await screen.findByTestId("input-free-name"), { target: { value: "Topdressing" } });
     fireEvent.change(screen.getByTestId("input-free-rate"), { target: { value: "42.10" } });
     fireEvent.click(screen.getByTestId("button-free-add"));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ lineType: "service", sectionId: "sec1", quantity: "1", name: "Topdressing", unit: "1,000 sq ft", unitPriceCents: 4210, umbrellaKey: "landscape_labor" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ lineType: "service", sectionId: "sec1", quantity: "1", name: "Topdressing", unit: "1,000 SF", unitPriceCents: 4210, umbrellaKey: "landscape_labor" }));
   });
 });

@@ -15,10 +15,10 @@ describe("irrigation CSV contract", () => {
       ",   ,E,,4,,,,,,,yes,Approved,QB-678",
     ].join("\n"));
     expect(parsed.rows).toEqual([
-      { externalSku: "A", name: "Elbow", category: "Fittings", description: "Sales text", retailPriceCents: 1234, wholesaleCostCents: 567, brand: "Hunter", size: "1in", material: "PVC", fittingType: "Elbow", detail: "Threaded", unit: "ea", isActive: true },
-      { externalSku: "B", name: "Blank category", category: "Misc", description: "Blank category description", retailPriceCents: 0, wholesaleCostCents: 0, brand: "Rain Bird", size: "2in", material: "ABS", fittingType: "Tee", detail: "Slip", unit: "ea", isActive: false },
-      { externalSku: "C", name: "Whitespace category", category: "Misc", description: null, retailPriceCents: 100, wholesaleCostCents: null, brand: null, size: null, material: null, fittingType: null, detail: null, unit: "ea", isActive: true },
-      { externalSku: "D", name: "Explicit misc", category: "Misc", description: null, retailPriceCents: 200, wholesaleCostCents: null, brand: null, size: null, material: null, fittingType: null, detail: null, unit: "ea", isActive: true },
+      { externalSku: "A", name: "Elbow", category: "Fittings", description: "Sales text", retailPriceCents: 1234, wholesaleCostCents: 567, brand: "Hunter", size: "1in", material: "PVC", fittingType: "Elbow", detail: "Threaded", unit: "EA", isActive: true },
+      { externalSku: "B", name: "Blank category", category: "Misc", description: "Blank category description", retailPriceCents: 0, wholesaleCostCents: 0, brand: "Rain Bird", size: "2in", material: "ABS", fittingType: "Tee", detail: "Slip", unit: "EA", isActive: false },
+      { externalSku: "C", name: "Whitespace category", category: "Misc", description: null, retailPriceCents: 100, wholesaleCostCents: null, brand: null, size: null, material: null, fittingType: null, detail: null, unit: "EA", isActive: true },
+      { externalSku: "D", name: "Explicit misc", category: "Misc", description: null, retailPriceCents: 200, wholesaleCostCents: null, brand: null, size: null, material: null, fittingType: null, detail: null, unit: "EA", isActive: true },
     ]);
     expect(parsed.skippedRows).toEqual([
       { line: 6, reason: "Required value missing: sku" },
@@ -47,8 +47,8 @@ describe("irrigation CSV contract", () => {
   });
 
   it("retains legacy headers, optional fields and blank-category fallback", () => {
-    const parsed = parseIrrigationCsv("sku,name,category,price,description,unit,is_active\nA,Legacy,Fittings,1,Old description,box,false\nB,Uncategorized,   ,2,,ea,true");
-    expect(parsed.rows[0]).toMatchObject({ externalSku: "A", name: "Legacy", category: "Fittings", description: "Old description", unit: "box", isActive: false });
+    const parsed = parseIrrigationCsv("sku,name,category,price,description,unit,is_active\nA,Legacy,Fittings,1,Old description,each,false\nB,Uncategorized,   ,2,,ea,true");
+    expect(parsed.rows[0]).toMatchObject({ externalSku: "A", name: "Legacy", category: "Fittings", description: "Old description", unit: "EA", isActive: false });
     expect(parsed.rows[1]).toMatchObject({ externalSku: "B", category: "Misc" });
     expect(parsed.skippedRows).toEqual([]);
   });
@@ -83,10 +83,10 @@ describe("irrigation CSV contract", () => {
     expect(parsed.rows[1].externalSku).toBe("C");
   });
   it("maps optional blanks to null, defaults unit/active, preserves zero and parses false explicitly", () => {
-    const parsed = parseIrrigationCsv("sku,name,category,price,cost,unit,active\nA,Part,F,,,,\nB,Part,F,0,0,box,0\nC,Part,F,1,,,no\nD,Part,F,1,,,YES\nE,Part,F,1,,,truthy");
-    expect(parsed.rows[0]).toEqual({ externalSku: "A", name: "Part", category: "F", description: null, material: null, size: null, brand: null, fittingType: null, detail: null, unit: "ea", retailPriceCents: null, wholesaleCostCents: null, isActive: true });
+    const parsed = parseIrrigationCsv("sku,name,category,price,cost,unit,active\nA,Part,F,,,,\nB,Part,F,0,0,bag,0\nC,Part,F,1,,,no\nD,Part,F,1,,,YES\nE,Part,F,1,,,truthy");
+    expect(parsed.rows[0]).toEqual({ externalSku: "A", name: "Part", category: "F", description: null, material: null, size: null, brand: null, fittingType: null, detail: null, unit: "EA", retailPriceCents: null, wholesaleCostCents: null, isActive: true });
     expect(parsed.rows.map(row => row.isActive)).toEqual([true, false, false, true]);
-    expect(parsed.rows[1]).toMatchObject({ retailPriceCents: 0, wholesaleCostCents: 0, unit: "box" });
+    expect(parsed.rows[1]).toMatchObject({ retailPriceCents: 0, wholesaleCostCents: 0, unit: "BAG" });
     expect(parsed.skippedRows[0]).toMatchObject({ line: 6, reason: expect.stringContaining("Active must") });
   });
   it("first SKU occurrence wins including invalid first; identifiable skips remain present and SKU case is exact", () => {

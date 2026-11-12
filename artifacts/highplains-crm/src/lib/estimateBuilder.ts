@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/queryClient";
+import { ESTIMATE_UNITS } from "@shared/estimateSetup";
 import { companyHeaders } from "@/lib/hardscapeCatalog";
 import { isCalendarDate as validCalendarComponents } from "../../../../lib/db/src/estimateContracts";
 import type {
@@ -19,7 +20,7 @@ export const builderPath = (id: string, version?: number) =>
 
 export const LINE_TYPES: EstimateLineType[] = ["plant", "hardscape", "irrigation", "labor", "service", "equipment", "fee", "custom"];
 export const UMBRELLAS: EstimateUmbrella[] = ["plants", "landscape_materials", "irrigation_materials", "landscape_labor", "irrigation_labor", "fees_surcharges"];
-export const FREE_UNITS = ["hour", "day", "week", "ea", "flat", "sq ft", "1,000 sq ft", "lin ft", "visit"] as const;
+export const FREE_UNITS = ESTIMATE_UNITS;
 export const FREE_UNIT_TYPES: EstimateLineType[] = ["service", "equipment", "fee", "custom"];
 export const DEFAULT_UMBRELLA: Record<"service" | "equipment" | "fee" | "custom", EstimateUmbrella> = {
   service: "landscape_labor", equipment: "landscape_labor", fee: "fees_surcharges", custom: "landscape_materials",

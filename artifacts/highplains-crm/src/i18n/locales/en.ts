@@ -607,7 +607,7 @@ const en = {
       palette: "Include {{name}} in palette", remove: "Remove {{name}}", moveUp: "Move {{name}} up", moveDown: "Move {{name}} down",
       moveTo: "Move {{name}} to section", moveToLabel: "Move to section…", extended: "Extended",
     },
-    unit: { hour: "hour", day: "day", week: "week", ea: "ea", flat: "flat", "sq ft": "sq ft", "1,000 sq ft": "1,000 sq ft", "lin ft": "lin ft", visit: "visit", "cu yd": "cu yd", ton: "ton" },
+    unit: { SF: "SF", LF: "LF", "1,000 SF": "1,000 SF", HR: "HR", DAY: "DAY", WEEK: "WEEK", EA: "EA", FLAT: "FLAT", GAL: "GAL", "CU. YD": "CU. YD", LB: "LB", BAG: "BAG", TON: "TON", "IN. DBH": "IN. DBH" },
     addBar: "Add:", addLine: "Add line",
     header: { badge: "Estimate {{number}}", changeOrder: "Change order", customer: "Customer", ticket: "Ticket", rates: "Rates", total: "Total", frozen: "(frozen)", sent: "Sent", accepted: "Accepted", created: "Created", by: "by {{name}}", po: "PO {{po}}", notLinked: "Not linked" },
     pdf: { preview: "Preview PDF", title: "{{number}} · v{{n}}", desc: "Customer-facing document for the version you are viewing.", draftHint: "Draft — the PDF is marked DRAFT.", loading: "Loading PDF", error: "The PDF could not be loaded.", frame: "PDF preview of {{number}}", download: "Download", open: "Open in new tab", close: "Close" },

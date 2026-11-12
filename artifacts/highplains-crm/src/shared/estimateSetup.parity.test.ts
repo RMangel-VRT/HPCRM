@@ -6,19 +6,21 @@ import { LINE_TINT } from "../lib/estimateBuilder";
 describe("services catalog shared contracts", () => {
   it("keeps kinds, units and the six umbrellas in sync with database contracts", () => {
     const source = readFileSync(new URL("../../../../lib/db/src/schema/estimateSetup.ts", import.meta.url), "utf8");
-    for (const [name, list] of Object.entries({ QUICK_ITEM_KINDS, QUICK_ITEM_UNITS, UMBRELLA_KEYS })) {
+    for (const [name, list] of Object.entries({ QUICK_ITEM_KINDS, UMBRELLA_KEYS })) {
       const match = source.match(new RegExp(`export const ${name} = (\\[[^\\n]+?\\]) as const`));
       expect(match, name).not.toBeNull();
       expect(JSON.parse(match![1])).toEqual(list);
     }
     expect(UMBRELLA_KEYS).toHaveLength(6);
+    expect(source).toContain("export const QUICK_ITEM_UNITS = ESTIMATE_UNITS");
+    expect(QUICK_ITEM_UNITS).toHaveLength(14);
   });
   it("requires category on service creation, rejects it on other kinds and leaves server defaults omitted", () => {
     const service = { kind: "service", label: "Aeration", serviceCategoryId: "cat" };
     expect(createQuickItemSchema.parse(service)).toEqual({ ...service, isActive: true, sortOrder: 0 });
     expect(createQuickItemSchema.safeParse({ kind: "service", label: "No category" }).success).toBe(false);
     expect(createQuickItemSchema.safeParse({ ...service, kind: "fee" }).success).toBe(false);
-    expect(createQuickItemSchema.parse({ ...service, defaultUnit: "visit", umbrellaKey: "plants" })).toMatchObject({ defaultUnit: "visit", umbrellaKey: "plants" });
+    expect(createQuickItemSchema.parse({ ...service, defaultUnit: "FLAT", umbrellaKey: "plants" })).toMatchObject({ defaultUnit: "FLAT", umbrellaKey: "plants" });
     expect(patchQuickItemSchema.parse({ label: "Rename" })).toEqual({ label: "Rename" });
     expect(patchQuickItemSchema.parse({ serviceCategoryId: null })).toEqual({ serviceCategoryId: null });
   });

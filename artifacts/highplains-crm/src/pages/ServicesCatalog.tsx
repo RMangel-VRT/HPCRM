@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { unitLabel, normalizeEstimateUnit } from "@/lib/estimateUnits";
 import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -26,7 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-const UNIT_FALLBACK: QuickUnit = "1,000 sq ft";
+const UNIT_FALLBACK: QuickUnit = "1,000 SF";
 const UMBRELLA_FALLBACK: UmbrellaKey = "landscape_labor";
 const sortCats = (a: ServiceCategory, b: ServiceCategory) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
 
@@ -40,11 +41,11 @@ type ServiceErrors = Partial<Record<"label" | "rate" | "category" | "form", stri
 
 function toServiceForm(item: QuickItem | null, cat: ServiceCategory | undefined): ServiceForm {
   if (item) return {
-    label: item.label, categoryId: item.serviceCategoryId ?? "", unit: item.defaultUnit, unitTouched: true, rate: centsToInput(item.defaultRateCents),
+    label: item.label, categoryId: item.serviceCategoryId ?? "", unit: normalizeEstimateUnit(item.defaultUnit) ?? item.defaultUnit, unitTouched: true, rate: centsToInput(item.defaultRateCents),
     umbrellaKey: item.umbrellaKey, umbrellaTouched: true, isActive: item.isActive,
   };
   return {
-    label: "", categoryId: cat?.id ?? "", unit: cat?.defaultUnit ?? UNIT_FALLBACK, unitTouched: false, rate: "",
+    label: "", categoryId: cat?.id ?? "", unit: cat ? normalizeEstimateUnit(cat.defaultUnit) ?? cat.defaultUnit : UNIT_FALLBACK, unitTouched: false, rate: "",
     umbrellaKey: cat?.defaultUmbrellaKey ?? UMBRELLA_FALLBACK, umbrellaTouched: false, isActive: true,
   };
 }
@@ -75,7 +76,7 @@ function ServiceDialog(props: { item: QuickItem | null; categories: ServiceCateg
     const c = categories.find((x) => x.id === id);
     setForm((f) => ({
       ...f, categoryId: id,
-      unit: f.unitTouched || !c ? f.unit : c.defaultUnit,
+      unit: f.unitTouched || !c ? f.unit : normalizeEstimateUnit(c.defaultUnit) ?? c.defaultUnit,
       umbrellaKey: f.umbrellaTouched || !c ? f.umbrellaKey : c.defaultUmbrellaKey,
     }));
   }
@@ -138,9 +139,10 @@ function ServiceDialog(props: { item: QuickItem | null; categories: ServiceCateg
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-1.5">
               <Label htmlFor="svc-unit">{t("servicesCatalog.field.unit")}</Label>
+              {item && !normalizeEstimateUnit(item.defaultUnit) && <p className="text-sm text-destructive">{item.defaultUnit}</p>}
               <Select value={form.unit} onValueChange={(v) => setForm((f) => ({ ...f, unit: v as QuickUnit, unitTouched: true }))}>
                 <SelectTrigger id="svc-unit" data-testid="select-unit"><SelectValue /></SelectTrigger>
-                <SelectContent>{QUICK_UNITS.map((u) => <SelectItem key={u} value={u}>{t(`equipmentFees.unit.${u}`)}</SelectItem>)}</SelectContent>
+                <SelectContent>{QUICK_UNITS.map((u) => <SelectItem key={u} value={u}>{unitLabel(u, t)}</SelectItem>)}</SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">{t("servicesCatalog.field.unitHint")}</p>
             </div>
@@ -186,7 +188,7 @@ function CategoryDialog(props: { category: ServiceCategory | null; companyId: st
   const qc = useQueryClient();
   const [name, setName] = useState(category?.name ?? "");
   const [umbrella, setUmbrella] = useState<UmbrellaKey>(category?.defaultUmbrellaKey ?? UMBRELLA_FALLBACK);
-  const [unit, setUnit] = useState<QuickUnit>(category?.defaultUnit ?? UNIT_FALLBACK);
+  const [unit, setUnit] = useState<QuickUnit>(category ? normalizeEstimateUnit(category.defaultUnit) ?? category.defaultUnit : UNIT_FALLBACK);
   const [isActive, setIsActive] = useState(category?.isActive ?? true);
   const [errors, setErrors] = useState<{ name?: string; form?: string }>({});
   const save = useMutation({
@@ -239,9 +241,10 @@ function CategoryDialog(props: { category: ServiceCategory | null; companyId: st
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="cat-unit">{t("servicesCatalog.category.unit")}</Label>
+            {category && !normalizeEstimateUnit(category.defaultUnit) && <p className="text-sm text-destructive">{category.defaultUnit}</p>}
             <Select value={unit} onValueChange={(v) => setUnit(v as QuickUnit)}>
               <SelectTrigger id="cat-unit" data-testid="select-category-unit"><SelectValue /></SelectTrigger>
-              <SelectContent>{QUICK_UNITS.map((u) => <SelectItem key={u} value={u}>{t(`equipmentFees.unit.${u}`)}</SelectItem>)}</SelectContent>
+              <SelectContent>{QUICK_UNITS.map((u) => <SelectItem key={u} value={u}>{unitLabel(u, t)}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           {category && (
@@ -287,7 +290,7 @@ function ManageCategoriesDialog(props: { categories: ServiceCategory[]; pending:
                 <div className="min-w-0">
                   <div className="truncate font-medium text-foreground">{c.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {t(`qboSetup.umbrella.${c.defaultUmbrellaKey}`)} · {t(`equipmentFees.unit.${c.defaultUnit}`)} · {t("servicesCatalog.category.items", { count: c.itemCount })}
+                    {t(`qboSetup.umbrella.${c.defaultUmbrellaKey}`)} · {unitLabel(c.defaultUnit, t)} · {t("servicesCatalog.category.items", { count: c.itemCount })}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -500,7 +503,7 @@ function ServicesCatalogContent() {
                             <Sprout className="h-3 w-3" />{cn_ ? (catInactive ? t("servicesCatalog.field.inactiveCategory", { name: cn_ }) : cn_) : t("servicesCatalog.noCategory")}
                           </span>
                         </TableCell>
-                        <TableCell className="text-xs" data-testid={`text-unit-${it.id}`}>{t(`equipmentFees.unit.${it.defaultUnit}`, { defaultValue: it.defaultUnit })}</TableCell>
+                        <TableCell className="text-xs" data-testid={`text-unit-${it.id}`}>{unitLabel(it.defaultUnit, t)}</TableCell>
                         <TableCell className="text-right tabular-nums" data-testid={`text-rate-${it.id}`}>
                           {it.defaultRateCents == null ? <span className="text-muted-foreground">{t("servicesCatalog.noRate")}</span> : formatCents(it.defaultRateCents, lang)}
                         </TableCell>

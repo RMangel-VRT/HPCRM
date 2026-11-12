@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { formatEstimateUnit } from "../../../../lib/db/src/estimateUnits";
 import { estimates, estimateVersions } from "@workspace/db";
 import type { EstimateDetailDto } from "@workspace/db/estimate-contracts";
 import { db } from "../db";
@@ -97,7 +98,7 @@ export function buildEstimateDocumentModel(payload: DocumentInput, display: Disp
     sections: [...v.sections].sort((a, b) => a.sortOrder - b.sortOrder).map(section => ({
       name: section.name,
       lines: [...section.lines].sort((a, b) => a.sortOrder - b.sortOrder).map(line => ({
-        name: line.name, detail: customerSafeDetail(line.detail, line.lineType), quantity: line.quantity, unit: line.unit,
+        name: line.name, detail: customerSafeDetail(line.detail, line.lineType), quantity: line.quantity, unit: formatEstimateUnit(line.unit),
         unitPriceCents: line.unitPriceCents, lineTotalCents: calculateExtendedCents(line.quantity, line.unitPriceCents),
       })),
       subtotalCents: requireEstimate(v.totals.bySection[section.id]),

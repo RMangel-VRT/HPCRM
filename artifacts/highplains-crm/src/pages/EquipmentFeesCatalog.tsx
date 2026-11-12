@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { unitLabel, normalizeEstimateUnit } from "@/lib/estimateUnits";
 import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -31,8 +32,8 @@ type FormErrors = Partial<Record<"label" | "rate" | "form", string>>;
 
 function toForm(item: QuickItem | null, kind: QuickKind): FormState {
   return item
-    ? { label: item.label, kind: item.kind as QuickKind, unit: item.defaultUnit, rate: centsToInput(item.defaultRateCents), umbrellaKey: item.umbrellaKey, umbrellaTouched: true, isActive: item.isActive }
-    : { label: "", kind, unit: kind === "fee" ? "flat" : "hour", rate: "", umbrellaKey: defaultUmbrellaForKind(kind), umbrellaTouched: false, isActive: true };
+    ? { label: item.label, kind: item.kind as QuickKind, unit: normalizeEstimateUnit(item.defaultUnit) ?? item.defaultUnit, rate: centsToInput(item.defaultRateCents), umbrellaKey: item.umbrellaKey, umbrellaTouched: true, isActive: item.isActive }
+    : { label: "", kind, unit: kind === "fee" ? "FLAT" : "HR", rate: "", umbrellaKey: defaultUmbrellaForKind(kind), umbrellaTouched: false, isActive: true };
 }
 
 function QuickItemDialog(props: { item: QuickItem | null; initialKind: QuickKind; companyId: string; onClose: () => void; onSaved: () => void }) {
@@ -98,9 +99,10 @@ function QuickItemDialog(props: { item: QuickItem | null; initialKind: QuickKind
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-1.5">
               <Label htmlFor="qi-unit">{t("equipmentFees.field.unit")}</Label>
+              {item && !normalizeEstimateUnit(item.defaultUnit) && <p className="text-sm text-destructive">{item.defaultUnit}</p>}
               <Select value={form.unit} onValueChange={(v) => setForm((f) => ({ ...f, unit: v as QuickUnit }))}>
                 <SelectTrigger id="qi-unit" data-testid="select-unit"><SelectValue /></SelectTrigger>
-                <SelectContent>{QUICK_UNITS.map((u) => <SelectItem key={u} value={u}>{t(`equipmentFees.unit.${u}`)}</SelectItem>)}</SelectContent>
+                <SelectContent>{QUICK_UNITS.map((u) => <SelectItem key={u} value={u}>{unitLabel(u, t)}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="grid gap-1.5">
@@ -251,7 +253,7 @@ function EquipmentFeesContent() {
                           {it.kind === "fee" ? <Receipt className="h-3 w-3" /> : <Truck className="h-3 w-3" />}{t(`equipmentFees.kind.${it.kind}`)}
                         </span>
                       </TableCell>
-                      <TableCell className="text-xs">{t(`equipmentFees.unit.${it.defaultUnit}`)}</TableCell>
+                      <TableCell className="text-xs">{unitLabel(it.defaultUnit, t)}</TableCell>
                       <TableCell className="text-right tabular-nums" data-testid={`text-rate-${it.id}`}>
                         {it.defaultRateCents == null ? <span className="text-muted-foreground">{t("equipmentFees.noRate")}</span> : formatCents(it.defaultRateCents, lang)}
                       </TableCell>

@@ -1,5 +1,7 @@
 /** Frontend-safe mirror of lib/db/src/schema/estimateSetup.ts (no pg imports). Keep in sync. */
 import { z } from "zod";
+import { ESTIMATE_UNITS } from "../../../../lib/db/src/estimateUnits";
+export { ESTIMATE_UNITS, normalizeEstimateUnit, formatEstimateUnit } from "../../../../lib/db/src/estimateUnits";
 
 export const UMBRELLA_KEYS = ["plants", "landscape_materials", "irrigation_materials", "landscape_labor", "irrigation_labor", "fees_surcharges"] as const;
 export type UmbrellaKey = (typeof UMBRELLA_KEYS)[number];
@@ -11,7 +13,7 @@ export const UMBRELLA_DEFAULTS = [
   { key: "irrigation_labor", label: "Irrigation Labor", description: "Irrigation installation, service and repair labor." },
   { key: "fees_surcharges", label: "Fees & Surcharges", description: "Disposal, delivery, permits and other fees or surcharges." },
 ] as const;
-export const QUICK_ITEM_UNITS = ["hour", "day", "week", "ea", "flat", "sq ft", "1,000 sq ft", "lin ft", "visit"] as const;
+export const QUICK_ITEM_UNITS = ESTIMATE_UNITS;
 export type QuickItemUnit = (typeof QUICK_ITEM_UNITS)[number];
 export const QUICK_ITEM_KINDS = ["equipment", "fee", "service"] as const;
 export type QuickItemKind = (typeof QUICK_ITEM_KINDS)[number];

@@ -1,5 +1,6 @@
 /** Driver-free Estimate Builder request contracts, shared by CRM and API. */
 import { z } from "zod/v4";
+import { ESTIMATE_UNITS } from "./estimateUnits";
 export type { ProposalEstimateSummary } from "./proposalContracts";
 import { isCalendarDate } from "./schema/calendarDate";
 export { isCalendarDate } from "./schema/calendarDate";
@@ -42,7 +43,7 @@ export const patchEstimateVersionSchema = z.object({ scopeOfWork: z.string().max
 export const createEstimateSectionSchema = z.object({ name }).strict();
 export const patchEstimateSectionSchema = z.object({ name: name.optional(), sortOrder: order.optional() }).strict();
 const base = { sectionId: estimateIdSchema, quantity: estimateQuantitySchema };
-const free = { name, detail: detail.optional(), unit: name, unitPriceCents: cents, umbrellaKey: z.enum(ESTIMATE_UMBRELLAS) };
+const free = { name, detail: detail.optional(), unit: z.enum(ESTIMATE_UNITS), unitPriceCents: cents, umbrellaKey: z.enum(ESTIMATE_UMBRELLAS) };
 export const saveToCatalogSchema = z.discriminatedUnion("catalog", [
   z.object({ catalog: z.literal("hardscape") }).strict(),
   z.object({ catalog: z.literal("equipment") }).strict(),
@@ -69,7 +70,7 @@ const quickOrFree = z.union([
 ]);
 const quickBranch = (lineType: "equipment" | "fee" | "service") => z.object({
   ...base, lineType: z.literal(lineType), quickItemId: estimateIdSchema.optional(),
-  name: name.optional(), detail: detail.optional(), unit: name.optional(),
+  name: name.optional(), detail: detail.optional(), unit: free.unit.optional(),
   unitPriceCents: cents.optional(), umbrellaKey: z.enum(ESTIMATE_UMBRELLAS).optional(),
 }).strict().superRefine((v, ctx) => {
   const { sectionId: _s, quantity: _q, lineType: _t, ...entry } = v;
@@ -86,7 +87,7 @@ export const createEstimateLineSchema = z.discriminatedUnion("lineType", [
 // Explicit PATCH fields have NO defaults. Null is a real clear operation.
 export const patchEstimateLineSchema = z.object({
   quantity: estimateQuantitySchema.optional(), unitPriceCents: cents.optional(),
-  name: name.optional(), detail: detail.optional(), unit: name.optional(),
+  name: name.optional(), detail: detail.optional(), unit: free.unit.optional(),
   umbrellaKey: z.enum(ESTIMATE_UMBRELLAS).optional(),
   includeInPalette: z.boolean().optional(), paletteTypeLabel: z.string().max(500).nullable().optional(),
   sectionId: estimateIdSchema.optional(), sortOrder: order.optional(),

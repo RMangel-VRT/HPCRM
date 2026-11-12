@@ -14,7 +14,7 @@ export const irrigationCatalogItems = pgTable("irrigation_catalog_items", {
   brand: text("brand"),
   fittingType: text("fitting_type"),
   detail: text("detail"),
-  unit: text("unit").notNull().default("ea"),
+  unit: text("unit").notNull().default("EA"),
   wholesaleCostCents: integer("wholesale_cost_cents"),
   retailPriceCents: integer("retail_price_cents"),
   umbrellaKey: text("umbrella_key").notNull().default("irrigation_materials"),

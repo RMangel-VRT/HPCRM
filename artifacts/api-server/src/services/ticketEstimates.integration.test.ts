@@ -67,7 +67,7 @@ async function draft() {
   const t = await ticket();
   const e = await createEstimate(company, actor, { ticketId: t.id, customerId: customer, title: t.title });
   return { ticket: t, estimate: await createLine(company, e.id, e.version.id, { sectionId: e.version.sections[0].id,
-    lineType: "custom", name: "Fixture", unit: "ea", quantity: "2.5", unitPriceCents: 33, umbrellaKey: "landscape_materials" }) };
+    lineType: "custom", name: "Fixture", unit: "EA", quantity: "2.5", unitPriceCents: 33, umbrellaKey: "landscape_materials" }) };
 }
 beforeAll(async () => {
   await db.insert(companies).values([{ id: company, slug: company, name: "Disposable ticket estimate" }, { id: foreign, slug: foreign, name: "Disposable foreign estimate" }]);

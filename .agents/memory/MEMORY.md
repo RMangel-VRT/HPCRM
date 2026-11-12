@@ -61,3 +61,4 @@
 - [Task-plan workflow decisions](slice-pack-workflow.md) — repository-only source gates were revoked; verify predecessor code separately from merged task status.
 - [Custom catalog saves](custom-catalog-save-boundary.md) — category-led custom service saves require the current category default; general catalog umbrella overrides remain allowed.
 - [Service calendar direction](service-calendar-direction.md) — contracts supply counts; calendar alone supplies timing; preserve deadline ownership and annual checklist semantics.
+- [Estimate unit boundaries](estimate-unit-boundaries.md) — frozen units are display-normalized only; unknowns have no guessed replacement, including in new revisions.

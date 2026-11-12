@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { normalizeEstimateUnit, formatEstimateUnit } from "../../../../lib/db/src/estimateUnits";
 import { hardscapeCatalogFields, type HardscapeCatalogItem } from "@workspace/db";
 import { centsToDollars, dollarsToCents, parseCsv, writeCsv } from "./csv";
 import type { HardscapeWrite } from "./hardscapeStorage";
@@ -6,7 +7,7 @@ import type { HardscapeWrite } from "./hardscapeStorage";
 export const HARDSCAPE_CSV_HEADERS = ["sku", "category", "name", "description", "unit", "wholesale_cost", "retail_price", "active"] as const;
 export const createHardscapeBody = z.object({
   ...hardscapeCatalogFields,
-  unit: hardscapeCatalogFields.unit.default("ea"),
+  unit: hardscapeCatalogFields.unit.default("EA"),
   isActive: hardscapeCatalogFields.isActive.default(true),
 }).strict();
 // No defaults in PATCH; explicit null clears nullable values.
@@ -39,7 +40,7 @@ export function parseHardscapeCsv(text: string) {
       }
       const data = createHardscapeBody.parse({
         sku: row.sku.trim() || null, category: row.category, name: row.name,
-        description: row.description === "" ? null : row.description, unit: row.unit,
+        description: row.description === "" ? null : row.description, unit: normalizeEstimateUnit(row.unit) ?? row.unit,
         wholesaleCostCents: dollarsToCents(row.wholesale_cost),
         retailPriceCents: dollarsToCents(row.retail_price), isActive: ["true", "yes", "1"].includes(active),
       });
@@ -68,7 +69,7 @@ export async function importHardscapeCsv(text: string, upsert: (data: HardscapeW
 
 export function exportHardscapeCsv(items: HardscapeCatalogItem[]): string {
   return writeCsv([HARDSCAPE_CSV_HEADERS, ...items.map(item => [
-    item.sku, item.category, item.name, item.description, item.unit,
+    item.sku, item.category, item.name, item.description, formatEstimateUnit(item.unit),
     centsToDollars(item.wholesaleCostCents), centsToDollars(item.retailPriceCents), item.isActive,
   ])]);
 }

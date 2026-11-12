@@ -1,8 +1,8 @@
 import { QUICK_ITEM_UNITS } from "@shared/estimateSetup";
 import type { EstimateUmbrella } from "@/lib/estimateBuilder";
 
-/** Exact custom-line unit list (Slice 4.7). Quick-item catalogs accept QUICK_ITEM_UNITS only. */
-export const CUSTOM_UNITS = ["ea", "hour", "day", "week", "flat", "sq ft", "1,000 sq ft", "lin ft", "cu yd", "ton", "visit"] as const;
+/** All estimate forms and catalog save targets use the same ordered units. */
+export const CUSTOM_UNITS = QUICK_ITEM_UNITS;
 export type CustomUnit = (typeof CUSTOM_UNITS)[number];
 
 export const CATALOG_MATCHES_API = "/api/estimates/catalog-matches";
@@ -31,9 +31,9 @@ export const FIXED_TARGETS: Record<FixedCategory, CategoryTarget> = {
   fees: { umbrella: "fees_surcharges", save: { catalog: "fee" } },
 };
 
-/** Hardscape accepts any unit; quick-item catalogs accept their unit list only. */
+/** No catalog save target accepts a unit outside the canonical list. */
 export function unitAllowed(catalog: SaveCatalog, unit: string): boolean {
-  return catalog === "hardscape" || (QUICK_ITEM_UNITS as readonly string[]).includes(unit);
+  return (QUICK_ITEM_UNITS as readonly string[]).includes(unit);
 }
 
 export function saveToCatalogBody(save: { catalog: SaveCatalog; serviceCategoryId?: string }): SaveToCatalog {

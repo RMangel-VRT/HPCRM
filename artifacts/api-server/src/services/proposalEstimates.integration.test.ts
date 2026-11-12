@@ -62,7 +62,7 @@ const proposal = async (estimateId: string | null = null, linkedTicket: string |
 async function draft() {
   const d = await createEstimate(companyId, actor, { customerId, title: "Disposable estimate" });
   return createLine(companyId, d.id, d.version.id, { sectionId: d.version.sections[0].id, lineType: "custom",
-    name: "Install", unit: "ea", quantity: "2", unitPriceCents: 1234, umbrellaKey: "landscape_labor" });
+    name: "Install", unit: "EA", quantity: "2", unitPriceCents: 1234, umbrellaKey: "landscape_labor" });
 }
 beforeAll(async () => {
   const migration = await readFile(new URL("../../../../.migration-backup/migrations/0064_proposal_estimates.sql", import.meta.url), "utf8");
@@ -342,7 +342,7 @@ describe("finalize sends first and pins exactly what was rendered", () => {
   });
   it("zero-price confirmation returns lineIds and supports confirmed retry", async () => {
     const d = await draft();
-    const [item] = await db.insert(hardscapeCatalogItems).values({ companyId, name: "Unpriced", category: "Stone", sku: randomUUID(), unit: "ea", retailPriceCents: null }).returning();
+    const [item] = await db.insert(hardscapeCatalogItems).values({ companyId, name: "Unpriced", category: "Stone", sku: randomUUID(), unit: "EA", retailPriceCents: null }).returning();
     const changed = await createLine(companyId, d.id, d.version.id, { sectionId: d.version.sections[0].id, lineType: "hardscape", hardscapeCatalogItemId: item.id, quantity: "1" });
     const lineId = changed.version.sections.flatMap(s => s.lines).find(l => l.lineType === "hardscape")!.id;
     const p = await proposal(d.id);

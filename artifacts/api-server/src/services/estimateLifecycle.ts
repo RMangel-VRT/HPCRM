@@ -7,6 +7,7 @@ import { companyToday } from "../lib/companyDay";
 import { EstimateError, requireEstimate } from "./estimateErrors";
 import { estimatePayload } from "./estimateReads";
 import { computeVersionTotals } from "./estimateMath";
+import { canonicalEstimateUnit } from "./estimateUnit";
 
 export type EstimateAction = "send" | "accept" | "decline" | "revise" | "discard" | "void";
 const allowed: Record<EstimateAction, readonly EstimateVersion["status"][]> = {
@@ -90,7 +91,7 @@ export async function transitionEstimate(companyId: string, userId: string | nul
           const { id: _id, createdAt: _created, updatedAt: _updated, ...snapshot } = line;
           const sectionId = sectionIds.get(line.sectionId);
           if (!sectionId) throw new EstimateError(409, "CONFLICT");
-          return { ...snapshot, versionId: copy.id, sectionId };
+          return { ...snapshot, unit: canonicalEstimateUnit(snapshot.unit), versionId: copy.id, sectionId };
         }));
         currentVersionId = copy.id;
       } else if (action === "discard") {

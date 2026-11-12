@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { unitLabel } from "@/lib/estimateUnits";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -234,7 +235,7 @@ function FreeForm({ type, title, pending, quantity, setQuantity, qtyError, onBac
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [detail, setDetail] = useState("");
-  const [unit, setUnit] = useState<string>(type === "fee" || type === "custom" ? "ea" : type === "service" ? "1,000 sq ft" : "hour");
+  const [unit, setUnit] = useState<string>(type === "fee" || type === "custom" ? "EA" : type === "service" ? "1,000 SF" : "HR");
   const [rate, setRate] = useState("");
   const [umbrella, setUmbrella] = useState<EstimateUmbrella>(DEFAULT_UMBRELLA[type as "service" | "equipment" | "fee" | "custom"] ?? "landscape_materials");
   const [errs, setErrs] = useState<{ name?: string; rate?: string }>({});
@@ -271,7 +272,7 @@ function FreeForm({ type, title, pending, quantity, setQuantity, qtyError, onBac
           <div className="grid gap-1">
             <Label htmlFor="free-unit">{t("estimateBuilder.picker.unit")}<RequiredMark /></Label>
             <select id="free-unit" className={sel} value={unit} onChange={(e) => setUnit(e.target.value)} data-testid="select-free-unit">
-              {FREE_UNITS.map((u) => <option key={u} value={u}>{t(`estimateBuilder.unit.${u}`)}</option>)}
+              {FREE_UNITS.map((u) => <option key={u} value={u}>{unitLabel(u, t)}</option>)}
             </select>
           </div>
           <div className="grid gap-1">

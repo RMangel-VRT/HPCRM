@@ -19,7 +19,7 @@ const act = (d: Detail, action: EstimateAction, body: unknown = {}, date?: Date)
 async function draft(withLine = true) {
   const d = await createEstimate(a, actor, { customerId: customer, title: "Lifecycle test" });
   return withLine ? createLine(a, d.id, d.version.id, { sectionId: d.version.sections[0].id, lineType: "custom",
-    name: "Snapshot", unit: "ea", quantity: "2.5", unitPriceCents: 33, umbrellaKey: "landscape_materials" }) : d;
+    name: "Snapshot", unit: "EA", quantity: "2.5", unitPriceCents: 33, umbrellaKey: "landscape_materials" }) : d;
 }
 const lines = (d: Detail) => d.version.sections.flatMap(s => s.lines);
 function snapshot(line: ReturnType<typeof lines>[number]) {
@@ -59,7 +59,7 @@ describe("real PostgreSQL lifecycle, frozen values and history", () => {
     await expect(act(d, "send", { method: "email" })).rejects.toMatchObject({ error: "NO_LINES" });
     expect((await invariant(d.id)).version.status).toBe("draft");
     const priced = await createLine(a, d.id, d.version.id, { sectionId: d.version.sections[0].id, lineType: "custom", name: "Warranty",
-      unit: "ea", quantity: "1", unitPriceCents: 0, umbrellaKey: "landscape_labor" });
+      unit: "EA", quantity: "1", unitPriceCents: 0, umbrellaKey: "landscape_labor" });
     expect((await act(priced, "send", { method: "hard_copy" })).version.frozenSubtotalCents).toBe(0);
   });
   it("freezes totals and snapshots; zero confirmation does not alter lines", async () => {
@@ -129,6 +129,15 @@ describe("real PostgreSQL lifecycle, frozen values and history", () => {
     const revised = await act(declined, "revise");
     const sent2 = await act(revised, "send", { method: "other" });
     expect(sent2.versions.find(v => v.id === sent.version.id)).toMatchObject({ status: "declined", declineReason: "Timing", supersededAt: null });
+  });
+  it("normalizes a new revision's unit without changing any frozen source bytes", async () => {
+    const sent = await act(await draft(), "send", { method: "email" });
+    await db.update(estimateLines).set({ unit: " visit " }).where(eq(estimateLines.versionId, sent.version.id));
+    const before = (await db.select().from(estimateLines).where(eq(estimateLines.versionId, sent.version.id)))[0];
+    const revised = await act(sent, "revise");
+    expect(lines(revised)[0]).toMatchObject({ unit: "FLAT", quantity: before.quantity, unitPriceCents: before.unitPriceCents, extendedCents: before.extendedCents });
+    const after = (await db.select().from(estimateLines).where(eq(estimateLines.versionId, sent.version.id)))[0];
+    expect(after).toEqual(before);
   });
   it("send supersedes sent originals; acceptance alone replaces the accepted contract, not revision/send", async () => {
     const s1 = await act(await draft(), "send", { method: "email" });
@@ -212,7 +221,7 @@ describe("real PostgreSQL lifecycle, frozen values and history", () => {
       () => createSection(a, d.id, d.version.id, "No"),
       () => patchSection(a, d.id, d.version.id, section.id, { name: "No" }), () => deleteSection(a, d.id, d.version.id, section.id),
       () => patchLine(a, d.id, d.version.id, line.id, { unitPriceCents: 999 }), () => deleteLine(a, d.id, d.version.id, line.id),
-      () => createLine(a, d.id, d.version.id, { lineType: "custom", sectionId: section.id, name: "No", quantity: "1", unit: "ea", unitPriceCents: 1, umbrellaKey: "plants" }),
+      () => createLine(a, d.id, d.version.id, { lineType: "custom", sectionId: section.id, name: "No", quantity: "1", unit: "EA", unitPriceCents: 1, umbrellaKey: "plants" }),
     ]) await expect(work()).rejects.toMatchObject({ error: "VERSION_LOCKED" });
     expect((await readEstimate(a, d.id)).version).toEqual(d.version);
   });

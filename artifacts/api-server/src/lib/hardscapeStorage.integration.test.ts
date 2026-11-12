@@ -9,7 +9,7 @@ import { exportHardscapeCsv, importHardscapeCsv } from "./hardscapeCsv";
 
 const companyA = randomUUID(), companyB = randomUUID();
 const material = (name: string, sku: string | null = null) => ({
-  name, sku, category: "general", description: null, unit: "ea",
+  name, sku, category: "general", description: null, unit: "EA" as const,
   wholesaleCostCents: null, retailPriceCents: 0, isActive: true,
 });
 describe.skipIf(!process.env.DATABASE_URL)("hardscape real PostgreSQL storage", () => {

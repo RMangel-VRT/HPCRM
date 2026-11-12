@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { unitLabel } from "./estimateUnits";
 import { catalogListUrl, fetchJson, formatCents, parseDollarsToCents, type HardscapeListResponse } from "@/lib/hardscapeCatalog";
 import { irrigationListUrl, type IrrigationListResponse } from "@/lib/irrigationCatalog";
 import { QUICK_ITEMS_API, RATES_PREVIEW_API, moneyOrText, type QuickItem } from "@/lib/estimateSettings";
@@ -78,7 +79,7 @@ export function pickerRows(type: EstimateLineType, d: unknown, o: { search: stri
     categories = r.categories ?? []; brands = r.brands ?? [];
     rows = r.items.filter((i) => i.isActive).map((i) => ({
       key: i.id, title: i.name, detail: [i.sku, i.description].filter(Boolean).join(" · "),
-      meta: [i.unit, i.retailPriceCents != null && t("estimateBuilder.picker.price", { amount: formatCents(i.retailPriceCents, lang) }),
+      meta: [unitLabel(i.unit, t), i.retailPriceCents != null && t("estimateBuilder.picker.price", { amount: formatCents(i.retailPriceCents, lang) }),
         i.wholesaleCostCents != null && t("estimateBuilder.picker.cost", { amount: formatCents(i.wholesaleCostCents, lang) })].filter(Boolean).join(" · "),
       body: type === "hardscape" ? { hardscapeCatalogItemId: i.id } : { irrigationCatalogItemId: i.id },
     }));
@@ -87,7 +88,7 @@ export function pickerRows(type: EstimateLineType, d: unknown, o: { search: stri
     rows = (d as RatesPreviewWithContext).items.filter((r) => !s || r.label.toLowerCase().includes(s) || r.rateKey.toLowerCase().includes(s)).map((r) => {
       const textOnly = r.rateCents == null && !!r.priceText?.trim();
       return {
-        key: r.rateKey, title: r.label, detail: r.unit ?? undefined,
+        key: r.rateKey, title: r.label, detail: r.unit ? unitLabel(r.unit, t) : undefined,
         meta: moneyOrText(r.rateCents, null, lang) ?? undefined,
         badge: r.source === "unset" ? undefined : t(`estimateBuilder.line.source.${r.source}`),
         warn: textOnly ? t("estimateBuilder.picker.textRate", { text: r.priceText }) : undefined,
@@ -104,7 +105,7 @@ export function pickerRows(type: EstimateLineType, d: unknown, o: { search: stri
       .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label))
       .map((i) => ({
         key: i.id, title: i.label,
-        detail: [i.serviceCategoryName, t(`estimateBuilder.unit.${i.defaultUnit}`, { defaultValue: i.defaultUnit })].filter(Boolean).join(" · "),
+        detail: [i.serviceCategoryName, unitLabel(i.defaultUnit, t)].filter(Boolean).join(" · "),
         meta: i.defaultRateCents != null ? formatCents(i.defaultRateCents, lang) : t("estimateBuilder.picker.noDefault"),
         body: { quickItemId: i.id },
         group: { id: i.serviceCategoryId!, name: i.serviceCategoryName ?? "" },
@@ -113,7 +114,7 @@ export function pickerRows(type: EstimateLineType, d: unknown, o: { search: stri
   } else if (type !== "custom") {
     rows = (d as QuickItem[]).filter((i) => i.isActive && (!s || i.label.toLowerCase().includes(s))).sort((a, b) => a.sortOrder - b.sortOrder)
       .map((i) => ({
-        key: i.id, title: i.label, detail: t(`estimateBuilder.unit.${i.defaultUnit}`, { defaultValue: i.defaultUnit }),
+        key: i.id, title: i.label, detail: unitLabel(i.defaultUnit, t),
         meta: i.defaultRateCents != null ? formatCents(i.defaultRateCents, lang) : t("estimateBuilder.picker.noDefault"),
         body: { quickItemId: i.id },
       }));

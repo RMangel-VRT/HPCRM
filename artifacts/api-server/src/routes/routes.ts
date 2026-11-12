@@ -116,6 +116,7 @@ import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from '../lib/du
 import { migrateSchedulingStatuses } from '../lib/schedulingStatuses';
 import { backfillScheduleBy } from '../lib/backfillScheduleBy';
 import { initializeEmptyServiceCategories } from '../lib/initializeEmptyServiceCategories';
+import { normalizeStoredEstimateUnits } from '../lib/normalizeEstimateUnits';
 import { maintainScheduleBy } from '../lib/scheduleByMaintenance';
 import { applyTicketStatus } from "../lib/ticketStatusChange";
 import { guardManualRfpStatus, lockRfp } from "../lib/rfpContracts";
@@ -2726,6 +2727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await migrateSchedulingStatuses();
   await backfillScheduleBy();
   await initializeEmptyServiceCategories();
+  await normalizeStoredEstimateUnits();
   await linkCrewsByName();
   await backfillVisitsFromTickets();
   await backfillVisitServices();

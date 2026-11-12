@@ -4,6 +4,7 @@ export * from "../../../../lib/db/src/estimateContracts";
 export * from "../../../../lib/db/src/invoiceContracts";
 export { routeStopBody, routeStopFields } from "../../../../lib/db/src/routeContracts";
 import { z } from "zod";
+import { ESTIMATE_UNITS } from "../../../../lib/db/src/estimateUnits";
 import { NON_RENEWAL_REASONS } from "../../../../lib/db/src/contractNonRenewal";
 
 // Real zod object, independent of the frontend's non-inferencing drizzle stub.
@@ -12,7 +13,7 @@ export const hardscapeCatalogFields = {
   category: z.string().trim().min(1),
   name: z.string().trim().min(1),
   description: z.string().transform(value => value === "" ? null : value).nullable().optional(),
-  unit: z.string().trim().min(1),
+  unit: z.enum(ESTIMATE_UNITS),
   wholesaleCostCents: z.number().int().min(0).max(2147483647).nullable().optional(),
   retailPriceCents: z.number().int().min(0).max(2147483647).nullable().optional(),
   isActive: z.boolean(),
@@ -20,7 +21,7 @@ export const hardscapeCatalogFields = {
 export const insertHardscapeCatalogItemSchema = z.object({
   ...hardscapeCatalogFields,
   companyId: z.string().min(1),
-  unit: hardscapeCatalogFields.unit.default("ea"),
+  unit: hardscapeCatalogFields.unit.default("EA"),
   isActive: hardscapeCatalogFields.isActive.default(true),
 });
 export type InsertHardscapeCatalogItem = z.infer<typeof insertHardscapeCatalogItemSchema>;

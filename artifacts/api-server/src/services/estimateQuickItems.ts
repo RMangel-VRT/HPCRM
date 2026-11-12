@@ -2,6 +2,7 @@ import { and, eq, getTableColumns } from "drizzle-orm";
 import { estimateQuickItems, estimateServiceCategories, type createQuickItemSchema, type patchQuickItemSchema, type QUICK_ITEM_KINDS } from "@workspace/db";
 import type { z } from "zod/v4";
 import { db, type AppTransaction } from "../db";
+import { canonicalEstimateUnit } from "./estimateUnit";
 
 function invalidCategory(): never {
   throw Object.assign(new Error("Choose an active service category from this company"), { status: 400 });
@@ -31,7 +32,7 @@ export const estimateQuickCatalog = {
       const category = body.kind === "service" ? await categoryFor(tx, companyId, body.serviceCategoryId!) : undefined;
       const [row] = await tx.insert(estimateQuickItems).values({
         ...body, companyId, serviceCategoryId: body.serviceCategoryId ?? null,
-        defaultUnit: body.defaultUnit ?? category?.defaultUnit ?? "hour",
+        defaultUnit: canonicalEstimateUnit(body.defaultUnit ?? category?.defaultUnit ?? "HR"),
         umbrellaKey: body.umbrellaKey ?? category?.defaultUmbrellaKey ?? (body.kind === "fee" ? "fees_surcharges" : "landscape_labor"),
       }).returning();
       return row;

@@ -346,13 +346,13 @@ describe("inline edits", () => {
     await waitFor(() => expect(mutations()).toHaveLength(1));
     expect(mutations()[0]).toMatchObject({ method: "PATCH", url: "/api/estimates/e1", body: { title: "Spring install II" } });
     fireEvent.click(screen.getByTestId("toggle-palette-l-plant"));
-    fireEvent.change(screen.getByTestId("select-unit-l-equipment"), { target: { value: "day" } });
+    fireEvent.change(screen.getByTestId("select-unit-l-equipment"), { target: { value: "DAY" } });
     fireEvent.click(screen.getByTestId("button-remove-line-l-fee"));
     fireEvent.change(screen.getByTestId("select-move-l-custom"), { target: { value: "s2" } });
     await waitFor(() => expect(mutations()).toHaveLength(5));
     const m = mutations();
     expect(m[1].body).toEqual({ includeInPalette: false });
-    expect(m[2].body).toEqual({ unit: "day" });
+    expect(m[2].body).toEqual({ unit: "DAY" });
     expect(m[3]).toMatchObject({ method: "DELETE", url: "/api/estimates/e1/versions/v2/lines/l-fee" });
     expect(m[4].body).toEqual({ sectionId: "s2", sortOrder: 0 });
     fireEvent.click(screen.getByTestId("button-move-down-l-plant"));
@@ -394,6 +394,7 @@ describe("read-only and lock", () => {
     await ready();
     expect(screen.getByTestId("banner-read-only").textContent).toContain("Sent");
     expect(screen.queryByTestId("input-estimate-title")).toBeNull();
+    expect(screen.getByTestId("text-unit-l-hardscape").textContent).toBe("/EA");
     expect(screen.queryByTestId("button-add-section")).toBeNull();
     expect(screen.queryByTestId("bar-add-s1")).toBeNull();
     expect(screen.queryByTestId("button-remove-line-l-plant")).toBeNull();
@@ -583,11 +584,11 @@ describe("pickers", () => {
     fireEvent.doubleClick(screen.getByTestId("option-__free"));
     expect((screen.getByTestId("select-free-umbrella") as HTMLSelectElement).value).toBe(umbrella);
     fireEvent.change(screen.getByTestId("input-free-name"), { target: { value: "Dump run" } });
-    fireEvent.change(screen.getByTestId("select-free-unit"), { target: { value: "flat" } });
+    fireEvent.change(screen.getByTestId("select-free-unit"), { target: { value: "FLAT" } });
     fireEvent.change(screen.getByTestId("input-free-rate"), { target: { value: "85" } });
     fireEvent.change(screen.getByTestId("input-free-quantity"), { target: { value: "2" } });
     fireEvent.click(screen.getByTestId("button-free-add"));
-    await waitFor(() => expect(posted()).toEqual({ lineType: kind, sectionId: "s1", quantity: "2", name: "Dump run", unit: "flat", unitPriceCents: 8500, umbrellaKey: umbrella }));
+    await waitFor(() => expect(posted()).toEqual({ lineType: kind, sectionId: "s1", quantity: "2", name: "Dump run", unit: "FLAT", unitPriceCents: 8500, umbrellaKey: umbrella }));
   });
 
   it("quick-list reference sends quickItemId only", async () => {
@@ -613,7 +614,7 @@ describe("pickers", () => {
     expect(posted()).toBeUndefined();
     fireEvent.change(screen.getByTestId("input-free-rate"), { target: { value: "450" } });
     fireEvent.click(screen.getByTestId("button-free-add"));
-    await waitFor(() => expect(posted()).toEqual({ lineType: "custom", sectionId: "s1", quantity: "1", name: "Boulder set", unit: "ea", unitPriceCents: 45000, umbrellaKey: "landscape_materials" }));
+    await waitFor(() => expect(posted()).toEqual({ lineType: "custom", sectionId: "s1", quantity: "1", name: "Boulder set", unit: "EA", unitPriceCents: 45000, umbrellaKey: "landscape_materials" }));
     await waitFor(() => expect(screen.queryByTestId("dialog-add-line")).toBeNull());
   });
 });

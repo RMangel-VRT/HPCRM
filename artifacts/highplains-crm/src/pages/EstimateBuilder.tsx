@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { unitLabel, normalizeEstimateUnit } from "@/lib/estimateUnits";
 import { derivePaletteTypeLabel, EXHIBITS_KEY } from "../../../../lib/db/src/plantExhibitContracts";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -759,7 +760,7 @@ function LineRow(props: {
   const Icon = TYPE_ICON[l.lineType];
   const url = `${vBase}/lines/${encodeURIComponent(l.id)}`;
   const patch = (body: Record<string, unknown>) => run("PATCH", url, body);
-  const units = FREE_UNIT_TYPES.includes(l.lineType) ? (FREE_UNITS as readonly string[]).includes(l.unit) ? [...FREE_UNITS] : [l.unit, ...FREE_UNITS] : null;
+  const units = FREE_UNIT_TYPES.includes(l.lineType) ? FREE_UNITS : null;
   const others = props.sections.filter((s) => s.id !== l.sectionId);
   const tint = LINE_TINT[l.lineType];
   return (
@@ -810,11 +811,14 @@ function LineRow(props: {
             onCommit={(unitPriceCents) => patch({ unitPriceCents })} onInvalid={props.invalid} />
         </div>
         {units && editable ? (
-          <select aria-label={t("estimateBuilder.line.unit", { name: l.name })} value={l.unit} onChange={(e) => void patch({ unit: e.target.value })}
+          <div>
+          {!normalizeEstimateUnit(l.unit) && <span className="text-xs text-destructive">{l.unit}</span>}
+          <select aria-label={t("estimateBuilder.line.unit", { name: l.name })} value={normalizeEstimateUnit(l.unit) ?? ""} onChange={(e) => void patch({ unit: e.target.value })}
             className="h-8 rounded-md border border-input bg-background px-1.5 text-xs" data-testid={`select-unit-${l.id}`}>
-            {units.map((u) => <option key={u} value={u}>{t(`estimateBuilder.unit.${u}`, { defaultValue: u })}</option>)}
+            {units.map((u) => <option key={u} value={u}>{unitLabel(u, t)}</option>)}
           </select>
-        ) : <span className="w-12 text-xs text-muted-foreground" data-testid={`text-unit-${l.id}`}>/{t(`estimateBuilder.unit.${l.unit}`, { defaultValue: l.unit })}</span>}
+          </div>
+        ) : <span className="w-12 text-xs text-muted-foreground" data-testid={`text-unit-${l.id}`}>/{unitLabel(l.unit, t)}</span>}
         {l.needsPrice && (
           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[hsl(var(--est-warn))]" data-testid={`marker-needs-price-${l.id}`}>
             <AlertTriangle className="h-3 w-3" />{t("estimateBuilder.line.needsPrice")}

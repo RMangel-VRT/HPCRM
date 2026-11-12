@@ -125,7 +125,7 @@ describe("HardscapeCatalog", () => {
     expect(post.url).toBe("/api/hardscape-catalog");
     expect(post.headers).toEqual({ "Content-Type": "application/json", "X-Company-Id": "c1" });
     expect(JSON.parse(String(post.body))).toEqual({
-      sku: null, category: "rock_cobble", name: "River rock 3in", description: "  keep spaces ", unit: "ea",
+      sku: null, category: "rock_cobble", name: "River rock 3in", description: "  keep spaces ", unit: "EA",
       wholesaleCostCents: 123450, retailPriceCents: null, isActive: true,
     });
     await waitFor(() => expect(screen.queryByTestId("dialog-hardscape-item")).toBeNull());
@@ -143,7 +143,7 @@ describe("HardscapeCatalog", () => {
     const patch = calls().find((c) => c.method === "PATCH")!;
     expect(patch.url).toBe("/api/hardscape-catalog/h1");
     expect(patch.headers["X-Company-Id"]).toBe("c1");
-    expect(JSON.parse(String(patch.body))).toEqual({ retailPriceCents: 900 });
+    expect(JSON.parse(String(patch.body))).toEqual({ retailPriceCents: 900, unit: "SF" });
   });
 
   it("deactivates via confirm with DELETE and reactivates with PATCH", async () => {

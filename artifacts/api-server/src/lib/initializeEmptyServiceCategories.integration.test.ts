@@ -7,6 +7,7 @@ import { pool as appPool } from "../db";
 import { initializeServiceCategories } from "../services/estimateServiceCategories";
 import { disposableDatabase } from "../test/disposableDatabase";
 import { initializeEmptyServiceCategories, SERVICE_CATEGORY_BOOT_LOCK } from "./initializeEmptyServiceCategories";
+import { normalizeEstimateUnit } from "../../../../lib/db/src/estimateUnits";
 
 let fixture: Awaited<ReturnType<typeof disposableDatabase>>;
 let database: ReturnType<typeof drizzle<typeof schema>>;
@@ -29,6 +30,7 @@ describe("default category boot DML in an isolated disposable PostgreSQL databas
     await fixture.pool.query(`CREATE TABLE companies(id varchar PRIMARY KEY); ${definitions}
       CREATE TABLE estimate_quick_items(id text PRIMARY KEY, company_id varchar, payload jsonb);
       CREATE TABLE estimate_lines(id text PRIMARY KEY, company_id varchar, payload jsonb);`);
+    await fixture.pool.query(await readFile(new URL("../../../../.migration-backup/migrations/0085_estimate_units.sql", import.meta.url), "utf8"));
   });
   beforeEach(async () => {
     await fixture.pool.query("TRUNCATE companies, estimate_service_categories, estimate_quick_items, estimate_lines CASCADE");
@@ -99,7 +101,7 @@ describe("default category boot DML in an isolated disposable PostgreSQL databas
   it("historical migration, transactional company seed and boot seed all agree semantically with shared defaults", async () => {
     await fixture.pool.query("INSERT INTO companies VALUES ('a')");
     await fixture.pool.query(historicalSeed);
-    expect(await values()).toEqual(schema.SERVICE_CATEGORY_DEFAULTS);
+    expect((await values()).map(row => ({ ...row, defaultUnit: normalizeEstimateUnit(row.defaultUnit) }))).toEqual(schema.SERVICE_CATEGORY_DEFAULTS);
     await fixture.pool.query("TRUNCATE estimate_service_categories");
     await database.transaction(tx => initializeServiceCategories(tx, "a"));
     expect(await values()).toEqual(schema.SERVICE_CATEGORY_DEFAULTS);

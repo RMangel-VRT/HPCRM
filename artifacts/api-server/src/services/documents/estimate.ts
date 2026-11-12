@@ -1,9 +1,10 @@
 import type { EstimateDocumentModel } from "../estimatePdf";
+import { formatEstimateUnit } from "../../../../../lib/db/src/estimateUnits";
 import { displayDate, quantity, documentHtml, escapeHtml as e, firstHeader, keyFigureBox, money, multiline, tableHead } from "./layout";
 
 export function estimatePricingTable(m: EstimateDocumentModel): string {
   const sections = m.sections.map(section => `<tbody><tr class="section"><td colspan="4">${e(section.name)}</td><td class="num">${money(section.subtotalCents)}</td></tr>${section.lines.map((line, i) =>
-     `<tr data-line class="${i === section.lines.length - 1 ? "group-end" : ""}"><td>${e(line.name)}${line.detail ? `<div class="secondary">${multiline(line.detail)}</div>` : ""}</td><td class="num">${e(quantity(line.quantity))}</td><td class="num">${e(line.unit)}</td><td class="num">${money(line.unitPriceCents)}</td><td class="num">${money(line.lineTotalCents)}</td></tr>`).join("")}</tbody>`).join("");
+     `<tr data-line class="${i === section.lines.length - 1 ? "group-end" : ""}"><td>${e(line.name)}${line.detail ? `<div class="secondary">${multiline(line.detail)}</div>` : ""}</td><td class="num">${e(quantity(line.quantity))}</td><td class="num" style="white-space:nowrap">${e(formatEstimateUnit(line.unit))}</td><td class="num">${money(line.unitPriceCents)}</td><td class="num">${money(line.lineTotalCents)}</td></tr>`).join("")}</tbody>`).join("");
   return `<table data-pricing>${tableHead(["Description", "Qty", "Unit", "Rate", "Amount"], [43, 9, 10, 15, 23])}${sections}</table>`;
 }
 export function estimatePricingSummary(m: EstimateDocumentModel): string {
