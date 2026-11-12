@@ -1,5 +1,26 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const es = {
+  quickItemCsv: {
+    errors: {
+      columns: "Se esperaban siete columnas", kind: "kind debe ser service, equipment o fee",
+      category: "Los servicios requieren una categoría; equipos y cargos deben tener la categoría vacía",
+      active: "active debe ser true/false, yes/no o 1/0", quoting: "Comillas CSV incorrectas", unterminated: "Campo entre comillas sin cerrar",
+      save: "No se pudo guardar la fila", inactive: "Los servicios nuevos o reasignados requieren una categoría activa",
+      categoryChanged: "La categoría cambió; vuelva a importar esta fila",
+      price: "Importe no válido (use dólares no negativos con un máximo de dos decimales)", priceMax: "El importe supera el máximo permitido",
+      file: "Se requiere un archivo o texto CSV", fileSize: "El CSV supera el límite de 5 MB", upload: "Carga CSV no válida",
+      companyRequired: "Recargue el catálogo antes de importar o exportar", scope: "Elija el catálogo de Servicios o Equipos y cargos",
+      companyChanged: "La empresa activa cambió. Recargue e inténtelo de nuevo.", headers: "El CSV debe contener exactamente estos encabezados: kind,category,name,unit,price,posts_to,active",
+      scopeKind: "Este tipo no está permitido en este catálogo", unit: "Unidad desconocida: {{value}}", umbrella: "posts_to desconocido: {{value}}",
+      collision: "El nombre ya pertenece a otro tipo ({{kind}})",
+      exportUnit: 'No se puede exportar "{{name}}": unidad desconocida "{{value}}". Resuélvala antes de exportar para volver a importar.',
+      exportInvalid: 'No se puede exportar "{{name}}": falta la categoría o posts_to es desconocido',
+      name: "El nombre no debe estar vacío y debe tener un máximo de 200 caracteres, sin espacios al principio ni al final",
+      categoryLength: "La categoría debe tener un máximo de 100 caracteres",
+    },
+    categoriesCreated: "Categorías creadas",
+    hint: "El CSV usa kind,category,name,unit,price,posts_to,active. La exportación incluye todos los artículos, también los inactivos. Un precio vacío o Variable significa que no hay tarifa predeterminada.",
+  },
   estimateActions: {
     reason: {
       answered_one: "El cliente respondió hace 1 día", expires_one: "Vence en 1 día", overdue_one: "Seguimiento con 1 día de atraso", unanswered_one: "Sin respuesta en 1 día", sent_one: "Enviado hace 1 día", ready_one: "Listo para enviar · 1 día", untouched_one: "Borrador sin cambios en 1 día", edited_one: "Editado hace 1 día", prices_one: "1 partida necesita precio", unassigned_one: "Sin asignar · 1 día", new_one: "Nueva · 1 día",

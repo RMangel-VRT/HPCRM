@@ -1,5 +1,25 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
+  quickItemCsv: {
+    errors: {
+      columns: "Expected seven columns", kind: "Kind must be service, equipment or fee",
+      category: "Services require a category; equipment and fees must have a blank category",
+      active: "Active must be true/false, yes/no or 1/0", quoting: "Malformed CSV quoting", unterminated: "Unterminated quoted field",
+      save: "Unable to save row", inactive: "New or reassigned services require an active category",
+      categoryChanged: "Category changed; try importing this row again",
+      price: "Invalid dollar amount (use nonnegative dollars with at most two decimal places)", priceMax: "Dollar amount exceeds the supported maximum",
+      file: "CSV file or text required", fileSize: "CSV exceeds the 5 MB upload limit", upload: "Invalid CSV upload",
+      companyRequired: "Reload the catalog before importing or exporting", scope: "Choose the Services or Equipment & Fees catalog",
+      companyChanged: "Active company changed. Reload and try again.", headers: "CSV must contain exactly these headers: kind,category,name,unit,price,posts_to,active",
+      scopeKind: "This kind is not allowed in this catalog", unit: "Unknown unit: {{value}}", umbrella: "Unknown posts_to: {{value}}",
+      collision: "Name already belongs to another kind ({{kind}})",
+      exportUnit: 'Cannot export "{{name}}": unknown unit "{{value}}". Resolve it before a roundtrip export.',
+      exportInvalid: 'Cannot export "{{name}}": missing category or unknown posts_to',
+      name: "Name must be trimmed, nonempty and at most 200 characters", categoryLength: "Category must be at most 100 characters",
+    },
+    categoriesCreated: "Categories created",
+    hint: "CSV uses kind,category,name,unit,price,posts_to,active. Export includes all items, including inactive ones. Blank or Variable prices mean no default rate.",
+  },
   estimateActions: {
     reason: {
       answered_one: "Customer answered 1 day ago", expires_one: "Expires in 1 day", overdue_one: "Follow-up 1 day overdue", unanswered_one: "No reply in 1 day", sent_one: "Sent 1 day ago", ready_one: "Ready to send · 1 day", untouched_one: "Draft untouched 1 day", edited_one: "Edited 1 day ago", prices_one: "1 line needs a price", unassigned_one: "Unassigned · 1 day", new_one: "New · 1 day",

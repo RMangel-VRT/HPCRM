@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { QuickItemCsvControls } from "@/components/estimates/QuickItemCsvControls";
 import { unitLabel, normalizeEstimateUnit } from "@/lib/estimateUnits";
 import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -430,6 +431,8 @@ function ServicesCatalogContent() {
             {catsQ.data && activeCats.length === 0 && <p className="text-[11px] text-muted-foreground" data-testid="text-need-category">{t("servicesCatalog.needCategory")}</p>}
           </div>
         </header>
+
+        <QuickItemCsvControls catalog="services" />
 
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t("servicesCatalog.chipsLabel")}>

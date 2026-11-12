@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { QuickItemCsvControls } from "@/components/estimates/QuickItemCsvControls";
 import { unitLabel, normalizeEstimateUnit } from "@/lib/estimateUnits";
 import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -197,6 +198,8 @@ function EquipmentFeesContent() {
             <Plus className="mr-1.5 h-4 w-4" />{t("equipmentFees.add")}
           </Button>
         </header>
+
+        <QuickItemCsvControls catalog="equipment-fees" />
 
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("equipmentFees.kindsLabel")}>

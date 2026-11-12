@@ -1,4 +1,5 @@
-import { Router, type Express, type RequestHandler } from "express";
+import express, { Router, type Express, type RequestHandler, type ErrorRequestHandler } from "express";
+import multer from "multer";
 import { z } from "zod/v4";
 import { createQuickItemSchema, patchQuickItemSchema, QUICK_ITEM_KINDS, createServiceCategorySchema, patchServiceCategorySchema } from "@workspace/db";
 import type { UserWithContext } from "../auth";
@@ -7,6 +8,11 @@ import { estimateQuickCatalog } from "../services/estimateQuickItems";
 import { estimateCategoryCatalog } from "../services/estimateServiceCategories";
 import { previewEstimateRates } from "../services/estimateRates";
 import { logger } from "../lib/logger";
+import { exportQuickItemCsv, importQuickItemCsv, QUICK_ITEM_CSV_SCOPES } from "../lib/quickItemCsv";
+import { upsertQuickItemCsv } from "../services/quickItemCsv";
+import { companyDateString } from "../lib/companyDay";
+
+const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 1, fieldSize: 5 * 1024 * 1024 } });
 
 const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) => {
   try { await fn(req, res, next); } catch (err) {
@@ -24,6 +30,30 @@ const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) =>
 export function registerEstimateSetupRoutes(app: Express) {
   const quick = Router();
   quick.use(estimateAccess);
+  const csvScope: RequestHandler = (req, res, next) => {
+    if (!req.get("X-Company-Id")) { res.status(400).json({ message: "X-Company-Id is required for CSV requests" }); return; }
+    if (!z.enum(QUICK_ITEM_CSV_SCOPES).safeParse(req.query.scope).success) {
+      res.status(400).json({ message: "Choose catalog scope: services or equipment-fees" }); return;
+    }
+    next();
+  };
+  quick.get("/export-csv", csvScope, handle(async (req, res) => {
+    const scope = z.enum(QUICK_ITEM_CSV_SCOPES).parse(req.query.scope);
+    const items = await estimateQuickCatalog.list((req.user as UserWithContext).activeCompanyId);
+    const csv = exportQuickItemCsv(items, scope);
+    res.setHeader("Content-Disposition", `attachment; filename="${scope}-catalog-${companyDateString(new Date())}.csv"`);
+    res.type("text/csv").send(csv);
+  }));
+  quick.post("/import-csv", csvScope, csvUpload.single("file"),
+    express.text({ type: ["text/csv", "text/plain"], limit: "5mb" }), handle(async (req, res) => {
+      const text = req.file?.buffer.toString("utf8") ?? (typeof req.body === "string" ? req.body : req.body?.csv);
+      if (typeof text !== "string") { res.status(400).json({ message: "CSV file or text required" }); return; }
+      if (Buffer.byteLength(text, "utf8") > 5 * 1024 * 1024) { res.status(400).json({ message: "CSV exceeds the 5 MB upload limit" }); return; }
+      const companyId = (req.user as UserWithContext).activeCompanyId;
+      try {
+        res.json(await importQuickItemCsv(text, z.enum(QUICK_ITEM_CSV_SCOPES).parse(req.query.scope), data => upsertQuickItemCsv(companyId, data)));
+      } catch (error) { res.status(400).json({ message: (error as Error).message }); }
+    }));
   quick.get("/", handle(async (req, res) => {
     const parsed = z.enum(QUICK_ITEM_KINDS).optional().safeParse(req.query.kind);
     if (!parsed.success) { res.status(400).json({ message: "Invalid kind" }); return; }
@@ -46,6 +76,14 @@ export function registerEstimateSetupRoutes(app: Express) {
     if (!row) { res.status(404).json({ message: "Item not found" }); return; }
     res.json(row);
   }));
+  const uploadError: ErrorRequestHandler = (error, _req, res, next) => {
+    if (error instanceof multer.MulterError || error.type === "entity.too.large") {
+      res.status(400).json({ message: error.code === "LIMIT_FILE_SIZE" || error.code === "LIMIT_FIELD_VALUE" || error.type === "entity.too.large"
+        ? "CSV exceeds the 5 MB upload limit" : "Invalid CSV upload" }); return;
+    }
+    next(error);
+  };
+  quick.use(uploadError);
   app.use("/api/quick-items", quick);
   const categories = Router();
   categories.use(estimateAccess);
