@@ -68,7 +68,7 @@ describe("non-renewal rendered flow", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
     expect(fx.api).toHaveBeenCalledWith("POST", "/api/contract-center/terms/year3/non-renewal", {
       decidedOn: "2026-11-02", reason: "competitor", competitor: "Surfaces", note: "Board decision", deactivateCustomer: true,
-    });
+    }, { headers: { "X-Company-Id": "company" } });
     expect(invalidate).toHaveBeenCalled();
   });
   it("shows the source chip and actor strip while year one remains editable, hides Renew and undoes the source", async () => {
@@ -97,10 +97,10 @@ describe("non-renewal rendered flow", () => {
     const onNotRenewing = vi.fn();
     mount(<ContractBoard board="landscape" q="" today="2026-11-02" defaultOpen onNotRenewing={onNotRenewing} items={[
       { id: "open", customerId: "customer", customerName: "Fixture Open", line: "landscape", form: "ours",
-        canRecordNonRenewal: true,
+        canRecordNonRenewal: true, state: "renewal_due", allowedActions: ["open", "renew", "not_renewing"],
         current: season("open-source"), renewalDraft: null, renewalDue: true, renewalProgress: { due: true, signed: false } },
       { id: "marked", customerId: "customer2", customerName: "Fixture Marked", line: "landscape", form: "ours",
-        current: season("marked-source"), renewalDraft: null, renewalDue: false, notRenewing: true,
+        current: season("marked-source"), renewalDraft: null, renewalDue: false, notRenewing: true, state: "serving_not_renewing",
         renewalProgress: { due: true, signed: false, notRenewing: true } },
     ]} />);
     expect(screen.queryByTestId("card-renewal-marked")).toBeNull();

@@ -30,6 +30,8 @@ export function contractValueText(agg: TermsAggregate, t: TFunction, lang: strin
   else if (agg.hasInherited) parts.push(t("cp3.chips.parentPriced"));
   else parts.push(t("cp3.chips.priceNotSet"));
   if (agg.lines.length) parts.push(agg.lines.length === 2 ? t("cp1.both") : t(`cp1.${agg.lines[0]}`));
+  if (agg.attentionState) parts.push(t(`contractAttention.state.${agg.attentionState}`));
+  if (agg.missingDocument) parts.push(t("contractAttention.noPdf"));
   return parts.join(" \u00b7 ");
 }
 

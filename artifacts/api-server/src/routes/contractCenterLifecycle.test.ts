@@ -83,7 +83,7 @@ async function create(agent: ReturnType<typeof request>) {
   return { agreementId: response.body.id, termId: response.body.terms[0].id };
 }
 beforeEach(() => {
-  tables = { customers: [{ id: "customer", companyId: "company", name: "Pavilion Villas", street: "1 Main", city: "Denver", state: "CO", zip: "80000", propertyManagementCompanyId: null }] };
+  tables = { service_calendar: [], customers: [{ id: "customer", companyId: "company", name: "Pavilion Villas", street: "1 Main", city: "Denver", state: "CO", zip: "80000", propertyManagementCompanyId: null }] };
   sequence = 0; writes = 0; failTable = null; vi.clearAllMocks();
   mock.customer.mockImplementation(async (id: string, companyId: string) => rows("customers").find(c => c.id === id && c.companyId === companyId));
   mock.parent.mockResolvedValue(false); mock.upload.mockResolvedValue("https://storage.googleapis.com/private/uploads/object?signature=test");
@@ -105,6 +105,88 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.restoreAllMocks());
+describe("CC-ATTN serialized attention accounting", () => {
+  const today = "2026-11-12";
+  function seed(state: string, status: string, startDate: string, endDate: string, extra = {}, companyId = "company") {
+    const id = state, customerId = `customer-${id}`;
+    rows("customers").push({ id: customerId, companyId, name: `Fixture ${id}`, status: "active",
+      parentCustomerId: null, street: "", city: "", state: "", zip: "" });
+    rows("agreements").push({ id, companyId, customerId });
+    const term = { id: `t-${id}`, agreementId: id, companyId, seasonLabel: state, line: "both", form: "ours",
+      status, startDate, endDate, renewedFromTermId: null, createdAt: new Date("2026-01-01"),
+      signedAt: null, nonRenewalOn: null, ...extra };
+    rows("agreement_terms").push(term);
+    return term;
+  }
+  function population() {
+    vi.spyOn(companyDay, "companyToday").mockReturnValue(today);
+    seed("new_draft", "draft", "2027-01-01", "2027-12-31");
+    seed("closed", "lost", "2025-01-01", "2025-12-31");
+    seed("closed_recently", "lost", "2026-01-01", "2026-10-31");
+    seed("serving_not_renewing", "signed", "2026-01-01", "2026-12-31", { nonRenewalOn: "2026-11-01" });
+    seed("working_unsigned", "sent", "2026-01-01", "2026-12-31");
+    seed("renewal_due", "signed", "2026-01-01", "2027-01-31");
+    const source = seed("renewal_in_progress", "signed", "2026-01-01", "2026-12-31");
+    rows("agreement_terms").push({ ...source, id: "pending", renewedFromTermId: source.id, status: "sent",
+      startDate: "2027-01-01", endDate: "2027-12-31" });
+    seed("good", "signed", "2026-01-01", "2027-12-31");
+    seed("ended_no_decision", "renewed", "2025-01-01", "2026-09-30");
+    seed("unclassified", "signed", "2026-01-01", "2027-12-31");
+    tables.customers = rows("customers").filter(c => c.id !== "customer-unclassified");
+    rows("customers").push({ id: "uncovered", companyId: "company", name: "Uncovered fixture", status: "active", parentCustomerId: null });
+    seed("foreign", "signed", "2026-01-01", "2026-12-31", {}, "other");
+  }
+  it("reconciles every company agreement, all ten states, both lines and separate customer flags with bounded reads", async () => {
+    population();
+    const response = await request(app()).get(`${base}/attention`).expect(200);
+    expect(response.headers["cache-control"]).toContain("no-store");
+    const a = response.body;
+    expect(a.total).toBe(10);
+    expect(Object.keys(a.counts)).toHaveLength(10);
+    expect(Object.values(a.counts)).toEqual(Array(10).fill(1));
+    expect(Object.values(a.counts).reduce((n: number, count: any) => n + count, 0)).toBe(a.total);
+    expect(a.lines.landscape).toMatchObject({ total: 10, actionNeeded: 6 });
+    expect(a.lines.snow).toEqual(a.lines.landscape);
+    expect(a.flagged.active_no_contract).toBe(1);
+    expect(a.items.working_unsigned[0]).toMatchObject({ state: "working_unsigned", stateSince: "2026-01-01",
+      allowedActions: ["open", "mark_signed"], actionTermId: "t-working_unsigned" });
+    expect(a.items.renewal_due[0].allowedActions).toEqual(["open", "renew", "not_renewing"]);
+    expect(a.items.unclassified[0]).toMatchObject({ customerName: "Customer unavailable", allowedActions: ["open"] });
+    expect(JSON.stringify(a)).not.toContain("foreign");
+    expect(mock.db.select).toHaveBeenCalledTimes(4);
+    const list = await request(app()).get(`${base}/contracts`).expect(200);
+    expect(list.body).toHaveLength(10);
+    const due = list.body.find((row: any) => row.id === "renewal_due");
+    for (const key of ["state", "stateSince", "stateReason", "flags", "allowedActions", "actionTermId"])
+      expect(due[key]).toEqual(a.items.renewal_due[0][key]);
+    const detail = await request(app()).get(`${base}/contracts/renewal_due`).expect(200);
+    for (const key of ["state", "stateSince", "stateReason", "flags", "allowedActions", "actionTermId"])
+      expect(detail.body[key]).toEqual(a.items.renewal_due[0][key]);
+  });
+  it("preserves PDF coverage semantics without replacing state and surfaces malformed histories", async () => {
+    population();
+    rows("term_documents").push({ id: "doc", companyId: "company", termId: "t-good", coversThroughTermId: null });
+    const broken = seed("malformed", "signed", "not-a-day", "2027-12-31");
+    const list = (await request(app()).get(`${base}/contracts`).expect(200)).body;
+    expect(list.find((row: any) => row.id === "good")).toMatchObject({ state: "good", flags: [] });
+    expect(list.find((row: any) => row.id === "renewal_due")).toMatchObject({ state: "renewal_due", flags: ["missing_document"] });
+    expect(list.find((row: any) => row.id === broken.agreementId)).toMatchObject({ state: "unclassified", allowedActions: ["open"] });
+    const a = (await request(app()).get(`${base}/attention`).expect(200)).body;
+    expect(a.total).toBe(11); expect(a.counts.unclassified).toBe(2);
+  });
+  it("keeps attention behind existing tenant and role boundaries", async () => {
+    population();
+    for (const role of ["field", "field_manager", "crew_supervisor", "shop_manager"])
+      await request(app(role)).get(`${base}/attention`).expect(403);
+    await request(app()).get(`${base}/attention`).set("X-Company-Id", "other").expect(409);
+    const anonymous = express(); registerContractCenterRoutes(anonymous);
+    await request(anonymous).get(`${base}/attention`).expect(401);
+    const other = (await request(app("office", "other")).get(`${base}/attention`).expect(200)).body;
+    expect(other.total).toBe(1);
+    expect(other.counts.renewal_due).toBe(1);
+    await request(app()).get(`${base}/contracts/foreign`).expect(404);
+  });
+});
 describe("Contract Center lifecycle routes", () => {
   it("keeps a retired rate carried by renewal while changing another rate, with one detailed event", async () => {
     vi.spyOn(companyDay, "companyToday").mockReturnValue("2026-06-01");

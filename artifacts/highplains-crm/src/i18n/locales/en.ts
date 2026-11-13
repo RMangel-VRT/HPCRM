@@ -788,7 +788,7 @@ const en = {
     saving: "Saving...",
     creating: "Creating...",
     deleting: "Deleting...",
-    updating: "Updating...",
+
     back: "Back",
     next: "Next",
     previous: "Previous",
@@ -3712,6 +3712,33 @@ const en = {
     cancel: "Cancel", confirm: "Record not renewing", saving: "Saving", recorded: "Marked not renewing",
     loadError: "Could not load this contract.", retry: "Retry", noSource: "This contract has no season that can be marked not renewing.",
     errReason: "Pick a reason.", errDate: "Enter a valid date.", errLong: "Keep it under {{max}} characters.",
+  },
+  contractAttention: {
+    pipeline: "Contract pipeline", show: "Show", open: "Open", renew: "Renew", markSigned: "Mark signed", cancel: "Cancel", saving: "Saving",
+    progress: "{{signed}} of {{due}} renewals signed",
+    landscapeTitle: "Landscape contracts · {{count}}", snowTitle: "Snow contracts · {{count}}", legend: "Contract status legend",
+    accounted: "{{sum}} of {{total}} accounted for", unaccounted: "{{count}} unaccounted for", updating: "Updating counts",
+    accountingError: "Contract totals could not be loaded, so nothing here is reconciled.", retry: "Try again", viewAllLost: "View all lost",
+    needAction: "{{count}} need action", noContractBadge: "{{count}} no contract", noPdf: "No contract PDF",
+    showing: "Showing: {{segment}}", clearShowing: "Clear filter: {{segment}}",
+    markSignedTitle: "Mark {{customer}} signed?", markSignedBody: "Records the {{season}} season as signed. Use this only when the signed contract is in hand.",
+    segment: { decision: "Needs a decision", due: "Up for renewal", drafted: "Drafted / sent", good: "In good standing", notrenewing: "Not renewing", closed: "Closed" },
+    column: { decision: "Needs a decision", renewal: "Up for renewal", drafted: "Drafted / sent" },
+    empty: { decision: "Nothing waiting on a decision.", renewal: "Nothing ending in the next 90 days.", drafted: "No drafts or sent contracts." },
+    summary: { decision: "{{count}} need a decision", renewal: "{{count}} up for renewal", drafted: "{{count}} drafted / sent" },
+    chip: { review: "Needs review", renewal: "Up for renewal", expired: "Expired", lost: "Lost", signed: "Signed in last 60 days", nodoc: "No contract PDF" },
+    state: {
+      new_draft: "New contract not signed", closed: "Closed", closed_recently: "Closed recently", serving_not_renewing: "Serving, not renewing",
+      working_unsigned: "Working without a signed contract", renewal_due: "Renewal due within 90 days", renewal_in_progress: "Renewal in progress",
+      good: "In good standing", ended_no_decision: "Ended, no decision", unclassified: "Couldn't classify",
+    },
+    termStatus: { draft: "draft", sent: "sent", signed: "signed", active: "active", renewed: "renewed", lost: "lost", cancelled: "cancelled" },
+    reason: {
+      ended: "Ended {{date}}, no renewal or loss recorded", unsigned: "Working on {{season}} {{status}} since it began, not signed",
+      unclassified: "Couldn't classify. Open and check.", due_one: "Ends in {{count}} day", due_other: "Ends in {{count}} days",
+      inProgress: "Renewal {{season}} {{status}}", newDraft: "New contract, never signed", good: "Signed and in effect",
+      notRenewing: "Serving until {{date}}, not renewing", closed: "Closed {{date}}",
+    },
   },
 };
 

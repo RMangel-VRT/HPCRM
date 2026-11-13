@@ -171,12 +171,12 @@ describe("renewal, status and Colorado display", () => {
     expect(() => assertMove(term({ status: "sent" }), "signed")).not.toThrow();
     expect(() => assertMove(term(), "active")).toThrow();
   });
-  it("starts active today, expires after end, and becomes renewal due at exactly 60 days", () => {
+  it("starts active today, expires after end, and becomes renewal due at exactly 90 days", () => {
     const t = term({ startDate: "2026-01-01", endDate: "2026-12-31" });
     expect(displayStatus(t, [], "2026-01-01")).toBe("active");
     expect(displayStatus(t, [], "2027-01-01")).toBe("expired");
-    expect(renewalDue(t, [], "2026-10-31")).toBe(false);
-    expect(renewalDue(t, [], "2026-11-01")).toBe(true);
+    expect(renewalDue(t, [], "2026-10-01")).toBe(false);
+    expect(renewalDue(t, [], "2026-10-02")).toBe(true);
     const renewal = term({ id: "new", startDate: "2027-01-01", endDate: "2027-12-31", renewedFromTermId: t.id, status: "draft" });
     expect(selectCurrent([t, renewal], "2026-12-01")?.id).toBe(t.id);
     expect(selectCurrent([t, { ...renewal, status: "signed" }], "2026-12-01")?.id).toBe(t.id);
@@ -239,14 +239,14 @@ describe("in-effect display versus final-season renewal source", () => {
       startDate: "2027-10-01", endDate: "2028-09-30" });
     expect(renewalDue(source, [source], "2027-09-01")).toBe(true);
     expect(renewalDue(source, [source, next], "2027-09-01")).toBe(false);
-    expect(renewalDue(source, [source, { ...next, renewedFromTermId: "unrelated" }], "2027-09-01")).toBe(true);
+    expect(renewalDue(source, [source, { ...next, renewedFromTermId: "unrelated" }], "2027-09-01")).toBe(false);
   });
   it.each(["draft", "sent", "lost", "cancelled"] as const)("excludes linked %s renewals from both selectors", status => {
     const source = term(), pending = term({ id: "next", status, renewedFromTermId: source.id,
       startDate: "2027-10-01", endDate: "2028-09-30" });
     expect(selectCurrent([source, pending], "2028-01-01")).toBe(source);
     expect(selectRenewalSource([source, pending])).toBe(source);
-    expect(renewalDue(source, [source, pending], "2027-09-01")).toBe(true);
+    expect(renewalDue(source, [source, pending], "2027-09-01")).toBe(status === "cancelled");
   });
   it("uses latest start in gaps, before all terms, and for eligible unlinked draft/sent/lost terms", () => {
     const source = term(), next = term({ id: "next", startDate: "2028-01-01", endDate: "2028-12-31" });

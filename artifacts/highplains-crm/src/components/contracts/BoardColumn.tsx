@@ -2,8 +2,8 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { ColumnKey } from "./boardLogic";
 
 /** Headings and footer stay outside the independently scrolling card list. */
-export function BoardColumn({ column, title, count, children, footer }: {
-  column: ColumnKey; title: string; count: number; children: ReactNode; footer?: ReactNode;
+export function BoardColumn({ column, title, count, children, footer, dimmed }: {
+  column: ColumnKey; title: string; count: number; children: ReactNode; footer?: ReactNode; dimmed?: boolean;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [moreBelow, setMoreBelow] = useState(false);
@@ -28,7 +28,7 @@ export function BoardColumn({ column, title, count, children, footer }: {
   }, [children]);
 
   return (
-    <section className="min-w-[17rem] flex-1 rounded-lg bg-muted/80 dark:bg-muted/40 border border-border/70 dark:border-transparent p-3"
+    <section data-dimmed={dimmed ? "true" : undefined} className={`min-w-0 transition-opacity ${dimmed ? "opacity-[.35]" : ""} rounded-lg bg-muted/80 dark:bg-muted/40 border border-border/70 dark:border-transparent p-3`}
       data-testid={`column-${column}`}>
       <h2 className="text-sm font-semibold mb-2 flex items-center gap-2">
         {title}<span className="rounded-full bg-background dark:bg-muted px-1.5 text-xs font-normal">{count}</span>

@@ -34,6 +34,13 @@ describe("customer Contract Center-only cards", () => {
   it.each(["field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "crew_supervisor"])("does not mount commercial cards for %s", role => {
     fx.user.activeRole = role; expect(render()).toBe("");
   });
+  it("shows the shared state and missing-PDF chips from the summary projection", () => {
+    fx.result = { data: { current: [{ ...current, state: "working_unsigned", stateReason: "sent season in effect", flags: ["missing_document"] }], previous: [], upcoming: [], coverage: { landscape: true, snow: true } } };
+    const html = render();
+    expect(html).toContain("chip-state-working_unsigned"); expect(html).toContain("chip-missing-document");
+    fx.result = { data: { current: [{ ...current, state: "good", flags: [] }], previous: [], upcoming: [], coverage: { landscape: true, snow: true } } };
+    expect(render()).not.toContain("chip-state-");
+  });
   it("keys by company and viewer identity and sends a bound request", async () => {
     render(); const q = fx.queries[0];
     expect(q.queryKey).toEqual(["/api/customers", "customer", "contract-summary", "company", "viewer", "admin"]);

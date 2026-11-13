@@ -4,6 +4,9 @@ export type AgreementForm = "ours" | "theirs";
 export interface RenewalSetInfo { firstTermId: string; firstSeason: string; lastSeason: string; year: number; length: number }
 
 import type { NonRenewalFacts } from "../../../../../lib/db/src/contractNonRenewal";
+import type { ContractProjection } from "../../../../../lib/db/src/contractAttention";
+/** CC-ATTN: server-owned classification. Optional only so older payloads still render (missing state = unclassified). */
+export type ProjectionFields = Partial<ContractProjection>;
 export interface TermSummary extends NonRenewalFacts {
   id: string;
   seasonLabel: string;
@@ -23,7 +26,9 @@ export interface TermSummary extends NonRenewalFacts {
   form?: AgreementForm;
 }
 
-export interface ContractListItem {
+export interface ContractListItem extends ProjectionFields {
+  /** CC-ATTN: lines this agreement is accounted on (server-owned). Empty/unknown histories carry both. */
+  applicableLines?: BoardLine[];
   id: string;
   customerId: string;
   customerName: string;
@@ -35,6 +40,7 @@ export interface ContractListItem {
   line: AgreementLine;
   form: "ours" | "theirs";
   current: TermSummary | null;
+  stateTerm?: TermSummary | null;
   renewalDraft: TermSummary | null;
   latest?: TermSummary | null;
   recentSigned?: TermSummary | null;
@@ -80,7 +86,7 @@ export interface DetailTerm extends TermSummary {
   scope: TermScopeRow[]; rates: TermRateRow[]; billingMonths: TermBillingRow[];
   documents: TermDocument[]; coveredBy?: TermDocument[]; history: TermHistoryRow[];
 }
-export interface ContractDetail {
+export interface ContractDetail extends ProjectionFields {
   renewalSourceId?: string | null;
   canRecordNonRenewal?: boolean;
   canUndoNonRenewal?: boolean;

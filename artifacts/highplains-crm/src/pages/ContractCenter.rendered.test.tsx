@@ -13,7 +13,8 @@ vi.mock("wouter", async importOriginal => ({
 vi.mock("@tanstack/react-query", async importOriginal => ({
   ...await importOriginal<typeof import("@tanstack/react-query")>(),
   useQuery: (o: any) => {
-    const r = fx.q[o.queryKey.join("/")] ?? {};
+    // Detail keys carry company/user identity; fixtures are keyed by resource path.
+    const r = fx.q[o.queryKey.join("/")] ?? fx.q[o.queryKey.slice(0, 2).join("/")] ?? {};
     return { data: undefined, isLoading: false, isError: false, error: null, refetch: () => {}, ...r };
   },
 }));
@@ -24,15 +25,15 @@ import { placements, tableRows } from "@/components/contracts/boardLogic";
 
 const term = (o: any = {}) => ({ id: "t", seasonLabel: "2026–27", startDate: "2026-04-01", endDate: "2027-03-31", status: "active", displayStatus: "active",
   annualPriceCents: 150000, snowPricing: null, needsReview: false, ...o });
-const item = (id: string, line: string, o: any = {}) => ({ id, customerId: "c" + id, customerName: "Cust " + id, line, form: "ours",
+const item = (id: string, line: string, o: any = {}) => ({ id, customerId: "c" + id, customerName: "Cust " + id, line, form: "ours", applicableLines: line === "both" ? ["landscape", "snow"] : [line],
   current: term(), renewalDraft: null, renewalDue: false, companyDay: "2026-10-12", ...o });
 const board = (items: any[], b: "landscape" | "snow") =>
   renderToStaticMarkup(<Router ssrPath="/"><ContractBoard items={items} board={b} q="" today="2026-10-12" defaultOpen onComingSoon={() => {}} /></Router>);
 
 describe("board placement", () => {
   it("keeps parent agreements under their actual customer with locations on board and list", () => {
-    const parent = item("parent", "landscape", { customerName: "Bank", locationCount: 2, renewalDue: true });
-    const child = item("child", "landscape", { customerName: "Branch", renewalDue: true });
+    const parent = item("parent", "landscape", { customerName: "Bank", locationCount: 2, renewalDue: true, state: "renewal_due" });
+    const child = item("child", "landscape", { customerName: "Branch", renewalDue: true, state: "renewal_due" });
     const html = board([parent, child], "landscape");
     expect(html).toContain("Bank · 2 locations"); expect(html).toContain("Branch");
     expect(html.match(/>Bank · 2 locations</g)).toHaveLength(1);
@@ -41,35 +42,18 @@ describe("board placement", () => {
     expect(list).toContain("Bank · 2 locations");
     expect(list.match(/Bank · 2 locations/g)).toHaveLength(1);
   });
-  it("shows a Both contract on both boards", () => {
-    const items = [item("1", "both", { renewalDue: true })];
+  it("shows a Both contract on both boards via applicableLines", () => {
+    const items = [item("1", "both", { state: "renewal_due", applicableLines: ["landscape", "snow"] })];
     expect(board(items, "landscape")).toContain("card-renewal-1");
     expect(board(items, "snow")).toContain("card-renewal-1");
-    expect(board([item("2", "snow")], "landscape")).not.toContain("card-renewal-2");
+    expect(board([item("2", "snow", { state: "renewal_due", applicableLines: ["snow"] })], "landscape")).not.toContain("card-renewal-2");
   });
-  it("puts expired contracts without renewal under Up for renewal", () => {
-    const html = board([item("3", "landscape", { current: term({ displayStatus: "expired" }) })], "landscape");
-    expect(html).toContain("card-renewal-3");
-  });
-  it("moves a contract with a renewal draft to the drafted column", () => {
-    const html = board([item("4", "landscape", { renewalDue: true, renewalDraft: term({ id: "d", status: "sent", displayStatus: "sent" }) })], "landscape");
+  it("places drafted work by state and links to the state season", () => {
+    const html = board([item("4", "landscape", { state: "renewal_in_progress", stateTermId: "d", renewalDraft: term({ id: "d", status: "sent", displayStatus: "sent" }) })], "landscape");
     expect(html).toContain("card-drafted-4");
     expect(html).not.toContain("card-renewal-4");
     expect(html).toContain("#term-d");
-  });
-  it("lists recently signed terms and progress", () => {
-    const html = board([item("5", "landscape", { recentSigned: term({ id: "s", signedAt: "2026-09-20T15:00:00Z" }), renewalProgress: { due: true, signed: true } })], "landscape");
-    expect(html).toContain("card-signed-5");
-    expect(html).toContain("1 of 1 renewals signed");
-  });
-  it("excludes future signed dates and future lost end dates from lookback columns", () => {
-    const future = item("future", "landscape", {
-      recentSigned: term({ signedAt: "2026-10-14T12:00:00Z" }),
-      latest: term({ status: "lost", endDate: "2027-03-31" }),
-    });
-    expect(placements(future as any, "2026-10-12")).toEqual([]);
-    const recentLost = item("lost", "landscape", { latest: term({ status: "lost", endDate: "2026-10-12" }) });
-    expect(placements(recentLost as any, "2026-10-12").map(c => c.column)).toEqual(["lost"]);
+    expect(placements(item("g", "landscape", { state: "good" }) as any)).toEqual([]);
   });
   it("sorts Snow prices by the figure displayed, including Both agreements", () => {
     const items = [
@@ -117,7 +101,7 @@ describe("contract page", () => {
     }));
     const draft = { ...detail().terms[1], ...term({ id: "y6", seasonLabel: "2031", startDate: "2031-01-01", endDate: "2031-12-31",
       status: "draft", displayStatus: "draft", renewedFromTermId: "y5" }), editable: true, allowedMoves: ["sent", "cancelled", "lost"] };
-    const html = board([item("a1", "landscape", { current: seasons[0], renewalDraft: draft })], "landscape");
+    const html = board([item("a1", "landscape", { state: "renewal_in_progress", stateTermId: "y6", current: seasons[0], renewalDraft: draft })], "landscape");
     expect(html).toContain("card-drafted-a1");
     expect(html).toContain("#term-y6");
     expect(html).not.toContain("card-renewal-a1");
@@ -130,6 +114,13 @@ describe("contract page", () => {
     const pending = page("#term-y6");
     expect(pending).toContain("button-edit-details");
     expect(pending).toContain("button-status-menu");
+  });
+  it("shows the state chip and reason in the detail header", () => {
+    fx.q = { "/api/contract-center/contracts/a1": { data: detail({ state: "ended_no_decision", stateSince: "2026-09-30", stateTermId: "t2", flags: ["missing_document"], companyDay: "2026-11-12" }) } };
+    const html = page("#term-t2");
+    expect(html).toContain("chip-state-ended_no_decision");
+    expect(html).toContain("Ended Sep 30, 2026, no renewal or loss recorded");
+    expect(html).toContain("flag-contract-missing-document");
   });
   it("shows no Edit button on a past term", () => {
     fx.q = { "/api/contract-center/contracts/a1": { data: detail() } };

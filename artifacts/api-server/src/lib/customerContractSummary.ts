@@ -1,16 +1,19 @@
 import { eq } from "drizzle-orm";
 import {
   customers, agreements, agreementTerms, termRates, termBillingMonths, termScopeLines, rateCardItems,
+  termDocuments, type TermDocument,
   type Customer, type Agreement, type AgreementTerm, type TermRate, type TermBillingMonth, type TermScopeLine, type RateCardItem,
 } from "@workspace/db";
 import type { Reader } from "./contractCenterPersistence";
-import { applies, compareTermPriority, displayStatus, paymentSummary, recoverPayments, selectInEffectTerm, renewalDue, seasonPaymentSummary, monthIndex } from "./contractCenterService";
+import { applies, compareTermPriority, displayStatus, paymentSummary, recoverPayments, selectInEffectTerm, contractState, seasonPaymentSummary, monthIndex } from "./contractCenterService";
 import { companyToday } from "./companyDay";
+import { missingContractDocument } from "./contractDocumentCoverage";
 
 export interface CustomerContractInputs {
   customers: Customer[]; agreements: Agreement[]; terms: AgreementTerm[];
   rates?: TermRate[]; billingMonths?: TermBillingMonth[]; scope?: TermScopeLine[];
   card?: RateCardItem[];
+  documents?: TermDocument[];
 }
 
 /** Commercial facts are read-only projections, never a second persisted owner.
@@ -52,10 +55,13 @@ export function customerContractProjector(data: CustomerContractInputs, today = 
       const rows = own.length || !parent ? own : selected(parent.id, kind);
       return rows.map(({ term: t, agreement: a }) => {
         const payments = billing.get(t.id) ?? [];
+        const terms = byAgreement.get(a.id) ?? [];
+        const projection = contractState(terms, today);
+        if (missingContractDocument(terms, data.documents ?? [], today)) projection.flags.push("missing_document");
         return {
           agreementId: a.id, termId: t.id, label: t.seasonLabel, line: t.line, form: t.form,
           startDate: t.startDate, endDate: t.endDate, status: displayStatus(t, byAgreement.get(a.id), today),
-          renewalDue: renewalDue(t, byAgreement.get(a.id), today),
+          ...projection, renewalDue: projection.state === "renewal_due",
           annualCents: t.annualPriceCents !== undefined ? t.annualPriceCents : paymentSummary(recoverPayments(t.paymentSchedule === "explicit" ? payments.filter(r =>
             monthIndex(r.month) >= monthIndex(t.startDate) && monthIndex(r.month) < monthIndex(t.startDate) + 12) : payments), t.line, t.snowPricing).annualPriceCents,
           ...seasonPaymentSummary(t, payments),
@@ -105,7 +111,8 @@ export async function loadCustomerContractInputs(reader: Reader, companyId: stri
   const rates = await reader.select().from(termRates).where(eq(termRates.companyId, companyId));
   const scope = await reader.select().from(termScopeLines).where(eq(termScopeLines.companyId, companyId));
   const card = await reader.select().from(rateCardItems).where(eq(rateCardItems.companyId, companyId));
-  return { customers: properties, agreements: owners, terms, billingMonths, rates, scope, card };
+  const documents = await reader.select().from(termDocuments).where(eq(termDocuments.companyId, companyId));
+  return { customers: properties, agreements: owners, terms, billingMonths, rates, scope, card, documents };
 }
 
 /** Batched date-specific line coverage; never reads the retired snow switch. */

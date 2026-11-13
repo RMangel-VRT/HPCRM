@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { invalidateContractQueries } from "./AttentionWidgets";
 import { useAuth } from "@/hooks/use-auth";
 import { useScopeCalendar } from "@/hooks/useScopeCalendar";
 import { ScopeCalendarState } from "./ScopeCalendarState";
@@ -174,7 +175,7 @@ function RenewBody({ target, onClose, onBusy, onCreated }: { target: { id: strin
     try {
       const res = await request("POST", url, sent);
       const detail = (await res.json()) as ContractDetail;
-      await qc.invalidateQueries({ queryKey: ["/api/contract-center/contracts"] });
+      await invalidateContractQueries(qc);
       const termId = detail.renewalDraftId ?? detail.terms[detail.terms.length - 1]?.id;
       const n = data.years?.length ?? 1;
       toast({ title: n > 1 ? `${n}-year renewal drafted` : `${data.seasonLabel} draft created` });

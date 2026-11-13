@@ -10,6 +10,8 @@ export function customerInitials(name: string): string {
 }
 
 /** Never allocate inherited commercial amounts to a branch, or convert unknown/T&M to zero. */
+const ATTENTION_ORDER = ["unclassified", "working_unsigned", "ended_no_decision", "renewal_due", "renewal_in_progress", "new_draft"] as const;
+const attentionOf = (terms: ContractSummaryTerm[]) => ATTENTION_ORDER.find(s => terms.some(t => t.state === s)) ?? null;
 export function aggregateTerms(terms: ContractSummaryTerm[]) {
   const unique = [...new Map(terms.map((t, i) => [t.termId ?? `row:${i}`, t])).values()];
   const own = unique.filter(t => !t.parentCustomerId);
@@ -31,6 +33,9 @@ export function aggregateTerms(terms: ContractSummaryTerm[]) {
     lines: (["landscape", "snow"] as const).filter(line => unique.some(t => t.line === line || t.line === "both")),
     hasSnowTm: unique.some(t => t.snowPricing === "time_and_materials"),
     hasUnpriced, hasInherited,
+    /** CC-ATTN: most urgent action state among these terms (shared projection), or null. */
+    attentionState: attentionOf(unique),
+    missingDocument: unique.some(t => !!t.flags?.includes("missing_document")),
     monthlyCents: !hasUnpriced && !hasInherited && sums.length > 0 && sums.every(n => n === sums[0]) ? sums[0]! : null,
   };
 }

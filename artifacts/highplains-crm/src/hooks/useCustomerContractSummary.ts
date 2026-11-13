@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "./use-auth";
 import { apiRequest } from "@/lib/queryClient";
+import type { ContractProjection } from "../../../../lib/db/src/contractAttention";
 
-export interface ContractSummaryTerm {
+/** CC-ATTN: each period term carries the shared server projection. */
+export interface ContractSummaryTerm extends Partial<ContractProjection> {
   agreementId?: string; termId?: string; label: string; line: "landscape" | "snow" | "both";
   startDate: string; endDate: string; status?: string; form?: string;
   annualCents?: number | null; snowPricing?: string | null; snowTriggers?: string | null;

@@ -153,16 +153,23 @@ export async function flagsSummary(companyId: string, now = new Date(), language
 export async function contractsSummary(companyId: string, now: Date, language = "en") {
   const result = await contractsSection(db, companyId, companyToday(now));
   const first = result.mostOverdue;
-  const line = result.rows.find(row => row.agreementId === first?.agreementId)?.line;
+  const firstRow = result.rows.find(row => row.agreementId === first?.agreementId);
+  const line = firstRow?.line;
   const context = language === "es"
     ? line === "both" ? "Ambos" : line === "snow" ? "Nieve" : "Paisajismo"
     : line === "both" ? "Both" : line === "snow" ? "Snow" : "Landscape";
+  const decision = firstRow?.state === "working_unsigned" ? language === "es" ? "Sin contrato firmado" : "Working without a signed contract"
+    : firstRow?.state === "ended_no_decision" ? language === "es" ? "Terminó sin decisión" : "Ended, no decision"
+    : firstRow?.state === "unclassified" ? language === "es" ? "Revisar contrato" : "Review contract" : null;
   // Deliberate exception: Contracts owns expiry, so retain the explicit calendar
   // date and service-line context, not an ambiguous relative age.
   return summary("contracts", result.count, result.overdue, first ? {
-      label: first.customerName, detail: `${context} · ${language === "es"
-        ? first.daysLeft < 0 ? "venció" : "vence"
-        : first.daysLeft < 0 ? "expired" : "expires"} ${first.endDate}`,
+      label: first.customerName, detail: decision ? `${context} · ${decision}${first.endDate ? ` · ${first.endDate}` : ""}`
+        : !first.endDate || first.daysLeft === null
+        ? `${context} · ${language === "es" ? "Revisar contrato" : "Review contract"}`
+        : `${context} · ${language === "es"
+          ? first.daysLeft < 0 ? "venció" : "vence"
+          : first.daysLeft < 0 ? "expired" : "expires"} ${first.endDate}`,
       href: `/dashboard/contracts/${encodeURIComponent(first.agreementId)}`,
     } : null);
 }

@@ -43,6 +43,13 @@ async function mount(props: Partial<CustomerHeaderProps> = {}, language = "en") 
   </Router></I18nextProvider>);
 }
 describe("CP3 Banner real localization and navigation", () => {
+  it.each(["en", "es"])("adds the shared attention state and missing PDF to the contract chip in %s", async language => {
+    await mount({ contract: { status: "ready", value: aggregateTerms([term({ state: "renewal_due", flags: ["missing_document"] } as never)]) } }, language);
+    const chip = screen.getByTestId("chip-contract");
+    expect(chip.textContent).toContain(i18n.t("contractAttention.state.renewal_due"));
+    expect(chip.textContent).toContain(i18n.t("contractAttention.noPdf"));
+    cleanup();
+  });
   it.each(["linked", "not_linked", "waiting", "via_parent", "error", "collision"] as const)("retains the QuickBooks card's %s state and Billing destination in both languages", async state => {
     for (const language of ["en", "es"]) {
       await mount({ qbo: { status: "ready", value: state } }, language);

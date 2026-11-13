@@ -37,7 +37,7 @@ describe("Contract Center board response contract", () => {
     expect(summary.current).toMatchObject({ id: "source", snowFlatPriceCents: 50000,
       signedAt: new Date("2025-09-02"), managingAgentName: "Agent", billingType: "monthly_variable" });
     expect(summary.companyDay).toBe(today);
-    expect(summary.renewalProgress).toEqual({ due: true, signed: false });
+    expect(summary.renewalProgress).toEqual({ due: true, signed: false, notRenewing: false });
   });
   it("keeps pending renewals separate and exposes latest lost renewal for the Lost board", () => {
     const source = term("source");
@@ -54,12 +54,12 @@ describe("Contract Center board response contract", () => {
     const summary = listSummary([source, renewal], today);
     expect(summary.current?.id).toBe("renewal");
     expect(summary.recentSigned?.id).toBe("renewal");
-    expect(summary.renewalProgress).toEqual({ due: true, signed: true });
+    expect(summary.renewalProgress).toEqual({ due: true, signed: true, notRenewing: false });
   });
-  it("includes exact 60-day calendar boundaries and excludes terminal sources", () => {
-    for (const endDate of ["2026-08-14", "2026-12-12"])
+  it("includes exact 90-day calendar boundaries and excludes terminal sources", () => {
+    for (const endDate of ["2026-07-15", "2027-01-11"])
       expect(listSummary([term("source", { endDate })], today).renewalProgress.due).toBe(true);
-    for (const endDate of ["2026-08-13", "2026-12-13"])
+    for (const endDate of ["2026-07-14", "2027-01-12"])
       expect(listSummary([term("source", { endDate })], today).renewalProgress.due).toBe(false);
     for (const status of ["draft", "sent", "lost", "cancelled"] as const)
       expect(listSummary([term("source", { status })], today).renewalProgress.due).toBe(false);

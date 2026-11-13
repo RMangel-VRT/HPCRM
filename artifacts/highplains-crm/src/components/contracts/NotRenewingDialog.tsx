@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { invalidateContractQueries } from "./AttentionWidgets";
 import { useAuth } from "@/hooks/use-auth";
 import { NON_RENEWAL_LABELS, NON_RENEWAL_REASONS } from "@shared/contractCatalog";
 import { coloradoDay, dateOnly, errorText } from "./contractFormat";
@@ -86,11 +87,7 @@ function Body({ target, onClose, onBusy, onRecorded }: { target: Target; onClose
         note: note.trim() ? note.trim() : null,
         deactivateCustomer: deact,
       });
-      await Promise.all([
-        qc.invalidateQueries({ predicate: x => typeof x.queryKey[0] === "string" && (x.queryKey[0] as string).startsWith("/api/contract-center") }),
-        qc.invalidateQueries({ predicate: x => typeof x.queryKey[0] === "string" && /^\/api\/(customers|dashboard|tickets|rfp)/.test(x.queryKey[0] as string) }),
-        qc.invalidateQueries({ predicate: x => typeof x.queryKey[0] === "string" && /action|section/i.test(x.queryKey[0] as string) }),
-      ]);
+      await invalidateContractQueries(qc);
       toast({ title: t("nonRenewal.recorded") });
       onBusy(false); onClose(); onRecorded?.();
     } catch (e) {

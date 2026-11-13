@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import type { ContractState } from "./contractAttention";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import type { AgreementLine } from "./contractTypes";
@@ -86,3 +87,27 @@ export function TintChip({ kind, children }: { kind: "changed" | "custom"; child
 }
 
 export const amberBox: CSSProperties = tint(AMBER, 14);
+
+/** CC-ATTN state chip: tone follows the six-segment legend. */
+export function StateChip({ state, className, title }: { state: ContractState; className?: string; title?: string }) {
+  const { t } = useTranslation();
+  const tone = STATE_TONES[state] ?? RED;
+  return (
+    <span data-testid={`chip-state-${state}`} title={title} className={cn(base, className)} style={tint(tone, 16)}>
+      {t(`contractAttention.state.${state}`)}
+    </span>
+  );
+}
+const STATE_TONES: Record<string, string> = {
+  ended_no_decision: RED, working_unsigned: RED, unclassified: RED, renewal_due: AMBER, renewal_in_progress: BLUE, new_draft: BLUE,
+  good: GREEN, serving_not_renewing: GREY, closed: GREY, closed_recently: GREY,
+};
+
+export function MissingDocChip({ className }: { className?: string }) {
+  const { t } = useTranslation();
+  return (
+    <span data-testid="chip-missing-document" className={cn(base, className)} style={tint(AMBER, 18)}>
+      {t("contractAttention.noPdf")}
+    </span>
+  );
+}

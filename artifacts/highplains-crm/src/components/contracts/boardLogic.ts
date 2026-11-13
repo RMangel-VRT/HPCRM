@@ -1,54 +1,40 @@
-import { addDays } from "./contractFormat";
-import { coloradoDay } from "./contractFormat";
 import { termForm, termLine } from "./contractTypes";
-import type { AgreementLine, BoardLine, ContractListItem, TermSummary } from "./contractTypes";
+import type { BoardLine, ContractListItem, TermSummary } from "./contractTypes";
+import { hasMissingDoc, itemSegment, itemState, onLine, signedRecently, stateTerm } from "./contractAttention";
+import type { ContractSegment } from "./contractAttention";
 
-const covers = (line: AgreementLine, board: BoardLine) => line === "both" || line === board;
-/** The contract's line comes from its current season (the server derives item.line); a card uses its own season's line. */
-export const onBoard = (item: ContractListItem, board: BoardLine, term?: TermSummary | null) =>
-  covers(term ? termLine(term, item.line) : termLine(item.current ?? item.latest, item.line), board);
+/** Membership on a line comes from the server's applicableLines (shared with the accounting totals). */
+export const onBoard = (item: ContractListItem, board: BoardLine) => onLine(item, board);
 export const rowLine = (item: ContractListItem) => termLine(rowTerm(item), item.line);
 export const rowForm = (item: ContractListItem) => termForm(rowTerm(item), item.form);
 
 export const matchesSearch = (item: ContractListItem, q: string) =>
   !q.trim() || item.customerName.toLowerCase().includes(q.trim().toLowerCase());
 
-export type ColumnKey = "renewal" | "drafted" | "signed" | "lost";
-export interface BoardCard { item: ContractListItem; term: TermSummary; column: ColumnKey }
+/** The pipeline holds only action work; Signed and Lost columns are retired. */
+export type ColumnKey = "decision" | "renewal" | "drafted";
+export const COLUMN_SEGMENT: Record<ColumnKey, ContractSegment> = { decision: "decision", renewal: "due", drafted: "drafted" };
+/** term is null for malformed agreements without a representative season; they still render and open. */
+export interface BoardCard { item: ContractListItem; term: TermSummary | null; column: ColumnKey }
 
-/** Which board columns a contract belongs to (it can appear in more than one, e.g. signed renewal and next draft). */
-export function placements(item: ContractListItem, today: string): BoardCard[] {
-  const out: BoardCard[] = [];
-  // A lost pending renewal must neither mask its source nor surface before the
-  // source ends. Non-renewal suppresses all operational columns, even recent signed.
-  if (item.notRenewing) {
-    const source = item.renewalSource ?? item.current;
-    return source?.displayStatus === "lost" && source.endDate < today && source.endDate >= addDays(today, -90)
-      ? [{ item, term: source, column: "lost" }] : [];
-  }
-  const { current, renewalDraft } = item;
-  const drafted = !!renewalDraft && ["draft", "sent"].includes(renewalDraft.status);
-  if (!drafted && current && (item.renewalDue || current.displayStatus === "expired")) out.push({ item, term: current, column: "renewal" });
-  if (drafted && renewalDraft) out.push({ item, term: renewalDraft, column: "drafted" });
-  const signed = item.recentSigned;
-  if (signed?.signedAt && coloradoDay(signed.signedAt) >= addDays(today, -60)
-    && coloradoDay(signed.signedAt) <= today) out.push({ item, term: signed, column: "signed" });
-  const latest = item.latest;
-  if (latest && (latest.status === "lost" || latest.displayStatus === "lost") && latest.endDate >= addDays(today, -90)
-    && latest.endDate <= today) out.push({ item, term: latest, column: "lost" });
-  return out;
+/** Exactly one placement per action agreement, read from the server state. */
+export function placements(item: ContractListItem): BoardCard[] {
+  const seg = itemSegment(item);
+  const column: ColumnKey | null = seg === "decision" ? "decision" : seg === "due" ? "renewal" : seg === "drafted" ? "drafted" : null;
+  return column ? [{ item, term: stateTerm(item), column }] : [];
 }
 
-export function boardColumns(items: ContractListItem[], board: BoardLine, q: string, today: string): Record<ColumnKey, BoardCard[]> {
-  const cols: Record<ColumnKey, BoardCard[]> = { renewal: [], drafted: [], signed: [], lost: [] };
+const endOf = (c: BoardCard) => c.item.stateSince ?? c.term?.endDate ?? "";
+export function boardColumns(items: ContractListItem[], board: BoardLine, q: string): Record<ColumnKey, BoardCard[]> {
+  const cols: Record<ColumnKey, BoardCard[]> = { decision: [], renewal: [], drafted: [] };
   for (const item of items) {
-    if (!matchesSearch(item, q)) continue;
-    for (const card of placements(item, today)) if (onBoard(item, board, card.term)) cols[card.column].push(card);
+    if (!matchesSearch(item, q) || !onBoard(item, board)) continue;
+    for (const card of placements(item)) cols[card.column].push(card);
   }
-  cols.renewal.sort((a, b) => a.term.endDate.localeCompare(b.term.endDate));
-  cols.drafted.sort((a, b) => a.term.endDate.localeCompare(b.term.endDate));
-  cols.signed.sort((a, b) => (b.term.signedAt ?? "").localeCompare(a.term.signedAt ?? ""));
-  cols.lost.sort((a, b) => b.term.endDate.localeCompare(a.term.endDate));
+  const critical = (c: BoardCard) => (itemState(c.item) === "unclassified" ? 0 : 1);
+  cols.decision.sort((a, b) => critical(a) - critical(b) || endOf(a).localeCompare(endOf(b)));
+  cols.renewal.sort((a, b) => (a.term?.endDate ?? "").localeCompare(b.term?.endDate ?? ""));
+  cols.drafted.sort((a, b) => endOf(a).localeCompare(endOf(b)));
   return cols;
 }
 
@@ -64,9 +50,9 @@ export function renewalProgress(items: ContractListItem[], board: BoardLine, q: 
 }
 
 export type SortKey = "customer" | "type" | "form" | "season" | "status" | "price" | "agent" | "ends";
-export type FilterChip = "review" | "renewal" | "expired" | "lost";
+export type FilterChip = "review" | "renewal" | "expired" | "lost" | "signed" | "nodoc";
 
-export const rowTerm = (item: ContractListItem) => item.current ?? item.latest ?? null;
+export const rowTerm = (item: ContractListItem) => item.current ?? item.latest ?? item.renewalDraft ?? null;
 
 export function priceLabel(item: Pick<ContractListItem, "line">, term: TermSummary, money: (c: number | null | undefined) => string, board?: BoardLine): string {
   const flat = term.snowPricing === "flat_rate" && term.snowFlatPriceCents != null;
@@ -90,16 +76,27 @@ const sortValue = (item: ContractListItem, key: SortKey, board: BoardLine): stri
   }
 };
 
-export function tableRows(items: ContractListItem[], board: BoardLine, q: string, chips: FilterChip[], key: SortKey, dir: "asc" | "desc") {
-  const rows = items.filter(i => covers(rowLine(i), board) && matchesSearch(i, q)).filter(i => {
-    if (!chips.length) return true;
-    const t = rowTerm(i);
-    return (chips.includes("review") && !!t?.needsReview)
-      || (chips.includes("renewal") && i.renewalDue)
-      || (chips.includes("expired") && t?.displayStatus === "expired")
-      || (chips.includes("lost") && (t?.displayStatus === "lost"
-        || i.notRenewing && i.renewalSource?.displayStatus === "lost"));
-  });
+export function matchesChip(i: ContractListItem, chip: FilterChip, today: string): boolean {
+  const t = rowTerm(i);
+  switch (chip) {
+    case "review": return !!t?.needsReview;
+    case "renewal": return itemState(i) === "renewal_due";
+    case "expired": return t?.displayStatus === "expired";
+    case "lost": return t?.displayStatus === "lost" ||
+      (["closed", "closed_recently"].includes(itemState(i)) && i.latest?.status === "lost") ||
+      (!!i.notRenewing && i.renewalSource?.displayStatus === "lost");
+    case "signed": return signedRecently(i, today);
+    case "nodoc": return hasMissingDoc(i);
+  }
+}
+
+/** Chips use OR semantics; a selected segment narrows to exactly the accounting membership. */
+export function tableRows(items: ContractListItem[], board: BoardLine, q: string, chips: FilterChip[], key: SortKey, dir: "asc" | "desc",
+  opts: { segment?: ContractSegment | null; today?: string } = {}) {
+  const today = opts.today ?? items.find(i => i.companyDay)?.companyDay ?? new Date().toISOString().slice(0, 10);
+  const rows = items.filter(i => onBoard(i, board) && matchesSearch(i, q))
+    .filter(i => !opts.segment || itemSegment(i) === opts.segment)
+    .filter(i => !chips.length || chips.some(c => matchesChip(i, c, today)));
   const sign = dir === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
     const x = sortValue(a, key, board), y = sortValue(b, key, board);

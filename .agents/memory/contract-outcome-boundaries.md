@@ -26,3 +26,15 @@ Active customers is a transition-month responsibility review, not a replacement 
 **Why:** The owner wants to look backward and ahead at contract starts/endings while deciding explicitly whether to change a customer's status. A historical or future report date must not silently synchronize today's stored status.
 
 **How to apply:** Keep responsibility derived on read and status corrections deliberate. Do not expand this report into dashboard synchronization or change operational coverage inheritance without separate approval.
+
+Contract attention uses unsigned work before new-draft classification when a
+pending season covers today and no signed season does. Before the pending period
+starts, a never-signed agreement remains a new draft. Explicit decisions on the
+final renewal source take precedence over unsigned work.
+
+**Why:** The owner explicitly corrected the attachment's conflicting first-match
+ordering to preserve the College Hills example, while retaining final-source
+non-renewal decisions and the Aspen pre-service distinction.
+
+**How to apply:** Treat that clarification as authoritative when changing
+classification, rather than restoring the attachment table's original order.

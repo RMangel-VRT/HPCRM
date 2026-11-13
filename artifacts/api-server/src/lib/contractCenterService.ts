@@ -4,6 +4,8 @@ import { SCOPE_CATALOG } from "../shared/contractCatalog";
 import { addCalendarDays, companyToday } from "./companyDay";
 import { isNotRenewing, NON_RENEWAL_REASONS } from "../shared/contractCatalog";
 export { isNotRenewing } from "../shared/contractCatalog";
+import { contractState, RENEWAL_WINDOW_DAYS } from "./contractState";
+export { contractState, RENEWAL_WINDOW_DAYS } from "./contractState";
 
 export class ContractCenterError extends Error {
   constructor(public status: number, message: string, public allowed?: string[]) { super(message); }
@@ -247,7 +249,7 @@ type StatusTerm = Pick<AgreementTerm, "id" | "status" | "startDate" | "endDate" 
 export function displayStatus(term: StatusTerm, terms: StatusTerm[] = [], today = companyToday()) {
   const signedRenewal = terms.some(t => t.renewedFromTermId === term.id && ["signed", "active", "renewed"].includes(t.status));
   if (isNotRenewing(term) && ["signed", "active", "renewed"].includes(term.status) && term.endDate < today && !signedRenewal) return "lost";
-  if (["signed", "active"].includes(term.status) && term.endDate < today && !signedRenewal) return "expired";
+  if (["signed", "active", "renewed"].includes(term.status) && term.endDate < today && !signedRenewal) return "expired";
   if (["signed", "renewed"].includes(term.status) && term.startDate <= today && today <= term.endDate) return "active";
   if (term.status === "signed" && term.startDate <= today) return "active";
   return term.status;
@@ -273,9 +275,8 @@ export function selectCurrent<T extends StatusTerm>(terms: T[], today = companyT
   return selectRenewalSource(inEffect) ?? selectRenewalSource(terms);
 }
 export function renewalDue(term: StatusTerm, terms: StatusTerm[] = [], today = companyToday()) {
-  if (isNotRenewing(term)) return false;
-  if (terms.some(t => t.renewedFromTermId === term.id && ["signed", "active", "renewed"].includes(t.status))) return false;
-  return displayStatus(term, terms, today) === "active" && addCalendarDays(term.endDate, -60) <= today;
+  const projection = contractState(terms.some(t => t.id === term.id) ? terms : [...terms, term], today);
+  return projection.state === "renewal_due";
 }
 export function allowedMoves(status: string, renewal: boolean, isBid = false) {
   const moves: Record<string, string[]> = { draft: ["sent", "cancelled"], sent: ["signed", "draft", "lost"], signed: ["cancelled"], active: ["cancelled"] };

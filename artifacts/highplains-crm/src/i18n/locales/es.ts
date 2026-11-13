@@ -789,7 +789,7 @@ const es = {
     saving: "Guardando...",
     creating: "Creando...",
     deleting: "Eliminando...",
-    updating: "Actualizando...",
+
     back: "Volver",
     next: "Siguiente",
     previous: "Anterior",
@@ -3926,6 +3926,33 @@ const es = {
     cancel: "Cancelar", confirm: "Registrar no renovación", saving: "Guardando", recorded: "Marcado como no renueva",
     loadError: "No se pudo cargar este contrato.", retry: "Reintentar", noSource: "Este contrato no tiene una temporada que se pueda marcar como no renueva.",
     errReason: "Elija un motivo.", errDate: "Ingrese una fecha válida.", errLong: "Máximo {{max}} caracteres.",
+  },
+  contractAttention: {
+    pipeline: "Flujo de contratos", show: "Mostrar", open: "Abrir", renew: "Renovar", markSigned: "Marcar firmado", cancel: "Cancelar", saving: "Guardando",
+    progress: "{{signed}} de {{due}} renovaciones firmadas",
+    landscapeTitle: "Contratos de jardinería · {{count}}", snowTitle: "Contratos de nieve · {{count}}", legend: "Leyenda de estados de contrato",
+    accounted: "{{sum}} de {{total}} contabilizados", unaccounted: "{{count}} sin contabilizar", updating: "Actualizando conteos",
+    accountingError: "No se pudieron cargar los totales; nada aquí está conciliado.", retry: "Reintentar", viewAllLost: "Ver todos los perdidos",
+    needAction: "{{count}} requieren acción", noContractBadge: "{{count}} sin contrato", noPdf: "Sin PDF del contrato",
+    showing: "Mostrando: {{segment}}", clearShowing: "Quitar filtro: {{segment}}",
+    markSignedTitle: "¿Marcar {{customer}} como firmado?", markSignedBody: "Registra la temporada {{season}} como firmada. Úselo solo cuando tenga el contrato firmado.",
+    segment: { decision: "Requiere decisión", due: "Por renovar", drafted: "Borrador / enviado", good: "Al corriente", notrenewing: "No renueva", closed: "Cerrado" },
+    column: { decision: "Requiere decisión", renewal: "Por renovar", drafted: "Borrador / enviado" },
+    empty: { decision: "Nada pendiente de decisión.", renewal: "Nada vence en los próximos 90 días.", drafted: "No hay borradores ni contratos enviados." },
+    summary: { decision: "{{count}} requieren decisión", renewal: "{{count}} por renovar", drafted: "{{count}} borrador / enviado" },
+    chip: { review: "Requiere revisión", renewal: "Por renovar", expired: "Vencido", lost: "Perdido", signed: "Firmado en últimos 60 días", nodoc: "Sin PDF del contrato" },
+    state: {
+      new_draft: "Contrato nuevo sin firmar", closed: "Cerrado", closed_recently: "Cerrado recientemente", serving_not_renewing: "En servicio, no renueva",
+      working_unsigned: "Trabajando sin contrato firmado", renewal_due: "Renovación en 90 días", renewal_in_progress: "Renovación en curso",
+      good: "Al corriente", ended_no_decision: "Terminado, sin decisión", unclassified: "No se pudo clasificar",
+    },
+    termStatus: { draft: "borrador", sent: "enviado", signed: "firmado", active: "activo", renewed: "renovado", lost: "perdido", cancelled: "cancelado" },
+    reason: {
+      ended: "Terminó {{date}}, sin renovación ni pérdida registrada", unsigned: "Trabajando en {{season}} {{status}} desde que empezó, sin firmar",
+      unclassified: "No se pudo clasificar. Ábralo y revise.", due_one: "Vence en {{count}} día", due_other: "Vence en {{count}} días",
+      inProgress: "Renovación {{season}} {{status}}", newDraft: "Contrato nuevo, nunca firmado", good: "Firmado y vigente",
+      notRenewing: "En servicio hasta {{date}}, no renueva", closed: "Cerrado {{date}}",
+    },
   },
 };
 

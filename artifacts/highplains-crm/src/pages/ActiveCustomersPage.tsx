@@ -182,7 +182,7 @@ export default function ActiveCustomersPage() {
 
   return (
     <div className="space-y-6 min-w-0" data-testid="page-active-customers">
-      <ContractViewSwitch active="customers" />
+      <ContractViewSwitch active="customers" noContract={(data?.counts as unknown as Record<string, number> | undefined)?.noContract} />
       {isLoading ? (
         <div className="space-y-3" data-testid="loading-active-customers"><Skeleton className="h-8 w-64" />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20" />)}</div><Skeleton className="h-64" /></div>

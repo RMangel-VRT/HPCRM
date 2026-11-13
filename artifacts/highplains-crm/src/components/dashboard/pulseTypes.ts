@@ -9,8 +9,9 @@ export interface PulseResponse {
   snowBook: { activeSnowContracts: number; expiringBeforeSeasonStart: number };
   renewals: Array<{
     agreementId: string; customerId: string; customerName: string;
-    line: "landscape" | "snow" | "both"; termId: string; seasonLabel: string;
-    renewalDraftStatus: "draft" | "sent" | null; endDate: string; daysLeft: number;
+    line: "landscape" | "snow" | "both"; termId: string | null; seasonLabel: string | null;
+    renewalDraftStatus: "draft" | "sent" | null; endDate: string | null; daysLeft: number | null;
+    state: import("../../../../../lib/db/src/contractAttention").ContractState; stateReason: string;
   }>;
   crewsToday: Array<{ crewId: string; crewName: string; stops: number; complete: number; flagged: number }>;
 }

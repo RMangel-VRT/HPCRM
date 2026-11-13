@@ -42,10 +42,10 @@ beforeEach(() => {
 describe("Contract Center renewal population and action clock", () => {
   it("includes 45, 30, 20, zero and minus-10 days, sorts and uses season-owned line", async () => {
     for (const days of [45, 30, 20, 0, -10]) seed(`${days}`, days, { line: "snow" });
-    seed("too-soon", 61);
+    seed("too-soon", 91);
     const rows = await loadRenewalsDue(reader, "company", today);
     expect(rows.map(r => r.daysLeft)).toEqual([-10, 0, 20, 30, 45]);
-    expect(rows[0]).toEqual({ agreementId: "-10", customerId: "c--10", customerName: "Customer -10",
+    expect(rows[0]).toMatchObject({ agreementId: "-10", customerId: "c--10", customerName: "Customer -10",
       line: "snow", termId: "t--10", seasonLabel: "2026", endDate: "2026-10-17", daysLeft: -10, renewalDraftStatus: null });
     const result = await contractsSection(reader, "company", today);
     expect(result).toMatchObject({ count: 5, overdue: 4,
@@ -53,11 +53,11 @@ describe("Contract Center renewal population and action clock", () => {
     expect(Object.keys(result.mostOverdue!).sort()).toEqual(["agreementId", "customerName", "daysLeft", "endDate"]);
   });
   it("retains draft and sent rows but excludes them from unstarted work and most-overdue", async () => {
-    renewal(seed("draft", -20), "draft");
-    renewal(seed("sent", -15), "sent");
+    renewal(seed("draft", 20), "draft");
+    renewal(seed("sent", 15), "sent");
     seed("action", 20);
     const result = await contractsSection(reader, "company", today);
-    expect(result.rows.map(r => r.renewalDraftStatus)).toEqual(["draft", "sent", null]);
+    expect(result.rows.map(r => r.renewalDraftStatus)).toEqual([null, "sent", "draft"]);
     expect(result).toMatchObject({ count: 1, overdue: 1, mostOverdue: { agreementId: "action" } });
     tables.get(agreementTerms)!.pop();
     expect(await contractsSection(reader, "company", today)).toMatchObject({ count: 0, overdue: 0, mostOverdue: null });
@@ -84,7 +84,7 @@ describe("Contract Center renewal population and action clock", () => {
     select.mockClear();
     for (let n = 0; n < 200; n++) seed(`${n}`, 20);
     expect(await loadRenewalsDue(reader, "company", today)).toHaveLength(200);
-    expect(select).toHaveBeenCalledTimes(3);
+    expect(select).toHaveBeenCalledTimes(4);
   });
   it.each([
     ["2026-03-08T06:30:00Z", "2026-03-08", 1],

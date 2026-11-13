@@ -244,6 +244,17 @@ describe("section clocks and population parity", () => {
     expect(response.sections.find(s => s.key === "flags")).toMatchObject({ total: 3, overdue: 3 });
     expect(predicates.filter(p => p.table === flags).every(p => p.params.includes("new"))).toBe(true);
   });
+  it.each([
+    ["working_unsigned", "Working without a signed contract"],
+    ["ended_no_decision", "Ended, no decision"],
+    ["unclassified", "Review contract"],
+  ])("shows the shared %s decision reason without a second eligibility query", async (state, label) => {
+    mocks.contracts.mockResolvedValue({ count: 1, overdue: 1,
+      mostOverdue: { agreementId: "a", customerName: "Fixture", endDate: null, daysLeft: null },
+      rows: [{ agreementId: "a", line: "landscape", state }] });
+    expect((await contractsSummary("company-a", NOW)).oldest?.detail).toBe(`Landscape · ${label}`);
+    expect(mocks.contracts).toHaveBeenCalledTimes(1);
+  });
   it("limits Mine to assigned actionable nonfinal tickets and excludes other section ownership by key", async () => {
     byTable.set(tickets, [{ id: "todo", title: "Personal", deadline: "2026-10-25" }, { id: "due", title: "Today", deadline: "2026-10-26" }]);
     expect(await mineSummary(user, NOW)).toMatchObject({ total: 2, overdue: 1, oldest: { label: "Personal" } });

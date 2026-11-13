@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { guardLinkClick, unsavedGuard } from "@/lib/unsavedGuard";
-import { LineBadge, RenewalChip, ReviewChip, StatusPill, amberBox } from "@/components/contracts/ContractBadges";
+import { LineBadge, RenewalChip, ReviewChip, StateChip, StatusPill, amberBox } from "@/components/contracts/ContractBadges";
 import { ContractUploadButton, TERM_UPLOAD_OPTIONS } from "@/components/contracts/ContractUploadButton";
 import { RatesEditor, ratesFingerprint, ratesPayload, rateProblems, toRateRows } from "@/components/contracts/RatesEditor";
 import type { RateRow } from "@/components/contracts/RatesEditor";
@@ -33,7 +33,8 @@ import { explicitFingerprint, explicitFromBilling, explicitFromLines, explicitPa
 import type { ExplicitDraft } from "@/components/contracts/explicitSchedule";
 import { SNOW_LINE, lineProblems, lineSum, linesFromBilling, paymentsFingerprint, paymentsPayload, startMonthOf } from "@/components/contracts/paymentDraft";
 import type { PaymentLine } from "@/components/contracts/paymentDraft";
-import { dateOnly, errorStatus, errorText, money } from "@/components/contracts/contractFormat";
+import { coloradoToday, dateOnly, errorStatus, errorText, money } from "@/components/contracts/contractFormat";
+import { itemState, stateReasonText } from "@/components/contracts/contractAttention";
 import { isLaterYear, termForm, termLine } from "@/components/contracts/contractTypes";
 import type { ContractDetail, DetailTerm } from "@/components/contracts/contractTypes";
 import {
@@ -204,7 +205,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   }
   const keepEditing = () => { setPending(null); unsavedGuard.clearPending(); };
 
-  const refresh = async () => { await qc.invalidateQueries({ queryKey: [LIST_KEY] }); };
+  const refresh = async () => { await qc.invalidateQueries({ queryKey: [LIST_KEY] }); await qc.invalidateQueries({ queryKey: ["/api/contract-center/attention"] }); };
   const api = async (method: string, url: string, body?: unknown) => (await apiRequest(method, url, body,
     { headers: { "X-Company-Id": user!.activeCompanyId } })).json();
 
@@ -356,6 +357,16 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
             <StatusPill status={term.displayStatus} />
             {marked ? <NonRenewalChip /> : detail.renewalDue && term.id === detail.currentTermId && <RenewalChip />}
           </div>
+          {detail.state !== undefined && (() => {
+            const st = itemState(detail);
+            const stTerm = detail.terms.find(t => t.id === detail.stateTermId) ?? null;
+            return <p className="flex flex-wrap items-center gap-2 text-sm" data-testid="text-contract-state">
+              <StateChip state={st} title={detail.stateReason} />
+              <span className="text-muted-foreground" data-testid="text-contract-state-reason">
+                {stateReasonText(translate, st, stTerm, detail.stateSince, detail.companyDay ?? coloradoToday(), detail.stateReason)}</span>
+              {detail.flags?.includes("missing_document") && <span className="text-xs font-medium" style={{ color: "var(--ts-waiting)" }} data-testid="flag-contract-missing-document">{translate("contractAttention.noPdf")}</span>}
+            </p>;
+          })()}
           <p className="text-sm text-muted-foreground" data-testid="text-contract-people">
             {term.legalName ? `${term.legalName} \u00b7 ` : ""}Managing agent: {term.managingAgentName || "\u2014"} · Project contact: {term.projectContact || "\u2014"}
           </p>

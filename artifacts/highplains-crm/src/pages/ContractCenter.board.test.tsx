@@ -1,249 +1,154 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import "@/i18n";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { addDays } from "@/components/contracts/contractFormat";
-import { placements, tableRows } from "@/components/contracts/boardLogic";
+import { boardColumns, placements, tableRows } from "@/components/contracts/boardLogic";
+import { CONTRACT_STATES, emptyContractCounts, stateReasonText } from "@/components/contracts/contractAttention";
+import type { ContractState } from "@/components/contracts/contractAttention";
 import type { ContractListItem, TermSummary } from "@/components/contracts/contractTypes";
 
-const fx = vi.hoisted(() => ({ items: [] as ContractListItem[] }));
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: fx.items, isLoading: false, isError: false }),
+const fx = vi.hoisted(() => ({ items: [] as unknown[], attention: undefined as unknown, posted: [] as unknown[] }));
+vi.mock("@tanstack/react-query", async orig => ({
+  ...await orig<typeof import("@tanstack/react-query")>(),
+  useQuery: (o: { queryKey: string[] }) => ({
+    data: o.queryKey[0] === "/api/contract-center/attention" ? fx.attention : fx.items, isLoading: false, isError: false, refetch: () => {},
+  }),
+  useQueryClient: () => ({ invalidateQueries: vi.fn(async () => {}), removeQueries: vi.fn() }),
 }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { activeCompanyId: "co" } }) }));
+vi.mock("@/lib/queryClient", () => ({ apiRequest: vi.fn(async (...a: unknown[]) => { fx.posted.push(a); return { json: async () => ({}) }; }) }));
 vi.mock("@/components/contracts/RenewDialog", () => ({ RenewDialog: () => null }));
 vi.mock("@/components/contracts/NotRenewingDialog", () => ({ NotRenewingDialog: () => null }));
 import ContractCenterPage, { ContractBoard, ContractTable } from "./ContractCenterPage";
 
-const today = "2026-10-12";
-const storageKey = "hp-contract-center-board-open";
+const today = "2026-11-12";
 const term = (o: Partial<TermSummary> = {}): TermSummary => ({
   id: "term", seasonLabel: "2026–27", startDate: "2026-04-01", endDate: "2027-03-31",
   status: "active", displayStatus: "active", annualPriceCents: 150000, snowPricing: null, needsReview: false, line: "landscape", form: "ours", ...o,
 });
-const item = (id: string, o: Partial<ContractListItem> = {}): ContractListItem => ({
-  id, customerId: `customer-${id}`, customerName: `Wellman ${id}`, line: "landscape", form: "ours",
-  current: term(), renewalDraft: null, renewalDue: false, companyDay: today, ...o,
+const item = (id: string, state: ContractState, o: Partial<ContractListItem> = {}): ContractListItem => ({
+  id, customerId: `c-${id}`, customerName: `Wellman ${id}`, line: "landscape", form: "ours", applicableLines: ["landscape"],
+  current: term({ id: `t-${id}` }), renewalDraft: null, renewalDue: false, companyDay: today,
+  state, stateSince: "2026-09-30", stateReason: state, stateTermId: `t-${id}`, flags: [], allowedActions: ["open"], actionTermId: `t-${id}`, ...o,
 });
-const lost = (id: string, days: number, o: Partial<ContractListItem> = {}) => item(id, {
-  current: null, latest: term({ status: "lost", displayStatus: "lost", endDate: addDays(today, -days) }), ...o,
-});
-const fixtures = () => [
-  ...["a", "b", "c"].map(id => item(id, { renewalDue: true })),
-  item("draft", { renewalDraft: term({ id: "draft-term", status: "sent", displayStatus: "sent", needsReview: true }) }),
-  ...["s1", "s2"].map(id => item(id, { recentSigned: term({ signedAt: "2026-09-20T15:00:00Z" }) })),
-];
+const fixtures = () => CONTRACT_STATES.map(s => item(s, s));
 const mountBoard = (props: Partial<Parameters<typeof ContractBoard>[0]> = {}) =>
-  render(<Router><ContractBoard items={fixtures()} board="landscape" q="" today={today} {...props} /></Router>);
+  render(<Router><ContractBoard items={fixtures()} board="landscape" q="" today={today} defaultOpen {...props} /></Router>);
 
-beforeEach(() => { localStorage.clear(); fx.items = []; });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+beforeEach(() => { localStorage.clear(); fx.items = []; fx.attention = undefined; fx.posted = []; });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-describe("collapsible renewal header", () => {
-  it("toggles the body, retains summary/progress and persists both states across remounts", () => {
-    const { unmount } = mountBoard();
-    const toggle = screen.getByTestId("button-toggle-board");
-    expect(toggle.getAttribute("aria-controls")).toBe("renewals-board-body");
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByTestId("renewals-board")).toBeNull();
-    expect(document.getElementById("renewals-board-body")?.hidden).toBe(true);
-    expect(screen.getByTestId("renewal-progress")).toBeTruthy();
-    expect(localStorage.getItem(storageKey)).toBe("0");
-    unmount();
-    mountBoard();
-    expect(screen.queryByTestId("renewals-board")).toBeNull();
-    fireEvent.click(screen.getByTestId("button-toggle-board"));
-    expect(screen.getByTestId("renewals-board")).toBeTruthy();
-    expect(localStorage.getItem(storageKey)).toBe("1");
+describe("pipeline placement from server state", () => {
+  it("places each action agreement exactly once in the three columns", () => {
+    const cols = boardColumns(fixtures(), "landscape", "");
+    expect(cols.decision.map(c => c.item.id).sort()).toEqual(["ended_no_decision", "unclassified", "working_unsigned"]);
+    expect(cols.renewal.map(c => c.item.id)).toEqual(["renewal_due"]);
+    expect(cols.drafted.map(c => c.item.id).sort()).toEqual(["new_draft", "renewal_in_progress"]);
+    for (const i of fixtures()) expect(placements(i).length).toBeLessThanOrEqual(1);
+    expect(Object.keys(cols)).toEqual(["decision", "renewal", "drafted"]);
   });
-
-  it("reads storage lazily and allows defaultOpen to override it", () => {
-    localStorage.setItem(storageKey, "0");
-    const read = vi.spyOn(Storage.prototype, "getItem");
-    const { rerender } = mountBoard();
-    expect(read).toHaveBeenCalledTimes(1);
-    rerender(<Router><ContractBoard items={fixtures()} board="landscape" q="Wellman" today={today} /></Router>);
-    expect(read).toHaveBeenCalledTimes(1);
-    cleanup();
-    read.mockClear();
-    mountBoard({ defaultOpen: true });
-    expect(screen.getByTestId("renewals-board")).toBeTruthy();
-    expect(read).not.toHaveBeenCalled();
-    cleanup();
-    localStorage.setItem(storageKey, "1");
-    mountBoard({ defaultOpen: false });
-    expect(screen.queryByTestId("renewals-board")).toBeNull();
+  it("uses applicableLines for membership, and missing state is unclassified", () => {
+    const both = item("both", "renewal_due", { applicableLines: ["landscape", "snow"] });
+    const odd = item("odd", undefined as unknown as ContractState, { state: undefined, current: null, applicableLines: ["landscape", "snow"] });
+    expect(boardColumns([both, odd], "snow", "").renewal).toHaveLength(1);
+    expect(boardColumns([both, odd], "snow", "").decision.map(c => c.item.id)).toEqual(["odd"]);
   });
-
-  it("defaults open and remains interactive when storage reads and writes throw", () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
-    mountBoard();
-    expect(screen.getByTestId("renewals-board")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("button-toggle-board"));
-    expect(screen.queryByTestId("renewals-board")).toBeNull();
-    fireEvent.click(screen.getByTestId("button-toggle-board"));
-    expect(screen.getByTestId("renewals-board")).toBeTruthy();
-  });
-
-  it("uses column counts, mutes zeroes, and leaves progress calculation unchanged", () => {
-    mountBoard({ items: fixtures().map((i, n) => ({ ...i, renewalProgress: { due: true, signed: n < 2 } })) });
-    const summary = screen.getByTestId("text-board-summary");
-    expect(summary.textContent).toBe("3 up for renewal · 1 sent · 2 signed · 0 lost");
-    expect(within(summary).getByText("0 lost").className).toContain("text-muted-foreground");
-    expect(screen.getByTestId("text-renewal-progress").textContent).toBe("2 of 6 renewals signed");
-    expect(screen.getByTestId("renewal-progress").parentElement?.className).toContain("xl:flex-row");
-  });
-
-  it("filters the collapsed summary and offers Show without automatically opening", () => {
-    const { rerender } = mountBoard({ defaultOpen: false });
-    expect(screen.queryByRole("button", { name: "Show" })).toBeNull();
-    const search = (q: string) => rerender(<Router><ContractBoard items={fixtures()} board="landscape" q={q} today={today} defaultOpen={false} /></Router>);
-    search("Wellman draft");
-    expect(screen.queryByTestId("renewals-board")).toBeNull();
-    expect(screen.getByTestId("text-board-summary").textContent).toBe("0 up for renewal · 1 sent · 0 signed · 0 lost");
-    search("missing");
-    expect(screen.queryByRole("button", { name: "Show" })).toBeNull();
-    search("Wellman draft");
-    fireEvent.click(screen.getByRole("button", { name: "Show" }));
-    expect(screen.getByTestId("card-drafted-draft")).toBeTruthy();
-    expect(localStorage.getItem(storageKey)).toBe("1");
+  it("renders a malformed new draft without a representative season and lets it open", () => {
+    mountBoard({ items: [item("nd", "new_draft", { current: null, stateTermId: null })] });
+    const card = screen.getByTestId("card-drafted-nd");
+    expect(within(card).getByTestId("link-open-drafted-nd").getAttribute("href")).toBe("/dashboard/contracts/nd");
   });
 });
 
-describe("Lost history and table handoff", () => {
-  it("includes day 90 and today, excludes day 91/120 and future, and leaves Signed at 60 days", () => {
-    for (const days of [0, 80, 90, 91, 120, -1]) {
-      expect(placements(lost("lost", days), today).some(c => c.column === "lost")).toBe(days >= 0 && days <= 90);
-    }
-    for (const days of [0, 60, 61, -1]) {
-      const signed = item("signed", { recentSigned: term({ signedAt: `${addDays(today, -days)}T18:00:00Z` }) });
-      expect(placements(signed, today).some(c => c.column === "signed")).toBe(days >= 0 && days <= 60);
-    }
-    const items = [lost("80", 80), lost("120", 120), lost("snow", 120, { line: "snow", latest: term({ line: "snow", status: "lost", displayStatus: "lost", endDate: addDays(today, -120) }) }), item("active")];
-    expect(tableRows(items, "landscape", "", ["lost"], "ends", "asc").map(i => i.id)).toEqual(["120", "80"]);
-    expect(tableRows(items, "landscape", "120", ["lost"], "ends", "asc").map(i => i.id)).toEqual(["120"]);
+describe("card actions", () => {
+  it("shows Mark signed only when the server allows it and confirms the status move", async () => {
+    fx.items = [item("u", "working_unsigned", { allowedActions: ["open", "mark_signed"], actionTermId: "year1" }), item("d", "new_draft")];
+    render(<Router hook={memoryLocation({ path: "/dashboard/contracts" }).hook}><ContractCenterPage /></Router>);
+    expect(screen.queryByTestId("button-mark-signed-d")).toBeNull();
+    expect(screen.getByTestId("link-open-drafted-d")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("button-mark-signed-u"));
+    fireEvent.click(await screen.findByTestId("button-confirm-mark-signed"));
+    await vi.waitFor(() => expect(fx.posted[0]).toEqual(["POST", "/api/contract-center/terms/year1/status", { to: "signed" }, { headers: { "X-Company-Id": "co" } }]));
   });
-
-  it("renders the 80-day Lost card, excludes the 120-day card and uses the new empty text", () => {
-    mountBoard({ items: [lost("80", 80), lost("120", 120)] });
-    expect(screen.getByTestId("card-lost-80")).toBeTruthy();
-    expect(screen.queryByTestId("card-lost-120")).toBeNull();
-    cleanup();
-    mountBoard({ items: [] });
-    expect(screen.getByText("No contracts lost in the last 90 days.")).toBeTruthy();
-  });
-
-  it("supports standalone chip state and keeps Lost after Expired", () => {
-    render(<ContractTable items={[lost("old", 120), item("active")]} board="landscape" q="" />);
-    const chips = screen.getAllByTestId(/^chip-filter-/);
-    expect(chips.map(c => c.textContent)).toEqual(["Needs review", "Up for renewal", "Expired", "Lost"]);
-    fireEvent.click(screen.getByTestId("chip-filter-lost"));
-    expect(screen.getByTestId("row-contract-old")).toBeTruthy();
-    expect(screen.queryByTestId("row-contract-active")).toBeNull();
-    fireEvent.click(screen.getByTestId("chip-filter-lost"));
-    expect(screen.getByTestId("row-contract-active")).toBeTruthy();
-  });
-
-  it("uses controlled chips and emits changes without secretly changing the controlled value", () => {
-    const onChipsChange = vi.fn();
-    const { rerender } = render(<ContractTable items={[]} board="landscape" q="" chips={["review"]} onChipsChange={onChipsChange} />);
-    fireEvent.click(screen.getByTestId("chip-filter-lost"));
-    expect(onChipsChange).toHaveBeenCalledWith(["review", "lost"]);
-    expect(screen.getByTestId("chip-filter-lost").getAttribute("aria-pressed")).toBe("false");
-    rerender(<ContractTable items={[]} board="landscape" q="" chips={["lost"]} onChipsChange={onChipsChange} />);
-    expect(screen.getByTestId("chip-filter-lost").getAttribute("aria-pressed")).toBe("true");
-  });
-
-  it("View all lost replaces page chips and smoothly scrolls without changing search or board", () => {
-    fx.items = [lost("old", 120), lost("recent", 80), lost("snow", 120, { line: "snow", latest: term({ line: "snow", status: "lost", displayStatus: "lost", endDate: addDays(today, -120) }) }), item("active")];
-    const scroll = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
-    const loc = memoryLocation({ path: "/dashboard/contracts" });
-    render(<Router hook={loc.hook}><ContractCenterPage /></Router>);
-    fireEvent.click(screen.getByTestId("chip-filter-review"));
-    fireEvent.change(screen.getByTestId("input-search-contracts"), { target: { value: "Wellman old" } });
-    fireEvent.click(screen.getByTestId("link-view-all-lost"));
-    expect(screen.getByTestId("chip-filter-lost").getAttribute("aria-pressed")).toBe("true");
-    for (const chip of ["review", "renewal", "expired"]) {
-      expect(screen.getByTestId(`chip-filter-${chip}`).getAttribute("aria-pressed")).toBe("false");
-    }
-    expect(screen.getByTestId("row-contract-old")).toBeTruthy();
-    expect(screen.queryByTestId("row-contract-recent")).toBeNull();
-    expect(screen.queryByTestId("row-contract-snow")).toBeNull();
-    expect((screen.getByTestId("input-search-contracts") as HTMLInputElement).value).toBe("Wellman old");
-    expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-  });
-});
-
-describe("compact cards and independent scrolling", () => {
-  it("keeps name, price and action in row one and all metadata in row two; only actions navigate", () => {
+  it("Renew and Not renewing follow allowedActions", () => {
     const renew = vi.fn();
-    mountBoard({ onRenew: renew });
-    const card = screen.getByTestId("card-renewal-a");
-    expect(card.children).toHaveLength(2);
-    const name = screen.getByTestId("text-card-customer-renewal-a");
-    expect(name.title).toBe("Wellman a");
-    expect(name.className).toContain("truncate");
-    expect(within(card.children[0] as HTMLElement).getByText("$1,500")).toBeTruthy();
-    const action = within(card.children[0] as HTMLElement).getByTestId("button-renew-a");
-    expect(action.className).toContain("h-7");
-    expect(card.children[1].textContent).toContain("2026–27 · ends Mar 31, 2027");
-    fireEvent.click(card);
-    expect(renew).not.toHaveBeenCalled();
-    fireEvent.click(action);
-    expect(renew).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
-    const drafted = screen.getByTestId("card-drafted-draft");
-    expect(within(drafted.children[0] as HTMLElement).getByRole("link").getAttribute("href")).toBe("/dashboard/contracts/draft#term-draft-term");
-    expect(drafted.children[1].textContent).toContain("Renewal sent");
-    expect(drafted.children[1].textContent).toContain("Needs review");
-    expect(card.className).toContain("bg-background dark:bg-card shadow-sm dark:shadow-none");
+    mountBoard({ items: [item("e", "ended_no_decision", { allowedActions: ["open", "renew", "not_renewing"] })], onRenew: renew });
+    fireEvent.click(screen.getByTestId("button-renew-e"));
+    expect(renew).toHaveBeenCalledWith(expect.objectContaining({ id: "e" }));
+    expect(screen.getByTestId("button-not-renewing-e")).toBeTruthy();
+    expect(screen.getByTestId("text-card-reason-e").textContent).toContain("no renewal or loss recorded");
   });
+});
 
-  it("retains Both/snow flat and time-and-material pricing in the first row", () => {
-    mountBoard({ board: "snow", items: [
-      item("flat", { line: "both", renewalDue: true, current: term({ line: "both", snowPricing: "flat_rate", snowFlatPriceCents: 80000 }) }),
-      item("tm", { line: "snow", renewalDue: true, current: term({ line: "snow" }) }),
-    ] });
-    expect(screen.getByTestId("card-renewal-flat").children[0].textContent).toContain("Flat snow $800");
-    expect(screen.getByTestId("card-renewal-tm").children[0].textContent).toContain("T&M");
+describe("collapse persistence", () => {
+  it("toggles and persists", () => {
+    render(<Router><ContractBoard items={fixtures()} board="landscape" q="" today={today} /></Router>);
+    fireEvent.click(screen.getByTestId("button-toggle-board"));
+    expect(screen.queryByTestId("renewals-board")).toBeNull();
+    expect(localStorage.getItem("hp-contract-center-board-open")).toBe("0");
+    expect(screen.getByTestId("text-board-summary").textContent).toBe("3 need a decision · 1 up for renewal · 2 drafted / sent");
   });
+});
 
-  it("caps lists, fixes headings outside them, and updates fades on scroll, content and resize", () => {
-    let resize: (() => void) | undefined;
-    const disconnect = vi.fn();
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(cb: () => void) { resize = cb; }
-      observe = vi.fn();
-      disconnect = disconnect;
-    });
-    const { rerender, unmount } = mountBoard();
-    const list = screen.getByTestId("list-lost");
-    let height = 600;
-    Object.defineProperties(list, {
-      scrollHeight: { get: () => height }, clientHeight: { value: 416 }, scrollTop: { value: 0, writable: true },
-    });
-    act(() => { resize?.(); });
-    expect(screen.getByTestId("fade-lost").className).toContain("pointer-events-none");
-    expect(list.className).toContain("max-h-[26rem] overflow-y-auto pr-1");
-    expect(list.contains(within(screen.getByTestId("column-lost")).getByRole("heading"))).toBe(false);
-    expect(screen.getByTestId("column-lost").className).toContain("bg-muted/80 dark:bg-muted/40");
-    expect(screen.getByTestId("renewals-board").className).toContain("overflow-x-auto");
-    list.scrollTop = 184;
-    fireEvent.scroll(list);
-    expect(screen.queryByTestId("fade-lost")).toBeNull();
-    list.scrollTop = 0;
-    fireEvent.scroll(list);
-    expect(screen.getByTestId("fade-lost")).toBeTruthy();
-    height = 200;
-    rerender(<Router><ContractBoard items={[]} board="landscape" q="" today={today} /></Router>);
-    expect(screen.queryByTestId("fade-lost")).toBeNull();
-    height = 600;
-    fireEvent(window, new Event("resize"));
-    expect(screen.getByTestId("fade-lost")).toBeTruthy();
-    unmount();
-    expect(disconnect).toHaveBeenCalled();
+describe("accounting bar, segments and table", () => {
+  const attention = () => {
+    const counts = emptyContractCounts();
+    for (const s of CONTRACT_STATES) counts[s] = 1;
+    return { total: 10, counts, flagged: { missing_document: 1, active_no_contract: 6 },
+      lines: { landscape: { total: 10, counts, actionNeeded: 6 }, snow: { total: 0, counts: emptyContractCounts(), actionNeeded: 0 } }, items: {} };
+  };
+  it("reconciles, shows badges, dims columns and filters the table by segment", () => {
+    fx.items = [...fixtures(), item("pdf", "good", { flags: ["missing_document"] })];
+    fx.attention = attention();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+    render(<Router hook={memoryLocation({ path: "/dashboard/contracts" }).hook}><ContractCenterPage /></Router>);
+    expect(screen.getByTestId("text-accounted").textContent).toContain("10 of 10 accounted for");
+    expect(screen.getByTestId("badge-action-landscape").textContent).toBe("6");
+    expect(screen.getByTestId("badge-no-contract").textContent).toBe("6 no contract");
+    fireEvent.click(screen.getByTestId("legend-decision"));
+    expect(screen.getByTestId("column-renewal").getAttribute("data-dimmed")).toBe("true");
+    expect(screen.getByTestId("column-decision").getAttribute("data-dimmed")).toBeNull();
+    expect(screen.getByTestId("row-contract-unclassified")).toBeTruthy();
+    expect(screen.queryByTestId("row-contract-good")).toBeNull();
+    fireEvent.click(screen.getByTestId("chip-showing-segment"));
+    expect(screen.getByTestId("row-contract-good")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("link-view-all-lost"));
+    expect(screen.getByTestId("chip-showing-segment").textContent).toContain("Closed");
+    expect(screen.getByTestId("row-contract-closed_recently")).toBeTruthy();
+  });
+  it("shows the unaccounted warning when segments do not sum", () => {
+    fx.items = fixtures();
+    const a = attention(); a.lines.landscape.total = 12; fx.attention = a;
+    render(<Router hook={memoryLocation({ path: "/dashboard/contracts" }).hook}><ContractCenterPage /></Router>);
+    expect(screen.getByTestId("text-unaccounted").textContent).toContain("2 unaccounted for");
+  });
+  it("shows an accounting error with retry instead of list-derived totals when attention fails", () => {
+    fx.items = fixtures(); fx.attention = undefined;
+    render(<Router hook={memoryLocation({ path: "/dashboard/contracts" }).hook}><ContractCenterPage /></Router>);
+    expect(screen.getByTestId("error-accounting")).toBeTruthy();
+    expect(screen.getByTestId("button-retry-accounting")).toBeTruthy();
+    expect(screen.queryByTestId("text-accounted")).toBeNull();
+    expect(screen.queryByTestId("badge-action-landscape")).toBeNull();
+    expect(screen.getByTestId("card-renewal-renewal_due")).toBeTruthy();
+  });
+  it("keeps the server cause for unclassified and uses the source end date for not renewing", () => {
+    const t = (k: string, o?: Record<string, unknown>) => `${k}${o ? JSON.stringify(o) : ""}`;
+    expect(stateReasonText(t, "unclassified", null, null, today, "Customer record missing")).toContain("Customer record missing");
+    expect(stateReasonText(t, "serving_not_renewing", term({ endDate: "2026-11-14" }), "2026-06-01", today)).toContain("Nov 14, 2026");
+  });
+  it("new chips: Signed in last 60 days and No contract PDF, OR semantics", () => {
+    const items = [
+      item("sig", "good", { recentSigned: term({ signedAt: "2026-10-01T15:00:00Z" }) }),
+      item("old", "good", { recentSigned: term({ signedAt: "2026-08-01T15:00:00Z" }) }),
+      item("pdf", "good", { flags: ["missing_document"] }),
+    ];
+    expect(tableRows(items, "landscape", "", ["signed"], "customer", "asc", { today }).map(i => i.id)).toEqual(["sig"]);
+    expect(tableRows(items, "landscape", "", ["signed", "nodoc"], "customer", "asc", { today }).map(i => i.id)).toEqual(["pdf", "sig"]);
+    render(<ContractTable items={items} board="landscape" q="" today={today} />);
+    expect(screen.getAllByTestId(/^chip-filter-/).map(c => c.textContent)).toEqual(
+      ["Needs review", "Up for renewal", "Expired", "Lost", "Signed in last 60 days", "No contract PDF"]);
+    expect(within(screen.getByTestId("row-contract-pdf")).getByTestId("chip-missing-document")).toBeTruthy();
   });
 });

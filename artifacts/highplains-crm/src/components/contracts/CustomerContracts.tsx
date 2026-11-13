@@ -8,6 +8,8 @@ import { contractTermHref } from "@/components/customer/CustomerContractPanels";
 import { formatCurrency } from "@/lib/currency";
 import { useAuth } from "@/hooks/use-auth";
 import { CardListSkeleton, CustomerCardHeader, DisplayStatusBadge, PageEmptyState, displayStatus, useCustomerDates } from "@/components/customer/page";
+import { MissingDocChip, StateChip } from "@/components/contracts/ContractBadges";
+import { contractNeedsAction, itemState } from "@/components/contracts/contractAttention";
 import { accessRole } from "../../../../../lib/db/src/accessRole";
 
 /** Customer pages no longer mount the frozen old-system contract children. */
@@ -33,6 +35,10 @@ export function CustomerContracts({ customerId }: { customerId: string; children
             <CustomerCardHeader icon={FileText} title={`${term.label} \u00b7 ${t(`cp1.${term.line}`)}`} testId={`contract-card-header-${term.termId ?? i}`}
               action={<DisplayStatusBadge status={displayStatus("contract", group.label)} testId={`status-contract-${term.termId ?? i}`} />} />
             <CardContent className="px-4 pt-2 pb-3.5 space-y-1.5 text-sm">
+              {(term.state !== undefined && contractNeedsAction(itemState(term)) || term.flags?.includes("missing_document")) && <p className="flex flex-wrap gap-1.5" data-testid={`contract-attention-${term.termId ?? i}`}>
+                {term.state !== undefined && contractNeedsAction(itemState(term)) && <StateChip state={itemState(term)} title={term.stateReason} />}
+                {term.flags?.includes("missing_document") && <MissingDocChip />}
+              </p>}
               <p className="text-sm text-muted-foreground">{dates.day(term.startDate)} – {dates.day(term.endDate)}</p>
               {term.parentCustomerId && <p>{t("cp1.parentValue")}</p>}
               <p>{t("cp1.annualValue")}: {formatCurrency(term.annualCents, false, i18n.language)}</p>

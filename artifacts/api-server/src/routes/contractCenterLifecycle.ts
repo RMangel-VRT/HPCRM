@@ -20,6 +20,7 @@ import {
   fullDetail, getTerm, getAgreement, lockAgreement, lockTerm, writeTerm, addHistory,
   activeCard, termWhere, loadContractList, replaceRows, agreementSeasons,
   lockContractCompany,
+  loadContractAttention,
 } from "../lib/contractCenterPersistence";
 import { planChangingRenewal } from "../lib/contractChangingRenewal";
 import { ObjectStorageService } from "../objectStorage";
@@ -53,6 +54,10 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
         res.status(500).json({ message: "Contract Center request failed" });
       }
     };
+  app.get("/api/contract-center/attention", handle(async (_req, res, user) => {
+    res.set("Cache-Control", "private, no-store");
+    res.json(await loadContractAttention(db, user.activeCompanyId));
+  }));
   app.get("/api/contract-center/active-customers", handle(async (req, res, user) => {
     if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
       throw new ContractCenterError(409, "Active company changed. Reload and try again.");
