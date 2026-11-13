@@ -26,3 +26,18 @@ Publish's database-to-database introspection was independently reproduced mangli
 **Why:** Valid Drizzle declarations and valid migration SQL alone did not establish that Publish's introspection would emit executable SQL. The same defect affected the replacement calendar as well as its predecessor.
 
 **How to apply:** Preserve the round-trip-safe shape in future calendar schema declarations and pushes. Verify with the actual Publish diff, not only source-to-source schema generation, and test emitted SQL in isolated PostgreSQL. Widened CHECK expressions also need fresh constraint names because the observed diff omitted same-name changes. See `docs/scheduling/reports/publish-check-constraints-verification.md` for evidence and limits.
+
+Local Drizzle Kit database introspection can generate unrelated, unstable index
+operator-class changes even when PostgreSQL's actual index definitions match.
+Do not silently filter those statements and call the full diff clean.
+
+**Why:** A full-schema before/after constraint-only proof generated incompatible
+operator classes on unchanged mixed-type indexes. Source-only generation and
+column drift checks did not expose that problem. The assigned-task environment
+also lacked the read-only live Publish-preview callback.
+
+**How to apply:** Preserve the complete generated diff, attempt it only in
+disposable PostgreSQL, compare actual catalogs independently, and report unrelated
+failures separately. Distinguish local Kit evidence from a live Publish preview;
+never infer that a local generator failure is a verified production failure.
+See `docs/estimates/reports/canonical-estimate-unit-checks.md` for limitations.

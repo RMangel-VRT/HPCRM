@@ -65,7 +65,7 @@ export const estimateServiceCategories = pgTable("estimate_service_categories", 
   companyName: uniqueIndex("estimate_service_categories_company_name_idx").on(t.companyId, sql`lower(${t.name})`),
   nameCheck: check("estimate_service_categories_name_check", sql`${t.name} = trim(${t.name}) AND length(${t.name}) BETWEEN 1 AND 100`),
   keyCheck: check("estimate_service_categories_key_check", sql`${t.defaultUmbrellaKey} IN ('plants','landscape_materials','irrigation_materials','landscape_labor','irrigation_labor','fees_surcharges')`),
-  unitCheck: check("estimate_service_categories_unit_v2_check", sql`${t.defaultUnit} IN ('hour','day','week','ea','flat','sq ft','1,000 sq ft','lin ft','visit','SF','LF','1,000 SF','HR','DAY','WEEK','EA','FLAT','GAL','CU. YD','LB','BAG','TON','IN. DBH')`),
+  unitCheck: check("estimate_service_categories_unit_v3_check", sql`${t.defaultUnit} IN ('SF','LF','1,000 SF','HR','DAY','WEEK','EA','FLAT','GAL','CU. YD','LB','BAG','TON','IN. DBH')`),
 }));
 
 export const qboUmbrellaItems = pgTable("qbo_umbrella_items", {
@@ -102,7 +102,7 @@ export const estimateQuickItems = pgTable("estimate_quick_items", {
   companyLabel: uniqueIndex("estimate_quick_items_company_label_idx").on(t.companyId, sql`lower(${t.label})`),
    kindCheck: check("estimate_quick_items_kind_v2_check", sql`${t.kind} IN ('equipment','fee','service')`),
    categoryCheck: check("estimate_quick_items_category_check", sql`(${t.kind} = 'service') = (${t.serviceCategoryId} IS NOT NULL)`),
-    unitCheck: check("estimate_quick_items_unit_v2_check", sql`${t.defaultUnit} IN ('hour','day','week','ea','flat','sq ft','1,000 sq ft','lin ft','visit','SF','LF','1,000 SF','HR','DAY','WEEK','EA','FLAT','GAL','CU. YD','LB','BAG','TON','IN. DBH')`),
+     unitCheck: check("estimate_quick_items_unit_v3_check", sql`${t.defaultUnit} IN ('SF','LF','1,000 SF','HR','DAY','WEEK','EA','FLAT','GAL','CU. YD','LB','BAG','TON','IN. DBH')`),
   rateCheck: check("estimate_quick_items_rate_check", sql`${t.defaultRateCents} >= 0`),
   labelCheck: check("estimate_quick_items_label_check", sql`length(trim(${t.label})) > 0`),
   keyCheck: check("estimate_quick_items_key_check", sql`${t.umbrellaKey} IN ('plants','landscape_materials','irrigation_materials','landscape_labor','irrigation_labor','fees_surcharges')`),
