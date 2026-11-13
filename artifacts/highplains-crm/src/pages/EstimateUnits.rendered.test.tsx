@@ -17,7 +17,10 @@ import EquipmentFeesCatalog from "./EquipmentFeesCatalog";
 import HardscapeCatalog from "./HardscapeCatalog";
 import { AddLineDialog } from "@/components/estimates/AddLineDialog";
 
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u", activeCompanyId: "c", activeRole: "admin" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({
+  user: { id: "u", activeCompanyId: "c", activeRole: "admin", accessRole: "admin", activeTags: [], isSuperAdminBool: false },
+  isLoading: false,
+}) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 const expected = ["SF", "LF", "1,000 SF", "HR", "DAY", "WEEK", "EA", "FLAT", "GAL", "CU. YD", "LB", "BAG", "TON", "IN. DBH"];
 const json = (data: unknown) => ({ ok: true, status: 200, json: async () => data });

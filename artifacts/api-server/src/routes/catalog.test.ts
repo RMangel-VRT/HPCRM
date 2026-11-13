@@ -1,6 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { accessRole, type Role } from "../../../../lib/db/src/accessRole";
 const mocks = vi.hoisted(() => ({
   getHardscapeCatalog: vi.fn(), createHardscapeCatalogItem: vi.fn(),
   updateHardscapeCatalogItem: vi.fn(), upsertHardscapeCatalogItem: vi.fn(),
@@ -11,12 +12,17 @@ const item = { id: "a", companyId: "company-a", sku: "SKU", name: "Rock", catego
   unit: "ea", wholesaleCostCents: null, retailPriceCents: 12345, isActive: true };
 const csv = "sku,category,name,description,unit,wholesale_cost,retail_price,active\nSKU,general,Rock,,ea,,123.45,true";
 const endpoints = [["get", ""], ["post", ""], ["patch", "/a"], ["delete", "/a"], ["post", "/import-csv"], ["get", "/export-csv"]] as const;
-function appFor(role: string | null = "admin", company: string | null = "company-a") {
+function appFor(role: Role | null = "admin", company: string | null = "company-a") {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => role !== null) as typeof req.isAuthenticated;
-    req.user = { id: "user", accessRole: role, activeRole: role, activeCompanyId: company } as Express.User;
+    if (role !== null) {
+      req.user = {
+        id: "user", accessRole: accessRole(role), activeRole: role,
+        activeCompanyId: company, activeTags: [], isSuperAdminBool: false,
+      } as Express.User;
+    }
     next();
   });
   registerCatalogRoutes(app);
@@ -24,31 +30,38 @@ function appFor(role: string | null = "admin", company: string | null = "company
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.getHardscapeCatalog.mockResolvedValue({ items: [item], categories: ["general"] });
+  mocks.getHardscapeCatalog.mockImplementation(async companyId => ({
+    items: [{ ...item, companyId }], categories: ["general"],
+  }));
   mocks.createHardscapeCatalogItem.mockResolvedValue(item);
   mocks.updateHardscapeCatalogItem.mockResolvedValue(item);
   mocks.upsertHardscapeCatalogItem.mockResolvedValue("updated");
 });
 describe("hardscape endpoint authentication, role and tenant contracts", () => {
   it.each(endpoints)("gates %s %s before accessing storage or reading uploads", async (method, path) => {
-    for (const role of [null, "field", "field_manager", "crew_supervisor", "mapping", "landscape_supervisor", "chemical_manager", "shop_manager", "irrigation_manager"]) {
+    for (const role of [null, "field", "field_manager", "crew_supervisor", "mapping", "landscape_supervisor", "chemical_manager", "shop_manager", "irrigation_manager"] as const) {
       const response = await request(appFor(role))[method](`/api/hardscape-catalog${path}`).send({});
       expect(response.status).toBe(role === null ? 401 : 403);
     }
-    expect((await request(appFor("admin", null))[method](`/api/hardscape-catalog${path}`).send({})).status).toBe(403);
+    for (const role of ["admin", "office", "account_manager"] as const) {
+      expect((await request(appFor(role, null))[method](`/api/hardscape-catalog${path}`).send({})).status).toBe(403);
+    }
     for (const mock of Object.values(mocks)) expect(mock).not.toHaveBeenCalled();
   });
   it.each(endpoints)("rejects stale-company %s %s before reading or writing data", async (method, path) => {
-    const response = await request(appFor("admin", "company-b"))[method](`/api/hardscape-catalog${path}`)
-      .set("X-Company-Id", "company-a").send({});
-    expect(response.status).toBe(409);
-    expect(response.body.message).toContain("Active company changed");
+    for (const role of ["admin", "office", "account_manager"] as const) {
+      const response = await request(appFor(role, "company-b"))[method](`/api/hardscape-catalog${path}`)
+        .set("X-Company-Id", "company-a").send({});
+      expect(response.status).toBe(409);
+      expect(response.body.message).toContain("Active company changed");
+    }
     for (const mock of Object.values(mocks)) expect(mock).not.toHaveBeenCalled();
   });
-  it.each(["admin", "office"])("allows %s and scopes list, categories, search and export", async role => {
+  it.each(["admin", "office", "account_manager"] as const)("allows %s and scopes list, categories, search and export", async role => {
     const app = appFor(role, "company-b");
     const list = await request(app).get("/api/hardscape-catalog?search=stone&category=general&includeInactive=true");
     expect(list.status).toBe(200);
+    expect(list.body.items).toEqual([{ ...item, companyId: "company-b" }]);
     expect(mocks.getHardscapeCatalog).toHaveBeenCalledWith("company-b", { search: "stone", category: "general", includeInactive: true });
     expect(list.headers["cache-control"]).toContain("no-store");
     const exp = await request(app).get("/api/hardscape-catalog/export-csv");
@@ -57,6 +70,23 @@ describe("hardscape endpoint authentication, role and tenant contracts", () => {
     expect(exp.headers["content-type"]).toContain("text/csv");
     expect(exp.text).toContain(",123.45,true");
     expect(mocks.getHardscapeCatalog).toHaveBeenLastCalledWith("company-b", { includeInactive: true });
+  });
+  it.each(["admin", "office", "account_manager"] as const)("binds %s writes to the resolved company", async role => {
+    const app = appFor(role, "company-b");
+    const base = "/api/hardscape-catalog";
+    expect((await request(app).post(base).set("X-Company-Id", "company-b")
+      .send({ name: "Rock", category: "general" })).status).toBe(201);
+    expect(mocks.createHardscapeCatalogItem).toHaveBeenCalledWith("company-b", {
+      name: "Rock", category: "general", unit: "EA", isActive: true,
+    });
+    expect((await request(app).patch(`${base}/a`).set("X-Company-Id", "company-b")
+      .send({ retailPriceCents: 900 })).status).toBe(200);
+    expect(mocks.updateHardscapeCatalogItem).toHaveBeenCalledWith("company-b", "a", { retailPriceCents: 900 });
+    expect((await request(app).delete(`${base}/a`).set("X-Company-Id", "company-b")).status).toBe(200);
+    expect(mocks.updateHardscapeCatalogItem).toHaveBeenLastCalledWith("company-b", "a", { isActive: false });
+    expect((await request(app).post(`${base}/import-csv`).set("X-Company-Id", "company-b")
+      .send({ csv })).status).toBe(200);
+    expect(mocks.upsertHardscapeCatalogItem).toHaveBeenCalledWith("company-b", expect.objectContaining({ sku: "SKU", unit: "EA" }));
   });
   it("creates with server-owned tenant and immutable umbrella; duplicate SKU is 409", async () => {
     const app = appFor();

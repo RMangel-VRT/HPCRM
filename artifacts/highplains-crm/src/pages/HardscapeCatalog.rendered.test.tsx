@@ -12,9 +12,17 @@ import { apiRequest } from "@/lib/queryClient";
 import { parseDollarsToCents } from "@/lib/hardscapeCatalog";
 import { isEstimatesHubPage } from "@/components/nav/estimatesRail";
 import { insertHardscapeCatalogItemSchema } from "@shared/schema";
+import { accessRole, type Role } from "../../../../lib/db/src/accessRole";
+import { ProtectedRoute } from "@/lib/protected-route";
 
-const auth = vi.hoisted(() => ({ user: { id: "u1", activeCompanyId: "c1", activeRole: "admin", accessRole: "admin" } as Record<string, string> }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: auth.user }) }));
+function userFor(role: Role = "admin", companyId = "c1") {
+  return {
+    id: "u1", activeCompanyId: companyId, activeRole: role, accessRole: accessRole(role),
+    activeTags: [], isSuperAdminBool: false,
+  };
+}
+const auth = vi.hoisted(() => ({ user: null as ReturnType<typeof userFor> | null }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: auth.user, isLoading: false }) }));
 const toastSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: toastSpy }), toast: toastSpy }));
 
@@ -31,9 +39,10 @@ function jsonRes(body: unknown) {
 }
 
 beforeEach(() => {
-  auth.user = { id: "u1", activeCompanyId: "c1", activeRole: "admin", accessRole: "admin" };
+  auth.user = userFor();
   fetchMock.mockImplementation(async (url: string) => {
     if (String(url).includes("/api/estimates/board")) return jsonRes({ stages: [] });
+    if (String(url).includes("/api/companies/users")) return jsonRes([]);
     return jsonRes(listBody);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -46,14 +55,17 @@ afterEach(async () => {
   await i18n.changeLanguage("en");
 });
 
-function renderPage() {
+function renderPage(protectedRoute = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const loc = memoryLocation({ path: "/dashboard/estimates/catalogs/hardscape" });
+  const path = "/dashboard/estimates/catalogs/hardscape";
+  const loc = memoryLocation({ path, record: true });
   const ui = () => (
-    <QueryClientProvider client={client}><Router hook={loc.hook}><HardscapeCatalog /></Router></QueryClientProvider>
+    <QueryClientProvider client={client}><Router hook={loc.hook}>
+      {protectedRoute ? <ProtectedRoute path={path} component={HardscapeCatalog} allowedRoles={["admin", "office"]} /> : <HardscapeCatalog />}
+    </Router></QueryClientProvider>
   );
   const r = render(ui());
-  return { ...r, rerenderPage: () => r.rerender(ui()) };
+  return { ...r, history: loc.history!, rerenderPage: () => r.rerender(ui()) };
 }
 
 describe("dollars parsing", () => {
@@ -83,11 +95,48 @@ function errRes(status: number, body: unknown) {
   return { ok: false, status, statusText: "", json: async () => body, text: async () => JSON.stringify(body), headers: new Headers() };
 }
 function switchCompany(rerenderPage: () => void, companyId = "c2") {
-  auth.user = { id: "u1", activeCompanyId: companyId, activeRole: "admin", accessRole: "admin" };
+  auth.user = userFor(auth.user!.activeRole, companyId);
   rerenderPage();
 }
 
 describe("HardscapeCatalog", () => {
+  it.each(["admin", "office", "account_manager"] as const)("loads the guarded catalog for %s with resolved access and company context", async role => {
+    auth.user = userFor(role, "c2");
+    fetchMock.mockResolvedValue(jsonRes({ items: [{ ...item, companyId: "c2" }], categories: ["pavers"] }));
+    renderPage(true);
+    await screen.findByTestId("text-name-h1");
+    expect(auth.user.activeRole).toBe(role);
+    expect(auth.user.accessRole).toBe(role === "office" ? "office" : "admin");
+    expect(listCalls()).toHaveLength(1);
+    expect(listCalls()[0].headers["X-Company-Id"]).toBe("c2");
+  });
+  it.each(["field", "field_manager", "crew_supervisor", "mapping", "landscape_supervisor", "chemical_manager", "shop_manager", "irrigation_manager"] as const)(
+    "denies %s at the real route guard without fetching the catalog", async role => {
+      auth.user = userFor(role);
+      const { history } = renderPage(true);
+      await waitFor(() => expect(history.at(-1)).toBe("/access-denied"));
+      expect(screen.queryByTestId("page-hardscape-catalog")).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+  it("redirects signed-out users without fetching the catalog", async () => {
+    auth.user = null;
+    const { history } = renderPage(true);
+    await waitFor(() => expect(history.at(-1)).toBe("/login"));
+    expect(screen.queryByTestId("page-hardscape-catalog")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it.each(["add", "edit"])("cancels %s without saving changes", async mode => {
+    renderPage();
+    await screen.findByTestId("text-name-h1");
+    fireEvent.click(screen.getByTestId(mode === "add" ? "button-add-item" : "button-edit-h1"));
+    fireEvent.change(screen.getByTestId("input-name"), { target: { value: "Unsaved material" } });
+    fireEvent.click(screen.getByTestId("button-cancel-item"));
+    await waitFor(() => expect(screen.queryByTestId("dialog-hardscape-item")).toBeNull());
+    expect(calls().filter(c => c.method !== "GET")).toEqual([]);
+    fireEvent.click(screen.getByTestId(mode === "add" ? "button-add-item" : "button-edit-h1"));
+    expect((screen.getByTestId("input-name") as HTMLInputElement).value).toBe(mode === "add" ? "" : item.name);
+  });
   it("mirrors the API insert category default without accepting explicit blank categories", () => {
     const input = { companyId: "c1", name: "Rock" };
     expect(insertHardscapeCatalogItemSchema.parse(input)).toEqual({
@@ -204,9 +253,15 @@ describe("HardscapeCatalog", () => {
   });
 
   it("deactivates via confirm with DELETE and reactivates with PATCH", async () => {
-    route((c) => (c.method !== "GET" ? jsonRes({}) : undefined));
+    let active = true;
+    route((c) => {
+      if (c.method === "DELETE") { active = false; return jsonRes({ ...item, isActive: false }); }
+      if (c.method === "PATCH") { active = true; return jsonRes(item); }
+      if (c.method === "GET") return jsonRes({ ...listBody, items: [{ ...item, isActive: active }] });
+    });
     renderPage();
     await screen.findByTestId("text-name-h1");
+    fireEvent.click(screen.getByTestId("switch-include-inactive"));
     fireEvent.click(screen.getByTestId("button-deactivate-h1"));
     fireEvent.click(await screen.findByTestId("button-confirm-deactivate"));
     await waitFor(() => expect(calls().some((c) => c.method === "DELETE")).toBe(true));
@@ -214,6 +269,13 @@ describe("HardscapeCatalog", () => {
     expect(del.url).toBe("/api/hardscape-catalog/h1");
     expect(del.headers).toEqual({ "X-Company-Id": "c1" });
     expect(del.body).toBeUndefined();
+    fireEvent.click(await screen.findByTestId("button-reactivate-h1"));
+    await waitFor(() => expect(calls().some(c => c.method === "PATCH")).toBe(true));
+    const patch = calls().find(c => c.method === "PATCH")!;
+    expect(patch.url).toBe("/api/hardscape-catalog/h1");
+    expect(patch.headers["X-Company-Id"]).toBe("c1");
+    expect(JSON.parse(String(patch.body))).toEqual({ isActive: true });
+    await screen.findByTestId("button-deactivate-h1");
   });
 
   it("imports CSV as multipart through real apiRequest; company switch clears the summary", async () => {
@@ -338,15 +400,20 @@ describe("apiRequest options", () => {
 });
 
 describe("estimates rail", () => {
-  it("board renders shared rail with catalogs and unchanged board links", async () => {
+  it("board renders the current shared rail with catalogs and unchanged board links", async () => {
     render(<QueryClientProvider client={new QueryClient()}>
       <Router hook={memoryLocation({ path: "/dashboard/estimates" }).hook}><EstimatesBoardPage /></Router>
     </QueryClientProvider>);
     expect(screen.getByTestId("rail-all").getAttribute("href")).toBe("/dashboard/estimates");
+    expect(screen.getByTestId("rail-all").getAttribute("aria-current")).toBe("page");
+    expect(screen.getByTestId("rail-builder").getAttribute("href")).toBe("/dashboard/estimates/builder");
     expect(screen.queryByTestId("rail-estimate_request")).toBeNull();
     expect(screen.queryByTestId("rail-rfp_request")).toBeNull();
     expect(screen.getByTestId("rail-hardscape").getAttribute("href")).toBe("/dashboard/estimates/catalogs/hardscape");
     expect(screen.getByTestId("rail-quickbooks").getAttribute("href")).toContain("/settings/quickbooks");
+    expect(screen.getByTestId("rail-library").getAttribute("href")).toBe("/dashboard/estimates/catalogs/plants");
+    expect(screen.getByTestId("rail-matches").getAttribute("href")).toBe("/dashboard/estimates/catalogs/plants/matches");
+    await screen.findByTestId("empty-estimates");
   });
   it("marks hub pages as rail pages", () => {
     expect(isEstimatesHubPage("/dashboard/estimates/catalogs/hardscape")).toBe(true);
