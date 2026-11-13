@@ -5,7 +5,9 @@ import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   companies, users, companyUsers, ticketTypes, ticketTypeStatuses, tickets, ticketStatusHistory, ticketLinks,
+  customers, estimates, estimateVersions,
 } from "@workspace/db";
+import { compareRows, flattenActionBoard, isAction } from "@workspace/db/estimate-contracts";
 import { db, pool } from "../db";
 import { registerDashboardSectionsRoutes, loadDashboardSections } from "./dashboardSections";
 import { loadEstimatesBoard } from "./estimatesBoard";
@@ -88,7 +90,8 @@ describe("dashboard sections real PostgreSQL regressions", () => {
       loadDashboardSections(viewer, NOW), loadEstimatesBoard(companyIds[0], NOW), loadSchedulingQueue(companyIds[0], NOW),
     ]);
     expect(result.sections.find(s => s.key === "estimates")).toMatchObject({
-      total: board.stages.reduce((n, stage) => n + stage.tickets.length, 0), overdue: 1,
+      total: flattenActionBoard(board).filter(row => isAction(row.nextAction.bucket)).length,
+      overdue: flattenActionBoard(board).filter(row => isAction(row.nextAction.bucket) && row.nextAction.urgency === "red").length,
     });
     expect(result.sections.find(s => s.key === "scheduling")).toMatchObject({
       total: queue.needsScheduling.length + queue.slipped.length, overdue: 1,
@@ -118,7 +121,7 @@ describe("dashboard sections real PostgreSQL regressions", () => {
     expect(estimates.stages.flatMap(s => s.tickets).every(t => t.typeKey === "estimate_request")).toBe(true);
     const sections = (await loadDashboardSections(viewer, NOW)).sections;
     expect(sections.find(s => s.key === "bids")).toMatchObject({ total: 8, overdue: 8 });
-    expect(sections.find(s => s.key === "estimates")?.total).toBe(estimates.stages.flatMap(s => s.tickets).length);
+    expect(sections.find(s => s.key === "estimates")?.total).toBe(flattenActionBoard(estimates).filter(row => isAction(row.nextAction.bucket)).length);
     expect(sections.find(s => s.key === "mine")?.total).toBe(3);
     const assigned = await storage.getTickets(companyIds[0], { assignedToId: viewer.id });
     const personal = excludeBidsFromPersonalTickets(assigned, await storage.getTicketTypes(companyIds[0]));
@@ -137,6 +140,88 @@ describe("dashboard sections real PostgreSQL regressions", () => {
     const result = await loadDashboardSections({ ...viewer, activeCompanyId: companyIds[1] }, NOW);
     expect(result.sections.every(s => s.total === 0 && s.oldest === null)).toBe(true);
   });
+  it("matches Action Center counts and first actionable row at fixed now, not raw stage ages", async () => {
+    const [company] = await db.insert(companies).values({ name: "Action parity fixture", slug: `action-${randomUUID()}` }).returning();
+    companyIds.push(company.id);
+    await db.insert(companyUsers).values({ companyId: company.id, userId: viewer.id, role: "admin", status: "active" });
+    const [customer] = await db.insert(customers).values({
+      companyId: company.id, name: "Action customer", street: "Test", city: "Test", state: "CO", zip: "00000",
+    }).returning();
+    const [type] = await db.insert(ticketTypes).values({ companyId: company.id, name: "Estimate", typeKey: "estimate_request" }).returning();
+    const statuses = await db.insert(ticketTypeStatuses).values(
+      ["new", "estimating", "proposal_draft", "proposal_sent", "decision_received", "ready_to_schedule"].map(statusKey => ({
+        ticketTypeId: type.id, name: statusKey, statusKey, displayOrder: 0,
+      })),
+    ).returning();
+    const statusId = (key: string) => statuses.find(s => s.statusKey === key)!.id;
+    const dayAgo = (days: number) => new Date(Date.parse("2026-10-26T18:00:00Z") - days * 86_400_000);
+    const specs = [
+      { id: "won", status: "ready_to_schedule", age: 500, bucket: "won", urgency: null },
+      { id: "waiting", status: "proposal_sent", age: 400, sent: 0, follow: "2026-11-10", bucket: "waiting", urgency: null },
+      { id: "b", status: "proposal_sent", age: 4, sent: 40, bucket: "follow_up", urgency: "red" },
+      { id: "a", status: "proposal_sent", age: 4, sent: 40, bucket: "follow_up", urgency: "red" },
+      { id: "expiry5", status: "proposal_sent", age: 3, sent: 25, bucket: "follow_up", urgency: "red" },
+      { id: "expiry6", status: "proposal_sent", age: 100, sent: 24, follow: "2026-11-10", bucket: "waiting", urgency: null },
+      { id: "late2", status: "proposal_sent", age: 1, sent: 1, follow: "2026-10-24", bucket: "follow_up", urgency: "red" },
+      { id: "late1", status: "proposal_sent", age: 90, sent: 1, follow: "2026-10-25", bucket: "follow_up", urgency: "amber" },
+      { id: "due", status: "proposal_sent", age: 0, sent: 0, follow: "2026-10-26", bucket: "follow_up", urgency: "amber" },
+      { id: "unanswered7", status: "proposal_sent", age: 7, sent: 7, bucket: "follow_up", urgency: "amber" },
+      { id: "sent6", status: "proposal_sent", age: 6, sent: 6, bucket: "waiting", urgency: null },
+      { id: "idle10", status: "estimating", age: 200, edited: 10, bucket: "finish", urgency: "red" },
+      { id: "idle9", status: "estimating", age: 100, edited: 9, bucket: "finish", urgency: "amber" },
+      { id: "idle5", status: "estimating", age: 5, edited: 5, bucket: "finish", urgency: "amber" },
+      { id: "idle4", status: "estimating", age: 4, edited: 4, bucket: "finish", urgency: null },
+      { id: "start3", status: "new", age: 3, bucket: "start", urgency: "red" },
+      { id: "start2", status: "new", age: 2, bucket: "start", urgency: null },
+      { id: "assigned3", status: "new", age: 3, assigned: true, bucket: "start", urgency: "amber" },
+      { id: "send", status: "proposal_draft", age: 3, edited: 0, bucket: "send", urgency: "amber" },
+      { id: "decide", status: "decision_received", age: 100, bucket: "decide", urgency: "amber" },
+    ];
+    const prefix = randomUUID();
+    for (const spec of specs) {
+      const id = `${prefix}-${spec.id}`;
+      await db.insert(tickets).values({
+        id, companyId: company.id, customerId: customer.id, title: spec.id, ticketTypeId: type.id,
+        currentStatusId: statusId(spec.status), createdById: viewer.id, createdAt: dayAgo(spec.age),
+        assignedToId: spec.assigned ? viewer.id : null, followUpDate: spec.follow ?? null,
+      });
+      insertedTicketIds.push(id);
+      if (spec.sent !== undefined || spec.edited !== undefined) {
+        const [estimate] = await db.insert(estimates).values({
+          companyId: company.id, customerId: customer.id, ticketId: id, title: spec.id, estimateNumber: spec.id,
+        }).returning();
+        const [version] = await db.insert(estimateVersions).values({
+          companyId: company.id, estimateId: estimate.id, versionNumber: 1,
+          status: spec.sent !== undefined ? "sent" : "draft",
+          sentAt: spec.sent !== undefined ? dayAgo(spec.sent) : null,
+          updatedAt: dayAgo(spec.edited ?? 0),
+        }).returning();
+        await db.update(estimates).set({ currentVersionId: version.id }).where(eq(estimates.id, estimate.id));
+      }
+    }
+    const [board, sections] = await Promise.all([
+      loadEstimatesBoard(company.id, NOW), loadDashboardSections({ ...viewer, activeCompanyId: company.id }, NOW),
+    ]);
+    const rows = flattenActionBoard(board);
+    for (const spec of specs) expect(rows.find(row => row.title === spec.id)?.nextAction).toMatchObject({
+      bucket: spec.bucket, urgency: spec.urgency,
+    });
+    // These are the unfiltered Action Center Needs action and Urgent populations.
+    const needs = rows.filter(row => isAction(row.nextAction.bucket)).sort(compareRows);
+    const urgent = needs.filter(row => row.nextAction.urgency === "red");
+    expect(needs).toHaveLength(16);
+    expect(urgent).toHaveLength(6);
+    const first = needs[0];
+    expect(first.id).toBe(`${prefix}-a`); // deterministic tie, despite red/amber rows with much greater stage ages
+    expect(sections.sections.find(s => s.key === "estimates")).toEqual({
+      key: "estimates", href: "/dashboard/estimates", total: needs.length, overdue: urgent.length, flow: null,
+      oldest: { label: customer.name, detail: "", reason: first.nextAction.reason, href: `/dashboard/tickets/${first.id}` },
+    });
+    // With just waiting/won left, neither the old ages nor future follow-ups create work.
+    await db.delete(tickets).where(inArray(tickets.id, needs.map(row => row.id)));
+    expect((await loadDashboardSections({ ...viewer, activeCompanyId: company.id }, NOW)).sections.find(s => s.key === "estimates"))
+      .toMatchObject({ total: 0, overdue: 0, oldest: null });
+  }, 30_000);
   it("counts linked pending invoices once and dates billing from the source RFB entry", async () => {
     const [invoiceType] = await db.insert(ticketTypes).values({ companyId: companyIds[0], name: "Renamed charges", typeKey: "invoice" }).returning();
     const [pending] = await db.insert(ticketTypeStatuses).values({

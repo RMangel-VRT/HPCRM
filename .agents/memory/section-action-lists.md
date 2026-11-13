@@ -9,6 +9,18 @@ The dashboard directs users to the section where work happens. Ownership follows
 
 Each section must use its own meaningful overdue clock, not a universal schedule-by ordering. In particular, invoicing must not use stale scheduling dates, and intermediate estimates may have no schedule-by date. Follow the uploaded clock table and Colorado calendar-day rules.
 
+Estimates dashboard direction was revised on November 12, 2026: its work
+population and priority must match the server-owned Action Center, including
+the translated reason. This supersedes historical instructions to leave the
+tile unchanged or apply the old seven-day dashboard rule. Bids is deliberately
+excluded from this revision.
+
+**Why:** The user explicitly made Part 1 of the Estimates cleanup brief the
+governing requirement to prevent dashboard/page disagreement.
+
+**How to apply:** Preserve this Estimates-only exception when consulting older
+dashboard or section-clock specifications; do not extend it to Bids.
+
 These three slices permit no schema changes; stop and ask if a column appears necessary. Reuse the established ticket visual system: matching type hue only on the left rail and type badge, universal status colors, token-based row styling rather than bordered cards.
 
 **Why:** These are the user's supplied product and scope rules for the next action-list work, including an explicit correction to the earlier universal schedule-by design.

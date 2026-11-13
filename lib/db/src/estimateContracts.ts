@@ -193,3 +193,38 @@ export interface EstimateActionTicket {
   followUpDate: string | null; followUpNote: string | null;
   estimate: EstimateBoardSummaryDto | null; nextAction: EstimateNextAction;
 }
+
+/** Browser-safe population and ordering only; nextAction classification stays server-owned. */
+export const ACTION_BUCKETS = ["follow_up", "decide", "send", "finish", "start"] as const;
+export type ActionBucket = typeof ACTION_BUCKETS[number];
+export const isAction = (bucket: EstimateActionBucket): bucket is ActionBucket =>
+  (ACTION_BUCKETS as readonly string[]).includes(bucket);
+
+type ActionRow = { id: string; daysInStage: number; nextAction: EstimateNextAction; estimate?: { acceptedAt: string | null } | null };
+export function flattenActionBoard<T extends { id: string; nextAction?: EstimateNextAction }>(
+  data: { stages: { tickets: T[] }[] } | undefined,
+): (T & { nextAction: EstimateNextAction })[] {
+  const seen = new Set<string>();
+  const out: (T & { nextAction: EstimateNextAction })[] = [];
+  for (const stage of data?.stages ?? []) for (const ticket of stage.tickets) {
+    if (!ticket.nextAction || seen.has(ticket.id)) continue;
+    seen.add(ticket.id);
+    out.push({ ...ticket, nextAction: ticket.nextAction });
+  }
+  return out;
+}
+
+const urgencyRank = (u: EstimateNextAction["urgency"]) => u === "red" ? 0 : u === "amber" ? 1 : 2;
+const groupRank = (b: EstimateActionBucket) => isAction(b) ? 0 : b === "waiting" ? 1 : 2;
+const bucketRank = (b: EstimateActionBucket) => isAction(b) ? ACTION_BUCKETS.indexOf(b) : 9;
+const acceptedMs = (t: ActionRow) => { const v = t.estimate?.acceptedAt ? Date.parse(t.estimate.acceptedAt) : NaN; return Number.isNaN(v) ? 0 : v; };
+
+/** Red, amber, none; bucket order; descending stage age; ID. Waiting then won follow. */
+export function compareRows(a: ActionRow, b: ActionRow): number {
+  const ga = groupRank(a.nextAction.bucket), gb = groupRank(b.nextAction.bucket);
+  if (ga !== gb) return ga - gb;
+  if (ga === 2) return acceptedMs(b) - acceptedMs(a) || a.id.localeCompare(b.id);
+  return urgencyRank(a.nextAction.urgency) - urgencyRank(b.nextAction.urgency)
+    || bucketRank(a.nextAction.bucket) - bucketRank(b.nextAction.bucket)
+    || b.daysInStage - a.daysInStage || a.id.localeCompare(b.id);
+}

@@ -1,11 +1,10 @@
 /** Pure list shaping for the Estimates action list. Classification is server-owned (nextAction). */
-import type { EstimateActionBucket, EstimateActionMessage, EstimateActionTicket } from "@shared/schema";
+import { flattenActionBoard, isAction, type EstimateActionMessage, type EstimateActionTicket } from "@shared/schema";
+export { ACTION_BUCKETS, isAction, compareRows, type ActionBucket } from "@shared/schema";
 import { denverToday, formatCalendarDate, isCalendarDate } from "@/lib/estimateBuilder";
 export { addDaysYmd } from "@/lib/schedulingStatus";
 
 export interface ActionBoardResponse { stages: { key: string; tickets: EstimateActionTicket[] }[] }
-export const ACTION_BUCKETS = ["follow_up", "decide", "send", "finish", "start"] as const;
-export type ActionBucket = typeof ACTION_BUCKETS[number];
 export const SCOPES = ["urgent", "action", "waiting", "won", "all"] as const;
 export type Scope = typeof SCOPES[number];
 export const WON_WINDOW_DAYS = 30;
@@ -14,16 +13,9 @@ const ymdToUtc = (ymd: string) => { const [y, m, d] = ymd.split("-").map(Number)
 export function daysBetweenYmd(from: string, to: string): number {
   return Math.round((ymdToUtc(to) - ymdToUtc(from)) / 86_400_000);
 }
-export const isAction = (b: EstimateActionBucket): b is ActionBucket => (ACTION_BUCKETS as readonly string[]).includes(b);
 
 export function flattenBoard(data: ActionBoardResponse | undefined): EstimateActionTicket[] {
-  const seen = new Set<string>();
-  const out: EstimateActionTicket[] = [];
-  for (const s of data?.stages ?? []) for (const t of s.tickets) {
-    if (!t?.nextAction || seen.has(t.id)) continue;
-    seen.add(t.id); out.push(t);
-  }
-  return out;
+  return flattenActionBoard(data);
 }
 
 /** Accepted within the last 30 Colorado calendar days (inclusive of today). */
@@ -46,21 +38,6 @@ export function inScope(t: EstimateActionTicket, scope: Scope, today?: string): 
     case "won": return isRecentlyWon(t, today);
     case "all": return true;
   }
-}
-
-const urgRank = (u: "red" | "amber" | null) => u === "red" ? 0 : u === "amber" ? 1 : 2;
-const groupRank = (b: EstimateActionBucket) => isAction(b) ? 0 : b === "waiting" ? 1 : 2;
-const bucketRank = (b: EstimateActionBucket) => isAction(b) ? ACTION_BUCKETS.indexOf(b) : 9;
-const acceptedMs = (t: EstimateActionTicket) => { const v = t.estimate?.acceptedAt ? Date.parse(t.estimate.acceptedAt) : NaN; return Number.isNaN(v) ? 0 : v; };
-
-/** Red, amber, none; then bucket order; then oldest first. Waiting then won follow; won newest-first. */
-export function compareRows(a: EstimateActionTicket, b: EstimateActionTicket): number {
-  const ga = groupRank(a.nextAction.bucket), gb = groupRank(b.nextAction.bucket);
-  if (ga !== gb) return ga - gb;
-  if (ga === 2) return acceptedMs(b) - acceptedMs(a) || a.id.localeCompare(b.id);
-  return urgRank(a.nextAction.urgency) - urgRank(b.nextAction.urgency)
-    || bucketRank(a.nextAction.bucket) - bucketRank(b.nextAction.bucket)
-    || b.daysInStage - a.daysInStage || a.id.localeCompare(b.id);
 }
 
 export interface Filters { search: string; assignee: string }

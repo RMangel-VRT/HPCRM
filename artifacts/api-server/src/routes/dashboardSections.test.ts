@@ -141,16 +141,37 @@ describe("section clocks and population parity", () => {
       tickets: [{ id: `${id}`, title: `RFP ${id}`, statusName: "Renamed stage", customer: null, daysInStage }],
     })) });
     expect(await bidsSummary("company-a", NOW)).toMatchObject({
-      key: "bids", href: "/dashboard/bids", total: 6, overdue: 3, oldest: { label: "RFP 5" },
+      key: "bids", href: "/dashboard/bids", total: 6, overdue: 3,
+      oldest: { label: "RFP 5", detail: "Renamed stage · 21d", href: "/dashboard/tickets/5" },
     });
     expect(await estimatesSummary("company-a", NOW)).toMatchObject({ total: 0 });
   });
-  it("sums all five actual board stages and uses established days-in-stage, including undated bids", async () => {
-    mocks.board.mockResolvedValue({ stages: [0, 1, 7, 8, 21].map((daysInStage, id) => ({
-      tickets: [{ id: `${id}`, title: `Bid ${id}`, statusName: "Renamed stage", customer: null, daysInStage }],
-    })) });
+  it("counts only authoritative action buckets and orders urgency, bucket, age then ID", async () => {
+    const row = (id: string, bucket: string, urgency: string | null, daysInStage: number) => ({
+      id, title: id, customer: null, daysInStage,
+      nextAction: { bucket, urgency, reason: { key: "estimateActions.reason.expired", params: { date: "2026-10-20" } } },
+    });
+    mocks.board.mockResolvedValue({ stages: [{ tickets: [
+      row("won", "won", null, 999), row("waiting", "waiting", null, 998),
+      row("amber", "follow_up", "amber", 200), row("start", "start", "red", 100),
+      row("young", "follow_up", "red", 1), row("b", "follow_up", "red", 2),
+      row("a", "follow_up", "red", 2), row("decide", "decide", "amber", 4),
+      row("send", "send", null, 0), row("finish", "finish", null, 50),
+    ] }] });
     const result = await estimatesSummary("company-a", NOW);
-    expect(result).toMatchObject({ total: 5, overdue: 3, oldest: { label: "Bid 4", detail: "Renamed stage · 21d" } });
+    expect(result).toMatchObject({ href: "/dashboard/estimates", total: 8, overdue: 4,
+      oldest: { label: "a", href: "/dashboard/tickets/a", reason: {
+        key: "estimateActions.reason.expired", params: { date: "2026-10-20" },
+      } } });
+    // The additive reason survives the real Express JSON response.
+    expect((await request(app()).get("/api/dashboard/sections")).body.sections[0]).toEqual(result);
+    expect(mocks.board).toHaveBeenCalledTimes(2);
+  });
+  it("returns null oldest when only waiting and won rows exist", async () => {
+    mocks.board.mockResolvedValue({ stages: [{ tickets: ["waiting", "won"].map(bucket => ({
+      id: bucket, daysInStage: 100, nextAction: { bucket, urgency: null, reason: { key: "unused" } },
+    })) }] });
+    expect(await estimatesSummary("company-a", NOW)).toMatchObject({ total: 0, overdue: 0, oldest: null });
   });
   it("uses the destination needs/slipped sets once each, deduplicates, and compares to Colorado today", async () => {
     const item = (id: string, scheduleBy: string | null) => ({ id, title: id, scheduleBy, customer: null });

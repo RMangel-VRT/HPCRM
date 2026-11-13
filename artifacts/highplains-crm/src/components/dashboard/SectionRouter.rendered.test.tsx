@@ -1,16 +1,23 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { navigationIcon } from "@/components/nav/navConfig";
+import { createInstance } from "i18next";
+import en from "@/i18n/locales/en";
+import es from "@/i18n/locales/es";
+import { messageParams } from "@/lib/estimateActionList";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 
-const fx = vi.hoisted(() => ({ user: null as Record<string, unknown> | null }));
+const fx = vi.hoisted(() => ({ user: null as Record<string, unknown> | null, translate: null as null | ((k: string, o?: Record<string, unknown>) => string), language: "en" }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: fx.user, isLoading: false }) }));
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (k: string, o?: Record<string, unknown>) => (o && "count" in o ? `${o.count} overdue` : k) }),
+  useTranslation: () => ({ i18n: { language: fx.language }, t: (k: string, o?: Record<string, unknown>) =>
+    fx.translate ? fx.translate(k, o) : (o && "count" in o ? `${o.count} overdue` : k) }),
 }));
 import SectionRouter, { SECTION_ORDER, sectionsQueryKey, permittedSectionKeys, type SectionSummary } from "./SectionRouter";
 
@@ -19,17 +26,52 @@ const sec = (key: SectionSummary["key"], total: number, overdue: number, oldest:
 const all = (o: number) => SECTION_ORDER.map((k, i) => sec(k, i + 3, o,
   { label: "Pavilion Villas spring aeration estimate with a very long name", detail: "11 days in stage", href: `/dashboard/${k}/1` }));
 const fetchMock = vi.fn();
-beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); });
+beforeEach(() => { fx.translate = null; fx.language = "en"; fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const respond = (body: unknown, status = 200) => fetchMock.mockResolvedValue({ ok: status < 400, status, statusText: "", json: async () => body, text: async () => JSON.stringify(body) });
-function mount(user: Record<string, unknown>) {
+function mount(user: Record<string, unknown>, location = memoryLocation({ path: "/dashboard" })) {
   fx.user = { id: "u1", activeCompanyId: "c1", activeTags: [], ...user };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}><SectionRouter /></QueryClientProvider>);
+  return render(<QueryClientProvider client={qc}><Router hook={location.hook}><SectionRouter /></Router></QueryClientProvider>);
 }
 const order = () => Array.from(document.querySelectorAll(".section-router__grid > *")).map(e => e.getAttribute("data-testid"));
 
 describe("SectionRouter", () => {
+  it.each([
+    ["en", "Expired on Oct 20, 2026", "Follow-up 2 days overdue"],
+    ["es", "Venció el 20 oct 2026", "Seguimiento con 2 días de atraso"],
+  ])("renders Action Center reasons and unchanged Bids detail in %s", async (language, expired, overdue) => {
+    const i18n = createInstance();
+    await i18n.init({ lng: language, resources: { en: { translation: en }, es: { translation: es } }, interpolation: { escapeValue: false } });
+    fx.language = language;
+    fx.translate = (key, options) => String(i18n.t(key, options));
+    const reason = { key: "estimateActions.reason.expired", params: { date: "2026-10-20" } };
+    const location = memoryLocation({ path: "/dashboard", record: true });
+    respond({ sections: [
+      sec("estimates", 2, 1, { label: "Customer", detail: "", reason, href: "/dashboard/tickets/ticket" }),
+      sec("bids", 9, 3, { label: "RFP", detail: "Renamed stage · 21d", href: "/dashboard/tickets/rfp" }),
+    ] });
+    const view = mount({ activeRole: "admin" }, location);
+    const detail = await screen.findByTestId("text-section-oldest-estimates");
+    expect(detail.textContent).toContain(expired);
+    expect(detail.textContent).toContain(String(i18n.t(reason.key, messageParams(reason, language))));
+    expect(screen.getByTestId("text-section-oldest-bids").textContent).toContain("Renamed stage · 21d");
+    expect(screen.getByTestId("tile-section-estimates").getAttribute("href")).toBe("/dashboard/estimates");
+    fireEvent.click(screen.getByTestId("tile-section-estimates"));
+    expect(location.history?.at(-1)).toBe("/dashboard/estimates");
+    view.unmount();
+    respond({ sections: [sec("estimates", 1, 1, { label: "Title", detail: "", href: "/dashboard/tickets/t",
+      reason: { key: "estimateActions.reason.overdue", params: { count: 2 } } })] });
+    mount({ activeRole: "admin" });
+    expect((await screen.findByTestId("text-section-oldest-estimates")).textContent).toContain(overdue);
+  });
+
+  it("keeps the empty actionable tile linked to Estimates with no oldest reason", async () => {
+    respond({ sections: [sec("estimates", 0, 0)] });
+    mount({ activeRole: "admin" });
+    expect((await screen.findByTestId("text-section-oldest-estimates")).textContent).toBe("sectionRouter.nothingWaiting");
+    expect(screen.getByTestId("tile-section-estimates").getAttribute("href")).toBe("/dashboard/estimates");
+  });
   it("matches separate super-admin navigation without widening section access", () => {
     expect([...permittedSectionKeys({ activeRole: "admin", isSuperAdminBool: true })]).toEqual(["invoicing", "mine"]);
   });

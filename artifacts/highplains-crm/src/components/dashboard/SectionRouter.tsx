@@ -3,6 +3,8 @@ import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
 import { getNavForUser, navigationIcon, type NavUser } from "@/components/nav/navConfig";
+import type { EstimateActionMessage } from "@shared/schema";
+import { messageParams } from "@/lib/estimateActionList";
 import "./SectionRouter.css";
 
 export type SectionKey = "estimates" | "bids" | "scheduling" | "invoicing" | "inbox" | "flags" | "contracts" | "mine";
@@ -11,7 +13,7 @@ export interface SectionSummary {
   href: string;
   total: number;
   overdue: number;
-  oldest: { label: string; detail: string; href: string } | null;
+  oldest: { label: string; detail: string; href: string; reason?: EstimateActionMessage } | null;
   flow: null;
 }
 export interface SectionsResponse { sections: SectionSummary[] }
@@ -47,7 +49,7 @@ export function permittedSectionKeys(user: NavUser): Set<SectionKey> {
 }
 
 export default function SectionRouter() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const enabled = !!user?.activeCompanyId && !!user?.id;
   const { data, isLoading, error, refetch, isFetching } = useQuery<SectionsResponse>({
@@ -109,7 +111,9 @@ export default function SectionRouter() {
                 {s.oldest ? (
                   <>
                     <span className="sr-tile__oldest-label">{t("sectionRouter.oldest")}: {s.oldest.label}</span>
-                    <span className="sr-tile__oldest-detail">{s.oldest.detail}</span>
+                    <span className="sr-tile__oldest-detail">{key === "estimates" && s.oldest.reason
+                      ? t(s.oldest.reason.key, messageParams(s.oldest.reason, i18n.language))
+                      : s.oldest.detail}</span>
                   </>
                 ) : t("sectionRouter.nothingWaiting")}
               </span>

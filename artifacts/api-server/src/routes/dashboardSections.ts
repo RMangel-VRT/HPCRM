@@ -13,9 +13,10 @@ import { loadSchedulingQueue } from "./schedulingQueue";
 import { loadPendingInvoices } from "./pendingInvoices";
 import { resolveVisibleMailboxes } from "../services/mailboxScope";
 import { contractsSection } from "../lib/contractCenterPersistence";
+import { compareRows, flattenActionBoard, isAction, type EstimateActionMessage } from "@workspace/db/estimate-contracts";
 
 export type SectionKey = "estimates" | "bids" | "scheduling" | "invoicing" | "inbox" | "flags" | "contracts" | "mine";
-type Oldest = { label: string; detail: string; href: string };
+type Oldest = { label: string; detail: string; href: string; reason?: EstimateActionMessage };
 export interface SectionSummary {
   key: SectionKey; href: string; total: number; overdue: number; oldest: Oldest | null; flow: null;
 }
@@ -46,14 +47,19 @@ function summary(key: SectionKey, total: number, overdue: number, oldest: Oldest
 }
 
 export async function estimatesSummary(companyId: string, now: Date) {
-  return opportunitySummary("estimates", await loadEstimatesBoard(companyId, now));
+  const rows = flattenActionBoard(await loadEstimatesBoard(companyId, now))
+    .filter(row => isAction(row.nextAction.bucket)).sort(compareRows);
+  const first = rows[0];
+  return summary("estimates", rows.length, rows.filter(row => row.nextAction.urgency === "red").length, first ? {
+    label: first.customer?.name ?? first.title, detail: "", reason: first.nextAction.reason, href: ticketHref(first.id),
+  } : null);
 }
 
 export async function bidsSummary(companyId: string, now: Date) {
   return opportunitySummary("bids", await loadBidsBoard(companyId, now));
 }
 
-function opportunitySummary(key: "estimates" | "bids", board: Awaited<ReturnType<typeof loadEstimatesBoard>> | Awaited<ReturnType<typeof loadBidsBoard>>) {
+function opportunitySummary(key: "bids", board: Awaited<ReturnType<typeof loadBidsBoard>>) {
   const rows = board.stages.flatMap(stage => stage.tickets).sort((a, b) => b.daysInStage - a.daysInStage || a.id.localeCompare(b.id));
   const first = rows[0];
   return summary(key, rows.length, rows.filter(row => row.daysInStage >= 7).length, first ? {
