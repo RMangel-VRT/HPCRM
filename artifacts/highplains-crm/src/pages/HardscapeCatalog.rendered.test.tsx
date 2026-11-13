@@ -11,8 +11,9 @@ import EstimatesBoardPage from "./EstimatesBoardPage";
 import { apiRequest } from "@/lib/queryClient";
 import { parseDollarsToCents } from "@/lib/hardscapeCatalog";
 import { isEstimatesHubPage } from "@/components/nav/estimatesRail";
+import { insertHardscapeCatalogItemSchema } from "@shared/schema";
 
-const auth = vi.hoisted(() => ({ user: { id: "u1", activeCompanyId: "c1", activeRole: "admin" } as Record<string, string> }));
+const auth = vi.hoisted(() => ({ user: { id: "u1", activeCompanyId: "c1", activeRole: "admin", accessRole: "admin" } as Record<string, string> }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: auth.user }) }));
 const toastSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: toastSpy }), toast: toastSpy }));
@@ -30,7 +31,7 @@ function jsonRes(body: unknown) {
 }
 
 beforeEach(() => {
-  auth.user = { id: "u1", activeCompanyId: "c1", activeRole: "admin" };
+  auth.user = { id: "u1", activeCompanyId: "c1", activeRole: "admin", accessRole: "admin" };
   fetchMock.mockImplementation(async (url: string) => {
     if (String(url).includes("/api/estimates/board")) return jsonRes({ stages: [] });
     return jsonRes(listBody);
@@ -82,11 +83,67 @@ function errRes(status: number, body: unknown) {
   return { ok: false, status, statusText: "", json: async () => body, text: async () => JSON.stringify(body), headers: new Headers() };
 }
 function switchCompany(rerenderPage: () => void, companyId = "c2") {
-  auth.user = { id: "u1", activeCompanyId: companyId, activeRole: "admin" };
+  auth.user = { id: "u1", activeCompanyId: companyId, activeRole: "admin", accessRole: "admin" };
   rerenderPage();
 }
 
 describe("HardscapeCatalog", () => {
+  it("mirrors the API insert category default without accepting explicit blank categories", () => {
+    const input = { companyId: "c1", name: "Rock" };
+    expect(insertHardscapeCatalogItemSchema.parse(input)).toEqual({
+      ...input, category: "General", unit: "EA", isActive: true,
+    });
+    for (const category of ["", "  ", null]) {
+      expect(insertHardscapeCatalogItemSchema.safeParse({ ...input, category }).success).toBe(false);
+    }
+  });
+  it.each([
+    { categories: ["General", "General"], expected: ["General"] },
+    { categories: [], expected: ["General"] },
+    { categories: ["pavers", "Pavers", "general", "stone"], expected: ["general", "Pavers", "stone"] },
+  ])("deduplicates chips and add suggestions from stored categories $categories", async ({ categories, expected }) => {
+    fetchMock.mockResolvedValue(jsonRes({ items: [item], categories }));
+    renderPage();
+    await screen.findByTestId("text-name-h1");
+    const chips = screen.getByTestId("chips-category");
+    expect([...chips.querySelectorAll("button")].slice(1).map(chip => chip.textContent)).toEqual(expected);
+    fireEvent.click(screen.getByTestId("button-add-item"));
+    expect((screen.getByTestId("input-category") as HTMLInputElement).value).toBe("General");
+    expect([...screen.getByTestId("list-category-options").querySelectorAll("option")].map(option => option.value)).toEqual(expected);
+    expect(screen.queryByTestId("suggest-category-rock_cobble")).toBeNull();
+    expect(screen.queryByTestId("suggest-category-wall_block")).toBeNull();
+    fireEvent.click(screen.getByTestId(`suggest-category-${expected[0]}`));
+    expect((screen.getByTestId("input-category") as HTMLInputElement).value).toBe(expected[0]);
+  });
+
+  it("preserves mixed-case edit values and sends the retained chip spelling with company binding", async () => {
+    fetchMock.mockResolvedValue(jsonRes({ items: [{ ...item, category: "pAvErS" }], categories: ["pavers", "PAVERS"] }));
+    renderPage();
+    await screen.findByTestId("text-name-h1");
+    fireEvent.click(screen.getByTestId("chip-category-PAVERS"));
+    await waitFor(() => expect(listCalls().some(call => call.url.endsWith("?category=PAVERS") && call.headers["X-Company-Id"] === "c1")).toBe(true));
+    fireEvent.click(screen.getByTestId("button-edit-h1"));
+    expect((screen.getByTestId("input-category") as HTMLInputElement).value).toBe("pAvErS");
+    expect([...screen.getByTestId("list-category-options").querySelectorAll("option")].map(option => option.value)).toEqual(["General", "PAVERS"]);
+  });
+
+  it("drops the old company's categories and suggestions when switching company", async () => {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) =>
+      jsonRes({ items: [item], categories: (init?.headers as Record<string, string>)?.["X-Company-Id"] === "c2" ? ["Private B"] : ["Private A"] }));
+    const { rerenderPage } = renderPage();
+    await screen.findByTestId("chip-category-Private A");
+    fireEvent.click(screen.getByTestId("button-add-item"));
+    expect(screen.getByTestId("suggest-category-Private A")).toBeTruthy();
+    switchCompany(rerenderPage);
+    expect(screen.queryByTestId("dialog-hardscape-item")).toBeNull();
+    await screen.findByTestId("chip-category-Private B");
+    expect(screen.queryByTestId("chip-category-Private A")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-add-item"));
+    expect(screen.queryByTestId("suggest-category-Private A")).toBeNull();
+    expect(screen.getByTestId("suggest-category-Private B")).toBeTruthy();
+    expect(screen.getByTestId("suggest-category-General")).toBeTruthy();
+  });
+
   it("renders rows, chips, rail and debounced search, all with X-Company-Id", async () => {
     renderPage();
     expect(await screen.findByTestId("text-name-h1")).toBeTruthy();

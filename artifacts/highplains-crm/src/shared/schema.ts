@@ -21,6 +21,7 @@ export const hardscapeCatalogFields = {
 export const insertHardscapeCatalogItemSchema = z.object({
   ...hardscapeCatalogFields,
   companyId: z.string().min(1),
+  category: hardscapeCatalogFields.category.default("General"),
   unit: hardscapeCatalogFields.unit.default("EA"),
   isActive: hardscapeCatalogFields.isActive.default(true),
 });

@@ -1,24 +1,34 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { companies, hardscapeCatalogItems } from "@workspace/db";
-import { db, pool } from "../db";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { and, eq, sql } from "drizzle-orm";
+import { hardscapeCatalogItems, pool as schemaPool } from "@workspace/db";
+import { disposableDatabase } from "../test/disposableDatabase";
 import { hardscapeStorage as storage } from "./hardscapeStorage";
 import { exportHardscapeCsv, importHardscapeCsv } from "./hardscapeCsv";
 
 const companyA = randomUUID(), companyB = randomUUID();
+let fixture: Awaited<ReturnType<typeof disposableDatabase>>;
+let db: ReturnType<typeof drizzle>;
+vi.mock("../db", () => ({ get db() { return db; } }));
 const material = (name: string, sku: string | null = null) => ({
   name, sku, category: "general", description: null, unit: "EA" as const,
   wholesaleCostCents: null, retailPriceCents: 0, isActive: true,
 });
 describe.skipIf(!process.env.DATABASE_URL)("hardscape real PostgreSQL storage", () => {
   beforeAll(async () => {
-    await db.insert(companies).values([companyA, companyB].map(id => ({ id, name: "Catalog integration fixture", slug: `catalog-test-${id}` })));
+    fixture = await disposableDatabase();
+    db = drizzle(fixture.pool);
+    await fixture.pool.query("CREATE TABLE companies(id varchar PRIMARY KEY, name text, slug text)");
+    await fixture.pool.query(readFileSync(new URL("../../../../.migration-backup/migrations/0050_hardscape_catalog.sql", import.meta.url), "utf8"));
+    await fixture.pool.query(readFileSync(new URL("../../../../.migration-backup/migrations/0086_hardscape_category_default.sql", import.meta.url), "utf8"));
+    await fixture.pool.query("INSERT INTO companies(id,name,slug) VALUES ($1,$2,$3),($4,$2,$5)",
+      [companyA, "Catalog integration fixture", `catalog-test-${companyA}`, companyB, `catalog-test-${companyB}`]);
   });
   afterAll(async () => {
-    await db.delete(companies).where(inArray(companies.id, [companyA, companyB]));
-    await pool.end();
+    await fixture?.dispose();
+    await schemaPool.end();
   });
   it("migration is guarded and required indexes, defaults and constraints exist", async () => {
     const migration = readFileSync(new URL("../../../../.migration-backup/migrations/0050_hardscape_catalog.sql", import.meta.url), "utf8");

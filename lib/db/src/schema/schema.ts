@@ -147,7 +147,7 @@ export const hardscapeCatalogItems = pgTable("hardscape_catalog_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   sku: text("sku"),
-  category: text("category").notNull(),
+  category: text("category").notNull().default("General"),
   name: text("name").notNull(),
   description: text("description"),
   unit: text("unit").notNull().default("EA"),
@@ -181,6 +181,7 @@ export const hardscapeCatalogFields = {
 export const insertHardscapeCatalogItemSchema = z.object({
   ...hardscapeCatalogFields,
   companyId: z.string().min(1),
+  category: hardscapeCatalogFields.category.default("General"),
   unit: hardscapeCatalogFields.unit.default("EA"),
   isActive: hardscapeCatalogFields.isActive.default(true),
 });

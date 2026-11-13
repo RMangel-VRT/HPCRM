@@ -36,9 +36,19 @@ Editable fields: `sku`, `category`, `name`, `description`, `unit`,
 are rejected. Duplicate company/SKU writes return 409; out-of-company IDs return
 404. Pricing responses use private/no-store caching.
 
-All data/category queries are company-scoped. Categories are distinct across
-that company's active and inactive rows, with `general` always included.
-List/export order is category, name, then ID.
+All data/category queries are company-scoped. Categories come from that company's
+active and inactive rows, merged case-insensitively with the built-in `General`
+fallback. Stored spelling takes precedence; if several stored spellings exist,
+the first in code-point order is retained for display. The General-equivalent
+category sorts first, then other identities alphabetically. Category filters
+match all case variants without renaming rows. List/export row order remains
+category, name, then ID.
+
+New forms and omitted create/insert categories default to `General`. Explicit
+blank categories are invalid; omitted PATCH categories remain unchanged.
+There are no hardcoded category suggestions beyond the default. See the
+[category correction handoff](reports/hardscape-category-duplicates.md) for the
+new default-only migration and verification.
 
 ## CSV rules
 

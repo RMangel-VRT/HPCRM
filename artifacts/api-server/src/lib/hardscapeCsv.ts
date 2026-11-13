@@ -3,10 +3,12 @@ import { normalizeEstimateUnit, formatEstimateUnit } from "../../../../lib/db/sr
 import { hardscapeCatalogFields, type HardscapeCatalogItem } from "@workspace/db";
 import { centsToDollars, dollarsToCents, parseCsv, writeCsv } from "./csv";
 import type { HardscapeWrite } from "./hardscapeStorage";
+import { HARDSCAPE_DEFAULT_CATEGORY } from "../../../../lib/db/src/hardscapeCategories";
 
 export const HARDSCAPE_CSV_HEADERS = ["sku", "category", "name", "description", "unit", "wholesale_cost", "retail_price", "active"] as const;
 export const createHardscapeBody = z.object({
   ...hardscapeCatalogFields,
+  category: hardscapeCatalogFields.category.default(HARDSCAPE_DEFAULT_CATEGORY),
   unit: hardscapeCatalogFields.unit.default("EA"),
   isActive: hardscapeCatalogFields.isActive.default(true),
 }).strict();

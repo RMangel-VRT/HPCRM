@@ -3,7 +3,7 @@ import type { HardscapeCatalogItem } from "@shared/schema";
 
 export const HARDSCAPE_API = "/api/hardscape-catalog";
 export const MAX_CENTS = 2147483647;
-export const SUGGESTED_CATEGORIES = ["general", "rock_cobble", "pavers", "edging", "boulders", "mulch", "steel", "wall_block", "flagstone"];
+export { HARDSCAPE_DEFAULT_CATEGORY, mergeHardscapeCategories } from "../../../../lib/db/src/hardscapeCategories";
 export { ESTIMATE_UNITS as SUGGESTED_UNITS } from "@shared/estimateSetup";
 
 export interface HardscapeListResponse { items: HardscapeCatalogItem[]; categories: string[] }

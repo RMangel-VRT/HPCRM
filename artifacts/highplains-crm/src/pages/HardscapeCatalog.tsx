@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
-  HARDSCAPE_API, SUGGESTED_CATEGORIES, SUGGESTED_UNITS, apiErrorMessage, catalogListUrl, centsToInput, fetchJson, companyHeaders,
+  HARDSCAPE_API, HARDSCAPE_DEFAULT_CATEGORY, mergeHardscapeCategories, SUGGESTED_UNITS, apiErrorMessage, catalogListUrl, centsToInput, fetchJson, companyHeaders,
   filenameFromDisposition, formatCents, parseDollarsToCents,
   type HardscapeEditable, type HardscapeImportResult, type HardscapeListResponse,
 } from "@/lib/hardscapeCatalog";
@@ -47,7 +47,7 @@ function toForm(item: HardscapeCatalogItem | null): FormState {
   return item
     ? { sku: item.sku ?? "", category: item.category, name: item.name, description: item.description ?? "", unit: normalizeEstimateUnit(item.unit) ?? "",
         cost: centsToInput(item.wholesaleCostCents), price: centsToInput(item.retailPriceCents), isActive: item.isActive }
-    : { sku: "", category: "general", name: "", description: "", unit: "EA", cost: "", price: "", isActive: true };
+    : { sku: "", category: HARDSCAPE_DEFAULT_CATEGORY, name: "", description: "", unit: "EA", cost: "", price: "", isActive: true };
 }
 
 function ItemDialog(props: {
@@ -69,7 +69,7 @@ function ItemDialog(props: {
   }, [scope]);
 
   const suggestions = useMemo(
-    () => Array.from(new Set([...SUGGESTED_CATEGORIES, ...categories])).sort((a, b) => (a === "general" ? -1 : b === "general" ? 1 : a.localeCompare(b))),
+    () => mergeHardscapeCategories(categories),
     [categories],
   );
 
@@ -261,7 +261,7 @@ function HardscapeCatalogContent() {
     },
   });
   const items = data?.items ?? [];
-  const categories = data?.categories ?? [];
+  const categories = useMemo(() => mergeHardscapeCategories(data?.categories ?? []), [data?.categories]);
 
   const toggleActive = useMutation({
     mutationFn: async (vars: { item: HardscapeCatalogItem; next: boolean; scope: string; companyId: string }) =>

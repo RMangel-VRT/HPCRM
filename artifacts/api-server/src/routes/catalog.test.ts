@@ -16,7 +16,7 @@ function appFor(role: string | null = "admin", company: string | null = "company
   app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => role !== null) as typeof req.isAuthenticated;
-    req.user = { id: "user", activeRole: role, activeCompanyId: company } as Express.User;
+    req.user = { id: "user", accessRole: role, activeRole: role, activeCompanyId: company } as Express.User;
     next();
   });
   registerCatalogRoutes(app);
@@ -61,7 +61,7 @@ describe("hardscape endpoint authentication, role and tenant contracts", () => {
   it("creates with server-owned tenant and immutable umbrella; duplicate SKU is 409", async () => {
     const app = appFor();
     expect((await request(app).post("/api/hardscape-catalog").send({ name: "Rock", category: "general", sku: " S " })).status).toBe(201);
-    expect(mocks.createHardscapeCatalogItem).toHaveBeenCalledWith("company-a", { name: "Rock", category: "general", sku: "S", unit: "ea", isActive: true });
+    expect(mocks.createHardscapeCatalogItem).toHaveBeenCalledWith("company-a", { name: "Rock", category: "general", sku: "S", unit: "EA", isActive: true });
     expect((await request(app).post("/api/hardscape-catalog").send({ name: "Rock", category: "general", companyId: "foreign" })).status).toBe(400);
     mocks.createHardscapeCatalogItem.mockRejectedValue({ cause: { code: "23505" } });
     expect((await request(app).post("/api/hardscape-catalog").send({ name: "Rock", category: "general", sku: "S" })).status).toBe(409);
@@ -76,6 +76,23 @@ describe("hardscape endpoint authentication, role and tenant contracts", () => {
     mocks.updateHardscapeCatalogItem.mockRejectedValueOnce({ code: "23505" }).mockResolvedValueOnce(undefined);
     expect((await request(app).patch("/api/hardscape-catalog/a").send({ sku: "other" })).status).toBe(409);
     expect((await request(app).patch("/api/hardscape-catalog/foreign").send({ name: "no" })).status).toBe(404);
+  });
+  it("defaults only omitted create categories and rejects explicit blanks on create and PATCH", async () => {
+    const app = appFor("office", "company-b");
+    expect((await request(app).post("/api/hardscape-catalog")
+      .set("X-Company-Id", "company-b").send({ name: "Default material" })).status).toBe(201);
+    expect(mocks.createHardscapeCatalogItem).toHaveBeenCalledWith("company-b", {
+      name: "Default material", category: "General", unit: "EA", isActive: true,
+    });
+    mocks.createHardscapeCatalogItem.mockClear();
+    for (const category of ["", "  ", null]) {
+      expect((await request(app).post("/api/hardscape-catalog").send({ name: "Invalid", category })).status).toBe(400);
+      expect((await request(app).patch("/api/hardscape-catalog/a").send({ category })).status).toBe(400);
+    }
+    expect(mocks.createHardscapeCatalogItem).not.toHaveBeenCalled();
+    expect(mocks.updateHardscapeCatalogItem).not.toHaveBeenCalled();
+    expect((await request(app).patch("/api/hardscape-catalog/a").send({ name: "Changed" })).status).toBe(200);
+    expect(mocks.updateHardscapeCatalogItem).toHaveBeenCalledWith("company-b", "a", { name: "Changed" });
   });
   it("DELETE only writes inactive and hides foreign/missing IDs", async () => {
     const app = appFor();

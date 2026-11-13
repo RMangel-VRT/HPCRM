@@ -1,6 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { hardscapeCatalogItems as items, type InsertHardscapeCatalogItem } from "@workspace/db";
 import { db } from "../db";
+import { mergeHardscapeCategories } from "../../../../lib/db/src/hardscapeCategories";
 
 export type HardscapeWrite = Omit<InsertHardscapeCatalogItem, "companyId">;
 export interface HardscapeFilters { search?: string; category?: string; includeInactive?: boolean }
@@ -9,7 +10,7 @@ export const hardscapeStorage = {
   async getHardscapeCatalog(companyId: string, filters: HardscapeFilters = {}) {
     const conditions = [eq(items.companyId, companyId)];
     if (!filters.includeInactive) conditions.push(eq(items.isActive, true));
-    if (filters.category) conditions.push(eq(items.category, filters.category));
+    if (filters.category) conditions.push(sql`lower(${items.category}) = lower(${filters.category})`);
     if (filters.search) {
       // Treat %/_ as literal search characters rather than wildcard instructions.
       const pattern = `%${filters.search.replace(/[\\%_]/g, "\\$&")}%`;
@@ -21,7 +22,7 @@ export const hardscapeStorage = {
       db.selectDistinct({ category: items.category }).from(items)
         .where(eq(items.companyId, companyId)).orderBy(asc(items.category)),
     ]);
-    return { items: rows, categories: [...new Set(["general", ...categories.map(row => row.category)])].sort() };
+    return { items: rows, categories: mergeHardscapeCategories(categories.map(row => row.category)) };
   },
   async createHardscapeCatalogItem(companyId: string, data: HardscapeWrite) {
     const [row] = await db.insert(items).values({ ...data, companyId }).returning();
