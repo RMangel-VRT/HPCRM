@@ -62,3 +62,4 @@
 - [Custom catalog saves](custom-catalog-save-boundary.md) — category-led custom service saves require the current category default; general catalog umbrella overrides remain allowed.
 - [Service calendar direction](service-calendar-direction.md) — contracts supply counts; calendar alone supplies timing; preserve deadline ownership and annual checklist semantics.
 - [Estimate unit boundaries](estimate-unit-boundaries.md) — frozen units are display-normalized only; unknowns have no guessed replacement, including in new revisions.
+- [Contracted Services documents](contracted-services-document-direction.md) — no-count routes print; frequency-only patterns may omit counts; strict blockers differ by scheduling kind.
