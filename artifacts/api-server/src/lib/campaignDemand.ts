@@ -6,7 +6,7 @@ import { inStandardPackage } from "@workspace/api-zod/contractScope";
 import { campaignDemandCoverage } from "./campaignDemandCoverage";
 
 export type DemandCalendarEntry = Pick<ServiceCalendar, "id" | "serviceKey" | "kind" | "position" | "name" | "opensMd" | "dueMd" | "inStandard"> &
-  { companyId?: string };
+  { companyId?: string; customerLabel?: string | null; pattern?: string | null };
 export const calendarInstance = (entry: DemandCalendarEntry, year: number) => ({
   serviceKey: entry.serviceKey, calendarEntryId: entry.id, roundYear: year, name: entry.name,
   opens: `${entry.dueMd < entry.opensMd ? year - 1 : year}-${entry.opensMd}`,

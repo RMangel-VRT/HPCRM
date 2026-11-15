@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { DisplayStatusBadge, PageEmptyState, TableSkeleton, useCustomerDates } from "@/components/customer/page";
 import { serviceDisplayStatus, serviceStatusLabel } from "@/lib/contractCustomerServices";
 import { Button } from "@/components/ui/button";
+import { ContractedServicesPdfButton } from "@/components/contracts/ContractedServicesPdfButton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DASH, RoundItemPanel, ServiceRowItem, ServiceTile, accessFor, seasonOptionLabel } from "./services/ServiceParts";
@@ -80,6 +81,7 @@ export default function ServicesPage({ customerId, parentName }: { customerId: s
         </p>
         {terms.length > 0 && (
           <div className="flex items-center gap-2">
+            {term && <ContractedServicesPdfButton customerId={customerId} termId={term.termId} agreementId={term.agreementId} />}
             <span className="text-xs text-muted-foreground">{t("customerPages.services.season", { defaultValue: "Season" })}</span>
             <Select value={term?.termId ?? ""} onValueChange={v => { setExpanded(new Set()); setDrawer(null); selectTerm(v); }}>
               <SelectTrigger className="w-full sm:w-80 h-8 text-left" data-testid="select-services-season"><SelectValue /></SelectTrigger>

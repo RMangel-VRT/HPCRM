@@ -12,6 +12,10 @@ const fx = vi.hoisted(() => ({api: vi.fn(), toast: vi.fn()}));
 vi.mock("@/hooks/use-auth", () => ({useAuth: () => ({user: {id: "u1", activeCompanyId: "company", activeRole: "office"}})}));
 vi.mock("@/lib/queryClient", () => ({apiRequest: (...a: unknown[]) => fx.api(...a)}));
 vi.mock("@/hooks/use-toast", () => ({useToast: () => ({toast: fx.toast})}));
+vi.mock("@/components/contracts/ContractedServicesPdfButton", () => ({
+  ContractedServicesPdfButton: (props: { customerId: string; termId: string; agreementId: string }) =>
+    <button data-testid="pdf-season-props" data-customer={props.customerId} data-term={props.termId} data-agreement={props.agreementId}>PDF</button>,
+}));
 import { ContractView } from "./ContractPage";
 import { STARTING_SERVICE_CALENDAR } from "../../../../lib/db/src/serviceCalendarContracts";
 
@@ -38,6 +42,13 @@ function mount(serviceKey = "cleanups", implicit = false) {
   </Router></QueryClientProvider>);
 }
 describe("calendar count scope saves", () => {
+  it("passes the viewed season and property to the contract-header PDF action", () => {
+    mount();
+    const button = screen.getByTestId("pdf-season-props");
+    expect(button.getAttribute("data-term")).toBe("current");
+    expect(button.getAttribute("data-customer")).toBe("customer");
+    expect(button.getAttribute("data-agreement")).toBe("agreement");
+  });
   it("displays implicit defaults without writes and explicitly saves a previously absent exclusion plus billing", async () => {
     mount("cleanups", true);
     await screen.findByText("Standard (3) visits");

@@ -3,7 +3,7 @@ import type { CustomerServices, ServiceFulfillment as FulfillmentRow, ServiceRou
 import type { CustomerContractInputs } from "./customerContractSummary";
 import { campaignDemand, type DemandCalendarEntry } from "./campaignDemand";
 import { compareTermPriority } from "./contractCenterService";
-import { addCalendarDays, companyToday } from "./companyDay";
+import { addCalendarDays, companyToday, companyDateString } from "./companyDay";
 import { SCOPE_CATALOG } from "../shared/contractCatalog";
 import { CAMPAIGN_TERM_STATUSES } from "../../../../lib/db/src/serviceCalendarContracts";
 import { renewalDemandThrough } from "./campaignDemandCoverage";
@@ -118,7 +118,9 @@ export function customerServiceFulfillment(data: ServiceFulfillmentInputs, custo
         const state: RoundState = item?.status === "completed" ? "completed" : item?.status === "skipped" ? "skipped" :
           !item ? "missing_item" : round.member.termStatus === "sent" ? "waiting_on_signature" :
           dueDate < today ? "overdue" : "pending";
-        row.rounds.push({ calendarEntryId: round.calendarEntryId, roundYear: round.roundYear, name: campaign?.title.replace(/^\d{4} /, "") ?? round.name, campaignId: campaign?.id ?? null,
+        row.rounds.push({ customerLabel: data.calendar.find(e => e.id === round.calendarEntryId)?.customerLabel ?? null,
+          completedOn: item?.completedAt ? companyDateString(new Date(item.completedAt)) : null,
+          calendarEntryId: round.calendarEntryId, roundYear: round.roundYear, name: campaign?.title.replace(/^\d{4} /, "") ?? round.name, campaignId: campaign?.id ?? null,
           itemId: item?.id ?? null, dueDate, windowStart, windowEnd, dateKind: promise ? "chemical_promise" : "round_window",
           state, timing: round.member.timing, countSource: round.member.count, renewalPending: round.member.renewalPending });
         if (round.member.termStatus === "sent") row.issues.push("waiting_on_signature");

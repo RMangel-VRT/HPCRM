@@ -2694,6 +2694,7 @@ export const serviceCalendar = pgTable("service_calendar", {
   kind: text("kind").notNull(),
   position: smallint("position").notNull(),
   name: text("name").notNull(),
+  customerLabel: text("customer_label"),
   opensMd: char("opens_md", { length: 5 }).notNull(),
   dueMd: char("due_md", { length: 5 }).notNull(),
   inStandard: boolean("in_standard").notNull().default(false),

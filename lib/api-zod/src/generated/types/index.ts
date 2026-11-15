@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./calendarEntry";
+export * from "./calendarEntryKind";
+export * from "./calendarReplacement";
 export * from "./campaignContractState";
 export * from "./campaignContractStateState";
 export * from "./campaignDemandGap";
@@ -32,10 +35,13 @@ export * from "./campaignRoundMove";
 export * from "./campaignRoundRef";
 export * from "./campaignRoundStart";
 export * from "./campaignRoundTeam";
+export * from "./contractedServicesTargets";
+export * from "./contractedServicesTargetsTargetsItem";
 export * from "./crew";
 export * from "./crewInput";
 export * from "./crewPatch";
 export * from "./crewWithSupervisor";
+export * from "./customerContractedServicesTargetsParams";
 export * from "./customerServices";
 export * from "./eligibleSupervisor";
 export * from "./enrichedVisit";
@@ -44,6 +50,8 @@ export * from "./enrichedVisitCustomer";
 export * from "./enrichedVisitTicket";
 export * from "./errorResponse";
 export * from "./getCampaignRoundCalendarParams";
+export * from "./getCustomerContractedServicesPdfDownload";
+export * from "./getCustomerContractedServicesPdfParams";
 export * from "./getCustomerServicesParams";
 export * from "./healthStatus";
 export * from "./listVisitsParams";
@@ -99,6 +107,8 @@ export * from "./schedulingQueueItem";
 export * from "./schedulingQueueItemCustomer";
 export * from "./schedulingQueueItemVisit";
 export * from "./schedulingQueueResult";
+export * from "./serviceCalendarDocument";
+export * from "./serviceCalendarDocumentUsageItem";
 export * from "./serviceFulfillment";
 export * from "./serviceFulfillmentScheduling";
 export * from "./serviceNext";

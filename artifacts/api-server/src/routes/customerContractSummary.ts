@@ -6,6 +6,7 @@ import { flags } from "@workspace/db";
 import { customerContractProjector, loadCustomerContractInputs, projectContractSummary, snowCoveredCustomerIds } from "../lib/customerContractSummary";
 
 export const CUSTOMER_CONTRACT_READERS = new Set(["admin", "office", "field_manager", "chemical_manager", "field", "irrigation_manager", "mapping", "landscape_supervisor", "crew_supervisor"]);
+export const CUSTOMER_CONTRACT_COMMERCIAL_READERS = new Set(["admin", "office"]);
 export function registerCustomerContractSummary(app: Express) {
   app.get(["/api/customers/:id/contract-summary", "/api/customers/snow-covered"], async (req, res): Promise<void> => {
     if (!req.isAuthenticated?.()) { res.status(401).json({ message: "Not authenticated" }); return; }
@@ -16,7 +17,7 @@ export function registerCustomerContractSummary(app: Express) {
     }
     res.set("Cache-Control", "private, no-store");
     if (!req.params.id) { res.json({ customerIds: [...await snowCoveredCustomerIds(db, user.activeCompanyId)] }); return; }
-    const commercial = ["admin", "office"].includes(user.accessRole);
+    const commercial = CUSTOMER_CONTRACT_COMMERCIAL_READERS.has(user.accessRole);
     const data = await loadCustomerContractInputs(db, user.activeCompanyId, commercial);
     const summary = customerContractProjector(data)(String(req.params.id));
     if (!summary) { res.status(404).json({ message: "Customer not found" }); return; }

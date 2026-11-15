@@ -336,3 +336,59 @@ mtime_ms = 1794421092137
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/bdd4566c-577e-44e6-8e87-84187bd5ddc0/d9fd327a-490e-4af7-a8fc-b9837eef5e6a"
 storage_version_token = "1794421298232788"
 content_type = "image/png"
+
+[[outputs]]
+id = "QleYtd9enEEE8uCFEH60M"
+uri = "file://generated-artifacts/SC3/five-parks-fixture.pdf"
+type = "pdf"
+title = "Five Parks — Contracted Services fixture"
+description = "One-page Letter acceptance fixture with 13 actual services and blank initial completions."
+logical_id = "fa1f3c3c-dc6d-47b2-b1c8-b1de559f389a"
+content_hash = "sha256:2c397b3b82036c1006669dc521afacee0efcc7575466b53cf1a8433f902df810"
+size = 621063
+mtime_ms = 1794595351292
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/fa1f3c3c-dc6d-47b2-b1c8-b1de559f389a/2012d440-7a4f-438b-bb39-e8fc84b4da0e"
+storage_version_token = "1794595772365228"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "OL0oxFFLqc-54ds5q6BZq"
+uri = "file://generated-artifacts/SC3/high-plains-form.pdf"
+type = "pdf"
+title = "High Plains form — development PDF"
+description = "Generated from a disposable development contract; all fixture records were rolled back."
+logical_id = "30bc3f52-e1dc-4d2f-aa22-5b09f5440e5d"
+content_hash = "sha256:cb1b3bb48e1f17f3f13c65a38839794ae6ebd264cdd3efb4713d7d5bebda298a"
+size = 619536
+mtime_ms = 1794595356244
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/30bc3f52-e1dc-4d2f-aa22-5b09f5440e5d/eedc4827-359c-4546-a428-8347a1a4895e"
+storage_version_token = "1794595773279299"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "hTyHb673byanN4_KkWQlQ"
+uri = "file://generated-artifacts/SC3/management-company-form.pdf"
+type = "pdf"
+title = "Management-company form — development PDF"
+description = "Generated from a disposable development contract with management-company details; fixture records were rolled back."
+logical_id = "fe61aff7-3f3a-4722-b52a-ee3d500831db"
+content_hash = "sha256:0bd20305920c50a790189a43e6a2d9db11bf12e7595662549d6f9142fbfeaedd"
+size = 619727
+mtime_ms = 1794595356872
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/fe61aff7-3f3a-4722-b52a-ee3d500831db/8baa5bd7-32ff-404a-a797-04a655fc7ca8"
+storage_version_token = "1794595773935163"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "Wmwk7yjtalJr-E1-bTBdL"
+uri = "file://generated-artifacts/SC3/completed-fixture.pdf"
+type = "pdf"
+title = "Five Parks — completion alignment example"
+description = "Jun 12 completion beside Second application only, with the third application skipped."
+logical_id = "57edf5fc-14a1-44c3-8799-f21dd0c052ca"
+content_hash = "sha256:131193e86323bc934dacdca55b093b05a7fa312abd9736aa0fa25fa9e0b36836"
+size = 621095
+mtime_ms = 1794595351872
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/57edf5fc-14a1-44c3-8799-f21dd0c052ca/5be48adb-f736-4731-9830-d59fa23ad42b"
+storage_version_token = "1794595774578930"
+content_type = "application/pdf"

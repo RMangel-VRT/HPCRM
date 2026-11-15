@@ -65,8 +65,8 @@ describe("SC1 calendar on disposable development companies", () => {
     expect(responses.map(r => r.status).sort()).toEqual([200, 409]);
     const loaded = (await listServiceCalendar(a)).entries;
     expect(loaded).toHaveLength(23);
-    expect(loaded.map(({ id: _, updatedAt: __, pattern, includes, ...e }) =>
-      ({ ...e, ...(pattern === null ? {} : { pattern }), ...(includes === null ? {} : { includes }) }))
+    expect(loaded.map(({ id: _, updatedAt: __, pattern, includes, customerLabel, ...e }) =>
+      ({ ...e, ...(customerLabel === null ? e.kind === "round" ? { customerLabel: null } : {} : { customerLabel }), ...(pattern === null ? {} : { pattern }), ...(includes === null ? {} : { includes }) }))
       .sort((a, b) => `${a.serviceKey}${a.kind}${a.position}`.localeCompare(`${b.serviceKey}${b.kind}${b.position}`)))
       .toEqual([...STARTING_SERVICE_CALENDAR].sort((a, b) => `${a.serviceKey}${a.kind}${a.position}`.localeCompare(`${b.serviceKey}${b.kind}${b.position}`)));
     expect((await listServiceCalendar(b)).entries).toEqual([]);
@@ -86,6 +86,16 @@ describe("SC1 calendar on disposable development companies", () => {
     const invalid = changed.map(e => e.kind === "recurring" ? { ...e, kind: "checklist" } : e);
     expect((await api().put("/api/service-calendar/native_areas").send({ entries: invalid })).status).toBe(400);
     expect((await listServiceCalendar(a)).entries.filter(e => e.serviceKey === "native_areas")).toEqual(native);
+  });
+  it("persists customer labels through stable-id replacement and normalizes blanks", async () => {
+    await loadStartingServiceCalendar(a, uid);
+    const initial = editable((await listServiceCalendar(a)).entries.filter(e => e.serviceKey === "broadleaf"));
+    const changed = initial.map((e, i) => ({ ...e, customerLabel: i === 1 ? "Customer second visit" : "" }));
+    const saved = await api().put("/api/service-calendar/broadleaf").send({ entries: changed }).expect(200);
+    const rows = saved.body.entries.filter((e: any) => e.serviceKey === "broadleaf");
+    expect(rows.map((e: any) => e.id)).toEqual(initial.map(e => e.id));
+    expect(rows.map((e: any) => e.customerLabel)).toEqual([null, "Customer second visit", null]);
+    await api().put("/api/service-calendar/broadleaf").send({ entries: changed.map(e => ({ ...e, customerLabel: "x".repeat(61) })) }).expect(400);
   });
   it("rejects foreign, wrong-service, stale and changed-kind IDs without partial writes", async () => {
     await loadStartingServiceCalendar(a, uid); await loadStartingServiceCalendar(b, uid);
@@ -174,14 +184,16 @@ describe("SC1 calendar on disposable development companies", () => {
     expect(fulfillment.rows.find(r => r.serviceKey === "aeration")!.owed).toBe(1);
     for (const dryRun of [true, false]) {
       const report = await db.transaction(tx => reconcileCampaigns(tx, a, 2027, { dryRun, today: "2026-11-11" }));
-      expect(report.rounds).toHaveLength(3);
+      // SC2.2 includes implicit standard-package services too. This regression
+      // verifies its two explicitly configured services, not a pre-package total.
+      expect(report.rounds.filter(r => ["cleanups", "aeration"].includes(r.serviceKey) && r.members.length > 0)).toHaveLength(3);
       expect(report.gaps).toEqual([]);
     }
     // Stored contract months never place rounds or get rewritten.
     const stated = [0,0,1,0,0,0,0,0,0,0,1,0];
     await db.update(termScopeLines).set({ monthSpread: stated }).where(and(eq(termScopeLines.companyId, a), eq(termScopeLines.termId, term), eq(termScopeLines.serviceKey, "cleanups")));
     const report = await db.transaction(tx => reconcileCampaigns(tx, a, 2027, { dryRun: true, today: "2026-11-11" }));
-    expect(report.rounds.filter(r => r.serviceKey === "cleanups").map(r => r.windowEnd)).toEqual(["2027-04-15", "2027-11-30"]);
+    expect(report.rounds.filter(r => r.serviceKey === "cleanups" && r.members.length > 0).map(r => r.windowEnd)).toEqual(["2027-04-15", "2027-11-30"]);
     expect((await loadServiceFulfillmentInputs(db, a)).scope!.find(s => s.serviceKey === "cleanups")!.monthSpread).toEqual(stated);
   });
   it("enforces every SQL check and mirrors the shared SQL expression", async () => {

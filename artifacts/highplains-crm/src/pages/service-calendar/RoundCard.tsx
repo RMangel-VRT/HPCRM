@@ -50,6 +50,7 @@ export function RoundCard({ serviceKey: svc, label, usage, api }: { serviceKey: 
               <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th className="w-12 px-4 py-1.5 text-left font-medium">{t("serviceCalendar.colStd")}</th>
                 <th className="px-2 py-1.5 text-left font-medium">{t("serviceCalendar.colName")}</th>
+                <th className="px-2 py-1.5 text-left font-medium">{t("contractedServices.customerName", { defaultValue: "Customer name" })}</th>
                 <th className="px-2 py-1.5 text-left font-medium">{t("serviceCalendar.colOpens")}</th>
                 <th className="px-2 py-1.5 text-left font-medium">{t("serviceCalendar.colDue")}</th>
                 {!ro && <th className="w-24" />}
@@ -79,6 +80,14 @@ export function RoundCard({ serviceKey: svc, label, usage, api }: { serviceKey: 
                           data-testid={`input-name-${id}`}
                         />
                       )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input value={r.customerLabel ?? ""} maxLength={60} disabled={ro}
+                        aria-label={t("contractedServices.customerName", { defaultValue: "Customer name" })}
+                        placeholder={t("contractedServices.sameName", { defaultValue: "Same as round name" })}
+                        onChange={e => patchRound(r.uid, { customerLabel: e.target.value })}
+                        className="h-8 w-full min-w-[10rem] rounded-md border bg-background px-2 text-sm"
+                        data-testid={`input-customer-label-${id}`} />
                     </td>
                     <td className="px-2 py-1.5 whitespace-nowrap">
                       <MdPicker value={r.opensMd} disabled={ro} label={`${r.name} opens`} testId={`opens-${id}`} onChange={v => patchRound(r.uid, { opensMd: v })} />

@@ -11,7 +11,7 @@ import { companyToday } from "../lib/companyDay";
 export class CalendarConflict extends Error { readonly status = 409; }
 const dto = (row: ServiceCalendar): ServiceCalendarEntry => ({
   id: row.id, serviceKey: row.serviceKey, kind: row.kind as ServiceCalendarEntry["kind"], position: row.position,
-  name: row.name, opensMd: row.opensMd, dueMd: row.dueMd, inStandard: row.inStandard,
+  name: row.name, customerLabel: row.customerLabel, opensMd: row.opensMd, dueMd: row.dueMd, inStandard: row.inStandard,
   pattern: row.pattern, includes: row.includes, updatedAt: row.updatedAt.toISOString(),
 });
 export async function loadServiceCalendarUsage(companyId: string, entries: ServiceCalendarEntry[], reader: Pick<AppTransaction, "select"> = db) {
@@ -74,7 +74,7 @@ export async function replaceServiceCalendar(companyId: string, updatedById: str
     }
     for (const entry of input.entries) {
       const { id, ...fields } = entry;
-      const values = { ...fields, pattern: fields.pattern ?? null, includes: fields.includes ?? null,
+      const values = { ...fields, customerLabel: fields.customerLabel ?? null, pattern: fields.pattern ?? null, includes: fields.includes ?? null,
         updatedById, updatedAt: new Date() };
       if (id) await tx.update(serviceCalendar).set(values).where(and(filter, eq(serviceCalendar.id, id)));
       else await tx.insert(serviceCalendar).values({ ...values, companyId, serviceKey });

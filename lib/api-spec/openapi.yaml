@@ -23,6 +23,68 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /customers/{id}/contracted-services-targets:
+    get:
+      operationId: customerContractedServicesTargets
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: termId, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 100 } }
+      responses:
+        "200":
+          description: Covered property PDF targets for the selected season
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContractedServicesTargets" }
+        "400": { description: Season required }
+        "401": { description: Sign-in required }
+        "403": { description: Forbidden }
+        "404": { description: Customer or season unavailable }
+        "409": { description: Company changed }
+  /service-calendar:
+    get:
+      operationId: readServiceCalendar
+      responses:
+        "200":
+          description: Company calendar and usage
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceCalendarDocument" }
+  /service-calendar/{serviceKey}:
+    put:
+      operationId: replaceServiceCalendar
+      parameters:
+        - { name: serviceKey, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CalendarReplacement" }
+      responses:
+        "200":
+          description: Stable-identity calendar replacement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceCalendarDocument" }
+  /customers/{id}/contracted-services.pdf:
+    get:
+      operationId: getCustomerContractedServicesPdf
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: termId, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 100 } }
+        - { name: download, in: query, schema: { type: string, enum: ["0", "1"] } }
+        - { name: X-Company-Id, in: header, schema: { type: string } }
+      responses:
+        "200":
+          description: Private season-bounded PDF
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "400": { description: Season required }
+        "401": { description: Sign-in required }
+        "403": { description: Forbidden }
+        "404": { description: Customer or season unavailable }
+        "409": { description: Company changed or SCOPE_NEEDS_REVIEW }
+        "503": { description: DOCUMENT_RENDERER_UNAVAILABLE }
   /customers/{id}/services:
     get:
       operationId: getCustomerServices
@@ -1281,6 +1343,48 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    ContractedServicesTargets:
+      type: object
+      required: [parent, targets]
+      properties:
+        parent: { type: boolean }
+        targets:
+          type: array
+          items:
+            type: object
+            required: [customerId, customerName, agreementId]
+            properties:
+              customerId: { type: string }
+              customerName: { type: string }
+              agreementId: { type: string }
+    CalendarEntry:
+      type: object
+      required: [kind, position, name, opensMd, dueMd, inStandard]
+      properties:
+        id: { type: string }
+        serviceKey: { type: string }
+        updatedAt: { type: string }
+        kind: { type: string, enum: [round, checklist, recurring] }
+        position: { type: integer, minimum: 1, maximum: 24 }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        customerLabel: { type: [string, "null"], maxLength: 60 }
+        opensMd: { type: string }
+        dueMd: { type: string }
+        inStandard: { type: boolean }
+        pattern: { type: [string, "null"] }
+        includes: { type: [string, "null"] }
+    CalendarReplacement:
+      type: object
+      required: [entries]
+      properties:
+        entries: { type: array, items: { $ref: "#/components/schemas/CalendarEntry" } }
+        allowEmptyStandard: { type: boolean }
+    ServiceCalendarDocument:
+      type: object
+      required: [entries, usage]
+      properties:
+        entries: { type: array, items: { $ref: "#/components/schemas/CalendarEntry" } }
+        usage: { type: array, items: { type: object, additionalProperties: true } }
     ServiceSeason:
       type: object
       required: [termId, agreementId, label, startDate, endDate, status, parentCustomerId]
@@ -1305,6 +1409,8 @@ components:
       type: object
       required: [calendarEntryId, roundYear, name, campaignId, itemId, dueDate, windowStart, windowEnd, dateKind, state, timing, countSource]
       properties:
+        customerLabel: { type: [string, "null"], maxLength: 60 }
+        completedOn: { type: [string, "null"], pattern: '^\d{4}-\d{2}-\d{2}$' }
         calendarEntryId: { type: string }
         roundYear: { type: integer }
         name: { type: string }

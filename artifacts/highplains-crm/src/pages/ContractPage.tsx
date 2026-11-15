@@ -10,6 +10,7 @@ import { NotRenewingDialog } from "@/components/contracts/NotRenewingDialog";
 import { NonRenewalChip } from "@/components/contracts/NonRenewalChip";
 import { isNotRenewing, NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { Button } from "@/components/ui/button";
+import { ContractedServicesPdfButton } from "@/components/contracts/ContractedServicesPdfButton";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -153,7 +154,10 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const detailRef = useRef(detail); detailRef.current = detail;
   const path = useRef(typeof window !== "undefined" ? window.location.pathname : "");
   useEffect(() => {
+    const scrollScope = () => requestAnimationFrame(() => document.querySelector('[data-testid="panel-scope"]')?.scrollIntoView?.({ block: "start" }));
+    if (initialHash.endsWith("-scope")) scrollScope();
     const onHash = () => {
+      if (window.location.hash.endsWith("-scope") && !dirtyRef.current) scrollScope();
       const id = resolveTermHash(window.location.hash, detailRef.current.terms.map(t => t.id));
       if (!id || id === selectedRef.current) return;
       if (dirtyRef.current) {
@@ -372,6 +376,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
           </p>
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
+          <ContractedServicesPdfButton customerId={detail.customer.id} termId={term.id} agreementId={detail.id} />
           {detail.canRecordNonRenewal && !marked && <Button size="sm" variant="outline" disabled={dirty || saving}
             onClick={() => setNonRenewalOpen(true)} data-testid="button-not-renewing">{translate("nonRenewal.notRenewing")}</Button>}
           {moves.length > 0 && (

@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  CalendarReplacement,
   CampaignGenerationInput,
   CampaignGenerationReport,
   CampaignMembershipStatus,
@@ -26,15 +27,18 @@ import type {
   CampaignRoundLists,
   CampaignRoundMove,
   CampaignRoundStart,
+  ContractedServicesTargets,
   Crew,
   CrewInput,
   CrewPatch,
   CrewWithSupervisor,
+  CustomerContractedServicesTargetsParams,
   CustomerServices,
   EligibleSupervisor,
   EnrichedVisit,
   ErrorResponse,
   GetCampaignRoundCalendarParams,
+  GetCustomerContractedServicesPdfParams,
   GetCustomerServicesParams,
   HealthStatus,
   ListVisitsParams,
@@ -67,6 +71,7 @@ import type {
   MobileWorkItemPatch,
   OwnerResponseTicket,
   SchedulingQueueResult,
+  ServiceCalendarDocument,
   ServiceTypeTemplate,
   ServiceTypeTemplateInput,
   TicketSendBackInput,
@@ -91,6 +96,386 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getCustomerContractedServicesTargetsUrl = (
+  id: string,
+  params: CustomerContractedServicesTargetsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/customers/${id}/contracted-services-targets?${stringifiedParams}`
+    : `/api/customers/${id}/contracted-services-targets`;
+};
+
+export const customerContractedServicesTargets = async (
+  id: string,
+  params: CustomerContractedServicesTargetsParams,
+  options?: RequestInit,
+): Promise<ContractedServicesTargets> => {
+  return customFetch<ContractedServicesTargets>(
+    getCustomerContractedServicesTargetsUrl(id, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getCustomerContractedServicesTargetsQueryKey = (
+  id: string,
+  params?: CustomerContractedServicesTargetsParams,
+) => {
+  return [
+    `/api/customers/${id}/contracted-services-targets`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getCustomerContractedServicesTargetsQueryOptions = <
+  TData = Awaited<ReturnType<typeof customerContractedServicesTargets>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  params: CustomerContractedServicesTargetsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof customerContractedServicesTargets>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getCustomerContractedServicesTargetsQueryKey(id, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof customerContractedServicesTargets>>
+  > = ({ signal }) =>
+    customerContractedServicesTargets(id, params, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof customerContractedServicesTargets>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type CustomerContractedServicesTargetsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof customerContractedServicesTargets>>
+>;
+export type CustomerContractedServicesTargetsQueryError = ErrorType<void>;
+
+export function useCustomerContractedServicesTargets<
+  TData = Awaited<ReturnType<typeof customerContractedServicesTargets>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  params: CustomerContractedServicesTargetsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof customerContractedServicesTargets>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getCustomerContractedServicesTargetsQueryOptions(
+    id,
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getReadServiceCalendarUrl = () => {
+  return `/api/service-calendar`;
+};
+
+export const readServiceCalendar = async (
+  options?: RequestInit,
+): Promise<ServiceCalendarDocument> => {
+  return customFetch<ServiceCalendarDocument>(getReadServiceCalendarUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getReadServiceCalendarQueryKey = () => {
+  return [`/api/service-calendar`] as const;
+};
+
+export const getReadServiceCalendarQueryOptions = <
+  TData = Awaited<ReturnType<typeof readServiceCalendar>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof readServiceCalendar>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getReadServiceCalendarQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof readServiceCalendar>>
+  > = ({ signal }) => readServiceCalendar({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof readServiceCalendar>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ReadServiceCalendarQueryResult = NonNullable<
+  Awaited<ReturnType<typeof readServiceCalendar>>
+>;
+export type ReadServiceCalendarQueryError = ErrorType<unknown>;
+
+export function useReadServiceCalendar<
+  TData = Awaited<ReturnType<typeof readServiceCalendar>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof readServiceCalendar>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getReadServiceCalendarQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getReplaceServiceCalendarUrl = (serviceKey: string) => {
+  return `/api/service-calendar/${serviceKey}`;
+};
+
+export const replaceServiceCalendar = async (
+  serviceKey: string,
+  calendarReplacement: CalendarReplacement,
+  options?: RequestInit,
+): Promise<ServiceCalendarDocument> => {
+  return customFetch<ServiceCalendarDocument>(
+    getReplaceServiceCalendarUrl(serviceKey),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(calendarReplacement),
+    },
+  );
+};
+
+export const getReplaceServiceCalendarMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof replaceServiceCalendar>>,
+    TError,
+    { serviceKey: string; data: BodyType<CalendarReplacement> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof replaceServiceCalendar>>,
+  TError,
+  { serviceKey: string; data: BodyType<CalendarReplacement> },
+  TContext
+> => {
+  const mutationKey = ["replaceServiceCalendar"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof replaceServiceCalendar>>,
+    { serviceKey: string; data: BodyType<CalendarReplacement> }
+  > = (props) => {
+    const { serviceKey, data } = props ?? {};
+
+    return replaceServiceCalendar(serviceKey, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReplaceServiceCalendarMutationResult = NonNullable<
+  Awaited<ReturnType<typeof replaceServiceCalendar>>
+>;
+export type ReplaceServiceCalendarMutationBody = BodyType<CalendarReplacement>;
+export type ReplaceServiceCalendarMutationError = ErrorType<unknown>;
+
+export const useReplaceServiceCalendar = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof replaceServiceCalendar>>,
+    TError,
+    { serviceKey: string; data: BodyType<CalendarReplacement> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof replaceServiceCalendar>>,
+  TError,
+  { serviceKey: string; data: BodyType<CalendarReplacement> },
+  TContext
+> => {
+  return useMutation(getReplaceServiceCalendarMutationOptions(options));
+};
+
+export const getGetCustomerContractedServicesPdfUrl = (
+  id: string,
+  params: GetCustomerContractedServicesPdfParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/customers/${id}/contracted-services.pdf?${stringifiedParams}`
+    : `/api/customers/${id}/contracted-services.pdf`;
+};
+
+export const getCustomerContractedServicesPdf = async (
+  id: string,
+  params: GetCustomerContractedServicesPdfParams,
+  options?: RequestInit,
+): Promise<Blob> => {
+  return customFetch<Blob>(getGetCustomerContractedServicesPdfUrl(id, params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetCustomerContractedServicesPdfQueryKey = (
+  id: string,
+  params?: GetCustomerContractedServicesPdfParams,
+) => {
+  return [
+    `/api/customers/${id}/contracted-services.pdf`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetCustomerContractedServicesPdfQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCustomerContractedServicesPdf>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  params: GetCustomerContractedServicesPdfParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCustomerContractedServicesPdf>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetCustomerContractedServicesPdfQueryKey(id, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCustomerContractedServicesPdf>>
+  > = ({ signal }) =>
+    getCustomerContractedServicesPdf(id, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCustomerContractedServicesPdf>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCustomerContractedServicesPdfQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCustomerContractedServicesPdf>>
+>;
+export type GetCustomerContractedServicesPdfQueryError = ErrorType<void>;
+
+export function useGetCustomerContractedServicesPdf<
+  TData = Awaited<ReturnType<typeof getCustomerContractedServicesPdf>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  params: GetCustomerContractedServicesPdfParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCustomerContractedServicesPdf>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCustomerContractedServicesPdfQueryOptions(
+    id,
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * Read-only season fulfillment with contract-summary roles and company access. Account managers retain projected admin access, not assignment-limited access. No commercial prices or files.

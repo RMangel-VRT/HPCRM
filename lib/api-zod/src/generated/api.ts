@@ -7,6 +7,157 @@
  */
 import * as zod from "zod";
 
+export const CustomerContractedServicesTargetsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const customerContractedServicesTargetsQueryTermIdMax = 100;
+
+export const CustomerContractedServicesTargetsQueryParams = zod.object({
+  termId: zod.coerce
+    .string()
+    .min(1)
+    .max(customerContractedServicesTargetsQueryTermIdMax),
+});
+
+export const CustomerContractedServicesTargetsResponse = zod.object({
+  parent: zod.boolean(),
+  targets: zod.array(
+    zod.object({
+      customerId: zod.string(),
+      customerName: zod.string(),
+      agreementId: zod.string(),
+    }),
+  ),
+});
+
+export const readServiceCalendarResponseEntriesItemPositionMax = 24;
+
+export const readServiceCalendarResponseEntriesItemNameMax = 80;
+
+export const readServiceCalendarResponseEntriesItemCustomerLabelMax = 60;
+
+export const ReadServiceCalendarResponse = zod.object({
+  entries: zod.array(
+    zod.object({
+      id: zod.string().optional(),
+      serviceKey: zod.string().optional(),
+      updatedAt: zod.string().optional(),
+      kind: zod.enum(["round", "checklist", "recurring"]),
+      position: zod
+        .number()
+        .min(1)
+        .max(readServiceCalendarResponseEntriesItemPositionMax),
+      name: zod
+        .string()
+        .min(1)
+        .max(readServiceCalendarResponseEntriesItemNameMax),
+      customerLabel: zod
+        .string()
+        .max(readServiceCalendarResponseEntriesItemCustomerLabelMax)
+        .nullish(),
+      opensMd: zod.string(),
+      dueMd: zod.string(),
+      inStandard: zod.boolean(),
+      pattern: zod.string().nullish(),
+      includes: zod.string().nullish(),
+    }),
+  ),
+  usage: zod.array(zod.record(zod.string(), zod.unknown())),
+});
+
+export const ReplaceServiceCalendarParams = zod.object({
+  serviceKey: zod.coerce.string(),
+});
+
+export const replaceServiceCalendarBodyEntriesItemPositionMax = 24;
+
+export const replaceServiceCalendarBodyEntriesItemNameMax = 80;
+
+export const replaceServiceCalendarBodyEntriesItemCustomerLabelMax = 60;
+
+export const ReplaceServiceCalendarBody = zod.object({
+  entries: zod.array(
+    zod.object({
+      id: zod.string().optional(),
+      serviceKey: zod.string().optional(),
+      updatedAt: zod.string().optional(),
+      kind: zod.enum(["round", "checklist", "recurring"]),
+      position: zod
+        .number()
+        .min(1)
+        .max(replaceServiceCalendarBodyEntriesItemPositionMax),
+      name: zod
+        .string()
+        .min(1)
+        .max(replaceServiceCalendarBodyEntriesItemNameMax),
+      customerLabel: zod
+        .string()
+        .max(replaceServiceCalendarBodyEntriesItemCustomerLabelMax)
+        .nullish(),
+      opensMd: zod.string(),
+      dueMd: zod.string(),
+      inStandard: zod.boolean(),
+      pattern: zod.string().nullish(),
+      includes: zod.string().nullish(),
+    }),
+  ),
+  allowEmptyStandard: zod.boolean().optional(),
+});
+
+export const replaceServiceCalendarResponseEntriesItemPositionMax = 24;
+
+export const replaceServiceCalendarResponseEntriesItemNameMax = 80;
+
+export const replaceServiceCalendarResponseEntriesItemCustomerLabelMax = 60;
+
+export const ReplaceServiceCalendarResponse = zod.object({
+  entries: zod.array(
+    zod.object({
+      id: zod.string().optional(),
+      serviceKey: zod.string().optional(),
+      updatedAt: zod.string().optional(),
+      kind: zod.enum(["round", "checklist", "recurring"]),
+      position: zod
+        .number()
+        .min(1)
+        .max(replaceServiceCalendarResponseEntriesItemPositionMax),
+      name: zod
+        .string()
+        .min(1)
+        .max(replaceServiceCalendarResponseEntriesItemNameMax),
+      customerLabel: zod
+        .string()
+        .max(replaceServiceCalendarResponseEntriesItemCustomerLabelMax)
+        .nullish(),
+      opensMd: zod.string(),
+      dueMd: zod.string(),
+      inStandard: zod.boolean(),
+      pattern: zod.string().nullish(),
+      includes: zod.string().nullish(),
+    }),
+  ),
+  usage: zod.array(zod.record(zod.string(), zod.unknown())),
+});
+
+export const GetCustomerContractedServicesPdfParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const getCustomerContractedServicesPdfQueryTermIdMax = 100;
+
+export const GetCustomerContractedServicesPdfQueryParams = zod.object({
+  termId: zod.coerce
+    .string()
+    .min(1)
+    .max(getCustomerContractedServicesPdfQueryTermIdMax),
+  download: zod.enum(["0", "1"]).optional(),
+});
+
+export const GetCustomerContractedServicesPdfHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
 /**
  * Read-only season fulfillment with contract-summary roles and company access. Account managers retain projected admin access, not assignment-limited access. No commercial prices or files.
  */
@@ -23,6 +174,11 @@ export const GetCustomerServicesQueryParams = zod.object({
     .max(getCustomerServicesQueryTermIdMax)
     .optional(),
 });
+
+export const getCustomerServicesResponseRowsItemRoundsItemCustomerLabelMax = 60;
+
+export const getCustomerServicesResponseRowsItemRoundsItemCompletedOnRegExp =
+  new RegExp("^\\d{4}-\\d{2}-\\d{2}$");
 
 export const GetCustomerServicesResponse = zod.object({
   asOf: zod.string(),
@@ -76,6 +232,16 @@ export const GetCustomerServicesResponse = zod.object({
       ]),
       rounds: zod.array(
         zod.object({
+          customerLabel: zod
+            .string()
+            .max(getCustomerServicesResponseRowsItemRoundsItemCustomerLabelMax)
+            .nullish(),
+          completedOn: zod
+            .string()
+            .regex(
+              getCustomerServicesResponseRowsItemRoundsItemCompletedOnRegExp,
+            )
+            .nullish(),
           calendarEntryId: zod.string(),
           roundYear: zod.number(),
           name: zod.string(),

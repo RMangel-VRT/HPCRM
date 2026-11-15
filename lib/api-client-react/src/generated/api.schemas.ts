@@ -5,6 +5,67 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export type ContractedServicesTargetsTargetsItem = {
+  customerId: string;
+  customerName: string;
+  agreementId: string;
+};
+
+export interface ContractedServicesTargets {
+  parent: boolean;
+  targets: ContractedServicesTargetsTargetsItem[];
+}
+
+export type CalendarEntryKind =
+  (typeof CalendarEntryKind)[keyof typeof CalendarEntryKind];
+
+export const CalendarEntryKind = {
+  round: "round",
+  checklist: "checklist",
+  recurring: "recurring",
+} as const;
+
+export interface CalendarEntry {
+  id?: string;
+  serviceKey?: string;
+  updatedAt?: string;
+  kind: CalendarEntryKind;
+  /**
+   * @minimum 1
+   * @maximum 24
+   */
+  position: number;
+  /**
+   * @minLength 1
+   * @maxLength 80
+   */
+  name: string;
+  /**
+   * @maxLength 60
+   * @nullable
+   */
+  customerLabel?: string | null;
+  opensMd: string;
+  dueMd: string;
+  inStandard: boolean;
+  /** @nullable */
+  pattern?: string | null;
+  /** @nullable */
+  includes?: string | null;
+}
+
+export interface CalendarReplacement {
+  entries: CalendarEntry[];
+  allowEmptyStandard?: boolean;
+}
+
+export type ServiceCalendarDocumentUsageItem = { [key: string]: unknown };
+
+export interface ServiceCalendarDocument {
+  entries: CalendarEntry[];
+  usage: ServiceCalendarDocumentUsageItem[];
+}
+
 export interface ServiceSeason {
   termId: string;
   agreementId: string;
@@ -72,6 +133,16 @@ export const ServiceRoundCountSource = {
 } as const;
 
 export interface ServiceRound {
+  /**
+   * @maxLength 60
+   * @nullable
+   */
+  customerLabel?: string | null;
+  /**
+   * @nullable
+   * @pattern ^\d{4}-\d{2}-\d{2}$
+   */
+  completedOn?: string | null;
   calendarEntryId: string;
   roundYear: number;
   name: string;
@@ -1240,6 +1311,31 @@ export interface OwnerResponseTicket {
   followUpNote?: string | null;
   [key: string]: unknown;
 }
+
+export type CustomerContractedServicesTargetsParams = {
+  /**
+   * @minLength 1
+   * @maxLength 100
+   */
+  termId: string;
+};
+
+export type GetCustomerContractedServicesPdfParams = {
+  /**
+   * @minLength 1
+   * @maxLength 100
+   */
+  termId: string;
+  download?: GetCustomerContractedServicesPdfDownload;
+};
+
+export type GetCustomerContractedServicesPdfDownload =
+  (typeof GetCustomerContractedServicesPdfDownload)[keyof typeof GetCustomerContractedServicesPdfDownload];
+
+export const GetCustomerContractedServicesPdfDownload = {
+  NUMBER_0: "0",
+  NUMBER_1: "1",
+} as const;
 
 export type GetCustomerServicesParams = {
   /**

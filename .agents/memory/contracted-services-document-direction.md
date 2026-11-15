@@ -14,3 +14,23 @@ Route services with no count print and do not block. Included and When use the s
 **Why:** The owner clarified that no-count route services are normal; irrigation inspection is “Monthly.” This explicitly overrides SC3's original blanket pattern-text prohibition and no_count blocking.
 
 **How to apply:** Block only round/checklist no_count, needs_rounds, invalid_count or duplicate_lines, and route invalid_count or duplicate_lines. Inspect issue flags so another primary display status cannot conceal a blocker; do not alter demand/count ownership to make the document print.
+
+Blank customer visit labels omit the label; internal calendar/campaign names
+never substitute, including in season-boundary notes.
+
+**Why:** The approved customer document must not expose internal execution names
+or treat an unlabelled visit as authorization to print one.
+
+**How to apply:** Use customer-safe service wording when a boundary note needs
+context; preserve blank per-visit labels in the table.
+
+Customer Services reader access does not imply commercial-document access.
+Service-only readers can print the schedule, but only the existing commercial
+roles may receive billed-separately prices, on-request prices or stated rates.
+
+**Why:** A download is an alternate read surface, not permission to bypass the
+contract summary's commercial privacy boundary.
+
+**How to apply:** Apply the same commercial-role policy to document projection;
+avoid querying rates for non-commercial readers and default projection access
+to service-only.

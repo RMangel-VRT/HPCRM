@@ -1,5 +1,6 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 const en = {
+  contractedServices: { pdf: "Contracted Services PDF", fixScope: "Fix the scope first: {{services}}", failed: "Unable to open the PDF. Please try again.", customerName: "Customer name", sameName: "Same as round name" },
   quickItemCsv: {
     errors: {
       columns: "Expected seven columns", kind: "Kind must be service, equipment or fee",

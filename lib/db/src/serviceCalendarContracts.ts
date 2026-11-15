@@ -22,6 +22,7 @@ export const calendarEntryInput = z.object({
   kind: z.enum(calendarKinds),
   position: z.number().int().min(1).max(24),
   name: z.string().trim().min(1).max(80),
+  customerLabel: z.string().trim().max(60).transform(v => v || null).nullable().optional(),
   opensMd: z.string().refine(validMonthDay, "Choose a real month/day (February 29 is not allowed)"),
   dueMd: z.string().refine(validMonthDay, "Choose a real month/day (February 29 is not allowed)"),
   inStandard: z.boolean(),
@@ -117,8 +118,15 @@ export function summarizeServiceUsage(catalog: readonly SchedulingService[], lin
 }
 
 type StartingEntry = Omit<CalendarEntryInput, "id"> & { serviceKey: string };
+export const CUSTOMER_CALENDAR_LABELS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  cleanups: { "Spring clean-up": "Spring clean-up", "Fall leaf clean-up 1": "Fall leaf clean-up", "Fall leaf clean-up 2": "Final fall clean-up" },
+  shrub_trimming: { "Spring shrub trim": "Early summer trim", "Fall shrub trim": "Fall trim" },
+  fertilization: { "Pre-emergent / spring fertilizer": "Spring pre-emergent", "Summer fertilizer": "Summer", "Fall fertilizer": "Fall" },
+  broadleaf: { "Broadleaf 1": "First application", "Broadleaf 2": "Second application", "Broadleaf 3": "Third application" },
+  native_areas: { "Spring full native mow": "Spring full mow", "Fall full native mow": "Fall full mow" },
+};
 const round = (serviceKey: string, position: number, name: string, opensMd: string, dueMd: string): StartingEntry =>
-  ({ serviceKey, position, name, opensMd, dueMd, kind: "round", inStandard: true });
+  ({ serviceKey, position, name, opensMd, dueMd, kind: "round", inStandard: true, customerLabel: CUSTOMER_CALENDAR_LABELS[serviceKey]?.[name] ?? null });
 const recurring = (serviceKey: string, name: string, opensMd: string, dueMd: string, pattern: string, includes: string): StartingEntry =>
   ({ serviceKey, position: 1, name, opensMd, dueMd, pattern, includes, kind: "recurring", inStandard: false });
 /** Explicit empty-company load only. Never a generation fallback or an automatic seed. */

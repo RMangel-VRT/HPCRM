@@ -10,6 +10,10 @@ import { serviceStatusLabel } from "@/lib/contractCustomerServices";
 
 const fx = vi.hoisted(() => ({ data: {} as any, error: null as any, unavailable: false, loading: false, role: "admin", reset: vi.fn(), select: vi.fn(), term: undefined as string | undefined }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { accessRole: fx.role } }) }));
+vi.mock("@/components/contracts/ContractedServicesPdfButton", () => ({
+  ContractedServicesPdfButton: (props: { customerId: string; termId: string; agreementId: string }) =>
+    <button data-testid="pdf-season-props" data-customer={props.customerId} data-term={props.termId} data-agreement={props.agreementId}>PDF</button>,
+}));
 vi.mock("@/lib/customerScope", () => ({ useCustomerScope: () => ({ scope: ["company", "viewer"], enabled: false }) }));
 vi.mock("@/hooks/useContractCustomerServices", () => ({
   useContractCustomerServices: () => ({ data: fx.data, error: fx.error, isLoading: fx.loading, unavailable: fx.unavailable, refetch: vi.fn() }),
@@ -124,6 +128,14 @@ describe("CP2 preserved details with CP6 contract demand", () => {
     page(); fireEvent.click(screen.getByTestId("select-services-season"));
     fireEvent.click(screen.getByTestId("option-season-sent"));
     expect(fx.select).toHaveBeenCalledWith("sent");
+  });
+  it("passes the selected season and contract owner to the PDF entry point", () => {
+    fx.data.selectedTerm = { ...serviceSeasonFixture, termId: "older-selected", agreementId: "parent-agreement", parentCustomerId: "parent" };
+    page();
+    const button = screen.getByTestId("pdf-season-props");
+    expect(button.getAttribute("data-term")).toBe("older-selected");
+    expect(button.getAttribute("data-customer")).toBe("customer1");
+    expect(button.getAttribute("data-agreement")).toBe("parent-agreement");
   });
   it("handles denied/loading/error and resets only an explicit 404", async () => {
     fx.unavailable = true; page(); expect(screen.getByTestId("services-unavailable")).toBeTruthy(); cleanup();

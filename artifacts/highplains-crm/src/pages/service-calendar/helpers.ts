@@ -5,7 +5,7 @@ import {
 
 export type DraftRow = {
   uid: string; id?: string; kind: CalendarKind; name: string; opensMd: string; dueMd: string;
-  inStandard: boolean; pattern: string | null; includes: string | null;
+  inStandard: boolean; pattern: string | null; includes: string | null; customerLabel?: string | null;
 };
 export const KIND_ORDER: CalendarKind[] = ["round", "checklist", "recurring"];
 export const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -18,7 +18,7 @@ export function rowsFromEntries(entries: ServiceCalendarEntry[], serviceKey: str
   return entries.filter(e => e.serviceKey === serviceKey)
     .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.position - b.position)
     .map(e => ({
-      uid: e.id, id: e.id, kind: e.kind, name: e.name, opensMd: e.opensMd, dueMd: e.dueMd,
+      uid: e.id, id: e.id, kind: e.kind, name: e.name, customerLabel: e.customerLabel ?? null, opensMd: e.opensMd, dueMd: e.dueMd,
       inStandard: e.inStandard, pattern: e.pattern ?? null, includes: e.includes ?? null,
     }));
 }
@@ -31,6 +31,7 @@ export function toPayload(rows: DraftRow[]) {
     seen[r.kind] = (seen[r.kind] ?? 0) + 1;
     return {
       ...(r.id ? { id: r.id } : {}), kind: r.kind, position: seen[r.kind], name: r.name.trim(),
+      customerLabel: r.customerLabel?.trim() || null,
       opensMd: r.opensMd, dueMd: r.dueMd, inStandard: r.kind === "round" && r.inStandard,
       pattern: r.kind === "recurring" ? (r.pattern?.trim() || null) : null,
       includes: r.kind === "recurring" ? (r.includes?.trim() || null) : null,

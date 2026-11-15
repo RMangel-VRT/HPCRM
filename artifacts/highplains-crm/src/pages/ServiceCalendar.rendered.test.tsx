@@ -71,6 +71,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); unsavedGuard.setDirty(false); });
 
 describe("Service calendar settings", () => {
+  it("saves and discards customer labels with stable calendar identities", async () => {
+    mount();
+    const input = await screen.findByTestId("input-customer-label-cleanups-round-0");
+    fireEvent.change(input, { target: { value: "Customer spring visit" } });
+    const card = screen.getByTestId("card-service-cleanups");
+    fireEvent.click(within(card).getByRole("button", { name: /discard/i }));
+    expect((screen.getByTestId("input-customer-label-cleanups-round-0") as HTMLInputElement).value).toBe("");
+    fireEvent.change(screen.getByTestId("input-customer-label-cleanups-round-0"), { target: { value: "Customer spring visit" } });
+    fireEvent.click(within(card).getByRole("button", { name: /^save/i }));
+    await waitFor(() => expect(putBody()?.entries[0]).toMatchObject({ id: "c1", customerLabel: "Customer spring visit", kind: "round", position: 1 }));
+  });
   it("renders every section with the deadline rule, scoped to the active company", async () => {
     mount();
     await screen.findByTestId("card-service-cleanups");
