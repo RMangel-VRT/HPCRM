@@ -23,6 +23,7 @@ import { proposalExhibitSettingsSchema, type ProposalExhibits } from "../../../.
 import { plantCatalogItems, plantEnrichment, estimateLines, estimateSections } from "@workspace/db";
 import { plantPalettes, plantPaletteItems } from "@workspace/db";
 import { storage as proposalStorage } from "../storage";
+import { carryProposalScope } from "../lib/carryProposalScope";
 
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 const companyId = randomUUID(), otherCompany = randomUUID(), actor = randomUUID();
@@ -37,7 +38,13 @@ const storage = {
   getCustomerById: async (id: string, company: string) => (await db.select().from(customers).where(and(eq(customers.id, id), eq(customers.companyId, company))))[0],
   getTicketById: async (id: string, company: string) => (await db.select().from(tickets).where(and(eq(tickets.id, id), eq(tickets.companyId, company))))[0],
   createProposal: proposalStorage.createProposal.bind(proposalStorage),
+  deleteProposal: proposalStorage.deleteProposal.bind(proposalStorage),
   updateProposal: proposalStorage.updateProposal.bind(proposalStorage),
+  getProposalFileById: proposalStorage.getProposalFileById.bind(proposalStorage),
+  updateProposalFile: proposalStorage.updateProposalFile.bind(proposalStorage),
+  reorderProposalImageFiles: proposalStorage.reorderProposalImageFiles.bind(proposalStorage),
+  deleteProposalFiles: proposalStorage.deleteProposalFiles.bind(proposalStorage),
+  deleteProposalFile: proposalStorage.deleteProposalFile.bind(proposalStorage),
   getVisualScopeSheet: proposalStorage.getVisualScopeSheet.bind(proposalStorage),
   getProposalById: async (id: string, company: string) => {
     const p = (await db.select().from(proposals).where(and(eq(proposals.id, id), eq(proposals.companyId, company))))[0];
@@ -85,7 +92,9 @@ beforeAll(async () => {
   const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
   const links = source.slice(source.indexOf("  const canAccessProposals ="), source.indexOf('  app.post("/api/convert-heic"'));
   const finalize = source.slice(source.indexOf('  app.post("/api/proposals/:id/finalize"'), source.indexOf("  // ---- List finalized versions"));
-  const { code } = await transform(`${links}\n${finalize}`, { loader: "ts", target: "es2022" });
+  const download = source.slice(source.indexOf('  app.get("/api/proposals/:id/versions/:versionId/download"'), source.indexOf("  // ---- Download a frozen VS"));
+  const files = source.slice(source.indexOf('  app.post("/api/proposals/:id/files/reorder"'), source.indexOf("  // ---- Proposal plant items CRUD"));
+  const { code } = await transform(`${links}\n${finalize}\n${download}\n${files}`, { loader: "ts", target: "es2022" });
   app = express(); app.use(express.json());
   app.use((req, _res, next) => {
     Object.assign(req, { isAuthenticated: () => req.get("X-Test-Auth") !== "no",
@@ -93,6 +102,11 @@ beforeAll(async () => {
     next();
   });
   class ObjectStorageService {
+    async downloadByPath(path: string) {
+      const bytes = stored.get(path);
+      if (!bytes) throw new Error("Missing fixture");
+      return bytes;
+    }
     async saveBufferToPrivatePath(path: string, bytes: Buffer) {
       if (failStore) throw new Error("simulated storage failure");
       if (stored.has(path)) throw new Error("immutable path overwritten");
@@ -100,11 +114,12 @@ beforeAll(async () => {
       return path;
     }
   }
-  const deps = { app, db, storage, sql, and, eq, express, proposalZ: z, estimateAccess, accessRole,
+  const deps = { app, db, storage, sql, and, eq, estimates, proposals, express, proposalZ: z, estimateAccess, accessRole,
     loadProposalEstimateSummaries, readTicketEstimate, validateProposalEstimate, prepareProposalEstimate,
     loadProposalExhibits, proposalExhibitSettingsSchema, proposalCoverPatch, coverSelectionError,
     EstimateError, randomUUID, ObjectStorageService, generateProposalPdf: render,
-    assertNotParentCustomer: async () => false };
+    assertNotParentCustomer: async () => false,
+    objectStorageClient: { bucket: () => ({ file: () => ({ delete: async () => {} }) }) } };
   new Function(...Object.keys(deps), code)(...Object.values(deps));
 });
 async function plantDraft() {
@@ -217,9 +232,133 @@ afterAll(async () => {
   await Promise.all([pool.end(), schemaPool.end()]);
 });
 describe("proposal relationships and scoped HTTP contracts", () => {
+  it("reorders and bulk-deletes linked images while protecting foreign-proposal attachments", async () => {
+    const d = await draft(), p = await proposal(d.id), legacy = await proposal();
+    const [one, two, retained] = await db.insert(proposalFiles).values([
+      { companyId, proposalId: p.id, fileType: "image", filename: "one.png", mimeType: "image/png", fileSize: 10, storageObjectPath: "/objects/test-one", displayOrder: 0 },
+      { companyId, proposalId: p.id, fileType: "image", filename: "two.png", mimeType: "image/png", fileSize: 10, storageObjectPath: "/objects/test-two", displayOrder: 1 },
+      { companyId, proposalId: legacy.id, fileType: "image", filename: "retained.png", mimeType: "image/png", fileSize: 10, storageObjectPath: "/objects/test-legacy", displayOrder: 0 },
+    ]).returning();
+    await request(app).post(`/api/proposals/${p.id}/files/reorder`).send({ orderedFileIds: [two.id, one.id] }).expect(200);
+    const ordered = await proposalStorage.getProposalFiles(p.id, companyId);
+    expect(ordered.map(f => f.id)).toEqual([two.id, one.id]);
+    await request(app).patch(`/api/proposals/${p.id}/files/${one.id}`).send({ caption: "Saved caption" }).expect(200);
+    await request(app).patch(`/api/proposals/${p.id}/files/${retained.id}`).send({ caption: "No" }).expect(404);
+    await request(app).delete(`/api/proposals/${p.id}/files/${retained.id}`).expect(404);
+    await request(app).post(`/api/proposals/${p.id}/files/bulk-delete`).send({ fileIds: [two.id, retained.id] }).expect(200);
+    expect(await proposalStorage.getProposalFileById(two.id, companyId)).toBeUndefined();
+    expect((await proposalStorage.getProposalFileById(one.id, companyId))?.caption).toBe("Saved caption");
+    expect(await proposalStorage.getProposalFileById(retained.id, companyId)).toBeTruthy();
+  });
+  it("rejects proposal-owned scope on linked POST/PATCH", async () => {
+    const d = await draft(), p = await proposal(d.id);
+    await request(app).post("/api/proposals").send({ estimateId: d.id, scopeOfWork: "No" })
+      .expect(400).expect({ error: "ESTIMATE_SCOPE_OWNED" });
+    await request(app).patch(`/api/proposals/${p.id}`).send({ scopeOfWork: "No" })
+      .expect(400).expect({ error: "ESTIMATE_SCOPE_OWNED" });
+    expect((await storage.getProposalById(p.id, companyId))?.scopeOfWork).toBe("");
+  });
+  it("carries only into empty current drafts, selects deterministically, and is concurrent/rerun safe", async () => {
+    const empty = await draft(), populated = await draft(), frozen = await draft(), foreign = await draft();
+    const first = await proposal(empty.id), second = await proposal(empty.id);
+    const whitespace = await proposal(empty.id);
+    await db.update(proposals).set({ scopeOfWork: " \n\t ", createdAt: new Date("2019-01-01") }).where(eq(proposals.id, whitespace.id));
+    await db.update(estimateVersions).set({ scopeOfWork: " \n\t " }).where(eq(estimateVersions.id, empty.version.id));
+    const kept = await proposal(populated.id), skipped = await proposal(frozen.id);
+    await db.update(proposals).set({ scopeOfWork: "FIRST\n[PAGE BREAK]\ncontinued", createdAt: new Date("2020-01-01") }).where(eq(proposals.id, first.id));
+    await db.update(proposals).set({ scopeOfWork: "SECOND", createdAt: new Date("2020-01-02") }).where(eq(proposals.id, second.id));
+    await db.update(proposals).set({ scopeOfWork: "never overwrite" }).where(inArray(proposals.id, [kept.id, skipped.id]));
+    await db.update(estimateVersions).set({ scopeOfWork: "existing" }).where(eq(estimateVersions.id, populated.version.id));
+    await db.insert(proposals).values({ companyId: otherCompany, customerId: foreignCustomer, estimateId: foreign.id,
+      proposalDate: "2026-11-13", scopeOfWork: "foreign forbidden", proposalNumber: randomUUID() });
+    await transitionEstimate(companyId, actor, frozen.id, frozen.version.id, "send", { method: "email" });
+    const before = (await db.select().from(estimateVersions).where(eq(estimateVersions.id, frozen.version.id)))[0];
+    const results = await Promise.all([carryProposalScope(), carryProposalScope()]);
+    expect(results.reduce((n, r) => n + (r?.copied ?? 0), 0)).toBe(1);
+    expect(results.flatMap(r => r?.ambiguous ?? [])).toContainEqual({
+      estimateId: empty.id, proposalIds: [first.id, second.id], selectedProposalId: first.id });
+    expect(results[0]?.skippedFrozenProposalIds).toContain(skipped.id);
+    expect((await readEstimate(companyId, empty.id)).version.scopeOfWork).toBe("FIRST\n[PAGE BREAK]\ncontinued");
+    expect((await readEstimate(companyId, populated.id)).version.scopeOfWork).toBe("existing");
+    expect((await readEstimate(companyId, foreign.id)).version.scopeOfWork).toBeNull();
+    expect((await db.select().from(estimateVersions).where(eq(estimateVersions.id, frozen.version.id)))[0]).toEqual(before);
+    expect((await carryProposalScope())?.copied).toBe(0);
+  });
+  it("waits for an in-flight estimate edit and never replaces its scope", async () => {
+    const d = await draft(), p = await proposal(d.id);
+    await db.update(proposals).set({ scopeOfWork: "carry candidate" }).where(eq(proposals.id, p.id));
+    let ready!: () => void, release!: () => void;
+    const locked = new Promise<void>(resolve => { ready = resolve; });
+    const proceed = new Promise<void>(resolve => { release = resolve; });
+    const editor = db.transaction(async tx => {
+      await tx.select().from(estimates).where(eq(estimates.id, d.id)).for("update");
+      ready();
+      await proceed;
+      await tx.update(estimateVersions).set({ scopeOfWork: "concurrent editor wins" }).where(eq(estimateVersions.id, d.version.id));
+    });
+    await locked;
+    const initializer = carryProposalScope();
+    release();
+    await Promise.all([editor, initializer]);
+    expect((await readEstimate(companyId, d.id)).version.scopeOfWork).toBe("concurrent editor wins");
+  });
+  it("crew worksheets snapshot the estimate-owned scope instead of stale proposal text", async () => {
+    const d = await draft(), p = await proposal(d.id);
+    await db.update(estimateVersions).set({ scopeOfWork: "Crew scope from estimate" }).where(eq(estimateVersions.id, d.version.id));
+    await db.update(proposals).set({ scopeOfWork: "stale proposal text" }).where(eq(proposals.id, p.id));
+    const worksheet = await proposalStorage.createCrewWorksheetFromProposal({ companyId, proposalId: p.id,
+      createdById: actor, worksheetNumber: randomUUID(), worksheetDate: "2026-11-13", title: "Disposable" });
+    expect(worksheet?.scopeOfWork).toBe("Crew scope from estimate");
+  });
+  it("requires an eligible estimate, derives relationships/defaults, and scopes the narrow lookup", async () => {
+    await request(app).post("/api/proposals").expect(400).expect({ error: "ESTIMATE_REQUIRED" });
+    await request(app).post("/api/proposals").send({ customerId }).expect(400).expect({ error: "ESTIMATE_REQUIRED" });
+    const d = await draft();
+    const created = await request(app).post("/api/proposals").send({ estimateId: d.id, customerId: foreignCustomer, ticketId }).expect(201);
+    expect(created.body).toMatchObject({ customerId, ticketId: null, estimateId: d.id, estimateNumber: d.estimateNumber, title: d.title });
+    expect(created.body.proposalDate).toBe(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Denver" }).format(new Date()));
+    const lookup = await request(app).get(`/api/proposals?estimateId=${d.id}`).expect(200);
+    expect(lookup.body.map((p: { id: string }) => p.id)).toEqual([created.body.id]);
+    expect(lookup.body[0]).not.toHaveProperty("scopeOfWork");
+    await request(app).get(`/api/proposals?estimateId=${d.id}`).set("X-Test-Company", otherCompany).expect(200).expect([]);
+    await request(app).post("/api/proposals").set("X-Test-Company", otherCompany).send({ estimateId: d.id }).expect(422);
+    await transitionEstimate(companyId, actor, d.id, undefined, "void", { reason: "Test" });
+    await request(app).post("/api/proposals").send({ estimateId: d.id }).expect(422);
+  });
+  it("protects every legacy nested mutation while preserving reads", async () => {
+    const p = await proposal();
+    await request(app).get(`/api/proposals/${p.id}`).expect(200);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ title: "No" }).expect(409);
+    for (const path of ["files", "files/upload-url", "files/reorder", "files/bulk-delete", "plant-items", "finalize", "crew-worksheets"]) {
+      await request(app).post(`/api/proposals/${p.id}/${path}`).send({}).expect(409);
+    }
+    for (const path of ["files/missing", "plant-items/missing"]) {
+      await request(app).delete(`/api/proposals/${p.id}/${path}`).expect(409);
+      await request(app).patch(`/api/proposals/${p.id}/${path}`).send({}).expect(409);
+    }
+    await request(app).delete(`/api/proposals/${p.id}`).expect(200);
+    await request(app).get(`/api/proposals/${p.id}`).expect(404);
+    const linked = await proposal((await draft()).id);
+    await request(app).post(`/api/proposals/${linked.id}/files/upload-url`).send({ fileType: "estimate_pdf" }).expect(400).expect({ error: "ESTIMATE_PDF_RETIRED" });
+    await request(app).post(`/api/proposals/${linked.id}/files`).send({ fileType: "estimate_pdf" }).expect(400).expect({ error: "ESTIMATE_PDF_RETIRED" });
+  });
+  it("serves immutable historical legacy PDFs only to authorized company/proposal readers", async () => {
+    const p = await proposal();
+    const v = await storage.createProposalVersion({ companyId, proposalId: p.id, versionNumber: 1,
+      title: p.title, proposalDate: p.proposalDate, pdfStoragePath: randomUUID() });
+    const bytes = Buffer.from("%PDF-1.4 retained legacy bytes");
+    stored.set(v.pdfStoragePath, bytes);
+    const response = await request(app).get(`/api/proposals/${p.id}/versions/${v.id}/download`).expect(200);
+    expect(response.body).toEqual(bytes);
+    const other = await proposal();
+    await request(app).get(`/api/proposals/${other.id}/versions/${v.id}/download`).expect(404);
+    await request(app).get(`/api/proposals/${p.id}/versions/${v.id}/download`).set("X-Test-Company", otherCompany).expect(404);
+    await request(app).get(`/api/proposals/${p.id}/versions/${v.id}/download`).set("X-Test-Role", "field_manager").expect(403);
+    expect(stored.get(v.pdfStoragePath)).toEqual(bytes);
+  });
   it("retires attachments on every write, preserves omission, and clears null or estimate links atomically", async () => {
     const [palette] = await db.insert(plantPalettes).values({ companyId, title: "Read-only legacy" }).returning();
-    const p = await proposal();
+    const p = await proposal((await draft()).id);
     // Historical fixtures must bypass the retired application write paths.
     await db.update(proposals).set({ plantPaletteId: palette.id }).where(eq(proposals.id, p.id));
     for (const value of [palette.id, "foreign", "", false, 0, [], {}]) {
@@ -227,7 +366,7 @@ describe("proposal relationships and scoped HTTP contracts", () => {
       await request(app).post("/api/proposals").send({ customerId, plantPaletteId: value }).expect(400);
     }
     await request(app).patch(`/api/proposals/${p.id}`).send({ title: "Unrelated edit" }).expect(200);
-    expect((await storage.getProposalById(p.id, companyId))?.plantPaletteId).toBe(palette.id);
+    expect((await storage.getProposalById(p.id, companyId))?.plantPaletteId).toBeNull();
     await request(app).patch(`/api/proposals/${p.id}`).set("X-Test-Company", otherCompany).send({ plantPaletteId: null }).expect(404);
     await request(app).patch(`/api/proposals/${p.id}`).set("X-Test-Role", "field").send({ plantPaletteId: null }).expect(403);
     await request(app).patch(`/api/proposals/${p.id}`).set("X-Company-Id", otherCompany).send({ plantPaletteId: null }).expect(409);
@@ -265,13 +404,13 @@ describe("proposal relationships and scoped HTTP contracts", () => {
     expect((await db.select().from(plantPaletteItems).where(eq(plantPaletteItems.paletteId, own.id)))).toHaveLength(2);
   });
   it("guards invalid company, customer, ticket and void links and mirrors the number", async () => {
-    const d = await draft(), p = await proposal();
+    const d = await draft(), p = await proposal(d.id);
     expect((await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: d.id })).status).toBe(200);
     expect((await storage.getProposalById(p.id, companyId))?.estimateNumber).toBe(d.estimateNumber);
     await storage.updateProposal(p.id, companyId, { scopeOfWork: "keep", photoLayout: "grid" });
-    await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: null }).expect(200);
+    await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: null }).expect(400);
     const unlinked = await storage.getProposalById(p.id, companyId);
-    expect(unlinked).toMatchObject({ estimateId: null, scopeOfWork: "keep", photoLayout: "grid" });
+    expect(unlinked).toMatchObject({ estimateId: d.id, scopeOfWork: "keep", photoLayout: "grid" });
     const foreign = await createEstimate(otherCompany, actor, { customerId: foreignCustomer, title: "Foreign" });
     for (const [id, error] of [[foreign.id, "ESTIMATE_NOT_FOUND"], [(await createEstimate(companyId, actor, { customerId: otherCustomer, title: "Wrong customer" })).id, "ESTIMATE_CUSTOMER_MISMATCH"]]) {
       const res = await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: id });
@@ -351,7 +490,7 @@ describe("finalize sends first and pins exactly what was rendered", () => {
     const yes = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "other", confirmZeroPriced: true });
     expect(yes.status).toBe(201);
   });
-  it("accepted uses the frozen version without send; void/declined fail and unlinked requires uploads", async () => {
+  it("accepted uses the frozen version without send; void/declined fail and legacy stays read-only", async () => {
     const d = await draft(), p = await proposal(d.id);
     await transitionEstimate(companyId, actor, d.id, d.version.id, "send", { method: "email" });
     await transitionEstimate(companyId, actor, d.id, d.version.id, "accept", { method: "phone" });
@@ -365,12 +504,11 @@ describe("finalize sends first and pins exactly what was rendered", () => {
     const voided = await request(app).post(`/api/proposals/${dp.id}/finalize`).send({});
     expect(voided.status).toBe(409); expect(voided.body.error).toBe("ESTIMATE_VOID");
     const unlinked = await proposal();
-    await request(app).post(`/api/proposals/${unlinked.id}/finalize`).send({}).expect(400);
+    await request(app).post(`/api/proposals/${unlinked.id}/finalize`).send({}).expect(409);
     legacyUploads.add(unlinked.id);
     const legacy = await request(app).post(`/api/proposals/${unlinked.id}/finalize`).send({});
-    expect(legacy.status).toBe(201);
-    expect(legacy.body).toMatchObject({ estimateVersionId: null, estimateTransition: null, versionNumber: 1 });
-    expect(stored.get(legacy.body.pdfStoragePath)?.toString()).toBe("PDF:uploaded");
+    expect(legacy.status).toBe(409);
+    expect(legacy.body.error).toBe("LEGACY_PROPOSAL_READ_ONLY");
     await request(app).post(`/api/proposals/${p.id}/finalize`).set("X-Company-Id", otherCompany).send({}).expect(409);
     await request(app).post(`/api/proposals/${p.id}/finalize`).set("X-Test-Role", "crew_supervisor").send({}).expect(403);
   });

@@ -1,39 +1,62 @@
 import { useState, useMemo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation, useSearch } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ClipboardList, Plus, ChevronDown, Check, ArrowLeft, Link2, FileText, Loader2, Search, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ClipboardList, ArrowLeft, ArrowRight, Link2, FileText, Search, ArrowUp, ArrowDown, ArrowUpDown, Calculator, AlertTriangle } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { fetchJson } from "@/lib/hardscapeCatalog";
+import { ESTIMATE_BUILDER_PATH, ESTIMATES_API, builderPath, type EstimateListItemDto } from "@/lib/estimateBuilder";
 import type { ProposalWithDetails } from "@shared/schema";
-import type { Customer } from "@shared/schema";
+
+/** Ticket context: proposals start from the ticket's estimate, or the ticket needs one first. */
+function TicketEstimateNotice({ ticketId }: { ticketId: string }) {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const companyId = user?.activeCompanyId ?? "";
+  const q = useQuery<EstimateListItemDto | null>({
+    queryKey: [ESTIMATES_API, "by-ticket", companyId, user?.id, user?.activeRole, ticketId],
+    queryFn: ({ signal }) => fetchJson<EstimateListItemDto | null>(`${ESTIMATES_API}/by-ticket/${encodeURIComponent(ticketId)}`, companyId, signal),
+    enabled: !!companyId, retry: false, staleTime: 0,
+  });
+  if (q.isLoading) return <Skeleton className="h-8 w-56" data-testid="ticket-estimate-loading" />;
+  if (q.isError) return (
+    <div role="alert" className="flex items-center gap-2 text-sm" data-testid="ticket-estimate-error">
+      <AlertTriangle className="w-4 h-4 text-destructive" />{t("proposalP1.ticketError")}
+      <Button size="sm" variant="outline" onClick={() => void q.refetch()} data-testid="button-ticket-estimate-retry">{t("proposalEstimate.retry")}</Button>
+    </div>
+  );
+  if (q.data) return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="ticket-estimate-found">
+      <span className="text-sm text-muted-foreground">{t("proposalP1.ticketHasEstimate", { number: q.data.estimateNumber })}</span>
+      <Button size="sm" onClick={() => navigate(builderPath(q.data!.id))} data-testid="button-open-ticket-estimate">
+        <Calculator className="w-3.5 h-3.5 mr-1.5" />{t("proposalP1.openTicketEstimate", { number: q.data.estimateNumber })}
+      </Button>
+    </div>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="ticket-estimate-missing">
+      <span className="text-sm text-muted-foreground">{t("proposalP1.ticketNeedsEstimate")}</span>
+      <Button size="sm" variant="outline" onClick={() => navigate(`/dashboard/tickets/${encodeURIComponent(ticketId)}`)} data-testid="button-ticket-needs-estimate">
+        {t("proposalP1.goToTicket")}
+      </Button>
+    </div>
+  );
+}
 
 export default function ProposalMaker() {
   const [, navigate] = useLocation();
   const search = useSearch();
-  const { toast } = useToast();
   const { t } = useTranslation();
 
   const params = new URLSearchParams(search);
   const contextTicketId = params.get("ticketId") || null;
   const contextTicketTitle = params.get("ticketTitle") || null;
-  const contextCustomerId = params.get("customerId") || null;
   const hasTicketContext = !!contextTicketId;
-
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
-  const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [title, setTitle] = useState("Proposal");
-  const [submitting, setSubmitting] = useState(false);
-  const [linkSearch, setLinkSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortColumn, setSortColumn] = useState<"title" | "customer" | "status" | "date">("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -41,80 +64,6 @@ export default function ProposalMaker() {
   const { data: proposals = [], isLoading } = useQuery<ProposalWithDetails[]>({
     queryKey: ["/api/proposals"],
   });
-
-  const { data: customersResp } = useQuery<{ customers: Customer[]; total: number }>({
-    queryKey: ["/api/customers"],
-  });
-  const customers = customersResp?.customers ?? [];
-
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest("POST", "/api/proposals", {
-        customerId: selectedCustomer!.id,
-        title: title.trim() || "Proposal",
-        proposalDate: new Date().toISOString().split("T")[0],
-        ...(contextTicketId ? { ticketId: contextTicketId } : {}),
-      });
-    },
-    onSuccess: async (res) => {
-      const data = await res.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
-      setCreateDialogOpen(false);
-      resetCreateDialog();
-      const dest = contextTicketId
-        ? `/dashboard/tools/proposals/${data.id}?ticketId=${encodeURIComponent(contextTicketId)}&ticketTitle=${encodeURIComponent(contextTicketTitle ?? "")}`
-        : `/dashboard/tools/proposals/${data.id}`;
-      navigate(dest);
-    },
-    onError: () => {
-      toast({ title: t("common.error"), description: t("proposals.createFailed"), variant: "destructive" });
-    },
-  });
-
-  const linkMutation = useMutation({
-    mutationFn: async (proposalId: string) => {
-      return apiRequest("PATCH", `/api/proposals/${proposalId}`, {
-        ticketId: contextTicketId,
-      });
-    },
-    onSuccess: async (res, proposalId) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
-      if (contextTicketId) {
-        queryClient.invalidateQueries({ queryKey: ["/api/tickets", contextTicketId, "proposals"] });
-      }
-      setLinkDialogOpen(false);
-      const dest = contextTicketId
-        ? `/dashboard/tools/proposals/${proposalId}?ticketId=${encodeURIComponent(contextTicketId)}&ticketTitle=${encodeURIComponent(contextTicketTitle ?? "")}`
-        : `/dashboard/tools/proposals/${proposalId}`;
-      navigate(dest);
-    },
-    onError: () => {
-      toast({ title: t("common.error"), description: t("proposals.linkFailed"), variant: "destructive" });
-    },
-  });
-
-  const resetCreateDialog = () => {
-    setSelectedCustomer(null);
-    setTitle("Proposal");
-  };
-
-  const handleOpenCreateDialog = () => {
-    if (contextCustomerId) {
-      const match = customers.find(c => c.id === contextCustomerId);
-      if (match) setSelectedCustomer(match);
-    }
-    setCreateDialogOpen(true);
-  };
-
-  const handleCreate = async () => {
-    if (!selectedCustomer) return;
-    setSubmitting(true);
-    try {
-      await createMutation.mutateAsync();
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return "";
@@ -125,13 +74,6 @@ export default function ProposalMaker() {
       return dateStr;
     }
   };
-
-  const filteredLinkable = proposals.filter(p =>
-    !linkSearch ||
-    p.title.toLowerCase().includes(linkSearch.toLowerCase()) ||
-    (p.customerName ?? "").toLowerCase().includes(linkSearch.toLowerCase()) ||
-    (p.proposalNumber ?? "").toLowerCase().includes(linkSearch.toLowerCase())
-  );
 
   const handleSort = (col: typeof sortColumn) => {
     if (sortColumn === col) {
@@ -193,8 +135,9 @@ export default function ProposalMaker() {
           <div className="flex items-center gap-2 min-w-0">
             <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">{t("proposals.linkingToTicket")}</p>
+              <p className="text-xs text-muted-foreground">{t("proposalP1.ticketContext")}</p>
               <p className="text-sm font-medium truncate">{contextTicketTitle}</p>
+              <div className="mt-2"><TicketEstimateNotice ticketId={contextTicketId!} /></div>
             </div>
           </div>
           <Button
@@ -219,22 +162,13 @@ export default function ProposalMaker() {
             {t("tools.proposalMakerDesc")}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {hasTicketContext && (
-            <Button
-              variant="outline"
-              onClick={() => setLinkDialogOpen(true)}
-              data-testid="button-link-existing-proposal"
-            >
-              <Link2 className="w-4 h-4 mr-2" />
-              {t("proposals.linkExisting")}
-            </Button>
-          )}
-          <Button onClick={handleOpenCreateDialog} data-testid="button-new-proposal">
-            <Plus className="w-4 h-4 mr-2" />
-            {t("proposals.newProposal")}
-          </Button>
-        </div>
+        <Button asChild variant="outline" data-testid="button-go-to-estimates">
+          <Link href={ESTIMATE_BUILDER_PATH}><Calculator className="w-4 h-4 mr-2" />{t("proposalP1.goToEstimates")}</Link>
+        </Button>
+      </div>
+      <div className="flex items-start gap-2 mb-5 -mt-2 rounded-md border border-dashed px-3 py-2.5 text-sm text-muted-foreground" data-testid="text-start-from-estimate">
+        <FileText className="w-4 h-4 mt-0.5 shrink-0" />
+        <span>{t("proposalP1.listLead")}</span>
       </div>
 
       {isLoading ? (
@@ -254,12 +188,11 @@ export default function ProposalMaker() {
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <ClipboardList className="w-12 h-12 text-muted-foreground mb-4" />
           <h3 className="text-lg font-medium mb-1">{t("proposals.noProposals")}</h3>
-          <p className="text-muted-foreground text-sm mb-4">
-            {t("proposals.createFirst")}
+          <p className="text-muted-foreground text-sm mb-4 max-w-sm">
+            {t("proposalP1.emptyBody")}
           </p>
-          <Button onClick={handleOpenCreateDialog} data-testid="button-new-proposal-empty">
-            <Plus className="w-4 h-4 mr-2" />
-            {t("proposals.newProposal")}
+          <Button asChild data-testid="button-empty-go-to-estimates">
+            <Link href={ESTIMATE_BUILDER_PATH}>{t("proposalP1.goToEstimates")}<ArrowRight className="w-4 h-4 ml-2" /></Link>
           </Button>
         </div>
       ) : (
@@ -393,155 +326,6 @@ export default function ProposalMaker() {
         </>
       )}
 
-      <Dialog open={createDialogOpen} onOpenChange={(open) => { setCreateDialogOpen(open); if (!open) resetCreateDialog(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("proposals.newProposal")}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label>{t("common.customer")} <span className="text-destructive">*</span></Label>
-              <Popover open={customerPopoverOpen} onOpenChange={setCustomerPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    className="w-full justify-between font-normal"
-                    data-testid="button-select-customer"
-                  >
-                    {selectedCustomer ? selectedCustomer.name : t("proposals.selectCustomer")}
-                    <ChevronDown className="ml-2 w-4 h-4 opacity-50 shrink-0" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[300px] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder={t("proposals.searchCustomers")} data-testid="input-customer-search" />
-                    <CommandList>
-                      <CommandEmpty>{t("proposals.noCustomersFound")}</CommandEmpty>
-                      <CommandGroup>
-                        {customers.map((c) => (
-                          <CommandItem
-                            key={c.id}
-                            value={c.name}
-                            onSelect={() => {
-                              setSelectedCustomer(c);
-                              setCustomerPopoverOpen(false);
-                            }}
-                            data-testid={`option-customer-${c.id}`}
-                          >
-                            <Check className={`mr-2 w-4 h-4 ${selectedCustomer?.id === c.id ? "opacity-100" : "opacity-0"}`} />
-                            {c.name}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="proposal-title">{t("common.title")}</Label>
-              <Input
-                id="proposal-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Proposal"
-                data-testid="input-proposal-title"
-              />
-            </div>
-
-            {hasTicketContext && (
-              <p className="text-xs text-muted-foreground">
-                {t("proposals.linkingToTicket")}: <span className="font-medium text-foreground">{contextTicketTitle}</span>
-              </p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setCreateDialogOpen(false); resetCreateDialog(); }} data-testid="button-cancel-dialog">
-              {t("common.cancel")}
-            </Button>
-            <Button
-              onClick={handleCreate}
-              disabled={!selectedCustomer || submitting}
-              data-testid="button-create-proposal"
-            >
-              {submitting ? t("common.creating") : t("common.create")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("proposals.linkExisting")}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-1">
-            <p className="text-sm text-muted-foreground">
-              {t("proposals.selectUnlinked")} <span className="font-medium text-foreground">{contextTicketTitle}</span>.
-            </p>
-            <Input
-              placeholder={t("proposals.searchProposals")}
-              value={linkSearch}
-              onChange={(e) => setLinkSearch(e.target.value)}
-              data-testid="input-link-search"
-            />
-            <div className="space-y-2 max-h-72 overflow-y-auto">
-              {proposals.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">
-                  {t("proposals.noProposalsFound")}
-                </div>
-              ) : filteredLinkable.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">
-                  {t("proposals.noProposalsMatch")}
-                </div>
-              ) : (
-                filteredLinkable.map(p => {
-                  const alreadyLinkedHere = p.ticketId === contextTicketId;
-                  return (
-                    <button
-                      key={p.id}
-                      className="w-full text-left flex items-center justify-between p-3 rounded-md border gap-3 disabled:opacity-60 disabled:cursor-not-allowed hover-elevate"
-                      onClick={() => !alreadyLinkedHere && linkMutation.mutate(p.id)}
-                      disabled={linkMutation.isPending || alreadyLinkedHere}
-                      data-testid={`button-link-proposal-${p.id}`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          {p.proposalNumber && (
-                            <span className="text-xs font-mono text-muted-foreground shrink-0">{p.proposalNumber}</span>
-                          )}
-                          <p className="text-sm font-medium truncate">{p.title}</p>
-                        </div>
-                        <p className="text-xs text-muted-foreground">{p.customerName} · {formatDate(p.proposalDate)}</p>
-                      </div>
-                      <div className="shrink-0 flex items-center gap-2">
-                        {alreadyLinkedHere && (
-                          <Badge variant="secondary" className="text-xs">{t("proposals.alreadyLinked")}</Badge>
-                        )}
-                        {!alreadyLinkedHere && p.ticketId && (
-                          <Badge variant="outline" className="text-xs">{t("proposals.relink")}</Badge>
-                        )}
-                        {linkMutation.isPending && !alreadyLinkedHere ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                        ) : !alreadyLinkedHere ? (
-                          <Link2 className="w-4 h-4 text-muted-foreground" />
-                        ) : null}
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setLinkDialogOpen(false)} data-testid="button-cancel-link">
-              {t("common.cancel")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

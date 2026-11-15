@@ -27,6 +27,7 @@ import { EstimatesRail } from "@/components/nav/estimatesRail";
 import { AddLineButtons, LINE_TYPE_ICON } from "@/components/estimates/AddLineButtons";
 import { ScopeOfWorkCard } from "@/components/estimates/ScopeOfWorkCard";
 import { PdfPreviewDialog } from "@/components/estimates/PdfPreviewDialog";
+import { EstimateProposalButton, proposalPath, useEstimateProposals } from "@/components/estimates/EstimateProposalAction";
 import { DocumentBadge, EstimateStatePill, IdentityHeaderCard, MetadataCell, MetadataStrip } from "@/components/estimates/EstimateIdentityHeader";
 import "@/components/estimates/estimateBuilder.css";
 import { TicketStatusPill, type TicketStatusLike } from "@/components/TicketIdentity";
@@ -140,6 +141,7 @@ function BuilderContent({ id }: { id: string }) {
   const contentEditableRef = useRef(false);
   contentEditableRef.current = false;
 
+  const proposals = useEstimateProposals(id, !!data?.voidedAt);
   const customerId = data?.customerId;
   const rates = useQuery<RatesPreviewWithContext>({
     queryKey: [RATES_PREVIEW_API, user?.activeCompanyId, user?.id, user?.activeRole, customerId],
@@ -459,6 +461,7 @@ function BuilderContent({ id }: { id: string }) {
             </div>
             <div role="toolbar" aria-label={t("estimateBuilder.life.actions")} className="flex flex-wrap items-center gap-1.5" data-testid="bar-lifecycle">
               <Button size="sm" variant="outline" onClick={() => setPdfOpen(true)} data-testid="button-preview-pdf"><FileText className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.pdf.preview")}</Button>
+              {!data.voidedAt && <EstimateProposalButton estimateId={data.id} state={proposals} />}
               {lifeOn && v.status === "draft" && isCurrent && (
                 <Button size="sm" disabled={busy} onClick={() => openDialog("send")} data-testid="button-mark-sent"><Send className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.markSent")}</Button>
               )}
@@ -481,16 +484,26 @@ function BuilderContent({ id }: { id: string }) {
                 <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => openDialog("discard")} data-testid="button-discard-draft">
                   <Trash2 className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.discard")}</Button>
               )}
-              {!data.voidedAt && isCurrent && (
+              {!data.voidedAt && (isCurrent || proposals.older.length > 0) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={t("estimateBuilder.life.more")} disabled={busy} data-testid="button-overflow"><MoreHorizontal className="h-4 w-4" /></Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-64">
+                    {proposals.older.length > 0 && (<>
+                      <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground" data-testid="label-older-proposals">{t("proposalP1.otherProposals")}</DropdownMenuLabel>
+                      {proposals.older.map((p) => (
+                        <DropdownMenuItem key={p.id} onSelect={() => setLocation(proposalPath(p.id))} data-testid={`menu-open-proposal-${p.id}`}>
+                          <FileText className="mr-2 h-4 w-4" />{t("proposalP1.openProposal", { number: p.proposalNumber ?? p.title })}
+                        </DropdownMenuItem>
+                      ))}
+                    </>)}
+                    {isCurrent && <>
                     <DropdownMenuItem disabled={!canVoid || locked} onSelect={() => openDialog("void")} className="text-destructive focus:text-destructive" data-testid="menu-void">
                       <Ban className="mr-2 h-4 w-4" />{t("estimateBuilder.life.void")}
                     </DropdownMenuItem>
                     {!canVoid && <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground" data-testid="text-void-blocked">{t("estimateBuilder.life.voidBlocked")}</DropdownMenuLabel>}
+                    </>}
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}

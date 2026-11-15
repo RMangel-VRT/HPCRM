@@ -9,7 +9,7 @@ import i18n from "@/i18n";
 import en from "@/i18n/locales/en";
 import es from "@/i18n/locales/es";
 const mocks = vi.hoisted(() => ({ api: vi.fn(), toast: vi.fn(), advance: vi.fn(),
-  user: { id: "u", activeCompanyId: "c", activeRole: "admin" } }));
+  user: { id: "u", activeCompanyId: "c", activeRole: "admin", accessRole: "admin" } }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock("@/components/estimates/ProposalEstimateSection", () => ({ ProposalEstimateSection: () => <div data-testid="estimate-section" /> }));
@@ -64,13 +64,13 @@ describe("proposal finalize dialog and legacy uploads", () => {
     expect(screen.getByRole("button", { name: "Full page" })).toBeTruthy();
     view.unmount(); queryClient.clear();
     mount({ ...base, estimateId: null, estimate: null });
-    await screen.findByTestId("button-upload-pdf");
+    await screen.findByTestId("banner-legacy-proposal");
     expect(screen.queryByTestId("proposal-cover-controls")).toBeNull();
   });
   it("renders Spanish cover and attachment copy", async () => {
     await i18n.changeLanguage("es");
     mount();
-    expect(await screen.findByText("Portada")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Portada" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Solo logotipo" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Página completa" })).toBeTruthy();
   });
@@ -130,57 +130,49 @@ describe("proposal finalize dialog and legacy uploads", () => {
     await waitFor(() => expect(screen.queryByTestId("button-confirm-finalize")).toBeNull());
     expect(mocks.advance).not.toHaveBeenCalled();
   });
-  it("unlinked legacy proposals retain uploads and cannot finalize without one", async () => {
-    mount({ ...base, estimateId: null, estimate: null });
-    const finalize = await screen.findByTestId("button-finalize-proposal") as HTMLButtonElement;
-    expect(finalize.disabled).toBe(true);
-    expect(screen.getByTestId("button-upload-pdf")).toBeTruthy();
+  it.each(["en", "es"])("legacy unlinked proposals are read-only but still preview, download and delete (%s)", async language => {
+    await i18n.changeLanguage(language);
+    mount({ ...base, estimateId: null, estimate: null, files: [{ id: "q", fileType: "estimate_pdf", storageObjectPath: "/x.pdf", filename: "qb.pdf", displayOrder: 0, fileSize: 1 }] });
+    expect((await screen.findByTestId("banner-legacy-proposal")).textContent).toBe((language === "en" ? en : es).proposalP1.legacyBanner);
+    expect(screen.queryByTestId("button-finalize-proposal")).toBeNull();
+    expect(screen.queryByTestId("button-generate-crew-worksheet")).toBeNull();
+    expect(screen.queryByTestId("button-upload-pdf")).toBeNull();
+    expect(screen.queryByTestId("input-estimate-number")).toBeNull();
+    expect((screen.getByTestId("fieldset-proposal-content") as HTMLFieldSetElement).disabled).toBe(true);
+    expect((screen.getByTestId("button-preview-pdf") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByTestId("button-download-pdf")).toBeTruthy();
+    const retained = screen.getByTestId("link-retained-estimate-q");
+    expect(retained.getAttribute("href")).toBe("/objects/x.pdf");
+    expect(retained.getAttribute("download")).toBe("qb.pdf");
+    expect(retained.getAttribute("aria-label")).toBe(language === "en" ? "Download retained file qb.pdf" : "Descargar archivo conservado qb.pdf");
+    expect(screen.queryByTestId("button-delete-file-q")).toBeNull();
+    expect(retained.closest("fieldset")).toBeNull();
+    expect((screen.getByTestId("button-delete-proposal") as HTMLButtonElement).disabled).toBe(false);
     expect(screen.queryByTestId("button-attach-palette")).toBeNull();
-    expect(screen.queryByTestId("button-remove-legacy-palette")).toBeNull();
+    await i18n.changeLanguage("en");
   });
 
-  it.each(["en", "es"])("removes a read-only legacy palette and refreshes the editor in %s", async language => {
+  it.each(["en", "es"])("shows a legacy palette read-only with no active Remove control in %s", async language => {
     await i18n.changeLanguage(language);
     const copy = (language === "en" ? en : es).paletteRetirement;
-    const legacy = { ...base, estimateId: null, estimate: null, plantPaletteId: "old", plantPalette: { title: "Old", items: [] } };
-    mount(legacy);
+    mount({ ...base, estimateId: null, estimate: null, plantPaletteId: "old", plantPalette: { title: "Old", items: [] } });
     expect(await screen.findByText(copy.legacyNote)).toBeTruthy();
-    expect(screen.queryByTestId("button-open-palette")).toBeNull();
+    expect(screen.queryByTestId("button-remove-legacy-palette")).toBeNull();
     expect(screen.queryByTestId("button-attach-palette")).toBeNull();
-    const original = mocks.api.getMockImplementation()!;
-    let resolve: () => void = () => {};
-    mocks.api.mockImplementation(async (method: string, url: string, body: unknown, options: unknown) => {
-      if (method === "PATCH") {
-        await new Promise<void>(r => { resolve = r; });
-        legacy.plantPaletteId = null as any;
-        legacy.plantPalette = null as any;
-        return ok(legacy);
-      }
-      return original(method, url, body, options);
-    });
-    const action = screen.getByRole("button", { name: copy.remove }) as HTMLButtonElement;
-    fireEvent.click(action);
-    await waitFor(() => expect(action.disabled).toBe(true));
-    expect(mocks.api).toHaveBeenCalledWith("PATCH", "/api/proposals/p", { plantPaletteId: null }, expect.objectContaining({ headers: { "X-Company-Id": "c" } }));
-    resolve();
-    await waitFor(() => expect(screen.queryByText(copy.legacyNote)).toBeNull());
-    expect(screen.queryByTestId("button-attach-palette")).toBeNull();
-    expect(mocks.api.mock.calls.some(call => String(call[1]).includes("/api/plant-palettes"))).toBe(false);
+    await i18n.changeLanguage("en");
   });
-
-  it.each(["en", "es"])("keeps the legacy reference and shows a retryable localized error in %s", async language => {
+  it.each(["en", "es"])("P2: linked proposals have no scope editor; legacy shows its own scope read-only (%s)", async language => {
     await i18n.changeLanguage(language);
-    const copy = (language === "en" ? en : es).paletteRetirement;
-    mount({ ...base, estimateId: null, estimate: null, plantPaletteId: "old" });
-    const original = mocks.api.getMockImplementation()!;
-    mocks.api.mockImplementation(async (method: string, ...args: unknown[]) => {
-      if (method === "PATCH") throw new Error("network failure");
-      return original(method, ...args);
-    });
-    fireEvent.click(await screen.findByRole("button", { name: copy.remove }));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(copy.removeError));
-    expect(screen.getByText(copy.legacyNote)).toBeTruthy();
-    expect((screen.getByRole("button", { name: copy.remove }) as HTMLButtonElement).disabled).toBe(false);
+    const view = mount({ ...base, scopeOfWork: "Proposal copy" });
+    await screen.findByTestId("text-proposal-title");
+    expect(screen.queryByTestId("input-scope-of-work")).toBeNull();
+    expect(screen.queryByTestId("button-insert-page-break")).toBeNull();
+    expect(screen.queryByText("Proposal copy")).toBeNull();
+    view.unmount(); queryClient.clear();
+    mount({ ...base, estimateId: null, estimate: null, scopeOfWork: "Old typed scope" });
+    expect((await screen.findByTestId("text-legacy-scope")).textContent).toBe("Old typed scope");
+    expect(screen.queryByTestId("input-scope-of-work")).toBeNull();
+    await i18n.changeLanguage("en");
   });
 
   it("never offers the legacy removal or palette editor on a linked proposal", async () => {

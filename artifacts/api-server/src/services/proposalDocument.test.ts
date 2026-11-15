@@ -35,7 +35,9 @@ beforeEach(() => {
 });
 describe("scoped proposal loader", () => {
   it("uses the exact captured version's authoritative total and selected exhibits, skipping missing images", async () => {
+    mocks.estimate.mockResolvedValue({ ...estimateFixture(12), scopeOfWork: "Selected scope\n[PAGE BREAK]\nSecond" });
     const model = await loadProposalDocumentModel("c", proposal(), exhibits);
+    expect(model.scopeOfWork).toBe("Selected scope\n[PAGE BREAK]\nSecond");
     expect(mocks.estimate).toHaveBeenCalledExactlyOnceWith("c", "e", "captured");
     expect(model.estimate.totalCents).toBe(300000);
     expect(model.photos.map(p => p.caption)).toEqual(["First", "Second"]);

@@ -63,7 +63,7 @@ export async function loadProposalDocumentModel(companyId: string, p: ProposalWi
   }
   return buildProposalDocumentModel({
     title: p.title, number: p.proposalNumber, documentDate: p.proposalDate || coloradoDate(new Date()),
-    scopeOfWork: p.scopeOfWork, customerName: estimate.customerName, customerAddress: estimate.customerAddress,
+    scopeOfWork: estimate.scopeOfWork ?? "", customerName: estimate.customerName, customerAddress: estimate.customerAddress,
     workLocation: estimate.workLocation, estimate, coverSource: p.coverSource ?? "none",
     hero: p.coverSource === "photo" ? photos.find(f => f.id === p.coverPhotoFileId) ?? null : p.coverSource === "visual_scope" ? visualHero : null,
     visualScope, palette: { introText: exhibits.palette.introText, groups },

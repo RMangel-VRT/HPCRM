@@ -5,6 +5,7 @@ import { CrewLinkError, validateCampaignOwner } from "./lib/crewLinks";
 import type { CampaignCrew, InsertCampaignCrew, CampaignCrewMember, CampaignCrewWithMembers } from "@workspace/db";
 import { hardscapeStorage } from "./lib/hardscapeStorage";
 import { loadProposalEstimateSummaries } from "./services/proposalEstimates";
+import { readEstimate } from "./services/estimateReads";
 import { withCustomerSyncLock } from "./services/qboCustomerSync";
 import { validateAccountManagerWrite } from "./services/accountManagers";
 import { accessRole } from "../../../lib/db/src/accessRole";
@@ -3346,6 +3347,11 @@ export class PgStorage implements IStorage {
   }): Promise<import("@workspace/db").CrewWorksheetWithDetails | undefined> {
     const proposal = await this.getProposalById(args.proposalId, args.companyId);
     if (!proposal) return undefined;
+    // Worksheet text is an intentional operational snapshot, not a new scope
+    // owner. Follow the same current estimate version as the proposal editor.
+    const scopeOfWork = proposal.estimateId
+      ? (await readEstimate(args.companyId, proposal.estimateId)).version.scopeOfWork ?? ""
+      : proposal.scopeOfWork ?? "";
     const images = proposal.files
       .filter(f => f.fileType === "image")
       .sort((a, b) => a.displayOrder - b.displayOrder);
@@ -3362,7 +3368,7 @@ export class PgStorage implements IStorage {
         worksheetNumber: args.worksheetNumber,
         title: args.title,
         worksheetDate: args.worksheetDate,
-        scopeOfWork: proposal.scopeOfWork ?? "",
+        scopeOfWork,
         status: "draft",
         visualScopeSheetId: proposal.visualScopeSheetId ?? null,
         assignedCrewLeadId: null,

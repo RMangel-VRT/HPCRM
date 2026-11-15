@@ -17,7 +17,7 @@ import { withInvoiceLinkSummaries } from "../lib/ticketLinkSummary";
 import { BRAND, LM, RM, loadBrandLogo, wirePageDecorations } from "../lib/pdfBrand";
 import express from "express";
 import type { Express } from "express";
-import { crews as standingCrews } from "@workspace/db";
+import { crews as standingCrews, estimates, proposals } from "@workspace/db";
 import { registerCrewSupervisorTicketGuard } from "../lib/crewSupervisorTicketAccess";
 import { createServer, type Server } from "http";
 import path from "path";
@@ -117,6 +117,8 @@ import { migrateSchedulingStatuses } from '../lib/schedulingStatuses';
 import { backfillScheduleBy } from '../lib/backfillScheduleBy';
 import { initializeEmptyServiceCategories } from '../lib/initializeEmptyServiceCategories';
 import { normalizeStoredEstimateUnits } from '../lib/normalizeEstimateUnits';
+import { carryProposalScope } from '../lib/carryProposalScope';
+import { loadEstimateDocumentModel } from "../services/estimatePdf";
 import { maintainScheduleBy } from '../lib/scheduleByMaintenance';
 import { applyTicketStatus } from "../lib/ticketStatusChange";
 import { guardManualRfpStatus, lockRfp } from "../lib/rfpContracts";
@@ -2727,6 +2729,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await migrateSchedulingStatuses();
   await backfillScheduleBy();
   await initializeEmptyServiceCategories();
+  await carryProposalScope();
   await normalizeStoredEstimateUnits();
   await linkCrewsByName();
   await backfillVisitsFromTickets();
@@ -10987,6 +10990,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const canAccessProposals = (role: string) => accessRole(role) === "admin" || accessRole(role) === "office";
   // Also reject queued requests initiated before an active-company switch.
   app.use("/api/proposals", estimateAccess);
+  // All draft/attachment mutation entry points share this guard. GETs and the
+  // authorized whole-proposal DELETE intentionally remain available for legacy.
+  app.use("/api/proposals/:id", async (req, res, next) => {
+    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
+    const user = req.user as UserWithContext;
+    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (["GET", "HEAD", "OPTIONS"].includes(req.method) ||
+        (req.method === "DELETE" && req.path === "/")) return next();
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
+    if (!proposal) return res.status(404).send("Not found");
+    if (req.body?.fileType === "estimate_pdf") return res.status(400).json({ error: "ESTIMATE_PDF_RETIRED" });
+    if (!proposal.estimateId) return res.status(409).json({ error: "LEGACY_PROPOSAL_READ_ONLY" });
+    next();
+  });
   const proposalEstimates = async (list: import("@workspace/db").ProposalWithDetails[], companyId: string) => {
     const summaries = await loadProposalEstimateSummaries(companyId, list.flatMap(p => p.estimateId ? [p.estimateId] : []));
     return list.map(p => ({ ...p, estimate: p.estimateId ? summaries.get(p.estimateId) ?? null : null }));
@@ -10996,6 +11013,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    if (req.query.estimateId !== undefined) {
+      if (typeof req.query.estimateId !== "string" || !req.query.estimateId.trim()) return res.status(400).json({ error: "INVALID_REQUEST" });
+      const rows = await db.select({ id: proposals.id, proposalNumber: proposals.proposalNumber,
+        createdAt: proposals.createdAt, status: proposals.status, title: proposals.title })
+        .from(proposals).where(and(eq(proposals.companyId, user.activeCompanyId), eq(proposals.estimateId, req.query.estimateId)))
+        .orderBy(sql`${proposals.createdAt} DESC, ${proposals.id} DESC`);
+      return res.json(rows);
+    }
     const list = await storage.getProposals(user.activeCompanyId);
     res.json(await proposalEstimates(list, user.activeCompanyId));
   });
@@ -11004,25 +11029,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    req.body ??= {};
+    if (Object.hasOwn(req.body, "scopeOfWork")) return res.status(400).json({ error: "ESTIMATE_SCOPE_OWNED" });
 
-    const { customerId, title, proposalDate, estimateNumber, scopeOfWork, ticketId } = req.body;
+    const { title, proposalDate, ticketId } = req.body;
     if (req.body.plantPaletteId !== undefined && req.body.plantPaletteId !== null) {
       return res.status(400).json({ error: "PLANT_PALETTES_RETIRED" });
     }
-    if (!customerId) return res.status(400).json({ error: "customerId is required" });
-
-    const customer = await storage.getCustomerById(customerId, user.activeCompanyId);
-    if (!customer) return res.status(400).json({ error: "Customer not found or does not belong to your company" });
-
+    const input = proposalZ.object({ estimateId: proposalZ.string().trim().min(1).max(200).optional(),
+      ticketId: proposalZ.string().trim().min(1).max(200).optional(),
+      title: proposalZ.string().optional(), proposalDate: proposalZ.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).safeParse(req.body);
+    if (!input.success) return res.status(400).json({ error: "INVALID_REQUEST" });
+    let estimateId = input.data.estimateId;
+    if (!estimateId && ticketId) estimateId = (await readTicketEstimate(user.activeCompanyId, ticketId))?.id;
+    if (!estimateId) return res.status(400).json({ error: "ESTIMATE_REQUIRED" });
+    const [linkedEstimate] = await db.select().from(estimates)
+      .where(and(eq(estimates.companyId, user.activeCompanyId), eq(estimates.id, estimateId)));
+    if (!linkedEstimate) return res.status(422).json({ error: "ESTIMATE_NOT_FOUND" });
+    if (linkedEstimate.voidedAt) return res.status(422).json({ error: "ESTIMATE_LINK_VOID" });
+    const customerId = linkedEstimate.customerId;
     if (await assertNotParentCustomer(customerId, user.activeCompanyId, res)) return;
-
-    let linkedEstimate: Awaited<ReturnType<typeof readTicketEstimate>> = null;
-    if (ticketId) {
-      const ticket = await storage.getTicketById(ticketId, user.activeCompanyId);
-      if (!ticket || ticket.customerId !== customerId) return res.status(422).json({ error: "ESTIMATE_TICKET_MISMATCH" });
-      linkedEstimate = await readTicketEstimate(user.activeCompanyId, ticketId);
-    }
-    const today = new Date().toISOString().split("T")[0];
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Denver", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
     // Use the DB sequence for atomic, concurrency-safe number assignment
     const seqRow = await db.execute(sql`SELECT NEXTVAL('proposal_number_seq') AS seq`);
     const nextSeq = seqRow.rows[0]?.seq as number ?? 1;
@@ -11031,12 +11058,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       companyId: user.activeCompanyId,
       customerId,
       createdById: user.id,
-      ticketId: ticketId || null,
-      title: title || "Proposal",
+      ticketId: linkedEstimate.ticketId,
+      title: title || linkedEstimate.title,
       proposalDate: proposalDate || today,
-      estimateId: linkedEstimate?.id ?? null,
-      estimateNumber: linkedEstimate?.estimateNumber ?? (estimateNumber || null),
-      scopeOfWork: scopeOfWork || "",
+      estimateId: linkedEstimate.id,
+      estimateNumber: linkedEstimate.estimateNumber,
       status: "draft",
       proposalNumber,
     });
@@ -11075,6 +11101,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
+    req.body ??= {};
+    if (Object.hasOwn(req.body, "scopeOfWork")) return res.status(400).json({ error: "ESTIMATE_SCOPE_OWNED" });
     if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) return res.status(409).json({ error: "COMPANY_CHANGED" });
     const exhibitSettings = proposalExhibitSettingsSchema.safeParse(req.body);
     if (!exhibitSettings.success) return res.status(400).json({ error: "INVALID_REQUEST" });
@@ -11101,6 +11129,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const linkInput = proposalZ.object({ estimateId: proposalZ.string().trim().min(1).max(200).nullable().optional() }).safeParse(req.body);
     if (!linkInput.success) return res.status(400).json({ error: "INVALID_REQUEST" });
     const { estimateId } = linkInput.data;
+    if (estimateId === null) return res.status(400).json({ error: "ESTIMATE_REQUIRED" });
+    if (estimateId !== undefined && estimateId !== existing.estimateId &&
+        (existing.status !== "draft" || existing.versions.length)) return res.status(409).json({ error: "PROPOSAL_ESTIMATE_FROZEN" });
     let linkNumber: string | undefined;
     const effectiveEstimateId = estimateId === undefined ? existing.estimateId : estimateId;
     if (effectiveEstimateId) {
@@ -11284,7 +11315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
 
-    const proposal = await storage.getProposal(req.params.id, user.activeCompanyId);
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
     if (!proposal) return res.status(404).send("Proposal not found");
 
     const { orderedFileIds } = req.body as { orderedFileIds?: unknown };
@@ -11311,7 +11342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
 
     const file = await storage.getProposalFileById(req.params.fileId, user.activeCompanyId);
-    if (!file) return res.status(404).send("File not found");
+    if (!file || file.proposalId !== req.params.id) return res.status(404).send("File not found");
 
     const { caption } = req.body;
     const updated = await storage.updateProposalFile(req.params.fileId, user.activeCompanyId, { caption: caption ?? null });
@@ -11323,7 +11354,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
 
-    const proposal = await storage.getProposal(req.params.id, user.activeCompanyId);
+    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
     if (!proposal) return res.status(404).send("Proposal not found");
 
     const { fileIds } = req.body as { fileIds?: unknown };
@@ -11356,7 +11387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
 
     const file = await storage.getProposalFileById(req.params.fileId, user.activeCompanyId);
-    if (!file) return res.status(404).send("File not found");
+    if (!file || file.proposalId !== req.params.id) return res.status(404).send("File not found");
 
     const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
     if (bucketId) {
@@ -11556,6 +11587,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   async function generateProposalPdf(proposal: import("@workspace/db").ProposalWithDetails, companyId: string, selectedVersionId?: string, selectedExhibits?: ProposalExhibits): Promise<Buffer> {
     // Resolve once. Never re-read a mutable current-version pointer during this operation.
     const exhibits = proposal.estimateId ? selectedExhibits ?? await loadProposalExhibits(companyId, proposal, selectedVersionId) : null;
+    const scopeText = proposal.estimateId && exhibits
+      ? (await loadEstimateDocumentModel(companyId, proposal.estimateId, exhibits.provenance.versionId)).scopeOfWork ?? ""
+      : proposal.scopeOfWork ?? "";
     if (proposal.estimateId && exhibits) {
       try {
         return await renderLinkedProposal(companyId, proposal, exhibits);
@@ -11672,6 +11706,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     doc.moveDown(1.0);
 
     // --- Scope heading ---
+    if (scopeText.trim()) {
     doc.fillColor(BRAND)
       .fontSize(12)
       .font('Helvetica-Bold')
@@ -11689,7 +11724,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     bodyFontState = { font: 'Helvetica', size: 10.5, color: '#222222' };
     doc.fillColor(bodyFontState.color).fontSize(bodyFontState.size).font(bodyFontState.font);
 
-    const scopeText = proposal.scopeOfWork || '';
     const lines = scopeText.split('\n');
     for (const line of lines) {
       const trimmed = line.trim();
@@ -11704,6 +11738,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         doc.text(line, LM, doc.y, { width: contentWidth, lineGap: 4 });
       }
+    }
     }
 
     doc.end();
@@ -12358,9 +12393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
     if (!proposal) return res.status(404).send("Proposal not found");
 
-    if (!proposal.estimateId && !proposal.files.some(f => f.fileType === 'estimate_pdf')) {
-      return res.status(400).send("No estimate PDF attached. Upload a QB Estimate PDF before finalizing.");
-    }
+    if (!proposal.estimateId) return res.status(409).json({ error: "LEGACY_PROPOSAL_READ_ONLY" });
 
     const input = proposalZ.object({
       estimateSendMethod: proposalZ.enum(["email", "hard_copy", "portal", "other"]).optional(),
@@ -12526,7 +12559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
 
     const version = await storage.getProposalVersionById(req.params.versionId, user.activeCompanyId);
-    if (!version) return res.status(404).send("Version not found");
+    if (!version || version.proposalId !== req.params.id) return res.status(404).send("Version not found");
 
     const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
 
@@ -12559,7 +12592,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
 
     const version = await storage.getProposalVersionById(req.params.versionId, user.activeCompanyId);
-    if (!version) return res.status(404).send("Version not found");
+    if (!version || version.proposalId !== req.params.id) return res.status(404).send("Version not found");
 
     const type = req.params.type as "combined" | "base" | "overlay";
     const pathMap: Record<string, string | null | undefined> = {
@@ -12722,6 +12755,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Existence pre-check so we can return 404 (vs the storage method returning undefined).
     const proposalProbe = await storage.getProposalById(proposalId, user.activeCompanyId);
     if (!proposalProbe) return res.status(404).send("Proposal not found");
+    if (!proposalProbe.estimateId) return res.status(409).json({ error: "LEGACY_PROPOSAL_READ_ONLY" });
 
     const today = new Date();
     const dateStr = today.toISOString().slice(0, 10);

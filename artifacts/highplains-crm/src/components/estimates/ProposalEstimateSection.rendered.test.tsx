@@ -4,8 +4,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import "@/i18n";
-const mocks = vi.hoisted(() => ({ user: { id: "u", activeCompanyId: "c", activeRole: "admin" }, api: vi.fn(), toast: vi.fn() }));
+import i18n from "@/i18n";
+import en from "@/i18n/locales/en";
+import es from "@/i18n/locales/es";
+const mocks = vi.hoisted(() => ({ user: { id: "u", activeCompanyId: "c", activeRole: "admin", accessRole: "admin" }, api: vi.fn(), toast: vi.fn() }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: mocks.api }));
@@ -36,47 +38,25 @@ describe("proposal estimate section", () => {
     expect(mocks.api.mock.calls[0][1]).toBe("/api/estimates/e");
   });
 
-  it("unlinks with estimateId null", async () => {
+  it("has no unlink control and offers switching a draft proposal to another eligible estimate", async () => {
+    mocks.api.mockImplementation(async (_m: string, url: string) => url.startsWith("/api/estimates?")
+      ? ok([{ id: "e2", estimateNumber: "EST-8", title: "Alt", subtotalCents: 5, voidedAt: null }, { id: "v", estimateNumber: "EST-9", title: "V", voidedAt: "x" }])
+      : ok({ id: "e", estimateNumber: "EST-7", title: "Beds", voidedAt: null, updatedAt: "x", version: { id: "v", versionNumber: 2, status: "sent", frozenSubtotalCents: 1 } }));
+    renderIt({ ...base, estimateId: "e", status: "draft", estimate: { id: "e", number: "EST-7", title: "Beds", subtotalCents: 1, currentVersion: null } } as never);
+    expect(await screen.findByTestId("row-proposal-estimate-switch")).toBeTruthy();
+    expect(screen.queryByTestId("button-proposal-estimate-unlink")).toBeNull();
+    expect((screen.getByTestId("button-proposal-estimate-switch") as HTMLButtonElement).disabled).toBe(true);
+  });
+  it("hides switching for finalized proposals", async () => {
     mocks.api.mockResolvedValue(ok({ id: "e", estimateNumber: "EST-7", title: "Beds", voidedAt: null, updatedAt: "x", version: { id: "v", versionNumber: 2, status: "sent", frozenSubtotalCents: 1 } }));
-    const { onLinked } = renderIt({ ...base, estimate: { id: "e", number: "EST-7", title: "Beds", subtotalCents: 1, currentVersion: null } });
-    fireEvent.click(screen.getByTestId("button-proposal-estimate-unlink"));
-    await waitFor(() => expect(onLinked).toHaveBeenCalled());
-    expect(mocks.api).toHaveBeenCalledWith("PATCH", "/api/proposals/p", { estimateId: null }, expect.anything());
+    renderIt({ ...base, estimateId: "e", status: "finalized", estimate: { id: "e", number: "EST-7", title: "Beds", subtotalCents: 1, currentVersion: null } } as never);
+    expect(await screen.findByTestId("card-proposal-estimate")).toBeTruthy();
+    expect(screen.queryByTestId("row-proposal-estimate-switch")).toBeNull();
   });
-
-  it("creates, links and opens builder when no candidates", async () => {
-    mocks.api.mockImplementation(async (method: string, url: string) => {
-      if (method === "GET") return ok([]);
-      if (method === "POST") return ok({ id: "new" });
-      return ok({});
-    });
-    const { loc } = renderIt();
-    fireEvent.click(await screen.findByTestId("button-proposal-estimate-create"));
-    await waitFor(() => expect(loc.history?.at(-1)).toContain("/dashboard/estimates/builder/new"));
-    expect(mocks.api).toHaveBeenCalledWith("POST", "/api/estimates", { customerId: "cust", title: "Front beds" }, expect.anything());
-    expect(mocks.api).toHaveBeenCalledWith("PATCH", "/api/proposals/p", { estimateId: "new" }, expect.anything());
-  });
-
-  it("suggests the ticket estimate", async () => {
-    mocks.api.mockResolvedValue(ok({ id: "s", estimateNumber: "EST-9", title: "T" }));
-    renderIt({ ...base, ticketId: "t" });
-    expect((await screen.findByTestId("badge-proposal-estimate-suggestion")).textContent).toContain("EST-9");
-    expect(mocks.api.mock.calls[0][1]).toBe("/api/estimates/by-ticket/t");
-    fireEvent.click(screen.getByTestId("button-proposal-estimate-link"));
-    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith("PATCH", "/api/proposals/p", { estimateId: "s" }, expect.objectContaining({ headers: { "X-Company-Id": "c" } })));
-  });
-
-  it("shows retryable error", async () => {
-    mocks.api.mockRejectedValueOnce(new Error("500: x")).mockResolvedValue(ok([]));
-    renderIt();
-    fireEvent.click(await screen.findByTestId("button-proposal-estimate-retry"));
-    expect(await screen.findByTestId("button-proposal-estimate-create")).toBeTruthy();
-  });
-  it("offers customer non-void estimates in the picker", async () => {
-    mocks.api.mockResolvedValue(ok([{ id: "eligible", estimateNumber: "EST-3", title: "Beds", subtotalCents: 1000, voidedAt: null }]));
-    renderIt();
-    expect(await screen.findByTestId("select-proposal-estimate")).toBeTruthy();
-    expect(mocks.api).toHaveBeenCalledWith("GET", "/api/estimates?customerId=cust", undefined, expect.objectContaining({ headers: { "X-Company-Id": "c" } }));
+  it("renders nothing for legacy unlinked proposals (no create or link)", () => {
+    const { container } = renderIt();
+    expect(container.textContent).toBe("");
+    expect(mocks.api).not.toHaveBeenCalled();
   });
   it("previews the authoritative current version and uses frozen totals for sent estimates", async () => {
     mocks.api.mockResolvedValue(ok({ id: "e", estimateNumber: "EST-7", title: "Beds", voidedAt: null, updatedAt: "x",
@@ -86,16 +66,36 @@ describe("proposal estimate section", () => {
     fireEvent.click(screen.getByTestId("button-proposal-estimate-preview"));
     expect(screen.getByTestId("preview-stub").textContent).toBe("sent-v2:false");
   });
-  it("does not link or navigate after an old-scope create resolves following unmount", async () => {
-    let resolve!: (value: unknown) => void;
-    mocks.api.mockImplementation(async (method: string) => method === "POST" ? new Promise(r => { resolve = r; }) : ok([]));
-    const { unmount, onLinked, loc } = renderIt();
-    fireEvent.click(await screen.findByTestId("button-proposal-estimate-create"));
-    await waitFor(() => expect(resolve).toBeTypeOf("function"));
-    unmount(); resolve(ok({ id: "old-company-estimate" }));
-    await new Promise(r => setTimeout(r, 0));
-    expect(mocks.api.mock.calls.some(c => c[0] === "PATCH")).toBe(false);
-    expect(onLinked).not.toHaveBeenCalled();
-    expect(loc.history?.at(-1)).not.toContain("/builder/");
+  it.each(["en", "es"])("P2: shows the current estimate version scope read-only with Edit in estimate (%s)", async language => {
+    await i18n.changeLanguage(language);
+    const copy = (language === "en" ? en : es).proposalP2;
+    mocks.api.mockResolvedValue(ok({ id: "e", estimateNumber: "EST-7", title: "Beds", voidedAt: null, updatedAt: "x",
+      version: { id: "v2", versionNumber: 2, status: "draft", scopeOfWork: "Edge beds\n[PAGE BREAK]\nMulch", totals: { subtotalCents: 1 } } }));
+    const { loc } = renderIt({ ...base, estimateId: "e", scopeOfWork: "stale proposal copy", estimate: { id: "e", number: "EST-7", title: "Beds", subtotalCents: 1, currentVersion: { id: "v2", versionNumber: 2, status: "draft" } } } as never);
+    expect((await screen.findByTestId("text-proposal-estimate-scope")).textContent).toContain("Edge beds");
+    expect(screen.queryByText(/stale proposal copy/)).toBeNull();
+    expect(screen.getByTestId("text-scope-source").textContent).toBe(copy.scopeSource);
+    fireEvent.click(screen.getByText(copy.editInEstimate));
+    expect(loc.history?.at(-1)).toBe("/dashboard/estimates/builder/e");
+    await i18n.changeLanguage("en");
+  });
+  it.each(["en", "es"])("P2: empty estimate scope shows the prescribed empty state, never proposal text (%s)", async language => {
+    await i18n.changeLanguage(language);
+    mocks.api.mockResolvedValue(ok({ id: "e", estimateNumber: "EST-7", title: "Beds", voidedAt: null, updatedAt: "x",
+      version: { id: "v", versionNumber: 1, status: "draft", scopeOfWork: "", totals: { subtotalCents: 1 } } }));
+    renderIt({ ...base, estimateId: "e", scopeOfWork: "proposal copy", estimate: { id: "e", number: "EST-7", title: "Beds", subtotalCents: 1, currentVersion: null } } as never);
+    expect((await screen.findByTestId("text-proposal-estimate-scope-empty")).textContent).toBe((language === "en" ? en : es).proposalP2.scopeEmpty);
+    expect(screen.queryByText("proposal copy")).toBeNull();
+    await i18n.changeLanguage("en");
+  });
+  it("hides estimate switching once the proposal has finalized versions", async () => {
+    mocks.api.mockImplementation(async (_m: string, url: string) => url.startsWith("/api/estimates?")
+      ? ok([{ id: "e2", estimateNumber: "EST-8", title: "Alt", subtotalCents: 5, voidedAt: null }])
+      : ok({ id: "e", estimateNumber: "EST-7", title: "Beds", voidedAt: null, updatedAt: "x", version: { id: "v", versionNumber: 1, status: "sent", frozenSubtotalCents: 1 } }));
+    renderIt({ ...base, estimateId: "e", status: "draft", versions: [{ id: "pv1", versionNumber: 1 }], estimate: { id: "e", number: "EST-7", title: "Beds", subtotalCents: 1, currentVersion: null } } as never);
+    expect(await screen.findByTestId("card-proposal-estimate")).toBeTruthy();
+    await new Promise(r => setTimeout(r, 20));
+    expect(screen.queryByTestId("row-proposal-estimate-switch")).toBeNull();
+    expect(mocks.api.mock.calls.some(c => String(c[1]).startsWith("/api/estimates?"))).toBe(false);
   });
 });

@@ -50,6 +50,8 @@ describe("linked read-only plant exhibits", () => {
     await waitFor(() => expect(api.mock.calls.some(c => c[0] === "PATCH" && c[2].includePlantPalette === false)).toBe(true));
     await waitFor(() => expect((screen.getByTestId("palette-intro") as HTMLTextAreaElement).disabled).toBe(false));
     expect((screen.getByTestId("palette-intro") as HTMLTextAreaElement).value).toBe(DEFAULT_PALETTE_INTRO);
+    expect(screen.getByTestId("palette-intro-actions").className).toContain("flex-wrap");
+    expect(screen.getByRole("button", { name: "Use default introduction" }).className).toContain("whitespace-normal");
     fireEvent.change(screen.getByTestId("palette-intro"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save introduction" }));
     await waitFor(() => expect(api.mock.calls.some(c => c[0] === "PATCH" && c[2].paletteIntroText === "")).toBe(true));

@@ -30,6 +30,14 @@ export function proposalFixture(count = 0, layout = "large") {
   });
 }
 describe("proposal pure allowlist and shared fragments", () => {
+  it("preserves selected-version page breaks and omits empty scope sections entirely", () => {
+    const m = proposalFixture();
+    m.scopeOfWork = "First\n[PAGE BREAK]\nSecond";
+    expect(proposalDocumentHtml(m)).toMatch(/First<br\s*\/?><div class="new-page"><\/div>/);
+    expect(proposalDocumentHtml(m)).toContain("Second");
+    m.scopeOfWork = " \n ";
+    expect(proposalDocumentHtml(m)).not.toContain("<h2>Scope of work</h2>");
+  });
   it("uses exact estimate pricing once, one acceptance, escaped settings and no estimate band", () => {
     const m = proposalFixture();
     m.estimate.companyDocument.estimateTerms = "<b>literal terms</b>";
@@ -77,6 +85,22 @@ describe("proposal pure allowlist and shared fragments", () => {
   });
 });
 describe("real Chromium proposal pagination", () => {
+  it("prints selected scope across explicit page breaks and omits an empty scope heading", async () => {
+    const model = proposalFixture();
+    model.scopeOfWork = "Selected scope first\n[PAGE BREAK]\nSelected scope second";
+    const text = execFileSync("pdftotext", ["-layout", "-", "-"], {
+      input: await renderProposalDocument(model),
+    }).toString();
+    expect(text).toContain("Selected scope first");
+    expect(text).toContain("Selected scope second");
+    expect(text.indexOf("\f", text.indexOf("Selected scope first"))).toBeLessThan(text.indexOf("Selected scope second"));
+    expect(text).not.toContain("[PAGE BREAK]");
+    model.scopeOfWork = "";
+    const empty = execFileSync("pdftotext", ["-layout", "-", "-"], {
+      input: await renderProposalDocument(model),
+    }).toString();
+    expect(empty).not.toContain("Scope of work");
+  }, 30000);
   it.each([[0, "large"], [1, "large"], [10, "large"], [0, "grid"], [1, "grid"], [10, "grid"]] as const)("places acceptance before %i %s photos and numbers after the cover", async (count, layout) => {
     const model = proposalFixture(count, layout);
     const bytes = await renderProposalDocument(model);

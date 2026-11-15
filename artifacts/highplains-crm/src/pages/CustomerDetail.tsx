@@ -52,6 +52,7 @@ import BillingPage, { type BillingView } from "@/components/customer/pages/Billi
 import SnowPage from "@/components/customer/pages/SnowPage";
 import { BranchesPage, ParentDashboardPage, ParentTicketsPage, useParentRollup } from "@/components/customer/pages/ParentPages";
 import { openTicketCount, pendingProposalCount, qboNeedsAttention } from "@/components/customer/customerBadges";
+import { ESTIMATE_BUILDER_PATH } from "@/lib/estimateBuilder";
 import { recordRecentCustomer, removeRecentCustomer } from "@/lib/last-viewed-customer";
 
 const currentHash = () => (typeof window !== "undefined" ? window.location.hash : "");
@@ -254,21 +255,11 @@ export default function CustomerDetail() {
 
   const [isLogCommOpen, setIsLogCommOpen] = useState(false);
   const [documentUploadSignal, setDocumentUploadSignal] = useState(0);
-  const createProposal = useMutation({
-    // Same request and destination as the Proposals page's existing New proposal flow.
-    mutationFn: async () => {
-      const started = scope.companyId;
-      const res = await scope.request("POST", "/api/proposals", { customerId: id, title: t("customerPages.pages.proposals"), proposalDate: new Date().toISOString().split("T")[0] });
-      const created = await res.json();
-      scope.assertSameCompany(started);
-      return created as { id: string };
-    },
-    onSuccess: created => {
-      void queryClient.invalidateQueries({ queryKey: ["/api/customers", id, "proposals"] });
-      navigate(`/dashboard/tools/proposals/${created.id}`);
-    },
-    onError: () => toast({ title: t("common.error"), description: t("customerPages.proposals.createFailed"), variant: "destructive" }),
-  });
+  // Proposals start from an estimate (P1): the customer action sends the user to Estimates.
+  const goToEstimates = () => {
+    toast({ title: t("proposalP1.startFromEstimate"), description: t("proposalP1.startFromEstimateBody") });
+    navigate(ESTIMATE_BUILDER_PATH);
+  };
 
   useEffect(() => {
     if (!id || isLoadingCustomer) return;
@@ -413,7 +404,7 @@ export default function CustomerDetail() {
           branchCount={parentRollup.data?.children.length ?? childCustomers.length}
           canEdit={canEditCustomer}
           actions={{ note: canAddNote, ticket: isPrivilegedUser && !isParent, proposal: isPrivilegedUser && !isParent, logCommunication: isPrivilegedUser }}
-          onAddNote={openNoteDialog} onAddProposal={() => createProposal.mutate()} proposalPending={createProposal.isPending}
+          onAddNote={openNoteDialog} onAddProposal={goToEstimates}
           onLogCommunication={() => setIsLogCommOpen(true)} />
 
         {!isParent && activeTab !== "dashboard" && <FinishSetupBanner customerId={customer.id} status={customer.status} />}

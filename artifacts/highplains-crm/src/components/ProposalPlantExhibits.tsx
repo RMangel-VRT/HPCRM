@@ -15,6 +15,9 @@ interface Props {
   proposal: { id: string; estimateId: string; includePlantSchedule?: boolean; includePlantPalette?: boolean; paletteIntroText?: string | null; estimate?: { currentVersion: { id: string } | null } | null };
   companyId: string; identity: string;
 }
+/** Every key here is translated in EN/ES; anything else shows as "Other". */
+const KNOWN_CATEGORIES = new Set(["tree", "shrub", "perennial", "shrub_rose", "vine", "ornamental_grass", "annual", "other"]);
+const categoryKey = (c: string) => c === "rose" ? "shrub_rose" : KNOWN_CATEGORIES.has(c) ? c : "other";
 function PlantPhoto({ varietyKey, companyId, name }: { varietyKey: string; companyId: string; name: string }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -31,17 +34,21 @@ function PlantPhoto({ varietyKey, companyId, name }: { varietyKey: string; compa
   }, [varietyKey, companyId]);
   return url ? <img src={url} alt={name} className="aspect-square w-full object-cover rounded mb-2" /> : null;
 }
+/** Shared exhibits read (same key the page checklist uses; React Query dedupes). */
+export function useProposalExhibits(proposal: Props["proposal"], companyId: string, identity: string, enabled = true) {
+  return useQuery<ProposalExhibits>({
+    queryKey: [EXHIBITS_KEY, companyId, identity, proposal.id, proposal.estimateId, proposal.estimate?.currentVersion?.id],
+    queryFn: async ({ signal }) => (await apiRequest("GET", `/api/proposals/${proposal.id}/exhibits`, undefined,
+      { signal, headers: companyHeaders(companyId) })).json(),
+    staleTime: 0, refetchInterval: 30_000, enabled,
+  });
+}
 /** Parent is keyed by company/user/role. Query and mutation closures never cross that boundary. */
 export function ProposalPlantExhibits({ proposal, companyId, identity }: Props) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [introDraft, setIntroDraft] = useState<string | null>(null);
-  const query = useQuery<ProposalExhibits>({
-    queryKey: [EXHIBITS_KEY, companyId, identity, proposal.id, proposal.estimateId, proposal.estimate?.currentVersion?.id],
-    queryFn: async ({ signal }) => (await apiRequest("GET", `/api/proposals/${proposal.id}/exhibits`, undefined,
-      { signal, headers: companyHeaders(companyId) })).json(),
-    staleTime: 0, refetchInterval: 30_000,
-  });
+  const query = useProposalExhibits(proposal, companyId, identity);
   const save = useMutation({
     mutationFn: async (updates: Record<string, unknown>) => apiRequest("PATCH", `/api/proposals/${proposal.id}`, updates, { headers: companyHeaders(companyId) }),
     onSuccess: (_response, updates) => {
@@ -57,12 +64,14 @@ export function ProposalPlantExhibits({ proposal, companyId, identity }: Props) 
     {t("plantExhibits.source", { number: provenance.estimateNumber, version: provenance.versionNumber })}
   </p>;
   const state = query.isError
-    ? <p role="alert">{t("plantExhibits.loadError")} <Button variant="link" onClick={() => void query.refetch()}>{t("plantExhibits.retry")}</Button></p>
+    ? <p role="alert">{t("plantExhibits.loadError")} <Button variant="ghost" size="sm" className="h-auto px-1 py-0 underline underline-offset-2" onClick={() => void query.refetch()}>{t("plantExhibits.retry")}</Button></p>
     : query.isPending ? <p role="status">{t("plantExhibits.loading")}</p> : null;
   const intro = introDraft ?? proposal.paletteIntroText ?? DEFAULT_PALETTE_INTRO;
-  return <div className="space-y-6">
+  const cards = data ? data.palette.groups.flatMap(group => group.cards.map(card => ({ card, category: group.category }))) : [];
+  return <div className="space-y-3">
     {save.isError && <p role="alert">{t("plantExhibits.saveError")}</p>}
-    <Card>
+    <div className="grid gap-4 xl:grid-cols-2" data-testid="plants-side-by-side">
+    <Card className="min-w-0">
       <CardHeader><CardTitle>{t("plantExhibits.schedule")}</CardTitle></CardHeader>
       <CardContent className="space-y-3">
         <label className="flex items-center gap-2"><Switch checked={proposal.includePlantSchedule !== false} disabled={save.isPending}
@@ -77,29 +86,28 @@ export function ProposalPlantExhibits({ proposal, companyId, identity }: Props) 
         </table></div> : <p>{t("plantExhibits.emptySchedule")}</p>)}
       </CardContent>
     </Card>
-    <Card>
+    <Card className="min-w-0">
       <CardHeader><CardTitle>{t("plantExhibits.palette")}</CardTitle></CardHeader>
       <CardContent className="space-y-3">
         <label className="flex items-center gap-2"><Switch checked={proposal.includePlantPalette !== false} disabled={save.isPending}
           aria-label={t("plantExhibits.includePalette")} onCheckedChange={includePlantPalette => save.mutate({ includePlantPalette })} />{t("plantExhibits.includePalette")}</label>
         {source}<Link href={link} className="text-sm underline">{t("plantExhibits.editSelections")}</Link>
         <label className="block space-y-2"><span>{t("plantExhibits.intro")}</span>
-          <Textarea value={intro} maxLength={10000} disabled={save.isPending}
+          <Textarea value={intro} rows={3} maxLength={10000} disabled={save.isPending}
             onChange={e => setIntroDraft(e.target.value)} data-testid="palette-intro" />
         </label>
-        <div className="flex gap-2">
-          <Button size="sm" disabled={introDraft === null || save.isPending} onClick={() => save.mutate({ paletteIntroText: introDraft })}>{t("plantExhibits.saveIntro")}</Button>
-          <Button size="sm" variant="outline" disabled={save.isPending} onClick={() => save.mutate({ paletteIntroText: null })}>{t("plantExhibits.defaultIntro")}</Button>
+        <div className="flex flex-wrap gap-2" data-testid="palette-intro-actions">
+          <Button size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-1.5" disabled={introDraft === null || save.isPending} onClick={() => save.mutate({ paletteIntroText: introDraft })}>{t("plantExhibits.saveIntro")}</Button>
+          <Button size="sm" variant="outline" className="h-auto min-h-8 max-w-full whitespace-normal py-1.5" disabled={save.isPending} onClick={() => save.mutate({ paletteIntroText: null })}>{t("plantExhibits.defaultIntro")}</Button>
         </div>
         {state}
-        {!query.isError && data && (data.palette.groups.length ? data.palette.groups.map(group => <section key={group.category}>
-          <h3 className="font-semibold mb-2">{t(`plantExhibits.category.${group.category}`, { defaultValue: group.category })}</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">{group.cards.map(card => <div key={card.id} className="rounded border p-3" data-testid="estimate-palette-card">
+        {!query.isError && data && (cards.length ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="palette-grid">{cards.map(({ card, category }) => <div key={`${category}:${card.id}`} className="rounded border p-3" data-testid="estimate-palette-card">
             {card.imagePath && card.id.startsWith("variety:") && <PlantPhoto key={`${identity}:${card.id}`} varietyKey={card.id.slice(8)} companyId={companyId} name={card.name} />}
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" data-testid="text-palette-card-category">{t(`plantExhibits.category.${categoryKey(category)}`)}</p>
             <p className="font-medium">{card.name}</p><p className="text-sm text-muted-foreground">{card.typeLabel}</p>
-          </div>)}</div>
-        </section>) : <p>{t("plantExhibits.emptyPalette")}</p>)}
+          </div>)}</div> : <p>{t("plantExhibits.emptyPalette")}</p>)}
       </CardContent>
     </Card>
+    </div>
   </div>;
 }

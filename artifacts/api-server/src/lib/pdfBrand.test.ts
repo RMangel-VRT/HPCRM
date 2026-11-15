@@ -15,7 +15,7 @@ const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 /** Executes the actual proposal helper in isolation, not a rewritten fixture renderer.
  * Storage / optional native image rendering are supplied deterministic bytes.
  */
-async function proposalHarness(source: string, options: { linked?: (...args: unknown[]) => Promise<Buffer>; render?: (companyId: string, estimateId: string, versionId: string) => Promise<Buffer>; uploads?: unknown[]; exhibits?: ProposalExhibits } = {}) {
+async function proposalHarness(source: string, options: { scope?: string | null; linked?: (...args: unknown[]) => Promise<Buffer>; render?: (companyId: string, estimateId: string, versionId: string) => Promise<Buffer>; uploads?: unknown[]; exhibits?: ProposalExhibits } = {}) {
   const start = source.indexOf("  async function proposalEstimatePages(") >= 0
     ? source.indexOf("  async function proposalEstimatePages(") : source.indexOf("  async function generateProposalPdf(");
   const end = source.indexOf('  app.get("/api/proposals/:id/pdf"', start);
@@ -36,6 +36,9 @@ async function proposalHarness(source: string, options: { linked?: (...args: unk
     renderEstimatePdf: options.render,
     renderLinkedProposal: options.linked ?? (async () => { throw new DocumentRendererUnavailable(); }),
     DocumentRendererUnavailable,
+    loadEstimateDocumentModel: async (_company: string, _estimate: string, version: string) => ({
+      scopeOfWork: options.scope === undefined ? `Scope for ${version}` : options.scope,
+    }),
     loadProposalExhibits: async (_company: string, _proposal: unknown, versionId?: string) => ({
       schedule: [{ quantity: "3.00", name: "Estimate Pine", botanicalName: "Pinus", size: "5 gal", imagePath: null }],
       palette: { introText: "", groups: [{ category: "tree", cards: [{ id: "pine", name: "Estimate Pine", typeLabel: "Tree", imagePath: null }] }] },
@@ -64,6 +67,22 @@ const fixture = (scopeOfWork: string) => ({
   visualScopeSheetId: "scope", visualScopeSheet: { title: "Site scope", scopeDate: "2026-10-30", baseImagePath: "base" },
 });
 describe("mechanical proposal branding extraction", () => {
+  it("fallback uses the selected estimate scope, respects page breaks, and omits an empty scope", async () => {
+    const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
+    const render = async () => {
+      const pdf = await PDFLib.PDFDocument.create(); pdf.addPage().drawText("Pricing");
+      return Buffer.from(await pdf.save());
+    };
+    const p = { ...fixture("WRONG proposal-owned text"), estimateId: "estimate", estimate: { currentVersion: { id: "current" } } };
+    const generate = await proposalHarness(source, { render, scope: "Selected first\n[PAGE BREAK]\nSelected second" });
+    const text = execFileSync("pdftotext", ["-layout", "-", "-"], { input: await generate(p, "company", "captured") }).toString();
+    expect(text).toContain("Selected first"); expect(text).toContain("Selected second");
+    expect(text).not.toContain("WRONG"); expect(text).not.toContain("[PAGE BREAK]");
+    expect(text.indexOf("\f", text.indexOf("Selected first"))).toBeLessThan(text.indexOf("Selected second"));
+    const empty = await proposalHarness(source, { render, scope: null });
+    const emptyText = execFileSync("pdftotext", ["-layout", "-", "-"], { input: await empty(p, "company", "captured") }).toString();
+    expect(emptyText).not.toContain("SCOPE OF WORK"); expect(emptyText).not.toContain("WRONG");
+  }, 30000);
   it("uses the linked shared renderer with the captured version/exhibits, falling back only when unavailable", async () => {
     const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
     const bytes = Buffer.from("shared PDF");

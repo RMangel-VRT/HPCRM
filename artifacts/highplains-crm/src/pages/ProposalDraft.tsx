@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { ProposalPlantExhibits } from "@/components/ProposalPlantExhibits";
+import { ProposalPlantExhibits, useProposalExhibits } from "@/components/ProposalPlantExhibits";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   DndContext,
@@ -26,7 +26,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DatePickerField } from "@/components/DatePickerField";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -41,7 +40,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   ArrowLeft,
-  Upload,
   FileText,
   Trash2,
   Download,
@@ -52,7 +50,7 @@ import {
   Info,
   History,
   CheckCircle2,
-  Map,
+  Map as MapIcon,
   X,
   ExternalLink,
   Link2,
@@ -74,8 +72,17 @@ import { companyHeaders } from "@/lib/hardscapeCatalog";
 import { SENT_METHODS, conflictOf, type SentMethod, type EstimateDetailDto } from "@/lib/estimateBuilder";
 import { advanceLinkedTicket, ticketRequest } from "@/lib/advanceLinkedTicket";
 import { ProposalEstimateSection } from "@/components/estimates/ProposalEstimateSection";
+import { ProposalDocSection, useCollapsedSections } from "@/components/proposals/ProposalDocSection";
+import { formatCents } from "@/lib/hardscapeCatalog";
+import { useProposalLinkedEstimate, linkedEstimateTotalCents } from "@/components/estimates/useProposalLinkedEstimate";
 import { useToast } from "@/hooks/use-toast";
 import type { ProposalWithDetails, ProposalFile, ProposalPlantItem, Ticket, VisualScopeSheetWithCustomer } from "@shared/schema";
+
+/** Fields this page reads from proposal files; the schema row type is loose in the client build. */
+interface DraftFile {
+  id: string; fileType: string; filename: string; caption: string | null; storageObjectPath: string;
+  displayOrder: number; fileSize: number | null;
+}
 import PlantLibrary, { type PlantPickerSelection } from "@/pages/PlantLibrary";
 
 function formatDateTime(ts: string | Date) {
@@ -84,6 +91,12 @@ function formatDateTime(ts: string | Date) {
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
       " at " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   } catch { return String(ts); }
+}
+
+// Upload registration already returns the authenticated /objects path.
+// Prefix only historical bare object identities, never /objects a second time.
+function proposalPhotoUrl(storagePath: string): string {
+  return storagePath.startsWith("/objects/") ? storagePath : `/objects/${storagePath.replace(/^\//, "")}`;
 }
 
 interface SortablePhotoRowProps {
@@ -150,7 +163,7 @@ function SortablePhotoRow({
       </button>
       <div className="w-16 h-16 rounded-md overflow-hidden shrink-0 bg-muted flex items-center justify-center">
         <img
-          src={`/objects/${img.storageObjectPath.replace(/^\//, "")}`}
+          src={proposalPhotoUrl(img.storageObjectPath)}
           alt={img.caption ?? img.filename}
           className="w-full h-full object-cover"
           onError={(e) => {
@@ -207,7 +220,7 @@ function ProposalDraftContent() {
   const [, navigate] = useLocation();
   const search = useSearch();
   const { toast } = useToast();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const urlParams = new URLSearchParams(search);
   const urlTicketId = urlParams.get("ticketId") || null;
@@ -215,11 +228,8 @@ function ProposalDraftContent() {
 
   const [title, setTitle] = useState("");
   const [proposalDate, setProposalDate] = useState("");
-  const [estimateNumber, setEstimateNumber] = useState("");
-  const [scopeOfWork, setScopeOfWork] = useState("");
   const [initialized, setInitialized] = useState(false);
 
-  const [uploadingPdf, setUploadingPdf] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<ProposalFile | null>(null);
   const [deleteProposalOpen, setDeleteProposalOpen] = useState(false);
@@ -234,9 +244,9 @@ function ProposalDraftContent() {
   const [captionDrafts, setCaptionDrafts] = useState<Record<string, string>>({});
   const [plantPickerOpen, setPlantPickerOpen] = useState(false);
 
-  const pdfInputRef = useRef<HTMLInputElement>(null);
   const imgInputRef = useRef<HTMLInputElement>(null);
-  const scopeRef = useRef<HTMLTextAreaElement>(null);
+  const uploadingRef = useRef(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const { data: proposal, isLoading } = useQuery<ProposalWithDetails>({
     queryKey: ["/api/proposals", id, identity],
@@ -248,11 +258,9 @@ function ProposalDraftContent() {
       if (!initialized) {
         setTitle(data.title ?? "Proposal");
         setProposalDate(data.proposalDate ?? "");
-        setEstimateNumber(data.estimateNumber ?? "");
-        setScopeOfWork(data.scopeOfWork ?? "");
         setInitialized(true);
         const drafts: Record<string, string> = {};
-        data.files.filter(f => f.fileType === "image").forEach(f => {
+        (data.files as DraftFile[]).filter((f: DraftFile) => f.fileType === "image").forEach((f: DraftFile) => {
           drafts[f.id] = f.caption ?? "";
         });
         setCaptionDrafts(drafts);
@@ -262,6 +270,13 @@ function ProposalDraftContent() {
   });
 
   const linkedTicketId = proposal?.ticketId;
+  // Created before estimates (P1): view, download, version history and delete only.
+  const legacy = !!proposal && !proposal.estimateId;
+  const collapse = useCollapsedSections(identity);
+  const linkedEstimate = useProposalLinkedEstimate(proposal?.estimateId ? proposal : null, companyId);
+  const exhibits = useProposalExhibits(
+    { id: proposal?.id ?? id, estimateId: proposal?.estimateId ?? "", estimate: proposal?.estimate ?? null },
+    companyId, identity, !!proposal?.estimateId);
   const { data: linkedTicket } = useQuery<Ticket>({
     queryKey: ["/api/tickets", linkedTicketId],
     queryFn: async () => {
@@ -311,46 +326,13 @@ function ProposalDraftContent() {
     },
   });
 
-  const removeLegacyPalette = useMutation({
-    mutationFn: () => apiRequest("PATCH", `/api/proposals/${id}`, { plantPaletteId: null }),
-    onSuccess: async () => {
-      if (!active()) return;
-      // Refresh this editor and all proposal/ticket summaries; PDF previews are
-      // requested from the server on each open, never regenerated versions.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["/api/proposals"] }),
-        ...(linkedTicketId ? [queryClient.invalidateQueries({ queryKey: ["/api/tickets", linkedTicketId, "proposals"] })] : []),
-      ]);
-    },
-    onError: () => {
-      if (active()) toast({ title: t("common.error"), description: t("paletteRetirement.removeError"), variant: "destructive" });
-    },
-  });
-
   const handleBlur = useCallback((field: string, value: string) => {
     if (!proposal) return;
     const current = proposal[field as keyof ProposalWithDetails] as string | null ?? "";
     if (value !== current) {
-      saveMutation.mutate({ [field]: value || (field === "estimateNumber" ? null : value) });
+      saveMutation.mutate({ [field]: value });
     }
   }, [proposal, saveMutation]);
-
-  const insertPageBreak = () => {
-    const ta = scopeRef.current;
-    const marker = '\n[PAGE BREAK]\n';
-    const start = ta ? ta.selectionStart ?? scopeOfWork.length : scopeOfWork.length;
-    const end = ta ? ta.selectionEnd ?? scopeOfWork.length : scopeOfWork.length;
-    const newValue = scopeOfWork.slice(0, start) + marker + scopeOfWork.slice(end);
-    setScopeOfWork(newValue);
-    saveMutation.mutate({ scopeOfWork: newValue });
-    if (ta) {
-      setTimeout(() => {
-        ta.focus();
-        const newPos = start + marker.length;
-        ta.setSelectionRange(newPos, newPos);
-      }, 0);
-    }
-  };
 
   const deleteFileMutation = useMutation({
     mutationFn: async (fileId: string) => {
@@ -385,7 +367,7 @@ function ProposalDraftContent() {
       queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
       setSelectedImageIds(new Set());
       setBulkDeleteOpen(false);
-      toast({ title: t("proposals.photosDeleted", { count: data.deletedCount, defaultValue: "{{count}} photos deleted" }) });
+      toast({ title: t("proposals.photosDeleted", { count: data.deletedCount }) });
     },
     onError: () => {
       toast({ title: t("common.error"), variant: "destructive" });
@@ -417,10 +399,10 @@ function ProposalDraftContent() {
     const newIndex = images.findIndex(i => i.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
     const newOrder = arrayMove(images, oldIndex, newIndex);
-    queryClient.setQueryData<ProposalWithDetails | undefined>(["/api/proposals", id], (old) => {
+    queryClient.setQueryData<ProposalWithDetails | undefined>(["/api/proposals", id], (old: ProposalWithDetails | undefined) => {
       if (!old) return old;
       const reorderedIds = new Map(newOrder.map((f, idx) => [f.id, idx] as const));
-      const updatedFiles = old.files.map(f => {
+      const updatedFiles = (old.files as DraftFile[]).map((f: DraftFile) => {
         const newIdx = reorderedIds.get(f.id);
         return newIdx === undefined ? f : { ...f, displayOrder: newIdx };
       });
@@ -510,7 +492,7 @@ function ProposalDraftContent() {
     const [moved] = sorted.splice(fromIdx, 1);
     sorted.splice(toIdx, 0, moved);
     const ids = sorted.map(i => i.id);
-    queryClient.setQueryData<ProposalWithDetails | undefined>(["/api/proposals", id], (old) => {
+    queryClient.setQueryData<ProposalWithDetails | undefined>(["/api/proposals", id], (old: ProposalWithDetails | undefined) => {
       if (!old) return old;
       const updated = sorted.map((item, idx) => ({ ...item, displayOrder: idx }));
       return { ...old, plantItems: updated };
@@ -575,7 +557,7 @@ function ProposalDraftContent() {
     },
   });
 
-  const uploadFile = async (file: File, fileType: "estimate_pdf" | "image") => {
+  const uploadFile = async (file: File, fileType: "image") => {
     const urlRes = await apiRequest("POST", `/api/proposals/${id}/files/upload-url`, {
       fileType,
       mimeType: file.type,
@@ -610,22 +592,6 @@ function ProposalDraftContent() {
     }
 
     return finalizeRes.json();
-  };
-
-  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingPdf(true);
-    try {
-      await uploadFile(file, "estimate_pdf");
-      queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
-      toast({ title: t("proposals.pdfUploaded") });
-    } catch (err: any) {
-      toast({ title: t("proposals.uploadFailed"), description: err.message, variant: "destructive" });
-    } finally {
-      setUploadingPdf(false);
-      if (pdfInputRef.current) pdfInputRef.current.value = "";
-    }
   };
 
   const compressImageBeforeUpload = async (file: File): Promise<File> => {
@@ -677,9 +643,11 @@ function ProposalDraftContent() {
     return new File([jpegBlob], newName, { type: "image/jpeg" });
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawFiles = Array.from(e.target.files ?? []);
-    if (!rawFiles.length) return;
+  const isImageFile = (f: File) => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name);
+  /** Shared by the drop zone and the file picker: HEIC conversion, compression, upload, refresh and toast. */
+  const uploadImages = async (rawFiles: File[]) => {
+    if (!rawFiles.length || legacy || uploadingRef.current) return;
+    uploadingRef.current = true;
     setUploadingImages(true);
     const hasHeic = rawFiles.some(f =>
       f.type === "image/heic" || f.type === "image/heif" ||
@@ -695,14 +663,26 @@ function ProposalDraftContent() {
         await uploadFile(file, "image");
       }
       queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
-      toast({ title: `${files.length} image${files.length > 1 ? "s" : ""} uploaded` });
+      toast({ title: t("proposalP3.imagesUploaded", { count: files.length }) });
     } catch (err: any) {
       toast({ title: t("proposals.imageUploadFailed"), description: err.message, variant: "destructive" });
     } finally {
+      uploadingRef.current = false;
       setUploadingImages(false);
       if (imgInputRef.current) imgInputRef.current.value = "";
     }
   };
+  /** Refuses non-images with a toast, uploads the rest through the shared path. */
+  const acceptPhotoFiles = (all: File[]) => {
+    const images = all.filter(isImageFile);
+    if (images.length < all.length) {
+      toast({ title: t("proposalP3.notImageTitle"), description: t("proposalP3.notImageBody", { count: all.length - images.length }), variant: "destructive" });
+    }
+    void uploadImages(images);
+  };
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => acceptPhotoFiles(Array.from(e.target.files ?? []));
+  /** Only native file drags (dataTransfer carries "Files"); dnd-kit pointer reorders never reach here. */
+  const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
   const { data: vsSheets } = useQuery<VisualScopeSheetWithCustomer[]>({
     queryKey: ["/api/customers", proposal?.customerId, "visual-scope-sheets"],
@@ -715,8 +695,10 @@ function ProposalDraftContent() {
   });
 
 
-  const estimatePdfs = proposal?.files.filter(f => f.fileType === "estimate_pdf").sort((a, b) => a.displayOrder - b.displayOrder) ?? [];
-  const images = proposal?.files.filter(f => f.fileType === "image").sort((a, b) => a.displayOrder - b.displayOrder) ?? [];
+  const allFiles: DraftFile[] = proposal?.files ?? [];
+  const byOrder = (a: DraftFile, b: DraftFile) => a.displayOrder - b.displayOrder;
+  const estimatePdfs = allFiles.filter(f => f.fileType === "estimate_pdf").sort(byOrder);
+  const images = allFiles.filter(f => f.fileType === "image").sort(byOrder);
   const versions = proposal?.versions ?? [];
   const hasVersions = versions.length > 0;
   const nextVersionNumber = hasVersions ? (versions[versions.length - 1].versionNumber + 1) : 1;
@@ -738,7 +720,7 @@ function ProposalDraftContent() {
 
   if (isLoading) {
     return (
-      <div className="p-6 max-w-3xl mx-auto">
+      <div className="p-6 max-w-[1480px] mx-auto">
         <div className="animate-pulse space-y-4">
           <div className="h-6 bg-muted rounded w-48" />
           <div className="h-40 bg-muted rounded" />
@@ -749,18 +731,19 @@ function ProposalDraftContent() {
 
   if (!proposal) {
     return (
-      <div className="p-6 max-w-3xl mx-auto">
+      <div className="p-6 max-w-[1480px] mx-auto">
         <p className="text-muted-foreground">{t("proposals.proposalNotFound")}</p>
       </div>
     );
   }
 
-  const finalizeButton = (
+  const finalizeButton = legacy ? null : (
     <Button
       size="sm"
       variant="default"
+      className="w-full"
       onClick={() => { setFinalizeVersionId(proposal.estimate?.currentVersion?.id ?? null); setEstimateSendMethod(""); setNeedPrice([]); setFinalizeError(null); setFinalizeDialogOpen(true); }}
-      disabled={(!proposal.estimateId && estimatePdfs.length === 0) || finalizeMutation.isPending}
+      disabled={finalizeMutation.isPending}
       data-testid="button-finalize-proposal"
     >
       {finalizeMutation.isPending ? (
@@ -771,10 +754,11 @@ function ProposalDraftContent() {
     </Button>
   );
 
-  const generateCrewWorksheetButton = (
+  const generateCrewWorksheetButton = legacy ? null : (
     <Button
       size="sm"
       variant="outline"
+      className="w-full"
       onClick={async () => {
         try {
           const res = await apiRequest("POST", `/api/proposals/${id}/crew-worksheets`, {});
@@ -800,10 +784,48 @@ function ProposalDraftContent() {
     </Button>
   );
 
+  const coverSource = proposal.coverSource ?? "none";
+  const coverLabel = t(coverSource === "photo" ? "proposalP3.cover.photo" : coverSource === "visual_scope" ? "proposalP3.cover.visual" : "proposalP3.cover.logo");
+  const scheduleOn = proposal.includePlantSchedule !== false;
+  const paletteOn = proposal.includePlantPalette !== false;
+  const exData = exhibits.data;
+  const scheduleAvail = !!exData?.schedule.length;
+  const paletteAvail = !!exData?.palette.groups.some(g => g.cards.length);
+  const plantParts = [scheduleOn && t("proposalP3.plants.schedule"), paletteOn && t("proposalP3.plants.palette")].filter(Boolean) as string[];
+  const plantsValue = legacy ? t("proposalP3.notIncluded")
+    : !plantParts.length ? t("proposalP3.notIncluded")
+    : exData && !((scheduleOn && scheduleAvail) || (paletteOn && paletteAvail)) ? t("proposalP3.plants.noneOnEstimate")
+    : plantParts.join(" + ");
+  const plantsOk = !legacy && plantParts.length > 0 && (!exData || (scheduleOn && scheduleAvail) || (paletteOn && paletteAvail));
+  const photoLayoutLabel = t((proposal.photoLayout ?? "large") === "grid" ? "proposalP3.layout.grid" : "proposalP3.layout.full");
+  const photosValue = images.length ? t("proposalP3.photosValue", { count: images.length, layout: photoLayoutLabel }) : t("proposalP3.none");
+  const estimateNumber = proposal.estimate?.number ?? proposal.estimateNumber ?? null;
+  const totalCents = linkedEstimateTotalCents(linkedEstimate.data) ?? proposal.estimate?.subtotalCents ?? null;
+  const estimateScope = linkedEstimate.data?.version.scopeOfWork?.trim() ?? "";
+  const scopeRow = legacy
+    ? { ok: !!proposal.scopeOfWork?.trim(), value: t(proposal.scopeOfWork?.trim() ? "proposalP3.scopeOnProposal" : "proposalP3.none") }
+    : linkedEstimate.data
+      ? { ok: !!estimateScope, value: t(estimateScope ? "proposalP3.scopeFromEstimate" : "proposalP3.scopeMissing") }
+      : { ok: false, value: t(linkedEstimate.isError ? "proposalP3.scopeUnavailable" : "proposalP3.checking") };
+  const checklist = [
+    { key: "estimate", label: t("proposalP3.check.estimate"), ok: !!proposal.estimateId, value: proposal.estimateId ? estimateNumber ?? "" : t("proposalP3.none") },
+    { key: "total", label: t("proposalP3.check.total"), ok: totalCents != null, value: totalCents != null ? formatCents(totalCents, i18n.language) : "—" },
+    { key: "scope", label: t("proposalP3.check.scope"), ...scopeRow },
+    { key: "cover", label: t("proposalP3.check.cover"), ok: coverSource !== "none", value: coverLabel },
+    { key: "plants", label: t("proposalP3.check.plants"), ok: plantsOk, value: plantsValue },
+    { key: "visual", label: t("proposalP3.check.visual"), ok: !!proposal.visualScopeSheetId, value: t(proposal.visualScopeSheetId ? "proposalP3.attached" : "proposalP3.none") },
+    { key: "photos", label: t("proposalP3.check.photos"), ok: images.length > 0, value: photosValue },
+  ];
+  const coverSummary = coverLabel;
+  const visualSummary = proposal.visualScopeSheet?.title ?? t(proposal.visualScopeSheetId ? "proposalP3.attached" : "proposalP3.none");
+  const estimateSummary = legacy ? t("proposalP3.legacySummary") : estimateNumber ? t("proposalP3.estimateSummary", { number: estimateNumber }) : null;
+  const plantsSummary = legacy ? t("proposalP3.notIncluded") : t("proposalP3.plantsSummary", { value: plantsValue });
+  const photosSummary = t("proposalP3.photosSummary", { count: images.length });
+
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
-      <div>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground mb-3 flex-wrap">
+    <div className="mx-auto w-full max-w-[1480px] space-y-5 p-4 sm:p-6" data-testid="page-proposal-draft">
+      <header className="space-y-2" data-testid="proposal-header">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground mb-2 flex-wrap">
           <Link href="/dashboard/tools/proposals">
             <button className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="link-back-to-proposals">
               <ArrowLeft className="w-3.5 h-3.5" />
@@ -835,17 +857,21 @@ function ProposalDraftContent() {
             </span>
           </div>
         )}
-        <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-xl font-semibold tracking-tight" data-testid="text-proposal-title">
-            {proposal.title}
-          </h1>
-          {proposal.proposalNumber && (
-            <span className="text-sm font-mono text-muted-foreground" data-testid="text-proposal-number">
-              {proposal.proposalNumber}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="row-proposal-header">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-xl font-semibold tracking-tight" data-testid="text-proposal-title">{proposal.title}</h1>
+            {proposal.proposalNumber && (
+              <span className="text-sm font-mono text-muted-foreground" data-testid="text-proposal-number">{proposal.proposalNumber}</span>
+            )}
+            {getStatusBadge(proposal.status)}
+            <span className="text-sm text-muted-foreground">
+              <span className="sr-only">{t("common.customer")}: </span>
+              <Link href={`/dashboard/customers/${proposal.customerId}`}>
+                <span className="text-foreground hover:underline cursor-pointer" data-testid="link-customer-name">{proposal.customerName}</span>
+              </Link>
             </span>
-          )}
-          {getStatusBadge(proposal.status)}
-          <div className="flex-1" />
+          </div>
+          <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label={t("proposalP3.headerActions")} data-testid="bar-proposal-header-actions">
           {proposal.estimateId || estimatePdfs.length > 0 ? (
             <>
               <Button
@@ -864,8 +890,6 @@ function ProposalDraftContent() {
                   {t("proposals.downloadPdf")}
                 </Button>
               </a>
-              {generateCrewWorksheetButton}
-              {finalizeButton}
             </>
           ) : (
             <Tooltip>
@@ -877,31 +901,50 @@ function ProposalDraftContent() {
                   <Button size="sm" variant="outline" disabled data-testid="button-download-pdf">
                     <Download className="w-4 h-4 mr-2" />{t("proposals.downloadPdf")}
                   </Button>
-                  <Button size="sm" variant="default" disabled data-testid="button-finalize-proposal">
-                    <Lock className="w-4 h-4 mr-2" />{t("proposals.finalizeProposal")}
-                  </Button>
                 </span>
               </TooltipTrigger>
               <TooltipContent>
-                {t("proposals.uploadBeforeGenerate")}
+                {t("proposalP1.legacyBanner")}
               </TooltipContent>
             </Tooltip>
           )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setDeleteProposalOpen(true)}
+              data-testid="button-delete-proposal"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              {t("proposals.deleteProposal")}
+            </Button>
+          </div>
         </div>
-        {(proposal.estimateId || estimatePdfs.length > 0) && (
-          <p className="text-xs text-muted-foreground mt-2" data-testid="text-next-version-hint">
-            {t("proposals.nextVersion")} <strong>v{nextVersionNumber}</strong>
-          </p>
+        {legacy && (
+          <div role="note" className="flex items-start gap-2 mt-3 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200" data-testid="banner-legacy-proposal">
+            <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{t("proposalP1.legacyBanner")}</span>
+          </div>
         )}
-        <p className="text-sm text-muted-foreground mt-1">
-          {t("common.customer")}:{" "}
-          <Link href={`/dashboard/customers/${proposal.customerId}`}>
-            <span className="text-foreground hover:underline cursor-pointer" data-testid="link-customer-name">
-              {proposal.customerName}
-            </span>
-          </Link>
-        </p>
-      </div>
+        {legacy && estimatePdfs.length > 0 && (
+          <section className="mt-3 rounded-md border px-3 py-2.5" aria-labelledby="legacy-estimate-files-title" data-testid="legacy-estimate-files">
+            <h2 id="legacy-estimate-files-title" className="text-sm font-medium">{t("proposalP1.retainedEstimateFiles")}</h2>
+            <ul className="mt-2 space-y-2">
+              {estimatePdfs.map(file => (
+                <li key={file.id}>
+                  <a href={proposalPhotoUrl(file.storageObjectPath)} download={file.filename}
+                    aria-label={t("proposalP1.downloadRetainedFile", { name: file.filename })}
+                    className="inline-flex max-w-full items-center gap-2 text-sm text-primary underline underline-offset-2"
+                    data-testid={`link-retained-estimate-${file.id}`}>
+                    <Download className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 break-all">{file.filename}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </header>
 
       {linkedTicket && (
         <div
@@ -923,7 +966,7 @@ function ProposalDraftContent() {
               <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
               {t("proposals.viewTicket")}
             </Button>
-            <Button
+            {!legacy && <Button
               size="sm"
               variant="ghost"
               onClick={() => saveMutation.mutate({ ticketId: null })}
@@ -932,11 +975,37 @@ function ProposalDraftContent() {
             >
               <Unlink className="w-3.5 h-3.5 mr-1.5" />
               {t("proposals.unlink")}
-            </Button>
+            </Button>}
           </div>
         </div>
       )}
 
+      <fieldset disabled={legacy} className="min-w-0" data-testid="fieldset-proposal-title-row">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_220px]" data-testid="row-title-date">
+          <div className="space-y-1.5">
+            <Label htmlFor="field-title">{t("common.title")}</Label>
+            <Input
+              id="field-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={(e) => handleBlur("title", e.target.value)}
+              data-testid="input-title"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t("proposals.proposalDate")}</Label>
+            <DatePickerField
+              value={proposalDate ? new Date(proposalDate + 'T00:00:00') : undefined}
+              onChange={(date) => {
+                const str = date ? format(date, 'yyyy-MM-dd') : '';
+                setProposalDate(str);
+                handleBlur("proposalDate", str);
+              }}
+              data-testid="input-proposal-date"
+            />
+          </div>
+        </div>
+      </fieldset>
       {hasVersions && (
         <div className="flex items-start gap-3 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/40 px-4 py-3" data-testid="div-version-banner">
           <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
@@ -946,158 +1015,40 @@ function ProposalDraftContent() {
         </div>
       )}
 
-      <ProposalEstimateSection proposal={proposal} companyId={companyId} active={active} onLinked={() => {
-        queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
-        queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
-      }} />
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("common.details")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="field-title">{t("common.title")}</Label>
-              <Input
-                id="field-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onBlur={(e) => handleBlur("title", e.target.value)}
-                data-testid="input-title"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t("proposals.proposalDate")}</Label>
-              <DatePickerField
-                value={proposalDate ? new Date(proposalDate + 'T00:00:00') : undefined}
-                onChange={(date) => {
-                  const str = date ? format(date, 'yyyy-MM-dd') : '';
-                  setProposalDate(str);
-                  handleBlur("proposalDate", str);
-                }}
-                data-testid="input-proposal-date"
-              />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="field-estimate-num">{t("proposals.qbEstimateNumber")} <span className="text-muted-foreground font-normal">({t("common.optional")})</span></Label>
-            <Input
-              id="field-estimate-num"
-              value={proposal.estimateId ? proposal.estimate?.number ?? proposal.estimateNumber ?? "" : estimateNumber}
-              readOnly={!!proposal.estimateId}
-              onChange={(e) => setEstimateNumber(e.target.value)}
-              onBlur={(e) => { if (!proposal.estimateId) handleBlur("estimateNumber", e.target.value || null as any); }}
-              placeholder={t("proposals.qbEstimatePlaceholder")}
-              data-testid="input-estimate-number"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="field-scope">{t("proposals.scopeOfWork")}</Label>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={insertPageBreak}
-                className="h-auto py-0.5 px-2 text-xs text-muted-foreground gap-1"
-                data-testid="button-insert-page-break"
-              >
-                <FileText className="w-3 h-3" />
-                {t("proposals.insertPageBreak")}
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]" data-testid="layout-proposal-columns">
+        <div className="min-w-0 space-y-4" data-testid="column-document">
+          <fieldset disabled={legacy} aria-disabled={legacy} className="min-w-0 space-y-4" data-testid="fieldset-proposal-content">
+          <div className="grid gap-4 xl:grid-cols-2" data-testid="row-cover-visual">
+          <ProposalDocSection n={1} sectionKey="cover" title={t("proposalP3.sections.cover")} summary={coverSummary}
+            collapsed={!!collapse.collapsed["cover"]} onToggle={() => collapse.toggle("cover")}>
+      {proposal.estimateId ? <div className="space-y-3" data-testid="proposal-cover-controls">
+          <p className="text-sm text-muted-foreground">{t("proposals.coverHelp")}</p>
+          <div role="group" aria-label={t("proposals.coverTitle")} className="flex flex-wrap gap-2">
+            {(["none", "visual_scope", "photo"] as const).map(source => (
+              <Button key={source} variant={(proposal.coverSource ?? "none") === source ? "default" : "outline"}
+                disabled={coverMutation.isPending || (source === "visual_scope" && !proposal.visualScopeSheetId) || (source === "photo" && !images.length)}
+                aria-pressed={(proposal.coverSource ?? "none") === source}
+                onClick={() => coverMutation.mutate({ coverSource: source, coverPhotoFileId: source === "photo" ? proposal.coverPhotoFileId ?? images[0]?.id : null })}>
+                {t(source === "none" ? "proposals.coverNone" : source === "photo" ? "proposals.coverPhoto" : "proposals.coverVisualScope")}
               </Button>
-            </div>
-            <Textarea
-              id="field-scope"
-              ref={scopeRef}
-              value={scopeOfWork}
-              onChange={(e) => setScopeOfWork(e.target.value)}
-              onBlur={(e) => handleBlur("scopeOfWork", e.target.value)}
-              rows={6}
-              placeholder={t("proposals.scopePlaceholder")}
-              data-testid="input-scope-of-work"
-            />
-            <p className="text-xs text-muted-foreground">
-              {t("proposals.pageBreakInstructions")} <code className="bg-muted px-1 rounded text-xs">[PAGE BREAK]</code> {t("proposals.pageBreakMarker")}
-            </p>
+            ))}
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("proposals.qbEstimatePdf")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {proposal.estimateId && <p className="text-sm text-muted-foreground mb-3">{t("proposalEstimate.uploadNote", { number: proposal.estimate?.number ?? estimateNumber })}</p>}
-          {!proposal.estimateId && estimatePdfs.length === 0 && (
-            <p className="text-sm text-muted-foreground mb-3">{t("proposals.uploadQbPdf")}</p>
-          )}
-          {estimatePdfs.length > 0 && (
-            <div className="flex flex-col gap-2 mb-3">
-              {estimatePdfs.map((pdf) => (
-                <div key={pdf.id} className="flex items-center gap-3 p-3 rounded-md border bg-muted/30" data-testid="div-estimate-pdf">
-                  <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
-                  <span className="text-sm flex-1 min-w-0 truncate" data-testid="text-pdf-filename">
-                    {pdf.filename}
-                  </span>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <a
-                      href={`/objects/${pdf.storageObjectPath.replace(/^\//, "")}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      data-testid="link-download-pdf"
-                    >
-                      <Button size="icon" variant="ghost">
-                        <Download className="w-4 h-4" />
-                      </Button>
-                    </a>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setFileToDelete(pdf)}
-                      data-testid="button-delete-pdf"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!proposal.estimateId && <div className="mt-3">
-            <input
-              ref={pdfInputRef}
-              type="file"
-              accept="application/pdf"
-              className="hidden"
-              onChange={handlePdfUpload}
-              data-testid="input-pdf-file"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => pdfInputRef.current?.click()}
-              disabled={uploadingPdf}
-              data-testid="button-upload-pdf"
-            >
-              {uploadingPdf ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t("proposals.uploading")}</>
-              ) : (
-                <><Upload className="w-4 h-4 mr-2" /> {t("common.upload")}</>
-              )}
-            </Button>
+          {proposal.coverSource === "photo" && <div role="group" aria-label={t("proposals.coverChoosePhoto")} className="flex flex-wrap gap-3">
+            {images.map(img => <button key={img.id} type="button" className="rounded border p-1"
+              disabled={coverMutation.isPending} aria-label={t("proposals.coverSelectPhoto", { name: img.caption || img.filename })}
+              aria-pressed={proposal.coverPhotoFileId === img.id}
+              onClick={() => coverMutation.mutate({ coverSource: "photo", coverPhotoFileId: img.id })}>
+              <img className="h-24 w-28 object-cover" src={proposalPhotoUrl(img.storageObjectPath)} alt={img.caption || img.filename} />
+              {proposal.coverPhotoFileId === img.id && <span className="block text-xs">{t("proposals.coverSelected")}</span>}
+            </button>)}
           </div>}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Map className="w-4 h-4" /> {t("tools.visualScope")}
-            </CardTitle>
+      </div> : <p className="text-sm text-muted-foreground" data-testid="text-cover-legacy">{t("proposalP3.coverLegacy")}</p>}
+          </ProposalDocSection>
+          <ProposalDocSection n={2} sectionKey="visual" title={t("proposalP3.sections.visual")} summary={visualSummary}
+            collapsed={!!collapse.collapsed["visual"]} onToggle={() => collapse.toggle("visual")}>
+      <Card className="border-0 shadow-none">
+        <CardHeader className="p-0 pb-3">
+          <div className="flex items-center justify-end gap-2 flex-wrap">
             {proposal.visualScopeSheetId && (
               <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex items-center gap-1.5">
@@ -1122,11 +1073,11 @@ function ProposalDraftContent() {
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {proposal.visualScopeSheetId && proposal.visualScopeSheet ? (
             <div className="flex items-center justify-between gap-3 p-3 rounded-md border" data-testid="div-vs-attached">
               <div className="flex items-center gap-3 min-w-0">
-                <Map className="w-4 h-4 text-muted-foreground shrink-0" />
+                <MapIcon className="w-4 h-4 text-muted-foreground shrink-0" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate" data-testid="text-vs-sheet-title">
                     {proposal.visualScopeSheet.title}
@@ -1201,21 +1152,31 @@ function ProposalDraftContent() {
         </CardContent>
       </Card>
 
-      {/* ── Plant Palette ── */}
+          </ProposalDocSection>
+          </div>
+          </fieldset>
+          <ProposalDocSection n={3} sectionKey="estimate" title={t("proposalP3.sections.estimate")} summary={estimateSummary}
+            collapsed={!!collapse.collapsed["estimate"]} onToggle={() => collapse.toggle("estimate")}>
+      <ProposalEstimateSection hideHeading proposal={proposal} companyId={companyId} active={active} onLinked={() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/proposals", id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
+      }} />
+          {legacy && (
+            <div className="space-y-1.5" data-testid="section-legacy-scope">
+              <Label>{t("proposals.scopeOfWork")}</Label>
+              {proposal.scopeOfWork?.trim()
+                ? <p className="whitespace-pre-line rounded-md border bg-muted/30 p-3 text-sm leading-relaxed" data-testid="text-legacy-scope">{proposal.scopeOfWork}</p>
+                : <p className="text-sm text-muted-foreground" data-testid="text-legacy-scope-empty">{t("proposalP2.legacyEmpty")}</p>}
+            </div>
+          )}
+          </ProposalDocSection>
+          <fieldset disabled={legacy} aria-disabled={legacy} className="min-w-0 space-y-4" data-testid="fieldset-proposal-content-2">
+          <ProposalDocSection n={4} sectionKey="plants" title={t("proposalP3.sections.plants")} summary={plantsSummary}
+            collapsed={!!collapse.collapsed["plants"]} onToggle={() => collapse.toggle("plants")}>
       {proposal.estimateId ? <ProposalPlantExhibits key={`${identity}:${proposal.estimateId}`} proposal={proposal} companyId={companyId!} identity={identity} /> : <>
       {proposal.plantPaletteId && <Card data-testid="div-palette-attached">
         <CardContent className="pt-6 space-y-3">
           <p>{t("paletteRetirement.legacyNote")}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={removeLegacyPalette.isPending}
-            onClick={() => removeLegacyPalette.mutate()}
-            data-testid="button-remove-legacy-palette"
-          >
-            {t("paletteRetirement.remove")}
-          </Button>
-          {removeLegacyPalette.isError && <p role="alert" className="text-sm text-destructive">{t("paletteRetirement.removeError")}</p>}
         </CardContent>
       </Card>}
 
@@ -1342,50 +1303,12 @@ function ProposalDraftContent() {
       </Card>
 
       </>}
-      {proposal.estimateId && <Card data-testid="proposal-cover-controls">
-        <CardHeader><CardTitle>{t("proposals.coverTitle")}</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">{t("proposals.coverHelp")}</p>
-          <div role="group" aria-label={t("proposals.coverTitle")} className="flex flex-wrap gap-2">
-            {(["none", "visual_scope", "photo"] as const).map(source => (
-              <Button key={source} variant={(proposal.coverSource ?? "none") === source ? "default" : "outline"}
-                disabled={coverMutation.isPending || (source === "visual_scope" && !proposal.visualScopeSheetId) || (source === "photo" && !images.length)}
-                aria-pressed={(proposal.coverSource ?? "none") === source}
-                onClick={() => coverMutation.mutate({ coverSource: source, coverPhotoFileId: source === "photo" ? proposal.coverPhotoFileId ?? images[0]?.id : null })}>
-                {t(source === "none" ? "proposals.coverNone" : source === "photo" ? "proposals.coverPhoto" : "proposals.coverVisualScope")}
-              </Button>
-            ))}
-          </div>
-          {proposal.coverSource === "photo" && <div role="group" aria-label={t("proposals.coverChoosePhoto")} className="flex flex-wrap gap-3">
-            {images.map(img => <button key={img.id} type="button" className="rounded border p-1"
-              disabled={coverMutation.isPending} aria-label={t("proposals.coverSelectPhoto", { name: img.caption || img.filename })}
-              aria-pressed={proposal.coverPhotoFileId === img.id}
-              onClick={() => coverMutation.mutate({ coverSource: "photo", coverPhotoFileId: img.id })}>
-              <img className="h-24 w-28 object-cover" src={`/objects/${img.storageObjectPath.replace(/^\//, "")}`} alt={img.caption || img.filename} />
-              {proposal.coverPhotoFileId === img.id && <span className="block text-xs">{t("proposals.coverSelected")}</span>}
-            </button>)}
-          </div>}
-        </CardContent>
-      </Card>}
-      <Sheet open={!proposal.estimateId && plantPickerOpen} onOpenChange={setPlantPickerOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto p-0">
-          <SheetHeader className="px-4 pt-4 pb-0">
-            <SheetTitle className="flex items-center gap-2">
-              <Leaf className="w-4 h-4" /> Browse Plant Library
-            </SheetTitle>
-          </SheetHeader>
-          <PlantLibrary
-            insertMode
-            onAddSelections={(selections) => addPlantItemsMutation.mutate(selections)}
-            addPending={addPlantItemsMutation.isPending}
-          />
-        </SheetContent>
-      </Sheet>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <CardTitle className="text-base">{t("proposals.photoAppendix")}</CardTitle>
+          </ProposalDocSection>
+          <ProposalDocSection n={5} sectionKey="photos" title={t("proposalP3.sections.photos")} summary={photosSummary}
+            collapsed={!!collapse.collapsed["photos"]} onToggle={() => collapse.toggle("photos")}>
+      <div className="space-y-3">
+        <div>
+          <div className="flex items-center justify-end gap-2 flex-wrap">
             <div className="flex items-center gap-2" role="group" aria-label={t(proposal.estimateId ? "proposals.attachmentLayout" : "proposals.photoLayout")}>
               <span className="text-xs text-muted-foreground">{t(proposal.estimateId ? "proposals.attachmentLayout" : "proposals.photoLayout")}:</span>
               <div className="inline-flex rounded-md border overflow-hidden">
@@ -1418,11 +1341,32 @@ function ProposalDraftContent() {
               </div>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          {images.length === 0 && (
-            <p className="text-sm text-muted-foreground mb-3">{t("proposals.addPhotos")}</p>
-          )}
+        </div>
+        <div>
+          <button
+            type="button"
+            onClick={() => imgInputRef.current?.click()}
+            disabled={uploadingImages || legacy}
+            onDragEnter={(e) => { if (!isFileDrag(e)) return; e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+            onDragOver={(e) => { if (!isFileDrag(e)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = legacy ? "none" : "copy"; if (!dragOver) setDragOver(true); }}
+            onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget as Node | null)) return; setDragOver(false); }}
+            onDrop={(e) => {
+              if (!isFileDrag(e)) return;
+              e.preventDefault(); e.stopPropagation(); setDragOver(false);
+              if (legacy || uploadingImages) return;
+              acceptPhotoFiles(Array.from(e.dataTransfer.files ?? []));
+            }}
+            aria-describedby="photo-drop-hint"
+            data-drag-over={dragOver ? "true" : "false"}
+            className={`mb-3 flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed px-4 ${images.length ? "py-5" : "py-10"} text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 ${dragOver ? "border-primary bg-primary/10 text-primary" : "border-muted-foreground/25 text-muted-foreground hover:border-primary/50 hover:bg-muted/40"}`}
+            data-testid="button-drop-photos"
+          >
+            {uploadingImages ? <Loader2 className="h-6 w-6 animate-spin" /> : <ImageIcon className="h-6 w-6" />}
+            <span className="text-sm font-medium text-foreground">
+              {uploadingImages ? t("proposals.uploading") : dragOver ? t("proposalP3.dropActive") : t("proposalP3.dropIdle")}
+            </span>
+            <span id="photo-drop-hint" className="text-xs">{t("proposalP3.dropHint")}</span>
+          </button>
 
           {images.length > 0 && selectedImageIds.size > 0 && (
             <div
@@ -1431,7 +1375,7 @@ function ProposalDraftContent() {
             >
               <div className="flex items-center gap-3 text-sm">
                 <span data-testid="text-selected-count">
-                  {t("proposals.photosSelected", { count: selectedImageIds.size, defaultValue: "{{count}} selected" })}
+                  {t("proposals.photosSelected", { count: selectedImageIds.size })}
                 </span>
                 <button
                   type="button"
@@ -1439,7 +1383,7 @@ function ProposalDraftContent() {
                   onClick={() => setSelectedImageIds(new Set())}
                   data-testid="button-clear-selection"
                 >
-                  {t("common.clear", { defaultValue: "Clear" })}
+                  {t("common.clear")}
                 </button>
                 {selectedImageIds.size < images.length && (
                   <button
@@ -1448,7 +1392,7 @@ function ProposalDraftContent() {
                     onClick={() => setSelectedImageIds(new Set(images.map(i => i.id)))}
                     data-testid="button-select-all"
                   >
-                    {t("common.selectAll", { defaultValue: "Select all" })}
+                    {t("proposalP3.selectAll")}
                   </button>
                 )}
               </div>
@@ -1462,7 +1406,7 @@ function ProposalDraftContent() {
                 {bulkDeleteFilesMutation.isPending ? (
                   <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t("common.delete")}</>
                 ) : (
-                  <><Trash2 className="w-4 h-4 mr-2" /> {t("proposals.deleteSelected", { defaultValue: "Delete selected" })}</>
+                  <><Trash2 className="w-4 h-4 mr-2" /> {t("proposals.deleteSelected")}</>
                 )}
               </Button>
             </div>
@@ -1495,7 +1439,7 @@ function ProposalDraftContent() {
                           data-testid={`div-photo-page-header-${pageNum}`}
                         >
                           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                            {t("proposals.photoPageLabel", { page: pageNum, defaultValue: `Page ${pageNum}` })}
+                            {t("proposals.photoPageLabel", { page: pageNum })}
                             {totalPages > 1 ? ` / ${totalPages}` : ""}
                           </span>
                           <span className="flex-1 h-px bg-border" />
@@ -1520,7 +1464,7 @@ function ProposalDraftContent() {
                           {t(proposal.coverSource === "photo" && proposal.coverPhotoFileId === img.id ? "proposals.coverSelected" : "proposals.useAsCover")}
                         </Button> : undefined}
                         captionPlaceholder={t("proposals.captionPlaceholder")}
-                        dragLabel={t("proposals.dragToReorder", { defaultValue: "Drag to reorder" })}
+                        dragLabel={t("proposalP3.dragToReorder")}
                         selected={selectedImageIds.has(img.id)}
                         onSelectChange={(checked) => {
                           setSelectedImageIds((prev) => {
@@ -1529,7 +1473,7 @@ function ProposalDraftContent() {
                             return next;
                           });
                         }}
-                        selectLabel={t("proposals.selectPhoto", { defaultValue: "Select photo" })}
+                        selectLabel={t("proposals.selectPhoto")}
                       />
                     );
                     if (isLastOnPage && idx < images.length - 1) {
@@ -1565,26 +1509,57 @@ function ProposalDraftContent() {
             onChange={handleImageUpload}
             data-testid="input-image-files"
           />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => imgInputRef.current?.click()}
-            disabled={uploadingImages}
-            data-testid="button-upload-images"
-          >
-            {uploadingImages ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t("proposals.uploading")}</>
-            ) : (
-              <><ImageIcon className="w-4 h-4 mr-2" /> {t("proposals.addPhotos")}</>
-            )}
-          </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
+          </ProposalDocSection>
+          </fieldset>
+      <Sheet open={!proposal.estimateId && plantPickerOpen} onOpenChange={setPlantPickerOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto p-0">
+          <SheetHeader className="px-4 pt-4 pb-0">
+            <SheetTitle className="flex items-center gap-2">
+              <Leaf className="w-4 h-4" /> Browse Plant Library
+            </SheetTitle>
+          </SheetHeader>
+          <PlantLibrary
+            insertMode
+            onAddSelections={(selections) => addPlantItemsMutation.mutate(selections)}
+            addPending={addPlantItemsMutation.isPending}
+          />
+        </SheetContent>
+      </Sheet>
+
+        </div>
+        <aside className="order-first space-y-4 lg:order-none lg:sticky lg:top-4" aria-label={t("proposalP3.whatGoesOut")} data-testid="column-what-goes-out">
+          <Card data-testid="proposal-ready-checklist">
+            <CardHeader className="pb-2"><CardTitle className="text-base">{t("proposalP3.whatGoesOut")}</CardTitle></CardHeader>
+            <CardContent className="space-y-2.5 text-sm">
+              <ul className="space-y-2.5" aria-label={t("proposalP3.checklist")}>
+                {checklist.map((row) => (
+                  <li key={row.key} className="flex items-center gap-2" data-testid={`check-${row.key}`} data-ok={row.ok ? "true" : "false"}>
+                    {row.ok
+                      ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" aria-label={t("proposalP3.set")} />
+                      : <span className="h-4 w-4 shrink-0 rounded-full border-2 border-muted-foreground/30" role="img" aria-label={t("proposalP3.notSet")} />}
+                    <span className="text-muted-foreground">{row.label}</span>
+                    <span className="ml-auto truncate text-right font-medium" data-testid={`text-check-${row.key}`}>{row.value}</span>
+                  </li>
+                ))}
+              </ul>
+              {!legacy && (
+                <div className="space-y-1.5 border-t pt-3" data-testid="rail-finalize">
+                  {finalizeButton}
+                  {generateCrewWorksheetButton}
+                  <p className="text-center text-xs text-muted-foreground" data-testid="text-next-version-hint">
+                    {t("proposals.nextVersion")} <strong>v{nextVersionNumber}</strong>
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
       {hasVersions && (
-        <Card data-testid="div-version-history">
+        <Card data-testid="div-version-history" className="shadow-none">
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
+            <CardTitle className="text-sm flex items-center gap-2">
               <History className="w-4 h-4" />
               {t("contracts.versionHistory")}
             </CardTitle>
@@ -1633,17 +1608,7 @@ function ProposalDraftContent() {
         </Card>
       )}
 
-      <div className="flex justify-end pt-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="text-destructive"
-          onClick={() => setDeleteProposalOpen(true)}
-          data-testid="button-delete-proposal"
-        >
-          <Trash2 className="w-4 h-4 mr-2" />
-          {t("proposals.deleteProposal")}
-        </Button>
+        </aside>
       </div>
 
       <AlertDialog open={finalizeDialogOpen} onOpenChange={open => {
