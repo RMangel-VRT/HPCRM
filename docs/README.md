@@ -15,7 +15,7 @@ no rules file, `STATUS.md`, numbered slice file or new pack is a prerequisite.
 | --- | --- |
 | [Contracts](contracts/) | Contract Center rollout references and contract verification reports |
 | [Customers](customers/) | Customer/QuickBooks sync contracts and customer-page reports |
-| [Documents](documents/) | Shared document design system, rendering kit and verification |
+| [Documents](documents/) | Shared document design system, rendering kit and verification; [November 16 proposal rules and sample PDFs](documents/proposal-build-references-2026-11-16.md) |
 | [Estimates](estimates/) | Estimate builder, lifecycle, exhibits, proposals and catalog references |
 | [Invoicing](invoicing/) | Invoice API contracts and billing verification reports |
 | [Navigation](navigation/README.md) | Navigation design and implementation reports |

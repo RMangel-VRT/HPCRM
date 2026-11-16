@@ -1,5 +1,11 @@
 # High Plains document system: proposals, estimates, invoices
 
+> **Newer proposal reference:** The [November 16 proposal build references](proposal-build-references-2026-11-16.md)
+> retain updated rules and both sample PDFs. Those rules supersede conflicting
+> cover, flow, Plants, photo-layout, unit and scope instructions below.
+> This older guide is retained for historical context; the reference upload alone
+> does not authorize implementation or publishing.
+
 **Created Nov 2, 2026, from the Invoice Center design.** This is the shared look and page rules for every customer-facing PDF the CRM produces. Any chat working on proposals, estimates, invoices, statements or contract documents should start here.
 
 - **Approved reference:** the "Invoice Center Mockup" canvas: estimate PDF pages 1–2 and invoice PDF.
