@@ -73,6 +73,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { AddTicketPhotos } from "@/components/tickets/AddTicketPhotos";
 import { taskValidationMessage, extractApiErrorMessage } from "@/lib/apiError";
 import { consumeTicketOrigin, RETURN_MARKER, RETURN_SCROLL_KEY } from "@/lib/ticketListReturn";
 import { DatePickerField } from "@/components/DatePickerField";
@@ -2196,21 +2197,31 @@ export default function TicketDetail() {
             </Card>
           )}
 
-          {ticket.photos && ticket.photos.length > 0 && (
+          {(details.ticketType.typeKey !== "rfp_request" || !!ticket.photos?.length) && (
             <Dialog open={showPhotos} onOpenChange={setShowPhotos}>
             <Card data-testid="card-photos">
               <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <ImageIcon className="w-4 h-4" />
-                  {t('ticketDetail.photos')} ({ticket.photos.length})
+                  {t('ticketDetail.photos')} ({ticket.photos?.length ?? 0})
                 </CardTitle>
+                <div className="flex items-center gap-2">
+                {details.ticketType.typeKey !== "rfp_request" && currentUser?.activeRole !== "field"
+                  && (!["crew_supervisor", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor"].includes(currentUser?.activeRole ?? "")
+                    || ticket.assignedToId === currentUser?.id) && (
+                  <AddTicketPhotos key={ticket.id} ticketId={ticket.id} companyId={ticket.companyId} />
+                )}
+                {!!ticket.photos?.length && (
                 <DialogTrigger asChild>
-                  <Button variant="ghost" size="sm" onClick={(event) => { photoTriggerRef.current = event.currentTarget; }}>View all</Button>
+                  <Button variant="ghost" size="sm" onClick={(event) => { photoTriggerRef.current = event.currentTarget; }}>{t("ticketDetail.viewAllPhotos")}</Button>
                 </DialogTrigger>
+                )}
+                </div>
               </CardHeader>
               <CardContent className="pb-3">
+                {!ticket.photos?.length && <p className="text-sm text-muted-foreground" data-testid="text-no-ticket-photos">{t("ticketDetail.noPhotosYet")}</p>}
                 <div className="flex flex-wrap gap-1.5">
-                  {ticket.photos.slice(0, 5).map((photo: string, index: number) => {
+                  {(ticket.photos ?? []).slice(0, 5).map((photo: string, index: number) => {
                     const photoUrl = photo.startsWith("/objects/") 
                       ? photo 
                       : `/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`;
@@ -2239,16 +2250,16 @@ export default function TicketDetail() {
                       </DialogTrigger>
                     );
                   })}
-                  {ticket.photos.length > 5 && (
+                  {(ticket.photos?.length ?? 0) > 5 && (
                     <DialogTrigger asChild>
                       <button
                         type="button"
                         onClick={(event) => { photoTriggerRef.current = event.currentTarget; }}
                         className="grid h-[54px] w-[54px] shrink-0 place-items-center rounded-md border bg-muted/50 text-[12px] font-semibold"
                         data-testid="button-photos-more"
-                        aria-label={`View ${ticket.photos.length - 5} more photos`}
+                        aria-label={`View ${(ticket.photos?.length ?? 0) - 5} more photos`}
                       >
-                        +{ticket.photos.length - 5}
+                        +{(ticket.photos?.length ?? 0) - 5}
                       </button>
                     </DialogTrigger>
                   )}
@@ -2264,10 +2275,10 @@ export default function TicketDetail() {
               }}
             >
               <DialogHeader>
-                <DialogTitle>Photos · {ticket.photos?.length ?? 0}</DialogTitle>
+                <DialogTitle>{t("ticketDetail.photos")} · {ticket.photos?.length ?? 0}</DialogTitle>
               </DialogHeader>
               <div className="grid max-h-[70vh] grid-cols-2 gap-2 overflow-auto sm:grid-cols-3 md:grid-cols-4">
-                {ticket.photos.map((photo: string, index: number) => {
+                {(ticket.photos ?? []).map((photo: string, index: number) => {
                   const photoUrl = photo.startsWith("/objects/")
                     ? photo
                     : `/objects/${photo.replace(/^\/[^/]+\/[^/]+\//, "")}`;

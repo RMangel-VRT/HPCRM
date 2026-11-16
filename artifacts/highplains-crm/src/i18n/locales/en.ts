@@ -1748,6 +1748,10 @@ const en = {
     batchInvoice: "Batch Invoice",
   },
   ticketDetail: {
+    uploadingPhotos: "Uploading photos…",
+    noPhotosYet: "No photos yet. Photos can be added to this ticket at any time.",
+    viewAllPhotos: "View all",
+    photoFileRequirements: "Choose image files up to 10 MB each.",
     billing: "Billing",
     billingLocked: "Locked once the job reaches billing.",
     breadcrumb: "Tickets",

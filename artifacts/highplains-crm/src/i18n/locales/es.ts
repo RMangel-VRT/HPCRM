@@ -1750,6 +1750,10 @@ const es = {
     batchInvoice: "Lote de Facturas",
   },
   ticketDetail: {
+    uploadingPhotos: "Subiendo fotos…",
+    noPhotosYet: "Todavía no hay fotos. Se pueden agregar fotos a este ticket en cualquier momento.",
+    viewAllPhotos: "Ver todas",
+    photoFileRequirements: "Elige imágenes de hasta 10 MB cada una.",
     billing: "Facturación",
     billingLocked: "Se bloquea cuando el trabajo llega a facturación.",
     breadcrumb: "Tickets",

@@ -11,7 +11,7 @@ const auth = vi.hoisted(() => ({ role: "admin" }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast }), toast }));
 vi.mock("@/hooks/use-breadcrumbs", () => ({ useSetBreadcrumbs: () => undefined }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { id: "u1", activeCompanyId: "c1", activeRole: auth.role, isSuperAdminBool: false, activeTags: [] } }),
+  useAuth: () => ({ user: { id: "u1", activeCompanyId: "c1", activeRole: auth.role, accessRole: auth.role, isSuperAdminBool: false, activeTags: [] } }),
 }));
 import TicketDetail from "./TicketDetail";
 
@@ -69,6 +69,29 @@ function mount() {
 const patchBody = () => calls.filter(c => c.method === "PATCH" && c.url === "/api/tickets/t1").at(-1)?.body;
 
 describe("TicketDetail conversation locations", () => {
+  it.each(["estimate_request", "task", "project", "invoice"])("shows the empty Photos section and upload control for %s", async typeKey => {
+    details = detailsFor(false);
+    details.ticketType.typeKey = typeKey;
+    history = () => ({ json: [] });
+    mount();
+    expect(await screen.findByTestId("card-photos")).toBeTruthy();
+    expect(screen.getByTestId("text-no-ticket-photos")).toBeTruthy();
+    expect(screen.getByTestId("button-add-ticket-photos")).toBeTruthy();
+  });
+  it("keeps RFP creation's photo exclusion and hides uploads from field viewers", async () => {
+    details = detailsFor(false);
+    details.ticketType.typeKey = "rfp_request";
+    history = () => ({ json: [] });
+    mount();
+    await screen.findByTestId("header-ticket-identity");
+    expect(screen.queryByTestId("card-photos")).toBeNull();
+    cleanup();
+    details.ticketType.typeKey = "task";
+    auth.role = "field";
+    mount();
+    expect(await screen.findByTestId("card-photos")).toBeTruthy();
+    expect(screen.queryByTestId("button-add-ticket-photos")).toBeNull();
+  });
   it("retains the ticket identity header construction while estimate styles are mirrored", async () => {
     details = detailsFor(false, "Estimate Request");
     details.ticketType.typeKey = "estimate_request";

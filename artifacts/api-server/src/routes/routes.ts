@@ -104,6 +104,7 @@ import { backfillVisitServices } from "../lib/backfillVisitServices";
 import { applySchedulingTransition } from "../lib/schedulingTransition";
 import { applyVisitTicketEdit } from "../lib/visitTicketCompatibility";
 import { transactionalTicketPatch } from "../lib/ticketPatchTransaction";
+import { signTicketPhotoUpload, ticketPhotoAdditions } from "../lib/ticketPhotoUploads";
 import type { VisitTransaction } from "../lib/visitSync";
 import { CrewLinkError, lockCrewCompany, recordCrewLinkChoice } from "../lib/crewLinks";
 import { insertCampaignCrewSchema } from "@workspace/db";
@@ -6488,7 +6489,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).send("Active company changed. Reload and try again.");
+    }
     if (user.activeRole === "field") {
       return res.status(403).send("Insufficient permissions");
     }
@@ -6497,7 +6500,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const objectStorageService = new ObjectStorageService();
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
       const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
-      res.json({ uploadURL, objectPath: normalizedPath });
+      const uploadToken = signTicketPhotoUpload(normalizedPath, { companyId: user.activeCompanyId, userId: user.id }, req.sessionID);
+      res.json({ uploadURL, objectPath: normalizedPath, uploadToken });
     } catch (error) {
       console.error("Error getting photo upload URL:", error);
       res.status(500).send("Failed to get upload URL");
@@ -6998,6 +7002,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const ptType = billingType ?? await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
+    if (Object.hasOwn(req.body, "appendPhotos")) {
+      if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+        return res.status(409).send("Active company changed. Reload and try again.");
+      }
+      if (isSeededTicketType(ptType, "rfp_request")) return res.status(422).send("Photos are not supported for RFP requests");
+      if (Object.hasOwn(req.body, "photos")) return res.status(400).send("Invalid photo attachment");
+      let additions: string[];
+      try {
+        additions = ticketPhotoAdditions(req.body.appendPhotos, { companyId: user.activeCompanyId, userId: user.id }, req.sessionID);
+      } catch {
+        return res.status(400).send("Invalid or expired photo upload. Please upload the photo again.");
+      }
+      const objectStorageService = new ObjectStorageService();
+      for (const path of additions) {
+        await objectStorageService.trySetObjectEntityAclPolicy(path, {
+          owner: user.id, visibility: "private",
+          aclRules: [{ group: { type: ObjectAccessGroupType.COMPANY_MEMBER, id: user.activeCompanyId }, permission: ObjectPermission.READ }],
+        });
+      }
+      // transactionalTicketPatch already holds the ticket row lock; concurrent adds
+      // see the committed photo list rather than overwriting another upload.
+      req.body.photos = [...new Set([...(existingTicket.photos ?? []), ...additions])];
+      delete req.body.appendPhotos;
+    }
     let invoiceCompletion: InvoiceCompletionOutcome | undefined;
     const isTask = isSeededTicketType(ptType, "task");
     let billingChanged = false;
