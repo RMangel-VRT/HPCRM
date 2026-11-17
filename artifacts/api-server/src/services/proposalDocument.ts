@@ -9,6 +9,8 @@ import { chromiumPdf } from "./documents/browser";
 import { stampDocument } from "./documents/stamp";
 import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
+import { loadPlantLinesForVersion } from "./proposalExhibits";
+import { proposalPlantRows } from "./proposalPlants";
 
 /** Decode, rotate, bound both dimensions, strip metadata and compress before embedding. */
 export async function proposalImageUri(bytes: Buffer): Promise<string> {
@@ -61,13 +63,23 @@ export async function loadProposalDocumentModel(companyId: string, p: ProposalWi
     for (const card of group.cards) cards.push({ name: card.name, typeLabel: card.typeLabel, dataUri: await image(card.imagePath) });
     groups.push({ label: PALETTE_CATEGORY_LABEL_MAP[group.category] ?? group.category, cards });
   }
+  // Reload only the price-free, company-scoped lines of the already selected
+  // version. Extra display metadata must not change the public exhibits/snapshot.
+  const plants = [];
+  if (p.includePlantSchedule !== false || p.includePlantPalette !== false) {
+    const lines = await loadPlantLinesForVersion(companyId, exhibits.provenance.versionId);
+    for (const row of proposalPlantRows(lines)) plants.push({ quantity: row.quantity, name: row.name,
+      botanicalName: row.botanicalName, size: row.size, typeLabel: row.typeLabel,
+      dataUri: p.includePlantPalette !== false ? await image(row.imagePath) : null });
+  }
   return buildProposalDocumentModel({
     title: p.title, number: p.proposalNumber, documentDate: p.proposalDate || coloradoDate(new Date()),
     scopeOfWork: estimate.scopeOfWork ?? "", customerName: estimate.customerName, customerAddress: estimate.customerAddress,
     workLocation: estimate.workLocation, estimate, coverSource: p.coverSource ?? "none",
     hero: p.coverSource === "photo" ? photos.find(f => f.id === p.coverPhotoFileId) ?? null : p.coverSource === "visual_scope" ? visualHero : null,
     visualScope, palette: { introText: exhibits.palette.introText, groups },
-    schedule: p.includePlantSchedule !== false ? exhibits.schedule : [], photos, photoLayout: p.photoLayout,
+    schedule: p.includePlantSchedule !== false ? exhibits.schedule : [], plants,
+    includePlantPalette: p.includePlantPalette !== false, photos, photoLayout: p.photoLayout,
   });
 }
 /** Render prefix first: its last page is acceptance, independent of attachment count/layout. */

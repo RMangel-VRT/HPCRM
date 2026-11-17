@@ -61,7 +61,8 @@ describe("proposal finalize dialog and legacy uploads", () => {
     await waitFor(() => expect(mocks.api).toHaveBeenCalledWith("PATCH", "/api/proposals/p",
       { coverSource: "photo", coverPhotoFileId: "f" }, expect.objectContaining({ headers: { "X-Company-Id": "c" } })));
     expect(screen.getByText("Attachment layout:")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Full page" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Large photos (two per page)" })).toBeTruthy();
+    expect(screen.getByText(/Logo only prints a type-only cover with the total/)).toBeTruthy();
     view.unmount(); queryClient.clear();
     mount({ ...base, estimateId: null, estimate: null });
     await screen.findByTestId("banner-legacy-proposal");
@@ -72,7 +73,15 @@ describe("proposal finalize dialog and legacy uploads", () => {
     mount();
     expect(await screen.findByRole("heading", { name: "Portada" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Solo logotipo" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Página completa" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Fotos grandes (dos por página)" })).toBeTruthy();
+    expect(screen.getByText(/Solo logotipo imprime una portada tipográfica con el total/)).toBeTruthy();
+  });
+  it.each([["large", 2], ["grid", 1]] as const)("keeps linked %s attachment page hints consistent with three printed photos", async (photoLayout, count) => {
+    mount({ ...base, photoLayout, files: Array.from({ length: 3 }, (_, i) => ({
+      id: `f${i}`, fileType: "image", storageObjectPath: `/objects/f${i}`, filename: `Photo ${i}`, caption: "", displayOrder: i,
+    })) });
+    await screen.findByTestId("div-photo-page-header-1");
+    expect(screen.getAllByTestId(/^div-photo-page-header-/)).toHaveLength(count);
   });
   it("linked proposals need no upload, hide the upload control and require a method before locking", async () => {
     mount();

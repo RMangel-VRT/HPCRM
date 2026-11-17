@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProposalWithDetails } from "@workspace/db";
 import type { ProposalExhibits } from "../../../../lib/db/src/plantExhibitContracts";
-const mocks = vi.hoisted(() => ({ estimate: vi.fn(), download: vi.fn(), visual: vi.fn() }));
+const mocks = vi.hoisted(() => ({ estimate: vi.fn(), download: vi.fn(), visual: vi.fn(), lines: vi.fn() }));
+vi.mock("./proposalExhibits", async original => ({ ...await original<typeof import("./proposalExhibits")>(), loadPlantLinesForVersion: mocks.lines }));
 vi.mock("./estimatePdf", async original => ({ ...await original<typeof import("./estimatePdf")>(), loadEstimateDocumentModel: mocks.estimate }));
 vi.mock("../objectStorage", () => ({ ObjectStorageService: class {
   downloadByPath = mocks.download;
@@ -32,8 +33,22 @@ beforeEach(() => {
   mocks.estimate.mockResolvedValue(estimateFixture(12));
   mocks.download.mockImplementation(async (path: string) => { if (path.includes("missing")) throw new Error("missing"); return png; });
   mocks.visual.mockResolvedValue(png);
+  mocks.lines.mockResolvedValue([{ id: "l", plantCatalogItemId: "private-item-id", commonName: "Pine",
+    name: "Pine", botanicalName: "Pinus", sizeLabel: "5 gal", quantity: "2.00", imagePath: "/bucket/plant",
+    category: "tree", foliageType: null, paletteTypeLabel: null }]);
 });
 describe("scoped proposal loader", () => {
+  it.each([[true, true], [true, false], [false, true], [false, false]])("uses schedule rows for schedule=%s palette=%s without name matching", async (schedule, palette) => {
+    mocks.lines.mockResolvedValue([{ id: "l", plantCatalogItemId: "i", name: "Same", commonName: "Same",
+      botanicalName: "Botanical", sizeLabel: "5 gal", quantity: "10.00", paletteTypeLabel: "Custom",
+      category: "tree", imagePath: "/bucket/missing" }]);
+    const model = await loadProposalDocumentModel("c", proposal({ includePlantSchedule: schedule, includePlantPalette: palette }), exhibits);
+    expect(model.plants).toHaveLength(schedule || palette ? 1 : 0);
+    if (schedule || palette) expect(model.plants?.[0]).toMatchObject({ name: "Same", quantity: "10.00", typeLabel: "Custom", dataUri: null });
+    expect(model.includePlantPalette).toBe(palette);
+    if (schedule || palette) expect(mocks.lines).toHaveBeenCalledExactlyOnceWith("c", "captured");
+    else expect(mocks.lines).not.toHaveBeenCalled();
+  });
   it("uses the exact captured version's authoritative total and selected exhibits, skipping missing images", async () => {
     mocks.estimate.mockResolvedValue({ ...estimateFixture(12), scopeOfWork: "Selected scope\n[PAGE BREAK]\nSecond" });
     const model = await loadProposalDocumentModel("c", proposal(), exhibits);
@@ -68,5 +83,17 @@ describe("scoped proposal loader", () => {
     const p = proposal(); p.files[0].storageObjectPath = "https://example.test/private";
     await loadProposalDocumentModel("c", p, exhibits);
     expect(mocks.download).not.toHaveBeenCalledWith("https://example.test/private");
+  });
+  it("keeps corrupt-thumbnail rows and falls back from corrupt or foreign selected cover files", async () => {
+    mocks.download.mockResolvedValue(Buffer.from("not an image"));
+    const corrupt = await loadProposalDocumentModel("c", proposal(), exhibits);
+    expect(corrupt.hero).toBeNull();
+    expect(corrupt.plants).toHaveLength(1);
+    expect(corrupt.plants?.[0].dataUri).toBeNull();
+    mocks.download.mockResolvedValue(png);
+    const p = proposal(); p.files[1].companyId = "foreign";
+    const foreign = await loadProposalDocumentModel("c", p, exhibits);
+    expect(foreign.hero).toBeNull();
+    expect(foreign.photos.map(p => p.caption)).not.toContain("First");
   });
 });

@@ -1,0 +1,17 @@
+[
+  {
+    "name": "estimate-12",
+    "pages": 3,
+    "identicalRasterPages": true
+  },
+  {
+    "name": "estimate-60",
+    "pages": 5,
+    "identicalRasterPages": true
+  },
+  {
+    "name": "invoice-13",
+    "pages": 1,
+    "identicalRasterPages": true
+  }
+]

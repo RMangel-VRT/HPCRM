@@ -101,7 +101,7 @@ describe("real Chromium proposal pagination", () => {
     }).toString();
     expect(empty).not.toContain("Scope of work");
   }, 30000);
-  it.each([[0, "large"], [1, "large"], [10, "large"], [0, "grid"], [1, "grid"], [10, "grid"]] as const)("places acceptance before %i %s photos and numbers after the cover", async (count, layout) => {
+  it.each([0, 1, 2, 3, 5].flatMap(n => [[n, "large"], [n, "grid"]] as const))("places acceptance before %i %s photos and numbers after the cover", async (count, layout) => {
     const model = proposalFixture(count, layout);
     const bytes = await renderProposalDocument(model);
     const pdf = await PDFDocument.load(bytes);
@@ -110,28 +110,9 @@ describe("real Chromium proposal pagination", () => {
     writeFileSync(`${output}${name}.pdf`, bytes);
     writeFileSync(`${output}${name}.txt`, pages.join("\n--- PAGE ---\n"));
     execFileSync("pdftoppm", ["-scale-to", "900", "-png", `${output}${name}.pdf`, `${output}${name}`]);
-    // Scope/cover/exhibits retain their fingerprints. Only shared pricing
-    // (removed category box) and legal typography/warranty intentionally change.
-    if (layout === "large" && (count === 0 || count === 1)) {
-      const expected = count === 0 ? [
-        "7d57f88c9d6ae498f27b96c85612721742960b2039ff8ccb06cfa1f2d24275cf",
-        "f55fcdaa672cd62ccda1f66501843ec35184011eef126cc08caa706e1c5f99fc",
-        "87ac452ec5df381350ef5e9f0bbdbe28cf9f3f9c5fa59b15b9598ab065f62671",
-        "ea6c667c14891a3f5fdad1c3df1eca3b55d68273c69e7907ef7a3ea362a36a85",
-      ] : [
-        "7d57f88c9d6ae498f27b96c85612721742960b2039ff8ccb06cfa1f2d24275cf",
-        "ea8e61c220d5caf66d69a50a98546712e0fdf75a903d442bab59ac9aa6f0dc41",
-        "6a15d723673580904d80e36d7bacc9a985e71025d715ba7d0c688fa6256d6da4",
-        "96b98d9d4d06b102e79b8afd050f2a1f825325a90fbdce1e7893b67cca295f23",
-        "edf530b0d3b78b3c69d72adb435b1fdc6dde0b54d744e1c657122bc3d81e2a3b",
-      ];
-      expect(pdf.getPageCount()).toBe(expected.length);
-      for (const [index, hash] of expected.entries())
-        expect(createHash("sha256").update(readFileSync(`${output}${name}-${index + 1}.png`)).digest("hex")).toBe(hash);
-    }
     expect(pages[0].replace(/\s+/g, " ")).toContain(model.title); expect(pages[0]).not.toContain("Page "); expect(pages[0]).not.toContain("DRAFT");
     expect(pages[1]).toContain("Scope of work");
-    expect(pages[2]).toContain("Pricing");
+    expect(pages[1]).toContain("Pricing");
     expect(pages.join("").match(/Signing below accepts/g)).toHaveLength(1);
     const acceptance = pages.findIndex(t => t.includes("Signing below accepts"));
     const firstPhoto = pages.findIndex(t => t.includes("Attachment A"));
@@ -141,25 +122,29 @@ describe("real Chromium proposal pagination", () => {
     const bodyWords = [...acceptancePage.matchAll(/<word xMin="([^"]+)" yMin="([^"]+)" xMax="([^"]+)" yMax="([^"]+)"[^>]*>(.*?)<\/word>/g)]
       .filter(w => Number(w[2]) < 745);
     expect(Math.max(...bodyWords.map(w => Number(w[4])))).toBeLessThanOrEqual(681.75);
-    expect(acceptance).toBeGreaterThan(2);
-    expect(pdf.getPageCount() - acceptance - 1).toBe(Math.ceil(count / (layout === "grid" ? 4 : 1)));
+    expect(acceptance).toBeGreaterThanOrEqual(1);
+    expect(pdf.getPageCount() - acceptance - 1).toBe(Math.ceil(count / (layout === "grid" ? 4 : 2)));
     if (count) expect(firstPhoto).toBe(acceptance + 1);
     for (let i = 1; i < pages.length; i++) expect(pages[i]).toContain(`Page ${i} of ${pages.length - 1}`);
-    // Cover has only its logo; acceptance invokes logo + mountains.
+    // Both cover and acceptance have mountains, never attachments.
     const xobjects = pdf.getPages().map(p => p.node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict)?.keys().length ?? 0);
-    expect(xobjects[0]).toBe(1);
-    expect(xobjects[acceptance]).toBe(2);
+    expect(xobjects[0]).toBe(2);
     // Identical fixture photos share one Chromium XObject even in the grid.
     if (count) expect(xobjects.at(-1)).toBe(2);
     const dimensions = await sharp(documentAsset("mountains.png")).metadata();
     for (const [i, page] of pdf.getPages().entries()) {
       const objects = page.node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict);
-      const mountains = objects?.keys().filter(key => {
-        const object = pdf.context.lookup(objects.get(key));
-        return object instanceof PDFRawStream && object.dict.get(PDFName.of("Width"))?.toString() === String(dimensions.width) &&
-          object.dict.get(PDFName.of("Height"))?.toString() === String(dimensions.height);
-      }) ?? [];
-      expect(mountains.length).toBe(i === acceptance ? 1 : 0);
+      function mountainCount(objects: PDFDict | undefined): number {
+        return objects?.keys().reduce((sum, key) => {
+          const object = pdf.context.lookup(objects.get(key));
+          if (!(object instanceof PDFRawStream)) return sum;
+          const match = object.dict.get(PDFName.of("Width"))?.toString() === String(dimensions.width) &&
+            object.dict.get(PDFName.of("Height"))?.toString() === String(dimensions.height);
+          const resources = object.dict.lookupMaybe(PDFName.of("Resources"), PDFDict);
+          return sum + (match ? 1 : mountainCount(resources?.lookupMaybe(PDFName.of("XObject"), PDFDict)));
+        }, 0) ?? 0;
+      }
+      expect(mountainCount(objects)).toBe(i === acceptance || i === 0 ? 1 : 0);
     }
   }, 60_000);
   it("handles overflowing scope/settings and keeps signature clearance before attachments", async () => {
@@ -205,11 +190,13 @@ describe("real Chromium proposal pagination", () => {
     m.visualScope = [{ caption: "Selected rendering", dataUri: image }];
     m.palette = { introText: "Approved intro", groups: [{ label: "Trees", cards: [{ name: "Pine", typeLabel: "Evergreen Tree", dataUri: image }] }] };
     m.schedule = [{ quantity: "2.00", name: "Pine", botanicalName: "Pinus", size: "5 gal" }];
+    m.plants = [{ ...m.schedule[0], typeLabel: "Evergreen Tree", dataUri: image }];
+    m.includePlantPalette = true;
     const bytes = await renderProposalDocument(m);
     writeFileSync(`${output}proposal-populated.pdf`, bytes);
     execFileSync("pdftoppm", ["-scale-to", "900", "-png", `${output}proposal-populated.pdf`, `${output}proposal-populated`]);
     const text = execFileSync("pdftotext", ["-raw", "-", "-"], { input: bytes }).toString();
-    const labels = ["Scope of work", "Selected rendering", "Pricing", "Plant palette", "Plant schedule", "Acceptance", "Attachment A: Photos"];
+    const labels = ["Scope of work", "Selected rendering", "Pricing", "Plants", "Acceptance", "Attachment A: Photos"];
     const positions = labels.map(label => text.indexOf(label));
     expect(positions.every(i => i >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));

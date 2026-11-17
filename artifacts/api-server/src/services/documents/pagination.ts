@@ -12,9 +12,20 @@ export const paginatePricing = String.raw`(() => {
   // Wrapped proposal pricing begins after a cover/narrative/exhibits. Its
   // DOM position is not a first-page print coordinate; measure its page region.
   const region = source.closest('[data-pricing-region]');
-  const firstCapacity = region
+  let firstCapacity = region
     ? capacity - (source.getBoundingClientRect().top - region.getBoundingClientRect().top)
     : pageHeight - bottom - source.getBoundingClientRect().top;
+  // Proposal-only flowing origin, including the full opening header and scope.
+  // Cloned 96px continuation padding consumes the same space as short headers.
+  // Explicit authored breaks and Visual Scope figures reset that local origin.
+  if (region?.hasAttribute('data-pricing-flow')) {
+    const breaks = Array.from(region.querySelectorAll('.new-page'))
+      .filter(node => node.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const lastBreak = breaks.at(-1);
+    const offset = source.getBoundingClientRect().top -
+      (lastBreak ? lastBreak.getBoundingClientRect().top : region.getBoundingClientRect().top);
+    firstCapacity = capacity - ((offset % capacity) + capacity) % capacity;
+  }
   const remit = totals.querySelector('.remit');
   if (remit && remit.scrollWidth > remit.clientWidth + 1) throw new Error('DOCUMENT_REMIT_TOO_WIDE');
   const groups = Array.from(source.tBodies);

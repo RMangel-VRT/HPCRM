@@ -392,3 +392,31 @@ mtime_ms = 1794595351872
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/57edf5fc-14a1-44c3-8799-f21dd0c052ca/5be48adb-f736-4731-9830-d59fa23ad42b"
 storage_version_token = "1794595774578930"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "_QM-IRw8p3gs36V_8FKOV"
+uri = "file://generated-artifacts/proposals-p4/sample-white-cover.pdf"
+type = "pdf"
+title = "Compact proposal — white image cover"
+description = "Reviewed six-page reconstruction of the approved visible sample, using test-only placeholder imagery."
+logical_id = "31b375cb-2861-4270-b8c4-dc3b245221fd"
+content_hash = "sha256:6cdce1a60f5ea38cc63ce55bf74791cf7f0c1a2f922b22d030c86279f27ef75d"
+size = 1454927
+mtime_ms = 1794873956053
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/31b375cb-2861-4270-b8c4-dc3b245221fd/bf51913d-fe03-4166-9f66-16414c966d76"
+storage_version_token = "1794874479696290"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "YJw6jzykOhRy53AdGWWux"
+uri = "file://generated-artifacts/proposals-p4/sample-type-cover.pdf"
+type = "pdf"
+title = "Compact proposal — type-only cover"
+description = "Reviewed six-page reconstruction with work location and proposal total on the cover."
+logical_id = "f06f5e09-2c13-4bb7-82cf-ddd0de242ce8"
+content_hash = "sha256:2ec130700ce52249b2c48f4609842ebe949d47ecb31eeff8bb2db9b6dc15d4a5"
+size = 1455980
+mtime_ms = 1794873958105
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/f06f5e09-2c13-4bb7-82cf-ddd0de242ce8/ade3f56d-1953-455e-bc84-f977f5a3b995"
+storage_version_token = "1794874480601273"
+content_type = "application/pdf"

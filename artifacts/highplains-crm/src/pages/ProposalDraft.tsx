@@ -1423,7 +1423,7 @@ function ProposalDraftContent() {
                 strategy={verticalListSortingStrategy}
               >
                 {(() => {
-                  const perPage = (proposal.photoLayout === "grid") ? (proposal.estimateId ? 4 : 6) : 1;
+                  const perPage = (proposal.photoLayout === "grid") ? (proposal.estimateId ? 4 : 6) : (proposal.estimateId ? 2 : 1);
                   const totalPages = Math.max(1, Math.ceil(images.length / perPage));
                   const rows: React.ReactNode[] = [];
                   images.forEach((img, idx) => {

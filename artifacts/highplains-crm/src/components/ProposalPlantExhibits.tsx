@@ -76,6 +76,7 @@ export function ProposalPlantExhibits({ proposal, companyId, identity }: Props) 
       <CardContent className="space-y-3">
         <label className="flex items-center gap-2"><Switch checked={proposal.includePlantSchedule !== false} disabled={save.isPending}
           aria-label={t("plantExhibits.includeSchedule")} onCheckedChange={includePlantSchedule => save.mutate({ includePlantSchedule })} />{t("plantExhibits.includeSchedule")}</label>
+        <p className="text-sm text-muted-foreground">{t("plantExhibits.printHelp")}</p>
         {source}<Link href={link} className="text-sm underline">{t("plantExhibits.editPlants")}</Link>
         {state}
         {!query.isError && data && (data.schedule.length ? <div className="overflow-x-auto"><table className="w-full text-sm" data-testid="estimate-plant-schedule">

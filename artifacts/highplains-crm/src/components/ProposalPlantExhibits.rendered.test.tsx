@@ -32,6 +32,7 @@ describe("linked read-only plant exhibits", () => {
   it("renders provenance, schedule columns, grouped effective labels and estimate links without legacy pickers", async () => {
     mount();
     await screen.findByTestId("estimate-plant-schedule");
+    expect(screen.getByText(/Prints as one Plants table/)).toBeTruthy();
     expect(screen.getAllByTestId("exhibits-provenance")[0].textContent).toContain("EST-2026-0001 v2");
     for (const text of ["3.30", "Pinus", "5 gal", "Feature tree", "Trees"]) expect(screen.getByText(text)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Edit plants in the estimate" }).getAttribute("href")).toContain("/dashboard/estimates/builder/e");
@@ -70,6 +71,7 @@ describe("linked read-only plant exhibits", () => {
     api.mockRejectedValue(new Error("Denied"));
     mount(proposal, "other-company", "other-company:other-user:office");
     expect(await screen.findAllByRole("alert")).toHaveLength(2);
+    expect(screen.getByText(/Se imprime como una sola tabla de Plantas/)).toBeTruthy();
     expect(screen.getAllByText("No se pudieron cargar los anexos de plantas.")).toHaveLength(2);
     expect(screen.queryByText("Pinus")).toBeNull();
     expect(api.mock.lastCall?.[3].headers["X-Company-Id"]).toBe("other-company");

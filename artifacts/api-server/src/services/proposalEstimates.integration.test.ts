@@ -24,13 +24,19 @@ import { plantCatalogItems, plantEnrichment, estimateLines, estimateSections } f
 import { plantPalettes, plantPaletteItems } from "@workspace/db";
 import { storage as proposalStorage } from "../storage";
 import { carryProposalScope } from "../lib/carryProposalScope";
+import { loadProposalDocumentModel, renderProposalDocument } from "./proposalDocument";
+import { ObjectStorageService as RealObjectStorageService } from "../objectStorage";
+import { closeDocumentBrowser } from "./documents/browser";
+import { PDFDocument } from "pdf-lib";
+import { execFileSync } from "node:child_process";
+import type { ProposalWithDetails } from "@workspace/db";
 
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 const companyId = randomUUID(), otherCompany = randomUUID(), actor = randomUUID();
 let customerId: string, otherCustomer: string, foreignCustomer: string, ticketId: string;
 let app: express.Express;
 const stored = new Map<string, Buffer>();
-const render = vi.fn(async (_p: unknown, _c: string, versionId?: string, _exhibits?: ProposalExhibits) => Buffer.from(`PDF:${versionId ?? "uploaded"}`));
+const render = vi.fn(async (_p: unknown, _c: string, versionId?: string, _exhibits?: ProposalExhibits): Promise<Buffer> => Buffer.from(`PDF:${versionId ?? "uploaded"}`));
 let failStore = false;
 let recordConflicts = 0;
 const legacyUploads = new Set<string>();
@@ -145,6 +151,50 @@ async function plantDraft() {
   return { d, items };
 }
 describe("estimate-derived proposal exhibits", () => {
+  it("embeds only the selected version's own-company Plants images, keeping rows after enrichment removal", async () => {
+    const { d } = await plantDraft(), p = await proposal(d.id);
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN1kAAAAASUVORK5CYII=", "base64");
+    const download = vi.spyOn(RealObjectStorageService.prototype, "downloadByPath").mockResolvedValue(png);
+    try {
+      const full = await storage.getProposalById(p.id, companyId) as ProposalWithDetails;
+      let exhibits = await loadProposalExhibits(companyId, { ...full, estimate: { number: "", currentVersion: { id: d.version.id, versionNumber: 1 } } });
+      const model = await loadProposalDocumentModel(companyId, full, exhibits);
+      expect(model.plants).toHaveLength(2);
+      expect(model.plants?.map(r => r.quantity)).toEqual(["2.20", "1.10"]);
+      expect(model.plants?.every(r => r.dataUri?.startsWith("data:image/jpeg;"))).toBe(true);
+      expect(model.plants?.[0].typeLabel).toBe("Feature tree");
+      expect(download).not.toHaveBeenCalledWith("/foreign-image");
+      await db.delete(plantEnrichment).where(eq(plantEnrichment.companyId, companyId));
+      download.mockClear();
+      exhibits = await loadProposalExhibits(companyId, { ...full, estimate: { number: "", currentVersion: { id: d.version.id, versionNumber: 1 } } });
+      const noOwnImage = await loadProposalDocumentModel(companyId, full, exhibits);
+      expect(noOwnImage.plants).toHaveLength(2);
+      expect(noOwnImage.plants?.every(r => r.dataUri === null)).toBe(true);
+      expect(download).not.toHaveBeenCalled();
+    } finally { download.mockRestore(); }
+  });
+  it("stores a real compact PDF only after send and keeps its bytes through later revisions and downloads", async () => {
+    const d = await draft(), p = await proposal(d.id);
+    render.mockImplementationOnce(async (proposal, company, versionId, exhibits) => {
+      const selected = await readEstimate(company, d.id);
+      expect(selected.version.status).toBe("sent");
+      expect(selected.version.frozenSubtotalCents).toBe(2468);
+      expect(exhibits?.provenance.versionId).toBe(versionId);
+      return renderProposalDocument(await loadProposalDocumentModel(company, proposal as ProposalWithDetails, exhibits!));
+    });
+    const response = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "portal", expectedEstimateVersionId: d.version.id }).expect(201);
+    const bytes = stored.get(response.body.pdfStoragePath)!;
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(2);
+    const text = execFileSync("pdftotext", ["-layout", "-", "-"], { input: bytes }).toString();
+    expect(text).toContain("PROPOSAL TOTAL");
+    expect(text).toContain("Signing below accepts");
+    await transitionEstimate(companyId, actor, d.id, d.version.id, "revise", {});
+    render.mockClear();
+    const downloaded = await request(app).get(`/api/proposals/${p.id}/versions/${response.body.id}/download`).expect(200);
+    expect(downloaded.body).toEqual(bytes);
+    expect(stored.get(response.body.pdfStoragePath)).toEqual(bytes);
+    expect(render).not.toHaveBeenCalled();
+  });
   it("validates effective cover PATCH state, tenant/photo ownership and rerunnable FK deletion", async () => {
     const d = await draft();
     const p = await proposal(d.id);
@@ -226,6 +276,7 @@ describe("estimate-derived proposal exhibits", () => {
   });
 });
 afterAll(async () => {
+  await closeDocumentBrowser();
   await db.delete(tickets).where(eq(tickets.companyId, companyId));
   await db.delete(companies).where(inArray(companies.id, [companyId, otherCompany]));
   await db.delete(users).where(eq(users.id, actor));
