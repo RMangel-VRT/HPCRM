@@ -75,6 +75,30 @@ afterAll(async () => {
   await pool.end(); await schemaPool.end();
 });
 describe("atomic customer setup", () => {
+  it("persists both management IDs for a property-billed wizard customer without remote writes", async () => {
+    const [pmCompany] = await db.insert(propertyManagementCompanies).values({
+      companyId, name: "Synthetic property management", ...address,
+    }).returning();
+    const [manager] = await db.insert(propertyManagers).values({
+      companyId, propertyManagementCompanyId: pmCompany.id, name: "Synthetic manager", email: "manager@example.test",
+    }).returning();
+    const response = await request(app()).post("/api/customers/wizard").send({
+      customer: { name: "Synthetic property-billed customer", status: "prospect", ...address, billToMode: "property",
+        propertyManagementCompanyId: pmCompany.id, propertyManagerId: manager.id },
+      contacts: [], siteNotes: {}, qbo: { sendNow: false },
+    });
+    expect(response.status).toBe(200);
+    const expected = { billToMode: "property", propertyManagementCompanyId: pmCompany.id, propertyManagerId: manager.id };
+    expect(response.body.customer).toMatchObject(expected);
+    expect(await storage.getCustomerById(response.body.customer.id, companyId)).toMatchObject(expected);
+    const reread = await request(app()).get(`/api/customers/${response.body.customer.id}/setup`);
+    expect(reread.status).toBe(200);
+    expect(reread.body.customer).toMatchObject(expected);
+    const people = await storage.getContactsByCustomerId(response.body.customer.id, companyId);
+    expect(people).toHaveLength(1);
+    expect(people[0]).toMatchObject({ propertyManagerId: manager.id, emails: ["manager@example.test"] });
+    expect(remote).not.toHaveBeenCalled();
+  });
   it("round-trips customer number and ranking through setup GET/PATCH while preserving inactive and omitted facts", async () => {
     const [customer] = await db.insert(customers).values({
       companyId, name: "Inactive setup fixture", status: "inactive", ...address,

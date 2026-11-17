@@ -434,6 +434,9 @@ describe("customer editor: parents and management billing parity", () => {
     fireEvent.click(screen.getByTestId("button-billto-management_company"));
     await screen.findByTestId("select-pm-company");
     fireEvent.change(screen.getByTestId("select-pm-company"), { target: { value: "" } });
+    expect(screen.getByTestId("text-care-of-select-company")).toHaveTextContent("Choose a management company in the Property section.");
+    expect(screen.queryByTestId("text-care-of")).toBeNull();
+    expect(screen.getAllByTestId("select-pm-company")).toHaveLength(1);
     fireEvent.click(screen.getByTestId("button-billto-custom"));
     save();
     await waitFor(() => expect(patches()).toHaveLength(1));

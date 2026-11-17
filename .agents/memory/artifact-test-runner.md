@@ -46,6 +46,17 @@ Exclude active Drizzle configuration files from unchanged-source archives.
 copied configuration can fail the single-config check even when no schema
 change or database drift exists.
 
+Even test-only source archives need the root TypeScript base config and the
+directories/configs named by the artifact's TypeScript references.
+
+**Why:** Vite's TypeScript config loader traverses project references during
+test transformation, before it executes a test; missing reference targets
+produce harness failures rather than application regression evidence.
+
+**How to apply:** Include referenced configs or link unchanged library
+directories when making a small source archive. Do not count a config-load
+failure as a failing application baseline.
+
 **How to apply:** Preserve source and TypeScript build inputs needed for the
 baseline, but omit the archive's Drizzle config before completion validation.
 

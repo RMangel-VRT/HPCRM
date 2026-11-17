@@ -7,12 +7,14 @@ import { CustomerSubNav, CustomerPageChips } from "./CustomerSubNav";
 import { canonicalCustomerSearch, visibleCustomerPages } from "./customerPages";
 
 vi.mock("@/hooks/use-reduced-motion", () => ({ usePrefersReducedMotion: () => true }));
+const locale = vi.hoisted(() => ({ language: "en" }));
 vi.mock("react-i18next", async () => {
   const { default: en } = await import("@/i18n/locales/en");
-  const get = (k: string) => k.split(".").reduce<any>((o, p) => o?.[p], en) ?? k;
-  return { useTranslation: () => ({ t: get, i18n: { language: "en" } }) };
+  const { default: es } = await import("@/i18n/locales/es");
+  const get = (k: string) => k.split(".").reduce<any>((o, p) => o?.[p], locale.language === "es" ? es : en) ?? k;
+  return { useTranslation: () => ({ t: get, i18n: { language: locale.language } }) };
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); locale.language = "en"; });
 
 function fixture({ role = "admin", collapsed = false, snow = true, kind = "regular" as "regular" | "parent" } = {}) {
   const onTabChange = vi.fn();
@@ -29,11 +31,11 @@ function fixture({ role = "admin", collapsed = false, snow = true, kind = "regul
 }
 
 describe("CP2 customer rail", () => {
-  it("admin regular customer: 11 pages, one name each, Work and Money headings, no name block", () => {
+  it("admin regular customer: unchanged page order, Work and Sales & money headings, no name block", () => {
     const { nav, onTabChange, pages } = fixture();
     expect(pages).toEqual(["dashboard", "contacts", "notes", "documents", "communications", "services", "tickets", "snow", "property", "proposals", "contracts", "billing"]);
     const groups = within(nav).getAllByRole("group");
-    expect(groups.map(g => g.getAttribute("aria-label"))).toEqual(["Customer", "Work", "Money"]);
+    expect(groups.map(g => g.getAttribute("aria-label"))).toEqual(["Customer", "Work", "Sales & money"]);
     expect(within(nav).getByTestId("nav-item-dashboard").textContent).toBe("Dashboard");
     expect(within(nav).getByTestId("nav-item-property").textContent).toBe("Property");
     expect(within(nav).getByTestId("nav-item-billing").getAttribute("aria-current")).toBe("page");
@@ -46,6 +48,15 @@ describe("CP2 customer rail", () => {
     contacts.focus();
     fireEvent.keyDown(contacts, { key: "ArrowDown" });
     expect(onTabChange).toHaveBeenLastCalledWith("notes");
+  });
+
+  it.each(["en", "es"])("renders the sales group label in %s without changing its destinations", language => {
+    locale.language = language;
+    const { nav } = fixture();
+    const group = within(nav).getByRole("group", { name: language === "en" ? "Sales & money" : "Ventas y dinero" });
+    expect(group.textContent).toContain(language === "en" ? "Sales & money" : "Ventas y dinero");
+    expect(within(group).getAllByRole("button").map(b => b.getAttribute("data-testid")))
+      .toEqual(["nav-item-proposals", "nav-item-contracts", "nav-item-billing"]);
   });
 
   it.each(["field_manager", "field", "mapping"])("%s never sees privileged pages", role => {

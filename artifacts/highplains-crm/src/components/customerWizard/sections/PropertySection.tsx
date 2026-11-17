@@ -67,7 +67,7 @@ export function PropertySection({ d, patch, tw, parentChoices, parentsLoading, m
               <StateSelect value={d.state} onChange={v => patch({ state: v })} tw={tw} testId="input-wizard-state" label={tw("fields.state")} />
             </Field>
             <Field label={tw("fields.zip")} need={need("zip")} needId="zip">
-              <Input inputMode="numeric" placeholder="80401" value={d.zip} onChange={e => patch({ zip: e.target.value })} data-testid="input-wizard-zip" />
+              <Input inputMode="numeric" placeholder="80602" value={d.zip} onChange={e => patch({ zip: e.target.value })} data-testid="input-wizard-zip" />
             </Field>
           </div>
         </div>

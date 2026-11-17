@@ -7,7 +7,6 @@ import type { DuplicateCandidate, PmCompany, PmManager, WizardDraft } from "../w
 import type { Preview } from "../billToPreview";
 import { Field, Section, StateSelect, choice, selectCls } from "./shared";
 import type { Needed, PatchDraft, SectionMode, SetDraft, TW } from "./shared";
-import { ManagementFields } from "./ManagementFields";
 
 export interface DupProps { dup: { state: string; name: string }; exactHits: DuplicateCandidate[] }
 
@@ -23,7 +22,7 @@ export interface BillingSectionProps {
 }
 
 export function BillingSection(p: BillingSectionProps) {
-  const { d, setD, patch, tw, pm, pmCompanies, managers, billingName, dupInfo, alreadyLinked, terms, termDefaulted, preview, mode = "create", needed } = p;
+  const { d, setD, patch, tw, pm, billingName, dupInfo, alreadyLinked, terms, termDefaulted, preview, mode = "create", needed } = p;
   const active = d.status === "active";
   const req = active ? tw("requiredActive") : tw("optional");
   const need = (f: "billingName" | "billingEmails" | "billTo") => active && needed?.has(f) ? tw("neededToActivate") : false;
@@ -70,8 +69,7 @@ export function BillingSection(p: BillingSectionProps) {
         )}
         {d.billToMode === "management_company" && (
           <div className="space-y-3 rounded-md border p-3">
-            {mode === "create" && <ManagementFields d={d} patch={patch} tw={tw} pmCompanies={pmCompanies} managers={managers} />}
-            {pm && (
+            {!pm ? <p className="text-sm text-muted-foreground" data-testid="text-care-of-select-company">{tw(mode === "edit" ? "billing.chooseCompanyPropertyEdit" : "billing.chooseCompanyProperty")}</p> : (
               <div className="rounded bg-muted/50 p-3 text-sm" data-testid="text-care-of" aria-readonly>
                 <div className="mb-1 text-[11px] uppercase tracking-wider text-muted-foreground">{tw("billing.careOf")}</div>
                 {careOf.map((l, i) => <div key={i}>{l}</div>)}

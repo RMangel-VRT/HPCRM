@@ -20,6 +20,8 @@ vi.mock("@/hooks/use-breadcrumbs", () => ({ useSetBreadcrumbs: () => {} }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: (...a: unknown[]) => fx.api(...a) }));
 import CustomerSetupWizard from "@/pages/CustomerSetupWizard";
 import i18n from "@/i18n";
+import en from "@/i18n/locales/en";
+import es from "@/i18n/locales/es";
 import { chipProblem, emailsRemaining } from "@/components/customerWizard/wizardModel";
 
 type Call = { method: string; url: string; body: unknown; headers: Record<string, string> };
@@ -28,6 +30,17 @@ const res = (data: unknown) => Promise.resolve({ text: async () => JSON.stringif
 const fail = (status: number, body: unknown) => Promise.reject(new Error(`${status}: ${JSON.stringify(body)}`));
 let over: Record<string, () => Promise<unknown>> = {};
 let dupCandidates: unknown[] = [];
+function keys(obj: object, prefix = ""): string[] {
+  return Object.entries(obj).flatMap(([k, v]) => typeof v === "object" ? keys(v, `${prefix}${k}.`) : [`${prefix}${k}`]);
+}
+const localeKeys = new Set([...keys(en), ...keys(es)]);
+function expectNoRawKeys() {
+  const root = screen.getByTestId("page-customer-wizard");
+  const copy = [root.textContent, ...Array.from(root.querySelectorAll("*")).flatMap(el =>
+    ["placeholder", "aria-label", "title"].map(attr => el.getAttribute(attr) ?? ""))].join(" ");
+  expect(copy.match(/\b[a-z]+[A-Z]\w*\.[A-Za-z.]+\b/g) ?? []).toEqual([]);
+  expect(copy.split(/\s+/).filter(word => localeKeys.has(word))).toEqual([]);
+}
 
 function routes() {
   fx.api.mockImplementation((method: string, url: string, body: unknown, opts?: { headers?: Record<string, string> }) => {
@@ -225,20 +238,83 @@ describe("customer wizard", () => {
   it("previews the selected manager once and submits no duplicate manual contact", async () => {
     mount();
     await screen.findByTestId("input-wizard-name");
-    type("input-wizard-name", "Managed prospect"); next();
-    await screen.findByTestId("wizard-body-2");
-    fireEvent.click(screen.getByTestId("button-billto-management_company"));
+    type("input-wizard-name", "Managed prospect");
+    expect(screen.getByTestId("select-pm-company").closest('[data-testid="wizard-body-1"]')).not.toBeNull();
     await waitFor(() => expect(screen.getByTestId("select-pm-company").querySelectorAll("option").length).toBeGreaterThan(1));
     type("select-pm-company", "mc1");
     await waitFor(() => expect(screen.getByTestId("select-pm-manager").querySelectorAll("option").length).toBeGreaterThan(1));
     type("select-pm-manager", "mg1"); next();
+    await screen.findByTestId("wizard-body-2");
+    expect(screen.getByTestId("button-billto-property")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByTestId("select-pm-company")).toBeNull();
+    next();
     expect(await screen.findByTestId("wizard-body-3")).toHaveTextContent("Dana Ruiz");
     expect(screen.queryByTestId("input-contact-name-0")).not.toBeInTheDocument();
     next(); next(); fireEvent.click(await screen.findByTestId("button-wizard-submit"));
     await waitFor(() => expect(posted("/api/customers/wizard")).toHaveLength(1));
     expect(posted("/api/customers/wizard")[0].body).toMatchObject({
-      customer: { propertyManagerId: "mg1", propertyManagementCompanyId: "mc1" }, contacts: [],
+      customer: { billToMode: "property", propertyManagerId: "mg1", propertyManagementCompanyId: "mc1" }, contacts: [], qbo: { sendNow: false },
     });
+    expect(calls.find(c => c.url.startsWith("/api/property-managers?"))).toMatchObject({
+      url: "/api/property-managers?propertyManagementCompanyId=mc1", headers: { "X-Company-Id": "co1" },
+    });
+  });
+  it("changing management company clears the previous manager", async () => {
+    over["GET /api/property-management-companies"] = () => res([
+      { id: "mc1", name: "First management" }, { id: "mc2", name: "Second management" },
+    ]);
+    mount();
+    await waitFor(() => expect(screen.getByTestId("select-pm-company").querySelectorAll("option")).toHaveLength(3));
+    type("select-pm-company", "mc1");
+    await waitFor(() => expect(screen.getByTestId("select-pm-manager").querySelectorAll("option")).toHaveLength(2));
+    type("select-pm-manager", "mg1");
+    type("select-pm-company", "mc2");
+    expect(screen.getByTestId("select-pm-manager")).toHaveValue("");
+    type("select-pm-company", "");
+    expect(screen.getByTestId("select-pm-manager")).toBeDisabled();
+  });
+
+  it.each(["en", "es"])("all five steps resolve %s copy, placeholders and management guidance", async lang => {
+    await i18n.changeLanguage(lang);
+    // Do not allow English fallback to conceal a missing Spanish key.
+    const fallback = i18n.options.fallbackLng;
+    i18n.options.fallbackLng = false;
+    try {
+      mount();
+      await screen.findByTestId("wizard-body-1");
+      expect(screen.getByTestId("input-wizard-street")).toHaveAttribute("placeholder", lang === "en" ? "e.g. 14847 Madison St" : "p. ej. 14847 Madison St");
+      expect(screen.getByTestId("input-wizard-city")).toHaveAttribute("placeholder", lang === "en" ? "e.g. Thornton" : "p. ej. Thornton");
+      expect(screen.getByTestId("input-wizard-zip")).toHaveAttribute("placeholder", "80602");
+      expect(screen.getByTestId("wizard-body-1")).toHaveTextContent(lang === "en" ? "Size and complexity" : "Tamaño y complejidad");
+      expectNoRawKeys();
+      type("input-wizard-name", "Synthetic managed property");
+      next();
+      await screen.findByTestId("wizard-body-2");
+      expectNoRawKeys();
+      fireEvent.click(screen.getByTestId("button-billto-management_company"));
+      expect(screen.getByTestId("text-care-of-select-company")).toHaveTextContent(lang === "en"
+        ? "Choose a management company on the Property step."
+        : "Elija una empresa administradora en el paso Propiedad.");
+      expect(screen.queryByTestId("select-pm-company")).toBeNull();
+      expectNoRawKeys();
+      fireEvent.click(screen.getByTestId("button-wizard-back"));
+      await waitFor(() => expect(screen.getByTestId("select-pm-company").querySelectorAll("option")).toHaveLength(2));
+      type("select-pm-company", "mc1");
+      next();
+      expect(await screen.findByTestId("text-care-of")).toHaveTextContent("c/o Front Range Mgmt");
+      expect(screen.getByTestId("text-care-of")).toHaveTextContent("9 Pine");
+      await waitFor(() => expect(screen.getByTestId("text-billto-preview")).toHaveTextContent("c/o Front Range Mgmt"));
+      expect(screen.queryByTestId("select-pm-manager")).toBeNull();
+      expectNoRawKeys();
+      fireEvent.click(screen.getByTestId("button-billto-custom"));
+      expectNoRawKeys();
+      fireEvent.click(screen.getByTestId("button-billto-management_company"));
+      for (let step = 3; step <= 5; step++) {
+        next();
+        await screen.findByTestId(`wizard-body-${step}`);
+        expectNoRawKeys();
+      }
+    } finally { i18n.options.fallbackLng = fallback; }
   });
   it("Same as AP copies a one-time snapshot and Edit links return with retained state", async () => {
     mount();

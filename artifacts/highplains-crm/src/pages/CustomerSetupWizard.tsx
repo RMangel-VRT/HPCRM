@@ -19,7 +19,7 @@ import {
 import type {
   DuplicateCandidate, MissingField, ParentLite, PmCompany, PmManager, QboOutcome, StepIssue, WizardDraft,
 } from "@/components/customerWizard/wizardModel";
-import { BillingSection, ContactsSection, PropertySection, Section, SiteSection } from "@/components/customerWizard/sections";
+import { BillingSection, ContactsSection, PropertySection, Section, SiteSection, ManagementFields } from "@/components/customerWizard/sections";
 import { useBillToPreview, type ParentRow } from "@/components/customerWizard/billToPreview";
 
 const STEP_KEYS = ["property", "billing", "contacts", "site", "review"] as const;
@@ -297,7 +297,8 @@ function WizardBody({ companyId }: { companyId: string }) {
             </div>
           )}
 
-          {step === 1 && <PropertySection d={d} patch={patch} tw={tw} parentChoices={parentChoices} parentsLoading={parents.isLoading} />}
+          {step === 1 && <PropertySection d={d} patch={patch} tw={tw} parentChoices={parentChoices} parentsLoading={parents.isLoading}
+            managementFields={<ManagementFields d={d} patch={patch} tw={tw} pmCompanies={pmCompanies} managers={managers.data ?? []} />} />}
           {step === 2 && !master && (
             <BillingSection d={d} setD={setD} patch={patch} tw={tw} pm={pm} pmCompanies={pmCompanies} managers={managers.data ?? []}
               dupInfo={{ dup, exactHits }} billingName={billingName} alreadyLinked={alreadyLinked} preview={preview}
