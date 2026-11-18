@@ -357,13 +357,13 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-const flagTagSchema = z.enum(FLAG_TAG_VALUES as readonly [string, ...string[]]);
+const flagTagSchema = z.enum(FLAG_TAG_VALUES.filter(v => v !== "document_expiring") as [string, ...string[]]);
 const flagStatusSchema = z.enum(FLAG_STATUSES as readonly [string, ...string[]]);
 
 export function registerFlagsRoutes(app: Express): void {
   app.get("/api/m/flag-tags", requireMobileAuth(), (req, res) => {
     const spanish = (req.user as UserWithContext).language === "es";
-    res.json({ tags: FLAG_TAGS.map(t => spanish && t.value === "contract_question"
+    res.json({ tags: FLAG_TAGS.filter(t => t.value !== "document_expiring").map(t => spanish && t.value === "contract_question"
       ? { ...t, label: "Pregunta de contrato" } : t), noteMaxLength: FLAG_NOTE_MAX_LENGTH });
   });
   app.get("/api/flags/customer-search", async (req, res) => {

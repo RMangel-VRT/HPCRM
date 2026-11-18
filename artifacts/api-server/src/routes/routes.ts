@@ -86,6 +86,7 @@ import { registerCustomerServices } from "./customerServices";
 import { registerCustomerNotePins } from "./customerNotePins";
 import { registerCustomerListSummary } from "./customerListSummary";
 import { registerCustomerDocuments } from "./customerDocuments";
+import { registerCompanyDocuments } from "./companyDocuments";
 import { customerDocumentRawAccess } from "../services/customerDocumentRawAccess";
 import { loadCustomerListMetadata } from "../services/customerListSummary";
 import { isLoggedCustomerCommunication } from "../services/customerCommunicationPresentation";
@@ -4183,6 +4184,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/objects/*objectPath", async (req, res) => {
+    if (req.path.startsWith("/objects/company-documents/")) { res.sendStatus(404); return; }
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
@@ -8670,6 +8672,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Canonical handlers plus thin one-release /map-documents aliases.
   registerCustomerDocuments(app);
+  registerCompanyDocuments(app);
 
   // ---------------------
   // Ticket Notifications

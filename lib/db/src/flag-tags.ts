@@ -5,6 +5,7 @@
 // validation) and the web/mobile UIs (for the chip palette / colors).
 
 export const FLAG_TAGS = [
+  { value: "document_expiring",    label: "Document expiring",    color: "#b45309" }, // system only
   { value: "contract_question",    label: "Contract question",    color: "#be185d" }, // pink
   { value: "irrigation_issue",     label: "Irrigation issue",     color: "#2563eb" }, // blue
   { value: "property_damage",      label: "Property damage",      color: "#dc2626" }, // red

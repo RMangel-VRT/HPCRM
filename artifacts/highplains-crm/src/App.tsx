@@ -111,6 +111,7 @@ const LaborRatesPreview = lazy(() => import("@/pages/LaborRatesPreview"));
 const QuickBooksSetup = lazy(() => import("@/pages/QuickBooksSetup"));
 const QboCustomerMapping = lazy(() => import("@/pages/QboCustomerMapping"));
 const CampaignGeneratePage = lazy(() => import("@/pages/CampaignGeneratePage"));
+const CompanyDocumentsPage = lazy(() => import("@/pages/CompanyDocumentsPage"));
 const ServiceCalendarPage = lazy(() => import("@/pages/ServiceCalendarPage"));
 
 interface ErrorBoundaryProps {
@@ -427,6 +428,7 @@ function Router() {
           allowedRoles={["admin", "office", "field_manager", "field", "chemical_manager"]}
         />
         <ProtectedRoute path="/dashboard/communications/:tab?" component={CommunicationsCenter} allowedRoles={["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"]} />
+        <ProtectedRoute path="/dashboard/company-documents" component={CompanyDocumentsPage} />
         <ProtectedRoute path="/dashboard/settings/shared-mailboxes" component={SharedMailboxesAndOversightPage} allowedRoles={["admin", "office"]} />
         <Route path="/dashboard/settings/mailbox-accounts">
           <QueryPreservingRedirect to="/dashboard/settings/shared-mailboxes" />

@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
-import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy, FileText, Eye, AlertTriangle, CheckCircle, XCircle, Clock, Loader2 } from "lucide-react";
+import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy, FileText, Eye, CheckCircle, XCircle, Clock, Loader2, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, PropertyManagementCompany, PropertyManager, PropertyManagerEmail, PropertyManagerPhone, PropertyManagerWithContacts, QboConnectionStatus } from "@shared/schema";
@@ -57,7 +57,6 @@ const MONTHS_WITH_KEYS = [
 
 const companySchema = z.object({
   companyName: z.string().min(1, "Company name is required"),
-  pesticideLicenseNumber: z.string().optional(),
 });
 
 const benchmarksSchema = z.object({
@@ -124,10 +123,6 @@ export default function SettingsPage() {
     queryKey: ["/api/settings"],
   });
 
-  const { data: companyData } = useQuery<{ pesticideLicenseNumber: string | null }>({
-    queryKey: ["/api/company"],
-    enabled: isAdmin === true,
-  });
   
   // Property Management queries
   const { data: pmCompanies = [] } = useQuery<PropertyManagementCompany[]>({
@@ -148,17 +143,6 @@ export default function SettingsPage() {
     enabled: isAdmin === true,
   });
 
-  const { data: chemicalTemplates = [] } = useQuery<{ preVisitHtml: string; postVisitHtml: string }[]>({
-    queryKey: ["/api/chemical-notification-templates"],
-    enabled: isAdmin === true,
-  });
-
-  const anyChemTemplateMissingLicense = isAdmin &&
-    !companyData?.pesticideLicenseNumber?.trim() &&
-    chemicalTemplates.some(tpl =>
-      /\{\{#if\s+pesticideLicenseNumber\}\}/.test(tpl.preVisitHtml) ||
-      /\{\{#if\s+pesticideLicenseNumber\}\}/.test(tpl.postVisitHtml)
-    );
 
   const { data: emailRules = [] } = useQuery<any[]>({
     queryKey: ["/api/email-rules"],
@@ -285,27 +269,10 @@ export default function SettingsPage() {
     },
   });
 
-  const updateCompanyMutation = useMutation({
-    mutationFn: async (updates: { pesticideLicenseNumber?: string | null }) => {
-      return await apiRequest("PATCH", "/api/company", updates);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/company"] });
-    },
-    onError: () => {
-      toast({
-        title: t("common.error"),
-        description: t("settings.saveFailed"),
-        variant: "destructive",
-      });
-    },
-  });
-
   const companyForm = useForm<z.infer<typeof companySchema>>({
     resolver: zodResolver(companySchema),
     defaultValues: {
       companyName: "",
-      pesticideLicenseNumber: "",
     },
   });
 
@@ -507,7 +474,6 @@ export default function SettingsPage() {
     if (settings && !isLoading) {
       companyForm.reset({
         companyName: settings.companyName,
-        pesticideLicenseNumber: companyData?.pesticideLicenseNumber ?? "",
       });
 
       if (settings.mowingSeasonMonths.length > 0) {
@@ -536,11 +502,10 @@ export default function SettingsPage() {
         });
       }
     }
-  }, [settings, isLoading, companyData]);
+  }, [settings, isLoading]);
 
   const handleCompanySubmit = companyForm.handleSubmit((data) => {
     updateSettingsMutation.mutate({ companyName: data.companyName });
-    updateCompanyMutation.mutate({ pesticideLicenseNumber: data.pesticideLicenseNumber || null });
   });
 
   const toggleMonth = (month: string, type: "mowing" | "cleanup") => {
@@ -633,30 +598,19 @@ export default function SettingsPage() {
                     </p>
                   )}
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pesticideLicenseNumber">Pesticide Applicator License #</Label>
-                  <Input
-                    id="pesticideLicenseNumber"
-                    {...companyForm.register("pesticideLicenseNumber")}
-                    placeholder="e.g. 28374"
-                    data-testid="input-pesticide-license-number"
-                  />
-                  {anyChemTemplateMissingLicense && (
-                    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300" data-testid="warning-settings-pesticide-license">
-                      <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                      <span>
-                        One or more chemical notification templates include a pesticide license footer. Fill in this field so the license number appears in compliance emails.
-                      </span>
-                    </div>
-                  )}
-                </div>
+                <p className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2.5 text-sm text-muted-foreground" data-testid="note-license-moved">
+                  <Info className="h-4 w-4 flex-shrink-0" />
+                  <span>{t("companyDocuments.settingsMoved")}{" "}
+                    <Link href="/dashboard/company-documents" className="font-medium text-foreground underline" data-testid="link-license-moved">{t("companyDocuments.settingsMovedLink")}</Link>
+                  </span>
+                </p>
                 <div className="flex justify-end">
                   <Button
                     type="submit"
-                    disabled={updateSettingsMutation.isPending || updateCompanyMutation.isPending}
+                    disabled={updateSettingsMutation.isPending}
                     data-testid="button-save-company"
                   >
-                    {(updateSettingsMutation.isPending || updateCompanyMutation.isPending) ? t("common.saving") : t("settings.saveChanges")}
+                    {updateSettingsMutation.isPending ? t("common.saving") : t("settings.saveChanges")}
                   </Button>
                 </div>
               </form>

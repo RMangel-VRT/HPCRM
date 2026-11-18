@@ -80,6 +80,44 @@ export const visits = pgTable("visits", {
 }));
 export type Visit = typeof visits.$inferSelect;
 
+export const companyDocuments = pgTable("company_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  role: text("role"),
+  expiresOn: date("expires_on"),
+  visibility: text("visibility").notNull().default("office"),
+  pinned: boolean("pinned").notNull().default(false),
+  currentFileId: varchar("current_file_id").references((): AnyPgColumn => companyDocumentFiles.id, { onDelete: "set null" }),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  updatedById: varchar("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+  archivedAt: timestamp("archived_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, t => ({
+  liveRole: uniqueIndex("company_documents_live_role_idx").on(t.companyId, t.role).where(sql`${t.role} IS NOT NULL AND ${t.archivedAt} IS NULL`),
+  companyArchived: index("company_documents_company_archived_idx").on(t.companyId, t.archivedAt),
+  nameCheck: check("company_documents_name_check", sql`length(trim(${t.name})) BETWEEN 1 AND 255`),
+  categoryCheck: check("company_documents_category_check", sql`${t.category} IN ('tax','licenses','insurance','business','other')`),
+  roleCheck: check("company_documents_role_check", sql`${t.role} = 'pesticide_license'`),
+  visibilityCheck: check("company_documents_visibility_check", sql`${t.visibility} IN ('office','everyone')`),
+}));
+export const companyDocumentFiles = pgTable("company_document_files", {
+  id: varchar("id").primaryKey(),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  documentId: varchar("document_id").notNull().references((): AnyPgColumn => companyDocuments.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  filePath: text("file_path").notNull(),
+  fileType: text("file_type"),
+  mimeType: text("mime_type"),
+  fileSize: integer("file_size"),
+  uploadedById: varchar("uploaded_by_id").references(() => users.id, { onDelete: "set null" }),
+  uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
+}, t => ({ documentUploaded: index("company_document_files_document_uploaded_idx").on(t.documentId, t.uploadedAt.desc()) }));
+export type CompanyDocument = typeof companyDocuments.$inferSelect;
+export type CompanyDocumentFile = typeof companyDocumentFiles.$inferSelect;
+
 export const companies = pgTable("companies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
@@ -3524,7 +3562,7 @@ export const communications = pgTable("communications", {
   bccAddresses: text("bcc_addresses").array().default(sql`ARRAY[]::text[]`),
   receivedAt: timestamp("received_at"),
   providerThreadId: text("provider_thread_id"),
-  routingMethod: text("routing_method").$type<"manual" | "email_match" | "thread_match" | "content_match" | "llm">(),
+  routingMethod: text("routing_method").$type<"manual" | "email_match" | "thread_match" | "content_match" | "llm" | "company_documents">(),
   routingConfidence: real("routing_confidence"),
   attachmentsJson: jsonb("attachments_json").default(sql`'[]'::jsonb`),
   automationRuleId: varchar("automation_rule_id"),

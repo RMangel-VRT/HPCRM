@@ -619,8 +619,8 @@ function ChemicalNotificationTemplatesContent() {
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   <span>
                     This template includes a pesticide license footer, but your <strong>Pesticide Applicator License #</strong> is not set. The license number will be hidden in sent emails.{" "}
-                    <a href="/dashboard/settings/company" className="underline font-medium inline-flex items-center gap-0.5">
-                      Add it in Company Settings <ExternalLink className="w-3 h-3" />
+                    <a href="/dashboard/company-documents" className="underline font-medium inline-flex items-center gap-0.5">
+                      {t("companyDocuments.license.addHere")} <ExternalLink className="w-3 h-3" />
                     </a>
                   </span>
                 </div>
@@ -681,8 +681,8 @@ function ChemicalNotificationTemplatesContent() {
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   <span>
                     This template includes a pesticide license footer, but your <strong>Pesticide Applicator License #</strong> is not set. The license number will be hidden in sent emails.{" "}
-                    <a href="/dashboard/settings/company" className="underline font-medium inline-flex items-center gap-0.5">
-                      Add it in Company Settings <ExternalLink className="w-3 h-3" />
+                    <a href="/dashboard/company-documents" className="underline font-medium inline-flex items-center gap-0.5">
+                      {t("companyDocuments.license.addHere")} <ExternalLink className="w-3 h-3" />
                     </a>
                   </span>
                 </div>

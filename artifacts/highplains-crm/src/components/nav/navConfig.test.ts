@@ -15,16 +15,16 @@ it("uses distinct Bids and Estimates identities and the personal, not all-ticket
 });
 const keys = (user: NavUser, now = summer) => getNavForUser(user, now).flatMap(g => g.items.map(i => i.key));
 const roleRows: [NavRole, string[]][] = [
-  ["admin", ["dashboard", "inbox", "mentions", "flags", "tickets", "scheduling", "routes", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "settings", "team"]],
-  ["office", ["dashboard", "inbox", "mentions", "flags", "tickets", "scheduling", "routes", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "settings"]],
-  ["field_manager", ["dashboard", "mentions", "tickets", "scheduling", "routes", "campaigns", "snow", "customers", "maps"]],
-  ["chemical_manager", ["dashboard", "mentions", "tickets", "campaigns", "customers", "maps"]],
-  ["irrigation_manager", ["dashboard", "mentions", "tickets", "routes", "campaigns", "customers", "maps"]],
-  ["shop_manager", ["dashboard", "mentions", "tickets", "equipment", "maps"]],
-  ["landscape_supervisor", ["dashboard", "mentions", "tickets", "customers", "maps"]],
-  ["crew_supervisor", ["mentions", "tickets"]],
-  ["field", ["dashboard", "mentions", "tickets", "maps"]],
-  ["mapping", ["mentions", "maps"]],
+  ["admin", ["dashboard", "inbox", "mentions", "flags", "tickets", "scheduling", "routes", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "companyDocuments", "settings", "team"]],
+  ["office", ["dashboard", "inbox", "mentions", "flags", "tickets", "scheduling", "routes", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "companyDocuments", "settings"]],
+  ["field_manager", ["dashboard", "mentions", "tickets", "scheduling", "routes", "campaigns", "snow", "customers", "maps", "companyDocuments"]],
+  ["chemical_manager", ["dashboard", "mentions", "tickets", "campaigns", "customers", "maps", "companyDocuments"]],
+  ["irrigation_manager", ["dashboard", "mentions", "tickets", "routes", "campaigns", "customers", "maps", "companyDocuments"]],
+  ["shop_manager", ["dashboard", "mentions", "tickets", "equipment", "maps", "companyDocuments"]],
+  ["landscape_supervisor", ["dashboard", "mentions", "tickets", "customers", "maps", "companyDocuments"]],
+  ["crew_supervisor", ["mentions", "tickets", "companyDocuments"]],
+  ["field", ["dashboard", "mentions", "tickets", "maps", "companyDocuments"]],
+  ["mapping", ["mentions", "maps", "companyDocuments"]],
 ];
 const matrixRows = [
   ...roleRows.map(([activeRole, expected]) => ({ name: activeRole, user: { activeRole } as NavUser, expected })),
@@ -60,6 +60,7 @@ const routeRoles: Record<string, NavRole[]> = {
   "/dashboard/reports": AO,
   "/dashboard/settings": AO,
   "/dashboard/users": ["admin"],
+  "/dashboard/company-documents": [...AO, ...field, "crew_supervisor", "mapping"],
 };
 
 describe("Routes is the sole recurring schedule", () => {
@@ -106,7 +107,7 @@ describe("approved ordered sidebar matrix", () => {
   it("keeps last communications tab, badges, and role-specific labels", () => {
     const items = getNavForUser({ activeRole: "admin", lastCommsTab: "sent" }).flatMap(g => g.items);
     expect(items.find(i => i.key === "inbox")).toMatchObject({ href: "/dashboard/communications/sent", badge: "unsorted" });
-    expect(items.filter(i => i.badge).map(i => i.badge).sort()).toEqual(["billing", "flags", "mentions", "scheduling", "unsorted"]);
+    expect(items.filter(i => i.badge).map(i => i.badge).sort()).toEqual(["billing", "companyDocuments", "flags", "mentions", "scheduling", "unsorted"]);
     expect(getNavForUser({ activeRole: "landscape_supervisor" }).flatMap(g => g.items).find(i => i.key === "tickets")?.labelKey).toBe("nav.myWork");
     expect(getNavForUser({ activeRole: "mapping" }).flatMap(g => g.items).find(i => i.key === "maps")?.labelKey).toBe("nav.customerMaps");
   });
@@ -118,8 +119,8 @@ describe("approved ordered sidebar matrix", () => {
     expect(defaultRedirectPath({ activeRole: "crew_supervisor" })).toBe("/dashboard/tickets/my");
   });
   it("billing-tagged mapping can reach Mine without broadening ordinary mapping access", () => {
-    expect(keys({ activeRole: "mapping", activeTags: ["billing"] })).toEqual(["mentions", "tickets", "maps"]);
-    expect(keys({ activeRole: "mapping" })).toEqual(["mentions", "maps"]);
+    expect(keys({ activeRole: "mapping", activeTags: ["billing"] })).toEqual(["mentions", "tickets", "maps", "companyDocuments"]);
+    expect(keys({ activeRole: "mapping" })).toEqual(["mentions", "maps", "companyDocuments"]);
   });
   it.each([
     ["/dashboard/invoicing", "billing"], ["/dashboard/estimates", "estimates"], ["/dashboard/bids", "bids"],

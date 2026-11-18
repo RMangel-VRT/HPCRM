@@ -34,7 +34,8 @@ export function useFlagTaxonomy(): {
     data?.statuses && data.statuses.length > 0
       ? (data.statuses as readonly FlagStatus[])
       : LOCAL_STATUSES;
-  return { tags: tags.map(tag => tag.value === "contract_question" ? { ...tag, label: t("cp1.contractQuestion") } : tag),
+  return { tags: tags.map(tag => tag.value === "document_expiring" ? { ...tag, label: t("companyDocuments.documentExpiring") }
+    : tag.value === "contract_question" ? { ...tag, label: t("cp1.contractQuestion") } : tag),
     statuses, noteMaxLength: data?.noteMaxLength ?? 280 };
 }
 

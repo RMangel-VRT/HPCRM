@@ -12,6 +12,7 @@ import { startQboProactiveRefresh } from "./services/qboClient";
 import { startQboCustomerSync } from "./services/qboCustomerSync";
 import { startContractNonRenewalSweep } from "./lib/contractNonRenewalSweep";
 import { startContractQuestionSweep } from "./lib/contractQuestionFlags";
+import { startCompanyDocumentExpirySweep } from "./lib/companyDocumentExpiryFlags";
 import { startCampaignMembershipSweep } from "./lib/campaignMembership";
 
 async function warnIfSchemaDrift(): Promise<void> {
@@ -62,6 +63,7 @@ registerRoutes(app)
       server.once("close", startQboCustomerSync());
       server.once("close", startContractNonRenewalSweep());
       server.once("close", startContractQuestionSweep());
+      server.once("close", startCompanyDocumentExpirySweep());
       server.once("close", startCampaignMembershipSweep());
     });
   })

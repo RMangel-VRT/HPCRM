@@ -3,7 +3,7 @@ import { accessRole } from "../../../../../lib/db/src/accessRole";
 import {
   LayoutDashboard, Building2, Settings, Shield, DollarSign, ClipboardList, UserCheck,
   Map, CalendarDays, FileText, FileBarChart, MessagesSquare, MessageSquare, Flag, Receipt,
-  Users, Snowflake, Megaphone, Wrench, Calculator, Gavel, Route,
+  Users, Snowflake, FolderOpen, Megaphone, Wrench, Calculator, Gavel, Route,
 } from "lucide-react";
 import { showBillingSidebar } from "@/lib/billing";
 import { commsTabHref, type CommsTab } from "@/lib/last-comms-tab";
@@ -22,7 +22,7 @@ export interface NavUser {
   lastCommsTab?: CommsTab;
 }
 
-export type NavBadge = "billing" | "scheduling" | "flags" | "unsorted" | "mentions" | "qboReview";
+export type NavBadge = "companyDocuments" | "billing" | "scheduling" | "flags" | "unsorted" | "mentions" | "qboReview";
 
 export interface NavItemDef {
   key: string;
@@ -139,6 +139,8 @@ export const NAV_GROUPS: NavGroupDef[] = [
     key: "footer",
     labelKey: null,
     items: [
+      { key: "companyDocuments", labelKey: "nav.companyDocuments", icon: FolderOpen, href: "/dashboard/company-documents",
+        visible: () => true, badge: "companyDocuments" },
       { key: "settings", labelKey: "nav.settings", icon: Settings, href: "/dashboard/settings", visible: is(...AO) },
       { key: "team", labelKey: "nav.team", icon: Users, href: "/dashboard/users", visible: is("admin") },
     ],

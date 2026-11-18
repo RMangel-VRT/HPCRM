@@ -9,6 +9,13 @@ import { sendEmail } from "./emailService";
 // In-memory lock set: mailboxAccountId -> true if sync is in progress
 const syncLocks = new Set<string>();
 
+/** RFC identity lookup deliberately includes communications without a customer. */
+export async function hasSyncedCommunication(companyId: string, rfcMessageId: string) {
+  const rows = await db.select({ id: communications.id }).from(communications)
+    .where(and(eq(communications.companyId, companyId), eq(communications.providerMessageId, rfcMessageId))).limit(1);
+  return rows.length > 0;
+}
+
 // ── Gmail MIME helpers ────────────────────────────────────────────────────────
 
 function base64UrlDecode(data: string): string {
@@ -775,17 +782,7 @@ export async function syncMailbox(mailboxAccountId: string, manual = false): Pro
 
           // Dedup by RFC Message-ID — this is the key that gmailSender stores in
           // communications.providerMessageId when the CRM sends via Gmail.
-          const existingComm = await db
-            .select({ id: communications.id })
-            .from(communications)
-            .where(
-              and(
-                eq(communications.companyId, account.companyId),
-                eq(communications.providerMessageId, parsed.providerMessageId)
-              )
-            )
-            .limit(1);
-          if (existingComm.length > 0) {
+          if (await hasSyncedCommunication(account.companyId, parsed.providerMessageId)) {
             sentCounters.deduped++;
             continue;
           }

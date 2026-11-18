@@ -30,6 +30,7 @@ import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useSchedulingQueue } from "@/hooks/use-scheduling";
 import { Badge } from "@/components/ui/badge";
+import { isAttention, useCompanyDocuments } from "@/components/companyDocuments/companyDocumentsApi";
 import type { Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isBillingPerson, pendingInvoicesKey, showBillingSidebar, type PendingInvoice } from "@/lib/billing";
@@ -150,9 +151,15 @@ export default function AppSidebar({
   const pendingUnsortedCount = Array.isArray(pendingUnsortedData) ? pendingUnsortedData.length : 0;
   const { data: mentionsCount } = useMentionsCount();
 
+  // Same shared query key as the page: no extra endpoint, admin/office only.
+  const { data: companyDocs } = useCompanyDocuments(isAdminOrOffice && !isSuperAdmin ? companyId : null);
+  const companyDocsAttention = isAdminOrOffice && (companyDocs?.documents ?? []).some(isAttention);
+
   const badgeNode = (kind: string | undefined, reviewBadgeId = "badge-qbo-review-sidebar") => {
     const cap = (n: number) => (n > 99 ? "99+" : n);
     const cls = "ml-auto text-xs py-0 px-1.5 min-w-0 no-default-active-elevate";
+    if (kind === "companyDocuments")
+      return companyDocsAttention ? <span className="ml-auto h-2 w-2 flex-none rounded-full bg-amber-400" role="img" aria-label={t("companyDocuments.navDot")} data-testid="dot-company-documents-sidebar" /> : null;
     if (kind === "scheduling" && schedulingBadgeCount > 0)
       return <Badge className={cls} data-testid="badge-scheduling-sidebar">{cap(schedulingBadgeCount)}</Badge>;
     if (kind === "billing" && billingBadgeCount > 0)
