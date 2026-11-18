@@ -30,6 +30,7 @@ import ActiveCustomersPage from "@/pages/ActiveCustomersPage";
 import ContractCenterPage from "@/pages/ContractCenterPage";
 import { buildCsv, csvCell, visibleRows, lineTone } from "@/components/contracts/activeCustomers";
 import * as helpers from "@/components/contracts/activeCustomers";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 
 const none = { state: "none", seasonId: null, agreementId: null, seasonLabel: null, startDate: null, endDate: null, note: null };
 const ls = (o: any) => ({ ...none, seasonLabel: "2026", ...o });
@@ -62,6 +63,108 @@ const type = (id: string, value: string) => act(() => {
 });
 
 describe("active customers page", () => {
+  describe("PDF download", () => {
+    const pdfButton = "button-download-active-customers-pdf";
+    const allow = (role = "office") => { fx.user = { id: 7, activeCompanyId: "co1", activeRole: role, accessRole: accessRole(role) }; };
+    function urls() {
+      Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:test") });
+      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+      return vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    }
+    it.each(["admin", "office", "account_manager"])("offers download to %s", role => {
+      allow(role); fx.q = { "*": { data: resp() } }; render(<ActiveCustomersPage />);
+      expect($(pdfButton).textContent).toBe("Download PDF");
+      expect($(pdfButton).title).toBe("Full report as of Nov 3, 2026");
+    });
+    it.each(["field", "mapping", "field_manager", "crew_supervisor", "shop_manager", "chemical_manager", "landscape_supervisor", "irrigation_manager"])("does not offer PDF to %s", role => {
+      allow(role); fx.q = { "*": { data: resp() } }; render(<ActiveCustomersPage />);
+      expect($(pdfButton)).toBeNull();
+    });
+    it("preserves super-admin access", () => {
+      allow("mapping"); fx.user.isSuperAdminBool = true; fx.q = { "*": { data: resp() } }; render(<ActiveCustomersPage />);
+      expect($(pdfButton)).toBeTruthy();
+    });
+    it("uses selected date and explicit locale, independent of every page filter", async () => {
+      const anchor = urls(); allow(); fx.q = { "*": { data: resp() } }; render(<ActiveCustomersPage />);
+      click("card-no-contract"); click("toggle-active-line-snow"); type("input-search-active-customers", "hidden");
+      type("input-as-of", "2026-11-13");
+      await act(async () => { await i18n.changeLanguage("es"); });
+      fx.api.mockResolvedValue({ blob: async () => new Blob(["%PDF"], { type: "application/pdf" }) });
+      await act(async () => { $(pdfButton).click(); });
+      expect(fx.api).toHaveBeenCalledWith("GET", "/api/contract-center/active-customers.pdf?asOf=2026-11-13&lang=es", undefined,
+        { headers: { "X-Company-Id": "co1" }, signal: expect.any(AbortSignal) });
+      expect(anchor).toHaveBeenCalledTimes(1);
+      expect((anchor.mock.instances[0] as HTMLAnchorElement).download).toBe("High Plains - Active Customers - 2026-11-13.pdf");
+      expect($(pdfButton).textContent).toBe("Descargar PDF");
+      expect($(pdfButton).title).toContain("Informe completo");
+    });
+    it("disables PDF while pending but leaves CSV available; releases its object URL", async () => {
+      vi.useFakeTimers();
+      const anchor = urls(), csv = vi.spyOn(helpers, "downloadCsv").mockImplementation(() => {});
+      let finish!: (v: any) => void;
+      fx.api.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+      allow(); fx.q = { "*": { data: resp() } }; render(<ActiveCustomersPage />);
+      click(pdfButton);
+      expect(($(pdfButton) as HTMLButtonElement).disabled).toBe(true);
+      expect($(pdfButton).textContent).toContain("Preparing PDF");
+      click(pdfButton); click("button-export-active-customers");
+      expect(csv).toHaveBeenCalledTimes(1); expect(fx.api).toHaveBeenCalledTimes(1);
+      await act(async () => finish({ blob: async () => new Blob(["pdf"]) }));
+      expect(anchor).toHaveBeenCalledTimes(1);
+      expect(($(pdfButton) as HTMLButtonElement).disabled).toBe(false);
+      act(() => vi.runAllTimers());
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:test");
+      vi.useRealTimers();
+    });
+    it.each(["company", "user", "date", "logout", "company-away-and-back"])("never downloads an obsolete response after %s changes", async change => {
+      const anchor = urls(); let finish!: (v: any) => void;
+      fx.api.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+      allow(); fx.q = { "*": { data: resp() } }; render(<ActiveCustomersPage />);
+      click(pdfButton);
+      const signal = fx.api.mock.calls[0][3].signal as AbortSignal;
+      if (change === "date") type("input-as-of", "2026-11-14");
+      else {
+        fx.user = change === "logout" ? null : { ...fx.user, ...(change === "user" ? { id: 8 } : { activeCompanyId: "co2" }) };
+        render(<ActiveCustomersPage />);
+        if (change === "company-away-and-back") { allow(); render(<ActiveCustomersPage />); }
+      }
+      expect(signal.aborted).toBe(true);
+      await act(async () => finish({ blob: async () => new Blob(["obsolete"]) }));
+      expect(anchor).not.toHaveBeenCalled(); expect(URL.createObjectURL).not.toHaveBeenCalled();
+      expect(fx.toast).not.toHaveBeenCalled();
+    });
+    it("also cancels responses whose blob read finishes after switching", async () => {
+      const anchor = urls(); let finish!: (v: any) => void;
+      fx.api.mockResolvedValue({ blob: () => new Promise(resolve => { finish = resolve; }) });
+      allow(); fx.q = { "*": { data: resp() } }; render(<ActiveCustomersPage />);
+      await act(async () => { $(pdfButton).click(); });
+      fx.user = { ...fx.user, id: 8 }; render(<ActiveCustomersPage />);
+      await act(async () => finish(new Blob(["obsolete"])));
+      expect(anchor).not.toHaveBeenCalled();
+    });
+    it("surfaces renderer/server failures, permits retry and retains CSV export", async () => {
+      urls(); allow(); fx.q = { "*": { data: resp() } }; render(<ActiveCustomersPage />);
+      const csv = vi.spyOn(helpers, "downloadCsv").mockImplementation(() => {});
+      fx.api.mockRejectedValueOnce(new Error('503: {"message":"DOCUMENT_RENDERER_UNAVAILABLE"}'));
+      await act(async () => { $(pdfButton).click(); });
+      expect(fx.toast).toHaveBeenCalledWith(expect.objectContaining({ description: "DOCUMENT_RENDERER_UNAVAILABLE", variant: "destructive" }));
+      expect(($(pdfButton) as HTMLButtonElement).disabled).toBe(false);
+      click("button-export-active-customers"); expect(csv).toHaveBeenCalled();
+      fx.api.mockResolvedValue({ blob: async () => new Blob(["pdf"]) });
+      await act(async () => { $(pdfButton).click(); });
+      expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    });
+    it("downloads an empty full report and localizes failures/busy state", async () => {
+      allow(); await i18n.changeLanguage("es"); fx.q = { "*": { data: resp({ rows: [] }) } }; render(<ActiveCustomersPage />);
+      let fail!: (error: Error) => void;
+      fx.api.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+      click(pdfButton);
+      expect($(pdfButton).textContent).toBe("Preparando PDF…");
+      await act(async () => fail(new Error("network failed")));
+      expect(fx.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "No se pudo descargar el PDF. Inténtelo de nuevo." }));
+      expect($("button-export-active-customers")).toBeTruthy();
+    });
+  });
   it("shows loading and error states with retry", () => {
     fx.q = { "*": { isLoading: true } }; render(<ActiveCustomersPage />);
     expect($("loading-active-customers")).toBeTruthy();

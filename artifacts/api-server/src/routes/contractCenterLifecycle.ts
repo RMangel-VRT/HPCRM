@@ -32,6 +32,9 @@ import { recordNonRenewal, undoNonRenewal } from "../lib/contractNonRenewal";
 import { NON_RENEWAL_CONFLICT } from "@workspace/db/contract-non-renewal";
 import { activeCustomersAsOf, loadActiveCustomers } from "../lib/activeCustomers";
 import { customerActivation } from "../services/customerActivation";
+import { activeCustomersReport } from "../services/documents/activeCustomers";
+import { renderDocumentPdf } from "../services/documents/render";
+import { DocumentRendererUnavailable } from "../services/documents/browser";
 
 type Authorize = (req: Request, res: Response) => UserWithContext | null;
 type UploadSession = Session & { contractCenterUploads?: Record<string, { companyId: string; termId: string }> };
@@ -42,6 +45,14 @@ const documentsSchema = z.object({
 });
 function context(req: Request, user: UserWithContext) {
   return { companyId: user.activeCompanyId, userId: user.id, id: String(req.params.termId ?? req.params.agreementId) };
+}
+function reportAsOf(req: Request, user: UserWithContext) {
+  if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId)
+    throw new ContractCenterError(409, "Active company changed. Reload and try again.");
+  const query = new URLSearchParams(req.originalUrl.split("?")[1] ?? "");
+  if (query.getAll("asOf").length > 1 || [...query.keys()].some(key => key.startsWith("asOf[")))
+    throw new ContractCenterError(400, "As of must be a single calendar date");
+  return activeCustomersAsOf(req.query.asOf);
 }
 export function registerContractCenterLifecycle(app: Express, authorize: Authorize) {
   const handle = (fn: (req: Request, res: Response, user: UserWithContext) => Promise<void>) =>
@@ -59,16 +70,25 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     res.json(await loadContractAttention(db, user.activeCompanyId));
   }));
   app.get("/api/contract-center/active-customers", handle(async (req, res, user) => {
-    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
-      throw new ContractCenterError(409, "Active company changed. Reload and try again.");
-    }
     res.set("Cache-Control", "private, no-store");
-    const query = new URLSearchParams(req.originalUrl.split("?")[1] ?? "");
-    if (query.getAll("asOf").length > 1 || [...query.keys()].some(key => key.startsWith("asOf["))) {
-      throw new ContractCenterError(400, "As of must be a single calendar date");
-    }
-    const asOf = activeCustomersAsOf(req.query.asOf);
+    const asOf = reportAsOf(req, user);
     res.json(await loadActiveCustomers(db, user.activeCompanyId, asOf));
+  }));
+  app.get("/api/contract-center/active-customers.pdf", handle(async (req, res, user) => {
+    res.set("Cache-Control", "private, no-store");
+    const asOf = reportAsOf(req, user);
+    const data = await loadActiveCustomers(db, user.activeCompanyId, asOf);
+    const { html, footerLabel, shortHeaderNumber, pageCountTemplate } = activeCustomersReport(data, req.query.lang);
+    let bytes: Buffer;
+    try {
+      bytes = await renderDocumentPdf({ html, footerLabel, shortHeaderNumber, pageCountTemplate });
+    } catch (error) {
+      if (!(error instanceof DocumentRendererUnavailable)) throw error;
+      res.status(503).json({ error: error.message, message: error.message }); return;
+    }
+    res.set("Content-Type", "application/pdf");
+    res.set("Content-Disposition", `attachment; filename="High Plains - Active Customers - ${asOf}.pdf"`);
+    res.send(bytes);
   }));
   app.get("/api/contract-center/contracts", handle(async (req, res, user) => {
     const filter = z.object({ bidTicketId: z.string().min(1).optional(), line: z.enum(["landscape", "snow"]).optional(), customerId: z.string().min(1).optional(),

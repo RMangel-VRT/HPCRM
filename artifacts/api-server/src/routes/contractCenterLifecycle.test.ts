@@ -6,8 +6,12 @@ import { getTableName, getTableColumns } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { registerContractCenterRoutes } from "./contractCenter";
 import * as rfpContracts from "../lib/rfpContracts";
+import { accessRole } from "../../../../lib/db/src/accessRole";
+import { DocumentRendererUnavailable } from "../services/documents/browser";
 
 const mock = vi.hoisted(() => ({ db: {} as any, parent: vi.fn(), upload: vi.fn(), file: vi.fn(), acl: vi.fn(), customer: vi.fn(), pm: vi.fn() }));
+const pdf = vi.hoisted(() => ({ render: vi.fn() }));
+vi.mock("../services/documents/render", () => ({ renderDocumentPdf: pdf.render }));
 vi.mock("../db", () => ({ db: mock.db, inTransaction: (_tx: unknown, fn: () => unknown) => fn() }));
 vi.mock("../storage", () => ({ storage: { getCustomerById: mock.customer, getPropertyManagementCompanyById: mock.pm } }));
 vi.mock("../utils/parentGuard", () => ({ assertNotParentCustomer: mock.parent }));
@@ -64,7 +68,7 @@ function app(role = "office", company = "company", superAdmin = false) {
   const instance = express(), session: any = {};
   instance.use(express.json());
   instance.use((req, _res, next) => {
-    Object.assign(req, { isAuthenticated: () => true, user: { id: "actor", activeCompanyId: company, accessRole: role, activeRole: role, isSuperAdminBool: superAdmin }, session });
+    Object.assign(req, { isAuthenticated: () => true, user: { id: "actor", activeCompanyId: company, accessRole: accessRole(role), activeRole: role, isSuperAdminBool: superAdmin }, session });
     next();
   });
   registerContractCenterRoutes(instance); return instance;
@@ -85,6 +89,7 @@ async function create(agent: ReturnType<typeof request>) {
 beforeEach(() => {
   tables = { service_calendar: [], customers: [{ id: "customer", companyId: "company", name: "Pavilion Villas", street: "1 Main", city: "Denver", state: "CO", zip: "80000", propertyManagementCompanyId: null }] };
   sequence = 0; writes = 0; failTable = null; vi.clearAllMocks();
+  pdf.render.mockReset().mockResolvedValue(Buffer.from("%PDF-fixture"));
   mock.customer.mockImplementation(async (id: string, companyId: string) => rows("customers").find(c => c.id === id && c.companyId === companyId));
   mock.parent.mockResolvedValue(false); mock.upload.mockResolvedValue("https://storage.googleapis.com/private/uploads/object?signature=test");
   mock.file.mockResolvedValue({}); mock.acl.mockResolvedValue("/objects/uploads/object");
@@ -188,6 +193,79 @@ describe("CC-ATTN serialized attention accounting", () => {
   });
 });
 describe("Contract Center lifecycle routes", () => {
+  describe("Active Customers PDF", () => {
+    beforeEach(() => vi.spyOn(companyDay, "companyToday").mockReturnValue("2026-11-03"));
+    const url = `${base}/active-customers.pdf`;
+    it.each(["admin", "office", "account_manager"])("allows %s through existing access projection with exact headers", async role => {
+      const response = await request(app(role)).get(`${url}?asOf=2026-11-13&lang=es`).set("X-Company-Id", "company").expect(200);
+      expect(response.headers["content-type"]).toBe("application/pdf");
+      expect(response.headers["content-disposition"]).toBe('attachment; filename="High Plains - Active Customers - 2026-11-13.pdf"');
+      expect(response.headers["cache-control"]).toBe("private, no-store");
+      expect(response.body.toString()).toBe("%PDF-fixture");
+      expect(pdf.render.mock.calls[0][0]).toMatchObject({ pageCountTemplate: "Página {{page}} de {{total}}" });
+      expect(pdf.render.mock.calls[0][0].html).toContain("Clientes activos");
+      expect(mock.db.select).toHaveBeenCalledTimes(3);
+      expect(writes).toBe(0);
+    });
+    it.each(["field", "field_manager", "crew_supervisor", "shop_manager", "mapping", "chemical_manager", "landscape_supervisor", "irrigation_manager"])("denies %s without loading or rendering", async role => {
+      await request(app(role)).get(url).expect(403);
+      expect(mock.db.select).not.toHaveBeenCalled(); expect(pdf.render).not.toHaveBeenCalled();
+    });
+    it("requires authentication/company, rejects initiating-company mismatch, preserves super-admin", async () => {
+      const anonymous = express(); registerContractCenterRoutes(anonymous);
+      await request(anonymous).get(url).expect(401);
+      await request(app("admin", "")).get(url).expect(403);
+      await request(app()).get(url).set("X-Company-Id", "other").expect(409);
+      expect(mock.db.select).not.toHaveBeenCalled();
+      await request(app("mapping", "company", true)).get(url).expect(200);
+    });
+    it.each(["simple", "extended"])("shares date validation/default/range with JSON using %s parser", async parser => {
+      const instance = app(); instance.set("query parser", parser);
+      for (const query of ["asOf=", "asOf=2026-02-30", "asOf=2026-11-13&asOf=2026-11-13", "asOf[x]=2026-11-13", "asOf[]=2026-11-13", "asOf=2028-01-01", "asOf=2025-01-01"])
+        await request(instance).get(`${url}?${query}`).expect(400);
+      expect(mock.db.select).not.toHaveBeenCalled();
+      await request(instance).get(url).expect(200);
+      expect(pdf.render.mock.calls[0][0].footerLabel).toContain("Nov 3, 2026");
+      for (const offset of [-400, 400, -401, 401])
+        await request(instance).get(`${url}?asOf=${companyDay.addCalendarDays("2026-11-03", offset)}`).expect(Math.abs(offset) === 400 ? 200 : 400);
+    });
+    it("includes every responsible customer, grouped parent-first; excludes foreign data and ignores filters", async () => {
+      tables.customers = [
+        { id: "parent", companyId: "company", name: "Z Parent", status: "active" },
+        { id: "branch", companyId: "company", name: "A Branch", status: "inactive", parentCustomerId: "parent" },
+        { id: "other", companyId: "company", name: "B Standalone", status: "active" },
+        { id: "foreign", companyId: "other", name: "Foreign private customer", status: "active" },
+      ];
+      tables.agreements = [{ id: "p", companyId: "company", customerId: "parent" }, { id: "o", companyId: "company", customerId: "other" },
+        { id: "f", companyId: "other", customerId: "foreign" }];
+      tables.agreement_terms = ["p", "o", "f"].map(agreementId => ({ id: agreementId, agreementId,
+        companyId: agreementId === "f" ? "other" : "company", line: "both", status: "signed",
+        startDate: "2026-01-01", endDate: "2027-12-31", seasonLabel: "2026–27" }));
+      await request(app()).get(`${url}?asOf=2026-11-13&q=nothing&card=noContract&line=snow&lang=fr`).expect(200);
+      const html = pdf.render.mock.calls[0][0].html;
+      expect(html).toContain("B Standalone"); expect(html).not.toContain("Foreign private customer");
+      expect(html.indexOf("Z Parent")).toBeLessThan(html.indexOf("A Branch"));
+      expect(mock.db.select).toHaveBeenCalledTimes(3);
+      expect(html).toContain("Active Customers");
+    });
+    it("keeps companies isolated in both directions", async () => {
+      tables.customers = [{ id: "a", companyId: "company", name: "Company one only", status: "active" },
+        { id: "b", companyId: "other", name: "Company two only", status: "active" }];
+      await request(app("office", "other")).get(url).set("X-Company-Id", "other").expect(200);
+      expect(pdf.render.mock.calls[0][0].html).toContain("Company two only");
+      expect(pdf.render.mock.calls[0][0].html).not.toContain("Company one only");
+    });
+    it("returns renderer message on 503 and useful safe 500s for other failures", async () => {
+      pdf.render.mockRejectedValueOnce(new DocumentRendererUnavailable());
+      const response = await request(app()).get(url).expect(503);
+      expect(response.body.message).toBe("DOCUMENT_RENDERER_UNAVAILABLE");
+      expect(response.headers["cache-control"]).toBe("private, no-store");
+      pdf.render.mockRejectedValueOnce(new Error("private path"));
+      await request(app()).get(url).expect(500, { message: "Contract Center request failed" });
+      mock.db.select.mockImplementationOnce(() => { throw new Error("private db"); });
+      await request(app()).get(url).expect(500, { message: "Contract Center request failed" });
+    });
+  });
   it("keeps a retired rate carried by renewal while changing another rate, with one detailed event", async () => {
     vi.spyOn(companyDay, "companyToday").mockReturnValue("2026-06-01");
     tables.rate_card_items = [

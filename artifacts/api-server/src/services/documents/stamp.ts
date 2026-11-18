@@ -6,6 +6,8 @@ const green = rgb(55 / 255, 68 / 255, 61 / 255), lime = rgb(140 / 255, 198 / 255
 const px = (n: number) => n * .75;
 export interface StampInput {
   footerLabel: string; shortHeaderNumber: string; draft?: boolean;
+  /** Optional localized page-count template. Existing documents retain English. */
+  pageCountTemplate?: string;
   /** Leading undecorated pages; excluded from the printed page count. */
   coverPages?: number;
   /** Full-PDF zero-based index of the signed document's final page. */
@@ -42,7 +44,9 @@ export async function stampDocument(bytes: Buffer, input: StampInput): Promise<B
     }
     page.drawLine({ start: { x: 0, y: lineY }, end: { x: width, y: lineY }, thickness: px(1.5), color: green });
     // Fit long customer/footer notes without overlapping the page count.
-    const count = `Page ${i + 1 - covers} of ${pages.length - covers}`, label = input.footerLabel.replace(/[\r\n\t]+/g, " ");
+    const count = input.pageCountTemplate
+      ? input.pageCountTemplate.replace("{{page}}", String(i + 1 - covers)).replace("{{total}}", String(pages.length - covers))
+      : `Page ${i + 1 - covers} of ${pages.length - covers}`, label = input.footerLabel.replace(/[\r\n\t]+/g, " ");
     const available = width - px(128) - font.widthOfTextAtSize(count, 9) - 16;
     const size = Math.min(9, available / Math.max(1, font.widthOfTextAtSize(label, 1)));
     page.drawText(label, { x: px(64), y: px(22), size, font, color: secondary });

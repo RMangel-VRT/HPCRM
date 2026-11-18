@@ -1,4 +1,5 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
+import { activeCustomersText } from "../../../../../lib/db/src/activeCustomersText";
 const es = {
   contractedServices: { pdf: "PDF de servicios contratados", fixScope: "Corrija primero el alcance: {{services}}", failed: "No se pudo abrir el PDF. Inténtelo de nuevo.", customerName: "Nombre para el cliente", sameName: "Igual que el nombre de la ronda" },
   quickItemCsv: {
@@ -4042,12 +4043,8 @@ const es = {
     cards: { responsible: "Vigentes", ending_soon: "Terminan en 30 días", lapsed: "Renovación enviada, contrato terminado", should_fall_off: "Debieron darse de baja",
       starting_soon: "Inician pronto", mismatch: "Inactivos pero vigentes", noContract: "Sin contrato registrado" },
     split: "Paisajismo {{landscape}} · Nieve {{snow}}",
-    cols: { customer: "Cliente", agent: "Agente", landscape: "Paisajismo", snow: "Nieve", flags: "Alertas", action: "Acción" },
+    ...activeCustomersText.es,
     csv: { customer: "Cliente", status: "Estado", agent: "Agente", landscape: "Paisajismo", snow: "Nieve", flags: "Alertas" },
-    status: { active: "Activo", prospect: "Prospecto", inactive: "Inactivo" },
-    flag: { ending_soon: "Termina pronto", should_fall_off: "Dar de baja", lapsed: "Renovación pendiente", starting_soon: "Inicia pronto", mismatch: "Inactivo pero vigente", noContract: "Sin contrato" },
-    state: { in_effect: "Vigente hasta {{date}}", starting: "Inicia {{date}}", ended: "Terminó {{date}}" },
-    note: { not_renewing: "no renueva", renewed: "renovado", renewal_sent: "renovación enviada", renewal_drafted: "renovación en borrador", lost: "perdido" },
     through: "A través de {{parent}}", empty: "Ningún cliente coincide.", error: "No se pudieron cargar los clientes activos.", retry: "Reintentar",
     showing_one: "{{count}} cliente al {{date}}", showing_other: "{{count}} clientes al {{date}}",
     setInactive: "Marcar inactivo", setActive: "Marcar activo", cancel: "Cancelar",

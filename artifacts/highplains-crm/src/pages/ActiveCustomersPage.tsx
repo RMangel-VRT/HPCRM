@@ -17,6 +17,7 @@ import { companyHeaders } from "@/lib/hardscapeCatalog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { coloradoToday, addDays } from "@/components/contracts/contractFormat";
 import { ContractViewSwitch } from "@/components/contracts/ContractViewSwitch";
+import { ActiveCustomersPdfButton } from "@/components/contracts/ActiveCustomersPdfButton";
 import {
   CARD_ORDER, activeCustomerDate, buildCsv, cardTestId, downloadCsv, lastEnded, lineHref, lineText, lineTone, visibleRows,
 } from "@/components/contracts/activeCustomers";
@@ -89,6 +90,7 @@ export function ActiveCustomersView({ data, asOf, onAsOf, today, onStatus }: {
             onChange={e => setQ(e.target.value)} data-testid="input-search-active-customers" />
         </div>
         <Button variant="outline" onClick={exportCsv} data-testid="button-export-active-customers"><Download className="w-4 h-4 mr-1" />{t("activeCustomers.export")}</Button>
+        <ActiveCustomersPdfButton asOf={asOf} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">

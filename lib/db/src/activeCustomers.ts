@@ -21,7 +21,7 @@ export interface ActiveCustomerRow {
   customerId: string; customerName: string; customerStatus: CustomerStatus;
   managingAgentName: string | null; responsible: boolean;
   landscape: LineState; snow: LineState; flags: ActiveCustomerFlag[];
-  viaParent?: boolean; parentName?: string; noContract?: boolean;
+  viaParent?: boolean; parentName?: string; parentCustomerId?: string; noContract?: boolean;
 }
 export interface ActiveCustomersCounts {
   responsible: number; landscape: number; snow: number;
@@ -96,7 +96,7 @@ export function classifyCustomer(input: { customer: ActiveCustomer; seasons: Act
   const parent = seasons.find(s => s.viaParent);
   return { customerId: customer.id, customerName: customer.name, customerStatus: customer.status,
     managingAgentName: agentSeason?.managingAgentName ?? null, responsible, landscape, snow, flags,
-    ...(parent ? { viaParent: true, parentName: parent.parentName } : {}),
+    ...(parent ? { viaParent: true, parentName: parent.parentName, parentCustomerId: customer.parentCustomerId ?? undefined } : {}),
     ...(!seasons.length && customer.status === "active" ? { noContract: true } : {}) };
 }
 

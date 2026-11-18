@@ -1,4 +1,5 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
+import { activeCustomersText } from "../../../../../lib/db/src/activeCustomersText";
 const en = {
   contractedServices: { pdf: "Contracted Services PDF", fixScope: "Fix the scope first: {{services}}", failed: "Unable to open the PDF. Please try again.", customerName: "Customer name", sameName: "Same as round name" },
   quickItemCsv: {
@@ -3828,12 +3829,8 @@ const en = {
     cards: { responsible: "In effect", ending_soon: "Ending in 30 days", lapsed: "Renewal out, contract ended", should_fall_off: "Should have fallen off",
       starting_soon: "Starting soon", mismatch: "Marked inactive but in effect", noContract: "No contract on file" },
     split: "Landscape {{landscape}} · Snow {{snow}}",
-    cols: { customer: "Customer", agent: "Agent", landscape: "Landscape", snow: "Snow", flags: "Flags", action: "Action" },
+    ...activeCustomersText.en,
     csv: { customer: "Customer", status: "Status", agent: "Agent", landscape: "Landscape", snow: "Snow", flags: "Flags" },
-    status: { active: "Active", prospect: "Prospect", inactive: "Inactive" },
-    flag: { ending_soon: "Ending soon", should_fall_off: "Should fall off", lapsed: "Renewal out", starting_soon: "Starting soon", mismatch: "Inactive but in effect", noContract: "No contract" },
-    state: { in_effect: "In effect to {{date}}", starting: "Starts {{date}}", ended: "Ended {{date}}" },
-    note: { not_renewing: "not renewing", renewed: "renewed", renewal_sent: "renewal sent", renewal_drafted: "renewal drafted", lost: "lost" },
     through: "Through {{parent}}", empty: "No customers match.", error: "Active customers could not be loaded.", retry: "Try again",
     showing_one: "{{count}} customer as of {{date}}", showing_other: "{{count}} customers as of {{date}}",
     setInactive: "Set inactive", setActive: "Set active", cancel: "Cancel",
