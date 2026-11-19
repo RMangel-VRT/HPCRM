@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Route, Router, Switch } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -159,19 +159,26 @@ describe("header actions per state", () => {
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
     expect(screen.getByTestId("button-mark-sent")).toBeTruthy();
+    expect(screen.getByTestId("pill-status-draft").textContent).toBe("Draft");
+    expect(screen.queryByTestId("strip-versions")).toBeNull();
     expect(screen.queryByTestId("button-discard-draft")).toBeNull();
     expect(screen.queryByTestId("button-record-accept")).toBeNull();
     expect(screen.getByTestId("button-overflow")).toBeTruthy();
     expect(screen.getByTestId("text-next-step").textContent).toContain("mark as sent");
   });
-  it("sent: accept/decline/edit, amber immutable banner, no edit inputs", async () => {
+  it("sent: accept/decline, editable lines, sent date and method, manual revision in overflow", async () => {
     detail = detailOf([{ id: "v1", n: 1, status: "sent", o: { sentAt: T0, sentMethod: "email" } }]);
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
     expect(screen.getByTestId("button-record-accept")).toBeTruthy();
     expect(screen.getByTestId("button-record-decline")).toBeTruthy();
-    expect(screen.getByTestId("button-revise").textContent).toBe("Edit (creates v2)");
-    expect(screen.getByTestId("banner-read-only").textContent).toContain("Sent versions are locked");
+    expect(screen.queryByTestId("button-revise")).toBeNull();
+    expect(screen.getByTestId("pill-status-sent").textContent).toBe("Sent");
+    expect(screen.getByTestId("banner-edit-revision").textContent).toContain("Sent Apr 1, 2025 by Email.");
+    expect(screen.getByTestId("banner-edit-revision").textContent).toContain("your first change starts Version 2");
+    expect((screen.getByTestId("input-quantity-la") as HTMLInputElement).disabled).toBe(false);
+    fireEvent.keyDown(screen.getByTestId("button-overflow"), { key: "Enter" });
+    expect((await screen.findByTestId("menu-start-version")).textContent).toBe("Start Version 2");
     expect(screen.queryByTestId("button-mark-sent")).toBeNull();
     expect(screen.queryByTestId("input-estimate-title")).toBeNull();
   });
@@ -181,15 +188,17 @@ describe("header actions per state", () => {
     await ready();
     expect(screen.getByTestId("button-revise").textContent).toBe("Start change order (v2)");
     expect(screen.getByTestId("indicator-locked").textContent).toBe("Locked");
+    expect((screen.getByTestId("input-quantity-la") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByTestId("banner-edit-revision")).toBeNull();
     const b = screen.getByTestId("text-accepted-meta").textContent!;
     expect(b).toContain("Mar 31, 2025"); expect(b).toContain("Signed PDF"); expect(b).toContain("PO PO-77"); expect(b).toContain("Prices frozen");
   });
-  it("declined: Revise and reason", async () => {
+  it("declined: reason and first-edit hint", async () => {
     detail = detailOf([{ id: "v1", n: 1, status: "declined", o: { declineReason: "Timing" } }]);
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    expect(screen.getByTestId("button-revise").textContent).toBe("Revise (v2)");
-    expect(screen.getByTestId("text-decline-reason").textContent).toContain("Timing");
+    expect(screen.queryByTestId("button-revise")).toBeNull();
+    expect(screen.getByTestId("banner-edit-revision").textContent).toContain("Timing");
   });
   it("change-order draft keeps accepted history visible and offers discard", async () => {
     detail = detailOf([{ id: "v1", n: 1, status: "accepted" }, { id: "v2", n: 2, status: "draft", o: { createdFromVersionId: "v1" } }]);
@@ -385,10 +394,108 @@ describe("dialogs", () => {
     handler = (c) => c.method === "POST" ? res({ error: "DRAFT_EXISTS", versionId: "v3" }, 409) : undefined;
     const { loc } = renderAt("/dashboard/estimates/builder/e1?version=2");
     await ready();
-    fireEvent.click(screen.getByTestId("button-revise"));
+    fireEvent.keyDown(screen.getByTestId("button-overflow"), { key: "Enter" });
+    fireEvent.click(await screen.findByTestId("menu-start-version"));
     await waitFor(() => expect(loc.history?.at(-1)).toBe("/dashboard/estimates/builder/e1"));
     expect(mutations()).toHaveLength(1);
     expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ description: "A draft already exists. Opening it." }));
+  });
+});
+
+describe("first edit on a sent or declined estimate", () => {
+  const path = "/dashboard/estimates/builder/e1";
+  const versionBase = "/api/estimates/e1/versions";
+  const idMap = { sections: { s1: "draft-section" }, lines: { la: "new-a", lb: "new-b", lc: "new-c" } };
+  function setup(status = "sent", race?: "same-source" | "missing-target") {
+    const source: V = { id: "v1", n: 1, status, o: { scopeOfWork: "Original scope", sentAt: T0, sentMethod: "email" } };
+    const initial = detailOf([source]);
+    const draftV: V = { id: "v2", n: 2, status: "draft", o: { createdFromVersionId: "v1", scopeOfWork: "Original scope" } };
+    const draft = detailOf([source, draftV], undefined, { updatedAt: LATER });
+    draft.version.sections = [{ ...draft.version.sections[0], id: "draft-section",
+      lines: (race === "missing-target" ? [line("new-c"), line("new-b")] : [line("new-c"), line("new-b"), line("new-a")]) }];
+    detail = initial;
+    handler = c => {
+      if (c.url.endsWith("?kind=fee")) return res([]);
+      if (c.url.endsWith("/revise")) {
+        detail = draft;
+        return race ? res({ error: "DRAFT_EXISTS", versionId: "v2", idMap }, 409) : res({ ...draft, idMap });
+      }
+      if (c.url === "/api/estimates/e1?version=1") return res(detail === initial ? initial : detailOf([source, draftV], "v1"));
+      if (c.method !== "GET") return res(draft);
+      return undefined;
+    };
+    return { draft, initial };
+  }
+  const edit = (input: HTMLElement, value: string) => {
+    fireEvent.change(input, { target: { value } });
+    fireEvent.blur(input);
+  };
+  async function confirm() {
+    expect(mutations()).toHaveLength(0);
+    await screen.findByTestId("dialog-first-edit-revision");
+    fireEvent.click(screen.getByTestId("button-confirm-first-edit"));
+  }
+  it.each(["quantity", "scope"])("restores %s on Cancel without creating a draft", async field => {
+    setup();
+    renderAt(path);
+    await ready();
+    const input = (field === "scope" ? screen.getByRole("textbox", { name: "Scope of work" }) : screen.getByTestId("input-quantity-la")) as HTMLInputElement;
+    const before = input.value;
+    edit(input, field === "scope" ? "Changed scope" : "5");
+    const dialog = await screen.findByTestId("dialog-first-edit-revision");
+    expect(dialog.textContent).toContain("Start Version 2?");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(input.value).toBe(before));
+    expect(mutations()).toHaveLength(0);
+  });
+  it.each(["fresh", "same-source"] as const)("replays quantity to its mapped line and opens the %s draft", async kind => {
+    setup("sent", kind === "fresh" ? undefined : kind);
+    const { loc } = renderAt(`${path}?version=1`);
+    await ready();
+    edit(screen.getByTestId("input-quantity-la"), "5");
+    await confirm();
+    await waitFor(() => expect(loc.history?.at(-1)).toBe(path));
+    expect(mutations()).toMatchObject([
+      { method: "POST", url: `${versionBase}/v1/revise`, body: { firstEdit: true }, headers: { "X-Company-Id": "c1" } },
+      { method: "PATCH", url: `${versionBase}/v2/lines/new-a`, body: { quantity: "5" }, headers: { "X-Company-Id": "c1" } },
+    ]);
+    expect((await screen.findByTestId("pill-status-draft")).textContent).toContain("v2");
+    expect(screen.getByTestId("chip-version-1").textContent).toContain("v1");
+  });
+  it("opens a competing draft without writing if its copied target was deleted", async () => {
+    setup("sent", "missing-target");
+    renderAt(path);
+    await ready();
+    edit(screen.getByTestId("input-quantity-la"), "5");
+    await confirm();
+    await screen.findByTestId("pill-status-draft");
+    expect(mutations()).toHaveLength(1);
+    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining("couldn't be applied safely") }));
+  });
+  it.each([
+    ["scope", "PATCH", "/v2", { scopeOfWork: "New scope" }],
+    ["rename", "PATCH", "/v2/sections/draft-section", { name: "Side beds" }],
+    ["delete", "DELETE", "/v2/lines/new-b", undefined],
+    ["add", "POST", "/v2/lines", { sectionId: "draft-section", lineType: "fee", name: "Site fee", unitPriceCents: 500 }],
+  ] as const)("replays a declined version's first %s edit", async (operation, method, suffix, body) => {
+    setup("declined");
+    renderAt(path);
+    await ready();
+    if (operation === "scope") edit(screen.getByRole("textbox", { name: "Scope of work" }), "New scope");
+    if (operation === "rename") edit(screen.getByTestId("input-section-name-s1"), "Side beds");
+    if (operation === "delete") fireEvent.click(screen.getByTestId("button-remove-line-lb"));
+    if (operation === "add") {
+      fireEvent.click(screen.getByTestId("button-add-fee-s1"));
+      fireEvent.doubleClick(await screen.findByTestId("option-__free"));
+      fireEvent.change(await screen.findByTestId("input-free-name"), { target: { value: "Site fee" } });
+      fireEvent.change(screen.getByTestId("input-free-rate"), { target: { value: "5" } });
+      fireEvent.submit(screen.getByTestId("form-free-entry"));
+    }
+    await confirm();
+    await screen.findByTestId("pill-status-draft");
+    expect(mutations()).toHaveLength(2);
+    expect(mutations()[1]).toMatchObject({ method, url: `${versionBase}${suffix}` });
+    if (body) expect(mutations()[1].body).toMatchObject(body);
   });
 });
 
@@ -454,8 +561,7 @@ describe("list filters and Spanish", () => {
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
     expect(screen.getByTestId("button-record-accept").textContent).toBe("Registrar aceptación");
-    expect(screen.getByTestId("button-revise").textContent).toBe("Editar (crea v2)");
-    expect(screen.getByTestId("banner-read-only").textContent).toContain("Las versiones enviadas están bloqueadas");
+    expect(screen.getByTestId("banner-edit-revision").textContent).toContain("su primer cambio inicia la versión 2");
     fireEvent.click(screen.getByTestId("button-record-accept"));
     expect((await screen.findByTestId("dialog-accept")).textContent).toContain("Bloquea esta versión y congela sus precios.");
   });

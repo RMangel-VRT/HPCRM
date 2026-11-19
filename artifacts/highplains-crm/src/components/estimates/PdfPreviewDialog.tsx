@@ -4,6 +4,7 @@ import { AlertTriangle, Download, ExternalLink, FileText } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { companyHeaders } from "@/lib/hardscapeCatalog";
 import { ESTIMATES_API } from "@/lib/estimateBuilder";
+import { estimatePdfFilename } from "../../../../../lib/db/src/estimateContracts";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,7 +13,7 @@ export function estimatePdfUrl(estimateId: string, versionId: string): string {
   return `${ESTIMATES_API}/${encodeURIComponent(estimateId)}/versions/${encodeURIComponent(versionId)}/pdf`;
 }
 
-type State = { kind: "loading" } | { kind: "error"; unavailable?: boolean } | { kind: "ready"; url: string };
+type State = { kind: "loading" } | { kind: "error"; unavailable?: boolean } | { kind: "ready"; url: string; filename: string };
 
 /**
  * Previews the viewed version's PDF. The blob is fetched with the captured X-Company-Id; every
@@ -20,15 +21,14 @@ type State = { kind: "loading" } | { kind: "error"; unavailable?: boolean } | { 
  */
 export function PdfPreviewDialog(props: {
   open: boolean; onClose: () => void; companyId: string; estimateId: string; versionId: string;
-  estimateNumber: string; versionNumber: number; draft: boolean;
+  estimateNumber: string; versionNumber: number; showVersion?: boolean;
   workLocation?: string | null;
 }) {
   const { t } = useTranslation();
-  const { open, companyId, estimateId, versionId, workLocation } = props;
+  const { open, companyId, estimateId, versionId, workLocation, estimateNumber, versionNumber, showVersion } = props;
   const [state, setState] = useState<State>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const urlRef = useRef<string | null>(null);
-  const filename = `${props.estimateNumber}-v${props.versionNumber}.pdf`;
 
   useEffect(() => {
     if (!open) return;
@@ -43,7 +43,9 @@ export function PdfPreviewDialog(props: {
         if (!alive) return;
         created = URL.createObjectURL(blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" }));
         urlRef.current = created;
-        setState({ kind: "ready", url: created });
+        const filename = res.headers.get("Content-Disposition")?.match(/filename="(EST(?:-\d{4}-\d+)?(?:-v\d+)?\.pdf)"/)?.[1]
+          ?? estimatePdfFilename(estimateNumber, versionNumber, showVersion ?? false);
+        setState({ kind: "ready", url: created, filename });
       } catch (error) {
         // apiRequest preserves status and JSON in its Error message.
         let unavailable = false;
@@ -58,12 +60,12 @@ export function PdfPreviewDialog(props: {
       ctrl.abort();
       if (created) { URL.revokeObjectURL(created); if (urlRef.current === created) urlRef.current = null; }
     };
-  }, [open, companyId, estimateId, versionId, attempt, workLocation]);
+  }, [open, companyId, estimateId, versionId, attempt, workLocation, estimateNumber, versionNumber, showVersion]);
 
   function download() {
     if (state.kind !== "ready") return;
     const a = document.createElement("a");
-    a.href = state.url; a.download = filename; a.rel = "noopener";
+    a.href = state.url; a.download = state.filename; a.rel = "noopener";
     document.body.appendChild(a); a.click(); a.remove();
   }
   function openTab() {
@@ -71,13 +73,14 @@ export function PdfPreviewDialog(props: {
     window.open(state.url, "_blank", "noopener");
   }
 
+  const titleShowsVersion = state.kind === "ready" ? state.filename.endsWith(`-v${versionNumber}.pdf`) : showVersion;
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) props.onClose(); }}>
       <DialogContent className="flex h-[min(88dvh,960px)] max-w-4xl flex-col gap-3" data-testid="dialog-pdf-preview">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><FileText className="h-4 w-4 text-[hsl(var(--rail-active-icon))]" />
-            {t("estimateBuilder.pdf.title", { number: props.estimateNumber, n: props.versionNumber })}</DialogTitle>
-          <DialogDescription data-testid="text-pdf-hint">{props.draft ? t("estimateBuilder.pdf.draftHint") : t("estimateBuilder.pdf.desc")}</DialogDescription>
+            {titleShowsVersion ? t("estimateBuilder.pdf.title", { number: estimateNumber, n: versionNumber }) : estimateNumber}</DialogTitle>
+          <DialogDescription data-testid="text-pdf-hint">{t("estimateBuilder.pdf.desc")}</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-hidden rounded-md border bg-muted/40">
           {state.kind === "loading" && (

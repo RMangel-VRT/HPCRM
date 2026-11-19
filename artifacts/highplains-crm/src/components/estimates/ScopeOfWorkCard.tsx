@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 
 /** The parent is keyed by identity/company/version and installs authoritative detail.
  * Serialize blur saves; keep newer local typing when a previous save returns. */
-export function ScopeOfWorkCard({ value, editable, onSave }: {
-  value: string | null; editable: boolean; onSave: (value: string | null) => Promise<{ scopeOfWork: string | null } | null>;
+export function ScopeOfWorkCard({ value, editable, restoreOnFailure, onSave }: {
+  value: string | null; editable: boolean; restoreOnFailure?: boolean; onSave: (value: string | null) => Promise<{ scopeOfWork: string | null } | null>;
 }) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(value ?? "");
@@ -44,6 +44,11 @@ export function ScopeOfWorkCard({ value, editable, onSave }: {
       dirty.current = normalize(local.current) !== text;
       if (!dirty.current) { local.current = baseline.current; setDraft(baseline.current); }
       setStatus(dirty.current ? "idle" : "saved");
+    } else if (restoreOnFailure) {
+      dirty.current = false;
+      local.current = baseline.current;
+      setDraft(local.current);
+      setStatus("idle");
     } else {
       dirty.current = true;
       setStatus("error");

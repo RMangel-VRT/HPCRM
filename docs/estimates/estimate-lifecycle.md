@@ -37,6 +37,26 @@ Draft content mutations keep their existing affected-version response contract.
 - `currentVersionId` is the newest nondeleted version, even if a historical
   accepted version remains the contract. Historical UI views are read-only.
 
+## First edit after send or decline
+
+The current sent or declined version exposes the ordinary version-content
+controls. They stage the first change without writing to the source. Cancel
+restores the value; confirming opens the next draft and replays the committed
+edit with the same endpoint and only the supplied fields. The shared title is
+still draft-only, and W1 work location remains a separate non-commercial edit.
+Manual **Start Version N** is in the overflow menu. Accepted versions remain
+locked and still use **Start change order**.
+
+The revise endpoint accepts `{ firstEdit: true }` for this path, enforcing
+current sent/declined status under the parent lock before creating a draft.
+The existing manual `{}` request and transition rules are unchanged. Revision
+returns `idMap: { sections, lines }` from the copy transaction. The draft
+owns the map as copy provenance, not as a second source of section or line
+data. `DRAFT_EXISTS` returns it only for a draft created from that same source.
+The builder verifies the draft and every replay target by ID. It opens an
+existing draft but does not attempt an ambiguous write if its source differs,
+an old draft lacks the required mapping, or a mapped target was deleted.
+
 ## Accepted-on representation and migration deviation
 
 The prerequisite schema supplied `accepted_at`, an audit timestamp, but no

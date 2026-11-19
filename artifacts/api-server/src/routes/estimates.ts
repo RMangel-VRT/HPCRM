@@ -2,7 +2,7 @@ import { Router, type Express, type RequestHandler } from "express";
 import { z } from "zod/v4";
 import { createEstimateSchema, patchEstimateSchema, patchEstimateVersionSchema, createEstimateSectionSchema, patchEstimateSectionSchema,
   createEstimateLineSchema, patchEstimateLineSchema, estimateListQuerySchema, estimateDetailQuerySchema, estimateIdSchema,
-   sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, catalogMatchesQuerySchema } from "@workspace/db";
+   sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, reviseEstimateSchema, catalogMatchesQuerySchema } from "@workspace/db";
 import { PutEstimateWorkLocationBody, PutEstimateWorkLocationResponse } from "@workspace/api-zod";
 import type { UserWithContext } from "../auth";
 import { estimateAccess } from "../lib/estimateAccess";
@@ -12,7 +12,7 @@ import { listEstimates, readEstimate } from "../services/estimateReads";
 import { createEstimate, retitleEstimate, patchVersion, createSection, patchSection, deleteSection, createLine, patchLine, deleteLine } from "../services/estimates";
 import { transitionEstimate } from "../services/estimateLifecycle";
 import { readTicketEstimate } from "../services/ticketEstimates";
-import { renderEstimatePdf } from "../services/estimatePdf";
+import { renderEstimatePdfFile } from "../services/estimatePdf";
 import { DocumentRendererUnavailable } from "../services/documents/browser";
 import { customerActivation } from "../services/customerActivation";
 import { catalogMatches } from "../services/estimateCatalogSaves";
@@ -82,13 +82,8 @@ export function registerEstimateRoutes(app: Express) {
     try {
       const { id, versionId } = pathSchema.parse(req.params);
       const companyId = (req.user as UserWithContext).activeCompanyId;
-      const pdf = await renderEstimatePdf(companyId, id, versionId!);
-      // Filename comes from the already-owned version, never an untrusted request string.
-      const estimate = await readEstimate(companyId, id);
-      const version = estimate.versions.find(v => v.id === versionId);
-      if (!version) { res.status(404).json({ error: "NOT_FOUND" }); return; }
-      const number = /^EST-\d{4}-\d+$/.test(estimate.estimateNumber) ? estimate.estimateNumber : "EST";
-      res.type("application/pdf").setHeader("Content-Disposition", `${req.query.download === "1" ? "attachment" : "inline"}; filename="${number}-v${version.versionNumber}.pdf"`);
+      const { pdf, filename } = await renderEstimatePdfFile(companyId, id, versionId!);
+      res.type("application/pdf").setHeader("Content-Disposition", `${req.query.download === "1" ? "attachment" : "inline"}; filename="${filename}"`);
       res.send(pdf);
     } catch (error) {
       if (error instanceof DocumentRendererUnavailable) {
@@ -106,7 +101,7 @@ export function registerEstimateRoutes(app: Express) {
       const { id, versionId } = pathSchema.parse(req.params);
       const user = req.user as UserWithContext;
       const schema = action === "send" ? sendEstimateSchema : action === "accept" ? acceptEstimateSchema
-        : action === "decline" ? estimateReasonSchema : emptyEstimateActionSchema;
+        : action === "decline" ? estimateReasonSchema : reviseEstimateSchema;
       const result = await transitionEstimate(user.activeCompanyId, user.id, id, versionId!, action, schema.parse(req.body));
       const activation = action === "accept" ? await customerActivation(user.activeCompanyId, async () => result.customerId) : undefined;
       res.json({ ...result, ...(activation ? { customerActivation: activation } : {}) });

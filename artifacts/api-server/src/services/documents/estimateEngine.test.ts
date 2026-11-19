@@ -16,3 +16,15 @@ it("renders the shared estimate design", async () => {
   expect(text).not.toContain("BY CATEGORY");
   expect(text).not.toContain("SECRET");
 }, 30_000);
+it.each([false, true])("prints a clean draft on every page with version labels enabled: %s", async showVersion => {
+  const model = { ...estimateFixture(60), draft: true, versionNumber: 1, status: "draft", statusLine: "", showVersion };
+  const bytes = await renderEstimateDocument(model);
+  const pages = execFileSync("pdftotext", ["-layout", "-", "-"], { input: bytes }).toString().split("\f").filter(page => page.trim());
+  expect(pages.length).toBeGreaterThan(1);
+  for (const page of pages) {
+    expect(page.replace(/\s/g, "")).not.toContain("DRAFT");
+    expect(page).toContain(`Estimate ${model.estimateNumber}${showVersion ? ", version 1" : ""} ·`);
+    expect(page.includes(`${model.estimateNumber} · Version 1`)).toBe(showVersion);
+    if (!showVersion) expect(page).not.toMatch(/version 1/i);
+  }
+}, 30_000);

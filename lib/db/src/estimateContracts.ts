@@ -1,6 +1,21 @@
 /** Driver-free Estimate Builder request contracts, shared by CRM and API. */
 import { z } from "zod/v4";
 import { ESTIMATE_UNITS } from "./estimateUnits";
+
+/** Copy provenance, keyed by IDs from the immediate source version. */
+export interface EstimateRevisionIdMap {
+  sections: Record<string, string>;
+  lines: Record<string, string>;
+}
+
+export function estimateHasMultipleVersions(versionCount: number): boolean {
+  return versionCount > 1;
+}
+
+export function estimatePdfFilename(estimateNumber: string, versionNumber: number, showVersion: boolean): string {
+  const number = /^EST-\d{4}-\d+$/.test(estimateNumber) ? estimateNumber : "EST";
+  return `${number}${showVersion ? `-v${versionNumber}` : ""}.pdf`;
+}
 export type { ProposalEstimateSummary } from "./proposalContracts";
 import { isCalendarDate } from "./schema/calendarDate";
 export { isCalendarDate } from "./schema/calendarDate";
@@ -25,6 +40,7 @@ export const acceptEstimateSchema = z.object({
 }).strict();
 export const estimateReasonSchema = z.object({ reason: z.string().trim().min(1).max(10000) }).strict();
 export const emptyEstimateActionSchema = z.object({}).strict();
+export const reviseEstimateSchema = z.object({ firstEdit: z.literal(true).optional() }).strict();
 export const ESTIMATE_LIST_STATUSES = ["open", "sent", "accepted", "declined", "void"] as const;
 export const ESTIMATE_UMBRELLAS = ["plants", "landscape_materials", "irrigation_materials", "landscape_labor", "irrigation_labor", "fees_surcharges"] as const;
 export type EstimateUmbrella = typeof ESTIMATE_UMBRELLAS[number];

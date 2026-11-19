@@ -310,7 +310,7 @@ function ActionList() {
         <DeclineDialog open={dialog?.kind === "decline"} busy={busy} error={error} versionNumber={est.versionNumber}
           onClose={closeDialog} onSubmit={(b) => lifecycle("decline", b)} />
         <PdfPreviewDialog open={dialog?.kind === "pdf"} onClose={closeDialog} companyId={companyId} estimateId={est.id} versionId={est.versionId}
-          estimateNumber={est.number} versionNumber={est.versionNumber} draft={est.status === "draft"} />
+          estimateNumber={est.number} versionNumber={est.versionNumber} />
       </>}
       <FollowUpDialog ticket={dialog?.kind === "followUp" ? dialog.ticket : null} busy={busy} error={error} onClose={closeDialog} onSave={saveFollowUp} />
       {activation.dialog}

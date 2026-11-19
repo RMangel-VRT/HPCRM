@@ -81,6 +81,6 @@ function ScopedDocumentSettings({ companyId, scope }: { companyId: string; scope
       {dirty && <p className="text-sm text-muted-foreground">{t("documents.saveFirst")}</p>}
       {previewError && <p role="alert">{t("documents.previewError")}</p>}
     </form>}
-    {preview && <PdfPreviewDialog open onClose={() => setPreview(null)} companyId={companyId} estimateId={preview.id} versionId={preview.version.id} estimateNumber={preview.estimateNumber} versionNumber={preview.version.versionNumber} draft={preview.version.status === "draft"} />}
+    {preview && <PdfPreviewDialog open onClose={() => setPreview(null)} companyId={companyId} estimateId={preview.id} versionId={preview.version.id} estimateNumber={preview.estimateNumber} versionNumber={preview.version.versionNumber} />}
   </CardContent></Card>;
 }

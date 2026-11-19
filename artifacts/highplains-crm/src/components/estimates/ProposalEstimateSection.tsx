@@ -168,7 +168,7 @@ export function ProposalEstimateSection({ proposal, companyId, active, onLinked,
         {full.data && <TicketAdvanceNotice key={`${companyId}:${user?.id}:${user?.activeRole}:${full.data.id}`} estimate={full.data} />}
         {v && preview && (
           <PdfPreviewDialog open={preview} onClose={() => setPreview(false)} companyId={companyId} estimateId={linked.id}
-            versionId={v.id} estimateNumber={linked.number} versionNumber={v.versionNumber} draft={v.status === "draft"}
+            versionId={v.id} estimateNumber={linked.number} versionNumber={v.versionNumber}
             workLocation={full.data?.display?.workLocation} />
         )}
       </section>

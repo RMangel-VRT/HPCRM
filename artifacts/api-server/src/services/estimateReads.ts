@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, isNotNull, ilike, or, desc, asc } from "drizzle-orm";
+import { and, eq, inArray, isNull, isNotNull, ilike, or, desc, asc, getTableColumns } from "drizzle-orm";
 import { estimates, estimateVersions, estimateSections, estimateLines, customers, estimateLineNeedsPrice, type Estimate, type EstimateVersion, type EstimateLine } from "@workspace/db";
 import { db, type AppTransaction } from "../db";
 import { computeVersionTotals } from "./estimateMath";
@@ -7,10 +7,12 @@ import { estimateDisplay } from "./estimateDisplay";
 import { loadPlantLinesForVersion, derivePaletteTypeLabel } from "./proposalExhibits";
 
 export type EstimateConnection = typeof db | AppTransaction;
+const { revisionIdMap: _revisionIdMap, ...versionColumns } = getTableColumns(estimateVersions);
+type VisibleEstimateVersion = Omit<EstimateVersion, "revisionIdMap">;
 export function estimateLinePayload(line: EstimateLine) {
   return { ...line, needsPrice: estimateLineNeedsPrice(line) };
 }
-export async function versionPayload(tx: EstimateConnection, companyId: string, version: EstimateVersion) {
+export async function versionPayload(tx: EstimateConnection, companyId: string, version: VisibleEstimateVersion) {
   const sections = await tx.select().from(estimateSections).where(and(eq(estimateSections.companyId, companyId), eq(estimateSections.versionId, version.id)))
     .orderBy(asc(estimateSections.sortOrder), asc(estimateSections.createdAt), asc(estimateSections.id));
   const lines = await tx.select().from(estimateLines).where(and(eq(estimateLines.companyId, companyId), eq(estimateLines.versionId, version.id)))
@@ -38,7 +40,7 @@ export async function versionPayload(tx: EstimateConnection, companyId: string, 
     sections: sections.map(section => ({ ...section, lines: grouped.get(section.id) ?? [] })), totals };
 }
 export async function estimatePayload(tx: EstimateConnection, companyId: string, estimate: Estimate, versionNumber?: number, affectedVersionId?: string) {
-  const versions = await tx.select().from(estimateVersions).where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimate.id)))
+  const versions = await tx.select(versionColumns).from(estimateVersions).where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimate.id)))
     .orderBy(desc(estimateVersions.versionNumber));
   const version = requireEstimate(versions.find(v => versionNumber !== undefined ? v.versionNumber === versionNumber : v.id === (affectedVersionId ?? estimate.currentVersionId)));
   return { ...estimate, versions,
@@ -55,7 +57,7 @@ export interface EstimateListFilters { customerId?: string; ticketId?: string; s
 /** At most three bounded queries irrespective of container count; no catalog/rate joins. */
 export async function listEstimates(companyId: string, filters: EstimateListFilters) {
   return db.transaction(async tx => {
-    const rows = await tx.select({ estimate: estimates, customerName: customers.name, currentVersion: estimateVersions })
+    const rows = await tx.select({ estimate: estimates, customerName: customers.name, currentVersion: versionColumns })
       .from(estimates).innerJoin(customers, and(eq(customers.id, estimates.customerId), eq(customers.companyId, companyId)))
       .leftJoin(estimateVersions, and(eq(estimateVersions.id, estimates.currentVersionId), eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimates.id)))
       .where(and(eq(estimates.companyId, companyId),
@@ -70,9 +72,9 @@ export async function listEstimates(companyId: string, filters: EstimateListFilt
     const lines = draftIds.length ? await tx.select().from(estimateLines).where(and(eq(estimateLines.companyId, companyId), inArray(estimateLines.versionId, draftIds))) : [];
     const grouped = new Map<string, EstimateLine[]>();
     for (const line of lines) { const group = grouped.get(line.versionId) ?? []; group.push(line); grouped.set(line.versionId, group); }
-    const versions = rows.length ? await tx.select().from(estimateVersions).where(and(eq(estimateVersions.companyId, companyId),
+    const versions = rows.length ? await tx.select(versionColumns).from(estimateVersions).where(and(eq(estimateVersions.companyId, companyId),
       inArray(estimateVersions.estimateId, rows.map(r => r.estimate.id)))).orderBy(desc(estimateVersions.versionNumber)) : [];
-    const histories = new Map<string, EstimateVersion[]>();
+    const histories = new Map<string, VisibleEstimateVersion[]>();
     for (const v of versions) { const history = histories.get(v.estimateId) ?? []; history.push(v); histories.set(v.estimateId, history); }
     return rows.map(({ estimate, customerName, currentVersion }) => ({
       ...estimate, customerName, currentVersionNumber: currentVersion?.versionNumber ?? null, currentVersionStatus: currentVersion?.status ?? null,

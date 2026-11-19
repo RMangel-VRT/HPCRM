@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { and, eq, inArray, ne, desc } from "drizzle-orm";
 import { estimates, estimateVersions, estimateSections, estimateLines,
-  sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema,
-  estimateLineNeedsPrice, type EstimateVersion } from "@workspace/db";
+  sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, reviseEstimateSchema,
+  estimateLineNeedsPrice, type EstimateVersion, type EstimateRevisionIdMap } from "@workspace/db";
 import { db } from "../db";
 import { companyToday } from "../lib/companyDay";
 import { EstimateError, requireEstimate } from "./estimateErrors";
@@ -27,6 +28,7 @@ export async function transitionEstimate(companyId: string, userId: string | nul
   const input = action === "send" ? sendEstimateSchema.parse(body)
     : action === "accept" ? acceptEstimateSchema.parse(body)
     : action === "decline" || action === "void" ? estimateReasonSchema.parse(body)
+    : action === "revise" ? reviseEstimateSchema.parse(body)
     : emptyEstimateActionSchema.parse(body);
   return db.transaction(async tx => {
     const estimate = requireEstimate((await tx.select().from(estimates)
@@ -36,6 +38,7 @@ export async function transitionEstimate(companyId: string, userId: string | nul
     const scope = and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, id));
     const versions = await tx.select().from(estimateVersions).where(scope).orderBy(desc(estimateVersions.versionNumber));
     let currentVersionId = estimate.currentVersionId;
+    let idMap: EstimateRevisionIdMap | undefined;
     if (action === "void") {
       if (versions.some(v => v.status === "accepted")) throw new EstimateError(409, "HAS_ACCEPTED_VERSION");
       const { reason } = estimateReasonSchema.parse(input);
@@ -71,27 +74,34 @@ export async function transitionEstimate(companyId: string, userId: string | nul
         await tx.update(estimateVersions).set({ status: "declined", declinedAt: now, declinedById: userId,
           declineReason: estimateReasonSchema.parse(input).reason, updatedAt: now }).where(versionScope);
       } else if (action === "revise") {
+        const { firstEdit } = reviseEstimateSchema.parse(input);
+        const invalidFirstEdit = () => new EstimateError(409, "INVALID_TRANSITION", { from: version.status, action });
+        if (firstEdit && version.status !== "sent" && version.status !== "declined") throw invalidFirstEdit();
         const draft = versions.find(v => v.status === "draft");
-        if (draft) throw new EstimateError(409, "DRAFT_EXISTS", { versionId: draft.id });
+        if (draft) throw new EstimateError(409, "DRAFT_EXISTS", {
+          versionId: draft.id,
+          ...(draft.createdFromVersionId === version.id && draft.revisionIdMap ? { idMap: draft.revisionIdMap } : {}),
+        });
+        if (firstEdit && currentVersionId !== version.id) throw invalidFirstEdit();
         const next = versions[0].versionNumber + 1;
         if (next > 2147483647) throw new RangeError("Version number overflow");
-        const [copy] = await tx.insert(estimateVersions).values({ companyId, estimateId: id, versionNumber: next,
-          createdFromVersionId: version.id, scopeOfWork: version.scopeOfWork, createdById: userId }).returning();
         const sections = await tx.select().from(estimateSections)
           .where(and(eq(estimateSections.companyId, companyId), eq(estimateSections.versionId, version.id)));
         const lines = await tx.select().from(estimateLines)
           .where(and(eq(estimateLines.companyId, companyId), eq(estimateLines.versionId, version.id)));
-        const sectionIds = new Map<string, string>();
-        for (const section of sections) {
-          const [created] = await tx.insert(estimateSections).values({ companyId, versionId: copy.id,
-            name: section.name, sortOrder: section.sortOrder }).returning();
-          sectionIds.set(section.id, created.id);
-        }
-        if (lines.length) await tx.insert(estimateLines).values(lines.map(line => {
-          const { id: _id, createdAt: _created, updatedAt: _updated, ...snapshot } = line;
-          const sectionId = sectionIds.get(line.sectionId);
+        // Assign IDs before bulk inserts; RETURNING row order is not a mapping contract.
+        const sectionsToCopy = new Map(sections.map(section => [section.id, randomUUID()]));
+        const linesToCopy = new Map(lines.map(line => [line.id, randomUUID()]));
+        idMap = { sections: Object.fromEntries(sectionsToCopy), lines: Object.fromEntries(linesToCopy) };
+        const [copy] = await tx.insert(estimateVersions).values({ companyId, estimateId: id, versionNumber: next,
+          createdFromVersionId: version.id, scopeOfWork: version.scopeOfWork, createdById: userId, revisionIdMap: idMap }).returning();
+        if (sections.length) await tx.insert(estimateSections).values(sections.map(section => ({
+          id: sectionsToCopy.get(section.id)!, companyId, versionId: copy.id, name: section.name, sortOrder: section.sortOrder,
+        })));
+        if (lines.length) await tx.insert(estimateLines).values(lines.map(({ id: sourceId, createdAt: _created, updatedAt: _updated, ...snapshot }) => {
+          const sectionId = sectionsToCopy.get(snapshot.sectionId);
           if (!sectionId) throw new EstimateError(409, "CONFLICT");
-          return { ...snapshot, unit: canonicalEstimateUnit(snapshot.unit), versionId: copy.id, sectionId };
+          return { ...snapshot, id: linesToCopy.get(sourceId)!, unit: canonicalEstimateUnit(snapshot.unit), versionId: copy.id, sectionId };
         }));
         currentVersionId = copy.id;
       } else if (action === "discard") {
@@ -102,6 +112,6 @@ export async function transitionEstimate(companyId: string, userId: string | nul
     // Current is always newest, not the version just accepted/declined.
     const [refreshed] = await tx.update(estimates).set({ currentVersionId, updatedAt: now })
       .where(and(eq(estimates.companyId, companyId), eq(estimates.id, id))).returning();
-    return estimatePayload(tx, companyId, refreshed);
+    return { ...await estimatePayload(tx, companyId, refreshed), ...(idMap ? { idMap } : {}) };
   });
 }

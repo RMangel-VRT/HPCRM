@@ -6,7 +6,7 @@ import i18n from "@/i18n";
 const mocks = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: mocks.request }));
 import { PdfPreviewDialog } from "./PdfPreviewDialog";
-const props = { open: true, onClose: vi.fn(), companyId: "a", estimateId: "e", versionId: "v", estimateNumber: "EST-2026-0001", versionNumber: 1, draft: false };
+const props = { open: true, onClose: vi.fn(), companyId: "a", estimateId: "e", versionId: "v", estimateNumber: "EST-2026-0001", versionNumber: 1 };
 beforeEach(async () => {
   vi.resetAllMocks(); await i18n.changeLanguage("en");
   URL.createObjectURL = vi.fn(() => "blob:pdf");
@@ -16,7 +16,7 @@ afterEach(cleanup);
 it.each(["en", "es"])("shows engine guidance and a working Retry for the exact 503 in %s", async language => {
   await i18n.changeLanguage(language);
   mocks.request.mockRejectedValueOnce(new Error('503: {"error":"DOCUMENT_RENDERER_UNAVAILABLE"}'))
-    .mockResolvedValue({ blob: async () => new Blob(["pdf"], { type: "application/pdf" }) });
+    .mockResolvedValue(new Response(new Blob(["pdf"], { type: "application/pdf" })));
   const view = render(<PdfPreviewDialog {...props} />);
   await screen.findByText(i18n.t("documents.engine.previewUnavailable"));
   fireEvent.click(screen.getByTestId("button-pdf-retry"));
@@ -26,6 +26,24 @@ it.each(["en", "es"])("shows engine guidance and a working Retry for the exact 5
   view.unmount();
   expect(signal.aborted).toBe(true);
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:pdf");
+});
+it.each([false, true])("uses the filename from the rendered PDF when multiple versions is %s", async multi => {
+  const filename = `EST-2026-0001${multi ? "-v1" : ""}.pdf`;
+  mocks.request.mockResolvedValue(new Response(new Blob(["pdf"], { type: "application/pdf" }), {
+    headers: { "Content-Disposition": `inline; filename="${filename}"` },
+  }));
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+    expect(this.download).toBe(filename);
+  });
+  try {
+    render(<PdfPreviewDialog {...props} />);
+    await screen.findByTestId("frame-pdf");
+    expect(screen.getByRole("heading").textContent?.trim()).toBe(`EST-2026-0001${multi ? " · v1" : ""}`);
+    fireEvent.click(screen.getByTestId("button-pdf-download"));
+    expect(click).toHaveBeenCalledOnce();
+  } finally {
+    click.mockRestore();
+  }
 });
 it.each(['500: {"error":"INTERNAL_ERROR"}', '503: {"error":"OTHER"}', "network unavailable"])("preserves other preview errors: %s", async error => {
   mocks.request.mockRejectedValue(new Error(error));

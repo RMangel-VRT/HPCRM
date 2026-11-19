@@ -12,7 +12,7 @@ Header styles are mirrored with ticket hue/state tokens, not extracted from Tick
 
 - `buildEstimateDocumentModel(payload, resolvedDisplay, coloradoDocumentDate)`: pure allowlist projection. Display metadata and the explicit `YYYY-MM-DD` Colorado document date are required inputs. No database access or implicit clock occurs inside this function.
 - `renderEstimateDocument(model)`: Buffer renderer, also useful for deterministic fixtures.
-- `renderEstimatePdf(companyId, estimateId, versionId)`: scoped read-only, repeatable-read resolver plus renderer. Phase 4 can call it directly without invoking an HTTP handler.
+- `renderEstimatePdf(companyId, estimateId, versionId)`: scoped read-only, repeatable-read resolver plus renderer. The HTTP route uses `renderEstimatePdfFile` to get the bytes and the filename from the same read.
 
 The model contains only customer document facts: company, estimate/version/date/status, customer/address, project and distinct linked-ticket title, version-owned nullable scope, ordered sections, safe descriptions, quantities/units, captured unit prices, line/section totals and total. `hasPlants` derives from captured line umbrellas (including custom Plants lines), never live catalogs. `terms: null` remains for compatibility; configured terms now come from the separate `companyDocument` owner. The model also retains tested customer-labeled category aggregates and available ticket work location. IDs, internal costs/margins, unknown-cost counts, pricing provenance, rate-term IDs, raw umbrellas and pricing flags never enter the model.
 
@@ -22,7 +22,8 @@ Draft totals use the live authoritative total; other versions require the frozen
 
 The current renderer uses the shared HTML/Chromium two-pass document kit: Letter
 pages, 64px side padding, Inter, full first/short later green bands, repeated
-table headings, counted footer, final-page-only mountains and draft-only marks.
+table headings, counted footer, and final-page-only mountains. Draft estimates
+use the current Colorado date with no draft pill, status wording, or watermark.
 Estimate sections retain their grouping and stored unit words. A customer-safe
 total-only summary and optional company terms/warranty precede Acceptance.
 Scope prints immediately after the project title and optional ticket line, before
@@ -41,9 +42,14 @@ fallback behavior.
 
 `GET /api/estimates/:id/versions/:versionId/pdf` uses estimateAccess, authenticated company scope and the existing expected-company guard. Both estimate and version ownership are checked. Missing/foreign records return 404; field roles return 403; changed-company requests return the existing 409. Unexpected failures log only a fixed code and return a generic 500.
 
-Responses are application/pdf, no-store, with inline `EST-YYYY-NNNN-vN.pdf`; `download=1` selects attachment disposition. Historical versions are supported.
+Responses are application/pdf and no-store. A single version uses `EST-YYYY-NNNN.pdf`. Once multiple versions exist, each uses `EST-YYYY-NNNN-vN.pdf` and shows its version in both headings, the footer and the acceptance wording. `download=1` selects attachment disposition. The GET route does not change lifecycle state.
 
-The dialog previews the viewed version, fetching a blob with the captured X-Company-Id. Loading/error/retry, iframe title, Download/Open and draft hint are translated. Download/Open reuse that authorized blob. Request abort/aliveness guards drop obsolete responses; URLs are revoked on close, replacement and unmount. Company/user/role/version scope changes dispose the old view.
+The dialog previews the viewed version, fetching a blob with the captured X-Company-Id. Loading/error/retry, iframe title, Download/Open and the preview hint are translated. Download/Open reuse that authorized blob and the download uses its server-provided filename. Request abort/aliveness guards drop obsolete responses; URLs are revoked on close, replacement and unmount. Company/user/role/version scope changes dispose the old view.
+
+Historical estimate PDFs are rendered on request, not retrieved from original
+as-sent bytes. Their version labels can change when another version is created
+or discarded. Their frozen commercial rows and subtotal do not change, but
+live display inputs (including W1 work location) can still differ.
 
 ## Proposal preservation
 

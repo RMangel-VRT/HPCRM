@@ -19,3 +19,12 @@ Retire proposal writes only after those replacements work. Keep historic
 proposals, files and worksheet snapshots readable, with existing download and
 confirmed delete. Do not add a cover or Visual Scope to estimates, migrate
 proposal files, or change invoices. W1 continues to govern live work location.
+
+Do not describe historical standalone estimate PDFs as archived originals
+unless the application actually stored the sent attachment. The approved
+version labels depend on how many versions exist at render time, and W1 location
+remains a live read-through. The approved mockup leaves the estimate-wide title
+editable only on a draft; first-edit revision applies to version-owned content.
+
+**Why:** Frozen commercial contents and the exact PDF the customer received are
+different records, and title is not owned by each version.

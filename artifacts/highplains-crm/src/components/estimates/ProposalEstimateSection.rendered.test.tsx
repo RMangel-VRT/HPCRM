@@ -12,7 +12,7 @@ vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: mocks.api }));
 vi.mock("./TicketAdvanceNotice", () => ({ TicketAdvanceNotice: () => <div data-testid="notice-stub" /> }));
-vi.mock("./PdfPreviewDialog", () => ({ PdfPreviewDialog: (p: { versionId: string; draft: boolean }) => <div data-testid="preview-stub">{p.versionId}:{String(p.draft)}</div> }));
+vi.mock("./PdfPreviewDialog", () => ({ PdfPreviewDialog: (p: { versionId: string }) => <div data-testid="preview-stub">{p.versionId}</div> }));
 import { ProposalEstimateSection } from "./ProposalEstimateSection";
 
 const base = { id: "p", title: "Front beds", customerId: "cust", ticketId: null as string | null, estimate: null as unknown };
@@ -64,7 +64,7 @@ describe("proposal estimate section", () => {
     renderIt({ ...base, estimate: { id: "e", number: "EST-7", title: "Beds", subtotalCents: 1, currentVersion: { id: "v", versionNumber: 1, status: "draft" } } });
     await waitFor(() => expect(screen.getByTestId("text-proposal-estimate-total").textContent).toContain("98.76"));
     fireEvent.click(screen.getByTestId("button-proposal-estimate-preview"));
-    expect(screen.getByTestId("preview-stub").textContent).toBe("sent-v2:false");
+    expect(screen.getByTestId("preview-stub").textContent).toBe("sent-v2");
   });
   it.each(["en", "es"])("P2: shows the current estimate version scope read-only with Edit in estimate (%s)", async language => {
     await i18n.changeLanguage(language);

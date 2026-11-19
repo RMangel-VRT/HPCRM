@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { formatEstimateUnit } from "../../../../lib/db/src/estimateUnits";
 import { estimates, estimateVersions } from "@workspace/db";
-import type { EstimateDetailDto } from "@workspace/db/estimate-contracts";
+import { estimateHasMultipleVersions, estimatePdfFilename, type EstimateDetailDto } from "@workspace/db/estimate-contracts";
 import { db } from "../db";
 import { estimatePayload } from "./estimateReads";
 import { requireEstimate } from "./estimateErrors";
@@ -9,7 +9,7 @@ import { calculateExtendedCents } from "./estimateMath";
 import { documentSettingsModel, type DocumentSettings } from "@workspace/db/document-contracts";
 import { readDocumentSettings } from "./documentSettings";
 import { renderDocumentPdf } from "./documents/render";
-import { estimateDocumentHtml } from "./documents/estimate";
+import { estimateDocumentHtml, estimateDocumentNumber } from "./documents/estimate";
 import { categoryLabel } from "./documents/categories";
 
 type DateValue = Date | string;
@@ -30,6 +30,7 @@ interface DocumentInput {
 export interface EstimateDocumentModel {
   scopeOfWork: string | null; hasPlants: boolean;
   companyName: string; estimateNumber: string; versionNumber: number; documentDate: string;
+  showVersion: boolean;
   status: string; statusLine: string; draft: boolean;
   customerName: string; customerAddress: string; projectTitle: string; linkedTicketTitle: string | null;
   sections: { name: string; lines: { name: string; detail: string | null; quantity: string; unit: string; unitPriceCents: number; lineTotalCents: number }[]; subtotalCents: number }[];
@@ -71,11 +72,11 @@ export function customerSafeDetail(detail: string | null, lineType?: string): st
 /** Explicit allowlist: no spreads from internal records, no I/O, no implicit clock.
  * Resolved metadata and today's Colorado calendar components are required inputs.
  */
-export function buildEstimateDocumentModel(payload: DocumentInput, display: Display & { workLocation?: string | null }, coloradoDocumentDate: string, companyDocument?: Partial<DocumentSettings>): EstimateDocumentModel {
+export function buildEstimateDocumentModel(payload: DocumentInput, display: Display & { workLocation?: string | null }, coloradoDocumentDate: string, companyDocument?: Partial<DocumentSettings>, versionCount = 1): EstimateDocumentModel {
   const v = payload.version;
   const draft = v.status === "draft";
   const date = draft || !v.sentAt ? documentDate(coloradoDocumentDate) : coloradoDate(new Date(v.sentAt));
-  const statusLine = draft ? "DRAFT — not sent"
+  const statusLine = draft ? ""
     : v.status === "accepted" ? `Accepted ${prettyDate(requireEstimate(v.acceptedOn))}${v.poNumber ? ` · PO ${v.poNumber}` : ""}`
     : v.status.charAt(0).toUpperCase() + v.status.slice(1);
   const total = draft ? v.totals.subtotalCents : requireEstimate(v.frozenSubtotalCents);
@@ -92,7 +93,7 @@ export function buildEstimateDocumentModel(payload: DocumentInput, display: Disp
     categorySummary: [...categories].map(([label, cents]) => ({ label, cents })),
     companyDocument: documentSettingsModel(companyDocument), workLocation: display.workLocation ?? null,
     companyName: display.companyName, estimateNumber: payload.estimateNumber, versionNumber: v.versionNumber,
-    documentDate: date, status: v.status, statusLine, draft,
+    documentDate: date, status: v.status, statusLine, draft, showVersion: estimateHasMultipleVersions(versionCount),
     customerName: display.customerName, customerAddress: display.customerAddress, projectTitle: payload.title,
     linkedTicketTitle: display.ticket?.title && display.ticket.title !== payload.title ? display.ticket.title : null,
     sections: [...v.sections].sort((a, b) => a.sortOrder - b.sortOrder).map(section => ({
@@ -111,8 +112,8 @@ export function buildEstimateDocumentModel(payload: DocumentInput, display: Disp
 export async function renderEstimateDocument(model: EstimateDocumentModel): Promise<Buffer> {
   return renderDocumentPdf({
     html: estimateDocumentHtml(model),
-    footerLabel: `Estimate ${model.estimateNumber}, version ${model.versionNumber} · ${model.customerName}`,
-    shortHeaderNumber: `${model.estimateNumber} · Version ${model.versionNumber}`, draft: model.draft,
+    footerLabel: `Estimate ${model.estimateNumber}${model.showVersion ? `, version ${model.versionNumber}` : ""} · ${model.customerName}`,
+    shortHeaderNumber: estimateDocumentNumber(model),
   });
 }
 
@@ -125,10 +126,17 @@ export async function loadEstimateDocumentModel(companyId: string, estimateId: s
     )))[0]);
     const payload = await estimatePayload(tx, companyId, estimate, version.versionNumber);
     const companyDocument = await readDocumentSettings(companyId, tx);
-    return buildEstimateDocumentModel(payload, payload.display, coloradoDate(new Date()), companyDocument);
+    return buildEstimateDocumentModel(payload, payload.display, coloradoDate(new Date()), companyDocument, payload.versions.length);
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
   return model;
 }
 export async function renderEstimatePdf(companyId: string, estimateId: string, versionId: string): Promise<Buffer> {
-  return renderEstimateDocument(await loadEstimateDocumentModel(companyId, estimateId, versionId));
+  return (await renderEstimatePdfFile(companyId, estimateId, versionId)).pdf;
+}
+export async function renderEstimatePdfFile(companyId: string, estimateId: string, versionId: string) {
+  const model = await loadEstimateDocumentModel(companyId, estimateId, versionId);
+  return {
+    pdf: await renderEstimateDocument(model),
+    filename: estimatePdfFilename(model.estimateNumber, model.versionNumber, model.showVersion),
+  };
 }

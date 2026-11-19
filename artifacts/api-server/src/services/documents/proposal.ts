@@ -12,7 +12,7 @@ export interface ProposalPlantRow {
 export interface ProposalDocumentInput {
   title: string; number: string; documentDate: string; scopeOfWork: string;
   customerName: string; customerAddress: string; workLocation: string | null;
-  estimate: EstimateDocumentModel; coverSource: string; hero: DocumentImage | null;
+  estimate: Omit<EstimateDocumentModel, "showVersion">; coverSource: string; hero: DocumentImage | null;
   visualScope: DocumentImage[];
   palette: { introText: string; groups: { label: string; cards: { name: string; typeLabel: string; dataUri: string | null }[] }[] };
   schedule: { quantity: string; name: string; botanicalName: string | null; size: string | null }[];
@@ -30,7 +30,7 @@ export function buildProposalDocumentModel(i: ProposalDocumentInput): ProposalDo
     // Reproject even nested inputs: accidental fields on a supplied model cannot escape.
     estimate: {
       companyName: m.companyName, estimateNumber: m.estimateNumber, versionNumber: m.versionNumber, documentDate: m.documentDate,
-      status: m.status, statusLine: m.statusLine, draft: m.draft, customerName: m.customerName,
+      status: m.status, statusLine: m.draft ? "DRAFT — not sent" : m.statusLine, draft: m.draft, customerName: m.customerName,
       customerAddress: m.customerAddress, projectTitle: m.projectTitle, linkedTicketTitle: m.linkedTicketTitle,
       totalCents: m.totalCents, terms: null, workLocation: m.workLocation,
       scopeOfWork: m.scopeOfWork, hasPlants: m.hasPlants,

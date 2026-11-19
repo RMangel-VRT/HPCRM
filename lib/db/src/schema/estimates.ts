@@ -1,9 +1,10 @@
 import { sql } from "drizzle-orm";
-import { pgTable, varchar, text, integer, boolean, numeric, timestamp, date, uniqueIndex, index, check } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, integer, boolean, numeric, timestamp, date, jsonb, uniqueIndex, index, check } from "drizzle-orm/pg-core";
 import { companies, customers, tickets, users, plantCatalogItems, hardscapeCatalogItems, agreementTerms } from "./schema";
 import { irrigationCatalogItems } from "./irrigation";
 import { estimateQuickItems } from "./estimateSetup";
 import { type ESTIMATE_STATUSES, type ESTIMATE_LINE_TYPES, type ESTIMATE_PRICE_SOURCES, type EstimateUmbrella, type ESTIMATE_SENT_METHODS, type ESTIMATE_ACCEPTANCE_METHODS } from "../estimateContracts";
+import type { EstimateRevisionIdMap } from "../estimateContracts";
 export * from "../estimateContracts";
 
 const id = () => varchar("id").primaryKey().default(sql`gen_random_uuid()`);
@@ -35,6 +36,8 @@ export const estimateVersions = pgTable("estimate_versions", {
   scopeOfWork: text("scope_of_work"),
   status: text("status").notNull().default("draft").$type<typeof ESTIMATE_STATUSES[number]>(),
   createdFromVersionId: varchar("created_from_version_id"),
+  // Immutable copy provenance, not a second owner of section or line content.
+  revisionIdMap: jsonb("revision_id_map").$type<EstimateRevisionIdMap>(),
   sentAt: timestamp("sent_at"), sentById: userRef("sent_by_id"), sentMethod: text("sent_method").$type<typeof ESTIMATE_SENT_METHODS[number]>(),
   acceptedAt: timestamp("accepted_at"), acceptedById: userRef("accepted_by_id"), acceptanceMethod: text("acceptance_method").$type<typeof ESTIMATE_ACCEPTANCE_METHODS[number]>(),
   acceptedOn: date("accepted_on", { mode: "string" }),

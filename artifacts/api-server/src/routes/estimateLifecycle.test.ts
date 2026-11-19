@@ -55,6 +55,17 @@ describe("all six lifecycle route boundaries", () => {
     const res = await request(appFor()).post(endpoints[0][1]).send(endpoints[0][3]);
     expect(res.status).toBe(409); expect(res.body).toEqual({ error, ...extra });
   });
+  it("passes the guarded first-edit flag and returns the copy map", async () => {
+    const idMap = { sections: { s: "next-s" }, lines: { l: "next-l" } };
+    const url = "/api/estimates/e/versions/v/revise";
+    mocks.transitionEstimate.mockResolvedValueOnce({ id: "e", version: { id: "draft" }, idMap });
+    expect((await request(appFor()).post(url).send({ firstEdit: true })).body).toMatchObject({ idMap });
+    expect(mocks.transitionEstimate).toHaveBeenCalledWith("a", "actor", "e", "v", "revise", { firstEdit: true });
+    mocks.transitionEstimate.mockRejectedValueOnce(new EstimateError(409, "DRAFT_EXISTS", { versionId: "draft", idMap }));
+    const conflict = await request(appFor()).post(url).send({ firstEdit: true });
+    expect(conflict.status).toBe(409);
+    expect(conflict.body).toEqual({ error: "DRAFT_EXISTS", versionId: "draft", idMap });
+  });
   it("rejects blank reasons, wrong enums and impossible dates before writes", async () => {
     for (const [action, body] of [["send", { method: "Email" }], ["accept", { method: "phone", acceptedOn: "2026-02-29" }], ["decline", { reason: " " }]] as const)
       expect((await request(appFor()).post(`/api/estimates/e/versions/v/${action}`).send(body)).status).toBe(400);

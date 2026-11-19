@@ -50,7 +50,7 @@ describe("customer estimate document model", () => {
   });
   it("uses explicit Colorado today, sent date and accepted calendar date without shifting", () => {
     expect(coloradoDate(new Date("2026-10-30T02:00:00Z"))).toBe("2026-10-29");
-    expect(buildEstimateDocumentModel(fixture(), display, "2026-10-29").statusLine).toBe("DRAFT — not sent");
+    expect(buildEstimateDocumentModel(fixture(), display, "2026-10-29")).toMatchObject({ draft: true, statusLine: "", documentDate: "2026-10-29", showVersion: false });
     const sent = fixture("sent");
     sent.version.frozenSubtotalCents = 999;
     const model = buildEstimateDocumentModel(sent, display, "2027-01-01");

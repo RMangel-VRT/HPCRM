@@ -4,6 +4,7 @@ import { companyHeaders } from "@/lib/hardscapeCatalog";
 import { isCalendarDate as validCalendarComponents } from "../../../../lib/db/src/estimateContracts";
 import type {
   EstimateDetailDto, EstimateListItemDto, EstimateLineDto, EstimateSectionDto, EstimateUmbrella,
+  EstimateRevisionIdMap,
 } from "@shared/schema";
 import type { RatePreviewRow } from "@/lib/estimateSettings";
 import type { ActivationResponse } from "@/components/customerWizard/CustomerActivationDialog";
@@ -63,7 +64,7 @@ export function errorStatus(err: unknown): number | null {
   return m ? Number(m[1]) : null;
 }
 
-export async function sendEstimate(method: string, url: string, companyId: string, body?: unknown, signal?: AbortSignal): Promise<EstimateDetailDto & ActivationResponse> {
+export async function sendEstimate(method: string, url: string, companyId: string, body?: unknown, signal?: AbortSignal): Promise<EstimateDetailDto & ActivationResponse & { idMap?: EstimateRevisionIdMap }> {
   const res = await apiRequest(method, url, body, { headers: companyHeaders(companyId), signal });
   return res.json() as Promise<EstimateDetailDto>;
 }
@@ -100,7 +101,7 @@ export type SentMethod = typeof SENT_METHODS[number];
 export type AcceptMethod = typeof ACCEPT_METHODS[number];
 
 /** Structured 409/4xx body from apiRequest's "NNN: {json}" error message. */
-export interface LifecycleConflict { status: number; error: string; versionId?: string; lineIds?: string[]; from?: string; action?: string }
+export interface LifecycleConflict { status: number; error: string; versionId?: string; lineIds?: string[]; from?: string; action?: string; idMap?: EstimateRevisionIdMap }
 export function conflictOf(err: unknown): LifecycleConflict | null {
   const m = (err instanceof Error ? err.message : String(err)).match(/^(\d{3}): ([\s\S]*)$/);
   if (!m) return null;
@@ -110,6 +111,7 @@ export function conflictOf(err: unknown): LifecycleConflict | null {
     return {
       status: Number(m[1]), error: b.error,
       versionId: typeof b.versionId === "string" ? b.versionId : undefined,
+      idMap: b.idMap,
       lineIds: Array.isArray(b.lineIds) ? b.lineIds.filter((x: unknown): x is string => typeof x === "string") : undefined,
       from: typeof b.from === "string" ? b.from : undefined, action: typeof b.action === "string" ? b.action : undefined,
     };

@@ -5,7 +5,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { companies, customers, users, estimates, estimateVersions, estimateSections, estimateLines,
   hardscapeCatalogItems, plantCatalogItems, tickets, ticketTypes, ticketTypeStatuses, pool as schemaPool, ESTIMATE_STATUSES } from "@workspace/db";
 import { db, pool } from "../db";
-import { createEstimate, createLine, createSection, patchLine, patchSection, deleteLine, deleteSection, retitleEstimate } from "./estimates";
+import { createEstimate, createLine, createSection, patchLine, patchSection, patchVersion, deleteLine, deleteSection, retitleEstimate } from "./estimates";
 import { transitionEstimate, type EstimateAction } from "./estimateLifecycle";
 import { readEstimate, listEstimates } from "./estimateReads";
 
@@ -129,6 +129,46 @@ describe("real PostgreSQL lifecycle, frozen values and history", () => {
     const revised = await act(declined, "revise");
     const sent2 = await act(revised, "send", { method: "other" });
     expect(sent2.versions.find(v => v.id === sent.version.id)).toMatchObject({ status: "declined", declineReason: "Timing", supersededAt: null });
+  });
+  it("reuses an exact copy map after a racing revision reorders identical rows", async () => {
+    let d = await draft();
+    const sectionId = d.version.sections[0].id;
+    const firstId = lines(d)[0].id;
+    d = await createLine(a, d.id, d.version.id, { sectionId, lineType: "custom", name: "Snapshot",
+      unit: "EA", quantity: "2.5", unitPriceCents: 33, umbrellaKey: "landscape_materials" });
+    const secondId = lines(d).find(l => l.id !== firstId)!.id;
+    d = await patchLine(a, d.id, d.version.id, secondId, { sortOrder: -1 });
+    d = await patchVersion(a, d.id, d.version.id, "As-sent scope");
+    const sent = await act(d, "send", { method: "email" });
+    const results = await Promise.allSettled([act(sent, "revise", { firstEdit: true }), act(sent, "revise", { firstEdit: true })]);
+    const revised = results.flatMap(r => r.status === "fulfilled" ? [r.value] : []);
+    expect(revised).toHaveLength(1);
+    const copy = revised[0];
+    const map = copy.idMap!;
+    expect(lines(copy).map(l => l.id)).toEqual([map.lines[secondId], map.lines[firstId]]);
+    expect(results.find(r => r.status === "rejected")).toMatchObject({ reason: { error: "DRAFT_EXISTS", extra: { versionId: copy.version.id, idMap: map } } });
+    await patchLine(a, copy.id, copy.version.id, map.lines[firstId], { sortOrder: -2 });
+    await expect(act(sent, "revise", { firstEdit: true })).rejects.toMatchObject({ error: "DRAFT_EXISTS", extra: { idMap: map } });
+    await patchLine(a, copy.id, copy.version.id, map.lines[secondId], { quantity: "7" });
+    await patchSection(a, copy.id, copy.version.id, map.sections[sectionId], { name: "Draft section" });
+    await patchVersion(a, copy.id, copy.version.id, "Draft scope");
+    const after = await readEstimate(a, d.id);
+    expect(after.version.scopeOfWork).toBe("Draft scope");
+    expect(after.version.sections[0].name).toBe("Draft section");
+    expect(lines(after).map(l => [l.id, l.quantity])).toEqual([[map.lines[firstId], "2.50"], [map.lines[secondId], "7.00"]]);
+    expect((await readEstimate(a, d.id, 1)).version).toEqual(sent.version);
+  });
+  it("rejects auto-revise for accepted or no-longer-current versions without changing manual transitions", async () => {
+    const sent = await act(await draft(), "send", { method: "email" });
+    const declined = await act(sent, "decline", { reason: "Timing" });
+    const copy = await act(declined, "revise", { firstEdit: true });
+    const sentCopy = await act(copy, "send", { method: "email" });
+    await expect(act(declined, "revise", { firstEdit: true })).rejects.toMatchObject({ error: "INVALID_TRANSITION" });
+    const accepted = await act(sentCopy, "accept", { method: "phone" });
+    await expect(act(accepted, "revise", { firstEdit: true })).rejects.toMatchObject({ error: "INVALID_TRANSITION" });
+    const changeOrder = await act(accepted, "revise");
+    expect(changeOrder.version.createdFromVersionId).toBe(accepted.version.id);
+    await expect(act(declined, "revise", { firstEdit: true })).rejects.toMatchObject({ error: "DRAFT_EXISTS", extra: { versionId: changeOrder.version.id } });
   });
   it("normalizes a new revision's unit without changing any frozen source bytes", async () => {
     const sent = await act(await draft(), "send", { method: "email" });

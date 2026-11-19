@@ -226,7 +226,7 @@ describe("add-line buttons", () => {
     buttons[0].focus();
     expect(document.activeElement).toBe(buttons[0]);
     cleanup();
-    detail = makeDetail({ status: "sent" });
+    detail = makeDetail({ status: "accepted" });
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
     expect(screen.queryByTestId("group-add-s1")).toBeNull();
@@ -271,7 +271,7 @@ describe("pdf preview", () => {
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
     fireEvent.click(screen.getByTestId("button-preview-pdf"));
-    expect(screen.getByTestId("text-pdf-hint").textContent).toContain("DRAFT");
+    expect(screen.getByTestId("text-pdf-hint").textContent).toBe("This is the PDF you'll download or send.");
     const frame = await screen.findByTestId("frame-pdf");
     expect(frame.getAttribute("src")).toBe("blob:pdf-1");
     const call = calls().find((c) => c.url.endsWith("/pdf"))!;

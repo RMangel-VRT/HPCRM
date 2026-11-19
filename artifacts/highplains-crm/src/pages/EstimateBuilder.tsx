@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { unitLabel, normalizeEstimateUnit } from "@/lib/estimateUnits";
 import { derivePaletteTypeLabel, EXHIBITS_KEY } from "../../../../lib/db/src/plantExhibitContracts";
+import { estimateHasMultipleVersions } from "../../../../lib/db/src/estimateContracts";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -19,9 +20,10 @@ import { centsToInput, fetchJson, formatCents, parseDollarsToCents, HARDSCAPE_AP
 import { RATES_PREVIEW_API, scopeOf, QUICK_ITEMS_API, SERVICE_CATEGORIES_API } from "@/lib/estimateSettings";
 import {
   ESTIMATES_API, ESTIMATE_BUILDER_PATH, FREE_UNITS, FREE_UNIT_TYPES, LINE_TINT, UMBRELLAS, builderPath, distinctContexts,
-  conflictOf, errorStatus, formatCalendarDate, formatDate, isVersionLocked, sendEstimate, validQuantity,
+  conflictOf, denverToday, errorStatus, formatCalendarDate, formatDate, isVersionLocked, sendEstimate, validQuantity,
   type EstimateDetailDto, type EstimateLineDto, type EstimateLineType, type EstimateSectionDto, type RatesPreviewWithContext,
 } from "@/lib/estimateBuilder";
+import { replayEstimateEdits, startEstimateEditRevision, type EstimateEdit } from "@/lib/estimateRevision";
 import { SectionRailLayout } from "@/components/nav/SectionRail";
 import { EstimatesRail } from "@/components/nav/estimatesRail";
 import { AddLineButtons, LINE_TYPE_ICON } from "@/components/estimates/AddLineButtons";
@@ -64,6 +66,8 @@ function freshness(d: EstimateDetailDto): number {
 type Run = (method: string, url: string, body?: unknown) => Promise<boolean>;
 type LifeKind = "send" | "accept" | "decline" | "revise" | "discard" | "void";
 type LifeDialog = Exclude<LifeKind, "revise"> | null;
+type PendingRevision = { source: EstimateDetailDto; edits: EstimateEdit[]; resolve: (result: AddLineResult) => void };
+const cancelledEdit: AddLineResult = { ok: false, error: null };
 
 export default function EstimateBuilder() {
   const { user } = useAuth();
@@ -143,6 +147,16 @@ function BuilderContent({ id }: { id: string }) {
   activeVersionRef.current = data?.version.id;
   const contentEditableRef = useRef(false);
   contentEditableRef.current = false;
+  const firstEditRef = useRef(false);
+  firstEditRef.current = false;
+  const pendingRef = useRef<PendingRevision | null>(null);
+  const [pendingRevision, setPendingRevision] = useState<PendingRevision | null>(null);
+  const revisionAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => {
+    revisionAbort.current?.abort();
+    pendingRef.current?.resolve(cancelledEdit);
+    pendingRef.current = null;
+  }, [viewTag]);
 
   const proposals = useEstimateProposals(id, !!data?.voidedAt);
   const customerId = data?.customerId;
@@ -165,11 +179,23 @@ function BuilderContent({ id }: { id: string }) {
 
   /** Single mutation path: scoped header, stale-view drop, newest-response-wins install.
    *  `inline` keeps the error envelope for the caller (custom saves) instead of toasting it. */
-  const runDetailed = async (method: string, url: string, body?: unknown, inline = false): Promise<AddLineResult> => {
-    if (viewRef.current !== viewTag || activeVersionRef.current !== data?.version.id || !contentEditableRef.current) return { ok: false, error: null };
+  const runEdits = async (edits: EstimateEdit[], inline = false): Promise<AddLineResult> => {
+    if (!data || !edits.length || viewRef.current !== viewTag || activeVersionRef.current !== data.version.id
+      || !contentEditableRef.current || pendingRef.current || busyRef.current) return cancelledEdit;
+    if (firstEditRef.current) {
+      return new Promise(resolve => {
+        const pending = { source: data, edits, resolve };
+        pendingRef.current = pending;
+        setPendingRevision(pending);
+      });
+    }
     const view = viewTag;
     try {
-      const d = await sendEstimate(method, url, companyId, body);
+      let d = data;
+      for (const { method, url, body } of edits) {
+        if (viewRef.current !== view || activeVersionRef.current !== data.version.id) return cancelledEdit;
+        d = await sendEstimate(method, url, companyId, body);
+      }
       if (viewRef.current !== view) return { ok: false, error: null };
       qc.invalidateQueries({ queryKey: [ESTIMATES_API, "list"] });
       await qc.cancelQueries({ queryKey: key });
@@ -189,13 +215,14 @@ function BuilderContent({ id }: { id: string }) {
         const c = conflictOf(err);
         const catalogError = inline && (c?.error === "CATALOG_ITEM_EXISTS" || c?.error === "UMBRELLA_MISMATCH" || errorStatus(err) === 422 || errorStatus(err) === 400);
         if (!inline) toast({ title: t("estimateBuilder.saveFailed"), description: errorText(err, t), variant: "destructive" });
-        if (!catalogError && (errorStatus(err) === 409 || errorStatus(err) === 404)) void qc.invalidateQueries({ queryKey: key });
+        if (edits.length > 1 || (!catalogError && (errorStatus(err) === 409 || errorStatus(err) === 404))) void qc.invalidateQueries({ queryKey: key });
         // Catalog rows may have been reused/created elsewhere; refresh pickers and search.
         if (catalogError) void qc.invalidateQueries({ queryKey: ["estimate-picker"] });
       }
       return { ok: false, error: err };
     }
   };
+  const runDetailed = (method: string, url: string, body?: unknown, inline = false) => runEdits([{ method, url, body }], inline);
   const run: Run = async (method, url, body) => (await runDetailed(method, url, body)).ok;
   const invalid = (msg: string) => toast({ title: t("estimateBuilder.saveFailed"), description: msg, variant: "destructive" });
 
@@ -216,7 +243,7 @@ function BuilderContent({ id }: { id: string }) {
     opRef.current++; busyRef.current = false;
     setBusy(false); setDialog(null); setDialogError(null); setNeedPrice(null);
   }, [viewTag]);
-  const openDialog = (d: LifeDialog) => { if (busyRef.current || (d && !gateRef.current(d))) return; setDialogError(null); setNeedPrice(null); setDialog(d); };
+  const openDialog = (d: LifeDialog) => { if (busyRef.current || pendingRef.current || (d && !gateRef.current(d))) return; setDialogError(null); setNeedPrice(null); setDialog(d); };
   const closeDialog = () => { if (busyRef.current) return; setDialog(null); setDialogError(null); setNeedPrice(null); };
   const refreshScope = () => { void qc.invalidateQueries({ queryKey: [...scopePrefix] }); };
 
@@ -249,7 +276,7 @@ function BuilderContent({ id }: { id: string }) {
   }
 
   async function lifecycle(kind: LifeKind, method: string, url: string, body?: unknown): Promise<void> {
-    if (viewRef.current !== viewTag || activeVersionRef.current !== data?.version.id || busyRef.current || !gateRef.current(kind)) return;
+    if (viewRef.current !== viewTag || activeVersionRef.current !== data?.version.id || busyRef.current || pendingRef.current || !gateRef.current(kind)) return;
     const view = viewTag;
     const op = ++opRef.current;
     busyRef.current = true; setBusy(true); setDialogError(null);
@@ -295,6 +322,64 @@ function BuilderContent({ id }: { id: string }) {
   const [pdfOpen, setPdfOpen] = useState(false);
   useEffect(() => { setPdfOpen(false); }, [viewTag]);
 
+  function finishRevision(result: AddLineResult) {
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    setPendingRevision(null);
+    pending?.resolve(result);
+  }
+
+  async function confirmRevision() {
+    const pending = pendingRef.current;
+    if (!pending || busyRef.current || viewRef.current !== viewTag) return;
+    const controller = new AbortController();
+    revisionAbort.current = controller;
+    const active = () => !controller.signal.aborted && viewRef.current === viewTag;
+    busyRef.current = true;
+    setBusy(true);
+    let draft: EstimateDetailDto | undefined;
+    let result: AddLineResult = cancelledEdit;
+    try {
+      const revision = await startEstimateEditRevision(companyId, pending.source, controller.signal);
+      if (!active()) return;
+      draft = revision.draft;
+      const edits = replayEstimateEdits(pending.source, revision.from, draft, revision.idMap, pending.edits);
+      if (!edits) {
+        toast({ title: t("estimateBuilder.saveFailed"), description: t("estimateBuilder.life.firstEdit.missingTarget"), variant: "destructive" });
+      } else {
+        for (const { method, url, body } of edits) {
+          if (!active()) return;
+          draft = await sendEstimate(method, url, companyId, body, controller.signal);
+        }
+        result = { ok: true };
+      }
+    } catch (err) {
+      if (!active()) return;
+      toast({ title: t("estimateBuilder.saveFailed"), description: errorText(err, t), variant: "destructive" });
+      result = { ok: false, error: err };
+    } finally {
+      // A draft may have been created even if replay failed. Open it, but make
+      // no edits against the frozen source and refetch any partial batch results.
+      if (active()) {
+        const installed = draft && await installCurrent(draft, viewTag);
+        if (active()) {
+          finishRevision(result);
+          if (installed) {
+            setAddFor(null);
+            setRemoveSection(null);
+            if (requestedVersion) setLocation(builderPath(pending.source.id));
+          }
+          if (!result.ok) refreshScope();
+          busyRef.current = false;
+          setBusy(false);
+        }
+      }
+      void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "list"] });
+      if (!active()) refreshScope();
+      if (revisionAbort.current === controller) revisionAbort.current = null;
+    }
+  }
+
   const rail = <EstimatesRail activeKey="builder" />;
   const back = (
     <Link href={ESTIMATE_BUILDER_PATH} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" data-testid="link-back-list">
@@ -332,8 +417,11 @@ function BuilderContent({ id }: { id: string }) {
 
   const v = data.version;
   const isCurrent = v.id === data.currentVersionId;
-  const editable = !locked && !data.voidedAt && v.status === "draft" && isCurrent;
+  const revisable = !locked && !data.voidedAt && isCurrent && (v.status === "sent" || v.status === "declined");
+  const editable = !locked && !data.voidedAt && isCurrent && (v.status === "draft" || revisable);
   contentEditableRef.current = editable;
+  firstEditRef.current = revisable;
+  const showVersion = estimateHasMultipleVersions(data.versions.length);
   const base = `${ESTIMATES_API}/${encodeURIComponent(data.id)}`;
   const vBase = `${base}/versions/${encodeURIComponent(v.id)}`;
   const statusLabel = (s: string) => t(`estimateBuilder.status.${s}`);
@@ -357,7 +445,6 @@ function BuilderContent({ id }: { id: string }) {
     return base;
   };
   const needPriceLines = needPrice?.map((lid) => ({ id: lid, name: sections.flatMap((s) => s.lines).find((l) => l.id === lid)?.name ?? null })) ?? null;
-  const reviseLabel = v.status === "accepted" ? "changeOrder" : v.status === "declined" ? "revise" : "edit";
   const display = (data as DetailWithDisplay).display;
   const customerName = display?.customerName ?? customer.data?.name ?? null;
   const dTicket = display?.ticket ?? null;
@@ -369,6 +456,8 @@ function BuilderContent({ id }: { id: string }) {
   const isChangeOrder = v.status === "draft" && !!v.createdFromVersionId && !!acceptedSummary && acceptedSummary.id !== v.id;
   const canRevise = lifeOn && (v.status === "sent" || v.status === "accepted" || v.status === "declined");
   const canVoid = !data.voidedAt && !acceptedSummary && isCurrent;
+  const pendingSource = pendingRevision?.source.version;
+  const pendingNext = pendingRevision && Math.max(...pendingRevision.source.versions.map(s => s.versionNumber)) + 1;
   gateRef.current = (k) => {
     if (!lifeOn) return false;
     switch (k) {
@@ -402,10 +491,8 @@ function BuilderContent({ id }: { id: string }) {
   async function reorder(section: EstimateSectionDto, from: number, to: number) {
     const list = [...section.lines];
     const [m] = list.splice(from, 1); list.splice(to, 0, m);
-    for (let i = 0; i < list.length; i++) {
-      if (list[i].sortOrder === i) continue;
-      if (!(await run("PATCH", `${vBase}/lines/${encodeURIComponent(list[i].id)}`, { sortOrder: i }))) return;
-    }
+    await runEdits(list.flatMap((line, i) => line.sortOrder === i ? []
+      : [{ method: "PATCH", url: `${vBase}/lines/${encodeURIComponent(line.id)}`, body: { sortOrder: i } }]));
   }
   function moveTo(line: EstimateLineDto, targetId: string) {
     const target = sections.find((s) => s.id === targetId);
@@ -417,7 +504,7 @@ function BuilderContent({ id }: { id: string }) {
   return (
     <SectionRailLayout rail={rail}>
       <div className="estimate-builder-container mx-auto w-full min-w-0 max-w-6xl" data-testid="page-estimate-builder" data-editable={editable ? "true" : "false"}>
-        <IdentityHeaderCard testId="header-estimate-identity" footer={
+        <IdentityHeaderCard testId="header-estimate-identity" footer={showVersion &&
           <nav className="flex flex-wrap items-end gap-1 border-t bg-muted/30 px-3 pt-1.5" aria-label={t("estimateBuilder.versions")} data-testid="strip-versions">
             {data.versions.map((s) => {
               const viewing = s.id === v.id;
@@ -445,7 +532,7 @@ function BuilderContent({ id }: { id: string }) {
                 <DocumentBadge label={t("estimateBuilder.header.badge", { number: data.estimateNumber })} testId="badge-estimate" />
                 <span className="sr-only" data-testid="text-estimate-number">{data.estimateNumber}</span>
                 <EstimateStatePill status={v.status} voided={false} testId={`pill-status-${v.status}`}
-                  label={t("estimateBuilder.versionPill", { n: v.versionNumber, status: statusLabel(v.status) })} />
+                  label={showVersion ? t("estimateBuilder.versionPill", { n: v.versionNumber, status: statusLabel(v.status) }) : statusLabel(v.status)} />
                 {data.voidedAt && <EstimateStatePill status="void" voided testId="pill-status-void" label={t("estimateBuilder.voided")} />}
                 {isChangeOrder && (
                   <span className="inline-flex items-center gap-1 rounded-md border border-emerald-700/30 bg-emerald-700/5 px-2 py-0.5 text-[11.5px] font-semibold text-emerald-800 dark:text-emerald-300" data-testid="chip-change-order">
@@ -453,7 +540,7 @@ function BuilderContent({ id }: { id: string }) {
                   </span>
                 )}
               </div>
-              {editable ? (
+              {editable && v.status === "draft" ? (
                 <InlineInput value={data.title} disabled={false} label={t("estimateBuilder.editTitle")} testId="input-estimate-title"
                   className="h-auto -ml-1 border-transparent bg-transparent px-1 text-xl font-semibold tracking-tight shadow-none hover:border-input focus-visible:border-input md:text-2xl"
                   validate={(raw) => raw.trim() ? { value: raw.trim(), same: raw.trim() === data.title } : { error: t("estimateBuilder.errTitle") }}
@@ -463,7 +550,7 @@ function BuilderContent({ id }: { id: string }) {
               )}
             </div>
             <div role="toolbar" aria-label={t("estimateBuilder.life.actions")} className="flex flex-wrap items-center gap-1.5" data-testid="bar-lifecycle">
-              <Button size="sm" variant="outline" onClick={() => setPdfOpen(true)} data-testid="button-preview-pdf"><FileText className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.pdf.preview")}</Button>
+              <Button size="sm" variant="outline" onClick={() => { if (!pendingRef.current) setPdfOpen(true); }} data-testid="button-preview-pdf"><FileText className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.pdf.preview")}</Button>
               {!data.voidedAt && <EstimateProposalButton estimateId={data.id} state={proposals} />}
               {lifeOn && v.status === "draft" && isCurrent && (
                 <Button size="sm" disabled={busy} onClick={() => openDialog("send")} data-testid="button-mark-sent"><Send className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.markSent")}</Button>
@@ -480,8 +567,8 @@ function BuilderContent({ id }: { id: string }) {
                 <Button size="sm" variant="outline" onClick={() => setLocation(draftSummary.id === data.currentVersionId ? builderPath(data.id) : builderPath(data.id, draftSummary.versionNumber))}
                   data-testid="button-open-draft"><GitBranch className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.openDraft", { n: draftSummary.versionNumber })}</Button>
               ) : (
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => void lifecycle("revise", "POST", `${vBase}/revise`, {})} data-testid="button-revise">
-                  <GitBranch className="mr-1.5 h-3.5 w-3.5" />{t(`estimateBuilder.life.${reviseLabel}`, { n: nextN })}</Button>
+                v.status === "accepted" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void lifecycle("revise", "POST", `${vBase}/revise`, {})} data-testid="button-revise">
+                  <GitBranch className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.changeOrder", { n: nextN })}</Button>
               ))}
               {lifeOn && v.status === "draft" && isCurrent && v.versionNumber > 1 && (
                 <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => openDialog("discard")} data-testid="button-discard-draft">
@@ -502,6 +589,9 @@ function BuilderContent({ id }: { id: string }) {
                       ))}
                     </>)}
                     {isCurrent && <>
+                    {revisable && !draftSummary && <DropdownMenuItem onSelect={() => void lifecycle("revise", "POST", `${vBase}/revise`, {})} data-testid="menu-start-version">
+                      <GitBranch className="mr-2 h-4 w-4" />{t("estimateBuilder.life.firstEdit.start", { n: nextN })}
+                    </DropdownMenuItem>}
                     <DropdownMenuItem disabled={!canVoid || locked} onSelect={() => openDialog("void")} className="text-destructive focus:text-destructive" data-testid="menu-void">
                       <Ban className="mr-2 h-4 w-4" />{t("estimateBuilder.life.void")}
                     </DropdownMenuItem>
@@ -568,8 +658,8 @@ function BuilderContent({ id }: { id: string }) {
             <Button size="sm" variant="outline" onClick={() => setLocation(builderPath(data.id))} data-testid="button-view-current">{t("estimateBuilder.life.backToCurrent")}</Button>
           </div>
         )}
-        {!editable && !locked && (
-          <LifecycleBanner data={data} lang={lang} notCurrent={!isCurrent} />
+        {(!editable || revisable) && !locked && (
+          <LifecycleBanner data={data} lang={lang} notCurrent={!isCurrent} nextEditVersion={revisable ? nextN : undefined} />
         )}
         <TicketAdvanceNotice key={`${companyId}|${user?.id}|${user?.activeRole}|${id}`} estimate={data} />
         {v.status === "draft" && acceptedSummary && acceptedSummary.id !== v.id && !data.voidedAt && (
@@ -580,7 +670,7 @@ function BuilderContent({ id }: { id: string }) {
 
         <div className="estimate-builder-grid mt-5 items-start gap-6" data-testid="layout-builder">
           <div className="estimate-builder-sections min-w-0 space-y-4">
-            <ScopeOfWorkCard key={v.id} value={v.scopeOfWork} editable={editable}
+            <ScopeOfWorkCard key={v.id} value={v.scopeOfWork} editable={editable} restoreOnFailure={revisable}
               onSave={async (scopeOfWork) => {
                 if (!await run("PATCH", vBase, { scopeOfWork })) return null;
                 const detail = qc.getQueryData<EstimateDetailDto>(key);
@@ -589,8 +679,8 @@ function BuilderContent({ id }: { id: string }) {
             {sections.map((s) => (
               <SectionCard key={s.id} section={s} sections={sections} paletteDefaults={v.plantPaletteDefaults} subtotal={v.totals.bySection[s.id] ?? 0} editable={editable} lang={lang}
                 vBase={vBase} run={run} invalid={invalid} canRemove={sections.length > 1}
-                onRemove={() => setRemoveSection(s)} onAdd={(type) => setAddFor({ type, sectionId: s.id })}
-                search={{ customerId: data.customerId, companyId, onOpen: ({ type, ...initial }) => setAddFor({ type, sectionId: s.id, initial }) }}
+                onRemove={() => { if (!pendingRef.current) setRemoveSection(s); }} onAdd={(type) => { if (!pendingRef.current) setAddFor({ type, sectionId: s.id }); }}
+                search={{ customerId: data.customerId, companyId, onOpen: ({ type, ...initial }) => { if (!pendingRef.current) setAddFor({ type, sectionId: s.id, initial }); } }}
                 onReorder={(from, to) => void reorder(s, from, to)} onMoveTo={moveTo} />
             ))}
             {editable && (
@@ -625,8 +715,22 @@ function BuilderContent({ id }: { id: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog open={!!pendingRevision} onOpenChange={(open) => { if (!open && !busyRef.current) finishRevision(cancelledEdit); }}>
+        <AlertDialogContent data-testid="dialog-first-edit-revision">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("estimateBuilder.life.firstEdit.title", { n: pendingNext })}</AlertDialogTitle>
+            <AlertDialogDescription>{t(pendingSource?.status === "declined" ? "estimateBuilder.life.firstEdit.declined" : "estimateBuilder.life.firstEdit.sent", { source: pendingSource?.versionNumber, n: pendingNext })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{t("estimateBuilder.cancel")}</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={(event) => { event.preventDefault(); void confirmRevision(); }} data-testid="button-confirm-first-edit">
+              {t(busy ? "estimateBuilder.life.working" : "estimateBuilder.life.firstEdit.start", { n: pendingNext })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <PdfPreviewDialog open={pdfOpen} onClose={() => setPdfOpen(false)} companyId={companyId} estimateId={data.id} versionId={v.id}
-        estimateNumber={data.estimateNumber} versionNumber={v.versionNumber} draft={v.status === "draft"} workLocation={display?.workLocation} />
+        estimateNumber={data.estimateNumber} versionNumber={v.versionNumber} showVersion={showVersion} workLocation={display?.workLocation} />
       <SendDialog open={dialog === "send"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog} needPrice={needPriceLines}
         onSubmit={(b) => void lifecycle("send", "POST", `${vBase}/send`, b)} />
       {activation.dialog}
@@ -642,11 +746,26 @@ function BuilderContent({ id }: { id: string }) {
   );
 }
 
-/** Read-only banner for the viewed version: tone and copy follow its actual lifecycle state. */
-function LifecycleBanner({ data, lang, notCurrent }: { data: EstimateDetailDto; lang: string; notCurrent: boolean }) {
+/** Tone and copy follow the viewed version; history never offers first-edit revision. */
+function LifecycleBanner({ data, lang, notCurrent, nextEditVersion }: { data: EstimateDetailDto; lang: string; notCurrent: boolean; nextEditVersion?: number }) {
   const { t } = useTranslation();
   const v = data.version;
   const box = "mt-3 flex items-start gap-2 rounded-md border p-3 text-sm";
+  if (nextEditVersion !== undefined) {
+    const date = v.sentAt ? formatCalendarDate(denverToday(new Date(v.sentAt)), lang) : "";
+    const method = v.sentMethod ? t(`estimateBuilder.life.sentMethod.${v.sentMethod}`) : "";
+    const sent = date
+      ? t(method ? "estimateBuilder.life.banner.sentMeta" : "estimateBuilder.life.banner.sentDate", { date, method })
+      : t("estimateBuilder.life.banner.sentHistory");
+    return (
+      <div className={cn(box, "border-[hsl(var(--est-warn))]/40 bg-[hsl(var(--est-warn-bg))] text-[hsl(var(--est-warn))]")} data-testid="banner-edit-revision" data-tone={v.status}>
+        <GitBranch className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>{v.status === "sent" ? sent : <span data-testid="text-decline-reason">{t("estimateBuilder.life.banner.declined", { reason: v.declineReason || "—" })}</span>}{" "}
+          {t("estimateBuilder.life.banner.firstEdit", { n: nextEditVersion })}
+        </span>
+      </div>
+    );
+  }
   if (data.voidedAt) {
     return (
       <div className={cn(box, "bg-muted/40")} data-testid="banner-read-only" data-tone="void">
@@ -659,7 +778,7 @@ function LifecycleBanner({ data, lang, notCurrent }: { data: EstimateDetailDto; 
     return (
       <div className={cn(box, "border-[hsl(var(--est-warn))]/40 bg-[hsl(var(--est-warn-bg))] text-[hsl(var(--est-warn))]")} data-testid="banner-read-only" data-tone="sent">
         <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{t("estimateBuilder.life.banner.sent")}
+        <span>{t("estimateBuilder.life.banner.sentHistory")}
           {v.sentAt && v.sentMethod && <> {t("estimateBuilder.life.banner.sentMeta", { date: formatDate(v.sentAt, lang), method: t(`estimateBuilder.life.sentMethod.${v.sentMethod}`) })}</>}
         </span>
       </div>
