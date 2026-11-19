@@ -107,6 +107,10 @@ import { hasOpenTicketVisit, lockVisitCompany, lockVisitTickets, VisitError } fr
 import { repairUnplacedScheduledTickets } from "../lib/repairUnplacedScheduledTickets";
 import { applyVisitTicketEdit } from "../lib/visitTicketCompatibility";
 import { transactionalTicketPatch } from "../lib/ticketPatchTransaction";
+import { guardTicketCustomerChange, ticketEditAvailability } from "../lib/guardedTicketEdit";
+import { registerTicketTypeChange } from "./ticketTypeChange";
+import { getBillingBehaviorForWorkType } from "../shared/workTypeCatalog";
+import { TICKET_EDIT_REASONS } from "../../../../lib/db/src/ticketEditContracts";
 import { signTicketPhotoUpload, ticketPhotoAdditions } from "../lib/ticketPhotoUploads";
 import type { VisitTransaction } from "../lib/visitSync";
 import { CrewLinkError, lockCrewCompany, recordCrewLinkChoice } from "../lib/crewLinks";
@@ -2755,6 +2759,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerTicketExpectedCompany(app);
   // Must precede every ticket sub-router (comments, photos, work items, etc.).
   registerCrewSupervisorTicketGuard(app, storage);
+  registerTicketTypeChange(app);
   registerCustomerDashboardRoutes(app);
   registerTicketOwnerResponseRoutes(app);
   registerCrewsAndMobileRoutes(app);
@@ -2842,7 +2847,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 200));
     const search = (req.query.search as string) || undefined;
-    const result = await storage.getCustomersPaginated(user.activeCompanyId, { page, limit, search });
+    const result = await storage.getCustomersPaginated(user.activeCompanyId, { page, limit, search,
+      ticketPicker: req.query.ticketPicker === "true" });
     const counts = await db.select({ parentId: customersTable.parentCustomerId, count: sql<number>`count(*)::int` })
       .from(customersTable).where(eq(customersTable.companyId, user.activeCompanyId)).groupBy(customersTable.parentCustomerId);
     const branches = new Map(counts.map(c => [c.parentId, c.count]));
@@ -6604,7 +6610,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ...req.body,
       ...(taskInfo ? {
         ticketTypeId: taskInfo.typeId,
-        billingBehavior: req.body.workType === "extra_work" ? "invoice_required" : "no_invoice",
+        billingBehavior: getBillingBehaviorForWorkType(req.body.workType),
       } : {}),
       companyId: user.activeCompanyId,
       currentStatusId: initialStatus.id,
@@ -6970,9 +6976,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
+    if (Object.hasOwn(req.body ?? {}, "ticketTypeId")) {
+      return res.status(400).json({
+        error: "USE_CHANGE_TYPE", message: "Use POST /api/tickets/:id/change-type to change the ticket type.",
+      });
+    }
 
     const user = req.user as UserWithContext;
-    const existingTicket = await storage.getTicketById(req.params.id, user.activeCompanyId);
+    let existingTicket = await storage.getTicketById(req.params.id, user.activeCompanyId);
     
     if (!existingTicket || existingTicket.companyId !== user.activeCompanyId) {
       return res.status(404).send("Ticket not found");
@@ -7002,17 +7013,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.activeRole === "field" && !billingStatusEdit) {
       return res.status(403).send("Insufficient permissions");
     }
+    const expectedType = req.get("X-Ticket-Type-Id");
+    if (expectedType && expectedType !== existingTicket.ticketTypeId) {
+      return res.status(409).json({ error: "TICKET_EDIT_TYPE_CHANGED", message: TICKET_EDIT_REASONS.TICKET_EDIT_TYPE_CHANGED });
+    }
 
     // Manual date inputs from non-office roles are ignored before parsing.
     // They must not suppress legitimate priority/status-entry recomputation.
     if (user.accessRole !== "admin" && user.accessRole !== "office") delete req.body.scheduleBy;
     else if (req.body.scheduleBy === "" || req.body.scheduleBy === undefined) delete req.body.scheduleBy;
 
-    // Guard against operational records being on a parent customer
-    {
-      const effectiveCustomerId = req.body.customerId ?? existingTicket.customerId;
-      if (effectiveCustomerId && await assertNotParentCustomer(effectiveCustomerId, user.activeCompanyId, res)) return;
-    }
+    const schedulingTx = db as unknown as VisitTransaction;
+    const customerChange = await guardTicketCustomerChange(schedulingTx, user, existingTicket, req.body);
+    if (customerChange) {
+      // If this PATCH also schedules or advances the ticket, all new work
+      // created below must use the new customer, not the old snapshot.
+      existingTicket = { ...existingTicket, customerId: customerChange.id };
+    } else if (existingTicket.customerId && await assertNotParentCustomer(existingTicket.customerId, user.activeCompanyId, res)) return;
 
     const ptType = billingType ?? await storage.getTicketTypeById(existingTicket.ticketTypeId, user.activeCompanyId);
     if (Object.hasOwn(req.body, "appendPhotos")) {
@@ -7052,7 +7069,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(422).json({ error: "BILLING_MISMATCH" });
       }
       const billingBehavior = hasWorkType
-        ? (req.body.workType === "extra_work" ? "invoice_required" : "no_invoice")
+        ? getBillingBehaviorForWorkType(req.body.workType)
         : req.body.billingBehavior;
       if (hasBilling && req.body.billingBehavior !== billingBehavior) {
         return res.status(422).json({ error: "BILLING_MISMATCH" });
@@ -7076,11 +7093,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const schedulingParsed = insertTicketSchema.partial().safeParse(req.body);
     if (!schedulingParsed.success) return res.status(400).json({ message: "Invalid ticket update" });
     Object.assign(req.body, pickProvided(schedulingParsed.data, req.body));
-    const schedulingTx = db as unknown as VisitTransaction;
-    if (req.body.ticketTypeId && req.body.ticketTypeId !== existingTicket.ticketTypeId
-      && (isSchedulingGateType(ptType) || isSchedulingGateType(await storage.getTicketTypeById(req.body.ticketTypeId, user.activeCompanyId)))) {
-      return res.status(422).json({ error: "INVALID_STATUS", message: "This ticket’s scheduling workflow cannot be changed." });
-    }
     if (await applyVisitTicketEdit(schedulingTx, req.body, existingTicket, schedulingStatuses, user.activeCompanyId, user.id)) {
       applySchedulingTransition(req.body, existingTicket, schedulingStatuses,
         await hasOpenTicketVisit(schedulingTx, user.activeCompanyId, existingTicket.id),
@@ -7387,6 +7399,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const ticket = await applyTicketStatus(db as unknown as import("../lib/contractCenterPersistence").Transaction, {
       ticket: existingTicket, updates, userId: user.id, note: req.body.statusChangeNotes || null,
     });
+    if (customerChange) {
+      await storage.createTicketComment({ ticketId: ticket.id, authorId: user.id,
+        body: `Customer changed from ${customerChange.oldName} to ${customerChange.newName}` });
+    }
     if (ticket && Object.hasOwn(updates, "followUpDate") && updates.followUpDate !== undefined) {
       await storage.createTicketComment({
         ticketId: existingTicket.id,
@@ -7471,7 +7487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }));
 
   // Manual invoice ticket creation from an Estimate Request or Project ticket
-  app.post("/api/tickets/:id/create-invoice", async (req, res) => {
+  app.post("/api/tickets/:id/create-invoice", transactionalTicketPatch(async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
@@ -7547,7 +7563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Failed to create invoice ticket:", err);
       res.status(500).send("Failed to create invoice ticket");
     }
-  });
+  }));
 
   // Batch delete tickets - admin only (MUST be before /:id route)
   app.delete("/api/tickets/batch", async (req, res) => {
@@ -7629,7 +7645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create Invoice ticket linked to a Project at Ready for Billing
-  app.post("/api/tickets/create-invoice-from-project", async (req, res) => {
+  app.post("/api/tickets/create-invoice-from-project", transactionalTicketPatch(async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
@@ -7711,7 +7727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Failed to create Invoice from Project:", err);
       res.status(500).send("Failed to create Invoice ticket");
     }
-  });
+  }, req => [req.body?.parentTicketId]));
 
   // Ticket Field Values routes
   app.get("/api/tickets/:ticketId/field-values", async (req, res) => {
@@ -7731,7 +7747,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Access denied");
     }
 
-    const fieldValues = await storage.getTicketFieldValues(req.params.ticketId);
+    const fieldValues = await storage.getTicketFieldValues(req.params.ticketId, ticket.ticketTypeId);
     res.json(fieldValues);
   });
 
@@ -8038,7 +8054,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(linkedTickets.filter(link => link !== null));
   });
 
-  app.post("/api/tickets/:ticketId/links", async (req, res) => {
+  app.post("/api/tickets/:ticketId/links", transactionalTicketPatch(async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send("Not authenticated");
     }
@@ -8057,10 +8073,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!result.success) {
       return res.status(400).send(result.error.message);
     }
+    if (result.data.linkType === "invoice_for") {
+      const { sourceTicketId, targetTicketId } = result.data;
+      const rows = await storage.getTicketsByIds([sourceTicketId, targetTicketId], user.activeCompanyId);
+      const source = rows.find(t => t.id === sourceTicketId);
+      const target = rows.find(t => t.id === targetTicketId);
+      if (!source || !target) return res.status(404).send("Ticket not found");
+    }
 
     const link = await storage.createTicketLink(result.data);
     res.json(link);
-  });
+  }, req => [req.body?.sourceTicketId, req.body?.targetTicketId]));
 
   app.delete("/api/ticket-links/:id", async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -8441,7 +8464,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const [ticketType, statuses, fieldValues, statusHistory, comments, customer] = await Promise.all([
       storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId),
       storage.getTicketTypeStatuses(ticket.ticketTypeId),
-      storage.getTicketFieldValues(ticket.id),
+      storage.getTicketFieldValues(ticket.id, ticket.ticketTypeId),
       storage.getTicketStatusHistory(ticket.id),
       storage.getTicketComments(ticket.id),
       ticket.customerId ? storage.getCustomerById(ticket.customerId, user.activeCompanyId) : null,
@@ -8449,7 +8472,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Fetch all fields for all statuses in a single batch query
     const statusIds = statuses.map(s => s.id);
-    const [allStatusFields, assignedUser, delegatedByUser, contract, contractServices, links, createdByUser] = await Promise.all([
+    const currentStatusIds = new Set(statusIds);
+    const archivedStatusIds = [...new Set(statusHistory.flatMap(h => h.fromStatusId ? [h.fromStatusId, h.toStatusId] : [h.toStatusId]))]
+      .filter(id => !currentStatusIds.has(id));
+    const [allStatusFields, assignedUser, delegatedByUser, contract, contractServices, links, createdByUser, editAvailability, archivedStatuses] = await Promise.all([
       storage.getTicketTypeFieldsByStatuses(statusIds),
       ticket.assignedToId ? storage.getUserById(ticket.assignedToId) : Promise.resolve(null),
       ticket.delegatedById ? storage.getUserById(ticket.delegatedById) : Promise.resolve(null),
@@ -8462,6 +8488,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? storage.getCompanyUser(ticket.createdById, user.activeCompanyId)
             .then(member => member ? storage.getUserById(ticket.createdById!) : undefined)
         : null,
+      ticketEditAvailability(db, user, ticket, ticketType, statuses),
+      archivedStatusIds.length ? db.select({ id: ticketTypeStatuses.id, name: ticketTypeStatuses.name })
+        .from(ticketTypeStatuses)
+        .innerJoin(ticketTypes, and(eq(ticketTypes.id, ticketTypeStatuses.ticketTypeId), eq(ticketTypes.companyId, user.activeCompanyId)))
+        .where(inArray(ticketTypeStatuses.id, archivedStatusIds)) : [],
     ]);
 
     // Group fields by statusId for O(1) lookup
@@ -8517,6 +8548,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ticket,
       ticketType,
       statuses: statusesWithFields,
+      archivedStatuses,
+      editAvailability,
       // Workflow permission hint only; it does not expose raw stop details.
       hasOpenScheduleStop: isSchedulingGateType(ticketType) && findSeededStatus(statuses, "scheduled")
         ? await hasOpenTicketVisit(db, user.activeCompanyId, ticket.id) : undefined,

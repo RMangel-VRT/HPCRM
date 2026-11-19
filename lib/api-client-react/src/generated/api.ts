@@ -27,6 +27,9 @@ import type {
   CampaignRoundLists,
   CampaignRoundMove,
   CampaignRoundStart,
+  ChangeTicketType200,
+  ChangeTicketType409,
+  ChangeTicketTypeBody,
   ContractedServicesTargets,
   Crew,
   CrewInput,
@@ -1886,6 +1889,94 @@ export const useDeleteVisit = <
   TContext
 > => {
   return useMutation(getDeleteVisitMutationOptions(options));
+};
+
+/**
+ * @summary Convert an unstarted ticket to another company ticket workflow
+ */
+export const getChangeTicketTypeUrl = (id: string) => {
+  return `/api/tickets/${id}/change-type`;
+};
+
+export const changeTicketType = async (
+  id: string,
+  changeTicketTypeBody: ChangeTicketTypeBody,
+  options?: RequestInit,
+): Promise<ChangeTicketType200> => {
+  return customFetch<ChangeTicketType200>(getChangeTicketTypeUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(changeTicketTypeBody),
+  });
+};
+
+export const getChangeTicketTypeMutationOptions = <
+  TError = ErrorType<void | ChangeTicketType409>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof changeTicketType>>,
+    TError,
+    { id: string; data: BodyType<ChangeTicketTypeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof changeTicketType>>,
+  TError,
+  { id: string; data: BodyType<ChangeTicketTypeBody> },
+  TContext
+> => {
+  const mutationKey = ["changeTicketType"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof changeTicketType>>,
+    { id: string; data: BodyType<ChangeTicketTypeBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return changeTicketType(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ChangeTicketTypeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof changeTicketType>>
+>;
+export type ChangeTicketTypeMutationBody = BodyType<ChangeTicketTypeBody>;
+export type ChangeTicketTypeMutationError =
+  ErrorType<void | ChangeTicketType409>;
+
+/**
+ * @summary Convert an unstarted ticket to another company ticket workflow
+ */
+export const useChangeTicketType = <
+  TError = ErrorType<void | ChangeTicketType409>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof changeTicketType>>,
+    TError,
+    { id: string; data: BodyType<ChangeTicketTypeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof changeTicketType>>,
+  TError,
+  { id: string; data: BodyType<ChangeTicketTypeBody> },
+  TContext
+> => {
+  return useMutation(getChangeTicketTypeMutationOptions(options));
 };
 
 /**

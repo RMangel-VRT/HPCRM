@@ -67,3 +67,4 @@
 - [Private PDF previews](private-pdf-previews.md) — Chromium blocks sandboxed plugin iframes; render authorized bytes as pixels without weakening file-route headers.
 - [Real ticket scheduling gate](real-ticket-scheduling-gate.md) — S1 supersedes explicit-status precedence; a real open stop or a dedicated audited skip is required.
 - [Work location ownership](work-location-ownership.md) — linked tickets own location text; standalone estimates own theirs; otherwise display the property address.
+- [Guarded ticket identity edits](guarded-ticket-identity-edits.md) — keep customer and type rules separate; closed visit history has different meaning for each.

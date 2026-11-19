@@ -28,9 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { 
   ArrowLeft, 
-  Search, 
   MapPin, 
-  Check,
   Loader2,
   FileCheck,
   Receipt,
@@ -56,6 +54,7 @@ import { extractApiErrorMessage, taskValidationMessage } from "@/lib/apiError";
 import { prospectQuickAddBody } from "@/components/customerWizard/wizardModel";
 import { DatePickerField } from "@/components/DatePickerField";
 import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
+import { TicketCustomerChoices, TicketCustomerSearch } from "@/components/tickets/TicketCustomerChoices";
 import type { Customer, TicketType, CompanyUser, User, WorkType } from "@shared/schema";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { findSeededTicketType, isSeededTicketType } from "@shared/ticketVisuals";
@@ -944,16 +943,7 @@ export default function NewTicket() {
                 <DialogTitle>{t('newTicket.selectCustomer')}</DialogTitle>
               </DialogHeader>
               
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder={t('tickets.searchPlaceholder')}
-                  value={customerSearch}
-                  onChange={(e) => setCustomerSearch(e.target.value)}
-                  className="pl-9"
-                  data-testid="input-customer-search"
-                />
-              </div>
+              <TicketCustomerSearch value={customerSearch} onChange={setCustomerSearch} />
               
               {/* Create New Prospect button - shown for RFP Requests */}
               {isRFPRequest && (
@@ -971,39 +961,8 @@ export default function NewTicket() {
                 </Button>
               )}
               
-              <div className="flex-1 overflow-y-auto -mx-6 px-6 space-y-2 min-h-[200px] max-h-[400px]">
-                {filteredCustomers.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8">
-                    {t('customers.noCustomersFound')}
-                  </p>
-                ) : (
-                  filteredCustomers.map((customer) => (
-                    <Card 
-                      key={customer.id}
-                      className="hover-elevate cursor-pointer"
-                      onClick={() => handleSelectCustomer(customer.id)}
-                      data-testid={`customer-option-${customer.id}`}
-                    >
-                      <CardContent className="p-3 flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                          <MapPin className="w-4 h-4 text-muted-foreground" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{customer.name}</p>
-                          {customer.city && (
-                            <p className="text-xs text-muted-foreground truncate">
-                              {customer.city}{customer.state ? `, ${customer.state}` : ""}
-                            </p>
-                          )}
-                        </div>
-                        {selectedCustomerId === customer.id && (
-                          <Check className="w-5 h-5 text-primary shrink-0" />
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))
-                )}
-              </div>
+              <TicketCustomerChoices customers={filteredCustomers} selectedId={selectedCustomerId}
+                onSelect={customer => handleSelectCustomer(customer.id)} />
             </DialogContent>
           </Dialog>
           

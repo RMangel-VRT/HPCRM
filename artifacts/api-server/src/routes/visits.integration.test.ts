@@ -27,6 +27,8 @@ import { syncTicketFromVisits, lockVisitCompany } from "../lib/visitSync";
 import { companyDateString, companyNoon, companyToday } from "../lib/companyDay";
 import { findSeededStatus, isSeededStatus, isSeededTicketType } from "../shared/ticketCapabilities";
 import { assertNotParentCustomer } from "../utils/parentGuard";
+import { guardTicketCustomerChange } from "../lib/guardedTicketEdit";
+import { getBillingBehaviorForWorkType } from "../shared/workTypeCatalog";
 import { canSeeBilling, isBillingInvoiceAction } from "../lib/billing";
 import { notifyTicketAssignment } from "../lib/ticketAssignmentNotification";
 import { maybeAutoCreateInvoiceOnRfb } from "../lib/rfbInvoiceAutoCreate";
@@ -61,7 +63,7 @@ function app(role = "admin", authenticated = true, activeCompanyId = companyId, 
     app, db, storage, transactionalTicketPatch, applyVisitTicketEdit, applySchedulingTransition,
     assertSchedulingGate, isSchedulingGateType, hasOpenTicketVisit, lockVisitCompany, lockVisitTickets, VisitError, inTransaction, insertTicketFieldValueSchema,
     insertTicketSchema, pickProvided, maintainScheduleBy, wasDueDateExtendedToFuture,
-    findSeededStatus, isSeededStatus, isSeededTicketType, assertNotParentCustomer,
+    findSeededStatus, isSeededStatus, isSeededTicketType, assertNotParentCustomer, guardTicketCustomerChange, getBillingBehaviorForWorkType,
     canSeeBilling, isBillingInvoiceAction, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
     propagateInvoiceCompletion, applyTicketStatus, eq, and, sql,
     APPROVED_BILLING_STATUS_KEYS: ["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing", "invoicing"],

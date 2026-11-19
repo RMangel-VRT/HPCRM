@@ -74,7 +74,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { AddTicketPhotos } from "@/components/tickets/AddTicketPhotos";
-import { taskValidationMessage, extractApiErrorMessage } from "@/lib/apiError";
+import { taskValidationMessage, extractApiErrorMessage, parseApiValidationError } from "@/lib/apiError";
 import { consumeTicketOrigin, RETURN_MARKER, RETURN_SCROLL_KEY } from "@/lib/ticketListReturn";
 import { DatePickerField } from "@/components/DatePickerField";
 import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
@@ -88,7 +88,7 @@ import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import LayerMapViewer from "@/components/LayerMapViewer";
-import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, isSeededTicketType, isSeededStatus, findSeededStatus, taskWorkflowStatuses } from "@shared/ticketVisuals";
+import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, findSeededTicketType, isSeededTicketType, isSeededStatus, findSeededStatus, taskWorkflowStatuses } from "@shared/ticketVisuals";
 import { ticketHue, TaskBillingBadge } from "@/components/TicketIdentity";
 import { resolveDisplayTicketType } from "@shared/ticketVisuals";
 import { TicketVisitsCard } from "@/components/scheduling/TicketVisitsCard";
@@ -102,8 +102,17 @@ import { invalidateTicketScheduling } from "@/lib/schedulingStatus";
 import { WorkLocationFields } from "@/components/workLocation/WorkLocationFields";
 import { WorkLocationPin } from "@/components/workLocation/WorkLocationPin";
 import { refreshWorkLocation } from "@/lib/workLocation";
+import { LockedTicketField, TicketEditCustomerPicker } from "@/components/tickets/TicketEditFields";
+import type { ChangeTicketType200, ChangeTicketTypeBody } from "@workspace/api-client-react";
+import { TICKET_CREATION_TYPE_KEYS, TICKET_EDIT_REASONS, type TicketEditAvailability, type TicketEditReason } from "../../../../lib/db/src/ticketEditContracts";
+
+type TaskWork = "contract" | "extra_work";
+type EditTypeChoice = { id: string; name: string; typeKey?: string | null; isActive?: string };
 
 type TicketEditUpdate = {
+  customerId?: string;
+  assignedToId?: string | null;
+  workType?: TaskWork;
   title?: string;
   description?: string | null;
   priority?: "low" | "normal" | "high" | "urgent";
@@ -147,6 +156,8 @@ interface LinkedTicketInfo {
 interface TicketDetails {
   ticket: Ticket;
   hasOpenScheduleStop?: boolean;
+  editAvailability?: TicketEditAvailability;
+  archivedStatuses?: { id: string; name: string }[];
   ticketType: { id: string; name: string; color: string | null; typeKey?: string | null };
   statuses: {
     id: string;
@@ -288,7 +299,13 @@ export default function TicketDetail() {
   
   // Edit ticket state
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{
+    customerId: string | null;
+    assignedToId: string | null;
+    ticketTypeId: string;
+    workType: TaskWork;
     title: string;
     description: string;
     priority: "low" | "normal" | "high" | "urgent";
@@ -302,6 +319,10 @@ export default function TicketDetail() {
     locationLat: number | null;
     locationLng: number | null;
   }>({
+    customerId: null,
+    assignedToId: null,
+    ticketTypeId: "",
+    workType: "contract",
     title: "",
     description: "",
     priority: "normal",
@@ -322,11 +343,6 @@ export default function TicketDetail() {
   const [selectedStatusId, setSelectedStatusId] = useState<string | null>(null);
   const [stepperExpanded, setStepperExpanded] = useState(false);
 
-  const { data: crewsList = [] } = useQuery<CrewSelectOption[]>({
-    queryKey: ["/api/crews"],
-    enabled: showEditDialog,
-  });
-  
   // Navigation for redirects
   const [, setLocation] = useLocation();
   
@@ -341,6 +357,20 @@ export default function TicketDetail() {
   const isAdminOrOffice = currentUser?.accessRole === "admin" || currentUser?.accessRole === "office" || currentUser?.isSuperAdminBool;
   const rolesWithoutCustomerAccess = ["field", "irrigation_manager", "shop_manager", "landscape_supervisor", "crew_supervisor"];
   const canViewCustomer = !rolesWithoutCustomerAccess.includes(currentUser?.activeRole || "");
+  const editCompanyId = currentUser?.activeCompanyId;
+  useEffect(() => { setShowEditDialog(false); editOriginal.current = null; }, [ticketId, editCompanyId, currentUser?.id]);
+
+  const { data: crewsList = [] } = useQuery<CrewSelectOption[]>({
+    queryKey: ["/api/crews"],
+    enabled: showEditDialog && !!isAdminOrOffice,
+  });
+  const editTypesQuery = useQuery<EditTypeChoice[]>({
+    queryKey: ["/api/ticket-types", editCompanyId, "edit"],
+    enabled: showEditDialog && !!isAdminOrOffice && !!editCompanyId,
+    queryFn: ({ signal }) => apiRequest("GET", "/api/ticket-types", undefined, {
+      signal, headers: { "X-Company-Id": editCompanyId! },
+    }).then(r => r.json()),
+  });
 
   const { data: details, isLoading, isFetching: detailsFetching, isError: detailsError } = useQuery<TicketDetails>({
     queryKey: ["/api/tickets", ticketId, "details", currentUser?.activeCompanyId, currentUser?.id],
@@ -511,28 +541,97 @@ export default function TicketDetail() {
     },
   });
 
-  // Mutation to edit ticket details
+  // Bind both writes to the company and ticket that initiated Save.
   const editQueryClient = useQueryClient();
-  const editTicketMutation = useMutation({
-    mutationFn: async (updates: TicketEditUpdate) => {
-      const companyId = currentUser?.activeCompanyId;
-      return apiRequest("PATCH", `/api/tickets/${ticketId}`, updates,
-        { headers: companyId ? { "X-Company-Id": companyId } : undefined });
-    },
-    onSuccess: (_response, updates) => {
-      // Crew + date edits can move the ticket to Scheduled (or back) on the server.
-      invalidateTicketScheduling(editQueryClient, ticketId, details?.ticket.customerId);
-      if (("locationLabel" in updates || "locationDescription" in updates) && currentUser?.activeCompanyId) {
-        void refreshWorkLocation(editQueryClient, { companyId: currentUser.activeCompanyId, ticketId });
+  function refreshTicketEdit(updates: TicketEditUpdate, typeChanged: boolean, target: {
+    id: string; companyId?: string; oldCustomerId: string | null;
+  }) {
+    invalidateTicketScheduling(editQueryClient, target.id, target.oldCustomerId);
+    if (updates.customerId) {
+      if (target.oldCustomerId) void editQueryClient.invalidateQueries({ queryKey: ["/api/customers", target.oldCustomerId] });
+      void editQueryClient.invalidateQueries({ queryKey: ["/api/customers", updates.customerId] });
+    }
+    if (typeChanged || updates.customerId || updates.assignedToId !== undefined) {
+      for (const key of ["/api/estimates/board", "/api/bids/board", "/api/scheduling/queue"]) {
+        void editQueryClient.invalidateQueries({ queryKey: [key] });
       }
-      setShowEditDialog(false);
-      toast({ title: t('ticketDetail.updated') });
+      setSelectedStatusId(null);
+      setStepperExpanded(false);
+    }
+    if (target.companyId && ("locationLabel" in updates || "locationDescription" in updates || updates.customerId)) {
+      void refreshWorkLocation(editQueryClient, { companyId: target.companyId, ticketId: target.id });
+    }
+  }
+  function editReason(reason: TicketEditReason) {
+    return t(`ticketEdit.reason.${reason}`, { defaultValue: TICKET_EDIT_REASONS[reason] });
+  }
+  const editTicketMutation = useMutation({
+    mutationFn: async ({ updates, conversion, original, target, checkScheduling }: {
+      updates: TicketEditUpdate; conversion?: ChangeTicketTypeBody; original: typeof editForm;
+      target: { id: string; companyId?: string; oldCustomerId: string | null };
+      checkScheduling: boolean;
+    }) => {
+      const path = `/api/tickets/${target.id}`;
+      const headers = target.companyId ? { "X-Company-Id": target.companyId } : undefined;
+      const patch = { ...updates };
+      let schedulingSkipped = false;
+      if (checkScheduling) {
+        schedulingSkipped = !canViewVisits;
+        if (!schedulingSkipped) {
+          try { schedulingSkipped = (await fetchTicketVisits(target.id, target.companyId)).some(isOpenVisit); }
+          catch { schedulingSkipped = true; }
+        }
+        if (schedulingSkipped) {
+          delete patch.routeOrder;
+          delete patch.dueDate;
+          delete patch.crewId;
+        }
+      }
+      let converted: ChangeTicketType200 | undefined;
+      if (conversion) {
+        converted = await apiRequest("POST", `${path}/change-type`, conversion, {
+          headers: { ...headers, "X-Ticket-Type-Id": original.ticketTypeId },
+        }).then(r => r.json());
+      }
+      try {
+        if (Object.keys(patch).length) await apiRequest("PATCH", path, patch, {
+          headers: { ...headers, "X-Ticket-Type-Id": converted?.ticketTypeId ?? original.ticketTypeId },
+        });
+      } catch (error) {
+        return { converted, patch, schedulingSkipped, patchError: error };
+      }
+      return { converted, patch, schedulingSkipped };
     },
-    onError: (error: Error) => {
-      if (handleMultipleVisits(error, toast, { close: () => setShowEditDialog(false) })) return;
-      toast({ title: t('tickets.unexpectedError'), description: error.message, variant: "destructive" });
+    onSuccess: ({ converted, patchError, patch, schedulingSkipped }, { original, target }) => {
+      if (patchError) {
+        if (converted) {
+          // This committed already. Retry only the remaining ordinary fields.
+          if (editOriginal.current === original) editOriginal.current = { ...original, ticketTypeId: converted.ticketTypeId,
+            workType: converted.workType === "extra_work" ? "extra_work" : "contract" };
+          refreshTicketEdit({}, true, target);
+        }
+        if (editOriginal.current) showTicketEditFailure(patchError, !!converted);
+        return;
+      }
+      refreshTicketEdit(patch, !!converted, target);
+      if (editOriginal.current === original) setShowEditDialog(false);
+      if (schedulingSkipped) toast({ title: t("ticketEdit.schedulingSkipped") });
+      else toast({ title: t('ticketDetail.updated') });
     },
+    onError: error => showTicketEditFailure(error, false, true),
   });
+  function showTicketEditFailure(error: unknown, partial: boolean, conversionFailed = false) {
+    if (!partial && error instanceof Error && handleMultipleVisits(error, toast, { close: () => setShowEditDialog(false) })) return;
+    const { status, code, message } = parseApiValidationError(error);
+    const reason = code === "BILLING_LOCKED" ? "TICKET_EDIT_BILLING_LOCKED" :
+      code && (code !== "SCHEDULE_REQUIRED" || conversionFailed) && Object.hasOwn(TICKET_EDIT_REASONS, code) ? code as TicketEditReason : undefined;
+    const explanation = reason ? editReason(reason) : message ?? t("tickets.unexpectedError");
+    const text = partial ? t("ticketEdit.partialSave", { reason: explanation }) :
+      conversionFailed ? t("ticketEdit.conversionFailed", { reason: explanation }) : explanation;
+    setEditError(text);
+    if (status === 409 || status === 403) void editQueryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
+    toast({ title: t("ticketEdit.saveFailed"), description: text, variant: "destructive" });
+  }
 
   const updateBillingMutation = useMutation({
     mutationFn: (billable: boolean) => apiRequest("PATCH", `/api/tickets/${ticketId}`, {
@@ -806,9 +905,22 @@ export default function TicketDetail() {
   const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, contractServices = [], assignedUser, delegatedByUser, linkedTickets = [] } = details;
   const ticketPin = ticket.locationLat != null && ticket.locationLng != null
     ? [ticket.locationLat, ticket.locationLng] as [number, number] : null;
-  const customerPin = customer?.locationLat != null && customer?.locationLng != null
-    ? [customer.locationLat, customer.locationLng] as [number, number] : null;
-  const propertyAddress = customer ? [customer.street, [customer.city, customer.state, customer.zip].filter(Boolean).join(" ")].filter(Boolean).join("\n") : "";
+  const editCustomerPin = editCustomer?.locationLat != null && editCustomer?.locationLng != null
+    ? [editCustomer.locationLat, editCustomer.locationLng] as [number, number] : null;
+  const editPropertyAddress = editCustomer
+    ? [editCustomer.street, [editCustomer.city, editCustomer.state, editCustomer.zip].filter(Boolean).join(" ")].filter(Boolean).join("\n") : "";
+  const pinMatchesPreviousCustomer = editForm.customerId !== editOriginal.current?.customerId &&
+    customer?.locationLat != null && customer?.locationLng != null &&
+    editForm.locationLat === customer.locationLat && editForm.locationLng === customer.locationLng;
+  const customerEditReason = !isAdminOrOffice ? "TICKET_EDIT_PERMISSION" : details.editAvailability?.customer;
+  const typeEditReason = !isAdminOrOffice ? "TICKET_EDIT_PERMISSION" : details.editAvailability?.type;
+  const activeEditTypes = (editTypesQuery.data ?? []).filter(type => type.isActive === "true");
+  const editTypes = TICKET_CREATION_TYPE_KEYS.flatMap(key => {
+    const type = findSeededTicketType(activeEditTypes, key);
+    return type ? [{ ...type, key }] : [];
+  });
+  const selectedEditType = editTypes.find(type => type.id === editForm.ticketTypeId) ?? ticketType;
+  const editIsTask = isSeededTicketType(selectedEditType, "task");
   const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
   const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
   const isTask = isSeededTicketType(ticketType, "task");
@@ -1130,6 +1242,10 @@ export default function TicketDetail() {
     if (!details) return;
     const { ticket } = details;
     const original: typeof editForm = {
+      customerId: ticket.customerId ?? null,
+      assignedToId: ticket.assignedToId ?? null,
+      ticketTypeId: ticket.ticketTypeId ?? ticketType.id,
+      workType: ticket.workType === "extra_work" ? "extra_work" : "contract",
       title: ticket.title || "",
       description: ticket.description || "",
       priority: ticket.priority || "normal",
@@ -1148,16 +1264,31 @@ export default function TicketDetail() {
     };
     editOriginal.current = original;
     setEditForm(original);
+    setEditCustomer(canViewCustomer ? customer ?? null : null);
+    setEditError(null);
     setShowEditDialog(true);
   };
 
   // Save ticket edits
   const handleSaveEdit = async () => {
     const original = editOriginal.current;
-    if (!original) return;
+    if (!original || !ticketId || !isAdminOrOffice || editTicketMutation.isPending) return;
+    setEditError(null);
     const day = (value?: Date) => value ? format(value, "yyyy-MM-dd") : null;
     const midday = (value?: Date) => value ? new Date(value.getFullYear(), value.getMonth(), value.getDate(), 12) : null;
     const updates: TicketEditUpdate = {};
+    let conversion: ChangeTicketTypeBody | undefined;
+    if (editForm.ticketTypeId !== original.ticketTypeId) {
+      if (typeEditReason) { setEditError(editReason(typeEditReason)); return; }
+      conversion = { ticketTypeId: editForm.ticketTypeId, ...(editIsTask ? { workType: editForm.workType } : {}) };
+    } else if (editIsTask && editForm.workType !== original.workType) {
+      updates.workType = editForm.workType;
+    }
+    if (editForm.customerId && editForm.customerId !== original.customerId) {
+      if (customerEditReason) { setEditError(editReason(customerEditReason)); return; }
+      updates.customerId = editForm.customerId;
+    }
+    if (canReassign && editForm.assignedToId !== original.assignedToId) updates.assignedToId = editForm.assignedToId;
     if (editForm.title !== original.title) updates.title = editForm.title;
     if (editForm.description !== original.description) updates.description = editForm.description || null;
     if (editForm.priority !== original.priority) updates.priority = editForm.priority;
@@ -1172,21 +1303,14 @@ export default function TicketDetail() {
     const routeChanged = editForm.routeOrder.trim() !== original.routeOrder;
     const dueChanged = day(editForm.dueDate) !== day(original.dueDate);
     const crewChanged = editForm.crewId !== original.crewId;
-    if (routeChanged || dueChanged || crewChanged) {
-      // Recheck only for scheduling edits; a location-only save doesn't touch scheduling.
-      let lockNow = false;
-      if (scheduledCapable && ticketId) {
-        if (!canViewVisits) lockNow = true;
-        else try { lockNow = (await fetchTicketVisits(ticketId, currentUser?.activeCompanyId)).some(isOpenVisit); } catch { lockNow = true; }
-      }
-      if (!lockNow) {
-        if (routeChanged) updates.routeOrder = editForm.routeOrder.trim() === "" ? null : Number.parseInt(editForm.routeOrder, 10);
-        if (dueChanged) updates.dueDate = midday(editForm.dueDate);
-        if (crewChanged) updates.crewId = editForm.crewId;
-      }
-    }
-    if (!Object.keys(updates).length) { setShowEditDialog(false); return; }
-    editTicketMutation.mutate(updates);
+    if (routeChanged) updates.routeOrder = editForm.routeOrder.trim() === "" ? null : Number.parseInt(editForm.routeOrder, 10);
+    if (dueChanged) updates.dueDate = midday(editForm.dueDate);
+    if (crewChanged) updates.crewId = editForm.crewId;
+    if (!conversion && !Object.keys(updates).length) { setShowEditDialog(false); return; }
+    editTicketMutation.mutate({ updates, conversion, original,
+      target: { id: ticketId, companyId: editCompanyId, oldCustomerId: original.customerId },
+      checkScheduling: scheduledCapable && (routeChanged || dueChanged || crewChanged),
+    });
   };
 
   return (
@@ -1275,14 +1399,19 @@ export default function TicketDetail() {
                 {ticket.title}
               </h1>
             </div>
-            {canEdit && (
+            {isAdminOrOffice ? (
               <Button
                 variant="ghost"
                 size="icon"
+                aria-label={t("ticketEdit.title")}
                 onClick={handleOpenEdit}
                 data-testid="button-edit-ticket"
               >
                 <Pencil className="w-5 h-5" />
+              </Button>
+            ) : (
+              <Button variant="ghost" size="icon" aria-label={t("ticketEdit.viewFields")} onClick={handleOpenEdit}>
+                <Eye className="w-5 h-5" />
               </Button>
             )}
             {canDelete && (
@@ -2795,9 +2924,11 @@ export default function TicketDetail() {
               </CardContent>
             </Card>
           ) : (
-            statusHistory.map((entry, index) => {
-              const toStatus = statuses.find(s => s.id === entry.toStatusId);
-              const fromStatus = entry.fromStatusId ? statuses.find(s => s.id === entry.fromStatusId) : null;
+            statusHistory.map(entry => {
+              const statusName = (id: string) => statuses.find(s => s.id === id)?.name ??
+                details.archivedStatuses?.find(s => s.id === id)?.name;
+              const toStatus = statusName(entry.toStatusId);
+              const fromStatus = entry.fromStatusId ? statusName(entry.fromStatusId) : null;
               
               return (
                 <Card key={entry.id} data-testid={`history-${entry.id}`}>
@@ -2808,11 +2939,11 @@ export default function TicketDetail() {
                         <p className="text-sm">
                           {fromStatus ? (
                             <>
-                              Changed from <span className="font-medium">{fromStatus.name}</span> to{" "}
-                              <span className="font-medium">{toStatus?.name}</span>
+                              Changed from <span className="font-medium">{fromStatus}</span> to{" "}
+                              <span className="font-medium">{toStatus}</span>
                             </>
                           ) : (
-                            <>Ticket created with status <span className="font-medium">{toStatus?.name}</span></>
+                            <>Ticket created with status <span className="font-medium">{toStatus}</span></>
                           )}
                         </p>
                         {entry.notes && (
@@ -3515,16 +3646,28 @@ export default function TicketDetail() {
       {/* Edit Ticket Dialog */}
       {scheduledCapable && canViewVisits && <TicketVisitsCard ticketId={ticket.id} ticketTitle={ticket.title} property={property} canPlace={!isComplete} />}
 
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+      <Dialog open={showEditDialog} onOpenChange={open => { if (!editTicketMutation.isPending) setShowEditDialog(open); }}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{t('common.edit')}</DialogTitle>
+            <DialogTitle>{t(isAdminOrOffice ? "ticketEdit.title" : "ticketEdit.viewFields")}</DialogTitle>
             <DialogDescription>
-              {t('common.edit')}
+              {t(isAdminOrOffice ? "ticketEdit.description" : "ticketEdit.readOnlyDescription")}
             </DialogDescription>
           </DialogHeader>
-          
-          <div className="space-y-4 py-4">
+
+          {!isAdminOrOffice ? (
+            <div className="space-y-4">
+              {canViewCustomer && <LockedTicketField label={t("ticketEdit.customer")}
+                value={customer?.name ?? t("common.none")} reason={editReason("TICKET_EDIT_PERMISSION")} />}
+              <LockedTicketField label={t("ticketEdit.type")} value={ticketType.name} reason={editReason("TICKET_EDIT_PERMISSION")} />
+              {isTask && <LockedTicketField label={t("tickets.workType")} value={t(`ticketEdit.${editForm.workType}`)}
+                reason={editReason("TICKET_EDIT_PERMISSION")} />}
+            </div>
+          ) : (
+          <>
+          <fieldset className="space-y-4" disabled={editTicketMutation.isPending}>
+            <fieldset className="space-y-3 rounded-md border p-3">
+              <legend className="px-1 text-sm font-semibold">{t("ticketEdit.details")}</legend>
             <div className="space-y-2">
               <Label htmlFor="edit-title">{t('newTicket.titleLabel')}</Label>
               <Input
@@ -3548,17 +3691,6 @@ export default function TicketDetail() {
               />
             </div>
 
-            <fieldset className="space-y-3 rounded-md border p-3" data-testid="group-ticket-work-location">
-              <legend className="px-1 text-sm font-medium">{t("workLocation.title")}</legend>
-              <WorkLocationFields label={editForm.locationLabel} details={editForm.locationDescription}
-                property={customer && { name: customer.name, address: propertyAddress }}
-                onChange={({ label, details }) => setEditForm(prev => ({ ...prev, locationLabel: label, locationDescription: details }))} />
-              <WorkLocationPin customerPoint={customerPin}
-                position={editForm.locationLat != null && editForm.locationLng != null ? [editForm.locationLat, editForm.locationLng] : null}
-                onChange={point => setEditForm(prev => ({ ...prev, locationLat: point?.[0] ?? null, locationLng: point?.[1] ?? null }))} />
-            </fieldset>
-
-            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-priority">{t('common.priority')}</Label>
                 <Select 
@@ -3568,7 +3700,7 @@ export default function TicketDetail() {
                   }
                 >
                   <SelectTrigger id="edit-priority" data-testid="select-edit-priority">
-                    <SelectValue placeholder="Select priority" />
+                    <SelectValue placeholder={t("common.priority")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="low">{t('priorities.low')}</SelectItem>
@@ -3578,6 +3710,94 @@ export default function TicketDetail() {
                   </SelectContent>
                 </Select>
               </div>
+            </fieldset>
+
+            <fieldset className="space-y-3 rounded-md border p-3">
+              <legend className="px-1 text-sm font-semibold">{t("ticketEdit.whoWhere")}</legend>
+              {customerEditReason ? (
+                <LockedTicketField label={t("ticketEdit.customer")} value={customer?.name ?? t("common.none")} reason={editReason(customerEditReason)} />
+              ) : (
+                <TicketEditCustomerPicker customer={editCustomer} companyId={editCompanyId}
+                  onChange={next => {
+                    setEditCustomer(next);
+                    setEditForm(prev => ({ ...prev, customerId: next.id }));
+                    setEditError(null);
+                  }} />
+              )}
+              {canReassign && (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-assignee">{t("ticketDetail.assignedTo")}</Label>
+                  <Select value={editForm.assignedToId ?? "unassigned"}
+                    onValueChange={value => setEditForm(prev => ({ ...prev, assignedToId: value === "unassigned" ? null : value }))}>
+                    <SelectTrigger id="edit-assignee" data-testid="select-edit-assignee">
+                      <SelectValue placeholder={assignedUser?.email ?? t("common.unassigned")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">{t("common.unassigned")}</SelectItem>
+                      {teamMembers.map(member => <SelectItem key={member.id} value={member.id}>{member.name} ({member.role})</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <fieldset className="space-y-3 rounded-md border p-3" data-testid="group-ticket-work-location">
+                <legend className="px-1 text-sm font-medium">{t("workLocation.title")}</legend>
+                {pinMatchesPreviousCustomer && <p className="text-sm text-muted-foreground">{t("ticketEdit.recheckPin")}</p>}
+                <WorkLocationFields label={editForm.locationLabel} details={editForm.locationDescription}
+                  property={editCustomer && { name: editCustomer.name, address: editPropertyAddress }}
+                  onChange={({ label, details }) => setEditForm(prev => ({ ...prev, locationLabel: label, locationDescription: details }))} />
+                <WorkLocationPin customerPoint={editCustomerPin}
+                  position={editForm.locationLat != null && editForm.locationLng != null ? [editForm.locationLat, editForm.locationLng] : null}
+                  onChange={point => setEditForm(prev => ({ ...prev, locationLat: point?.[0] ?? null, locationLng: point?.[1] ?? null }))} />
+              </fieldset>
+            </fieldset>
+
+            <fieldset className="space-y-3 rounded-md border p-3">
+              <legend className="px-1 text-sm font-semibold">{t("ticketEdit.typeSection")}</legend>
+              {typeEditReason || !editTypesQuery.isSuccess ? (
+                <LockedTicketField label={t("ticketEdit.type")} value={ticketType.name}
+                  reason={typeEditReason ? editReason(typeEditReason) : t(editTypesQuery.isError ? "ticketEdit.typesFailed" : "common.loading")} />
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-type">{t("ticketEdit.type")}</Label>
+                  <Select value={editForm.ticketTypeId} onValueChange={value => {
+                    setEditForm(prev => ({ ...prev, ticketTypeId: value,
+                      workType: value === editOriginal.current?.ticketTypeId ? editOriginal.current.workType : "contract" }));
+                    setEditError(null);
+                  }}>
+                    <SelectTrigger id="edit-type" data-testid="select-edit-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!editTypes.some(type => type.id === ticketType.id) && <SelectItem value={ticketType.id}>{ticketType.name}</SelectItem>}
+                      {editTypes.map(type => (
+                        <SelectItem key={type.id} value={type.id} disabled={type.key === "invoice"}>
+                          {type.name}{type.key === "invoice" ? ` — ${editReason("TICKET_EDIT_INVOICE_TYPE")}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {editIsTask && (billingLocked && editForm.ticketTypeId === ticketType.id ? (
+                <LockedTicketField label={t("tickets.workType")} value={t(`ticketEdit.${editForm.workType}`)}
+                  reason={editReason("TICKET_EDIT_BILLING_LOCKED")} />
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-work-type">{t("tickets.workType")}</Label>
+                  <Select value={editForm.workType}
+                    onValueChange={(value: TaskWork) => setEditForm(prev => ({ ...prev, workType: value }))}>
+                    <SelectTrigger id="edit-work-type" data-testid="select-edit-work-type"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="contract">{t("ticketEdit.contract")}</SelectItem>
+                      <SelectItem value="extra_work">{t("ticketEdit.extra_work")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </fieldset>
+
+            <fieldset className="space-y-3 rounded-md border p-3">
+              <legend className="px-1 text-sm font-semibold">{t("ticketEdit.scheduling")}</legend>
               
               <div className="space-y-2">
                 <Label>{t('ticketDetail.dueDate')}</Label>
@@ -3593,8 +3813,6 @@ export default function TicketDetail() {
                   />
                 )}
               </div>
-            </div>
-            
             <div className="space-y-2">
               <Label>{t('ticketDetail.workCompletedDate')}</Label>
               <DatePickerField
@@ -3606,7 +3824,7 @@ export default function TicketDetail() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-crew">Field crew</Label>
+                <Label htmlFor="edit-crew">{t("ticketEdit.fieldCrew")}</Label>
                 {lockSchedule ? (
                   <div className="flex h-9 items-center rounded-md border bg-muted/50 px-3 text-sm text-muted-foreground" data-testid="text-edit-crew-readonly">
                     {crewsList.find(c => c.id === editForm.crewId)?.name ?? t('common.none')}
@@ -3621,7 +3839,7 @@ export default function TicketDetail() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-routeOrder">Route order</Label>
+                <Label htmlFor="edit-routeOrder">{t("ticketEdit.routeOrder")}</Label>
                 <Input
                   id="edit-routeOrder"
                   type="number"
@@ -3630,7 +3848,7 @@ export default function TicketDetail() {
                   value={editForm.routeOrder}
                   disabled={lockSchedule}
                   onChange={(e) => setEditForm((prev) => ({ ...prev, routeOrder: e.target.value }))}
-                  placeholder="e.g. 1"
+                  placeholder="1"
                   data-testid="input-edit-route-order"
                 />
               </div>
@@ -3659,8 +3877,11 @@ export default function TicketDetail() {
               </p>
             )}
 
+            </fieldset>
+
             {isSeededTicketType(ticketType, "invoice") && (
-              <div className="space-y-2">
+              <fieldset className="space-y-2 rounded-md border p-3">
+                <legend className="px-1 text-sm font-semibold">{t("ticketEdit.invoice")}</legend>
                 <Label htmlFor="edit-invoiceCategory">{t('ticketDetail.invoiceCategory')}</Label>
                 <Select 
                   value={editForm.invoiceCategory || ""} 
@@ -3669,22 +3890,23 @@ export default function TicketDetail() {
                   }
                 >
                   <SelectTrigger id="edit-invoiceCategory" data-testid="select-edit-invoice-category">
-                    <SelectValue placeholder="Select category..." />
+                    <SelectValue placeholder={t("ticketDetail.invoiceCategory")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="general_maintenance">General Maintenance</SelectItem>
-                    <SelectItem value="snow">Snow</SelectItem>
+                    <SelectItem value="general_maintenance">{t("ticketEdit.generalMaintenance")}</SelectItem>
+                    <SelectItem value="snow">{t("ticketEdit.snow")}</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Determines which rates from the customer rate sheet will be displayed
+                  {t("ticketEdit.invoiceCategoryHelp")}
                 </p>
-              </div>
+              </fieldset>
             )}
-          </div>
+          </fieldset>
+          {editError && <p role="alert" className="text-sm text-destructive">{editError}</p>}
           
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+            <Button variant="outline" disabled={editTicketMutation.isPending} onClick={() => setShowEditDialog(false)}>
               {t('common.cancel')}
             </Button>
             <Button 
@@ -3698,6 +3920,8 @@ export default function TicketDetail() {
               {t('common.save')}
             </Button>
           </DialogFooter>
+          </>
+          )}
         </DialogContent>
       </Dialog>
 

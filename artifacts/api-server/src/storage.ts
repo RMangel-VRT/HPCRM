@@ -92,7 +92,7 @@ export interface IStorage {
   deleteCompanyUser(id: string): Promise<void>;
   
   getCustomers(companyId: string): Promise<Customer[]>;
-  getCustomersPaginated(companyId: string, opts: { page: number; limit: number; search?: string }): Promise<{ customers: Customer[]; total: number }>;
+  getCustomersPaginated(companyId: string, opts: { page: number; limit: number; search?: string; ticketPicker?: boolean }): Promise<{ customers: Customer[]; total: number }>;
   getCustomerSearch(companyId: string, query: string): Promise<Customer[]>;
   getCustomerSearchWithChildren(companyId: string, query: string): Promise<Customer[]>;
   getCustomerById(id: string, companyId: string): Promise<Customer | undefined>;
@@ -202,7 +202,7 @@ export interface IStorage {
   updateTicket(id: string, companyId: string, updates: Partial<InsertTicket>): Promise<Ticket | undefined>;
   deleteTicket(id: string, companyId: string): Promise<void>;
   
-  getTicketFieldValues(ticketId: string): Promise<TicketFieldValue[]>;
+  getTicketFieldValues(ticketId: string, ticketTypeId?: string): Promise<TicketFieldValue[]>;
   upsertTicketFieldValue(fieldValue: InsertTicketFieldValue): Promise<TicketFieldValue>;
   deleteTicketFieldValuesByFieldIds(ticketId: string, fieldIds: string[]): Promise<void>;
   
@@ -789,11 +789,18 @@ export class PgStorage implements IStorage {
     return await db.select().from(customers).where(eq(customers.companyId, companyId));
   }
 
-  async getCustomersPaginated(companyId: string, opts: { page: number; limit: number; search?: string }): Promise<{ customers: Customer[]; total: number }> {
-    const { page, limit, search } = opts;
+  async getCustomersPaginated(companyId: string, opts: { page: number; limit: number; search?: string; ticketPicker?: boolean }): Promise<{ customers: Customer[]; total: number }> {
+    const { page, limit, search, ticketPicker } = opts;
     const offset = (page - 1) * limit;
     const baseCondition = eq(customers.companyId, companyId);
-    const whereClause = search
+    const needle = search?.toLowerCase();
+    const whereClause = ticketPicker
+      ? and(baseCondition, sql`${customers.isParent} IS DISTINCT FROM 'true'`, needle ? sql`(
+          strpos(lower(${customers.name}), ${needle}) > 0 OR
+          strpos(lower(${customers.street}), ${needle}) > 0 OR
+          strpos(lower(${customers.city}), ${needle}) > 0
+        )` : undefined)
+      : search
       ? and(baseCondition, sql`lower(${customers.name}) like ${'%' + search.toLowerCase() + '%'}`)
       : baseCondition;
     const [rows, countRows] = await Promise.all([
@@ -1996,9 +2003,11 @@ export class PgStorage implements IStorage {
       .where(and(eq(tickets.id, id), eq(tickets.companyId, companyId)));
   }
 
-  async getTicketFieldValues(ticketId: string): Promise<TicketFieldValue[]> {
+  async getTicketFieldValues(ticketId: string, ticketTypeId?: string): Promise<TicketFieldValue[]> {
     return await db.select().from(ticketFieldValues)
-      .where(eq(ticketFieldValues.ticketId, ticketId));
+      .where(and(eq(ticketFieldValues.ticketId, ticketId), ticketTypeId === undefined ? undefined :
+        inArray(ticketFieldValues.fieldId, db.select({ id: ticketTypeFields.id }).from(ticketTypeFields)
+          .where(eq(ticketTypeFields.ticketTypeId, ticketTypeId)))));
   }
 
   async deleteTicketFieldValuesByFieldIds(ticketId: string, fieldIds: string[]): Promise<void> {

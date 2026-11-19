@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const toast = vi.hoisted(() => vi.fn());
 const auth = vi.hoisted(() => ({ role: "admin" }));
@@ -32,6 +33,15 @@ const detailsFor = (scheduled: boolean, typeName = "Task") => ({
 
 let details: any;
 let patchResult: { status?: number; json: unknown } | null = null;
+let conversionFailure: { status: number; json: unknown } | null;
+const editChoices = [
+  { id: "tt", name: "Estimate Request", typeKey: "estimate_request", isActive: "true" },
+  { id: "task", name: "Task", typeKey: "task", isActive: "true" },
+  { id: "project", name: "Project", typeKey: "project", isActive: "true" },
+  { id: "invoice", name: "Invoice", typeKey: "invoice", isActive: "true" },
+  { id: "custom", name: "Custom", typeKey: null, isActive: "true" },
+];
+const newProperty = { id: "property2", name: "New property", locationLat: 38, locationLng: -104 };
 let qcRef: QueryClient;
 let gate: Promise<void> | null = null;
 const holdHistory = async () => { if (gate) await gate; };
@@ -44,6 +54,7 @@ beforeEach(() => {
   calls.length = 0;
   auth.role = "admin";
   patchResult = null;
+  conversionFailure = null;
   nextStop = null;
   nextConflict = false;
   toast.mockClear();
@@ -52,6 +63,25 @@ beforeEach(() => {
     calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined, headers: new Headers(init?.headers) });
     let r: { status?: number; json: unknown } = { json: [] };
     if (url === "/api/tickets/t1/details") r = { json: details };
+    else if (url === "/api/estimates/by-ticket/t1") r = { json: null };
+    else if (url === "/api/ticket-types") r = { json: editChoices };
+    else if (url.startsWith("/api/customers?ticketPicker=")) r = {
+      json: { customers: [newProperty, { id: "parent", name: "Parent property", isParent: "true" }], total: 2 },
+    };
+    else if (url === "/api/companies/users") r = { json: [{ companyUser: { role: "office" },
+      user: { id: "u2", name: "Second user", email: "second@example.test" } }] };
+    else if (method === "POST" && url === "/api/tickets/t1/change-type") {
+      if (conversionFailure) r = conversionFailure;
+      else {
+        const payload = JSON.parse(String(init?.body));
+        const converted = { id: "t1", ticketTypeId: payload.ticketTypeId, currentStatusId: "new-type-status",
+          workType: payload.workType ?? "estimate_request", billingBehavior: payload.workType === "extra_work" ? "invoice_required" : "internal" };
+        Object.assign(details.ticket, converted);
+        details.ticketType = editChoices.find(type => type.id === payload.ticketTypeId);
+        details.statuses = [status("new-type-status", "new", "New", 0)];
+        r = { json: converted };
+      }
+    }
     else if (url === "/api/tickets/t1/visits") r = history();
     else if (url === "/api/tickets/t1/next-stop") r = { json: nextStop };
     else if (method === "POST" && url === "/api/tickets/t1/schedule-next-stop") {
@@ -81,6 +111,8 @@ beforeEach(() => {
     } });
   }));
   Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.releasePointerCapture = () => {};
   gate = null;
   (globalThis as any).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
 });
@@ -90,7 +122,7 @@ function mount() {
   const { hook } = memoryLocation({ path: "/dashboard/tickets/t1" });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, queryFn: async ({ queryKey }) => (await fetch(String(queryKey[0]))).json() } } });
   qcRef = qc;
-  return render(<QueryClientProvider client={qc}><Router hook={hook}><TicketDetail /></Router></QueryClientProvider>);
+  return render(<QueryClientProvider client={qc}><TooltipProvider><Router hook={hook}><TicketDetail /></Router></TooltipProvider></QueryClientProvider>);
 }
 const patchBody = () => calls.filter(c => c.method === "PATCH" && c.url === "/api/tickets/t1").at(-1)?.body;
 
@@ -169,6 +201,133 @@ async function openEdit() {
   fireEvent.click(await screen.findByTestId("button-edit-ticket"));
   await screen.findByTestId("input-edit-title");
 }
+
+describe("TicketDetail guarded edit controls", () => {
+  beforeEach(() => {
+    history = () => ({ json: [] });
+    details = detailsFor(false, "Estimate Request");
+    details.ticketType = editChoices[0];
+    details.editAvailability = { customer: null, type: null };
+    Object.assign(details.ticket, { ticketTypeId: "tt", priority: "urgent", workType: "estimate_request",
+      billingBehavior: "internal", customerId: "property1", locationLat: 40, locationLng: -105, delegatedById: "u1" });
+    details.customer = { id: "property1", name: "Old property", locationLat: 40, locationLng: -105 };
+  });
+
+  async function selectTask() {
+    await userEvent.click(await screen.findByTestId("select-edit-type"));
+    expect(screen.queryByRole("option", { name: "Custom" })).toBeNull();
+    expect(screen.getByRole("option", { name: /Invoice/ }).getAttribute("aria-disabled")).toBe("true");
+    await userEvent.click(screen.getByRole("option", { name: "Task" }));
+    await userEvent.click(screen.getByTestId("select-edit-work-type"));
+    await userEvent.click(screen.getByRole("option", { name: "Billable" }));
+  }
+
+  it("lets office staff change type and customer, keeps the pin and submits POST before PATCH", async () => {
+    auth.role = "office";
+    mount();
+    await openEdit();
+    expect(screen.queryByTestId("select-edit-assignee")).toBeNull();
+    await userEvent.click(screen.getByTestId("select-edit-customer"));
+    fireEvent.change(screen.getByTestId("input-customer-search"), { target: { value: "New property" } });
+    const option = await screen.findByTestId("customer-option-property2");
+    expect(screen.queryByTestId("customer-option-parent")).toBeNull();
+    await userEvent.click(option);
+    expect(screen.getByText(/pin still matches the previous customer/)).toBeTruthy();
+    const search = calls.find(c => c.url.includes("search=New+property"));
+    expect(search?.headers.get("X-Company-Id")).toBe("c1");
+    await selectTask();
+    fireEvent.change(screen.getByTestId("input-edit-title"), { target: { value: "Updated" } });
+    await userEvent.click(screen.getByTestId("button-save-edit"));
+    await waitFor(() => expect(screen.queryByTestId("input-edit-title")).toBeNull());
+    const writes = calls.filter(c => c.url.startsWith("/api/tickets/t1") && c.method !== "GET");
+    expect(writes.map(c => [c.method, c.body])).toEqual([
+      ["POST", { ticketTypeId: "task", workType: "extra_work" }],
+      ["PATCH", { customerId: "property2", title: "Updated" }],
+    ]);
+    expect(writes.every(c => c.headers.get("X-Company-Id") === "c1")).toBe(true);
+    expect(writes[1].headers.get("X-Ticket-Type-Id")).toBe("task");
+    expect(details.ticket).toMatchObject({ locationLat: 40, locationLng: -105, priority: "urgent" });
+  });
+
+  it("does not PATCH or report success when the type change is blocked at Save", async () => {
+    conversionFailure = { status: 409, json: { error: "TICKET_EDIT_ESTIMATE", message: "Server reason" } };
+    mount();
+    await openEdit();
+    await selectTask();
+    fireEvent.change(screen.getByTestId("input-edit-title"), { target: { value: "Must not save" } });
+    await userEvent.click(screen.getByTestId("button-save-edit"));
+    expect((await screen.findByRole("alert")).textContent).toContain("This ticket has a non-voided estimate.");
+    expect(patchBody()).toBeUndefined();
+    expect(toast).not.toHaveBeenCalledWith({ title: "Ticket updated" });
+  });
+
+  it("reports a partial save and retries only PATCH after the conversion committed", async () => {
+    patchResult = { status: 409, json: { error: "TICKET_EDIT_TYPE_CHANGED", message: "Conflict" } };
+    mount();
+    await openEdit();
+    await selectTask();
+    fireEvent.change(screen.getByTestId("input-edit-title"), { target: { value: "Retry me" } });
+    await userEvent.click(screen.getByTestId("button-save-edit"));
+    expect((await screen.findByRole("alert")).textContent).toContain("The ticket type changed, but the other edits were not saved.");
+    expect((screen.getByTestId("input-edit-title") as HTMLInputElement).value).toBe("Retry me");
+    patchResult = null;
+    await userEvent.click(screen.getByTestId("button-save-edit"));
+    await waitFor(() => expect(screen.queryByTestId("input-edit-title")).toBeNull());
+    expect(calls.filter(c => c.url.endsWith("/change-type"))).toHaveLength(1);
+    expect(patchBody()).toEqual({ title: "Retry me" });
+  });
+
+  it("uses the existing Task PATCH without adding defaults, and matches inline reassignment", async () => {
+    details.ticketType = editChoices[1];
+    Object.assign(details.ticket, { ticketTypeId: "task", workType: "contract", billingBehavior: "no_invoice" });
+    mount();
+    await userEvent.click(await screen.findByTestId("select-reassign-ticket"));
+    await userEvent.click(await screen.findByRole("option", { name: "Second user (office)" }));
+    await waitFor(() => expect(patchBody()).toEqual({ assignedToId: "u2" }));
+    await qcRef.invalidateQueries({ queryKey: ["/api/tickets", "t1", "details"] });
+    await waitFor(() => expect(screen.getByTestId("select-reassign-ticket").textContent).toContain("Second user"));
+    await openEdit();
+    await userEvent.click(screen.getByTestId("select-edit-assignee"));
+    await userEvent.click(screen.getByRole("option", { name: "Unassigned" }));
+    await userEvent.click(screen.getByTestId("button-save-edit"));
+    await waitFor(() => expect(screen.queryByTestId("input-edit-title")).toBeNull());
+    expect(patchBody()).toEqual({ assignedToId: null });
+    expect(details.ticket.delegatedById).toBe("u1");
+
+    await openEdit();
+    await userEvent.click(screen.getByTestId("select-edit-work-type"));
+    await userEvent.click(screen.getByRole("option", { name: "Billable" }));
+    await userEvent.click(screen.getByTestId("button-save-edit"));
+    await waitFor(() => expect(screen.queryByTestId("input-edit-title")).toBeNull());
+    expect(patchBody()).toEqual({ workType: "extra_work" });
+    expect(calls.some(c => c.url.endsWith("/change-type"))).toBe(false);
+    await openEdit();
+    fireEvent.change(screen.getByTestId("input-edit-title"), { target: { value: "Only title" } });
+    await userEvent.click(screen.getByTestId("button-save-edit"));
+    await waitFor(() => expect(patchBody()).toEqual({ title: "Only title" }));
+  });
+
+  it("shows the server's lock reasons in Spanish and gives field users only read access", async () => {
+    await i18n.changeLanguage("es");
+    details.editAvailability = { customer: "TICKET_EDIT_ESTIMATE", type: "TICKET_EDIT_STARTED" };
+    mount();
+    await openEdit();
+    expect(screen.getByText("Este ticket tiene un estimado que no se ha anulado.")).toBeTruthy();
+    expect(screen.getByText("El tipo solo se puede cambiar mientras el ticket está en su estado inicial.")).toBeTruthy();
+    expect(screen.queryByTestId("select-edit-customer")).toBeNull();
+    expect(screen.queryByTestId("select-edit-type")).toBeNull();
+    cleanup();
+
+    await i18n.changeLanguage("en");
+    auth.role = "field";
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "View ticket fields" }));
+    expect(screen.getByRole("dialog").textContent).toContain("Only admins and office staff can change the customer or ticket type.");
+    expect(screen.getByRole("dialog").textContent).not.toContain("Old property");
+    expect(screen.queryByTestId("select-edit-assignee")).toBeNull();
+    expect(screen.queryByTestId("button-save-edit")).toBeNull();
+  });
+});
 
 describe("TicketDetail edit form with visits", () => {
   it("saves and clears text independently of any pin or scheduling change", async () => {

@@ -25,6 +25,8 @@ import { isSeededTicketType, isSeededStatus, findSeededStatus } from "../shared/
 import { maybeAutoCreateInvoiceOnRfb } from "../lib/rfbInvoiceAutoCreate";
 import { canSeeBilling, isBillingInvoiceAction } from "../lib/billing";
 import { assertNotParentCustomer } from "../utils/parentGuard";
+import { guardTicketCustomerChange } from "../lib/guardedTicketEdit";
+import { getBillingBehaviorForWorkType } from "../shared/workTypeCatalog";
 import { registerSchedulingQueue } from "../routes/schedulingQueue";
 
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
@@ -43,7 +45,8 @@ function mountTicketWrites(app: ReturnType<typeof express>) {
     applyTicketStatus, applySchedulingTransition, assertSchedulingGate, isSchedulingGateType, hasOpenTicketVisit,
     lockVisitCompany, lockVisitTickets, VisitError, inTransaction,
     applyVisitTicketEdit, maintainScheduleBy, pickProvided,
-    isSeededTicketType, isSeededStatus, findSeededStatus, maybeAutoCreateInvoiceOnRfb, canSeeBilling, isBillingInvoiceAction, assertNotParentCustomer,
+    isSeededTicketType, isSeededStatus, findSeededStatus, maybeAutoCreateInvoiceOnRfb, canSeeBilling, isBillingInvoiceAction,
+    assertNotParentCustomer, guardTicketCustomerChange, getBillingBehaviorForWorkType,
     ensureInvoiceTicketType: async () => { throw new Error("Approved status must not create invoice tickets"); } };
   const mount = new Function(...Object.keys(deps), "app", transformSync(
     `${approved}\n${source.slice(patchStart, patchEnd)}\n${source.slice(putStart, putEnd)}`, { loader: "ts", target: "es2022" }).code);

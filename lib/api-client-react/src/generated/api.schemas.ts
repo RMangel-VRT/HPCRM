@@ -1444,6 +1444,41 @@ export type VisitSummaryParams = {
   service?: string;
 };
 
+export type ChangeTicketTypeBodyWorkType =
+  (typeof ChangeTicketTypeBodyWorkType)[keyof typeof ChangeTicketTypeBodyWorkType];
+
+export const ChangeTicketTypeBodyWorkType = {
+  contract: "contract",
+  extra_work: "extra_work",
+  admin: "admin",
+  estimate_request: "estimate_request",
+  shop_todo: "shop_todo",
+  rfp_request: "rfp_request",
+  invoice: "invoice",
+} as const;
+
+export type ChangeTicketTypeBody = {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  ticketTypeId: string;
+  workType?: ChangeTicketTypeBodyWorkType;
+};
+
+export type ChangeTicketType200 = {
+  id: string;
+  ticketTypeId: string;
+  currentStatusId: string;
+  workType: string;
+  billingBehavior: string;
+};
+
+export type ChangeTicketType409 = {
+  error: string;
+  message: string;
+};
+
 export type MobileMeWeekParams = {
   /**
    * YYYY-MM-DD; defaults to today

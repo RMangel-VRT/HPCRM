@@ -373,6 +373,55 @@ paths:
         "403": { description: Role not allowed }
         "404": { description: Visit not found in active company }
         "409": { description: VISIT_CLOSED — only planned visits can be deleted }
+  /tickets/{id}/change-type:
+    post:
+      operationId: changeTicketType
+      tags: [tickets]
+      summary: Convert an unstarted ticket to another company ticket workflow
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: X-Company-Id, in: header, required: false, schema: { type: string } }
+        - { name: X-Ticket-Type-Id, in: header, required: false, schema: { type: string }, description: Expected current workflow }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ticketTypeId]
+              properties:
+                ticketTypeId: { type: string, minLength: 1, maxLength: 200 }
+                workType: { type: string, enum: [contract, extra_work, admin, estimate_request, shop_todo, rfp_request, invoice] }
+      responses:
+        "200":
+          description: The ticket's committed workflow and work classification
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, ticketTypeId, currentStatusId, workType, billingBehavior]
+                properties:
+                  id: { type: string }
+                  ticketTypeId: { type: string }
+                  currentStatusId: { type: string }
+                  workType: { type: string }
+                  billingBehavior: { type: string }
+        "400": { description: "Invalid body, type, or customer" }
+        "401": { description: Not authenticated }
+        "403": { description: Only admins and office staff may convert tickets }
+        "404": { description: Ticket not found in active company }
+        "409":
+          description: Conversion blocked by the workflow or a linked record
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, message]
+                properties:
+                  error: { type: string }
+                  message: { type: string }
+        "422": { description: Invalid task work type or first status would bypass scheduling }
   /tickets/{id}/visits:
     get:
       operationId: ticketVisits

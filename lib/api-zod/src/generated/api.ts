@@ -1238,6 +1238,46 @@ export const DeleteVisitResponse = zod.object({
 });
 
 /**
+ * @summary Convert an unstarted ticket to another company ticket workflow
+ */
+export const ChangeTicketTypeParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ChangeTicketTypeHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+  "X-Ticket-Type-Id": zod
+    .string()
+    .optional()
+    .describe("Expected current workflow"),
+});
+
+export const changeTicketTypeBodyTicketTypeIdMax = 200;
+
+export const ChangeTicketTypeBody = zod.object({
+  ticketTypeId: zod.string().min(1).max(changeTicketTypeBodyTicketTypeIdMax),
+  workType: zod
+    .enum([
+      "contract",
+      "extra_work",
+      "admin",
+      "estimate_request",
+      "shop_todo",
+      "rfp_request",
+      "invoice",
+    ])
+    .optional(),
+});
+
+export const ChangeTicketTypeResponse = zod.object({
+  id: zod.string(),
+  ticketTypeId: zod.string(),
+  currentStatusId: zod.string(),
+  workType: zod.string(),
+  billingBehavior: zod.string(),
+});
+
+/**
  * Admin, office and field_manager only. Does not change the board list range limit.
  * @summary Complete company-scoped ticket visit history, all dates and statuses
  */
