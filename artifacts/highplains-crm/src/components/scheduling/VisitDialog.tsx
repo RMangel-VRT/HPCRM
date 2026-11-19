@@ -27,12 +27,13 @@ interface Props {
   visit?: VisitDialogVisit | null;
   defaultCrewId?: string | null;
   defaultDate?: string | null;
+  ticketPage?: boolean;
 }
 
 const selectCls =
   "h-9 w-full rounded-md border border-input bg-background px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-export function VisitDialog({ mode, open, onOpenChange, ticket, visit, defaultCrewId, defaultDate }: Props) {
+export function VisitDialog({ mode, open, onOpenChange, ticket, visit, defaultCrewId, defaultDate, ticketPage }: Props) {
   const { t } = useTranslation();
   const { companyId, createVisit, patchVisit, pending } = useVisitActions();
   const { data: crews = [] } = useBoardCrews(companyId, open && mode !== "edit");
@@ -63,7 +64,7 @@ export function VisitDialog({ mode, open, onOpenChange, ticket, visit, defaultCr
     if (!canSubmit) return;
     const visitDate = date ? calendarDateString(date) : undefined;
     const crewName = crews.find(c => c.id === crewId)?.name;
-    const ctx = { companyId: openedCompany.current, ticketTitle: ticket?.title, ticketId: ticket?.id, crewName };
+    const ctx = { companyId: openedCompany.current, ticketTitle: ticket?.title, ticketId: ticket?.id, crewName, ticketPage };
     let result: unknown;
     if (mode === "schedule" && ticket && visitDate) {
       const body: Record<string, unknown> = { ticketId: ticket.id, crewId, visitDate };
@@ -79,7 +80,11 @@ export function VisitDialog({ mode, open, onOpenChange, ticket, visit, defaultCr
     if (result) onOpenChange(false);
   };
 
-  const title = mode === "schedule" ? t("scheduling.scheduleTitle", "Schedule") : mode === "move" ? t("scheduling.moveTitle", "Move visit") : t("scheduling.editTitle", "Edit visit");
+  const title = mode === "schedule"
+    ? (ticketPage ? t("scheduling.ticket.placeTitle", "Put on the schedule") : t("scheduling.scheduleTitle", "Schedule"))
+    : mode === "move"
+      ? (ticketPage ? t("scheduling.ticket.move", "Move stop") : t("scheduling.moveTitle", "Move visit"))
+      : t("scheduling.editTitle", "Edit visit");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

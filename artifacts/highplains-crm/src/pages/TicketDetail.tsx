@@ -92,9 +92,11 @@ import { typeHueVar, deriveStatusState, STATUS_STATE_VAR, STATUS_STATE_LABEL, is
 import { ticketHue, TaskBillingBadge } from "@/components/TicketIdentity";
 import { resolveDisplayTicketType } from "@shared/ticketVisuals";
 import { TicketVisitsCard } from "@/components/scheduling/TicketVisitsCard";
+import { TicketPlacementActions } from "@/components/scheduling/TicketPlacementActions";
+import { SkipSchedulingDialog } from "@/components/scheduling/SkipSchedulingDialog";
 import { useTicketOpenVisitGuard } from "@/hooks/use-scheduling";
 import { handleMultipleVisits } from "@/lib/multipleVisits";
-import { focusVisitsCard, fetchTicketVisits, isOpenVisit } from "@/lib/scheduling";
+import { focusVisitsCard, fetchTicketVisits, invalidateSchedulingEverywhere, isOpenVisit } from "@/lib/scheduling";
 import { TicketSchedulingPanel, ScheduleByFact } from "@/components/TicketSchedulingPanel";
 import { invalidateTicketScheduling } from "@/lib/schedulingStatus";
 
@@ -126,6 +128,7 @@ interface LinkedTicketInfo {
 // or intersect with one — `any & T` is `any`.
 interface TicketDetails {
   ticket: Ticket;
+  hasOpenScheduleStop?: boolean;
   ticketType: { id: string; name: string; color: string | null; typeKey?: string | null };
   statuses: {
     id: string;
@@ -199,6 +202,7 @@ export default function TicketDetail() {
   
   const [showStatusDialog, setShowStatusDialog] = useState(false);
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
+  const [skipScope, setSkipScope] = useState<string | null>(null);
   const [fieldInputs, setFieldInputs] = useState<Record<string, string>>({});
   const [statusNotes, setStatusNotes] = useState("");
   const [activeTab, setActiveTab] = useState<"overview" | "workflow" | "comments" | "history" | "emails">("overview");
@@ -311,10 +315,13 @@ export default function TicketDetail() {
   const rolesWithoutCustomerAccess = ["field", "irrigation_manager", "shop_manager", "landscape_supervisor", "crew_supervisor"];
   const canViewCustomer = !rolesWithoutCustomerAccess.includes(currentUser?.activeRole || "");
 
-  const { data: details, isLoading } = useQuery<TicketDetails>({
-    queryKey: ["/api/tickets", ticketId, "details"],
+  const { data: details, isLoading, isFetching: detailsFetching, isError: detailsError } = useQuery<TicketDetails>({
+    queryKey: ["/api/tickets", ticketId, "details", currentUser?.activeCompanyId, currentUser?.id],
     queryFn: async () => {
-      const res = await fetch(`/api/tickets/${ticketId}/details`, { credentials: "include" });
+      const companyId = currentUser?.activeCompanyId;
+      const res = await fetch(`/api/tickets/${ticketId}/details`, {
+        credentials: "include", headers: companyId ? { "X-Company-Id": companyId } : undefined,
+      });
       if (!res.ok) throw new Error("Failed to load ticket");
       return res.json();
     },
@@ -535,7 +542,7 @@ export default function TicketDetail() {
       
       const res = await fetch(`/api/tickets/${ticketId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(currentUser?.activeCompanyId ? { "X-Company-Id": currentUser.activeCompanyId } : {}) },
         body: JSON.stringify(body),
         credentials: "include",
       });
@@ -583,7 +590,8 @@ export default function TicketDetail() {
         });
         return;
       }
-      toast({ title: t('tickets.unexpectedError'), description: taskValidationMessage(error) ?? error.message, variant: "destructive" });
+      if (/^(409|422):/.test(error.message ?? "")) invalidateSchedulingEverywhere(queryClient, { ticketId });
+      toast({ title: t('tickets.unexpectedError'), description: taskValidationMessage(error) ?? extractApiErrorMessage(error) ?? error.message, variant: "destructive" });
     },
   });
 
@@ -834,6 +842,37 @@ export default function TicketDetail() {
   const isEstimateRequest = isSeededTicketType(ticketType, "estimate_request");
   const isAssignee = !!currentUser?.id && ticket.assignedToId === currentUser.id;
   const canRespondNew = isSeededStatus(currentStatus, "new") && isTaskOrProject && (isAssignee || isAdminOrOffice);
+  const scope = `${currentUser?.activeCompanyId}:${ticket.id}:${currentUser?.id}`;
+  const scheduled = statuses.find(status => status.statusKey === "scheduled");
+  const gated = !!scheduled && ["task", "project", "estimate_request"].some(key => key === ticketType?.typeKey);
+  const ladder = [...statuses].sort((a, b) => a.displayOrder - b.displayOrder || a.id.localeCompare(b.id));
+  const scheduledIndex = ladder.findIndex(s => s.id === scheduled?.id);
+  const skipDestination = scheduledIndex >= 0 ? ladder[scheduledIndex + 1] : undefined;
+  const atGate = currentStatus?.statusKey === "new" || currentStatus?.statusKey === "ready_to_schedule";
+  const hasOpenStop = canViewVisits
+    ? (visitGuard?.state === "ready" ? visitGuard.hasOpen : undefined)
+    : (!detailsFetching && !detailsError ? details.hasOpenScheduleStop : undefined);
+  const canSkipScheduling = gated && !isComplete && atGate && !!skipDestination && hasOpenStop === false && (
+    isAssignee || ["admin", "office", "field_manager"].includes(currentUser?.accessRole ?? "")
+  );
+  const schedulingFooter = gated && (currentStatus?.statusKey === "ready_to_schedule"
+    || (isTaskOrProject && currentStatus?.statusKey === "new"));
+  const gateFor = (target: typeof currentStatus) => {
+    if (!gated || !scheduled || !target || target.id === currentStatus?.id) return null;
+    if (target.id === scheduled.id && hasOpenStop !== true) return "place";
+    if (atGate && ladder.findIndex(s => s.id === target.id) > scheduledIndex) return "skip";
+    return null;
+  };
+  const nextGate = gateFor(nextStatus);
+  const property = customer?.name;
+  const skipButton = () => <Button size="sm" variant="outline" onClick={() => setSkipScope(scope)} data-testid="button-skip-scheduling">
+    {t("scheduling.ticket.skip", "Skip scheduling…")}
+  </Button>;
+  const gateHint = (kind: "place" | "skip") => <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+    {kind === "place" ? t("scheduling.ticket.placeHint", "Use Add to next stop or Pick a crew and day.")
+      : t("scheduling.ticket.skipHint", "Use Skip scheduling to move past Scheduled without a stop.")}
+    {kind === "skip" && canSkipScheduling && !schedulingFooter && skipButton()}
+  </div>;
   const canSetFollowUp = (isSeededStatus(currentStatus, "ready_to_schedule") || isSeededStatus(currentStatus, "scheduled"))
     && (isAssignee || isAdminOrOffice);
   const scheduleByEligible = isSeededStatus(currentStatus, "new") || isSeededStatus(currentStatus, "ready_to_schedule");
@@ -857,7 +896,7 @@ export default function TicketDetail() {
   })();
 
   const handleAdvanceStatus = (bypassProposalCheck = false) => {
-    if (!nextStatus) return;
+    if (!nextStatus || gateFor(nextStatus)) return;
 
     // Intercept: Estimate Request ticket advancing from Estimating → Create Proposal
     if (
@@ -902,12 +941,17 @@ export default function TicketDetail() {
 
   const handleStepBack = () => {
     if (!previousStatus) return;
+    if (gateFor(previousStatus)) {
+      toast({ title: t("scheduling.ticket.placeHint", "Use Add to next stop or Pick a crew and day.") });
+      focusVisitsCard();
+      return;
+    }
     setStepBackInvoiceWarning(null);
     setShowStepBackDialog(true);
   };
 
   const handleConfirmStepBack = (forceDeleteInvoice?: boolean) => {
-    if (!previousStatus) return;
+    if (!previousStatus || gateFor(previousStatus)) return;
     updateStatusMutation.mutate({
       statusId: previousStatus.id,
       notes: stepBackNotes || `Stepped back to ${previousStatus.name}`,
@@ -927,6 +971,7 @@ export default function TicketDetail() {
     // Intercept: if the pending target is "Create Proposal" on a Project ticket,
     // close the field dialog and show the proposal choice dialog instead.
     const pendingTargetStatus = statuses.find(s => s.id === pendingStatusId);
+    if (gateFor(pendingTargetStatus)) return;
     if (
       isSeededStatus(pendingTargetStatus, "proposal_draft") &&
       isSeededTicketType(ticketType, "estimate_request")
@@ -1080,7 +1125,7 @@ export default function TicketDetail() {
     let lockNow = false;
     if (scheduledCapable && ticketId) {
       if (!canViewVisits) lockNow = true;
-      else try { lockNow = (await fetchTicketVisits(ticketId)).some(isOpenVisit); } catch { lockNow = true; }
+      else try { lockNow = (await fetchTicketVisits(ticketId, currentUser?.activeCompanyId)).some(isOpenVisit); } catch { lockNow = true; }
     }
     if (!lockNow) {
       updates.routeOrder = editForm.routeOrder.trim() === "" ? null : Number.parseInt(editForm.routeOrder, 10);
@@ -1370,6 +1415,8 @@ export default function TicketDetail() {
       )}
 
       <TicketSchedulingPanel
+        key={scope}
+        companyId={currentUser?.activeCompanyId}
         ticketId={ticket.id}
         customerId={ticket.customerId}
         canRespond={!!canRespondNew}
@@ -2638,6 +2685,7 @@ export default function TicketDetail() {
                         {selectedStatus.description && (
                           <p className="mt-1 text-sm text-muted-foreground">{selectedStatus.description}</p>
                         )}
+                        {gateFor(selectedStatus) && gateHint(gateFor(selectedStatus)!)}
                       </div>
                       {selectedState?.isCurrent && (
                         <span
@@ -2933,7 +2981,26 @@ export default function TicketDetail() {
         </div>
       )}
 
-      {nextStatus && !isComplete && !isAwaitingInvoiceCompletion && (
+      {schedulingFooter && !isComplete && (canViewVisits || canSkipScheduling || (isAdminOrOffice && previousStatus)) && (
+        <div className="fixed bottom-0 left-0 right-0 z-10 border-t bg-background p-4 md:left-64" data-testid="ticket-scheduling-footer">
+          <div className="flex flex-wrap items-center gap-2">
+            {canViewVisits && <TicketPlacementActions key={scope} ticket={{ id: ticket.id, title: ticket.title }} property={property} />}
+            {canSkipScheduling && skipButton()}
+            {isAtReadyToSchedule && !isDelegated && canDelegate && <Button variant="outline" size="sm"
+              onClick={() => setShowDelegateDialog(true)} data-testid="button-delegate-ticket">
+              <UserRoundCheck className="mr-2 h-4 w-4" />{t('ticketDetail.delegateTicket')}
+            </Button>}
+            {isAdminOrOffice && previousStatus && <Button variant="outline" size="sm" onClick={handleStepBack}
+              disabled={updateStatusMutation.isPending} data-testid="button-step-back">
+              <Undo2 className="mr-2 h-4 w-4" />{t("scheduling.ticket.stepBack", "Step back")}
+            </Button>}
+          </div>
+        </div>
+      )}
+      {skipScope === scope && skipDestination && <SkipSchedulingDialog key={scope}
+        ticketId={ticket.id} destination={skipDestination.name} onClose={() => setSkipScope(null)} />}
+
+      {nextStatus && !schedulingFooter && !isComplete && !isAwaitingInvoiceCompletion && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t md:left-64">
           {isAtReadyToSchedule && !isDelegated && canDelegate ? (
             <div className="flex gap-2">
@@ -2957,7 +3024,7 @@ export default function TicketDetail() {
                 <UserRoundCheck className="w-5 h-5" />
                 {t('ticketDetail.delegateTicket')}
               </Button>
-              <Button 
+              {nextGate ? gateHint(nextGate) : <Button
                 className="flex-1 h-12 text-base gap-2" 
                 onClick={() => handleAdvanceStatus()}
                 disabled={updateStatusMutation.isPending}
@@ -2971,7 +3038,7 @@ export default function TicketDetail() {
                     <ChevronRight className="w-5 h-5" />
                   </>
                 )}
-              </Button>
+              </Button>}
             </div>
           ) : (
             <div className="flex gap-2">
@@ -2986,7 +3053,7 @@ export default function TicketDetail() {
                   <Undo2 className="w-5 h-5" />
                 </Button>
               )}
-              <Button 
+              {nextGate ? gateHint(nextGate) : <Button
                 className="flex-1 h-12 text-base gap-2" 
                 onClick={() => handleAdvanceStatus()}
                 disabled={updateStatusMutation.isPending}
@@ -3002,7 +3069,7 @@ export default function TicketDetail() {
                     <ChevronRight className="w-5 h-5" />
                   </>
                 )}
-              </Button>
+              </Button>}
             </div>
           )}
         </div>
@@ -3391,7 +3458,7 @@ export default function TicketDetail() {
       </AlertDialog>
 
       {/* Edit Ticket Dialog */}
-      {scheduledCapable && canViewVisits && <TicketVisitsCard ticketId={ticket.id} ticketTitle={ticket.title} />}
+      {scheduledCapable && canViewVisits && <TicketVisitsCard ticketId={ticket.id} ticketTitle={ticket.title} property={property} canPlace={!isComplete} />}
 
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="sm:max-w-lg">
@@ -3510,15 +3577,15 @@ export default function TicketDetail() {
                 data-testid="link-edit-visits-hint"
                 onClick={() => { setShowEditDialog(false); focusVisitsCard(150); }}
               >
-                Change in Visits below
+                {t("scheduling.ticket.editHint", "Change under On the schedule below")}
               </button>
             ) : lockSchedule && !canViewVisits ? (
-              <p className="text-xs text-muted-foreground" data-testid="text-edit-visits-managed">Scheduled by the office in Visits.</p>
+              <p className="text-xs text-muted-foreground" data-testid="text-edit-visits-managed">{t("scheduling.ticket.managed", "Stops are managed by the office.")}</p>
             ) : lockSchedule && visitGuard?.state === "unknown" ? (
               <p className="text-xs text-muted-foreground" data-testid="text-edit-visits-checking">
-                {visitGuard.reason === "error" ? "Couldn't check visits. " : "Checking visits… "}
+                {visitGuard.reason === "error" ? t("scheduling.ticket.checkError", "Couldn't check stops.") : t("scheduling.ticket.checking", "Checking stops…")}{" "}
                 {visitGuard.reason === "error" && (
-                  <button type="button" className="underline" onClick={visitGuard.retry} data-testid="button-edit-visits-retry">Retry</button>
+                  <button type="button" className="underline" onClick={visitGuard.retry} data-testid="button-edit-visits-retry">{t("scheduling.retry", "Retry")}</button>
                 )}
               </p>
             ) : (

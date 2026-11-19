@@ -80,6 +80,8 @@ export const schedulingKeys = {
     ["/api/visits/summary", companyId ?? "none", from, to, service || "all"] as const,
   ticketVisits: (companyId: string | null | undefined, ticketId: string | undefined) =>
     ["/api/tickets", ticketId ?? "none", "visits", companyId ?? "none"] as const,
+  nextStop: (companyId: string | null | undefined, ticketId: string | undefined) =>
+    ["/api/tickets", ticketId ?? "none", "next-stop", companyId ?? "none"] as const,
 };
 
 /* ---------- explicit fetchers (default query fn would join keys into the URL) ---------- */
@@ -98,7 +100,11 @@ export const fetchVisits = (from: string, to: string, service?: string, crewId?:
   getJson<EnrichedVisit[]>(`/api/visits?${qs({ from, to, service, crewId })}`);
 export const fetchVisitSummary = (from: string, to: string, service?: string) =>
   getJson<VisitDaySummary[]>(`/api/visits/summary?${qs({ from, to, service })}`);
-export const fetchTicketVisits = (ticketId: string) => getJson<EnrichedVisit[]>(`/api/tickets/${ticketId}/visits`);
+export const fetchTicketVisits = async (ticketId: string, companyId?: string | null) => {
+  const response = await apiRequest("GET", `/api/tickets/${ticketId}/visits`, undefined,
+    { headers: companyId ? { "X-Company-Id": companyId } : undefined });
+  return response.json() as Promise<EnrichedVisit[]>;
+};
 
 /* ---------- week / URL ---------- */
 export function mondayOf(ymd: string): string {
@@ -170,6 +176,9 @@ export function parseServerError(err: unknown): ParsedError {
 /* ---------- formatting ---------- */
 export function fmtDay(ymd: string): string {
   return parseCalendarDate(ymd).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+export function fmtStopDay(ymd: string, locale: string): string {
+  return parseCalendarDate(ymd).toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric" }).replace(",", "");
 }
 const STATUS_LABELS: Record<string, string> = { scheduled: "Scheduled", ready_to_schedule: "Needs scheduling", in_progress: "In progress", planned: "Planned", done: "Done", skipped: "Skipped", cancelled: "Cancelled" };
 export function statusLabel(key: string | null, tr?: Tr): string {

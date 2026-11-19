@@ -36,6 +36,7 @@ export function TicketAdvanceNotice({ estimate }: { estimate: EstimateState & { 
       const result = await advanceLinkedTicket(estimate, request);
       if (!mounted.current) return;
       if (result.moved && !result.reason) toast({ title: t("estimateTicket.moved", { number: result.ticketNumber, status: result.statusName }) });
+      else if (result.message) toast({ title: t("tickets.unexpectedError"), description: result.message, variant: "destructive" });
       await Promise.all([
         qc.invalidateQueries({ queryKey: [RECOVERY_KEY] }),
         qc.invalidateQueries({ queryKey: ["/api/estimates"] }),

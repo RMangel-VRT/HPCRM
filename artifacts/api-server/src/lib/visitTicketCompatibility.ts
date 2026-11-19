@@ -13,20 +13,32 @@ export async function applyVisitTicketEdit(
   tx: VisitTransaction, body: Record<string, unknown>, ticket: Ticket,
   statuses: TicketTypeStatus[], companyId: string, userId: string,
 ) {
-  if (!findSeededStatus(statuses, "scheduled")) return;
+  if (!findSeededStatus(statuses, "scheduled")) return false;
   const scheduling = Object.hasOwn(body, "crewId") || Object.hasOwn(body, "dueDate");
-  if (!scheduling && !Object.hasOwn(body, "routeOrder")) return;
+  if (!scheduling && !Object.hasOwn(body, "routeOrder")) return false;
+  const changesCrew = Object.hasOwn(body, "crewId") && body.crewId !== ticket.crewId;
+  const requestedDate = body.dueDate == null ? null : body.dueDate instanceof Date ? body.dueDate : new Date(body.dueDate as string);
+  const changesDate = Object.hasOwn(body, "dueDate") && (requestedDate && ticket.dueDate && Number.isFinite(requestedDate.getTime())
+    ? companyDateString(requestedDate) !== companyDateString(ticket.dueDate) : requestedDate !== ticket.dueDate);
   const allVisits = await tx.select().from(visits).where(and(eq(visits.companyId, companyId), eq(visits.ticketId, ticket.id)));
   const rows = allVisits.filter(visit => openVisitStatuses.includes(visit.status as "planned" | "in_progress"));
   if (!scheduling) {
     if (allVisits.length) throw new VisitError(409, "VISIT_ROUTE_ORDER", "Change route order on the schedule.");
-    return;
+    return false;
   }
-  if (rows.length > 1) throw new VisitError(409, "MULTIPLE_VISITS", "This job has several visits. Change them in Visits below.");
+  // A closed stop is history, not permission to schedule another trip.
+  // The edit form sends a day at browser-local noon, so compare Colorado days
+  // and keep the original instant when no placement was requested.
+  if (!rows.length && !changesCrew && !changesDate) {
+    delete body.crewId;
+    delete body.dueDate;
+    return false;
+  }
+  if (rows.length > 1) throw new VisitError(409, "MULTIPLE_VISITS", "This job is on the schedule more than once. Change it under On the schedule below.");
   const crewId = Object.hasOwn(body, "crewId") ? body.crewId : ticket.crewId;
   const dueDate = Object.hasOwn(body, "dueDate") ? body.dueDate : ticket.dueDate;
   if (!crewId || !dueDate) {
-    if (rows[0]?.status === "in_progress") throw new VisitError(409, "VISIT_IN_PROGRESS");
+    if (rows[0]?.status === "in_progress") throw new VisitError(409, "VISIT_IN_PROGRESS", "This stop is already in progress.");
     if (rows[0]) {
       await tx.delete(visits).where(and(eq(visits.id, rows[0].id), eq(visits.companyId, companyId)));
     }
@@ -34,7 +46,7 @@ export async function applyVisitTicketEdit(
       Object.assign(body, await visitMirrorUpdates(tx, ticket, companyId));
       // No winner never writes dueDate: an explicit null survives.
     }
-    return;
+    return true;
   }
   const dateInstant = dueDate instanceof Date ? dueDate : new Date(dueDate as string);
   if (!Number.isFinite(dateInstant.getTime())) throw new VisitError(400, "INVALID_DATE");
@@ -56,4 +68,5 @@ export async function applyVisitTicketEdit(
     });
   }
   Object.assign(body, await visitMirrorUpdates(tx, ticket, companyId));
+  return true;
 }

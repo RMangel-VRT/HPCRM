@@ -57,6 +57,8 @@ export async function runEstimateLifecycle(o: Options): Promise<EstimateLifecycl
       void qc.invalidateQueries({ queryKey: ["/api/tickets"] });
       if (o.isActive() && result.moved && !result.reason)
         o.toast({ title: t("estimateTicket.moved", { number: result.ticketNumber, status: result.statusName }) });
+      else if (o.isActive() && result.message)
+        o.toast({ title: t("tickets.unexpectedError"), description: result.message, variant: "destructive" });
     }
     void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "by-ticket"] });
     // Advancement changes board placement/follow-up, so refresh again after it.

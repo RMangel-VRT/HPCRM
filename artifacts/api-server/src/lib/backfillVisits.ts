@@ -30,6 +30,10 @@ export async function backfillVisitsFromTickets(companyId?: string) {
         .leftJoin(customers, and(eq(customers.id, tickets.customerId), eq(customers.companyId, company.id)))
         .where(and(eq(tickets.companyId, company.id), inArray(tickets.id, candidates.map(c => c.id)),
           isNotNull(tickets.crewId), isNotNull(tickets.dueDate), eq(ticketTypeStatuses.isFinal, "false"),
+          // S1 repairs these rows before synthesis. Missing audit prerequisites
+          // must not turn an unbacked Scheduled ticket into a fabricated stop.
+          sql`(${ticketTypeStatuses.statusKey} IS DISTINCT FROM 'scheduled' OR ${ticketTypes.typeKey} IS NULL
+            OR ${ticketTypes.typeKey} NOT IN ('task', 'project', 'estimate_request'))`,
           sql`NOT EXISTS (SELECT 1 FROM visits v WHERE v.company_id = ${company.id} AND v.ticket_id = ${tickets.id})`));
       if (!current.length) return 0;
       const inserted = await tx.insert(visits).values(current.map(({ ticket, customerId }) => ({

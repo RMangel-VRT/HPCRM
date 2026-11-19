@@ -102,7 +102,9 @@ import { registerVisitRoutes } from "./visits";
 import { registerRouteStopRoutes } from "./routeStops";
 import { backfillVisitsFromTickets } from "../lib/backfillVisits";
 import { backfillVisitServices } from "../lib/backfillVisitServices";
-import { applySchedulingTransition } from "../lib/schedulingTransition";
+import { applySchedulingTransition, assertSchedulingGate, assertSchedulingInitialStatus, isSchedulingGateType } from "../lib/schedulingTransition";
+import { hasOpenTicketVisit, lockVisitCompany, lockVisitTickets, VisitError } from "../lib/visitLocks";
+import { repairUnplacedScheduledTickets } from "../lib/repairUnplacedScheduledTickets";
 import { applyVisitTicketEdit } from "../lib/visitTicketCompatibility";
 import { transactionalTicketPatch } from "../lib/ticketPatchTransaction";
 import { signTicketPhotoUpload, ticketPhotoAdditions } from "../lib/ticketPhotoUploads";
@@ -871,33 +873,24 @@ async function migrateApprovedEstimateRequestTickets(companyId: string, triggeri
          !t.completedAt
   );
   
-  for (const ticket of candidateTickets) {
-    // Get field values for this ticket to check decision_outcome
-    const fieldValues = await storage.getTicketFieldValues(ticket.id);
-    const decisionValue = fieldValues.find(fv => fv.fieldId === decisionField.id);
-    
-    if (decisionValue && decisionValue.value === "Approved") {
-      // Transition to Ready to Schedule
-      await storage.updateTicket(ticket.id, companyId, {
-        currentStatusId: readyToScheduleStatus.id,
-        ...(ticket.scheduleBy == null ? { scheduleBy: computeScheduleBy(ticket.priority, new Date()) } : {}),
-      });
-      
-      // Create history entry if we have a triggering user
-      if (triggeringUserId) {
-        await storage.createTicketStatusHistory({
-          ticketId: ticket.id,
-          fromStatusId: decisionReceivedStatus.id,
-          toStatusId: readyToScheduleStatus.id,
-          changedById: triggeringUserId,
-          notes: "System migration: Approved ticket moved to Ready to Schedule",
-        });
+  if (!triggeringUserId || !candidateTickets.length) return 0;
+  migratedCount = await db.transaction(async tx => {
+    await lockVisitCompany(tx, companyId);
+    const current = await lockVisitTickets(tx, companyId, candidateTickets.map(t => t.id));
+    return inTransaction(tx, async () => {
+      let changed = 0;
+      for (const ticket of current) {
+        if (ticket.ticketTypeId !== projectType.id || ticket.currentStatusId !== decisionReceivedStatus.id || ticket.completedAt) continue;
+        const fieldValues = await storage.getTicketFieldValues(ticket.id);
+        if (fieldValues.find(fv => fv.fieldId === decisionField.id)?.value !== "Approved") continue;
+        await applyTicketStatus(db as unknown as VisitTransaction, { ticket, userId: triggeringUserId,
+          updates: { currentStatusId: readyToScheduleStatus.id },
+          note: "System migration: Approved ticket moved to Ready to Schedule" });
+        changed++;
       }
-      
-      migratedCount++;
-      console.log(`Migrated ticket "${ticket.title}" (${ticket.id}) to Ready to Schedule`);
-    }
-  }
+      return changed;
+    });
+  });
   
   if (migratedCount > 0) {
     console.log(`Migration complete for company ${companyId}: ${migratedCount} tickets moved to Ready to Schedule`);
@@ -1494,10 +1487,17 @@ export async function migrateEstimateSentToProposalWorkflow(): Promise<void> {
         const estimateSentTickets = allTickets.filter(
           t => t.ticketTypeId === projectType.id && t.currentStatusId === estimateSentStatus.id
         );
-        for (const ticket of estimateSentTickets) {
-          await storage.updateTicket(ticket.id, company.id, { currentStatusId: proposalSentStatus.id });
-          console.log(`Migrated ticket "${ticket.title}" from Estimate Sent → Proposal Sent`);
-        }
+        await db.transaction(async tx => {
+          await lockVisitCompany(tx, company.id);
+          const current = await lockVisitTickets(tx, company.id, estimateSentTickets.map(t => t.id));
+          const ladder = await tx.select().from(ticketTypeStatuses).where(eq(ticketTypeStatuses.ticketTypeId, projectType.id));
+          for (const ticket of current) {
+            if (ticket.ticketTypeId !== projectType.id || ticket.currentStatusId !== estimateSentStatus.id) continue;
+            await assertSchedulingGate(tx, ticket, projectType, ladder, proposalSentStatus.id);
+            await tx.update(tickets).set({ currentStatusId: proposalSentStatus.id, updatedAt: new Date() })
+              .where(and(eq(tickets.id, ticket.id), eq(tickets.companyId, company.id)));
+          }
+        });
 
         // 5. Delete Estimate Sent fields then the status itself
         const estimateSentFields = existingFields.filter(f => f.statusId === estimateSentStatus.id);
@@ -2730,6 +2730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   await migrateSchedulingStatuses();
   await backfillScheduleBy();
+  await repairUnplacedScheduledTickets();
   await initializeEmptyServiceCategories();
   await carryProposalScope();
   await normalizeStoredEstimateUnits();
@@ -6593,6 +6594,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ? statuses.find(s => s.id === taskInfo.statuses.get("new"))
       : statuses.sort((a, b) => a.displayOrder - b.displayOrder)[0];
     if (!initialStatus) return res.status(500).send("Task New status not configured");
+    try { assertSchedulingInitialStatus(ticketType, statuses, initialStatus); }
+    catch (error) {
+      if (error instanceof VisitError) return res.status(error.status).json({ error: error.code, message: error.message });
+      throw error;
+    }
 
     const result = insertTicketSchema.safeParse({
       ...req.body,
@@ -6814,6 +6820,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ? statuses.find(s => s.id === taskInfo.statuses.get("new"))
       : statuses.sort((a, b) => a.displayOrder - b.displayOrder)[0];
     if (!initialStatus) return res.status(500).send("Task New status not configured");
+    try { assertSchedulingInitialStatus(ticketType, statuses, initialStatus); }
+    catch (error) {
+      if (error instanceof VisitError) return res.status(error.status).json({ error: error.code, message: error.message });
+      throw error;
+    }
 
     // Get all customers and validate they belong to this company
     const allCustomers = await storage.getCustomers(user.activeCompanyId);
@@ -7065,8 +7076,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const schedulingParsed = insertTicketSchema.partial().safeParse(req.body);
     if (!schedulingParsed.success) return res.status(400).json({ message: "Invalid ticket update" });
     Object.assign(req.body, pickProvided(schedulingParsed.data, req.body));
-    await applyVisitTicketEdit(db as unknown as VisitTransaction, req.body, existingTicket, schedulingStatuses, user.activeCompanyId, user.id);
-    applySchedulingTransition(req.body, existingTicket, schedulingStatuses);
+    const schedulingTx = db as unknown as VisitTransaction;
+    if (req.body.ticketTypeId && req.body.ticketTypeId !== existingTicket.ticketTypeId
+      && (isSchedulingGateType(ptType) || isSchedulingGateType(await storage.getTicketTypeById(req.body.ticketTypeId, user.activeCompanyId)))) {
+      return res.status(422).json({ error: "INVALID_STATUS", message: "This ticket’s scheduling workflow cannot be changed." });
+    }
+    if (await applyVisitTicketEdit(schedulingTx, req.body, existingTicket, schedulingStatuses, user.activeCompanyId, user.id)) {
+      applySchedulingTransition(req.body, existingTicket, schedulingStatuses,
+        await hasOpenTicketVisit(schedulingTx, user.activeCompanyId, existingTicket.id),
+        isSeededTicketType(ptType, "task") || isSeededTicketType(ptType, "project"));
+    }
+    if (typeof req.body.currentStatusId === "string") {
+      await assertSchedulingGate(schedulingTx, existingTicket, ptType, schedulingStatuses, req.body.currentStatusId);
+    }
 
     maintainScheduleBy(req.body, existingTicket, await storage.getTicketTypeStatuses(existingTicket.ticketTypeId));
 
@@ -7240,11 +7262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const isInvoiceTicket = isSeededTicketType(currentTicketType, "invoice");
           
           if (isInvoiceTicket) {
-            try {
-              invoiceCompletion = await propagateInvoiceCompletion(existingTicket, user.activeCompanyId, user.id, storage);
-            } catch (err) {
-              console.error("Failed to propagate Invoice completion to parent ticket:", err);
-            }
+            invoiceCompletion = await propagateInvoiceCompletion(existingTicket, user.activeCompanyId, user.id, storage, schedulingTx);
           }
         }
         
@@ -7771,64 +7789,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw error;
       }
     }
-    const fieldValue = await storage.upsertTicketFieldValue(result.data);
-    
-    // Auto-transition Project tickets to "Ready to Schedule" when decision is Approved
-    try {
-      // Get the field to check if it's decision_outcome
-      const field = await storage.getTicketTypeFieldById(req.params.fieldId);
-      if (field && field.fieldKey === "decision_outcome") {
-        // Check if this is a Project ticket
-        const ticketType = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
-        const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
-        const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
-
-        if (isSeededTicketType(ticketType, "estimate_request") && isSeededStatus(currentStatus, "decision_received")) {
-          if (req.body.value === "Approved") {
-            const readyToScheduleStatus = findSeededStatus(statuses, "ready_to_schedule");
-            if (readyToScheduleStatus) {
-              await storage.createTicketStatusHistory({
-                ticketId: ticket.id,
-                fromStatusId: ticket.currentStatusId,
-                toStatusId: readyToScheduleStatus.id,
-                changedById: user.id,
-                notes: "Auto-transitioned: Estimate approved, ready to schedule with crew",
-              });
-              await storage.updateTicket(ticket.id, user.activeCompanyId, {
-                currentStatusId: readyToScheduleStatus.id,
-                ...(ticket.scheduleBy == null ? { scheduleBy: computeScheduleBy(ticket.priority, new Date()) } : {}),
-              });
-              console.log(`Auto-transitioned Estimate Request ${ticket.id} to "Ready to Schedule" after approval`);
+    if (decisionField?.ticketTypeId === ticket.ticketTypeId && isSeededTicketType(decisionType, "estimate_request")) {
+      try {
+        const value = await db.transaction(async tx => {
+          await lockVisitCompany(tx, user.activeCompanyId);
+          const [current] = await lockVisitTickets(tx, user.activeCompanyId, [ticket.id]);
+          if (!current || current.ticketTypeId !== ticket.ticketTypeId) throw new VisitError(409, "WORKFLOW_CHANGED", "Ticket workflow changed. Reload and try again.");
+          if (["field_manager", "chemical_manager", "irrigation_manager"].includes(user.activeRole) && current.assignedToId !== user.id)
+            throw new VisitError(403, "ACCESS_DENIED", "Access denied");
+          return inTransaction(tx, async () => {
+            const statuses = await storage.getTicketTypeStatuses(current.ticketTypeId);
+            const approved = req.body.value === "Approved";
+            const target = approved ? findSeededStatus(statuses, "ready_to_schedule")
+              : req.body.value === "Denied" ? findSeededStatus(statuses, "closed_lost") : undefined;
+            if (target && isSeededStatus(statuses.find(s => s.id === current.currentStatusId), "decision_received")) {
+              await assertSchedulingGate(tx, current, decisionType, statuses, target.id);
+              const updates: Record<string, unknown> = { currentStatusId: target.id, ...(approved ? {} : { completedAt: new Date() }) };
+              maintainScheduleBy(updates, current, statuses);
+              await storage.createTicketStatusHistory({ ticketId: current.id, fromStatusId: current.currentStatusId,
+                toStatusId: target.id, changedById: user.id, notes: approved
+                  ? "Auto-transitioned: Estimate approved, ready to schedule with crew"
+                  : "Auto-transitioned: Estimate denied, ticket closed as lost" });
+              await storage.updateTicket(current.id, user.activeCompanyId, updates);
+              if (!approved) await storage.dismissDueDateNotificationsForTicket(current.id);
             }
-          } else if (req.body.value === "Denied") {
-            const closedLostStatus = findSeededStatus(statuses, "closed_lost");
-            if (closedLostStatus) {
-              await storage.createTicketStatusHistory({
-                ticketId: ticket.id,
-                fromStatusId: ticket.currentStatusId,
-                toStatusId: closedLostStatus.id,
-                changedById: user.id,
-                notes: "Auto-transitioned: Estimate denied, ticket closed as lost",
-              });
-              await storage.updateTicket(ticket.id, user.activeCompanyId, {
-                currentStatusId: closedLostStatus.id,
-                completedAt: new Date(),
-              });
-              await storage.dismissDueDateNotificationsForTicket(ticket.id).catch(err => {
-                console.error("Failed to dismiss due-date notifications on Project denial:", err);
-              });
-              console.log(`Auto-transitioned Project ${ticket.id} to "Closed - Lost" after denial`);
-            }
-          }
-        }
-
+            return storage.upsertTicketFieldValue(result.data);
+          });
+        });
+        return res.json(value);
+      } catch (error) {
+        if (error instanceof VisitError) return res.status(error.status).json({ error: error.code, message: error.message });
+        throw error;
       }
-    } catch (err) {
-      console.error("Failed to auto-transition on decision:", err);
-      // Don't fail the field value update - auto-transition is secondary
     }
-    
-    res.json(fieldValue);
+    res.json(await storage.upsertTicketFieldValue(result.data));
   });
 
   // Ticket Status History routes
@@ -8523,6 +8517,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ticket,
       ticketType,
       statuses: statusesWithFields,
+      // Workflow permission hint only; it does not expose raw stop details.
+      hasOpenScheduleStop: isSchedulingGateType(ticketType) && findSeededStatus(statuses, "scheduled")
+        ? await hasOpenTicketVisit(db, user.activeCompanyId, ticket.id) : undefined,
       fieldValues,
       statusHistory,
       comments,

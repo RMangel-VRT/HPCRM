@@ -1303,6 +1303,61 @@ export const TicketVisitsResponseItem = zod
 export const TicketVisitsResponse = zod.array(TicketVisitsResponseItem);
 
 /**
+ * Uses Colorado today; admin, office and field_manager only.
+ * @summary Find the next open stop at the ticket's exact property
+ */
+export const TicketNextStopParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const TicketNextStopResponse = zod.union([
+  zod.object({
+    date: zod.string().describe("Colorado calendar date"),
+    crew: zod.object({
+      id: zod.string(),
+      name: zod.string(),
+    }),
+    routeOrder: zod.number().nullable(),
+    label: zod.string(),
+  }),
+  zod.null(),
+]);
+
+/**
+ * @summary Place a ticket immediately after the offered stop
+ */
+export const PlaceTicketAfterNextStopParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const PlaceTicketAfterNextStopHeader = zod.object({
+  "If-Match": zod.string().describe("Snapshot from the next-stop response"),
+});
+
+/**
+ * The assignee, admin, office or field manager can skip from New or Needs scheduling only when no open stop exists.
+ * @summary Advance past scheduling with a recorded reason
+ */
+export const SkipTicketSchedulingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const skipTicketSchedulingBodyReasonMin = 3;
+export const skipTicketSchedulingBodyReasonMax = 500;
+
+export const SkipTicketSchedulingBody = zod.object({
+  reason: zod
+    .string()
+    .min(skipTicketSchedulingBodyReasonMin)
+    .max(skipTicketSchedulingBodyReasonMax)
+    .describe("Trimmed reason; Other alone is not a reason"),
+});
+
+export const SkipTicketSchedulingResponse = zod.object({
+  currentStatusId: zod.string(),
+});
+
+/**
  * Admin, office and field_manager only. Stable workflow identities and Colorado calendar days.
  * @summary Uncapped Needs scheduling and Slipped queues for the active company
  */

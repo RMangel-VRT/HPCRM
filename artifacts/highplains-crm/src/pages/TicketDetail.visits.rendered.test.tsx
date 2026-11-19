@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
@@ -14,6 +14,7 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { id: "u1", activeCompanyId: "c1", activeRole: auth.role, accessRole: auth.role, isSuperAdminBool: false, activeTags: [] } }),
 }));
 import TicketDetail from "./TicketDetail";
+import i18n from "@/i18n";
 
 const status = (id: string, key: string | null, name: string, order: number) => ({
   id, name, statusKey: key, displayOrder: order, description: null, color: null, isFinal: "false", actionType: "needs_action", waitingCategory: null, fields: [],
@@ -35,30 +36,52 @@ let qcRef: QueryClient;
 let gate: Promise<void> | null = null;
 const holdHistory = async () => { if (gate) await gate; };
 let history: () => { status?: number; json: unknown };
-const calls: { method: string; url: string; body?: any }[] = [];
+const calls: { method: string; url: string; body?: any; headers: Headers }[] = [];
+let nextStop: { date: string; crew: { id: string; name: string }; routeOrder: number; label: string } | null;
+let nextConflict: boolean;
 
 beforeEach(() => {
   calls.length = 0;
   auth.role = "admin";
   patchResult = null;
+  nextStop = null;
+  nextConflict = false;
   toast.mockClear();
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
-    calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined, headers: new Headers(init?.headers) });
     let r: { status?: number; json: unknown } = { json: [] };
     if (url === "/api/tickets/t1/details") r = { json: details };
     else if (url === "/api/tickets/t1/visits") r = history();
+    else if (url === "/api/tickets/t1/next-stop") r = { json: nextStop };
+    else if (method === "POST" && url === "/api/tickets/t1/schedule-next-stop") {
+      if (nextConflict) {
+        nextStop = null;
+        r = { status: 409, json: { error: "STALE_NEXT_STOP", message: "That stop is no longer on the schedule" } };
+      } else {
+        details.ticket.currentStatusId = "s1";
+        history = () => ({ json: [visit("inserted", "planned")] });
+        r = { json: { ...visit("inserted", "planned"), ticketSync: { statusChanged: true, newStatusKey: "scheduled" } } };
+      }
+    }
+    else if (method === "POST" && url === "/api/tickets/t1/skip-scheduling") {
+      details.ticket.currentStatusId = "s2";
+      r = { json: { currentStatusId: "s2" } };
+    }
     else if (url === "/api/crews") r = { json: [{ id: "k1", name: "Crew 1", isActive: true }, { id: "k2", name: "Crew 2", isActive: true }] };
     else if (url === "/api/crews/board") r = { json: [{ id: "k1", name: "Crew 1", color: "#15803d", defaultHoursPerDay: 8 }, { id: "k2", name: "Crew 2", color: "#0369a1", defaultHoursPerDay: 8 }] };
     else if (method === "PATCH") r = patchResult ?? { json: { id: "t1" } };
     if (url === "/api/tickets/t1/visits") await holdHistory();
-    return new Response(JSON.stringify(r.json), { status: r.status ?? 200, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(r.json), { status: r.status ?? 200, headers: {
+      "Content-Type": "application/json",
+      ...(url.endsWith("/next-stop") && nextStop ? { "X-Next-Stop-Snapshot": '"offered"' } : {}),
+    } });
   }));
   Element.prototype.scrollIntoView = vi.fn();
   gate = null;
   (globalThis as any).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
 });
-afterEach(() => { cleanup(); document.documentElement.className = ""; });
+afterEach(async () => { cleanup(); document.documentElement.className = ""; await i18n.changeLanguage("en"); });
 
 function mount() {
   const { hook } = memoryLocation({ path: "/dashboard/tickets/t1" });
@@ -202,7 +225,7 @@ describe("TicketDetail edit form with visits", () => {
     await screen.findByTestId("card-ticket-visits");
     await openEdit();
     const hint = await screen.findByTestId("link-edit-visits-hint");
-    expect(hint.textContent).toBe("Change in Visits below");
+    expect(hint.textContent).toBe("Change under On the schedule below");
     expect(screen.getByTestId("text-edit-dueDate-readonly").textContent).toContain("Oct 24, 2025");
     expect(await screen.findByTestId("text-edit-crew-readonly")).toBeTruthy();
     expect(screen.queryByTestId("input-edit-dueDate")).toBeNull();
@@ -356,7 +379,7 @@ describe("TicketDetail edit form with visits", () => {
     void qcRef.invalidateQueries({ queryKey: ["/api/tickets", "t1", "visits"] });
     await waitFor(() => expect(screen.getByTestId("text-edit-dueDate-readonly")).toBeTruthy());
     gate = null; release2();
-    expect((await screen.findByTestId("link-edit-visits-hint")).textContent).toBe("Change in Visits below");
+    expect((await screen.findByTestId("link-edit-visits-hint")).textContent).toBe("Change under On the schedule below");
   });
 
   it("forbidden roles never query visits or see the Visits card, and schedule fields are locked", async () => {
@@ -373,7 +396,7 @@ describe("TicketDetail edit form with visits", () => {
   it("MULTIPLE_VISITS on save closes the dialog, scrolls to Visits and shows a linked toast", async () => {
     details = detailsFor(true);
     history = () => ({ json: [] });
-    patchResult = { status: 409, json: { error: "MULTIPLE_VISITS", message: "This job has several visits. Change them in Visits below." } };
+    patchResult = { status: 409, json: { error: "MULTIPLE_VISITS", message: "This job is on the schedule more than once. Change it under On the schedule below." } };
     mount();
     await screen.findByTestId("card-ticket-visits");
     await openEdit();
@@ -381,8 +404,106 @@ describe("TicketDetail edit form with visits", () => {
     fireEvent.click(screen.getByTestId("button-save-edit"));
     await waitFor(() => expect(screen.queryByTestId("input-edit-title")).toBeNull());
     await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
-    const call = toast.mock.calls.map(([a]) => a).find(a => a.title === "This job has several visits");
+    const call = toast.mock.calls.map(([a]) => a).find(a => a.description?.includes("on the schedule more than once"));
     expect(call?.action).toBeTruthy();
-    expect(call.description).toContain("Visits below");
+    expect(call.description).toBe("This job is on the schedule more than once. Change it under On the schedule below.");
+  });
+});
+
+describe("S1 ticket scheduling controls", () => {
+  function atGate() {
+    details = detailsFor(true);
+    details.ticket.currentStatusId = "s0";
+    details.statuses.push(status("s2", "in_progress", "In Progress", 2));
+    details.customer = { id: "prop", name: "Hyland Village" };
+    history = () => ({ json: [] });
+  }
+
+  it.each([false, true])("shows the offered stop, places without a status PATCH, or refreshes a stale offer (%s)", async stale => {
+    atGate();
+    nextStop = { date: "2025-10-21", crew: { id: "k1", name: "Crew 1" }, routeOrder: 3, label: "Tue Oct 21 · Crew 1" };
+    nextConflict = stale;
+    mount();
+    const footer = within(await screen.findByTestId("ticket-scheduling-footer"));
+    const place = await footer.findByRole("button", { name: "Add to next stop here (Tue Oct 21 · Crew 1)" });
+    expect(footer.getByRole("button", { name: "Pick a crew and day" })).toBeTruthy();
+    expect(await footer.findByRole("button", { name: "Skip scheduling…" })).toBeTruthy();
+    expect(screen.queryByTestId("button-advance-status")).toBeNull();
+    fireEvent.click(place);
+    await waitFor(() => {
+      const sent = calls.find(c => c.method === "POST" && c.url.endsWith("/schedule-next-stop"));
+      expect(sent?.headers.get("if-match")).toBe('"offered"');
+      expect(sent?.headers.get("x-company-id")).toBe("c1");
+    });
+    if (stale) {
+      expect(await footer.findByText("No upcoming stop at Hyland Village")).toBeTruthy();
+      expect(toast.mock.calls.some(([a]) => a.description === "That stop is no longer on the schedule")).toBe(true);
+      expect(screen.queryByTestId("row-ticket-visit-inserted")).toBeNull();
+    } else {
+      expect((await screen.findByTestId("row-ticket-visit-inserted")).textContent).toContain("Tue Oct 21 · Crew 1 · stop 1");
+      expect(toast.mock.calls.some(([a]) => a.title === "Added to Crew 1’s stop at Hyland Village, Tue Oct 21.")).toBe(true);
+    }
+    expect(patchBody()).toBeUndefined();
+  });
+
+  it("requires a meaningful reason and shows the actual destination", async () => {
+    atGate();
+    mount();
+    fireEvent.click(await screen.findByTestId("button-skip-scheduling"));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText("This moves the job to In Progress.")).toBeTruthy();
+    const submit = dialog.getByRole("button", { name: "Skip scheduling" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(dialog.getByLabelText("Reason (required)"), { target: { value: "other" } });
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(dialog.getByLabelText("Reason (required)"), { target: { value: "regular" } });
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+    await waitFor(() => expect(calls.find(c => c.method === "POST" && c.url.endsWith("/skip-scheduling"))?.body).toEqual({
+      reason: "Done during a regular stop",
+    }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(patchBody()).toBeUndefined();
+  });
+
+  it("keeps workflow steps browsable, with a scheduling hint instead of a status write", async () => {
+    atGate();
+    mount();
+    fireEvent.click(await screen.findByTestId("tab-workflow"));
+    fireEvent.click(screen.getByRole("button", { name: /Renamed Display/ }));
+    expect(screen.getByText("Use Add to next stop or Pick a crew and day.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /In Progress/ }));
+    expect(screen.getByText("Use Skip scheduling to move past Scheduled without a stop.")).toBeTruthy();
+    expect(patchBody()).toBeUndefined();
+  });
+
+  it("shows the exact server rejection for a stale workflow move", async () => {
+    atGate();
+    details.ticket.currentStatusId = "s2";
+    details.statuses.push(status("s3", "work_completed", "Work Completed", 3));
+    history = () => ({ json: [visit("v1", "planned")] });
+    patchResult = { status: 422, json: { error: "SCHEDULE_REQUIRED", message: "Put this job on the schedule first, or skip scheduling with a reason." } };
+    mount();
+    await screen.findByTestId("row-ticket-visit-v1");
+    fireEvent.click(screen.getByTestId("button-step-back"));
+    fireEvent.click(await screen.findByTestId("button-confirm-step-back"));
+    await waitFor(() => expect(toast.mock.calls.some(([a]) => a.description === "Put this job on the schedule first, or skip scheduling with a reason.")).toBe(true));
+    expect(screen.getByTestId("button-confirm-step-back")).toBeTruthy();
+  });
+
+  it("localizes the card, stop rows, and both scheduling dialogs in Spanish", async () => {
+    await i18n.changeLanguage("es");
+    atGate();
+    history = () => ({ json: [visit("v1", "done")] });
+    mount();
+    const card = within(await screen.findByTestId("card-ticket-visits"));
+    expect(card.getByText("En el calendario")).toBeTruthy();
+    expect((await card.findByTestId("row-ticket-visit-v1")).textContent).toContain("Crew 1 · parada 1");
+    fireEvent.click(card.getByRole("button", { name: "Elegir cuadrilla y día" }));
+    expect(await screen.findByRole("heading", { name: "Poner en el calendario" })).toBeTruthy();
+    fireEvent.click(screen.getByTestId("button-visit-cancel"));
+    fireEvent.click(await screen.findByRole("button", { name: "Omitir programación…" }));
+    expect(await screen.findByRole("heading", { name: "Omitir programación" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Realizado durante una parada habitual" })).toBeTruthy();
   });
 });

@@ -34,6 +34,18 @@ function transport(e: EstimateDetailDto, s: LinkedTicketState, failPut = false) 
   });
 }
 describe("estimate ticket orchestration", () => {
+  it("reports a rejected New to Closed Lost recovery without writing decision fields", async () => {
+    const e = estimate("decline"), s = state("new");
+    const base = transport(e, s);
+    const message = "Put this job on the schedule first, or skip scheduling with a reason.";
+    const request = vi.fn(async (method: string, url: string, body?: unknown) => {
+      if (method === "PATCH") throw new Error(`422: ${JSON.stringify({ error: "SCHEDULE_REQUIRED", message })}`);
+      return base(method, url, body);
+    });
+    expect(await advanceLinkedTicket(e, request)).toEqual({ moved: false, reason: "loadFailed", message });
+    expect(s.ticket.currentStatusId).toBe("new");
+    expect(request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+  });
   it.each([null, "2026-11-11", "2026-11-12", "2026-11-20"])("send combines status and follow-up, preserving today/future %s", async followUpDate => {
     const e = estimate("send"), s = state("new");
     s.ticket.followUpDate = followUpDate; s.ticket.followUpNote = "Keep note";

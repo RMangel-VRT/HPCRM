@@ -7,6 +7,8 @@ import { db } from "../db";
 import { computeScheduleBy } from "../lib/scheduleBy";
 import { notifyTicketAssignment, pushReturnedTicket } from "../lib/ticketAssignmentNotification";
 import { findSeededStatus, isSeededStatus, isSeededTicketType } from "../shared/ticketCapabilities";
+import { hasOpenTicketVisit, lockVisitCompany, lockVisitTickets, VisitError } from "../lib/visitLocks";
+import { assertSchedulingGate } from "../lib/schedulingTransition";
 
 const noteSchema = z.object({ note: z.string().trim().min(1).max(1000) });
 class ResponseError extends Error {
@@ -27,9 +29,8 @@ export function registerTicketOwnerResponseRoutes(app: Express): void {
         const result = await db.transaction(async tx => {
           // Lock and recheck eligibility/assignment inside the write transaction:
           // concurrent Accept requests cannot both write audit/history.
-          const [ticket] = await tx.select().from(tickets)
-            .where(and(eq(tickets.id, req.params.id as string), eq(tickets.companyId, user.activeCompanyId)))
-            .for("update");
+          await lockVisitCompany(tx, user.activeCompanyId);
+          const [ticket] = await lockVisitTickets(tx, user.activeCompanyId, [String(req.params.id)]);
           if (!ticket) throw new ResponseError(404, "Ticket not found");
           if (ticket.assignedToId !== user.id && user.accessRole !== "admin" && user.accessRole !== "office") {
             throw new ResponseError(403, "Access denied - not assigned to this ticket");
@@ -40,7 +41,9 @@ export function registerTicketOwnerResponseRoutes(app: Express): void {
             .where(eq(ticketTypeStatuses.ticketTypeId, ticket.ticketTypeId));
           const current = statuses.find(s => s.id === ticket.currentStatusId);
           if (action === "accept") {
-            const target = findSeededStatus(statuses, ticket.crewId && ticket.dueDate ? "scheduled" : "ready_to_schedule");
+            const eligible = (isSeededTicketType(type, "task") || isSeededTicketType(type, "project")) && isSeededStatus(current, "new");
+            const target = eligible && findSeededStatus(statuses,
+              findSeededStatus(statuses, "scheduled") && await hasOpenTicketVisit(tx, user.activeCompanyId, ticket.id) ? "scheduled" : "ready_to_schedule");
             if ((!isSeededTicketType(type, "task") && !isSeededTicketType(type, "project"))
               || !isSeededStatus(current, "new") || !target
               || target.displayOrder <= current!.displayOrder) {
@@ -48,6 +51,7 @@ export function registerTicketOwnerResponseRoutes(app: Express): void {
                 error: "NOT_ACCEPTABLE", message: "Only new Tasks and Projects can be accepted.",
               });
             }
+            await assertSchedulingGate(tx, ticket, type, statuses, target.id);
             const [updated] = await tx.update(tickets).set({
               currentStatusId: target.id, acceptedAt: new Date(), acceptedById: user.id,
               scheduleBy: ticket.scheduleBy ?? computeScheduleBy(ticket.priority, ticket.createdAt),
@@ -86,6 +90,8 @@ export function registerTicketOwnerResponseRoutes(app: Express): void {
         if (err instanceof ResponseError) {
           if (typeof err.body === "string") res.status(err.status).send(err.body);
           else res.status(err.status).json(err.body);
+        } else if (err instanceof VisitError) {
+          res.status(err.status).json({ error: err.code, message: err.message });
         } else {
           console.error(`Ticket ${action} failed:`, err);
           res.status(500).json({ error: "OWNER_RESPONSE_FAILED" });

@@ -8,13 +8,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import {
   companies, users, companyUsers, crews, customers, ticketTypes, ticketTypeStatuses,
   tickets, visits, ticketStatusHistory, ticketComments, ticketNotifications, insertTicketSchema,
-  ticketTypeFields, ticketFieldValues,
+  ticketTypeFields, ticketFieldValues, ticketLinks, routeStops, insertTicketFieldValueSchema,
 } from "@workspace/db";
-import { db, pool } from "../db";
+import { db, pool, inTransaction } from "../db";
 import { storage } from "../storage";
 import { registerVisitRoutes } from "./visits";
 import { applyVisitTicketEdit } from "../lib/visitTicketCompatibility";
-import { applySchedulingTransition } from "../lib/schedulingTransition";
+import { applySchedulingTransition, assertSchedulingGate, isSchedulingGateType, scheduleRequiredMessage } from "../lib/schedulingTransition";
+import { hasOpenTicketVisit, lockVisitTickets, VisitError } from "../lib/visitLocks";
+import { repairUnplacedScheduledTickets, schedulingRepairNote } from "../lib/repairUnplacedScheduledTickets";
 import { transactionalTicketPatch } from "../lib/ticketPatchTransaction";
 import { pickProvided } from "../lib/patchBody";
 import { maintainScheduleBy } from "../lib/scheduleByMaintenance";
@@ -44,17 +46,20 @@ const source = readFileSync(new URL("./routes.ts", import.meta.url), "utf8");
 const start = source.indexOf('  app.patch("/api/tickets/:id",');
 const end = source.indexOf("  // Manual invoice ticket creation", start);
 const patchCode = transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code;
-function app(role = "admin", authenticated = true, activeCompanyId = companyId) {
+const decisionStart = source.indexOf('  app.put("/api/tickets/:ticketId/field-values/:fieldId",');
+const decisionCode = transformSync(source.slice(decisionStart, source.indexOf("  // Ticket Status History routes", decisionStart)), { loader: "ts", target: "es2022" }).code;
+function app(role = "admin", authenticated = true, activeCompanyId = companyId, actor = userId) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => authenticated) as typeof req.isAuthenticated;
-    req.user = { id: userId, activeCompanyId, activeRole: role, accessRole: role } as Express.User;
+    req.user = { id: actor, activeCompanyId, activeRole: role, accessRole: role } as Express.User;
     next();
   });
   registerVisitRoutes(app);
   const deps = {
     app, db, storage, transactionalTicketPatch, applyVisitTicketEdit, applySchedulingTransition,
+    assertSchedulingGate, isSchedulingGateType, hasOpenTicketVisit, lockVisitCompany, lockVisitTickets, VisitError, inTransaction, insertTicketFieldValueSchema,
     insertTicketSchema, pickProvided, maintainScheduleBy, wasDueDateExtendedToFuture,
     findSeededStatus, isSeededStatus, isSeededTicketType, assertNotParentCustomer,
     canSeeBilling, isBillingInvoiceAction, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
@@ -64,7 +69,7 @@ function app(role = "admin", authenticated = true, activeCompanyId = companyId) 
     ensureInvoiceTicketType: async () => { throw new Error("Unexpected invoice bootstrap in visits test"); },
     sendPushToUser: async () => {},
   };
-  new Function("deps", `const { ${Object.keys(deps).join(",")} } = deps; ${patchCode}`)(deps);
+  new Function("deps", `const { ${Object.keys(deps).join(",")} } = deps; ${patchCode}\n${decisionCode}`)(deps);
   return app;
 }
 async function newTicket(overrides: Partial<typeof tickets.$inferInsert> = {}) {
@@ -417,7 +422,7 @@ describe("real PostgreSQL visits API and ticket workflow", () => {
     const before = await snapshot();
     const conflict = await request(app()).patch(`/api/tickets/${ticketId}`).send({ dueDate: null, title: "No side effects" });
     expect(conflict.status).toBe(409);
-    expect(conflict.body).toEqual({ error: "MULTIPLE_VISITS", message: "This job has several visits. Change them in Visits below." });
+    expect(conflict.body).toEqual({ error: "MULTIPLE_VISITS", message: "This job is on the schedule more than once. Change it under On the schedule below." });
     expect(await snapshot()).toEqual(before);
   });
   it.each([{ crewId: null }, { dueDate: null }, { crewId: null, dueDate: null }])("planned visit is removed for incomplete pair %j", async body => {
@@ -583,4 +588,244 @@ describe("real PostgreSQL visits API and ticket workflow", () => {
     expect(await backfillVisitsFromTickets(companyId)).toBe(0);
     expect((await visitRows()).length).toBe(count);
   });
+});
+
+describe("S1 scheduling gate", () => {
+  async function workflow(type: "task" | "project" | "estimate_request" | "todo" | "invoice" | "rfp_request") {
+    const [row] = await db.insert(ticketTypes).values({ companyId, name: `S1 ${type} ${randomUUID()}`, typeKey: type }).returning();
+    const stages = ["new", "decision_received", "ready_to_schedule", "scheduled", type === "task" ? "in_progress" : "work_completed", "closed_lost"];
+    const ladder = await db.insert(ticketTypeStatuses).values(stages.map((statusKey, displayOrder) => ({
+      ticketTypeId: row.id, name: `Renamed ${statusKey}`, statusKey, displayOrder, isFinal: statusKey === "closed_lost" ? "true" as const : "false" as const,
+    }))).returning();
+    return { typeId: row.id, ladder, id: (key: string) => ladder.find(s => s.statusKey === key)!.id, after: ladder[4].id };
+  }
+
+  it.each([false, true])("does not place a stop from an unchanged legacy mirror (closed history: %s)", async closedOnly => {
+    const w = await workflow("task");
+    const day = "2036-10-08";
+    const job = await newTicket({ ticketTypeId: w.typeId, currentStatusId: w.id("ready_to_schedule"),
+      crewId, dueDate: companyNoon(day), routeOrder: 3, scheduleBy: day });
+    if (closedOnly) {
+      await db.insert(visits).values((["done", "skipped", "cancelled"] as const).map((status, i) => (
+        { companyId, crewId, ticketId: job.id, visitDate: day, routeOrder: i + 1, status }
+      )));
+    }
+    const before = await snapshot(job.id);
+    const originalStops = await visitRows(job.id);
+    const a = request(app());
+    const path = `/api/tickets/${job.id}`;
+    // Simulate a browser in UTC round-tripping the same Colorado day as a
+    // different instant, along with the unchanged legacy crew and order.
+    const edited = await a.patch(path).send({ title: "Only the title changed", crewId, dueDate: `${day}T12:00:00Z`, routeOrder: 3 });
+    expect(edited.status).toBe(200);
+    expect(await ticketRow(job.id)).toMatchObject({
+      title: "Only the title changed", currentStatusId: w.id("ready_to_schedule"),
+      crewId, dueDate: companyNoon(day), routeOrder: 3, scheduleBy: day,
+    });
+    expect(await visitRows(job.id)).toEqual(originalStops);
+    expect((await snapshot(job.id)).history).toEqual(before.history);
+    const placed = await a.patch(path).send({ crewId, dueDate: "2036-10-09T12:00:00Z" });
+    expect(placed.status).toBe(200);
+    expect((await ticketRow(job.id)).currentStatusId).toBe(w.id("scheduled"));
+    expect(await visitRows(job.id)).toEqual(expect.arrayContaining([
+      ...originalStops, expect.objectContaining({ crewId, visitDate: "2036-10-09", status: "planned" }),
+    ]));
+    expect(await visitRows(job.id)).toHaveLength(originalStops.length + 1);
+  });
+
+  it.each(["task", "project", "estimate_request"] as const)("checks the entire %s gate, history and skip target", async type => {
+    const w = await workflow(type);
+    const job = await newTicket({ ticketTypeId: w.typeId, currentStatusId: w.id("ready_to_schedule"), scheduleBy: companyToday() });
+    const a = request(app());
+    const path = `/api/tickets/${job.id}`;
+    const baseline = await snapshot(job.id);
+    for (const target of [w.id("scheduled"), w.after, w.id("closed_lost")]) {
+      const reject = await a.patch(path).send({ currentStatusId: target, title: "Uncommitted", statusChangeNotes: "Scheduling skipped: user text" });
+      expect(reject.status).toBe(422);
+      expect(reject.body).toEqual({ error: "SCHEDULE_REQUIRED", message: scheduleRequiredMessage });
+    }
+    expect(await snapshot(job.id)).toEqual(baseline);
+    await expect(db.transaction(tx => applyTicketStatus(tx, {
+      ticket: { ...job, currentStatusId: w.id("scheduled") }, userId, updates: { currentStatusId: w.after },
+    }))).rejects.toMatchObject({ code: "SCHEDULE_REQUIRED" });
+    const [closed] = await db.insert(visits).values({ companyId, crewId, ticketId: job.id, visitDate: companyToday(), status: "done" }).returning();
+    expect((await a.patch(path).send({ currentStatusId: w.id("scheduled") })).status).toBe(422);
+    for (const reason of [" ", "ab", "Other", "a".repeat(501)]) {
+      expect((await a.post(`${path}/skip-scheduling`).send({ reason })).status).toBe(400);
+    }
+    const [open] = await db.insert(visits).values({ companyId, crewId, ticketId: job.id, visitDate: companyToday(), status: "in_progress" }).returning();
+    expect((await a.patch(path).send({ currentStatusId: w.after })).status).toBe(422);
+    expect((await a.post(`${path}/skip-scheduling`).send({ reason: "No crew trip needed" })).body).toEqual({
+      error: "ALREADY_SCHEDULED", message: "It’s already on the schedule; remove that stop first.",
+    });
+    expect((await a.patch(path).send({ currentStatusId: w.id("scheduled") })).status).toBe(200);
+    expect((await a.patch(path).send({ currentStatusId: w.after })).status).toBe(200);
+    expect((await a.patch(path).send({ currentStatusId: w.id("ready_to_schedule") })).status).toBe(200);
+    await db.delete(visits).where(eq(visits.id, open.id));
+    const skipped = await a.post(`${path}/skip-scheduling`).send({ reason: "  Done during a regular stop   " });
+    expect(skipped.body).toEqual({ currentStatusId: w.after });
+    expect(await ticketRow(job.id)).toMatchObject({ currentStatusId: w.after, scheduleBy: null });
+    expect((await snapshot(job.id)).history.filter(row => row.notes === "Scheduling skipped: Done during a regular stop")).toHaveLength(1);
+    expect((await visitRows(job.id)).map(row => row.id)).toEqual([closed.id]);
+    expect((await a.post(`${path}/skip-scheduling`).send({ reason: "Again" })).status).toBe(409);
+    expect((await a.get("/api/scheduling/queue")).body.needsScheduling.some((q: { id: string }) => q.id === job.id)).toBe(false);
+  }, 25_000);
+
+  it.each(["task", "project", "estimate_request"] as const)("manual placement at New only schedules eligible %s", async type => {
+    const w = await workflow(type);
+    const job = await newTicket({ ticketTypeId: w.typeId, currentStatusId: w.id("new") });
+    expect((await request(app()).patch(`/api/tickets/${job.id}`).send({ currentStatusId: w.after })).status).toBe(422);
+    const result = await post({}, job.id);
+    expect(result.status).toBe(201);
+    expect(result.body.ticketSync.newStatusKey).toBe(type === "estimate_request" ? "new" : "scheduled");
+    expect((await ticketRow(job.id)).acceptedAt).toBeNull();
+  });
+
+  it.each(["todo", "invoice", "rfp_request"] as const)("leaves %s without a scheduling gate", async type => {
+    const w = await workflow(type);
+    // Use the shared persistence path for unaffected workflows, independent of
+    // the RFP-specific and Invoice-specific guards in generic PATCH.
+    const job = await newTicket({ ticketTypeId: w.typeId, currentStatusId: w.id("new") });
+    const updated = await db.transaction(tx => applyTicketStatus(tx, { ticket: job, userId, updates: { currentStatusId: w.after } }));
+    expect(updated.currentStatusId).toBe(w.after);
+  });
+
+  it("allows the same-company assignee to skip without exposing visits; rejects unrelated and stale company actions", async () => {
+    const path = `/api/tickets/${ticketId}`;
+    const reason = { reason: "Handled by a vendor or sub" };
+    expect((await request(app("field")).post(`${path}/skip-scheduling`).send(reason)).status).toBe(403);
+    expect((await request(app("office", true, foreignCompanyId)).post(`${path}/skip-scheduling`).send(reason)).status).toBe(404);
+    expect((await request(app("admin")).post(`${path}/skip-scheduling`).set("X-Company-Id", foreignCompanyId).send(reason)).status).toBe(409);
+    await db.update(tickets).set({ assignedToId: userId }).where(eq(tickets.id, ticketId));
+    expect((await request(app("field")).get(`${path}/visits`)).status).toBe(403);
+    expect((await request(app("field")).post(`${path}/skip-scheduling`).send(reason)).status).toBe(200);
+  });
+
+  it("preserves Estimate send, approval and denial while rejecting a linked recovery jump from New", async () => {
+    const w = await workflow("estimate_request");
+    const [field] = await db.insert(ticketTypeFields).values({ ticketTypeId: w.typeId, statusId: w.id("decision_received"),
+      fieldKey: "decision_outcome", fieldLabel: "Decision", fieldType: "select", displayOrder: 0 }).returning();
+    for (const decision of ["Approved", "Denied"]) {
+      const job = await newTicket({ ticketTypeId: w.typeId, currentStatusId: w.id("new"), workType: "estimate_request" });
+      const path = `/api/tickets/${job.id}`;
+      const a = request(app());
+      expect((await a.patch(path).send({ currentStatusId: w.id("closed_lost"), followUpDate: null })).body.error).toBe("SCHEDULE_REQUIRED");
+      expect((await a.patch(path).send({ currentStatusId: w.id("decision_received") })).status).toBe(200);
+      expect((await a.put(`${path}/field-values/${field.id}`).send({ value: decision })).status).toBe(200);
+      expect((await ticketRow(job.id)).currentStatusId).toBe(w.id(decision === "Approved" ? "ready_to_schedule" : "closed_lost"));
+    }
+  });
+
+  it("rolls back Invoice completion for a blocked parent, then preserves later-stage billing", async () => {
+    const [invoiced] = await db.insert(ticketTypeStatuses).values({
+      ticketTypeId: invoiceTypeId, name: "Invoiced", statusKey: "invoiced", displayOrder: 1, isFinal: "true",
+    }).returning();
+    const parent = await newTicket({ billingBehavior: "invoice_required", workType: "extra_work" });
+    const invoice = await newTicket({ ticketTypeId: invoiceTypeId, currentStatusId: invoiceStatusId, workType: "admin" });
+    const link = await storage.createTicketLink({ sourceTicketId: parent.id, targetTicketId: invoice.id, linkType: "invoice_for" });
+    const [field] = await db.insert(ticketTypeFields).values({ ticketTypeId: invoiceTypeId, statusId: invoiceStatusId,
+      fieldKey: "invoice_number", fieldLabel: "Invoice Number", fieldType: "text", displayOrder: 0 }).returning();
+    await storage.upsertTicketFieldValue({ ticketId: invoice.id, fieldId: field.id, value: "S1 test", capturedById: userId });
+    const before = [await snapshot(invoice.id), await snapshot(parent.id)];
+    const result = await request(app()).patch(`/api/tickets/${invoice.id}`).send({ currentStatusId: invoiced.id, invoiceNumber: "Not saved" });
+    expect(result.status).toBe(422);
+    expect(result.body.error).toBe("SCHEDULE_REQUIRED");
+    expect([await snapshot(invoice.id), await snapshot(parent.id)]).toEqual(before);
+    expect(await db.select().from(ticketLinks).where(eq(ticketLinks.id, link.id))).toHaveLength(1);
+    await db.update(tickets).set({ currentStatusId: progressId }).where(eq(tickets.id, parent.id));
+    const success = await request(app()).patch(`/api/tickets/${invoice.id}`).send({ currentStatusId: invoiced.id });
+    expect(success.status).toBe(200);
+    expect(success.body.invoiceCompletion.parentAdvanced).toBe(true);
+    expect((await ticketRow(parent.id)).currentStatusId).toBe(finalId);
+  });
+
+  it("selects a Colorado-evening branch stop across sources and preserves closed history and other mirrors", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Separate crew-day from P3 tests that also place stops on October 13.
+    vi.setSystemTime(new Date("2037-10-14T02:00:00Z"));
+    try {
+      const [branch] = await db.insert(customers).values({ companyId, name: "Exact S1 branch", parentCustomerId: customerId, street: "", city: "", state: "CO", zip: "" }).returning();
+      const job = await newTicket({ customerId: branch.id });
+      const other = await newTicket({ customerId: branch.id, currentStatusId: scheduledId });
+      const today = "2037-10-13";
+      const [route] = await db.insert(routeStops).values({ companyId, customerId: branch.id, crewId, serviceKey: "mowing", anchorDate: today, weekday: 2, minutes: 20 }).returning();
+      await db.insert(visits).values([
+        { companyId, customerId, crewId, visitDate: today, routeOrder: 0, sourceType: "internal", title: "Parent ignored" },
+        { companyId, customerId: branch.id, crewId, visitDate: "2037-10-12", routeOrder: 0, sourceType: "internal", title: "Yesterday ignored" },
+        { companyId, customerId: branch.id, crewId, visitDate: "2037-10-14", routeOrder: 0, sourceType: "internal", title: "Tomorrow" },
+        { companyId, customerId: branch.id, crewId, visitDate: today, routeOrder: 0, ticketId: job.id },
+        { companyId, customerId: branch.id, crewId: inactiveCrewId, visitDate: today, routeOrder: 0, sourceType: "internal", title: "Inactive ignored" },
+        { companyId, customerId: branch.id, crewId: secondCrewId, visitDate: today, routeOrder: 2, sourceType: "internal", title: "Second crew" },
+        { companyId: foreignCompanyId, customerId: foreignCustomerId, crewId: foreignCrewId, visitDate: today, routeOrder: 0, sourceType: "internal", title: "Foreign ignored" },
+      ]);
+      const [anchor, later, closed] = await db.insert(visits).values([
+        { companyId, customerId: branch.id, crewId, visitDate: today, routeOrder: 2, sourceType: "route", routeStopId: route.id, routeOccurrenceDate: today },
+        { companyId, customerId: branch.id, crewId, visitDate: today, routeOrder: 3, ticketId: other.id },
+        { companyId, customerId: branch.id, crewId, visitDate: today, routeOrder: 9, sourceType: "internal", title: "Closed", status: "done" },
+      ]).returning();
+      const a = request(app());
+      const base = `/api/tickets/${job.id}`;
+      const offered = await a.get(`${base}/next-stop`);
+      expect(offered.body).toEqual({ date: today, crew: { id: crewId, name: "First" }, routeOrder: 2, label: "Tue Oct 13 · First" });
+      const placed = await a.post(`${base}/schedule-next-stop`).set("If-Match", offered.headers["x-next-stop-snapshot"]);
+      expect(placed.status).toBe(201);
+      expect(placed.body).toMatchObject({ routeOrder: 4, ticketSync: { statusChanged: true, newStatusKey: "scheduled" } });
+      expect((await ticketRow(other.id)).routeOrder).toBe(5);
+      const day = await db.select().from(visits).where(and(eq(visits.companyId, companyId), eq(visits.crewId, crewId), eq(visits.visitDate, today)));
+      expect(day.find(v => v.id === anchor.id)?.routeOrder).toBe(3);
+      expect(day.find(v => v.id === later.id)?.routeOrder).toBe(5);
+      expect(day.find(v => v.id === closed.id)).toEqual(closed);
+      expect((await db.select().from(routeStops).where(eq(routeStops.id, route.id)))[0]).toEqual(route);
+    } finally { vi.useRealTimers(); }
+  }, 20_000);
+
+  it.each(["move", "delete", "reorder"] as const)("refuses a stale suggestion after a %s", async change => {
+    const [property] = await db.insert(customers).values({ companyId, name: `S1 stale ${change}`, street: "", city: "", state: "CO", zip: "" }).returning();
+    const job = await newTicket({ customerId: property.id });
+    const day = "2032-08-01";
+    const [anchor, alternative] = await db.insert(visits).values([1, 2].map(routeOrder => ({
+      companyId, customerId: property.id, crewId, visitDate: day, routeOrder, sourceType: "internal" as const, title: "Stop",
+    }))).returning();
+    const a = request(app());
+    const base = `/api/tickets/${job.id}`;
+    const offered = await a.get(`${base}/next-stop`);
+    expect(offered.status).toBe(200);
+    if (change === "move") expect((await a.patch(`/api/visits/${anchor.id}`).send({ visitDate: "2032-08-02" })).status).toBe(200);
+    if (change === "delete") expect((await a.delete(`/api/visits/${anchor.id}`)).status).toBe(200);
+    if (change === "reorder") {
+      const full = (await db.select().from(visits).where(and(eq(visits.companyId, companyId), eq(visits.crewId, crewId), eq(visits.visitDate, day))));
+      const ids = [alternative.id, anchor.id, ...full.filter(v => v.id !== alternative.id && v.id !== anchor.id).map(v => v.id)];
+      expect((await a.post("/api/visits/reorder").send({ crewId, visitDate: day, visitIds: ids })).status).toBe(200);
+    }
+    const stale = await a.post(`${base}/schedule-next-stop`).set("If-Match", offered.headers["x-next-stop-snapshot"]);
+    expect(stale.status).toBe(409);
+    expect(stale.body.message).toBe("That stop is no longer on the schedule");
+    expect(await visitRows(job.id)).toHaveLength(0);
+    expect((await a.get(`${base}/next-stop`)).headers["x-next-stop-snapshot"]).not.toBe(offered.headers["x-next-stop-snapshot"]);
+  });
+
+  it("repairs only unplaced Scheduled jobs and doesn't fabricate stops on a second startup sequence", async () => {
+    const due = companyNoon("2027-06-20");
+    const invalid = await newTicket({ currentStatusId: scheduledId, crewId, routeOrder: 8, dueDate: due, scheduleBy: null });
+    await db.insert(visits).values({ companyId, crewId, visitDate: "2027-06-20", ticketId: invalid.id, status: "done" });
+    const none = await newTicket({ currentStatusId: scheduledId, crewId, routeOrder: 8, dueDate: due });
+    const valid = await newTicket({ currentStatusId: scheduledId });
+    await post({}, valid.id);
+    const validBefore = await snapshot(valid.id);
+    const unrelated = await newTicket({ currentStatusId: progressId });
+    const unrelatedBefore = await snapshot(unrelated.id);
+    expect(await repairUnplacedScheduledTickets(companyId)).toBeGreaterThanOrEqual(2);
+    await backfillVisitsFromTickets(companyId);
+    await backfillVisitServices(companyId);
+    expect((await ticketRow(invalid.id))).toMatchObject({ currentStatusId: readyId, crewId: null, routeOrder: null, dueDate: due });
+    expect((await ticketRow(invalid.id)).scheduleBy).not.toBeNull();
+    expect((await snapshot(invalid.id)).history).toMatchObject([{ toStatusId: readyId, fromStatusId: scheduledId, changedById: userId, notes: schedulingRepairNote }]);
+    expect(await visitRows(none.id)).toHaveLength(0);
+    expect(await snapshot(valid.id)).toEqual(validBefore);
+    expect(await snapshot(unrelated.id)).toEqual(unrelatedBefore);
+    expect(await repairUnplacedScheduledTickets(companyId)).toBe(0);
+    await backfillVisitsFromTickets(companyId);
+    expect(await visitRows(none.id)).toHaveLength(0);
+    expect((await snapshot(invalid.id)).history).toHaveLength(1);
+  }, 25_000);
 });

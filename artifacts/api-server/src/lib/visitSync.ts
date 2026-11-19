@@ -2,41 +2,29 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { tickets, visits, crews, ticketTypes, ticketTypeStatuses, ticketStatusHistory, type Visit, type Ticket } from "@workspace/db";
 import { db } from "../db";
 import { companyNoon, companyToday } from "./companyDay";
-import { applySchedulingTransition } from "./schedulingTransition";
+import { applySchedulingTransition, assertSchedulingGate } from "./schedulingTransition";
 import { maintainScheduleBy } from "./scheduleByMaintenance";
 import { findSeededStatus } from "../shared/ticketCapabilities";
+import { VisitError, lockVisitTickets, openTicketVisitPredicate } from "./visitLocks";
+export { VisitError, lockVisitCompany, lockVisitTickets, openVisitStatuses, hasOpenTicketVisit } from "./visitLocks";
 
 export type VisitTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export class VisitError extends Error {
-  constructor(public status: number, public code: string, message = code) { super(message); }
-}
-export const openVisitStatuses = ["planned", "in_progress"] as const;
-
-/** Company gate precedes ticket/day locks everywhere (including compatibility/backfill).
- * This intentionally serializes company scheduling writes, avoiding reorder/append phantoms
- * and lock-order inversions when a drag moves between two crew-days. */
-export async function lockVisitCompany(tx: VisitTransaction, companyId: string) {
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('visits'), hashtext(${companyId}))`);
-}
-export async function lockVisitTickets(tx: VisitTransaction, companyId: string, ids: string[]) {
-  const uniqueIds = [...new Set(ids)].sort();
-  if (!uniqueIds.length) return [];
-  return tx.select().from(tickets).where(and(eq(tickets.companyId, companyId), inArray(tickets.id, uniqueIds)))
-    .orderBy(asc(tickets.id)).for("update");
-}
 export async function validateVisitCrew(tx: VisitTransaction, companyId: string, crewId: string) {
   const [crew] = await tx.select().from(crews).where(and(eq(crews.id, crewId), eq(crews.companyId, companyId), eq(crews.isActive, true)));
   if (!crew) throw new VisitError(400, "INVALID_CREW", "Crew must be active and belong to this company");
   return crew;
 }
-export async function schedulableTicket(tx: VisitTransaction, companyId: string, ticketId: string) {
-  const [ticket] = await lockVisitTickets(tx, companyId, [ticketId]);
-  if (!ticket) throw new VisitError(422, "NOT_SCHEDULABLE");
+export async function validateVisitTicket(tx: Pick<VisitTransaction, "select">, companyId: string, ticket: Ticket | undefined) {
+  if (!ticket || ticket.companyId !== companyId) throw new VisitError(422, "NOT_SCHEDULABLE", "This job cannot be put on the schedule.");
   const [type] = await tx.select().from(ticketTypes).where(and(eq(ticketTypes.id, ticket.ticketTypeId), eq(ticketTypes.companyId, companyId)));
   const statuses = type ? await tx.select().from(ticketTypeStatuses).where(eq(ticketTypeStatuses.ticketTypeId, type.id)) : [];
   const current = statuses.find(s => s.id === ticket.currentStatusId);
-  if (!current || current.isFinal === "true" || !findSeededStatus(statuses, "scheduled")) throw new VisitError(422, "NOT_SCHEDULABLE");
+  if (!current || current.isFinal === "true" || !findSeededStatus(statuses, "scheduled")) throw new VisitError(422, "NOT_SCHEDULABLE", "This job cannot be put on the schedule.");
   return ticket;
+}
+export async function schedulableTicket(tx: VisitTransaction, companyId: string, ticketId: string) {
+  const [ticket] = await lockVisitTickets(tx, companyId, [ticketId]);
+  return validateVisitTicket(tx, companyId, ticket);
 }
 export async function appendVisitOrder(tx: VisitTransaction, companyId: string, crewId: string, date: string): Promise<number> {
   const [row] = await tx.select({ n: sql<number>`coalesce(max(${visits.routeOrder}), 0)::int` }).from(visits)
@@ -59,25 +47,31 @@ export function winningVisit(rows: Visit[], today = companyToday()): Visit | und
 
 /** Also used before PATCH's existing workflow, so history is written exactly once there. */
 export async function visitMirrorUpdates(tx: VisitTransaction, ticket: Ticket, companyId: string) {
-  const rows = await tx.select().from(visits).where(and(eq(visits.companyId, companyId), eq(visits.ticketId, ticket.id), inArray(visits.status, [...openVisitStatuses])));
+  return (await visitMirror(tx, ticket, companyId)).updates;
+}
+
+async function visitMirror(tx: VisitTransaction, ticket: Ticket, companyId: string) {
+  const rows = await tx.select().from(visits).where(openTicketVisitPredicate(companyId, ticket.id));
   const winner = winningVisit(rows);
   let crewId = winner?.crewId ?? null;
   if (crewId) {
     const [crew] = await tx.select({ id: crews.id }).from(crews).where(and(eq(crews.id, crewId), eq(crews.companyId, companyId)));
     if (!crew) crewId = null;
   }
-  return winner ? { crewId, dueDate: companyNoon(winner.visitDate), routeOrder: winner.routeOrder }
-    : { crewId: null, routeOrder: null };
+  return { hasOpen: !!winner, updates: winner ? { crewId, dueDate: companyNoon(winner.visitDate), routeOrder: winner.routeOrder }
+    : { crewId: null, routeOrder: null } };
 }
 
-export async function syncTicketFromVisits(ticketId: string, companyId: string, actingUserId: string, tx: VisitTransaction) {
+export async function syncTicketFromVisits(ticketId: string, companyId: string, actingUserId: string, tx: VisitTransaction, placed = false) {
   const [existing] = await lockVisitTickets(tx, companyId, [ticketId]);
   if (!existing) return { statusChanged: false, newStatusKey: null };
   const [type] = await tx.select().from(ticketTypes).where(and(eq(ticketTypes.id, existing.ticketTypeId), eq(ticketTypes.companyId, companyId)));
   if (!type) return { statusChanged: false, newStatusKey: null };
   const statuses = await tx.select().from(ticketTypeStatuses).where(eq(ticketTypeStatuses.ticketTypeId, type.id));
-  const updates: Record<string, unknown> = await visitMirrorUpdates(tx, existing, companyId);
-  applySchedulingTransition(updates, existing, statuses);
+  const mirror = await visitMirror(tx, existing, companyId);
+  const updates: Record<string, unknown> = mirror.updates;
+  applySchedulingTransition(updates, existing, statuses, mirror.hasOpen, placed && (type.typeKey === "task" || type.typeKey === "project"));
+  if (typeof updates.currentStatusId === "string") await assertSchedulingGate(tx, existing, type, statuses, updates.currentStatusId);
   maintainScheduleBy(updates, existing, statuses);
   const statusChanged = typeof updates.currentStatusId === "string" && updates.currentStatusId !== existing.currentStatusId;
   const note = updates.statusChangeNotes;

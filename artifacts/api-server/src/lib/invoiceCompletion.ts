@@ -1,5 +1,7 @@
 import type { Ticket } from "@workspace/db";
 import type { IStorage } from "../storage";
+import type { AppTransaction } from "../db";
+import { assertSchedulingGate } from "./schedulingTransition";
 
 type CompletionStorage = Pick<IStorage,
   "getTicketLinks" | "getTicketById" | "getTicketTypeById" | "getTicketTypeStatuses"
@@ -17,7 +19,7 @@ export interface InvoiceCompletionOutcome {
 
 /** Called only when an Invoice is moving into a final status. */
 export async function propagateInvoiceCompletion(
-  existingTicket: Ticket, companyId: string, actorId: string, storage: CompletionStorage,
+  existingTicket: Ticket, companyId: string, actorId: string, storage: CompletionStorage, tx: AppTransaction,
 ): Promise<InvoiceCompletionOutcome | undefined> {
   const links = await storage.getTicketLinks(existingTicket.id);
   const parentLink = links.find(link => link.linkType === "invoice_for" && link.targetTicketId === existingTicket.id);
@@ -37,13 +39,6 @@ export async function propagateInvoiceCompletion(
     const field = invoiceFields.find(field => field.id === fv.fieldId);
     if (field && fv.value) invoiceDataParts.push(`${field.fieldLabel}: ${fv.value}`);
   }
-  // Keep the existing comment behavior even when the parent must wait.
-  if (invoiceDataParts.length > 0) {
-    await storage.createTicketComment({
-      ticketId: parentTicket.id, authorId: actorId,
-      body: `[Invoice Completed] ${invoiceDataParts.join(" | ")}`,
-    });
-  }
   const parentLinks = await storage.getTicketLinks(parentTicket.id);
   const siblingIds = [...new Set(parentLinks.filter(link =>
     link.linkType === "invoice_for" && link.sourceTicketId === parentTicket.id,
@@ -55,13 +50,22 @@ export async function propagateInvoiceCompletion(
   );
   const finalStatusIds = new Set(siblingStatuses.filter(status => status.isFinal === "true").map(status => status.id));
   // The PATCH persists the invoice after this block, so count this one as final.
-  if (siblings.some(ticket => ticket.id !== existingTicket.id && !finalStatusIds.has(ticket.currentStatusId))) {
+  const siblingHeld = siblings.some(ticket => ticket.id !== existingTicket.id && !finalStatusIds.has(ticket.currentStatusId));
+  const sortedParentStatuses = [...parentStatuses].sort((a, b) => a.displayOrder - b.displayOrder);
+  const currentStatusIndex = sortedParentStatuses.findIndex(status => status.id === parentTicket.currentStatusId);
+  const nextFinalStatus = siblingHeld ? undefined : sortedParentStatuses.find((status, index) => index > currentStatusIndex && status.isFinal === "true");
+  if (nextFinalStatus) await assertSchedulingGate(tx, parentTicket, parentTicketType, parentStatuses, nextFinalStatus.id);
+  // Keep the existing comment behavior even when the parent must wait.
+  if (invoiceDataParts.length > 0) {
+    await storage.createTicketComment({
+      ticketId: parentTicket.id, authorId: actorId,
+      body: `[Invoice Completed] ${invoiceDataParts.join(" | ")}`,
+    });
+  }
+  if (siblingHeld) {
     console.log(`Waiting to advance parent ticket ${parentTicket.id}: another linked Invoice is still open`);
     return { ...outcome, siblingHeld: true };
   }
-  const sortedParentStatuses = [...parentStatuses].sort((a, b) => a.displayOrder - b.displayOrder);
-  const currentStatusIndex = sortedParentStatuses.findIndex(status => status.id === parentTicket.currentStatusId);
-  const nextFinalStatus = sortedParentStatuses.find((status, index) => index > currentStatusIndex && status.isFinal === "true");
   if (nextFinalStatus) {
     const advanced = await storage.updateTicket(parentTicket.id, companyId, {
       currentStatusId: nextFinalStatus.id, completedAt: new Date(),

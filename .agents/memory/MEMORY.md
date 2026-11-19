@@ -65,3 +65,4 @@
 - [Contracted Services documents](contracted-services-document-direction.md) — no-count routes print; frequency-only patterns may omit counts; strict blockers differ by scheduling kind.
 - [Ticket reference photos](ticket-reference-photo-policy.md) — creation photo support requires later uploads too, including initially empty tickets; preserve reference/completion separation.
 - [Private PDF previews](private-pdf-previews.md) — Chromium blocks sandboxed plugin iframes; render authorized bytes as pixels without weakening file-route headers.
+- [Real ticket scheduling gate](real-ticket-scheduling-gate.md) — S1 supersedes explicit-status precedence; a real open stop or a dedicated audited skip is required.

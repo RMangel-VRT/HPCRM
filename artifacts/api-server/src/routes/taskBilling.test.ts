@@ -13,7 +13,9 @@ import { maybeAutoCreateInvoiceOnRfb } from "../lib/rfbInvoiceAutoCreate";
 import { canSeeBilling, isBillingInvoiceAction } from "../lib/billing";
 import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from "../lib/dueDateDismissal";
 import * as capabilities from "../shared/ticketCapabilities";
-import { applySchedulingTransition } from "../lib/schedulingTransition";
+import { applySchedulingTransition, assertSchedulingGate, assertSchedulingInitialStatus, isSchedulingGateType } from "../lib/schedulingTransition";
+import { VisitError } from "../lib/visitLocks";
+import { db } from "../db";
 import { applyTicketStatus } from "../lib/ticketStatusChange";
 import { ContractCenterError } from "../lib/contractCenterService";
 
@@ -34,14 +36,16 @@ const mount = new Function("deps", `
      insertTicketSchema, pickProvided, computeScheduleBy, maintainScheduleBy, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
     isSeededTicketType, isSeededStatus, findSeededStatus, canSeeBilling, isBillingInvoiceAction, propagateInvoiceCompletion, wasDueDateExtendedToFuture,
     assertNotParentCustomer, sendPushToUser, APPROVED_BILLING_STATUS_KEYS,
-    db, transactionalTicketPatch, applyVisitTicketEdit, applySchedulingTransition, applyTicketStatus, ContractCenterError, guardManualRfpStatus } = deps;
+    db, transactionalTicketPatch, applyVisitTicketEdit, applySchedulingTransition, applyTicketStatus, ContractCenterError, guardManualRfpStatus,
+    assertSchedulingGate, assertSchedulingInitialStatus, isSchedulingGateType, hasOpenTicketVisit, VisitError } = deps;
   ${transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code}
 `);
 const decisionStart = source.indexOf('  app.put("/api/tickets/:ticketId/field-values/:fieldId",');
 const decisionEnd = source.indexOf("  // Ticket Status History routes", decisionStart);
 if (decisionStart < 0 || decisionEnd < 0) throw new Error("Decision field mutation registration block not found");
 const mountDecision = new Function("deps", `
-   const { app, storage, insertTicketFieldValueSchema, computeScheduleBy, isSeededTicketType, isSeededStatus, findSeededStatus } = deps;
+   const { app, storage, insertTicketFieldValueSchema, maintainScheduleBy, isSeededTicketType, isSeededStatus, findSeededStatus,
+     db, inTransaction, lockVisitCompany, lockVisitTickets, VisitError, assertSchedulingGate } = deps;
   ${transformSync(source.slice(decisionStart, decisionEnd), { loader: "ts", target: "es2022" }).code}
 `);
 
@@ -57,6 +61,7 @@ let links: any[];
 let app: ReturnType<typeof express>;
 let role: string;
 let activeTags: string[];
+let compatOpen: boolean;
 const invoicePropagation = vi.fn();
 const storage: Record<string, ReturnType<typeof vi.fn>> = mockedStorage;
 const parentGuard = vi.fn();
@@ -74,6 +79,7 @@ function assertNoWrites() {
 const createBody = { title: "Work", assignedToId: "actor", customerId: "customer", ticketTypeId: "other" };
 
 beforeEach(() => {
+  compatOpen = false;
   vi.clearAllMocks();
   role = "admin";
   activeTags = [];
@@ -112,7 +118,7 @@ beforeEach(() => {
   app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => true) as any;
-    req.user = { id: "actor", activeCompanyId: "company", activeRole: role, activeTags } as any;
+    req.user = { id: "actor", activeCompanyId: "company", activeRole: role, accessRole: role, activeTags } as any;
     next();
   });
   mount({
@@ -120,9 +126,22 @@ beforeEach(() => {
     // Keep this existing mocked-storage suite focused on billing/status logic.
     // The actual shared transition is used; visits.integration.test.ts covers
     // compatibility and transaction rollback against real PostgreSQL.
-    db: {}, transactionalTicketPatch: (handler: unknown) => handler,
+    db, transactionalTicketPatch: (handler: (req: express.Request, res: express.Response) => Promise<unknown>) =>
+      async (req: express.Request, res: express.Response) => {
+        try { await handler(req, res); }
+        catch (error) {
+          if (error instanceof VisitError) res.status(error.status).json({ error: error.code, message: error.message });
+          else throw error;
+        }
+      },
     applyTicketStatus, ContractCenterError, guardManualRfpStatus: vi.fn(),
-    applyVisitTicketEdit: async () => {}, applySchedulingTransition,
+    assertSchedulingGate, assertSchedulingInitialStatus, isSchedulingGateType, VisitError,
+    applyVisitTicketEdit: async (_tx: unknown, body: Record<string, unknown>) => {
+      if (!("crewId" in body || "dueDate" in body)) return false;
+      compatOpen = !!(("crewId" in body ? body.crewId : ticket.crewId) && ("dueDate" in body ? body.dueDate : ticket.dueDate));
+      return true;
+    },
+    hasOpenTicketVisit: async () => compatOpen, applySchedulingTransition,
     canSeeBilling, isBillingInvoiceAction, propagateInvoiceCompletion: invoicePropagation, wasDueDateExtendedToFuture,
     ...capabilities, assertNotParentCustomer: parentGuard, sendPushToUser: vi.fn(),
     ensureInvoiceTicketType: vi.fn().mockResolvedValue({ typeId: "invoice", pendingStatusId: "pending" }),
@@ -211,6 +230,18 @@ describe("C3 status-only Invoice PATCH", () => {
 });
 
 describe("Task single and batch creation", () => {
+  it.each(["task", "project", "estimate_request"])("manual and batch creation ignore a forged late status for %s", async typeKey => {
+    const kind = { id: "other", name: `Renamed ${typeKey}`, typeKey };
+    if (typeKey === "task") kind.id = "task";
+    storage.getTicketTypeById.mockResolvedValue(kind);
+    const body = { ...createBody, ticketTypeId: kind.id, workType: "admin", currentStatusId: "closed_won" };
+    const single = await request(app).post("/api/tickets").send(body);
+    expect(single.status).toBe(200);
+    expect(single.body.currentStatusId).toBe("new");
+    const bulk = await request(app).post("/api/tickets/batch").send({ ...body, customerIds: ["customer"] });
+    expect(bulk.status).toBe(200);
+    expect(storage.createTicket.mock.lastCall?.[0].currentStatusId).toBe("new");
+  });
   it.each(["contract", "extra_work"])("single %s overrides type, billing, and status", async workType => {
     // New is intentionally not first by display order.
     storage.getTicketTypeStatuses.mockResolvedValue(statuses.map(s => ({ ...s, displayOrder: s.id === "new" ? 99 : s.displayOrder })));
@@ -527,6 +558,9 @@ describe("Task PATCH billing", () => {
 describe("crew/date scheduling PATCH", () => {
   beforeEach(() => {
     Object.assign(ticket, { currentStatusId: "ready_to_schedule", crewId: null, dueDate: null });
+    // Emulate the placed stop for the real status guard; the compatibility
+    // adapter itself is exercised against PostgreSQL in visits.integration.
+    Object.assign(db, { select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ id: "open" }] }) }) }) });
   });
   it("schedules renamed Task with crew and date through existing history", async () => {
     const res = await request(app).patch("/api/tickets/job").send({ crewId: "crew", dueDate: "2026-10-08" });
@@ -550,6 +584,7 @@ describe("crew/date scheduling PATCH", () => {
     expect(updates).not.toHaveProperty(field === "crewId" ? "dueDate" : "crewId");
   });
   it.each(["crewId", "dueDate"])("clearing %s returns Scheduled to Needs scheduling", async field => {
+    Object.assign(db, { select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }) });
     Object.assign(ticket, { currentStatusId: "scheduled", crewId: "crew", dueDate: new Date("2026-10-08") });
     expect((await request(app).patch("/api/tickets/job").send({ [field]: null })).status).toBe(200);
     expect(ticket.currentStatusId).toBe("ready_to_schedule");
@@ -558,13 +593,13 @@ describe("crew/date scheduling PATCH", () => {
       changedById: "actor", notes: "Crew or date cleared",
     });
   });
-  it.each(["in_progress", "ready_to_schedule"])("respects explicit status intent %s", async currentStatusId => {
+  it.each(["in_progress", "ready_to_schedule"])("explicit status %s cannot bypass the scheduling gate", async currentStatusId => {
     expect((await request(app).patch("/api/tickets/job").send({
       crewId: "crew", dueDate: "2026-10-08", currentStatusId, statusChangeNotes: "Explicit",
-    })).status).toBe(200);
-    expect(ticket.currentStatusId).toBe(currentStatusId);
+    })).status).toBe(currentStatusId === "in_progress" ? 422 : 200);
+    expect(ticket.currentStatusId).toBe("ready_to_schedule");
     if (currentStatusId === "in_progress") {
-      expect(storage.createTicketStatusHistory).toHaveBeenCalledWith(expect.objectContaining({ notes: "Explicit" }));
+      assertNoWrites();
     } else expect(storage.createTicketStatusHistory).not.toHaveBeenCalled();
   });
   it("does not override explicit null status intent; schema rejects it without writes", async () => {
@@ -588,13 +623,11 @@ describe("crew/date scheduling PATCH", () => {
     expect(ticket.currentStatusId).toBe("ready_to_schedule");
     expect(storage.createTicketStatusHistory).not.toHaveBeenCalled();
   });
-  it("uses both persisted values when neither scheduling key is included", async () => {
+  it("does not infer Scheduled from both persisted values on unrelated edits", async () => {
     Object.assign(ticket, { crewId: "crew", dueDate: new Date("2026-10-08") });
     expect((await request(app).patch("/api/tickets/job").send({ title: "Changed" })).status).toBe(200);
-    expect(ticket.currentStatusId).toBe("scheduled");
-    expect(storage.updateTicket).toHaveBeenCalledWith("job", "company", {
-      title: "Changed", currentStatusId: "scheduled",
-    });
+    expect(ticket.currentStatusId).toBe("ready_to_schedule");
+    expect(storage.updateTicket).toHaveBeenCalledWith("job", "company", { title: "Changed" });
   });
   it("skips types without Scheduled and custom name-matching status keys", async () => {
     storage.getTicketTypeStatuses.mockResolvedValue(statuses.filter(s => s.statusKey !== "scheduled"));
@@ -626,8 +659,11 @@ describe("crew/date scheduling PATCH", () => {
       ...statuses, { id: "decision_received", statusKey: "decision_received", name: "Renamed decision", displayOrder: -1 },
     ]);
     storage.upsertTicketFieldValue = vi.fn().mockImplementation(async data => data);
-    storage.getTicketTypeFieldById = vi.fn().mockResolvedValue({ id: "decision-field", fieldKey: "decision_outcome" });
-     mountDecision({ app, storage, insertTicketFieldValueSchema, computeScheduleBy, ...capabilities });
+    storage.getTicketTypeFieldById = vi.fn().mockResolvedValue({ id: "decision-field", ticketTypeId: "other", fieldKey: "decision_outcome" });
+    mountDecision({ app, storage, insertTicketFieldValueSchema, maintainScheduleBy, ...capabilities,
+      db: { transaction: (work: (tx: unknown) => unknown) => work({}) },
+      inTransaction: (_tx: unknown, work: () => unknown) => work(), lockVisitCompany: vi.fn(),
+      lockVisitTickets: async () => [ticket], VisitError, assertSchedulingGate });
     const res = await request(app).put("/api/tickets/job/field-values/decision-field").send({ value: "Approved" });
     expect(res.status).toBe(200);
     expect(ticket.currentStatusId).toBe("ready_to_schedule");

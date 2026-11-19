@@ -1,6 +1,8 @@
 import type { Ticket } from "@workspace/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { propagateInvoiceCompletion } from "./invoiceCompletion";
+import { propagateInvoiceCompletion as propagate } from "./invoiceCompletion";
+const propagateInvoiceCompletion = (...args: [Ticket, string, string, Parameters<typeof propagate>[3]]) =>
+  propagate(...args, {} as Parameters<typeof propagate>[4]);
 
 const makeInvoice = (id: string, currentStatusId = "pending", companyId = "company") =>
   ({ id, currentStatusId, companyId, ticketTypeId: "invoice-type" }) as Ticket;

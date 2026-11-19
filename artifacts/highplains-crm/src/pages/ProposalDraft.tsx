@@ -521,7 +521,8 @@ function ProposalDraftContent() {
         try {
           const request = ticketRequest(companyId, active);
           const estimate = await request("GET", `/api/estimates/${version.estimateTransition.estimateId}`) as EstimateDetailDto;
-          await advanceLinkedTicket(estimate, request);
+          const advance = await advanceLinkedTicket(estimate, request);
+          if (active() && advance.message) toast({ title: t("tickets.unexpectedError"), description: advance.message, variant: "destructive" });
         } catch { /* State-derived recovery is mounted in the Estimate section. */ }
       }
       if (active()) {

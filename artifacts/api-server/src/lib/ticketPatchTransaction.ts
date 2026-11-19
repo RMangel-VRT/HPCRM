@@ -3,6 +3,8 @@ import { db, inTransaction } from "../db";
 import type { UserWithContext } from "../auth";
 import { VisitError, lockVisitCompany, lockVisitTickets } from "./visitSync";
 import { logger } from "./logger";
+import { and, eq } from "drizzle-orm";
+import { ticketLinks, tickets } from "@workspace/db";
 
 class RejectedResponse extends Error {}
 /** Buffer response until commit; every unsuccessful workflow response rolls back
@@ -18,7 +20,12 @@ export function transactionalTicketPatch(handler: (req: Request<{ id: string }>,
     try {
       await db.transaction(async tx => {
         await lockVisitCompany(tx, user.activeCompanyId);
-        await lockVisitTickets(tx, user.activeCompanyId, [String(req.params.id)]);
+        const id = String(req.params.id);
+        const parents = typeof req.body?.currentStatusId === "string" ? await tx
+          .select({ id: ticketLinks.sourceTicketId }).from(ticketLinks)
+          .innerJoin(tickets, and(eq(tickets.id, ticketLinks.sourceTicketId), eq(tickets.companyId, user.activeCompanyId)))
+          .where(and(eq(ticketLinks.targetTicketId, id), eq(ticketLinks.linkType, "invoice_for"))) : [];
+        await lockVisitTickets(tx, user.activeCompanyId, [id, ...parents.map(p => p.id)]);
         await inTransaction(tx, async () => {
           await handler(req, res);
           if (res.statusCode >= 400) throw new RejectedResponse();

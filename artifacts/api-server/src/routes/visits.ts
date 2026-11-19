@@ -8,6 +8,7 @@ import { pickProvided } from "../lib/patchBody";
 import { addCalendarDays } from "../lib/companyDay";
 import { loadEnrichedVisits } from "../lib/visitQueries";
 import { registerSchedulingQueue } from "./schedulingQueue";
+import { registerTicketSchedulingRoutes } from "./ticketScheduling";
 import {
   VisitError, lockVisitCompany, lockVisitTickets, validateVisitCrew, schedulableTicket,
   appendVisitOrder, syncTicketFromVisits, openVisitStatuses, type VisitTransaction,
@@ -85,6 +86,7 @@ export async function patchVisitInTransaction(tx: VisitTransaction, companyId: s
 
 export function registerVisitRoutes(app: Express) {
   registerSchedulingQueue(app, authorize, failure);
+  registerTicketSchedulingRoutes(app, authorize, failure);
   app.get("/api/tickets/:id/visits", async (req, res): Promise<void> => {
     const user = authorize(req, res); if (!user) return;
     try {
@@ -145,7 +147,7 @@ export function registerVisitRoutes(app: Express) {
           customerId: customer?.id ?? null, createdById: user.id, status: "planned",
           routeOrder: Object.hasOwn(body, "routeOrder") ? body.routeOrder : await appendVisitOrder(tx, user.activeCompanyId, body.crewId, body.visitDate),
         }).returning();
-        const ticketSync = ticket ? await syncTicketFromVisits(ticket.id, user.activeCompanyId, user.id, tx) : { statusChanged: false, newStatusKey: null };
+        const ticketSync = ticket ? await syncTicketFromVisits(ticket.id, user.activeCompanyId, user.id, tx, true) : { statusChanged: false, newStatusKey: null };
         return UpdateVisitResponse.parse({ ...visit, ticketSync });
       });
       res.status(201).json(result);

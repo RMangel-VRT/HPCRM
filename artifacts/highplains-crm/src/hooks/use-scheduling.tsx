@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { apiRequest } from "@/lib/queryClient";
+import type { TicketNextStop, SchedulingSkipResult } from "@workspace/api-client-react";
 import {
   STALE_MS,
   fetchBoardCrews,
@@ -14,6 +15,7 @@ import {
   fetchVisitSummary,
   fetchVisits,
   focusVisitsCard,
+  fmtStopDay,
   invalidateSchedulingEverywhere,
   isOpenVisit,
   mergeReorder,
@@ -66,9 +68,26 @@ export function useWeekSummary(companyId: string | null | undefined, from: strin
 export function useTicketVisits(companyId: string | null | undefined, ticketId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: schedulingKeys.ticketVisits(companyId, ticketId),
-    queryFn: () => fetchTicketVisits(ticketId as string),
+    queryFn: () => fetchTicketVisits(ticketId as string, companyId),
     enabled: enabled && !!companyId && !!ticketId,
     staleTime: STALE_MS,
+  });
+}
+
+export type OfferedStop = TicketNextStop & { snapshot: string };
+export function useTicketNextStop(companyId: string | null | undefined, ticketId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: schedulingKeys.nextStop(companyId, ticketId),
+    enabled: enabled && !!companyId,
+    staleTime: STALE_MS,
+    queryFn: async (): Promise<OfferedStop | null> => {
+      const response = await apiRequest("GET", `/api/tickets/${ticketId}/next-stop`, undefined, { headers: { "X-Company-Id": companyId! } });
+      const body: TicketNextStop | null = await response.json();
+      if (!body) return null;
+      const snapshot = response.headers.get("X-Next-Stop-Snapshot");
+      if (!snapshot) throw new Error("Next stop could not be verified.");
+      return { ...body, snapshot };
+    },
   });
 }
 
@@ -94,7 +113,7 @@ export function useTicketOpenVisitGuard(companyId: string | null | undefined, ti
 
 export interface PlaceInput { ticketId?: string; crewId: string; visitDate: string; estimatedHours?: number | null; startTime?: string | null; notes?: string | null; title?: string | null }
 export interface PatchInput { crewId?: string; visitDate?: string; estimatedHours?: number | null; startTime?: string | null; notes?: string | null; serviceKey?: string | null }
-interface Ctx { companyId?: string | null; ticketTitle?: string; crewName?: string | null; ticketId?: string | null }
+interface Ctx { companyId?: string | null; ticketTitle?: string; crewName?: string | null; ticketId?: string | null; ticketPage?: boolean }
 
 export function useVisitActions() {
   const { user } = useAuth();
@@ -107,21 +126,24 @@ export function useVisitActions() {
   companyRef.current = companyId;
   const [pending, setPending] = useState(0);
 
-  const fail = useCallback((err: unknown, ticketId?: string | null) => {
+  const fail = useCallback((err: unknown, ticketId?: string | null, ticketPage?: boolean) => {
     const { message, code } = parseServerError(err);
     toast({
       title: t("scheduling.errorTitle", "Couldn't update the schedule"),
-      description: message,
+      description: ticketPage && code === "VISIT_CLOSED" ? t("scheduling.ticket.closedStop", "This stop is no longer open.")
+        : ticketPage && code === "NOT_FOUND" ? t("scheduling.ticket.missingStop", "This stop could not be found.")
+        : code === "MULTIPLE_VISITS" ? t("scheduling.ticket.multiple", "This job is on the schedule more than once. Change it under On the schedule below.")
+        : message,
       variant: "destructive",
       action: code === "MULTIPLE_VISITS" && ticketId ? (
         <ToastAction
-          altText={t("scheduling.openVisits", "Open Visits")}
+          altText={t("scheduling.ticket.heading", "On the schedule")}
           onClick={() => {
             if (window.location.pathname.endsWith(`/dashboard/tickets/${ticketId}`)) focusVisitsCard(0);
             else { navigate(`/dashboard/tickets/${ticketId}`); focusVisitsCard(600); }
           }}
         >
-          {t("scheduling.openVisits", "Open Visits")}
+          {t("scheduling.ticket.heading", "On the schedule")}
         </ToastAction>
       ) : undefined,
     });
@@ -130,7 +152,7 @@ export function useVisitActions() {
   /** Runs one write. Refuses when the active company changed; always reconciles from the server. */
   const run = useCallback(async <T,>(
     ctx: Ctx,
-    fn: () => Promise<T>,
+    fn: (started: string) => Promise<T>,
     after?: (data: T, sameCompany: boolean) => void,
   ): Promise<T | null> => {
     const started = ctx.companyId ?? companyRef.current;
@@ -140,14 +162,14 @@ export function useVisitActions() {
     }
     setPending(n => n + 1);
     try {
-      const data = await fn();
+      const data = await fn(started);
       const same = started === companyRef.current;
       invalidateSchedulingEverywhere(qc, { ticketId: ctx.ticketId });
       after?.(data, same);
       return data;
     } catch (err) {
       invalidateSchedulingEverywhere(qc, { ticketId: ctx.ticketId });
-      if (started === companyRef.current) fail(err, ctx.ticketId);
+      if (started === companyRef.current) fail(err, ctx.ticketId, ctx.ticketPage);
       return null;
     } finally {
       setPending(n => n - 1);
@@ -161,18 +183,18 @@ export function useVisitActions() {
 
   const createVisit = useCallback((input: PlaceInput, ctx: Ctx = {}) =>
     run<VisitMutationResult>({ ...ctx, ticketId: input.ticketId ?? ctx.ticketId },
-      async () => (await apiRequest("POST", "/api/visits", input)).json(),
+      async started => (await apiRequest("POST", "/api/visits", input, { headers: { "X-Company-Id": started } })).json(),
       (v, same) => same && announce(v.ticketSync, { title: ctx.ticketTitle, crewName: ctx.crewName, date: input.visitDate })), [run]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patchVisit = useCallback((id: string, input: PatchInput, ctx: Ctx = {}) =>
     run<VisitMutationResult>(ctx,
-      async () => (await apiRequest("PATCH", `/api/visits/${id}`, input)).json(),
+      async started => (await apiRequest("PATCH", `/api/visits/${id}`, input, { headers: { "X-Company-Id": started } })).json(),
       (v, same) => same && announce(v.ticketSync, { title: ctx.ticketTitle, crewName: ctx.crewName, date: input.visitDate ?? v.visitDate })), [run]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const removeVisit = useCallback((id: string, ctx: Ctx = {}) =>
     run<{ ticketSync?: TicketSync } | null>(ctx,
-      async () => {
-        const res = await apiRequest("DELETE", `/api/visits/${id}`);
+      async started => {
+        const res = await apiRequest("DELETE", `/api/visits/${id}`, undefined, { headers: { "X-Company-Id": started } });
         const text = await res.text();
         return text ? JSON.parse(text) : null;
       },
@@ -197,5 +219,20 @@ export function useVisitActions() {
       return (await apiRequest("POST", "/api/visits/reorder", { crewId: args.crewId, visitDate: args.visitDate, visitIds: ids })).json();
     }), [run]);
 
-  return { companyId, pending: pending > 0, createVisit, patchVisit, removeVisit, reorderCrewDay };
+  const placeAfterNextStop = (ticketId: string, next: OfferedStop, property: string) =>
+    run<VisitMutationResult>({ companyId, ticketId },
+      async started => (await apiRequest("POST", `/api/tickets/${ticketId}/schedule-next-stop`, undefined,
+        { headers: { "X-Company-Id": started, "If-Match": next.snapshot } })).json(),
+      (result, same) => {
+        if (same) toast({ title: t("scheduling.ticket.addedNext", "Added to {{crew}}’s stop at {{property}}, {{date}}.", {
+          crew: next.crew.name, property, date: fmtStopDay(result.visitDate, t("scheduling.dateLocale", "en-US")),
+        }) });
+      });
+  const skipScheduling = (ticketId: string, reason: string, openedCompany: string | undefined) =>
+    run<SchedulingSkipResult>({ companyId: openedCompany, ticketId },
+      async started => (await apiRequest("POST", `/api/tickets/${ticketId}/skip-scheduling`, { reason },
+        { headers: { "X-Company-Id": started } })).json(),
+      (_, same) => { if (same) toast({ title: t("scheduling.ticket.skipped", "Scheduling skipped") }); });
+
+  return { companyId, pending: pending > 0, createVisit, patchVisit, removeVisit, reorderCrewDay, placeAfterNextStop, skipScheduling };
 }

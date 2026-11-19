@@ -3,6 +3,7 @@ import { apiRequest } from "./queryClient";
 import { companyHeaders } from "./hardscapeCatalog";
 import { denverToday } from "./estimateBuilder";
 import { addDaysYmd } from "./schedulingStatus";
+import { parseApiValidationError } from "./apiError";
 
 export type EstimateState = Pick<EstimateDetailDto, "id" | "ticketId" | "voidedAt" | "versions">;
 export interface TicketState {
@@ -97,7 +98,7 @@ export function planLinkedTicket(estimate: EstimateState, state: LinkedTicketSta
   return { target, move, writes, reason: move ? "behind" : writes.length ? "fieldsIncomplete" : null };
 }
 
-export interface AdvanceResult { moved: boolean; ticketNumber?: string | number; statusName?: string; reason: RecoveryReason | null }
+export interface AdvanceResult { moved: boolean; ticketNumber?: string | number; statusName?: string; reason: RecoveryReason | null; message?: string }
 /** Only this routine writes status, through the existing PATCH, before any PUT.
  * At-target recovery repairs just mismatched fields without replaying PATCH. */
 export async function advanceLinkedTicket(estimate: EstimateState, request: TicketRequest, now = new Date()): Promise<AdvanceResult> {
@@ -130,8 +131,10 @@ export async function advanceLinkedTicket(estimate: EstimateState, request: Tick
     }
     // Tickets have UUID IDs, displayed as #<first 8> throughout Tickets/My Tickets.
     return { moved, reason: null, ticketNumber: state.ticket.id.slice(0, 8), statusName: plan.target.name };
-  } catch {
+  } catch (error) {
     // Estimate lifecycle success is independent. No compensating estimate write.
+    const { status, message } = parseApiValidationError(error);
+    if ((status === 422 || status === 409) && message) return { moved, reason: "loadFailed", message };
     return { moved, reason: "loadFailed" };
   }
 }

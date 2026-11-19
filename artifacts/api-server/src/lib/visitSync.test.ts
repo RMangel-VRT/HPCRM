@@ -40,24 +40,24 @@ describe("visits calendar and shared transition", () => {
   });
   it("uses one scheduling rule and exact history notes", () => {
     const body = { crewId: "crew", dueDate: new Date() } as Record<string, unknown>;
-    applySchedulingTransition(body, ticket, statuses);
+    applySchedulingTransition(body, ticket, statuses, true);
     expect(body).toMatchObject({ currentStatusId: "scheduled", statusChangeNotes: "Crew and date set" });
     const clear = { crewId: null } as Record<string, unknown>;
-    applySchedulingTransition(clear, { ...ticket, currentStatusId: "scheduled" }, statuses);
+    applySchedulingTransition(clear, { ...ticket, currentStatusId: "scheduled" }, statuses, false);
     expect(clear).toMatchObject({ currentStatusId: "ready", statusChangeNotes: "Crew or date cleared" });
   });
   it.each([null, "ready", "progress"])("explicit status %s wins", currentStatusId => {
     const body = { currentStatusId, crewId: "crew", dueDate: new Date() };
-    applySchedulingTransition(body, ticket, statuses);
+    applySchedulingTransition(body, ticket, statuses, true);
     expect(body.currentStatusId).toBe(currentStatusId);
     expect(body).not.toHaveProperty("statusChangeNotes");
   });
-  it("follow-up-only and in-progress tickets never infer status", () => {
+  it("legacy crew/date alone and in-progress tickets never infer status", () => {
     const followUp = { followUpDate: "2026-10-20" };
-    applySchedulingTransition(followUp, { ...ticket, crewId: "crew", dueDate: new Date() }, statuses);
+    applySchedulingTransition(followUp, ticket, statuses, false);
     expect(followUp).not.toHaveProperty("currentStatusId");
     const body = { crewId: null };
-    applySchedulingTransition(body, { ...ticket, currentStatusId: "progress" }, statuses);
+    applySchedulingTransition(body, { ...ticket, currentStatusId: "progress" }, statuses, false);
     expect(body).not.toHaveProperty("currentStatusId");
   });
   it.each(["2026-02-30", "2025-02-29", "2026-13-01", "0000-01-01", "2026-1-01"])("rejects impossible visit date %s", visitDate => {

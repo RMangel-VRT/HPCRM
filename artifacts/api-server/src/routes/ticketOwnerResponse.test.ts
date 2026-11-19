@@ -2,7 +2,7 @@
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { tickets, ticketTypes, ticketTypeStatuses, ticketStatusHistory, ticketComments } from "@workspace/db";
+import { tickets, ticketTypes, ticketTypeStatuses, ticketStatusHistory, ticketComments, visits } from "@workspace/db";
 import { computeScheduleBy } from "../lib/scheduleBy";
 
 const mocks = vi.hoisted(() => ({
@@ -24,12 +24,14 @@ let locked: ReturnType<typeof vi.fn<(...args: unknown[]) => void>>;
 let failHistory: boolean;
 let hidden: boolean;
 let authenticated: boolean;
+let openStop: boolean;
 beforeEach(() => {
   vi.clearAllMocks();
   writes = [];
   locked = vi.fn();
   failHistory = hidden = false;
   authenticated = true;
+  openStop = false;
   actor = { id: "owner", activeRole: "field", activeCompanyId: "company" };
   ticket = {
     id: "job", companyId: "company", ticketTypeId: "type", currentStatusId: "new",
@@ -45,13 +47,18 @@ beforeEach(() => {
     const before = { ...ticket };
     const previousWrites = [...writes];
     const tx = {
+      execute: async () => {},
       select: () => ({
         from: (table: unknown) => ({
           where: () => {
             const rows = table === tickets ? hidden ? [] : [{ ...ticket }]
-              : table === ticketTypes ? [type] : statuses;
+              : table === ticketTypes ? [type] : table === visits ? (openStop ? [{ id: "open" }] : []) : statuses;
             const promise = Promise.resolve(rows);
-            return Object.assign(promise, { for: (...args: unknown[]) => { locked(...args); return promise; } });
+            const query = Object.assign(promise, {
+              for: (...args: unknown[]) => { locked(...args); return promise; },
+              orderBy: () => query, limit: () => promise,
+            });
+            return query;
           },
         }),
       }),
@@ -79,6 +86,7 @@ beforeEach(() => {
   app.use(express.json());
   app.use((req, _res, next) => {
     req.isAuthenticated = (() => authenticated) as any;
+    actor.accessRole = actor.activeRole;
     req.user = actor;
     next();
   });
@@ -107,8 +115,14 @@ describe("Accept", () => {
     ticket.assignedToId = "someone-else";
     expect((await request(app).post("/api/tickets/job/accept")).status).toBe(200);
   });
-  it("chooses Scheduled with both crew/date and preserves explicit schedule-by", async () => {
+  it("ignores legacy crew/date without an open stop", async () => {
     Object.assign(ticket, { crewId: "crew", dueDate: new Date(), scheduleBy: "2026-09-01" });
+    const res = await request(app).post("/api/tickets/job/accept");
+    expect(res.body).toMatchObject({ currentStatusId: "ready_to_schedule", scheduleBy: "2026-09-01" });
+  });
+  it("chooses Scheduled with an open stop and preserves explicit schedule-by", async () => {
+    openStop = true;
+    ticket.scheduleBy = "2026-09-01";
     const res = await request(app).post("/api/tickets/job/accept");
     expect(res.body).toMatchObject({ currentStatusId: "scheduled", scheduleBy: "2026-09-01" });
   });

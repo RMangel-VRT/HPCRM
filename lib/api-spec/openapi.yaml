@@ -369,6 +369,74 @@ paths:
         "401": { description: Not authenticated }
         "403": { description: Role not allowed }
         "404": { description: Ticket not found in active company }
+  /tickets/{id}/next-stop:
+    get:
+      operationId: ticketNextStop
+      tags: [visits]
+      summary: Find the next open stop at the ticket's exact property
+      description: Uses Colorado today; admin, office and field_manager only.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Next stop or null
+          headers:
+            X-Next-Stop-Snapshot:
+              description: Opaque snapshot required for placement when a stop is present
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - { $ref: "#/components/schemas/TicketNextStop" }
+                  - { type: "null" }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
+        "404": { description: Ticket not found in active company }
+        "422": { description: Ticket cannot be scheduled }
+  /tickets/{id}/schedule-next-stop:
+    post:
+      operationId: placeTicketAfterNextStop
+      tags: [visits]
+      summary: Place a ticket immediately after the offered stop
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: If-Match, in: header, required: true, schema: { type: string }, description: Snapshot from the next-stop response }
+      responses:
+        "201":
+          description: New stop and synchronized ticket
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VisitMutation" }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
+        "404": { description: Ticket not found in active company }
+        "409": { description: Offered stop is no longer valid }
+        "422": { description: Ticket cannot be scheduled }
+  /tickets/{id}/skip-scheduling:
+    post:
+      operationId: skipTicketScheduling
+      tags: [visits]
+      summary: Advance past scheduling with a recorded reason
+      description: The assignee, admin, office or field manager can skip from New or Needs scheduling only when no open stop exists.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SchedulingSkipInput" }
+      responses:
+        "200":
+          description: The ticket's new workflow status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SchedulingSkipResult" }
+        "400": { description: Invalid reason }
+        "401": { description: Not authenticated }
+        "403": { description: Role not allowed }
+        "404": { description: Ticket not found in active company }
+        "409": { description: An open stop exists or the workflow step does not support skipping }
   /scheduling/queue:
     get:
       operationId: schedulingQueue
@@ -1795,6 +1863,29 @@ components:
             visitDate: { type: string }
             crewId: { type: [string, "null"] }
             crewName: { type: [string, "null"] }
+    TicketNextStop:
+      type: object
+      required: [date, crew, routeOrder, label]
+      properties:
+        date: { type: string, description: Colorado calendar date }
+        crew:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        routeOrder: { type: [integer, "null"] }
+        label: { type: string }
+    SchedulingSkipInput:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 500, description: Trimmed reason; Other alone is not a reason }
+    SchedulingSkipResult:
+      type: object
+      required: [currentStatusId]
+      properties:
+        currentStatusId: { type: string }
     VisitMutation:
       allOf:
         - { $ref: "#/components/schemas/Visit" }

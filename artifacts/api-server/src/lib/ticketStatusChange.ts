@@ -5,22 +5,39 @@ import type { Transaction } from "./contractCenterPersistence";
 import { maintainScheduleBy } from "./scheduleByMaintenance";
 import { ContractCenterError } from "./contractCenterService";
 import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from "./dueDateDismissal";
+import { assertSchedulingGate, isSchedulingGateType } from "./schedulingTransition";
+import { lockVisitCompany, lockVisitTickets } from "./visitLocks";
 
 /** Shared persistence of a status change. PATCH retains its type-specific
  * validation/step-back effects before calling this, in the same transaction. */
 export async function applyTicketStatus(tx: Transaction, input: {
   ticket: Ticket; toStatusKey?: string; userId: string; note?: string | null;
   updates?: Record<string, any>;
+  skipScheduling?: boolean;
 }) {
   const work = async () => {
-  const { ticket, userId, note } = input;
-  const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
+  const { userId, note } = input;
+  let { ticket } = input;
   const updates = { ...input.updates };
+  const statusIntent = !!(input.toStatusKey || updates.currentStatusId);
+  const type = statusIntent ? await storage.getTicketTypeById(ticket.ticketTypeId, ticket.companyId) : undefined;
+  // PATCH already holds the company gate and all involved ticket locks.
+  // Standalone helpers re-read the source under lock, not from the caller's snapshot.
+  if (statusIntent && isSchedulingGateType(type) && tx !== (db as unknown as Transaction)) {
+    await lockVisitCompany(tx, ticket.companyId);
+    const [fresh] = await lockVisitTickets(tx, ticket.companyId, [ticket.id]);
+    if (!fresh || fresh.ticketTypeId !== ticket.ticketTypeId) throw new ContractCenterError(409, "Ticket workflow changed. Reload and try again.");
+    ticket = fresh;
+  }
+  const statuses = await storage.getTicketTypeStatuses(ticket.ticketTypeId);
   const target = input.toStatusKey
     ? statuses.find(s => s.statusKey === input.toStatusKey)
     : statuses.find(s => s.id === updates.currentStatusId);
   if (input.toStatusKey && !target) throw new ContractCenterError(409, "RFP workflow status is missing");
   if (target) updates.currentStatusId = target.id;
+  if (statusIntent && typeof updates.currentStatusId === "string") {
+    await assertSchedulingGate(tx, ticket, type, statuses, updates.currentStatusId, input.skipScheduling);
+  }
   const changing = !!updates.currentStatusId && updates.currentStatusId !== ticket.currentStatusId;
   maintainScheduleBy(updates, ticket, statuses);
   if (changing) {

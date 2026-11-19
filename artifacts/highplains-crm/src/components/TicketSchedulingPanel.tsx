@@ -67,9 +67,10 @@ interface SchedulingPanelProps {
 }
 
 export function TicketSchedulingPanel({
-  ticketId, customerId, canRespond, canWait, followUpDate, followUpNote, creatorName, scheduledStatusId, onSentBack,
-}: SchedulingPanelProps) {
+  ticketId, customerId, canRespond, canWait, followUpDate, followUpNote, creatorName, scheduledStatusId, onSentBack, companyId,
+}: SchedulingPanelProps & { companyId?: string }) {
   const { toast, t, onError, refresh } = useSchedulingMutation(ticketId, customerId);
+  const options = companyId ? { headers: { "X-Company-Id": companyId } } : undefined;
   const [sendBackOpen, setSendBackOpen] = useState(false);
   const [sendBackNote, setSendBackNote] = useState("");
   const [waitOpen, setWaitOpen] = useState(false);
@@ -78,7 +79,7 @@ export function TicketSchedulingPanel({
 
   const acceptMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", `/api/tickets/${ticketId}/accept`, {});
+      const response = await apiRequest("POST", `/api/tickets/${ticketId}/accept`, {}, options);
       return response.json() as Promise<{ currentStatusId: string }>;
     },
     onSuccess: (accepted) => {
@@ -89,7 +90,7 @@ export function TicketSchedulingPanel({
   });
 
   const sendBackMutation = useMutation({
-    mutationFn: (note: string) => apiRequest("POST", `/api/tickets/${ticketId}/send-back`, { note }),
+    mutationFn: (note: string) => apiRequest("POST", `/api/tickets/${ticketId}/send-back`, { note }, options),
     onSuccess: () => {
       refresh();
       setSendBackOpen(false);
@@ -104,7 +105,7 @@ export function TicketSchedulingPanel({
 
   const followUpMutation = useMutation({
     mutationFn: (body: { followUpDate: string | null; followUpNote: string | null }) =>
-      apiRequest("PATCH", `/api/tickets/${ticketId}`, body),
+      apiRequest("PATCH", `/api/tickets/${ticketId}`, body, options),
     onSuccess: (_res, vars) => {
       refresh();
       setWaitOpen(false);

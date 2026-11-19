@@ -71,9 +71,12 @@ import type {
   MobileWorkItemPatch,
   OwnerResponseTicket,
   SchedulingQueueResult,
+  SchedulingSkipInput,
+  SchedulingSkipResult,
   ServiceCalendarDocument,
   ServiceTypeTemplate,
   ServiceTypeTemplateInput,
+  TicketNextStop,
   TicketSendBackInput,
   TicketWorkItem,
   TicketWorkItemInput,
@@ -1885,6 +1888,266 @@ export function useTicketVisits<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Uses Colorado today; admin, office and field_manager only.
+ * @summary Find the next open stop at the ticket's exact property
+ */
+export const getTicketNextStopUrl = (id: string) => {
+  return `/api/tickets/${id}/next-stop`;
+};
+
+export const ticketNextStop = async (
+  id: string,
+  options?: RequestInit,
+): Promise<TicketNextStop | null> => {
+  return customFetch<TicketNextStop | null>(getTicketNextStopUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getTicketNextStopQueryKey = (id: string) => {
+  return [`/api/tickets/${id}/next-stop`] as const;
+};
+
+export const getTicketNextStopQueryOptions = <
+  TData = Awaited<ReturnType<typeof ticketNextStop>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof ticketNextStop>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getTicketNextStopQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof ticketNextStop>>> = ({
+    signal,
+  }) => ticketNextStop(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof ticketNextStop>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type TicketNextStopQueryResult = NonNullable<
+  Awaited<ReturnType<typeof ticketNextStop>>
+>;
+export type TicketNextStopQueryError = ErrorType<void>;
+
+/**
+ * @summary Find the next open stop at the ticket's exact property
+ */
+
+export function useTicketNextStop<
+  TData = Awaited<ReturnType<typeof ticketNextStop>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof ticketNextStop>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getTicketNextStopQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Place a ticket immediately after the offered stop
+ */
+export const getPlaceTicketAfterNextStopUrl = (id: string) => {
+  return `/api/tickets/${id}/schedule-next-stop`;
+};
+
+export const placeTicketAfterNextStop = async (
+  id: string,
+  options?: RequestInit,
+): Promise<VisitMutation> => {
+  return customFetch<VisitMutation>(getPlaceTicketAfterNextStopUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getPlaceTicketAfterNextStopMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof placeTicketAfterNextStop>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof placeTicketAfterNextStop>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["placeTicketAfterNextStop"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof placeTicketAfterNextStop>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return placeTicketAfterNextStop(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PlaceTicketAfterNextStopMutationResult = NonNullable<
+  Awaited<ReturnType<typeof placeTicketAfterNextStop>>
+>;
+
+export type PlaceTicketAfterNextStopMutationError = ErrorType<void>;
+
+/**
+ * @summary Place a ticket immediately after the offered stop
+ */
+export const usePlaceTicketAfterNextStop = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof placeTicketAfterNextStop>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof placeTicketAfterNextStop>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getPlaceTicketAfterNextStopMutationOptions(options));
+};
+
+/**
+ * The assignee, admin, office or field manager can skip from New or Needs scheduling only when no open stop exists.
+ * @summary Advance past scheduling with a recorded reason
+ */
+export const getSkipTicketSchedulingUrl = (id: string) => {
+  return `/api/tickets/${id}/skip-scheduling`;
+};
+
+export const skipTicketScheduling = async (
+  id: string,
+  schedulingSkipInput: SchedulingSkipInput,
+  options?: RequestInit,
+): Promise<SchedulingSkipResult> => {
+  return customFetch<SchedulingSkipResult>(getSkipTicketSchedulingUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(schedulingSkipInput),
+  });
+};
+
+export const getSkipTicketSchedulingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof skipTicketScheduling>>,
+    TError,
+    { id: string; data: BodyType<SchedulingSkipInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof skipTicketScheduling>>,
+  TError,
+  { id: string; data: BodyType<SchedulingSkipInput> },
+  TContext
+> => {
+  const mutationKey = ["skipTicketScheduling"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof skipTicketScheduling>>,
+    { id: string; data: BodyType<SchedulingSkipInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return skipTicketScheduling(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SkipTicketSchedulingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof skipTicketScheduling>>
+>;
+export type SkipTicketSchedulingMutationBody = BodyType<SchedulingSkipInput>;
+export type SkipTicketSchedulingMutationError = ErrorType<void>;
+
+/**
+ * @summary Advance past scheduling with a recorded reason
+ */
+export const useSkipTicketScheduling = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof skipTicketScheduling>>,
+    TError,
+    { id: string; data: BodyType<SchedulingSkipInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof skipTicketScheduling>>,
+  TError,
+  { id: string; data: BodyType<SchedulingSkipInput> },
+  TContext
+> => {
+  return useMutation(getSkipTicketSchedulingMutationOptions(options));
+};
 
 /**
  * Admin, office and field_manager only. Stable workflow identities and Colorado calendar days.

@@ -677,6 +677,33 @@ export interface SchedulingQueueResult {
   slipped: SchedulingQueueItem[];
 }
 
+export type TicketNextStopCrew = {
+  id: string;
+  name: string;
+};
+
+export interface TicketNextStop {
+  /** Colorado calendar date */
+  date: string;
+  crew: TicketNextStopCrew;
+  /** @nullable */
+  routeOrder: number | null;
+  label: string;
+}
+
+export interface SchedulingSkipInput {
+  /**
+   * Trimmed reason; Other alone is not a reason
+   * @minLength 3
+   * @maxLength 500
+   */
+  reason: string;
+}
+
+export interface SchedulingSkipResult {
+  currentStatusId: string;
+}
+
 export type VisitMutation = Visit & {
   ticketSync: VisitTicketSync;
 };
