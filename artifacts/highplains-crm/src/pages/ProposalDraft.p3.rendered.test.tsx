@@ -63,6 +63,43 @@ beforeEach(() => {
 afterEach(async () => { cleanup(); queryClient.clear(); vi.unstubAllGlobals(); await i18n.changeLanguage("en"); });
 
 describe("P3 proposal layout", () => {
+  it.each([["t", "Saved to the ticket"], [null, "Saved to the estimate"]])(
+    "saves linked proposal work location to the correct owner (%s) and refreshes the live preview",
+    async (ticketId, ownerText) => {
+      const display = { customerName: "Delgado Residence", propertyAddressLines: "10 Main St\nBoulder CO 80000",
+        workLocation: "10 Main St\nBoulder CO 80000", workLocationSource: "property", workLocationInput: { label: null, details: null } };
+      estimateDetail = { ...detail("Example scope"), ticketId, display };
+      const requests: unknown[] = [];
+      vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/api/estimates/e/work-location" && init?.method === "PUT") {
+          requests.push(JSON.parse(String(init.body)));
+          expect(new Headers(init.headers).get("X-Company-Id")).toBe("c");
+          const source = ticketId ? "ticket" : "estimate";
+          estimateDetail = { ...detail("Example scope"), ticketId,
+            display: { ...display, workLocation: "East gate", workLocationSource: source, workLocationInput: { label: "East gate", details: null } } };
+          return Response.json({ text: "East gate", source });
+        }
+        return Response.json([]);
+      }));
+      const reload = vi.fn();
+      const preview = vi.spyOn(window, "open").mockReturnValue({
+        closed: false, location: { href: `${window.location.origin}/api/proposals/p/pdf?inline=1`, reload },
+      } as unknown as Window);
+      try {
+        mount({ ...base, ticketId });
+        expect((await screen.findByTestId("text-work-location-owner")).textContent).toBe(ownerText);
+        expect(screen.getByTestId("text-check-work-location").textContent).toBe(display.workLocation);
+        fireEvent.click(screen.getByTestId("button-preview-pdf"));
+        fireEvent.click(screen.getByTestId("button-edit-work-location"));
+        fireEvent.change(screen.getByTestId("input-work-location-label"), { target: { value: "  East gate " } });
+        fireEvent.click(screen.getByTestId("button-save-work-location"));
+        await waitFor(() => expect(screen.getByTestId("text-check-work-location").textContent).toBe("East gate"));
+        expect(screen.getByTestId("text-work-location").textContent).toBe("East gate");
+        expect(requests).toEqual([{ label: "East gate", details: null }]);
+        expect(reload).toHaveBeenCalledOnce();
+      } finally { preview.mockRestore(); }
+    },
+  );
   it("puts header actions incl. red Delete on one row, ticket bar above title/date, and two responsive columns", async () => {
     mount({ ...base, ticketId: "t" });
     const header = await screen.findByTestId("proposal-header");
@@ -212,6 +249,7 @@ describe("P3 proposal layout", () => {
     expect((zone as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("fieldset-proposal-content-2") as HTMLFieldSetElement).disabled).toBe(true);
     expect((screen.getByTestId("fieldset-proposal-title-row") as HTMLFieldSetElement).disabled).toBe(true);
+    expect(screen.queryByTestId("proposal-work-location")).toBeNull();
     expect(screen.queryByTestId("button-finalize-proposal")).toBeNull();
     expect((screen.getByTestId("button-delete-proposal") as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByTestId("button-toggle-section-photos") as HTMLButtonElement).disabled).toBe(false);

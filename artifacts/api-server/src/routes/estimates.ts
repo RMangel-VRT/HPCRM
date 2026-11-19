@@ -3,6 +3,7 @@ import { z } from "zod/v4";
 import { createEstimateSchema, patchEstimateSchema, patchEstimateVersionSchema, createEstimateSectionSchema, patchEstimateSectionSchema,
   createEstimateLineSchema, patchEstimateLineSchema, estimateListQuerySchema, estimateDetailQuerySchema, estimateIdSchema,
    sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, catalogMatchesQuerySchema } from "@workspace/db";
+import { PutEstimateWorkLocationBody, PutEstimateWorkLocationResponse } from "@workspace/api-zod";
 import type { UserWithContext } from "../auth";
 import { estimateAccess } from "../lib/estimateAccess";
 import { logger } from "../lib/logger";
@@ -15,6 +16,7 @@ import { renderEstimatePdf } from "../services/estimatePdf";
 import { DocumentRendererUnavailable } from "../services/documents/browser";
 import { customerActivation } from "../services/customerActivation";
 import { catalogMatches } from "../services/estimateCatalogSaves";
+import { rejectDirectEstimateLocationWrite, updateEstimateWorkLocation } from "../services/estimateWorkLocation";
 
 const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) => {
   try { await fn(req, res, next); } catch (error) {
@@ -52,7 +54,20 @@ export function registerEstimateRoutes(app: Express) {
   }));
   router.patch("/:id", handle(async (req, res) => {
     const { id } = pathSchema.parse(req.params);
-    res.json(await retitleEstimate((req.user as UserWithContext).activeCompanyId, id, patchEstimateSchema.parse(req.body).title));
+    const { activeCompanyId } = req.user as UserWithContext;
+    if (req.body && ["workLocationLabel", "workLocationDescription", "work_location_label", "work_location_description"]
+      .some(key => Object.hasOwn(req.body, key))) await rejectDirectEstimateLocationWrite(activeCompanyId, id);
+    res.json(await retitleEstimate(activeCompanyId, id, patchEstimateSchema.parse(req.body).title));
+  }));
+  router.put("/:id/work-location", handle(async (req, res) => {
+    const { id } = pathSchema.parse(req.params);
+    const user = req.user as UserWithContext;
+    const parsed = PutEstimateWorkLocationBody.strict().safeParse(req.body);
+    if (!parsed.success) throw new EstimateError(400, "INVALID_REQUEST");
+    const { label, details } = parsed.data;
+    const resolved = await updateEstimateWorkLocation(user.activeCompanyId, user.id, id,
+      { label: label?.trim() || null, details: details?.trim() || null });
+    res.json(PutEstimateWorkLocationResponse.parse(resolved));
   }));
   const versionPath = "/:id/versions/:versionId";
   router.patch(versionPath, handle(async (req, res) => {

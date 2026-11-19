@@ -25,6 +25,8 @@ import { plantPalettes, plantPaletteItems } from "@workspace/db";
 import { storage as proposalStorage } from "../storage";
 import { carryProposalScope } from "../lib/carryProposalScope";
 import { loadProposalDocumentModel, renderProposalDocument } from "./proposalDocument";
+import { renderEstimatePdf } from "./estimatePdf";
+import { registerEstimateRoutes } from "../routes/estimates";
 import { ObjectStorageService as RealObjectStorageService } from "../objectStorage";
 import { closeDocumentBrowser } from "./documents/browser";
 import { PDFDocument } from "pdf-lib";
@@ -72,8 +74,8 @@ const storage = {
 const proposal = async (estimateId: string | null = null, linkedTicket: string | null = null) => storage.createProposal({
   companyId, customerId, ticketId: linkedTicket, estimateId, title: "Disposable proposal", proposalDate: "2026-11-03", proposalNumber: randomUUID(),
 });
-async function draft() {
-  const d = await createEstimate(companyId, actor, { customerId, title: "Disposable estimate" });
+async function draft(linkedTicketId?: string) {
+  const d = await createEstimate(companyId, actor, { customerId, title: "Disposable estimate", ticketId: linkedTicketId });
   return createLine(companyId, d.id, d.version.id, { sectionId: d.version.sections[0].id, lineType: "custom",
     name: "Install", unit: "EA", quantity: "2", unitPriceCents: 1234, umbrellaKey: "landscape_labor" });
 }
@@ -127,6 +129,7 @@ beforeAll(async () => {
     assertNotParentCustomer: async () => false,
     objectStorageClient: { bucket: () => ({ file: () => ({ delete: async () => {} }) }) } };
   new Function(...Object.keys(deps), code)(...Object.values(deps));
+  registerEstimateRoutes(app);
 });
 async function plantDraft() {
   const d = await createEstimate(companyId, actor, { customerId, title: "Plant fixture" });
@@ -173,8 +176,13 @@ describe("estimate-derived proposal exhibits", () => {
       expect(download).not.toHaveBeenCalled();
     } finally { download.mockRestore(); }
   });
-  it("stores a real compact PDF only after send and keeps its bytes through later revisions and downloads", async () => {
-    const d = await draft(), p = await proposal(d.id);
+  it("prints a shared two-line property fallback and keeps finalized bytes through later location edits and revisions", async () => {
+    const [{ ticketTypeId, currentStatusId }] = await db.select({ ticketTypeId: tickets.ticketTypeId, currentStatusId: tickets.currentStatusId })
+      .from(tickets).where(eq(tickets.id, ticketId));
+    const [locationTicket] = await db.insert(tickets).values({
+      companyId, customerId, ticketTypeId, currentStatusId, title: "Disposable location ticket", createdById: actor,
+    }).returning();
+    const d = await draft(locationTicket.id), p = await proposal(d.id, locationTicket.id);
     render.mockImplementationOnce(async (proposal, company, versionId, exhibits) => {
       const selected = await readEstimate(company, d.id);
       expect(selected.version.status).toBe("sent");
@@ -185,9 +193,27 @@ describe("estimate-derived proposal exhibits", () => {
     const response = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "portal", expectedEstimateVersionId: d.version.id }).expect(201);
     const bytes = stored.get(response.body.pdfStoragePath)!;
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(2);
-    const text = execFileSync("pdftotext", ["-layout", "-", "-"], { input: bytes }).toString();
+    const pdfText = (pdf: Buffer) => execFileSync("pdftotext", ["-layout", "-", "-"], { input: pdf }).toString();
+    const text = pdfText(bytes);
     expect(text).toContain("PROPOSAL TOTAL");
     expect(text).toContain("Signing below accepts");
+    // Layout extraction interleaves the labels/values of neighboring columns.
+    const twoLines = /WORK LOCATION[^\n]*\n(?:[^\n]*\n){0,3}[^\n]*\bTest\b[^\n]*\n[^\n]*Test CO 00000/;
+    for (const page of text.split("\f").slice(0, 2)) {
+      expect(page).toMatch(twoLines);
+    }
+    expect(pdfText(await renderEstimatePdf(companyId, d.id, d.version.id))).toMatch(twoLines);
+    await request(app).put(`/api/estimates/${d.id}/work-location`).send({ label: "West Work Gate", details: "Entrance near pond" })
+      .expect(200, { text: "West Work Gate\nEntrance near pond", source: "ticket" });
+    const full = await storage.getProposalById(p.id, companyId) as ProposalWithDetails;
+    const exhibits = await loadProposalExhibits(companyId, { ...full, estimate: { number: d.estimateNumber,
+      currentVersion: { id: d.version.id, versionNumber: 1 } } });
+    const live = await renderProposalDocument(await loadProposalDocumentModel(companyId, full, exhibits));
+    for (const page of pdfText(live).split("\f").slice(0, 2)) {
+      expect(page).toContain("West Work Gate");
+      expect(page).toContain("Entrance near pond");
+    }
+    expect(pdfText(await renderEstimatePdf(companyId, d.id, d.version.id))).toContain("West Work Gate");
     await transitionEstimate(companyId, actor, d.id, d.version.id, "revise", {});
     render.mockClear();
     const downloaded = await request(app).get(`/api/proposals/${p.id}/versions/${response.body.id}/download`).expect(200);

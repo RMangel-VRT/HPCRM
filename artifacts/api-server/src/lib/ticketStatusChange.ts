@@ -7,6 +7,7 @@ import { ContractCenterError } from "./contractCenterService";
 import { dueDateExtendedToFuture as wasDueDateExtendedToFuture } from "./dueDateDismissal";
 import { assertSchedulingGate, isSchedulingGateType } from "./schedulingTransition";
 import { lockVisitCompany, lockVisitTickets } from "./visitLocks";
+import { recordTicketLocationEdit } from "./ticketLocationHistory";
 
 /** Shared persistence of a status change. PATCH retains its type-specific
  * validation/step-back effects before calling this, in the same transaction. */
@@ -58,6 +59,9 @@ export async function applyTicketStatus(tx: Transaction, input: {
   }
   const row = await storage.updateTicket(ticket.id, ticket.companyId, updates);
   if (!row) throw new ContractCenterError(404, "Ticket not found");
+  if (["locationLabel", "locationDescription", "locationLat", "locationLng"].some(key => Object.hasOwn(updates, key))) {
+    await recordTicketLocationEdit(ticket, row, userId);
+  }
   if ((changing && target?.isFinal === "true") || wasDueDateExtendedToFuture(updates.dueDate, ticket.dueDate)) {
     await storage.dismissDueDateNotificationsForTicket(ticket.id);
   }

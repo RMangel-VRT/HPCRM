@@ -39,6 +39,11 @@ export const estimateQuantitySchema = z.union([z.string(), z.number().finite()])
   .transform(String).refine(v => /^\d{1,10}(?:\.\d{1,2})?$/.test(v) && /[1-9]/.test(v), "Quantity must be positive, numeric(12,2)");
 export const createEstimateSchema = z.object({ customerId: estimateIdSchema, title: name, ticketId: estimateIdSchema.optional() }).strict();
 export const patchEstimateSchema = z.object({ title: name }).strict();
+export interface EstimateWorkLocationInput { label: string | null; details: string | null }
+export interface ResolvedWorkLocation {
+  text: string | null;
+  source: "ticket" | "estimate" | "property";
+}
 export const patchEstimateVersionSchema = z.object({ scopeOfWork: z.string().max(10000).nullable() }).strict();
 export const createEstimateSectionSchema = z.object({ name }).strict();
 export const patchEstimateSectionSchema = z.object({ name: name.optional(), sortOrder: order.optional() }).strict();
@@ -157,6 +162,9 @@ export interface EstimateDetailDto extends EstimateContainerDto {
   display?: {
     companyName: string; customerName: string; customerAddress: string; createdByName: string | null;
     workLocation?: string | null;
+    workLocationSource?: ResolvedWorkLocation["source"];
+    workLocationInput?: EstimateWorkLocationInput;
+    propertyAddressLines?: string;
     ticket: { id: string; title: string; shortId: string; status: {
       name: string; statusKey: string | null; actionType: "needs_action" | "waiting"; isFinal: "true" | "false";
     } | null } | null;

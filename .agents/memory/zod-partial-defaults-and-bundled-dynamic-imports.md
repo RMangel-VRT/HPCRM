@@ -26,3 +26,12 @@ The api-server prod build bundles to `dist/index.mjs`; a runtime
 
 **How to apply:** use static top-level imports in api-server route code;
 never lazy-import local modules by relative path.
+
+# Mixed Zod versions in route handlers
+
+Generated OpenAPI validators can throw a Zod 3 error while a hand-written
+router catches the Zod 4 class. Use `safeParse` and return the route's normal
+validation response explicitly at this boundary.
+
+**Why:** an invalid request otherwise falls through the wrong `instanceof`
+check and returns 500 instead of 400.

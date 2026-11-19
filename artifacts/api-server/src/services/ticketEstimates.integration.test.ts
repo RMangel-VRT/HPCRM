@@ -6,8 +6,8 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { companies, customers, users, tickets, ticketTypes, ticketTypeStatuses, ticketTypeFields,
-  ticketFieldValues, ticketStatusHistory, ticketComments, estimateLines, insertTicketSchema, insertTicketFieldValueSchema, pool as schemaPool } from "@workspace/db";
-import { db, pool } from "../db";
+  ticketFieldValues, ticketStatusHistory, ticketComments, estimates, estimateLines, insertTicketSchema, insertTicketFieldValueSchema, pool as schemaPool } from "@workspace/db";
+import { db, pool, inTransaction } from "../db";
 import { storage } from "../storage";
 import { createEstimate, createLine } from "./estimates";
 import { transitionEstimate } from "./estimateLifecycle";
@@ -16,7 +16,8 @@ import { registerEstimateRoutes } from "../routes/estimates";
 import { registerTicketExpectedCompany } from "../lib/ticketExpectedCompany";
 import { transactionalTicketPatch } from "../lib/ticketPatchTransaction";
 import { applyTicketStatus } from "../lib/ticketStatusChange";
-import { applySchedulingTransition } from "../lib/schedulingTransition";
+import { applySchedulingTransition, assertSchedulingGate, isSchedulingGateType } from "../lib/schedulingTransition";
+import { hasOpenTicketVisit, lockVisitCompany, lockVisitTickets, VisitError } from "../lib/visitLocks";
 import { applyVisitTicketEdit } from "../lib/visitTicketCompatibility";
 import { maintainScheduleBy } from "../lib/scheduleByMaintenance";
 import { pickProvided } from "../lib/patchBody";
@@ -39,7 +40,9 @@ if (patchStart < 0 || putStart < 0) throw new Error("Ticket handlers not found")
 const approved = source.match(/const APPROVED_BILLING_STATUS_KEYS = \[[\s\S]*?\] as const;/)![0];
 function mountTicketWrites(app: ReturnType<typeof express>) {
   const deps = { storage, db, sql, and, insertTicketSchema, insertTicketFieldValueSchema, transactionalTicketPatch,
-    applyTicketStatus, applySchedulingTransition, applyVisitTicketEdit, maintainScheduleBy, pickProvided,
+    applyTicketStatus, applySchedulingTransition, assertSchedulingGate, isSchedulingGateType, hasOpenTicketVisit,
+    lockVisitCompany, lockVisitTickets, VisitError, inTransaction,
+    applyVisitTicketEdit, maintainScheduleBy, pickProvided,
     isSeededTicketType, isSeededStatus, findSeededStatus, maybeAutoCreateInvoiceOnRfb, canSeeBilling, isBillingInvoiceAction, assertNotParentCustomer,
     ensureInvoiceTicketType: async () => { throw new Error("Approved status must not create invoice tickets"); } };
   const mount = new Function(...Object.keys(deps), "app", transformSync(
@@ -88,6 +91,58 @@ afterAll(async () => {
   await Promise.all([pool.end(), schemaPool.end()]);
 });
 describe("real PostgreSQL ticket estimate integration", () => {
+  it("uses one live owner, preserving scheduling, billing and pin on document edits", async () => {
+    const { ticket: t, estimate: e } = await draft();
+    const http = request(appFor()), ticketUrl = `/api/tickets/${t.id}`, estimateUrl = `/api/estimates/${e.id}`;
+    const locationUrl = `${estimateUrl}/work-location`;
+    const payload = (label: string | null, details: string | null) => ({ label, details });
+    const fallback = "Test\nTest CO 00000";
+    const before = await storage.updateTicket(t.id, company, { priority: "urgent", locationLat: 39, locationLng: -105 });
+    expect((await http.get(estimateUrl).expect(200)).body.display)
+      .toMatchObject({ workLocation: fallback, workLocationSource: "property", workLocationInput: payload(null, null) });
+    await http.patch(ticketUrl).send({ locationLabel: "West gate", locationDescription: "Use service entrance" }).expect(200);
+    const afterPatch = await storage.getTicketById(t.id, company);
+    expect(afterPatch).toEqual({ ...before, locationLabel: "West gate", locationDescription: "Use service entrance", updatedAt: afterPatch!.updatedAt });
+    expect((await http.get(estimateUrl).expect(200)).body.display)
+      .toMatchObject({ workLocation: "West gate\nUse service entrance", workLocationSource: "ticket" });
+
+    const version = `/api/estimates/${e.id}/versions/${e.version.id}`;
+    await http.post(`${version}/send`).send({ method: "email" }).expect(200);
+    await request(appFor(company, "office")).put(locationUrl).send(payload("  East gate  ", "\t"))
+      .expect(200, { text: "East gate", source: "ticket" });
+    await http.post(`${version}/accept`).send({ method: "phone" }).expect(200);
+    await http.put(locationUrl).send(payload(null, "  Call on arrival  ")).expect(200, { text: "Call on arrival", source: "ticket" });
+    const accepted = (await http.get(estimateUrl).expect(200)).body;
+    expect(accepted.version).toMatchObject({ status: "accepted", frozenSubtotalCents: 83 });
+    expect(accepted).toMatchObject({ workLocationLabel: null, workLocationDescription: null,
+      display: { workLocation: "Call on arrival", workLocationSource: "ticket" } });
+    const finalTicket = await storage.getTicketById(t.id, company);
+    expect(finalTicket).toMatchObject({ locationLabel: null, locationDescription: "Call on arrival", locationLat: 39, locationLng: -105 });
+    expect(await db.select().from(ticketComments).where(eq(ticketComments.ticketId, t.id)))
+      .toEqual(Array.from({ length: 3 }, () => expect.objectContaining({ authorId: actor, body: "Work location updated" })));
+    await http.patch(estimateUrl).send({ workLocationLabel: "Wrong owner" })
+      .expect(409, { error: "WORK_LOCATION_OWNED_BY_TICKET", ticketId: t.id });
+    await http.put(locationUrl).send({ ...payload(null, null), locationLat: 3 }).expect(400);
+    await http.put(locationUrl).send({ label: null }).expect(400);
+    await request(appFor(company, "field")).put(locationUrl).send(payload(null, null)).expect(403);
+    await request(appFor(foreign)).put(locationUrl).send(payload(null, null)).expect(404);
+    await http.put(locationUrl).set("X-Company-Id", foreign).send(payload(null, null)).expect(409);
+
+    await storage.deleteTicket(t.id, company);
+    expect((await http.get(estimateUrl).expect(200)).body)
+      .toMatchObject({ ticketId: null, display: { workLocation: fallback, workLocationSource: "property" } });
+    await http.put(locationUrl).send(payload("Standalone gate", null)).expect(200, { text: "Standalone gate", source: "estimate" });
+    expect((await db.select().from(estimates).where(eq(estimates.id, e.id)))[0])
+      .toMatchObject({ workLocationLabel: "Standalone gate", workLocationDescription: null });
+    await http.put(locationUrl).send(payload("  ", null)).expect(200, { text: fallback, source: "property" });
+
+    const standalone = await createEstimate(company, actor, { customerId: customer, title: "Standalone" });
+    const standaloneUrl = `/api/estimates/${standalone.id}`;
+    await http.put(`${standaloneUrl}/work-location`).send(payload("Original", null)).expect(200, { text: "Original", source: "estimate" });
+    await http.post(`${standaloneUrl}/void`).send({ reason: "Test" }).expect(200);
+    await http.put(`${standaloneUrl}/work-location`).send(payload("No write", null)).expect(409, { error: "ESTIMATE_VOIDED" });
+    expect((await db.select().from(estimates).where(eq(estimates.id, standalone.id)))[0].workLocationLabel).toBe("Original");
+  });
   it("returns null only for owned no-estimate tickets and never leaks foreign tickets/estimates", async () => {
     const t = await ticket();
     expect(await readTicketEstimate(company, t.id)).toBeNull();

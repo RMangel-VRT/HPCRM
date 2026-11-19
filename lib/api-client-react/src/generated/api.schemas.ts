@@ -5,6 +5,34 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface EstimateWorkLocationInput {
+  /**
+   * @maxLength 500
+   * @nullable
+   */
+  label: string | null;
+  /**
+   * @maxLength 10000
+   * @nullable
+   */
+  details: string | null;
+}
+
+export type ResolvedEstimateWorkLocationSource =
+  (typeof ResolvedEstimateWorkLocationSource)[keyof typeof ResolvedEstimateWorkLocationSource];
+
+export const ResolvedEstimateWorkLocationSource = {
+  ticket: "ticket",
+  estimate: "estimate",
+  property: "property",
+} as const;
+
+export interface ResolvedEstimateWorkLocation {
+  /** @nullable */
+  text: string | null;
+  source: ResolvedEstimateWorkLocationSource;
+}
+
 export type ContractedServicesTargetsTargetsItem = {
   customerId: string;
   customerName: string;

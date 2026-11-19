@@ -72,6 +72,7 @@ import { companyHeaders } from "@/lib/hardscapeCatalog";
 import { SENT_METHODS, conflictOf, type SentMethod, type EstimateDetailDto } from "@/lib/estimateBuilder";
 import { advanceLinkedTicket, ticketRequest } from "@/lib/advanceLinkedTicket";
 import { ProposalEstimateSection } from "@/components/estimates/ProposalEstimateSection";
+import { EstimateWorkLocation } from "@/components/workLocation/EstimateWorkLocation";
 import { ProposalDocSection, useCollapsedSections } from "@/components/proposals/ProposalDocSection";
 import { formatCents } from "@/lib/hardscapeCatalog";
 import { useProposalLinkedEstimate, linkedEstimateTotalCents } from "@/components/estimates/useProposalLinkedEstimate";
@@ -274,6 +275,20 @@ function ProposalDraftContent() {
   const legacy = !!proposal && !proposal.estimateId;
   const collapse = useCollapsedSections(identity);
   const linkedEstimate = useProposalLinkedEstimate(proposal?.estimateId ? proposal : null, companyId);
+  const liveWorkLocation = linkedEstimate.data?.display?.workLocation;
+  const previewPath = `/api/proposals/${encodeURIComponent(id)}/pdf?inline=1`;
+  const previewTab = useRef<Window | null>(null);
+  const previewLocation = useRef(liveWorkLocation);
+  useEffect(() => {
+    const changed = previewLocation.current !== liveWorkLocation;
+    previewLocation.current = liveWorkLocation;
+    const tab = previewTab.current;
+    if (!changed || liveWorkLocation === undefined || !tab || tab.closed) return;
+    try {
+      // Don't take over a tab the user has navigated away from.
+      if (tab.location.href === new URL(previewPath, window.location.origin).href) tab.location.reload();
+    } catch { /* The tab has navigated cross-origin. The next preview opens fresh. */ }
+  }, [liveWorkLocation, previewPath]);
   const exhibits = useProposalExhibits(
     { id: proposal?.id ?? id, estimateId: proposal?.estimateId ?? "", estimate: proposal?.estimate ?? null },
     companyId, identity, !!proposal?.estimateId);
@@ -810,6 +825,8 @@ function ProposalDraftContent() {
       : { ok: false, value: t(linkedEstimate.isError ? "proposalP3.scopeUnavailable" : "proposalP3.checking") };
   const checklist = [
     { key: "estimate", label: t("proposalP3.check.estimate"), ok: !!proposal.estimateId, value: proposal.estimateId ? estimateNumber ?? "" : t("proposalP3.none") },
+    ...(!legacy ? [{ key: "work-location", label: t("workLocation.title"), ok: !!liveWorkLocation,
+      value: liveWorkLocation || "—" }] : []),
     { key: "total", label: t("proposalP3.check.total"), ok: totalCents != null, value: totalCents != null ? formatCents(totalCents, i18n.language) : "—" },
     { key: "scope", label: t("proposalP3.check.scope"), ...scopeRow },
     { key: "cover", label: t("proposalP3.check.cover"), ok: coverSource !== "none", value: coverLabel },
@@ -879,7 +896,11 @@ function ProposalDraftContent() {
                 size="sm"
                 variant="outline"
                 disabled={coverMutation.isPending}
-                onClick={() => window.open(`/api/proposals/${id}/pdf?inline=1`, '_blank')}
+                onClick={() => {
+                  const tab = window.open(previewPath, "_blank");
+                  if (tab) tab.opener = null;
+                  previewTab.current = tab;
+                }}
                 data-testid="button-preview-pdf"
               >
                 <Eye className="w-4 h-4 mr-2" />
@@ -982,7 +1003,7 @@ function ProposalDraftContent() {
       )}
 
       <fieldset disabled={legacy} className="min-w-0" data-testid="fieldset-proposal-title-row">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_220px]" data-testid="row-title-date">
+        <div className={`grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_220px] ${legacy ? "" : "xl:grid-cols-[minmax(0,1fr)_175px_minmax(0,1fr)]"}`} data-testid="row-title-date">
           <div className="space-y-1.5">
             <Label htmlFor="field-title">{t("common.title")}</Label>
             <Input
@@ -1005,6 +1026,14 @@ function ProposalDraftContent() {
               data-testid="input-proposal-date"
             />
           </div>
+          {!legacy && (
+            <div className="min-w-0 space-y-1.5 sm:col-span-2 xl:col-span-1" data-testid="proposal-work-location">
+              <p className="text-sm font-medium">{t("workLocation.title")}</p>
+              {linkedEstimate.data ? <EstimateWorkLocation key={linkedEstimate.data.id} estimate={linkedEstimate.data}
+                companyId={companyId} canEdit={["admin", "office"].includes(user?.accessRole ?? "")} showOwner />
+                : <p className="text-sm text-muted-foreground">{t(linkedEstimate.isError ? "proposalEstimate.error" : "common.loading")}</p>}
+            </div>
+          )}
         </div>
       </fieldset>
       {hasVersions && (
@@ -1542,7 +1571,8 @@ function ProposalDraftContent() {
                       ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" aria-label={t("proposalP3.set")} />
                       : <span className="h-4 w-4 shrink-0 rounded-full border-2 border-muted-foreground/30" role="img" aria-label={t("proposalP3.notSet")} />}
                     <span className="text-muted-foreground">{row.label}</span>
-                    <span className="ml-auto truncate text-right font-medium" data-testid={`text-check-${row.key}`}>{row.value}</span>
+                    <span className={`ml-auto text-right font-medium ${row.key === "work-location" ? "min-w-0 whitespace-pre-wrap break-words" : "truncate"}`}
+                      data-testid={`text-check-${row.key}`}>{row.value}</span>
                   </li>
                 ))}
               </ul>

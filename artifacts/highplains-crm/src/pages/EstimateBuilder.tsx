@@ -29,6 +29,7 @@ import { ScopeOfWorkCard } from "@/components/estimates/ScopeOfWorkCard";
 import { PdfPreviewDialog } from "@/components/estimates/PdfPreviewDialog";
 import { EstimateProposalButton, proposalPath, useEstimateProposals } from "@/components/estimates/EstimateProposalAction";
 import { DocumentBadge, EstimateStatePill, IdentityHeaderCard, MetadataCell, MetadataStrip } from "@/components/estimates/EstimateIdentityHeader";
+import { EstimateWorkLocation } from "@/components/workLocation/EstimateWorkLocation";
 import "@/components/estimates/estimateBuilder.css";
 import { TicketStatusPill, type TicketStatusLike } from "@/components/TicketIdentity";
 import { AddLineDialog, type AddLineBody, type AddLineInitial, type AddLineResult } from "@/components/estimates/AddLineDialog";
@@ -135,6 +136,8 @@ function BuilderContent({ id }: { id: string }) {
     queryFn: ({ signal }) => fetchJson<EstimateDetailDto>(`${ESTIMATES_API}/${encodeURIComponent(id)}${requestedVersion ? `?version=${requestedVersion}` : ""}`, companyId, signal),
     enabled: !!user && allowed && !!id,
     retry: false,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
   const activeVersionRef = useRef(data?.version.id);
   activeVersionRef.current = data?.version.id;
@@ -528,6 +531,9 @@ function BuilderContent({ id }: { id: string }) {
                 </span>
               ) : <span className="text-muted-foreground" data-testid="text-ticket-unlinked">{t("estimateBuilder.header.notLinked")}</span>}
             </MetadataCell>
+            <MetadataCell label={t("workLocation.title")} testId="cell-work-location">
+              <EstimateWorkLocation estimate={data} companyId={companyId} canEdit={allowed && !locked} />
+            </MetadataCell>
             <MetadataCell label={t("estimateBuilder.header.rates")} testId="cell-rates"><RatesChip q={rates} /></MetadataCell>
             <MetadataCell label={t("estimateBuilder.header.total")} testId="cell-total">
               <span className="font-semibold tabular-nums" data-testid="text-header-total">{formatCents(headerTotal, lang)}</span>
@@ -620,7 +626,7 @@ function BuilderContent({ id }: { id: string }) {
         </AlertDialogContent>
       </AlertDialog>
       <PdfPreviewDialog open={pdfOpen} onClose={() => setPdfOpen(false)} companyId={companyId} estimateId={data.id} versionId={v.id}
-        estimateNumber={data.estimateNumber} versionNumber={v.versionNumber} draft={v.status === "draft"} />
+        estimateNumber={data.estimateNumber} versionNumber={v.versionNumber} draft={v.status === "draft"} workLocation={display?.workLocation} />
       <SendDialog open={dialog === "send"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog} needPrice={needPriceLines}
         onSubmit={(b) => void lifecycle("send", "POST", `${vBase}/send`, b)} />
       {activation.dialog}

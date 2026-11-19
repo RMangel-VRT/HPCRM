@@ -7,6 +7,26 @@
  */
 import * as zod from "zod";
 
+export const putEstimateWorkLocationPathIdMax = 200;
+
+export const PutEstimateWorkLocationParams = zod.object({
+  id: zod.coerce.string().min(1).max(putEstimateWorkLocationPathIdMax),
+});
+
+export const putEstimateWorkLocationBodyLabelMax = 500;
+
+export const putEstimateWorkLocationBodyDetailsMax = 10000;
+
+export const PutEstimateWorkLocationBody = zod.object({
+  label: zod.string().max(putEstimateWorkLocationBodyLabelMax).nullable(),
+  details: zod.string().max(putEstimateWorkLocationBodyDetailsMax).nullable(),
+});
+
+export const PutEstimateWorkLocationResponse = zod.object({
+  text: zod.string().nullable(),
+  source: zod.enum(["ticket", "estimate", "property"]),
+});
+
 export const CustomerContractedServicesTargetsParams = zod.object({
   id: zod.coerce.string(),
 });

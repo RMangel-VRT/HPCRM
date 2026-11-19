@@ -70,7 +70,10 @@ beforeEach(() => {
     }
     else if (url === "/api/crews") r = { json: [{ id: "k1", name: "Crew 1", isActive: true }, { id: "k2", name: "Crew 2", isActive: true }] };
     else if (url === "/api/crews/board") r = { json: [{ id: "k1", name: "Crew 1", color: "#15803d", defaultHoursPerDay: 8 }, { id: "k2", name: "Crew 2", color: "#0369a1", defaultHoursPerDay: 8 }] };
-    else if (method === "PATCH") r = patchResult ?? { json: { id: "t1" } };
+    else if (method === "PATCH") {
+      if (!patchResult && url === "/api/tickets/t1") Object.assign(details.ticket, JSON.parse(String(init?.body)));
+      r = patchResult ?? { json: { id: "t1" } };
+    }
     if (url === "/api/tickets/t1/visits") await holdHistory();
     return new Response(JSON.stringify(r.json), { status: r.status ?? 200, headers: {
       "Content-Type": "application/json",
@@ -168,6 +171,58 @@ async function openEdit() {
 }
 
 describe("TicketDetail edit form with visits", () => {
+  it("saves and clears text independently of any pin or scheduling change", async () => {
+    details = detailsFor(true);
+    details.customer = { name: "Example Property", street: "10 Main St", city: "Boulder", state: "CO", zip: "80000" };
+    history = () => ({ json: [visit("v1", "planned")] });
+    mount();
+    await openEdit();
+    fireEvent.click(screen.getByTestId("button-use-work-property-address"));
+    expect((screen.getByTestId("input-work-location-details") as HTMLTextAreaElement).value).toBe("10 Main St\nBoulder CO 80000");
+    fireEvent.change(screen.getByTestId("input-work-location-label"), { target: { value: "  West gate  " } });
+    fireEvent.change(screen.getByTestId("input-work-location-details"), { target: { value: "Phone at arrival" } });
+    fireEvent.click(screen.getByTestId("button-save-edit"));
+    expect((await screen.findByTestId("text-ticket-location-label")).textContent).toBe("West gate");
+    expect(screen.getByTestId("text-ticket-location-details").textContent).toBe("Phone at arrival");
+    expect(screen.queryByTestId("button-navigate")).toBeNull();
+    expect(patchBody()).toEqual({ locationLabel: "West gate", locationDescription: "Phone at arrival" });
+    await openEdit();
+    fireEvent.change(screen.getByTestId("input-work-location-label"), { target: { value: "" } });
+    fireEvent.change(screen.getByTestId("input-work-location-details"), { target: { value: " " } });
+    fireEvent.click(screen.getByTestId("button-save-edit"));
+    await waitFor(() => expect(screen.queryByTestId("card-location")).toBeNull());
+    expect(patchBody()).toEqual({ locationLabel: null, locationDescription: null });
+  });
+
+  it("uses customer coordinates, moves a pin, then removes it without clearing the text", async () => {
+    details = detailsFor(false);
+    details.ticket.locationLabel = "Existing";
+    details.customer = { name: "Example Property", locationLat: 0, locationLng: -105 };
+    history = () => ({ json: [] });
+    mount();
+    await openEdit();
+    await userEvent.click(screen.getByTestId("toggle-work-location-pin"));
+    fireEvent.click(await screen.findByTestId("button-work-pin-customer"));
+    expect(screen.getByTestId("toggle-work-location-pin").textContent).toContain("0.0000, -105.0000");
+    fireEvent.click(screen.getByTestId("button-save-edit"));
+    await screen.findByTestId("button-navigate");
+    expect(patchBody()).toEqual({ locationLat: 0, locationLng: -105 });
+    await openEdit();
+    await userEvent.click(screen.getByTestId("toggle-work-location-pin"));
+    const map = (await screen.findByTestId("map-work-location")).querySelector(".leaflet-container")!;
+    fireEvent.click(map, { clientX: 50, clientY: 40 });
+    await waitFor(() => expect(screen.getByTestId("toggle-work-location-pin").textContent).not.toContain("0.0000, -105.0000"));
+    fireEvent.click(screen.getByTestId("button-save-edit"));
+    await waitFor(() => expect(patchBody().locationLat).not.toBe(0));
+    await waitFor(() => expect(screen.queryByTestId("input-edit-title")).toBeNull());
+    await openEdit();
+    await userEvent.click(screen.getByTestId("toggle-work-location-pin"));
+    fireEvent.click(await screen.findByTestId("button-remove-work-pin"));
+    fireEvent.click(screen.getByTestId("button-save-edit"));
+    await waitFor(() => expect(screen.queryByTestId("button-navigate")).toBeNull());
+    expect(patchBody()).toEqual({ locationLat: null, locationLng: null });
+    expect(screen.getByTestId("text-ticket-location-label").textContent).toBe("Existing");
+  });
   it.each(["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing", "invoicing"].flatMap(
     statusKey => ["light", "dark"].map(theme => [statusKey, theme]),
   ))(
@@ -259,10 +314,11 @@ describe("TicketDetail edit form with visits", () => {
     await openEdit();
     await waitFor(() => expect(screen.queryByTestId("text-edit-visits-checking")).toBeNull());
     expect(screen.getByTestId("input-edit-dueDate")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("select-edit-crew"));
+    await userEvent.click(await screen.findByRole("option", { name: "Crew 2" }));
     fireEvent.click(screen.getByTestId("button-save-edit"));
     await waitFor(() => expect(patchBody()).toBeTruthy());
-    expect(patchBody().crewId).toBe("k1");
-    expect(patchBody().dueDate).toBeTruthy();
+    expect(patchBody()).toEqual({ crewId: "k2" });
   });
 
   it("failed history is not treated as empty and does not submit the keys", async () => {
@@ -272,6 +328,7 @@ describe("TicketDetail edit form with visits", () => {
     await screen.findByTestId("button-retry-visits");
     await openEdit();
     expect(await screen.findByTestId("button-edit-visits-retry")).toBeTruthy();
+    fireEvent.change(screen.getByTestId("input-edit-title"), { target: { value: "Updated title" } });
     fireEvent.click(screen.getByTestId("button-save-edit"));
     await waitFor(() => expect(patchBody()).toBeTruthy());
     expect("crewId" in patchBody()).toBe(false);
@@ -287,6 +344,9 @@ describe("TicketDetail edit form with visits", () => {
     await screen.findByTestId("card-ticket-visits");
     await openEdit();
     await waitFor(() => expect(screen.getByTestId("input-edit-dueDate")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("select-edit-crew"));
+    await userEvent.click(await screen.findByRole("option", { name: "Crew 2" }));
+    fireEvent.change(screen.getByTestId("input-edit-title"), { target: { value: "Updated title" } });
     list = [visit("v9", "planned")];
     fireEvent.click(screen.getByTestId("button-save-edit"));
     await waitFor(() => expect(patchBody()).toBeTruthy());
@@ -302,9 +362,11 @@ describe("TicketDetail edit form with visits", () => {
     await openEdit();
     expect(screen.getByTestId("input-edit-dueDate")).toBeTruthy();
     expect(screen.queryByTestId("card-ticket-visits")).toBeNull();
+    await userEvent.click(screen.getByTestId("select-edit-crew"));
+    await userEvent.click(await screen.findByRole("option", { name: "Crew 2" }));
     fireEvent.click(screen.getByTestId("button-save-edit"));
     await waitFor(() => expect(patchBody()).toBeTruthy());
-    expect(patchBody().crewId).toBe("k1");
+    expect(patchBody()).toEqual({ crewId: "k2" });
     expect(calls.some(c => c.url === "/api/tickets/t1/visits")).toBe(false);
   });
   it("does not infer scheduled capability from an unkeyed display name", async () => {
@@ -339,7 +401,7 @@ describe("TicketDetail edit form with visits", () => {
     await waitFor(() => expect(calls.some(c => c.method === "DELETE" && c.url === "/api/visits/v1")).toBe(true));
   });
 
-  it("zero open visits: changing crew AND date sends the new values and routeOrder", async () => {
+  it("zero open visits: changing crew and date does not send unchanged route order", async () => {
     details = detailsFor(true);
     history = () => ({ json: [] });
     mount();
@@ -357,7 +419,7 @@ describe("TicketDetail edit form with visits", () => {
     const d = new Date(b.dueDate);
     const now = new Date();
     expect([d.getFullYear(), d.getMonth(), d.getDate()]).toEqual([now.getFullYear(), now.getMonth(), now.getDate()]);
-    expect("routeOrder" in b).toBe(true);
+    expect("routeOrder" in b).toBe(false);
   });
 
   it("pending history locks the fields; invalidation after a visit mutation re-locks until refetched", async () => {
@@ -401,6 +463,8 @@ describe("TicketDetail edit form with visits", () => {
     await screen.findByTestId("card-ticket-visits");
     await openEdit();
     await waitFor(() => expect(screen.getByTestId("input-edit-dueDate")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("select-edit-crew"));
+    await userEvent.click(await screen.findByRole("option", { name: "Crew 2" }));
     fireEvent.click(screen.getByTestId("button-save-edit"));
     await waitFor(() => expect(screen.queryByTestId("input-edit-title")).toBeNull());
     await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());

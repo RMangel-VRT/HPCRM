@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { useTranslation } from "react-i18next";
@@ -99,6 +99,24 @@ import { handleMultipleVisits } from "@/lib/multipleVisits";
 import { focusVisitsCard, fetchTicketVisits, invalidateSchedulingEverywhere, isOpenVisit } from "@/lib/scheduling";
 import { TicketSchedulingPanel, ScheduleByFact } from "@/components/TicketSchedulingPanel";
 import { invalidateTicketScheduling } from "@/lib/schedulingStatus";
+import { WorkLocationFields } from "@/components/workLocation/WorkLocationFields";
+import { WorkLocationPin } from "@/components/workLocation/WorkLocationPin";
+import { refreshWorkLocation } from "@/lib/workLocation";
+
+type TicketEditUpdate = {
+  title?: string;
+  description?: string | null;
+  priority?: "low" | "normal" | "high" | "urgent";
+  dueDate?: Date | null;
+  workCompletedDate?: Date | null;
+  invoiceCategory?: "general_maintenance" | "snow" | null;
+  crewId?: string | null;
+  routeOrder?: number | null;
+  locationLabel?: string | null;
+  locationDescription?: string | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
+};
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -279,6 +297,10 @@ export default function TicketDetail() {
     invoiceCategory: "general_maintenance" | "snow" | null;
     crewId: string | null;
     routeOrder: string;
+    locationLabel: string;
+    locationDescription: string;
+    locationLat: number | null;
+    locationLng: number | null;
   }>({
     title: "",
     description: "",
@@ -288,7 +310,12 @@ export default function TicketDetail() {
     invoiceCategory: null,
     crewId: null,
     routeOrder: "",
+    locationLabel: "",
+    locationDescription: "",
+    locationLat: null,
+    locationLng: null,
   });
+  const editOriginal = useRef<typeof editForm | null>(null);
 
   // Workflow stepper: which step's detail panel is showing (null = follow the current
   // status), and whether the collapsed long-workflow rail has been expanded.
@@ -326,6 +353,8 @@ export default function TicketDetail() {
       return res.json();
     },
     enabled: !!ticketId,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
     refetchInterval: query => query.state.data?.ticketType?.typeKey === "rfp_request" ? 60_000 : false,
   });
 
@@ -483,20 +512,19 @@ export default function TicketDetail() {
   });
 
   // Mutation to edit ticket details
+  const editQueryClient = useQueryClient();
   const editTicketMutation = useMutation({
-    mutationFn: async (updates: {
-      title?: string;
-      description?: string;
-      priority?: "low" | "normal" | "high" | "urgent";
-      dueDate?: Date | null;
-      workCompletedDate?: Date | null;
-      invoiceCategory?: "general_maintenance" | "snow" | null;
-    }) => {
-      return apiRequest("PATCH", `/api/tickets/${ticketId}`, updates);
+    mutationFn: async (updates: TicketEditUpdate) => {
+      const companyId = currentUser?.activeCompanyId;
+      return apiRequest("PATCH", `/api/tickets/${ticketId}`, updates,
+        { headers: companyId ? { "X-Company-Id": companyId } : undefined });
     },
-    onSuccess: () => {
+    onSuccess: (_response, updates) => {
       // Crew + date edits can move the ticket to Scheduled (or back) on the server.
-      invalidateTicketScheduling(queryClient, ticketId, details?.ticket.customerId);
+      invalidateTicketScheduling(editQueryClient, ticketId, details?.ticket.customerId);
+      if (("locationLabel" in updates || "locationDescription" in updates) && currentUser?.activeCompanyId) {
+        void refreshWorkLocation(editQueryClient, { companyId: currentUser.activeCompanyId, ticketId });
+      }
       setShowEditDialog(false);
       toast({ title: t('ticketDetail.updated') });
     },
@@ -776,6 +804,11 @@ export default function TicketDetail() {
   }
 
   const { ticket, ticketType, statuses, fieldValues, statusHistory, comments, customer, contract, contractServices = [], assignedUser, delegatedByUser, linkedTickets = [] } = details;
+  const ticketPin = ticket.locationLat != null && ticket.locationLng != null
+    ? [ticket.locationLat, ticket.locationLng] as [number, number] : null;
+  const customerPin = customer?.locationLat != null && customer?.locationLng != null
+    ? [customer.locationLat, customer.locationLng] as [number, number] : null;
+  const propertyAddress = customer ? [customer.street, [customer.city, customer.state, customer.zip].filter(Boolean).join(" ")].filter(Boolean).join("\n") : "";
   const priority = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig.normal;
   const currentStatus = statuses.find(s => s.id === ticket.currentStatusId);
   const isTask = isSeededTicketType(ticketType, "task");
@@ -1096,7 +1129,7 @@ export default function TicketDetail() {
   const handleOpenEdit = () => {
     if (!details) return;
     const { ticket } = details;
-    setEditForm({
+    const original: typeof editForm = {
       title: ticket.title || "",
       description: ticket.description || "",
       priority: ticket.priority || "normal",
@@ -1108,30 +1141,51 @@ export default function TicketDetail() {
         ticket.routeOrder === null || ticket.routeOrder === undefined
           ? ""
           : String(ticket.routeOrder),
-    });
+      locationLabel: ticket.locationLabel ?? "",
+      locationDescription: ticket.locationDescription ?? "",
+      locationLat: ticket.locationLat ?? null,
+      locationLng: ticket.locationLng ?? null,
+    };
+    editOriginal.current = original;
+    setEditForm(original);
     setShowEditDialog(true);
   };
 
   // Save ticket edits
   const handleSaveEdit = async () => {
-    const updates: any = {
-      title: editForm.title,
-      description: editForm.description || null,
-      priority: editForm.priority,
-      workCompletedDate: editForm.workCompletedDate ? new Date(editForm.workCompletedDate.getFullYear(), editForm.workCompletedDate.getMonth(), editForm.workCompletedDate.getDate(), 12, 0, 0) : null,
-      invoiceCategory: editForm.invoiceCategory,
-    };
-    // Recheck against fresh history at save time; failure is never treated as "no open visits".
-    let lockNow = false;
-    if (scheduledCapable && ticketId) {
-      if (!canViewVisits) lockNow = true;
-      else try { lockNow = (await fetchTicketVisits(ticketId, currentUser?.activeCompanyId)).some(isOpenVisit); } catch { lockNow = true; }
+    const original = editOriginal.current;
+    if (!original) return;
+    const day = (value?: Date) => value ? format(value, "yyyy-MM-dd") : null;
+    const midday = (value?: Date) => value ? new Date(value.getFullYear(), value.getMonth(), value.getDate(), 12) : null;
+    const updates: TicketEditUpdate = {};
+    if (editForm.title !== original.title) updates.title = editForm.title;
+    if (editForm.description !== original.description) updates.description = editForm.description || null;
+    if (editForm.priority !== original.priority) updates.priority = editForm.priority;
+    if (editForm.invoiceCategory !== original.invoiceCategory) updates.invoiceCategory = editForm.invoiceCategory;
+    if (day(editForm.workCompletedDate) !== day(original.workCompletedDate)) updates.workCompletedDate = midday(editForm.workCompletedDate);
+    for (const key of ["locationLabel", "locationDescription"] as const) {
+      if (editForm[key] !== original[key]) updates[key] = editForm[key].trim() || null;
     }
-    if (!lockNow) {
-      updates.routeOrder = editForm.routeOrder.trim() === "" ? null : Number.parseInt(editForm.routeOrder, 10);
-      updates.dueDate = editForm.dueDate ? new Date(editForm.dueDate.getFullYear(), editForm.dueDate.getMonth(), editForm.dueDate.getDate(), 12, 0, 0) : null;
-      updates.crewId = editForm.crewId;
+    for (const key of ["locationLat", "locationLng"] as const) {
+      if (editForm[key] !== original[key]) updates[key] = editForm[key];
     }
+    const routeChanged = editForm.routeOrder.trim() !== original.routeOrder;
+    const dueChanged = day(editForm.dueDate) !== day(original.dueDate);
+    const crewChanged = editForm.crewId !== original.crewId;
+    if (routeChanged || dueChanged || crewChanged) {
+      // Recheck only for scheduling edits; a location-only save doesn't touch scheduling.
+      let lockNow = false;
+      if (scheduledCapable && ticketId) {
+        if (!canViewVisits) lockNow = true;
+        else try { lockNow = (await fetchTicketVisits(ticketId, currentUser?.activeCompanyId)).some(isOpenVisit); } catch { lockNow = true; }
+      }
+      if (!lockNow) {
+        if (routeChanged) updates.routeOrder = editForm.routeOrder.trim() === "" ? null : Number.parseInt(editForm.routeOrder, 10);
+        if (dueChanged) updates.dueDate = midday(editForm.dueDate);
+        if (crewChanged) updates.crewId = editForm.crewId;
+      }
+    }
+    if (!Object.keys(updates).length) { setShowEditDialog(false); return; }
     editTicketMutation.mutate(updates);
   };
 
@@ -2194,11 +2248,12 @@ export default function TicketDetail() {
             </Card>
           )}
 
-          {ticket.locationLat && ticket.locationLng && (
+          {(ticketPin || ticket.locationLabel?.trim() || ticket.locationDescription?.trim()) && (
             <Card className="overflow-hidden" data-testid="card-location">
-              <div className="h-[150px] relative">
+              {ticketPin && <div className="h-[150px] relative">
                 <MapContainer
-                  center={[ticket.locationLat, ticket.locationLng]}
+                  key={ticketPin.join(",")}
+                  center={ticketPin}
                   zoom={16}
                   style={{ height: "100%", width: "100%" }}
                   className="z-0"
@@ -2210,26 +2265,26 @@ export default function TicketDetail() {
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   />
-                  <Marker position={[ticket.locationLat, ticket.locationLng]} />
+                  <Marker position={ticketPin} />
                 </MapContainer>
-              </div>
+              </div>}
               <CardContent className="p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <MapPin className="w-4 h-4 text-primary shrink-0" />
-                      <span className="block font-medium text-sm truncate">
-                        {ticket.locationLabel || "Pinned Location"}
+                      <span className="block font-medium text-sm break-words min-w-0" data-testid="text-ticket-location-label">
+                        {ticket.locationLabel?.trim() || t(ticketPin ? "workLocation.pinnedLocation" : "workLocation.title")}
                       </span>
                     </div>
                     {ticket.locationDescription && (
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2 ml-6">
+                      <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap break-words ml-6" data-testid="text-ticket-location-details">
                         {ticket.locationDescription}
                       </p>
                     )}
                   </div>
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${ticket.locationLat},${ticket.locationLng}`}
+                  {ticketPin && <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${ticketPin.join(",")}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="shrink-0"
@@ -2238,7 +2293,7 @@ export default function TicketDetail() {
                       <Navigation className="w-4 h-4 mr-1" />
                       {t('ticketDetail.location')}
                     </Button>
-                  </a>
+                  </a>}
                 </div>
               </CardContent>
             </Card>
@@ -3461,7 +3516,7 @@ export default function TicketDetail() {
       {scheduledCapable && canViewVisits && <TicketVisitsCard ticketId={ticket.id} ticketTitle={ticket.title} property={property} canPlace={!isComplete} />}
 
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{t('common.edit')}</DialogTitle>
             <DialogDescription>
@@ -3492,7 +3547,17 @@ export default function TicketDetail() {
                 data-testid="input-edit-description"
               />
             </div>
-            
+
+            <fieldset className="space-y-3 rounded-md border p-3" data-testid="group-ticket-work-location">
+              <legend className="px-1 text-sm font-medium">{t("workLocation.title")}</legend>
+              <WorkLocationFields label={editForm.locationLabel} details={editForm.locationDescription}
+                property={customer && { name: customer.name, address: propertyAddress }}
+                onChange={({ label, details }) => setEditForm(prev => ({ ...prev, locationLabel: label, locationDescription: details }))} />
+              <WorkLocationPin customerPoint={customerPin}
+                position={editForm.locationLat != null && editForm.locationLng != null ? [editForm.locationLat, editForm.locationLng] : null}
+                onChange={point => setEditForm(prev => ({ ...prev, locationLat: point?.[0] ?? null, locationLng: point?.[1] ?? null }))} />
+            </fieldset>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-priority">{t('common.priority')}</Label>

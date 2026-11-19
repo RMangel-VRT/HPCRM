@@ -69,3 +69,11 @@ timeouts, obscuring otherwise valid regression results.
 
 **How to apply:** Use `--maxWorkers=1 --no-file-parallelism` for document baselines
 and final checks; keep render timeouts proportional to the actual fixture.
+
+Restart the API workflow after real-PostgreSQL integration fixtures finish.
+
+**Why:** startup validates ticket workflows across companies and can reject a
+half-built or deliberately incomplete disposable workflow from a running test.
+
+**How to apply:** if startup rejects a workflow during an integration run,
+allow fixture cleanup, then retry before changing scheduling logic.

@@ -23,6 +23,27 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /estimates/{id}/work-location:
+    put:
+      operationId: putEstimateWorkLocation
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EstimateWorkLocationInput" }
+      responses:
+        "200":
+          description: Resolved work location
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResolvedEstimateWorkLocation" }
+        "400": { description: Invalid input }
+        "401": { description: Sign-in required }
+        "403": { description: Forbidden }
+        "404": { description: Estimate not found }
+        "409": { description: "Company or work-location owner changed, or estimate voided" }
   /customers/{id}/contracted-services-targets:
     get:
       operationId: customerContractedServicesTargets
@@ -1411,6 +1432,19 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    EstimateWorkLocationInput:
+      type: object
+      additionalProperties: false
+      required: [label, details]
+      properties:
+        label: { type: ["string", "null"], maxLength: 500 }
+        details: { type: ["string", "null"], maxLength: 10000 }
+    ResolvedEstimateWorkLocation:
+      type: object
+      required: [text, source]
+      properties:
+        text: { type: ["string", "null"] }
+        source: { type: string, enum: [ticket, estimate, property] }
     ContractedServicesTargets:
       type: object
       required: [parent, targets]

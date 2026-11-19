@@ -37,6 +37,7 @@ import type {
   EligibleSupervisor,
   EnrichedVisit,
   ErrorResponse,
+  EstimateWorkLocationInput,
   GetCampaignRoundCalendarParams,
   GetCustomerContractedServicesPdfParams,
   GetCustomerServicesParams,
@@ -70,6 +71,7 @@ import type {
   MobileWeekResponse,
   MobileWorkItemPatch,
   OwnerResponseTicket,
+  ResolvedEstimateWorkLocation,
   SchedulingQueueResult,
   SchedulingSkipInput,
   SchedulingSkipResult,
@@ -99,6 +101,91 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getPutEstimateWorkLocationUrl = (id: string) => {
+  return `/api/estimates/${id}/work-location`;
+};
+
+export const putEstimateWorkLocation = async (
+  id: string,
+  estimateWorkLocationInput: EstimateWorkLocationInput,
+  options?: RequestInit,
+): Promise<ResolvedEstimateWorkLocation> => {
+  return customFetch<ResolvedEstimateWorkLocation>(
+    getPutEstimateWorkLocationUrl(id),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(estimateWorkLocationInput),
+    },
+  );
+};
+
+export const getPutEstimateWorkLocationMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof putEstimateWorkLocation>>,
+    TError,
+    { id: string; data: BodyType<EstimateWorkLocationInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof putEstimateWorkLocation>>,
+  TError,
+  { id: string; data: BodyType<EstimateWorkLocationInput> },
+  TContext
+> => {
+  const mutationKey = ["putEstimateWorkLocation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof putEstimateWorkLocation>>,
+    { id: string; data: BodyType<EstimateWorkLocationInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return putEstimateWorkLocation(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PutEstimateWorkLocationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof putEstimateWorkLocation>>
+>;
+export type PutEstimateWorkLocationMutationBody =
+  BodyType<EstimateWorkLocationInput>;
+export type PutEstimateWorkLocationMutationError = ErrorType<void>;
+
+export const usePutEstimateWorkLocation = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof putEstimateWorkLocation>>,
+    TError,
+    { id: string; data: BodyType<EstimateWorkLocationInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof putEstimateWorkLocation>>,
+  TError,
+  { id: string; data: BodyType<EstimateWorkLocationInput> },
+  TContext
+> => {
+  return useMutation(getPutEstimateWorkLocationMutationOptions(options));
+};
 
 export const getCustomerContractedServicesTargetsUrl = (
   id: string,

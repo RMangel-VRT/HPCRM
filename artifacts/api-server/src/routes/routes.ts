@@ -12379,6 +12379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   app.get("/api/proposals/:id/pdf", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");

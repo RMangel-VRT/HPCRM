@@ -45,6 +45,10 @@ function makeDetail(o: { status?: string; sections?: number; subtotal?: number; 
   return {
     id: "e1", companyId: "c1", customerId: "cu1", ticketId: "t1", estimateNumber: "E-2025-0042", title: "Spring install", currentVersionId: "v2",
     voidedAt: o.voidedAt ?? null, voidReason: null, createdById: null, createdAt: T0, updatedAt: o.updatedAt ?? T0,
+    display: { companyName: "High Plains", customerName: "Ridge HOA", customerAddress: "10 Main St, Boulder CO 80000",
+      propertyAddressLines: "10 Main St\nBoulder CO 80000", workLocation: "10 Main St\nBoulder CO 80000",
+      workLocationSource: "property" as "property" | "ticket", workLocationInput: { label: null as string | null, details: null as string | null },
+      createdByName: null, ticket: null },
     versions: [
       { id: "v2", versionNumber: 2, status, createdAt: T0, updatedAt: T0 },
       { id: "v1", versionNumber: 1, status: "superseded", createdAt: T0, updatedAt: T0 },
@@ -118,6 +122,36 @@ function renderAt(path: string) {
 const ready = () => screen.findByTestId("text-estimate-total");
 
 describe("builder rendering", () => {
+  it("shows the property fallback after Ticket and lets office staff edit a frozen estimate's work location", async () => {
+    detail = makeDetail({ status: "accepted" });
+    handler = ({ method, url, body, headers }) => {
+      if (method !== "PUT" || url !== "/api/estimates/e1/work-location") return;
+      expect(new Headers(headers).get("X-Company-Id")).toBe("c1");
+      expect(body).toEqual({ label: "Ridge HOA", details: "10 Main St\nBoulder CO 80000" });
+      detail.display = { ...detail.display, workLocation: "Ridge HOA\n10 Main St\nBoulder CO 80000",
+        workLocationSource: "ticket", workLocationInput: { label: "Ridge HOA", details: "10 Main St\nBoulder CO 80000" } };
+      return Response.json({ text: detail.display.workLocation, source: "ticket" });
+    };
+    renderAt("/dashboard/estimates/builder/e1");
+    const location = await screen.findByTestId("cell-work-location");
+    expect(location.previousElementSibling?.getAttribute("data-testid")).toBe("cell-ticket");
+    expect(within(location).getByTestId("text-work-location-fallback").textContent).toBe("Property address");
+    fireEvent.click(within(location).getByTestId("button-edit-work-location"));
+    expect((screen.getByTestId("input-work-location-label") as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByTestId("button-use-work-property-address"));
+    fireEvent.click(screen.getByTestId("button-save-work-location"));
+    await waitFor(() => expect(within(location).getByTestId("text-work-location").textContent).toBe("Ridge HOA\n10 Main St\nBoulder CO 80000"));
+    expect(within(location).queryByTestId("text-work-location-fallback")).toBeNull();
+    expect(mutations()).toHaveLength(1);
+  });
+
+  it("shows the work location on a voided estimate without an edit control", async () => {
+    detail = makeDetail({ status: "void", voidedAt: T0 });
+    renderAt("/dashboard/estimates/builder/e1");
+    const area = await screen.findByTestId("cell-work-location");
+    expect(within(area).getByTestId("text-work-location").textContent).toContain("10 Main St");
+    expect(within(area).queryByTestId("button-edit-work-location")).toBeNull();
+  });
   it("renders scope above sections, saves once on changed blur with captured company and uses returned detail", async () => {
     detail.version.scopeOfWork = "Initial scope";
     renderAt("/dashboard/estimates/builder/e1"); await ready();

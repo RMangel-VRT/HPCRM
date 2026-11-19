@@ -15,6 +15,8 @@ const userRef = (column: string) => varchar(column).references(() => users.id, {
 export const estimates = pgTable("estimates", {
   id: id(), companyId: company(), customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+  // A linked ticket owns this fact. These columns are only for standalone estimates.
+  workLocationLabel: text("work_location_label"), workLocationDescription: text("work_location_description"),
   estimateNumber: text("estimate_number").notNull(), title: text("title").notNull(),
   currentVersionId: varchar("current_version_id"), voidedAt: timestamp("voided_at"), voidReason: text("void_reason"),
   createdById: userRef("created_by_id"), ...times(),

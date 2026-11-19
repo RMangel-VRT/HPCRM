@@ -21,9 +21,10 @@ type State = { kind: "loading" } | { kind: "error"; unavailable?: boolean } | { 
 export function PdfPreviewDialog(props: {
   open: boolean; onClose: () => void; companyId: string; estimateId: string; versionId: string;
   estimateNumber: string; versionNumber: number; draft: boolean;
+  workLocation?: string | null;
 }) {
   const { t } = useTranslation();
-  const { open, companyId, estimateId, versionId } = props;
+  const { open, companyId, estimateId, versionId, workLocation } = props;
   const [state, setState] = useState<State>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const urlRef = useRef<string | null>(null);
@@ -57,7 +58,7 @@ export function PdfPreviewDialog(props: {
       ctrl.abort();
       if (created) { URL.revokeObjectURL(created); if (urlRef.current === created) urlRef.current = null; }
     };
-  }, [open, companyId, estimateId, versionId, attempt]);
+  }, [open, companyId, estimateId, versionId, attempt, workLocation]);
 
   function download() {
     if (state.kind !== "ready") return;
