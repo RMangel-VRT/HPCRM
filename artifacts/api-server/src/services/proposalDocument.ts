@@ -8,17 +8,11 @@ import { buildProposalDocumentModel, proposalDocumentHtml, type DocumentImage } 
 import { chromiumPdf } from "./documents/browser";
 import { stampDocument } from "./documents/stamp";
 import { PDFDocument } from "pdf-lib";
-import sharp from "sharp";
+import { exhibitImageUri as proposalImageUri } from "./documents/exhibitImage";
 import { loadPlantLinesForVersion } from "./proposalExhibits";
 import { proposalPlantRows } from "./proposalPlants";
 
-/** Decode, rotate, bound both dimensions, strip metadata and compress before embedding. */
-export async function proposalImageUri(bytes: Buffer): Promise<string> {
-  const compressed = await sharp(bytes, { limitInputPixels: 80_000_000 }).rotate()
-    .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
-    .flatten({ background: "#ffffff" }).jpeg({ quality: 75 }).toBuffer();
-  return `data:image/jpeg;base64,${compressed.toString("base64")}`;
-}
+export { proposalImageUri };
 /** Trusted scoped storage paths only. Never fetch a supplied URL, including enrichment URLs. */
 export async function loadProposalDocumentModel(companyId: string, p: ProposalWithDetails, exhibits: ProposalExhibits) {
   if (p.companyId !== companyId || !p.estimateId || exhibits.provenance.estimateId !== p.estimateId) throw new Error("PROPOSAL_DOCUMENT_SCOPE_MISMATCH");

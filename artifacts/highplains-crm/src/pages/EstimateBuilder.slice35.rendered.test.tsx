@@ -275,7 +275,7 @@ describe("one-page review", () => {
     expect(checklist.textContent).toContain("Terms + plant warranty");
     expect(checklist.textContent).toContain("Signature box");
     expect(checklist.textContent).toMatch(/About \d+ pages/);
-    expect(within(checklist).queryByRole("switch")).toBeNull();
+    expect(within(checklist).getByRole("switch", { name: "Plant table with pictures" }).getAttribute("aria-checked")).toBe("true");
     const internal = within(rail.getByTestId("card-internal-margin"));
     expect(internal.getByTestId("text-margin").textContent).toBe("47.2%");
     const qbo = internal.getByTestId("card-qbo") as HTMLDetailsElement;

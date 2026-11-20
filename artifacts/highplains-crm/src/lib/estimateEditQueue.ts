@@ -2,7 +2,8 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { estimateCatalogReferenceSchema, estimateLineNeedsPrice, estimateOrderSchema, matchesEstimateCatalogReference,
   type EstimateOrderInput, type PatchEstimateLineInput } from "../../../../lib/db/src/estimateContracts";
 import { calculateExtendedCents, computeVersionTotals, normalizeQuantity } from "../../../../lib/db/src/estimateMath";
-import { sendEstimate, type EstimateDetailDto, type EstimateLineDto, type EstimateSectionDto } from "./estimateBuilder";
+import { type EstimateDetailDto, type EstimateLineDto, type EstimateSectionDto } from "./estimateBuilder";
+import { executeEstimateEdit } from "./estimatePhotoUpload";
 import type { EstimateEdit } from "./estimateRevision";
 import type { PickerLinePreview } from "./pickerSources";
 
@@ -19,9 +20,9 @@ export const orderOf = (sections: EstimateSectionDto[]): EstimateOrderInput => (
   sections: sections.map(s => ({ id: s.id, lineIds: s.lines.map(l => l.id) })),
 });
 
-export function editResult(detail: EstimateDetailDto, edit: EstimateEdit) {
+export function editResult(detail: EstimateDetailDto, edit: EstimateEdit, failedPhotos = 0) {
   const affectedLineId = detail.affectedLineId ?? pathLineId(edit.url);
-  return { ok: true as const, affectedLineId, line: affectedLineId ? lineFrom(detail, affectedLineId) : undefined };
+  return { ok: true as const, affectedLineId, line: affectedLineId ? lineFrom(detail, affectedLineId) : undefined, failedPhotos };
 }
 
 const emptyRefs = { plantCatalogItemId: null, hardscapeCatalogItemId: null, irrigationCatalogItemId: null, quickItemId: null, rateKey: null, termId: null };
@@ -41,6 +42,16 @@ function project(data: EstimateDetailDto, edit: BuilderEdit): EstimateDetailDto 
   const body = (edit.body ?? {}) as Record<string, unknown>;
   const version = data.version;
   const sections = version.sections;
+  if (edit.method === "PUT" && edit.url.endsWith("/photos/order")) {
+    const photos = version.photos ?? [];
+    const byId = new Map(photos.map(photo => [photo.id, photo]));
+    const ids = body.photoIds as string[];
+    if (ids.length !== photos.length || !ids.every(id => byId.has(id))) return data;
+    return { ...data, version: { ...version, photos: ids.map((id, displayOrder) => ({ ...byId.get(id)!, displayOrder })) } };
+  }
+  if (edit.method === "PATCH" && typeof body.includePlantTable === "boolean" && /\/versions\/[^/]+$/.test(edit.url)) {
+    return { ...data, version: { ...version, includePlantTable: body.includePlantTable } };
+  }
   if (edit.method === "PUT" && edit.url.endsWith("/order")) {
     const order = estimateOrderSchema.parse(body);
     const bySection = new Map(sections.map(s => [s.id, s]));
@@ -161,11 +172,11 @@ export class EstimateEditQueue {
       try {
         if (!job.active()) return null;
         const request = this.resolve(edit, true);
-        const response = await sendEstimate(request.method, request.url, this.company, request.body);
+        const { detail: response, failedPhotos } = await executeEstimateEdit(request, this.company, undefined, job.active);
         const { affectedLineId, ...confirmed } = response;
         if (!this.base || stamp(confirmed) >= stamp(this.base)) this.base = confirmed;
         if (edit.temporaryId && affectedLineId) this.ids.set(edit.temporaryId, affectedLineId);
-        return editResult(response, request);
+        return editResult(response, request, failedPhotos);
       } finally {
         this.jobs.shift();
         this.publish();
@@ -193,7 +204,7 @@ export class EstimateEditQueue {
     const match = linePath.exec(edit.url);
     const url = match ? edit.url.slice(0, match.index) + `/lines/${encodeURIComponent(id(decodeURIComponent(match[1])))}` +
       (match[2] ? `/${match[2]}` : "") : edit.url;
-    const order = edit.method === "PUT" && edit.url.endsWith("/order") ? estimateOrderSchema.parse(edit.body) : null;
+    const order = edit.method === "PUT" && edit.url.endsWith("/order") && !edit.url.endsWith("/photos/order") ? estimateOrderSchema.parse(edit.body) : null;
     return { ...edit, url, body: order ? { sections: order.sections.map(s => ({ ...s, lineIds: s.lineIds.map(id) })) } : edit.body };
   }
 

@@ -34,6 +34,7 @@ export const estimateVersions = pgTable("estimate_versions", {
   id: id(), companyId: company(), estimateId: varchar("estimate_id").notNull().references(() => estimates.id, { onDelete: "cascade" }),
   versionNumber: integer("version_number").notNull(),
   scopeOfWork: text("scope_of_work"),
+  includePlantTable: boolean("include_plant_table").notNull().default(true),
   status: text("status").notNull().default("draft").$type<typeof ESTIMATE_STATUSES[number]>(),
   createdFromVersionId: varchar("created_from_version_id"),
   // Immutable copy provenance, not a second owner of section or line content.
@@ -52,6 +53,13 @@ export const estimateVersions = pgTable("estimate_versions", {
   sent: check("estimate_versions_sent_method_check", sql`${t.sentMethod} IN ('email','hard_copy','portal','other')`),
   acceptance: check("estimate_versions_acceptance_method_check", sql`${t.acceptanceMethod} IN ('email_approval','signed_pdf','phone','portal','other')`),
 }));
+export const estimateVersionPhotos = pgTable("estimate_version_photos", {
+  id: id(), companyId: company(), versionId: varchar("version_id").notNull().references(() => estimateVersions.id, { onDelete: "cascade" }),
+  storageObjectPath: varchar("storage_object_path").notNull(),
+  filename: varchar("filename").notNull(), mimeType: varchar("mime_type").notNull(), fileSize: integer("file_size").notNull(),
+  caption: text("caption"), displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => ({ order: index("estimate_version_photos_order_idx").on(t.versionId, t.displayOrder) }));
 export const estimateSections = pgTable("estimate_sections", {
   id: id(), companyId: company(), versionId: varchar("version_id").notNull().references(() => estimateVersions.id, { onDelete: "cascade" }),
   name: text("name").notNull(), sortOrder: integer("sort_order").notNull().default(0), ...times(),

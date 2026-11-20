@@ -138,7 +138,7 @@ describe("real PostgreSQL lifecycle, frozen values and history", () => {
       unit: "EA", quantity: "2.5", unitPriceCents: 33, umbrellaKey: "landscape_materials" });
     const secondId = lines(d).find(l => l.id !== firstId)!.id;
     d = await patchLine(a, d.id, d.version.id, secondId, { sortOrder: -1 });
-    d = await patchVersion(a, d.id, d.version.id, "As-sent scope");
+    d = await patchVersion(a, d.id, d.version.id, { scopeOfWork: "As-sent scope" });
     const sent = await act(d, "send", { method: "email" });
     const results = await Promise.allSettled([act(sent, "revise", { firstEdit: true }), act(sent, "revise", { firstEdit: true })]);
     const revised = results.flatMap(r => r.status === "fulfilled" ? [r.value] : []);
@@ -151,7 +151,7 @@ describe("real PostgreSQL lifecycle, frozen values and history", () => {
     await expect(act(sent, "revise", { firstEdit: true })).rejects.toMatchObject({ error: "DRAFT_EXISTS", extra: { idMap: map } });
     await patchLine(a, copy.id, copy.version.id, map.lines[secondId], { quantity: "7" });
     await patchSection(a, copy.id, copy.version.id, map.sections[sectionId], { name: "Draft section" });
-    await patchVersion(a, copy.id, copy.version.id, "Draft scope");
+    await patchVersion(a, copy.id, copy.version.id, { scopeOfWork: "Draft scope" });
     const after = await readEstimate(a, d.id);
     expect(after.version.scopeOfWork).toBe("Draft scope");
     expect(after.version.sections[0].name).toBe("Draft section");

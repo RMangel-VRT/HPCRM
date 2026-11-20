@@ -8,6 +8,12 @@ export type EstimateLifecycleKind = "send" | "accept" | "decline" | "revise" | "
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 export function estimateErrorText(err: unknown, t: Translate): string {
   const status = errorStatus(err);
+  const code = conflictOf(err)?.error;
+  if (code === "INVALID_PHOTO" || code === "PHOTO_UPLOAD_EXPIRED" || code === "PHOTO_UPLOAD_MISSING" ||
+      String(err).includes("PHOTO_INVALID") || String(err).includes("PHOTO_PUT_FAILED"))
+    return t("estimateBuilder.exhibits.uploadFailed");
+  if (String(err).includes("PHOTO_TOO_LARGE")) return t("estimateBuilder.exhibits.fileHint");
+  if (code === "INVALID_PHOTO_ORDER") return t("estimateBuilder.exhibits.orderChanged");
   if (status === 404) return t("estimateBuilder.notFound");
   if (status === 409) {
     if (conflictOf(err)?.error === "ESTIMATE_LINE_CHANGED") return t("estimateBuilder.lineEdit.resetStale");

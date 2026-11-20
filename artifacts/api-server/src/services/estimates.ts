@@ -52,9 +52,7 @@ export async function createEstimate(companyId: string, userId: string | null, i
 }
 
 type MutationContext = { tx: AppTransaction; estimate: Estimate; version?: EstimateVersion };
-/** Every existing-document mutation takes the company-qualified container lock
- * FIRST. This serializes ownership checks, last-section deletion and totals. */
-async function mutateEstimate(companyId: string, id: string, versionId: string | undefined, work: (context: MutationContext) => Promise<void | string>) {
+export async function withDraftEstimate<T>(companyId: string, id: string, versionId: string | undefined, work: (context: MutationContext) => Promise<T>) {
   return db.transaction(async tx => {
     const estimate = requireEstimate((await tx.select().from(estimates).where(and(eq(estimates.companyId, companyId), eq(estimates.id, id))).for("update"))[0]);
     if (estimate.voidedAt) throw new EstimateError(409, "ESTIMATE_VOIDED");
@@ -63,6 +61,13 @@ async function mutateEstimate(companyId: string, id: string, versionId: string |
       version = requireEstimate((await tx.select().from(estimateVersions).where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, id), eq(estimateVersions.id, versionId))))[0]);
       if (version.status !== "draft") throw new EstimateError(409, "VERSION_LOCKED");
     }
+    return work({ tx, estimate, version });
+  });
+}
+/** Every existing-document mutation takes the company-qualified container lock
+ * FIRST. This serializes ownership checks, last-section deletion and totals. */
+export async function mutateEstimate(companyId: string, id: string, versionId: string | undefined, work: (context: MutationContext) => Promise<void | string>) {
+  return withDraftEstimate(companyId, id, versionId, async ({ tx, estimate, version }) => {
     const affectedLineId = await work({ tx, estimate, version });
     const now = new Date();
     const [refreshed] = await tx.update(estimates).set({ updatedAt: now }).where(and(eq(estimates.companyId, companyId), eq(estimates.id, id))).returning();
@@ -77,9 +82,12 @@ export function retitleEstimate(companyId: string, id: string, title: string) {
     await tx.update(estimates).set({ title }).where(and(eq(estimates.companyId, companyId), eq(estimates.id, id)));
   });
 }
-export function patchVersion(companyId: string, id: string, versionId: string, scopeOfWork: string | null) {
+export function patchVersion(companyId: string, id: string, versionId: string, input: { scopeOfWork?: string | null; includePlantTable?: boolean }) {
   return mutateEstimate(companyId, id, versionId, async ({ tx }) => {
-    await tx.update(estimateVersions).set({ scopeOfWork: scopeOfWork?.trim() ? scopeOfWork : null })
+    await tx.update(estimateVersions).set({
+      scopeOfWork: input.scopeOfWork === undefined ? undefined : input.scopeOfWork?.trim() ? input.scopeOfWork : null,
+      includePlantTable: input.includePlantTable,
+    })
       .where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, id), eq(estimateVersions.id, versionId)));
   });
 }

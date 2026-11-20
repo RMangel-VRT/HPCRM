@@ -6,6 +6,7 @@ import { ESTIMATE_UNITS } from "../estimateUnits";
 import { isCalendarDate } from "./calendarDate";
 import { NON_RENEWAL_REASONS } from "../contractNonRenewal";
 import { estimates, estimateVersions } from "./estimates";
+import type { EstimateWorksheetSection } from "../estimateContracts";
 import { campaignIdentityCheckName, campaignIdentityCheckSql } from "../campaignSql";
 import { serviceCalendarCheckSql } from "../serviceCalendarSql";
 export { serviceCalendarReplacementSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../serviceCalendarContracts";
@@ -2321,6 +2322,11 @@ export const crewWorksheets = pgTable("crew_worksheets", {
   sourceProposalId: varchar("source_proposal_id").references(() => proposals.id, { onDelete: "set null" }),
   sourceProposalNumberSnapshot: varchar("source_proposal_number_snapshot"),
   sourceProposalTitleSnapshot: varchar("source_proposal_title_snapshot"),
+  sourceEstimateId: varchar("source_estimate_id").references((): AnyPgColumn => estimates.id, { onDelete: "set null" }),
+  sourceEstimateVersionId: varchar("source_estimate_version_id").references((): AnyPgColumn => estimateVersions.id, { onDelete: "set null" }),
+  sourceEstimateLabelSnapshot: text("source_estimate_label_snapshot"),
+  sourceEstimateVersionNumberSnapshot: integer("source_estimate_version_number_snapshot"),
+  estimateLinesSnapshot: jsonb("estimate_lines_snapshot").$type<EstimateWorksheetSection[]>(),
   worksheetNumber: varchar("worksheet_number").notNull(),
   title: varchar("title").notNull().default("Crew Worksheet"),
   worksheetDate: varchar("worksheet_date").notNull(),
@@ -2343,11 +2349,18 @@ export const crewWorksheets = pgTable("crew_worksheets", {
   crewWorksheetsCustomerIdIdx: index("crew_worksheets_customer_id_idx").on(table.customerId),
   crewWorksheetsTicketIdIdx: index("crew_worksheets_ticket_id_idx").on(table.ticketId),
   crewWorksheetsSourceProposalIdIdx: index("crew_worksheets_source_proposal_id_idx").on(table.sourceProposalId),
+  crewWorksheetsSourceEstimateIdIdx: index("crew_worksheets_source_estimate_idx").on(table.sourceEstimateId),
+  crewWorksheetsSourceEstimateVersionIdx: index("crew_worksheets_source_estimate_version_idx").on(table.sourceEstimateVersionId),
   crewWorksheetsCompanyNumberKey: uniqueIndex("crew_worksheets_company_id_worksheet_number_key").on(table.companyId, table.worksheetNumber),
 }));
 
 export const insertCrewWorksheetSchema = createInsertSchema(crewWorksheets).omit({
   id: true,
+  sourceEstimateId: true,
+  sourceEstimateVersionId: true,
+  sourceEstimateLabelSnapshot: true,
+  sourceEstimateVersionNumberSnapshot: true,
+  estimateLinesSnapshot: true,
   createdAt: true,
   updatedAt: true,
 }).extend({

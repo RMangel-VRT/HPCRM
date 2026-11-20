@@ -1,9 +1,9 @@
 import type { EstimateRevisionIdMap } from "../../../../lib/db/src/estimateContracts";
-import { estimateOrderSchema } from "../../../../lib/db/src/estimateContracts";
+import { estimateOrderSchema, estimatePhotoOrderSchema } from "../../../../lib/db/src/estimateContracts";
 import { conflictOf, ESTIMATES_API, sendEstimate, type EstimateDetailDto } from "./estimateBuilder";
 import { fetchJson } from "./hardscapeCatalog";
 
-export type EstimateEdit = { method: string; url: string; body?: unknown };
+export type EstimateEdit = { method: string; url: string; body?: unknown; photoFiles?: readonly File[] };
 
 export async function startEstimateEditRevision(companyId: string, source: EstimateDetailDto, signal: AbortSignal) {
   const base = `${ESTIMATES_API}/${encodeURIComponent(source.id)}`;
@@ -29,10 +29,12 @@ export function replayEstimateEdits(source: EstimateDetailDto, from: string, dra
   const target = `${ESTIMATES_API}/${encodeURIComponent(draft.id)}/versions/${encodeURIComponent(draft.version.id)}`;
   const sections = new Set(draft.version.sections.map(s => s.id));
   const lines = new Set(draft.version.sections.flatMap(s => s.lines.map(l => l.id)));
-  const mapped = (kind: "sections" | "lines", id: string) => {
+  const photos = new Set(draft.version.photos?.map(photo => photo.id));
+  const targets = { sections, lines, photos };
+  const mapped = (kind: keyof typeof targets, id: string) => {
     const ids = idMap?.[kind];
     const result = ids && Object.hasOwn(ids, id) ? ids[id] : undefined;
-    return typeof result === "string" && (kind === "sections" ? sections : lines).has(result) ? result : null;
+    return typeof result === "string" && targets[kind].has(result) ? result : null;
   };
   const result: EstimateEdit[] = [];
   for (const edit of edits) {
@@ -40,6 +42,14 @@ export function replayEstimateEdits(source: EstimateDetailDto, from: string, dra
     if (edit.url !== from) {
       if (!edit.url.startsWith(`${from}/`)) return null;
       const suffix = edit.url.slice(from.length + 1);
+      if (suffix === "photos/order" && edit.method === "PUT") {
+        const order = estimatePhotoOrderSchema.safeParse(edit.body);
+        if (!order.success) return null;
+        const photoIds = order.data.photoIds.map(id => mapped("photos", id));
+        if (photoIds.some(id => id === null)) return null;
+        result.push({ method: edit.method, url: `${target}/photos/order`, body: { photoIds } });
+        continue;
+      }
       if (suffix === "order" && edit.method === "PUT") {
         const order = estimateOrderSchema.safeParse(edit.body);
         if (!order.success) return null;
@@ -53,9 +63,9 @@ export function replayEstimateEdits(source: EstimateDetailDto, from: string, dra
         result.push({ method: edit.method, url: `${target}/order`, body: { sections: mappedSections } });
         continue;
       }
-      const match = /^(sections|lines)(?:\/([^/]+))?(?:\/(duplicate|replace))?$/.exec(suffix);
+      const match = /^(sections|lines|photos)(?:\/([^/]+))?(?:\/(duplicate|replace))?$/.exec(suffix);
       if (!match) return null;
-      const kind = match[1] as "sections" | "lines";
+      const kind = match[1] as keyof typeof targets;
       path += `/${kind}`;
       if (match[2]) {
         const id = mapped(kind, decodeURIComponent(match[2]));
@@ -74,7 +84,7 @@ export function replayEstimateEdits(source: EstimateDetailDto, from: string, dra
       if (!sectionId) return null;
       body = { ...body, sectionId };
     }
-    result.push({ method: edit.method, url: path, body });
+    result.push({ ...edit, url: path, body });
   }
   return result;
 }

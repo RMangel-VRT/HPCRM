@@ -28,3 +28,14 @@ editable only on a draft; first-edit revision applies to version-owned content.
 
 **Why:** Frozen commercial contents and the exact PDF the customer received are
 different records, and title is not owned by each version.
+
+Reference counting for estimate photo retention needs to include both estimate
+versions and generated worksheets. An estimate or its draft can disappear while
+a crew still needs its worksheet, including every image that worksheet captured.
+
+**Why:** The worksheet is an intentional snapshot with nullable source links,
+not a live view of the estimate. Deleting the source is not consent to delete
+the worksheet or its files.
+
+**How to apply:** If adding cleanup, verify both kinds of references before
+deleting accepted photo bytes. Do not let proposal retirement sweep this media.

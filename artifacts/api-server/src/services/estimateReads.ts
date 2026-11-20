@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, isNotNull, ilike, or, desc, asc, getTableColumns } from "drizzle-orm";
-import { estimates, estimateVersions, estimateSections, estimateLines, customers, estimateLineNeedsPrice, type Estimate, type EstimateVersion, type EstimateLine } from "@workspace/db";
+import { estimates, estimateVersions, estimateSections, estimateLines, estimateVersionPhotos, customers, estimateLineNeedsPrice, type Estimate, type EstimateVersion, type EstimateLine } from "@workspace/db";
 import { db, type AppTransaction } from "../db";
 import { computeVersionTotals } from "./estimateMath";
 import { requireEstimate } from "./estimateErrors";
@@ -11,6 +11,11 @@ const { revisionIdMap: _revisionIdMap, ...versionColumns } = getTableColumns(est
 type VisibleEstimateVersion = Omit<EstimateVersion, "revisionIdMap">;
 export function estimateLinePayload(line: EstimateLine) {
   return { ...line, needsPrice: estimateLineNeedsPrice(line) };
+}
+export function readEstimatePhotoRows(tx: EstimateConnection, companyId: string, versionId: string) {
+  return tx.select().from(estimateVersionPhotos)
+    .where(and(eq(estimateVersionPhotos.companyId, companyId), eq(estimateVersionPhotos.versionId, versionId)))
+    .orderBy(asc(estimateVersionPhotos.displayOrder), asc(estimateVersionPhotos.id));
 }
 export async function versionPayload(tx: EstimateConnection, companyId: string, version: VisibleEstimateVersion) {
   const sections = await tx.select().from(estimateSections).where(and(eq(estimateSections.companyId, companyId), eq(estimateSections.versionId, version.id)))
@@ -36,7 +41,10 @@ export async function versionPayload(tx: EstimateConnection, companyId: string, 
     group.push(estimateLinePayload(line)); grouped.set(line.sectionId, group);
   }
   // Live presentation metadata is separate from immutable commercial line snapshots.
-  return { ...version, plantPaletteDefaults: Object.fromEntries(plantDefaults),
+  const photos = (await readEstimatePhotoRows(tx, companyId, version.id))
+    .map(({ id, filename, mimeType, fileSize, caption, displayOrder, createdAt }) =>
+      ({ id, filename, mimeType, fileSize, caption, displayOrder, createdAt }));
+  return { ...version, photos, plantPaletteDefaults: Object.fromEntries(plantDefaults),
     sections: sections.map(section => ({ ...section, lines: grouped.get(section.id) ?? [] })), totals };
 }
 export async function estimatePayload(tx: EstimateConnection, companyId: string, estimate: Estimate, versionNumber?: number, affectedVersionId?: string) {

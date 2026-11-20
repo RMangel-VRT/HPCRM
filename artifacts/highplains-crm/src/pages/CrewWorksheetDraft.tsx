@@ -18,6 +18,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { accessRole } from "../../../../lib/db/src/accessRole";
 import type { CrewWorksheetWithDetails, CrewWorksheetPhoto } from "@shared/schema";
+import { CrewWorksheetEstimateSnapshot, worksheetPhotoUrl } from "@/components/estimates/CrewWorksheetEstimateSnapshot";
+import { builderPath } from "@/lib/estimateBuilder";
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
@@ -144,9 +146,9 @@ function CrewLeadPicker({
 }
 
 function PhotoRow({
-  photo, selected, onSelect, onCaption, onDelete, isReadOnly,
+  photo, companyId, selected, onSelect, onCaption, onDelete, isReadOnly,
 }: {
-  photo: CrewWorksheetPhoto; selected: boolean; onSelect: (v: boolean) => void;
+  photo: CrewWorksheetPhoto; companyId?: string; selected: boolean; onSelect: (v: boolean) => void;
   onCaption: (v: string) => void; onDelete: () => void; isReadOnly: boolean;
 }) {
   const { t } = useTranslation();
@@ -160,7 +162,7 @@ function PhotoRow({
         <GripVertical className="w-4 h-4" />
       </button>
       <div className="w-16 h-16 rounded-md overflow-hidden shrink-0 bg-muted">
-        <img src={`/objects/${photo.storageObjectPath.replace(/^\//, "")}`} alt={photo.caption ?? photo.filename}
+        <img src={worksheetPhotoUrl(photo, companyId)} alt={photo.caption ?? photo.filename}
           className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
           data-testid={`img-thumb-${photo.id}`} />
       </div>
@@ -450,6 +452,19 @@ export default function CrewWorksheetDraft() {
             <p className="font-medium" data-testid="text-customer-name">{ws.customerName}</p>
             {ws.customerStreet && <p className="text-muted-foreground text-xs">{ws.customerStreet}{ws.customerCity ? `, ${ws.customerCity}` : ""}{ws.customerState ? `, ${ws.customerState}` : ""}</p>}
           </div>
+          {ws.sourceEstimateLabelSnapshot && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 p-3" data-testid="worksheet-source-estimate">
+              <div>
+                <div className="text-xs font-medium text-muted-foreground">{t("crewWorksheets.sourceEstimateBanner")}</div>
+                <div className="text-sm">{ws.sourceEstimateLabelSnapshot}</div>
+                {!ws.sourceEstimateVersionId && <div className="text-xs text-muted-foreground">{t("crewWorksheets.sourceEstimateUnavailable")}</div>}
+              </div>
+              {ws.sourceEstimateId && ws.sourceEstimateVersionId && ws.sourceEstimateVersionNumberSnapshot && ["admin", "office"].includes(accessRole(role)) && (
+                <Button variant="outline" size="sm" onClick={() => navigate(builderPath(ws.sourceEstimateId!, ws.sourceEstimateVersionNumberSnapshot!))}
+                  data-testid="button-open-worksheet-estimate">{t("crewWorksheets.openEstimate")}</Button>
+              )}
+            </div>
+          )}
           {ws.sourceProposalId ? (
             <div className="rounded-md border border-green-700/30 bg-green-50 dark:bg-green-950/30 p-3 text-sm flex items-start justify-between gap-3" data-testid="banner-source-proposal">
               <div className="min-w-0">
@@ -552,6 +567,8 @@ export default function CrewWorksheetDraft() {
             placeholder={t("crewWorksheets.scopePlaceholder")} className="min-h-[200px] font-mono text-sm" disabled={isReadOnly} data-testid="textarea-scope" />
         </CardContent>
       </Card>
+
+      <CrewWorksheetEstimateSnapshot worksheet={ws} />
 
       <Card>
         <CardHeader><CardTitle className="text-lg">{t("crewWorksheets.equipment")}</CardTitle></CardHeader>
@@ -689,7 +706,7 @@ export default function CrewWorksheetDraft() {
               <SortableContext items={photos.map(p => p.id)} strategy={verticalListSortingStrategy}>
                 <div className="space-y-2">
                   {photos.map(p => (
-                    <PhotoRow key={p.id} photo={p} isReadOnly={isReadOnly}
+                    <PhotoRow key={p.id} photo={p} companyId={user?.activeCompanyId} isReadOnly={isReadOnly}
                       selected={selectedPhotoIds.has(p.id)}
                       onSelect={(v) => setSelectedPhotoIds(prev => { const n = new Set(prev); if (v) n.add(p.id); else n.delete(p.id); return n; })}
                       onCaption={(caption) => captionMutation.mutate({ photoId: p.id, caption })}

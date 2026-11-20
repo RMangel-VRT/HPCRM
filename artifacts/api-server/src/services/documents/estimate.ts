@@ -1,6 +1,7 @@
 import type { EstimateDocumentModel } from "../estimatePdf";
 import { formatEstimateUnit } from "../../../../../lib/db/src/estimateUnits";
 import { displayDate, quantity, documentHtml, escapeHtml as e, firstHeader, keyFigureBox, money, multiline, tableHead } from "./layout";
+import { estimateExhibitCss, estimatePhotosFragment, estimatePlantsFragment } from "./estimateExhibits";
 
 type EstimateDocumentContent = Omit<EstimateDocumentModel, "showVersion">;
 
@@ -30,8 +31,8 @@ export function estimateCustomerFragment(m: EstimateDocumentModel): string {
 export function estimateDocumentNumber(model: EstimateDocumentModel): string {
   return `${model.estimateNumber}${model.showVersion ? ` · Version ${model.versionNumber}` : ""}`;
 }
-export function estimateDocumentHtml(m: EstimateDocumentModel): string {
+export function estimateDocumentHtml(m: EstimateDocumentModel, attachments = true): string {
   const header = firstHeader({ title: "Estimate", number: estimateDocumentNumber(m), dateLine: [displayDate(m.documentDate), m.statusLine].filter(Boolean).join(" · "), settings: m.companyDocument });
   const final = `<div class="final terms-page">${estimateAcceptanceFragment(m, m.showVersion)}</div>`;
-  return documentHtml(`${header}<main class="content">${estimateCustomerFragment(m)}<h2>${e(m.projectTitle)}</h2>${m.linkedTicketTitle ? `<p class="secondary">${e(m.linkedTicketTitle)}</p>` : ""}${m.scopeOfWork ? `<div class="scope"><div class="label">Scope of work</div><div class="scope-body">${multiline(m.scopeOfWork)}</div></div>` : ""}${estimatePricingFragment(m)}${final}</main>`);
+  return documentHtml(`${m.exhibits ? estimateExhibitCss : ""}${header}<main class="content">${estimateCustomerFragment(m)}<h2>${e(m.projectTitle)}</h2>${m.linkedTicketTitle ? `<p class="secondary">${e(m.linkedTicketTitle)}</p>` : ""}${m.scopeOfWork ? `<div class="scope"><div class="label">Scope of work</div><div class="scope-body">${multiline(m.scopeOfWork)}</div></div>` : ""}${estimatePricingFragment(m)}${estimatePlantsFragment(m.exhibits?.plants ?? [])}${final}</main>${attachments ? estimatePhotosFragment(m.exhibits?.photos ?? []) : ""}`);
 }

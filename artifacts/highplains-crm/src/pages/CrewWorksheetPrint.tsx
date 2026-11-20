@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Printer, Download } from "lucide-react";
 import type { CrewWorksheetWithDetails } from "@shared/schema";
+import { CrewWorksheetEstimateSnapshot, worksheetPhotoUrl } from "@/components/estimates/CrewWorksheetEstimateSnapshot";
+import { useAuth } from "@/hooks/use-auth";
 
 function fmtDate(d?: string | null) {
   if (!d) return "";
@@ -19,6 +21,7 @@ export default function CrewWorksheetPrint() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { t } = useTranslation();
+  const { user } = useAuth();
 
   const { data: ws, isLoading } = useQuery<CrewWorksheetWithDetails>({
     queryKey: ["/api/crew-worksheets", id],
@@ -123,6 +126,7 @@ export default function CrewWorksheetPrint() {
             {ws.assignedCrewLeadName && (<><dt>{t("crewWorksheets.print.crewLeadLabel")}</dt><dd>{ws.assignedCrewLeadName}</dd></>)}
             {ws.estimatedHours && (<><dt>{t("crewWorksheets.print.estHoursLabel")}</dt><dd>{ws.estimatedHours}</dd></>)}
             {ws.sourceProposalNumber && (<><dt>{t("crewWorksheets.print.sourceProposalLabel")}</dt><dd>{ws.sourceProposalNumber}{ws.sourceProposalTitle ? ` — ${ws.sourceProposalTitle}` : ""}</dd></>)}
+            {ws.sourceEstimateLabelSnapshot && (<><dt>{t("crewWorksheets.sourceEstimateBanner")}</dt><dd>{ws.sourceEstimateLabelSnapshot}</dd></>)}
           </dl>
         </section>
 
@@ -135,6 +139,8 @@ export default function CrewWorksheetPrint() {
             })}
           </div>
         </section>
+
+        <CrewWorksheetEstimateSnapshot worksheet={ws} />
 
         {eq.length > 0 && (
           <section className="avoid-break">
@@ -200,7 +206,7 @@ export default function CrewWorksheetPrint() {
 
         {photos.length > 0 && photos.map((p, i) => (
           <div key={p.id} className={i === 0 ? "photo-page" : "photo-page"} style={i === 0 ? { pageBreakBefore: "always" } : undefined}>
-            <img src={`/objects/${p.storageObjectPath.replace(/^\//, "")}`} alt={p.caption ?? p.filename} data-testid={`img-print-${p.id}`} />
+            <img src={worksheetPhotoUrl(p, user?.activeCompanyId)} alt={p.caption ?? p.filename} data-testid={`img-print-${p.id}`} />
             {p.caption?.trim() && <div className="photo-caption">{p.caption}</div>}
           </div>
         ))}

@@ -4,7 +4,8 @@ import { createEstimateSchema, patchEstimateSchema, patchEstimateVersionSchema, 
   createEstimateLineSchema, patchEstimateLineSchema, estimateListQuerySchema, estimateDetailQuerySchema, estimateIdSchema,
    sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, reviseEstimateSchema, catalogMatchesQuerySchema } from "@workspace/db";
 import { PutEstimateWorkLocationBody, PutEstimateWorkLocationResponse } from "@workspace/api-zod";
-import { estimateOrderSchema, replaceEstimateLineSchema } from "@workspace/db/estimate-contracts";
+import { estimateOrderSchema, replaceEstimateLineSchema, estimatePhotoUploadSchema, registerEstimatePhotoSchema,
+  estimatePhotoCaptionSchema, estimatePhotoOrderSchema } from "@workspace/db/estimate-contracts";
 import type { UserWithContext } from "../auth";
 import { estimateAccess } from "../lib/estimateAccess";
 import { logger } from "../lib/logger";
@@ -19,11 +20,16 @@ import { DocumentRendererUnavailable } from "../services/documents/browser";
 import { customerActivation } from "../services/customerActivation";
 import { catalogMatches } from "../services/estimateCatalogSaves";
 import { rejectDirectEstimateLocationWrite, updateEstimateWorkLocation } from "../services/estimateWorkLocation";
+import { readEstimatePhoto, startEstimatePhotoUpload, registerEstimatePhoto, patchEstimatePhoto, removeEstimatePhoto, orderEstimatePhotos } from "../services/estimatePhotos";
+import { ObjectNotFoundError, ObjectStorageService } from "../objectStorage";
+import { canWriteCrewWorksheets } from "../lib/crewWorksheetAccess";
+import { generateEstimateCrewWorksheet } from "../services/estimateCrewWorksheet";
 
 const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) => {
   try { await fn(req, res, next); } catch (error) {
     if (error instanceof z.ZodError) { res.status(400).json({ error: "INVALID_REQUEST" }); return; }
     if (error instanceof EstimateError) { res.status(error.status).json({ error: error.error, ...error.extra }); return; }
+    if (error instanceof ObjectNotFoundError) { res.status(404).json({ error: "PHOTO_NOT_FOUND" }); return; }
     if (error instanceof RangeError) { res.status(422).json({ error: "AMOUNT_OUT_OF_RANGE" }); return; }
     const code = postgresCode(error);
     if (code === "23505") { res.status(409).json({ error: "CONFLICT" }); return; }
@@ -32,7 +38,7 @@ const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) =>
     res.status(500).json({ error: "INTERNAL_ERROR" });
   }
 };
-const pathSchema = z.object({ id: estimateIdSchema, versionId: estimateIdSchema.optional(), sectionId: estimateIdSchema.optional(), lineId: estimateIdSchema.optional() });
+const pathSchema = z.object({ id: estimateIdSchema, versionId: estimateIdSchema.optional(), sectionId: estimateIdSchema.optional(), lineId: estimateIdSchema.optional(), photoId: estimateIdSchema.optional() });
 export function registerEstimateRoutes(app: Express) {
   const router = Router();
   router.use(estimateAccess);
@@ -77,7 +83,45 @@ export function registerEstimateRoutes(app: Express) {
     if (req.body && typeof req.body === "object" && !Array.isArray(req.body) && Object.keys(req.body).length === 0)
       throw new EstimateError(400, "EMPTY_PATCH");
     const input = patchEstimateVersionSchema.parse(req.body);
-    res.json(await patchVersion((req.user as UserWithContext).activeCompanyId, id, versionId!, input.scopeOfWork));
+    res.json(await patchVersion((req.user as UserWithContext).activeCompanyId, id, versionId!, input));
+  }));
+  const photoScope = (req: Parameters<RequestHandler>[0]) => {
+    const user = req.user as UserWithContext;
+    const { id, versionId } = pathSchema.parse(req.params);
+    return { companyId: user.activeCompanyId, userId: user.id, sessionId: req.sessionID, estimateId: id, versionId: versionId! };
+  };
+  router.post(`${versionPath}/photos/upload-url`, handle(async (req, res) => {
+    res.json(await startEstimatePhotoUpload(photoScope(req), estimatePhotoUploadSchema.parse(req.body)));
+  }));
+  router.post(`${versionPath}/photos`, handle(async (req, res) => {
+    res.status(201).json(await registerEstimatePhoto(photoScope(req), registerEstimatePhotoSchema.parse(req.body).uploadToken));
+  }));
+  router.put(`${versionPath}/photos/order`, handle(async (req, res) => {
+    const { companyId, estimateId, versionId } = photoScope(req);
+    res.json(await orderEstimatePhotos(companyId, estimateId, versionId, estimatePhotoOrderSchema.parse(req.body).photoIds));
+  }));
+  router.patch(`${versionPath}/photos/:photoId`, handle(async (req, res) => {
+    const { companyId, estimateId, versionId } = photoScope(req);
+    res.json(await patchEstimatePhoto(companyId, estimateId, versionId, estimateIdSchema.parse(req.params.photoId),
+      estimatePhotoCaptionSchema.parse(req.body).caption));
+  }));
+  router.delete(`${versionPath}/photos/:photoId`, handle(async (req, res) => {
+    const { companyId, estimateId, versionId } = photoScope(req);
+    res.json(await removeEstimatePhoto(companyId, estimateId, versionId, estimateIdSchema.parse(req.params.photoId)));
+  }));
+  router.get(`${versionPath}/photos/:photoId`, handle(async (req, res) => {
+    const { companyId, estimateId, versionId } = photoScope(req);
+    if (req.query.company !== undefined && req.query.company !== companyId) throw new EstimateError(404, "NOT_FOUND");
+    const photo = await readEstimatePhoto(companyId, estimateId, versionId, estimateIdSchema.parse(req.params.photoId));
+    const file = await new ObjectStorageService().getObjectEntityFile(photo.storageObjectPath, { allowEstimatePhoto: true });
+    const [bytes] = await file.download();
+    res.set("X-Content-Type-Options", "nosniff").type(photo.mimeType).send(bytes);
+  }));
+  router.post(`${versionPath}/crew-worksheet`, handle(async (req, res) => {
+    if (!canWriteCrewWorksheets((req.user as UserWithContext).activeRole)) throw new EstimateError(403, "FORBIDDEN");
+    const { companyId, userId, estimateId, versionId } = photoScope(req);
+    emptyEstimateActionSchema.parse(req.body ?? {});
+    res.status(201).json(await generateEstimateCrewWorksheet(companyId, userId, estimateId, versionId));
   }));
   router.get(`${versionPath}/pdf`, async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");

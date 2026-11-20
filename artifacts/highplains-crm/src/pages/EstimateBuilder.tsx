@@ -6,22 +6,25 @@ import { useTranslation } from "react-i18next";
 import { useCustomerActivation } from "@/components/customerWizard/CustomerActivationDialog";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import {
-  ArrowLeft, Ban, CheckCircle2, Download, FileText, GitBranch, History, Lock, MoreHorizontal, Plus, Send, ThumbsDown, Trash2,
+  ArrowLeft, Ban, CheckCircle2, Download, FileText, GitBranch, HardHat, History, Lock, MoreHorizontal, Plus, Send, ThumbsDown, Trash2,
 } from "lucide-react";
 import type { EstimateTicketSummaryDto } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { TicketAdvanceNotice } from "@/components/estimates/TicketAdvanceNotice";
 import { runEstimateLifecycle, estimateErrorText as errorText } from "@/lib/estimateLifecycleActions";
-import { fetchJson, formatCents, HARDSCAPE_API } from "@/lib/hardscapeCatalog";
+import { companyHeaders, fetchJson, formatCents, HARDSCAPE_API } from "@/lib/hardscapeCatalog";
+import { apiRequest } from "@/lib/queryClient";
 import { RATES_PREVIEW_API, scopeOf, QUICK_ITEMS_API, SERVICE_CATEGORIES_API } from "@/lib/estimateSettings";
 import {
   ESTIMATES_API, ESTIMATE_BUILDER_PATH, builderPath, distinctContexts,
-   conflictOf, denverToday, errorStatus, formatCalendarDate, formatDate, isVersionLocked, sendEstimate,
+   conflictOf, denverToday, errorStatus, formatCalendarDate, formatDate, isVersionLocked,
   type EstimateDetailDto, type EstimateLineDto, type EstimateLineType, type EstimateSectionDto, type RatesPreviewWithContext,
 } from "@/lib/estimateBuilder";
 import { replayEstimateEdits, startEstimateEditRevision } from "@/lib/estimateRevision";
 import { EstimateEditQueue, editResult, hasEstimateEdits, lineFrom, newTemporaryLineId, waitForEstimateEdits, type BuilderEdit } from "@/lib/estimateEditQueue";
+import { executeEstimateEdit } from "@/lib/estimatePhotoUpload";
+import { EstimatePhotosCard } from "@/components/estimates/EstimatePhotosCard";
 import type { PickerLinePreview } from "@/lib/pickerSources";
 import { EstimateSectionCard } from "@/components/estimates/EstimateSectionCard";
 import { EstimateSorting, moveEstimateLine } from "@/components/estimates/EstimateSorting";
@@ -178,6 +181,10 @@ function BuilderContent({ id }: { id: string }) {
       if (!result) return cancelledEdit;
       void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "list"] });
       void qc.invalidateQueries({ queryKey: [EXHIBITS_KEY, companyId] });
+      if (viewRef.current === view && result.failedPhotos) {
+        toast({ title: t("estimateBuilder.exhibits.batchFailed", { count: result.failedPhotos }), variant: "destructive" });
+        void qc.invalidateQueries({ queryKey: key });
+      }
       return viewRef.current === view ? result : cancelledEdit;
     } catch (err) {
       if (viewRef.current !== view) {
@@ -357,8 +364,9 @@ function BuilderContent({ id }: { id: string }) {
       } else {
         const edit = replay[0];
         if (!active()) return;
-        const response = await sendEstimate(edit.method, edit.url, companyId, edit.body, controller.signal);
-        result = editResult(response, edit);
+        const { detail: response, failedPhotos } = await executeEstimateEdit(edit, companyId, controller.signal, active);
+        result = editResult(response, edit, failedPhotos);
+        if (active() && failedPhotos) toast({ title: t("estimateBuilder.exhibits.batchFailed", { count: failedPhotos }), variant: "destructive" });
         const { affectedLineId: _added, ...detail } = response;
         draft = detail;
       }
@@ -466,6 +474,26 @@ function BuilderContent({ id }: { id: string }) {
     if (pendingRef.current) return;
     if (hasEstimateEdits(editScope)) await waitForEstimateEdits(editScope);
     if (viewRef.current === viewTag) setPdfVersionId(versionId);
+  }
+
+  async function openCrewWorksheet() {
+    if (pendingRef.current || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    const active = () => viewRef.current === viewTag && activeVersionRef.current === v.id;
+    try {
+      await waitForEstimateEdits(editScope);
+      if (!active()) return;
+      const response = await apiRequest("POST", `${vBase}/crew-worksheet`, {}, { headers: companyHeaders(companyId) });
+      const worksheet = await response.json() as { id: string };
+      void qc.invalidateQueries({ queryKey: ["/api/crew-worksheets"] });
+      if (active()) setLocation(`/dashboard/tools/crew-worksheets/${encodeURIComponent(worksheet.id)}`);
+    } catch {
+      if (active()) toast({ title: t("estimateBuilder.exhibits.worksheetFailed"), variant: "destructive" });
+    } finally {
+      busyRef.current = false;
+      if (viewRef.current === viewTag) setBusy(false);
+    }
   }
 
   async function downloadPdf() {
@@ -604,13 +632,16 @@ function BuilderContent({ id }: { id: string }) {
                 <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => openDialog("discard")} data-testid="button-discard-draft">
                   <Trash2 className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.discard")}</Button>
               )}
-              {!data.voidedAt && (isCurrent || proposals.older.length > 0) && (
+              {!data.voidedAt && v.status !== "void" && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={t("estimateBuilder.life.more")} disabled={busy} data-testid="button-overflow"><MoreHorizontal className="h-4 w-4" /></Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-64">
-                    {proposals.older.length > 0 && (<>
+                    <DropdownMenuItem disabled={busy || !!pendingRevision} onSelect={() => void openCrewWorksheet()} data-testid="menu-estimate-crew-worksheet">
+                      <HardHat className="mr-2 h-4 w-4" />{t("estimateBuilder.exhibits.crewWorksheet")}
+                    </DropdownMenuItem>
+                    {isCurrent && proposals.older.length > 0 && (<>
                       <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground" data-testid="label-older-proposals">{t("proposalP1.otherProposals")}</DropdownMenuLabel>
                       {proposals.older.map((p) => (
                         <DropdownMenuItem key={p.id} onSelect={() => setLocation(proposalPath(p.id))} data-testid={`menu-open-proposal-${p.id}`}>
@@ -619,13 +650,13 @@ function BuilderContent({ id }: { id: string }) {
                       ))}
                     </>)}
                     {isCurrent && <>
-                    {revisable && !draftSummary && <DropdownMenuItem onSelect={() => void lifecycle("revise", "POST", `${vBase}/revise`, {})} data-testid="menu-start-version">
-                      <GitBranch className="mr-2 h-4 w-4" />{t("estimateBuilder.life.firstEdit.start", { n: nextN })}
-                    </DropdownMenuItem>}
-                    <DropdownMenuItem disabled={!canVoid || locked} onSelect={() => openDialog("void")} className="text-destructive focus:text-destructive" data-testid="menu-void">
-                      <Ban className="mr-2 h-4 w-4" />{t("estimateBuilder.life.void")}
-                    </DropdownMenuItem>
-                    {!canVoid && <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground" data-testid="text-void-blocked">{t("estimateBuilder.life.voidBlocked")}</DropdownMenuLabel>}
+                      {revisable && !draftSummary && <DropdownMenuItem onSelect={() => void lifecycle("revise", "POST", `${vBase}/revise`, {})} data-testid="menu-start-version">
+                        <GitBranch className="mr-2 h-4 w-4" />{t("estimateBuilder.life.firstEdit.start", { n: nextN })}
+                      </DropdownMenuItem>}
+                      <DropdownMenuItem disabled={!canVoid || locked} onSelect={() => openDialog("void")} className="text-destructive focus:text-destructive" data-testid="menu-void">
+                        <Ban className="mr-2 h-4 w-4" />{t("estimateBuilder.life.void")}
+                      </DropdownMenuItem>
+                      {!canVoid && <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground" data-testid="text-void-blocked">{t("estimateBuilder.life.voidBlocked")}</DropdownMenuLabel>}
                     </>}
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -734,9 +765,15 @@ function BuilderContent({ id }: { id: string }) {
                 <Plus className="h-4 w-4" />{t("estimateBuilder.section.add")}
               </button>
             )}
-            {/* E4 mounts the estimate version's Photos card here. */}
+            <EstimatePhotosCard key={`photos-${v.id}`} photos={v.photos ?? []} versionUrl={vBase} companyId={companyId}
+              editable={editable} blocked={busy || !!pendingRevision} onInvalid={invalid}
+              onUpload={photoFiles => runEdit({ method: "POST", url: `${vBase}/photos`, photoFiles })}
+              onReorder={photoIds => run("PUT", `${vBase}/photos/order`, { photoIds })}
+              onCaption={(photoId, caption) => run("PATCH", `${vBase}/photos/${encodeURIComponent(photoId)}`, { caption })}
+              onRemove={photoId => run("DELETE", `${vBase}/photos/${encodeURIComponent(photoId)}`)} />
           </div>
           <EstimateReviewRail data={data} lang={lang}
+            canEditPlants={editable && !busy && !pendingRevision} onPlantsChange={includePlantTable => void run("PATCH", vBase, { includePlantTable })}
             onViewVersion={version => setLocation(version.id === data.currentVersionId ? builderPath(data.id) : builderPath(data.id, version.versionNumber))}
             onVersionPdf={version => void previewPdf(version.id)} />
         </div>

@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, ne, desc } from "drizzle-orm";
-import { estimates, estimateVersions, estimateSections, estimateLines,
+import { estimates, estimateVersions, estimateSections, estimateLines, estimateVersionPhotos,
   sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, reviseEstimateSchema,
   estimateLineNeedsPrice, type EstimateVersion, type EstimateRevisionIdMap } from "@workspace/db";
 import { db } from "../db";
 import { companyToday } from "../lib/companyDay";
 import { EstimateError, requireEstimate } from "./estimateErrors";
-import { estimatePayload } from "./estimateReads";
+import { estimatePayload, readEstimatePhotoRows } from "./estimateReads";
 import { computeVersionTotals } from "./estimateMath";
 import { canonicalEstimateUnit } from "./estimateUnit";
 
@@ -92,9 +92,13 @@ export async function transitionEstimate(companyId: string, userId: string | nul
         // Assign IDs before bulk inserts; RETURNING row order is not a mapping contract.
         const sectionsToCopy = new Map(sections.map(section => [section.id, randomUUID()]));
         const linesToCopy = new Map(lines.map(line => [line.id, randomUUID()]));
+        const photos = await readEstimatePhotoRows(tx, companyId, version.id);
+        const photosToCopy = new Map(photos.map(photo => [photo.id, randomUUID()]));
         idMap = { sections: Object.fromEntries(sectionsToCopy), lines: Object.fromEntries(linesToCopy) };
+        if (photos.length) idMap.photos = Object.fromEntries(photosToCopy);
         const [copy] = await tx.insert(estimateVersions).values({ companyId, estimateId: id, versionNumber: next,
-          createdFromVersionId: version.id, scopeOfWork: version.scopeOfWork, createdById: userId, revisionIdMap: idMap }).returning();
+          createdFromVersionId: version.id, scopeOfWork: version.scopeOfWork, includePlantTable: version.includePlantTable,
+          createdById: userId, revisionIdMap: idMap }).returning();
         if (sections.length) await tx.insert(estimateSections).values(sections.map(section => ({
           id: sectionsToCopy.get(section.id)!, companyId, versionId: copy.id, name: section.name, sortOrder: section.sortOrder,
         })));
@@ -103,9 +107,11 @@ export async function transitionEstimate(companyId: string, userId: string | nul
           if (!sectionId) throw new EstimateError(409, "CONFLICT");
           return { ...snapshot, id: linesToCopy.get(sourceId)!, unit: canonicalEstimateUnit(snapshot.unit), versionId: copy.id, sectionId };
         }));
+        if (photos.length) await tx.insert(estimateVersionPhotos).values(photos.map(({ id: sourceId, createdAt: _created, ...snapshot }) =>
+          ({ ...snapshot, id: photosToCopy.get(sourceId)!, versionId: copy.id })));
         currentVersionId = copy.id;
       } else if (action === "discard") {
-        await tx.delete(estimateVersions).where(versionScope); // owned sections/lines cascade
+        await tx.delete(estimateVersions).where(versionScope); // owned rows cascade; shared photo objects are not deleted
         currentVersionId = versions.find(v => v.id !== version.id)!.id;
       }
     }

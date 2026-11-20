@@ -6,6 +6,15 @@ import { ESTIMATE_UNITS } from "./estimateUnits";
 export interface EstimateRevisionIdMap {
   sections: Record<string, string>;
   lines: Record<string, string>;
+  photos?: Record<string, string>;
+}
+
+export const ESTIMATE_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+export const ESTIMATE_PHOTO_CAPTION_MAX = 500;
+/** Operational worksheet snapshot deliberately excludes rates and prices. */
+export interface EstimateWorksheetSection {
+  name: string;
+  lines: { name: string; detail: string | null; quantity: string; unit: string }[];
 }
 
 export function estimateHasMultipleVersions(versionCount: number): boolean {
@@ -60,7 +69,16 @@ export interface ResolvedWorkLocation {
   text: string | null;
   source: "ticket" | "estimate" | "property";
 }
-export const patchEstimateVersionSchema = z.object({ scopeOfWork: z.string().max(10000).nullable() }).strict();
+export const patchEstimateVersionSchema = z.object({
+  scopeOfWork: z.string().max(10000).nullable().optional(), includePlantTable: z.boolean().optional(),
+}).strict();
+export const estimatePhotoUploadSchema = z.object({
+  filename: z.string().trim().min(1).max(255), mimeType: z.string().regex(/^image\/[a-z0-9.+-]+$/i).max(100),
+  fileSize: z.number().int().positive().max(ESTIMATE_PHOTO_MAX_BYTES),
+}).strict();
+export const registerEstimatePhotoSchema = z.object({ uploadToken: z.string().min(1).max(4096) }).strict();
+export const estimatePhotoCaptionSchema = z.object({ caption: z.string().max(ESTIMATE_PHOTO_CAPTION_MAX).nullable() }).strict();
+export const estimatePhotoOrderSchema = z.object({ photoIds: z.array(estimateIdSchema).min(1) }).strict();
 export const createEstimateSectionSchema = z.object({ name }).strict();
 export const patchEstimateSectionSchema = z.object({ name: name.optional(), sortOrder: order.optional() }).strict();
 const base = { sectionId: estimateIdSchema, quantity: estimateQuantitySchema };
@@ -211,6 +229,8 @@ export interface EstimateVersionSummaryDto extends EstimateTimestampsDto {
 }
 export interface EstimateVersionDto extends EstimateVersionSummaryDto {
   scopeOfWork: string | null;
+  includePlantTable: boolean;
+  photos: EstimatePhotoDto[];
   /** Live display-only catalog defaults, never part of captured commercial line values. */
   plantPaletteDefaults?: Record<string, string>;
   companyId: string; estimateId: string; createdFromVersionId: string | null;
@@ -221,6 +241,10 @@ export interface EstimateVersionDto extends EstimateVersionSummaryDto {
   supersededAt: string | null; frozenSubtotalCents: number | null; frozenCostKnownCents: number | null;
   frozenCostUnknownLines: number | null; createdById: string | null;
   sections: EstimateSectionDto[]; totals: EstimateTotalsDto;
+}
+export interface EstimatePhotoDto {
+  id: string; filename: string; mimeType: string; fileSize: number;
+  caption: string | null; displayOrder: number; createdAt: string;
 }
 /** Every mutation and detail read uses this envelope; version is affected/current. */
 export interface EstimateDetailDto extends EstimateContainerDto {

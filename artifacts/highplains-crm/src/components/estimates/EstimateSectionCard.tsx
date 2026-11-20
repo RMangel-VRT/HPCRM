@@ -119,7 +119,7 @@ function EstimateLineRow({ line: l, editable, lang, run, vBase, invalid, section
             aria-label={t("estimateBuilder.line.palette", { name: l.name })} onClick={() => void patch({ includeInPalette: !l.includeInPalette })}
             data-testid={`toggle-palette-${l.id}`} className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] disabled:cursor-default",
               l.includeInPalette ? "border-primary/25 bg-primary/10 text-primary" : "text-muted-foreground")}>
-            <Leaf className="h-3 w-3" aria-hidden />{t("estimateBuilder.lineEdit.plantTable")}
+            <Leaf className="h-3 w-3" aria-hidden />{t(l.includeInPalette ? "estimateBuilder.lineEdit.plantTable" : "estimateBuilder.exhibits.hidden")}
           </button>}
         </div>
         {canEdit ? <InlineInput value={l.detail ?? ""} disabled={false} label={t("estimateBuilder.lineEdit.description", { name: l.name })}

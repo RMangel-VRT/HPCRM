@@ -1,3 +1,4 @@
+import { allocateCrewWorksheetNumber } from "./services/crewWorksheetNumber";
 import { campaignProjection, campaignJoin } from "./lib/crewProjection";
 import { initializeServiceCategories } from "./services/estimateServiceCategories";
 import { updateCampaignRoundItem } from "./lib/campaignRoundWork";
@@ -3435,15 +3436,7 @@ export class PgStorage implements IStorage {
   }
 
   async generateCrewWorksheetNumber(companyId: string, year: number): Promise<string> {
-    const rows = await db.execute(sql`
-      INSERT INTO crew_worksheet_number_counters (company_id, year, last_number)
-      VALUES (${companyId}, ${year}, 1)
-      ON CONFLICT (company_id, year)
-      DO UPDATE SET last_number = crew_worksheet_number_counters.last_number + 1
-      RETURNING last_number
-    `);
-    const last = (rows.rows?.[0] as { last_number?: number } | undefined)?.last_number ?? 1;
-    return `CW-${year}-${String(last).padStart(4, "0")}`;
+    return allocateCrewWorksheetNumber(companyId, year);
   }
 
   async getCrewWorksheetPhotos(crewWorksheetId: string, companyId: string): Promise<import("@workspace/db").CrewWorksheetPhoto[]> {

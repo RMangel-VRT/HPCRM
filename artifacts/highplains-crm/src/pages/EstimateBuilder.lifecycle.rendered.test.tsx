@@ -50,10 +50,11 @@ function detailOf(versions: V[], viewId?: string, o: Record<string, unknown> = {
 const fetchMock = vi.fn();
 type Call = { url: string; method: string; headers: Record<string, string>; body: unknown };
 const res = (body: unknown, status = 200) => ({ ok: status < 400, status, statusText: "x", json: async () => body, text: async () => JSON.stringify(body), headers: new Headers() });
+const requestBody = (init?: RequestInit) => typeof init?.body === "string" ? JSON.parse(init.body) : init?.body;
 let detail: unknown;
 let handler: (c: Call) => unknown | undefined;
 const calls = (): Call[] => fetchMock.mock.calls.map(([url, init]: [string, RequestInit | undefined]) => ({
-  url: String(url), method: init?.method ?? "GET", headers: (init?.headers ?? {}) as Record<string, string>, body: init?.body ? JSON.parse(String(init.body)) : undefined }));
+  url: String(url), method: init?.method ?? "GET", headers: (init?.headers ?? {}) as Record<string, string>, body: requestBody(init) }));
 const mutations = () => calls().filter((c) => c.method !== "GET");
 
 beforeEach(() => {
@@ -61,7 +62,7 @@ beforeEach(() => {
   detail = detailOf([{ id: "v1", n: 1, status: "draft" }]);
   handler = () => undefined;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    const c: Call = { url: String(url), method: init?.method ?? "GET", headers: (init?.headers ?? {}) as Record<string, string>, body: init?.body ? JSON.parse(String(init.body)) : undefined };
+    const c: Call = { url: String(url), method: init?.method ?? "GET", headers: (init?.headers ?? {}) as Record<string, string>, body: requestBody(init) };
     const r = handler(c);
     if (r !== undefined) return r;
     if (c.url.startsWith("/api/estimates/rates")) return res({ items: [] });
@@ -92,6 +93,91 @@ function renderAt(path: string) {
   return { ...r, loc, client, rerenderPage: () => r.rerender(ui()) };
 }
 const ready = () => screen.findByTestId("text-estimate-total");
+
+const galleryPhoto = (id: string, displayOrder: number, caption: string | null = null) =>
+  ({ id, displayOrder, caption, filename: `${id}.jpg`, fileSize: 12, mimeType: "image/jpeg", createdAt: T0 });
+
+describe("version-owned exhibits", () => {
+  const vBase = "/api/estimates/e1/versions";
+  const path = "/dashboard/estimates/builder/e1";
+  it("uploads several files into the gallery and PATCHes only the plant switch", async () => {
+    const v1: V = { id: "v1", n: 1, status: "draft", o: { photos: [galleryPhoto("a", 0)], includePlantTable: true } };
+    detail = detailOf([v1]);
+    let next = 0;
+    handler = c => {
+      if (c.url.endsWith("/upload-url")) return res({ uploadUrl: `https://signed.example.test/${++next}`, uploadToken: `token-${next}` });
+      if (c.url.startsWith("https://signed.example.test/")) return res(null);
+      if (c.url.endsWith("/photos") && c.method === "POST") {
+        v1.o!.photos = [...v1.o!.photos as ReturnType<typeof galleryPhoto>[], galleryPhoto(`new-${next}`, next)];
+        detail = detailOf([v1], undefined, { updatedAt: LATER });
+        return res(detail, 201);
+      }
+      if (c.method === "PATCH") {
+        v1.o!.includePlantTable = false;
+        detail = detailOf([v1], undefined, { updatedAt: LATER });
+        return res(detail);
+      }
+      return undefined;
+    };
+    renderAt(path);
+    await ready();
+    const files = [new File(["photo 1"], "one.jpg", { type: "image/jpeg" }), new File(["photo 2"], "two.jpg", { type: "image/jpeg" })];
+    fireEvent.drop(screen.getByTestId("button-add-estimate-photos"), { dataTransfer: { files } });
+    await screen.findByTestId("estimate-photo-new-2");
+    expect(screen.getByTestId("estimate-photo-end-page-1").textContent).toBe("End of page 1");
+    expect(screen.queryByTestId("estimate-photo-end-page-2")).toBeNull();
+    expect(screen.getByTestId("text-pdf-photo-count").textContent).toContain("3 photos");
+    expect(mutations()).toMatchObject([
+      { url: `${vBase}/v1/photos/upload-url`, method: "POST", body: { filename: "one.jpg", fileSize: 7, mimeType: "image/jpeg" } },
+      { url: "https://signed.example.test/1", method: "PUT", body: files[0] },
+      { url: `${vBase}/v1/photos`, method: "POST", body: { uploadToken: "token-1" }, headers: { "X-Company-Id": "c1" } },
+      { url: `${vBase}/v1/photos/upload-url`, method: "POST", body: { filename: "two.jpg" } },
+      { url: "https://signed.example.test/2", method: "PUT" },
+      { url: `${vBase}/v1/photos`, method: "POST", body: { uploadToken: "token-2" } },
+    ]);
+    fireEvent.click(screen.getByTestId("switch-estimate-plant-table"));
+    await waitFor(() => expect(mutations().at(-1)).toMatchObject({ method: "PATCH", url: `${vBase}/v1`, body: { includePlantTable: false } }));
+    expect(screen.getByTestId("switch-estimate-plant-table").getAttribute("aria-checked")).toBe("false");
+  });
+  it("replays a sent photo caption on its mapped copy and never on the source", async () => {
+    const sent: V = { id: "v1", n: 1, status: "sent", o: { photos: [galleryPhoto("old-photo", 0, "Original")] } };
+    const draft: V = { id: "v2", n: 2, status: "draft", o: { createdFromVersionId: "v1", photos: [galleryPhoto("new-photo", 0, "Original")] } };
+    detail = detailOf([sent]);
+    handler = c => {
+      if (c.url.endsWith("/revise")) return res({ ...detailOf([sent, draft], undefined, { updatedAt: LATER }), idMap: { sections: {}, lines: {}, photos: { "old-photo": "new-photo" } } });
+      if (c.url.endsWith("/photos/new-photo") && c.method === "PATCH") {
+        draft.o!.photos = [galleryPhoto("new-photo", 0, "Updated")];
+        detail = detailOf([sent, draft], undefined, { updatedAt: LATER });
+        return res(detail);
+      }
+      return undefined;
+    };
+    renderAt(path);
+    await ready();
+    const caption = screen.getByTestId("input-estimate-photo-caption-old-photo");
+    fireEvent.change(caption, { target: { value: "Updated" } });
+    fireEvent.blur(caption);
+    await screen.findByTestId("dialog-first-edit-revision");
+    expect(mutations()).toHaveLength(0);
+    fireEvent.click(screen.getByTestId("button-confirm-first-edit"));
+    expect((await screen.findByTestId("input-estimate-photo-caption-new-photo") as HTMLInputElement).value).toBe("Updated");
+    expect(mutations()).toMatchObject([
+      { method: "POST", url: `${vBase}/v1/revise`, body: { firstEdit: true } },
+      { method: "PATCH", url: `${vBase}/v2/photos/new-photo`, body: { caption: "Updated" } },
+    ]);
+  });
+  it("opens a worksheet from the displayed historical version", async () => {
+    detail = detailOf([{ id: "v1", n: 1, status: "sent" }, { id: "v2", n: 2, status: "draft" }], "v1");
+    handler = c => c.url.endsWith("/crew-worksheet") ? res({ id: "cw1" }, 201) : undefined;
+    const { loc } = renderAt(`${path}?version=1`);
+    await ready();
+    expect(screen.queryByTestId("button-add-estimate-photos")).toBeNull();
+    fireEvent.keyDown(screen.getByTestId("button-overflow"), { key: "Enter" });
+    fireEvent.click(await screen.findByTestId("menu-estimate-crew-worksheet"));
+    await waitFor(() => expect(loc.history?.at(-1)).toBe("/dashboard/tools/crew-worksheets/cw1"));
+    expect(mutations()).toMatchObject([{ method: "POST", url: `${vBase}/v1/crew-worksheet`, body: {} }]);
+  });
+});
 
 describe("lib helpers", () => {
   it("parses structured conflicts, Denver today, calendar dates and list urls", () => {
@@ -232,14 +318,20 @@ describe("header actions per state", () => {
     expect(screen.getByTestId("banner-read-only").textContent).toContain("Prices frozen");
     expect(screen.queryByTestId("button-revise")).toBeNull();
   });
-  it.each(["sent", "accepted", "declined", "superseded", "void"])("historical %s view: back to current and no mutation path", async (status) => {
+  it.each(["sent", "accepted", "declined", "superseded", "void"])("historical %s view: back to current and no estimate mutation path", async (status) => {
     const vs: V[] = [{ id: "v1", n: 1, status }, { id: "v2", n: 2, status: "draft", o: { createdFromVersionId: "v1" } }];
     detail = detailOf(vs);
     handler = (c) => c.url === "/api/estimates/e1?version=1" ? res(detailOf(vs, "v1")) : undefined;
     const { loc } = renderAt("/dashboard/estimates/builder/e1?version=1");
     await ready();
     expect(screen.getByTestId("bar-not-current").textContent).toContain("Viewing version 1");
-    expect(screen.queryByTestId("button-overflow")).toBeNull();
+    if (status === "void") expect(screen.queryByTestId("button-overflow")).toBeNull();
+    else {
+      fireEvent.keyDown(screen.getByTestId("button-overflow"), { key: "Enter" });
+      expect(await screen.findByTestId("menu-estimate-crew-worksheet")).toBeTruthy();
+      expect(screen.queryByTestId("menu-void")).toBeNull();
+      fireEvent.keyDown(screen.getByTestId("menu-estimate-crew-worksheet"), { key: "Escape" });
+    }
     expect(screen.queryByTestId("button-revise")).toBeNull();
     expect(screen.queryByTestId("button-record-accept")).toBeNull();
     expect(screen.queryByTestId("button-record-decline")).toBeNull();

@@ -3,12 +3,20 @@ import { formatEstimateUnit } from "../../../../lib/db/src/estimateUnits";
 import { estimates, estimateVersions } from "@workspace/db";
 import { estimateHasMultipleVersions, estimatePdfFilename, type EstimateDetailDto } from "@workspace/db/estimate-contracts";
 import { db } from "../db";
-import { estimatePayload } from "./estimateReads";
+import { estimatePayload, readEstimatePhotoRows } from "./estimateReads";
 import { requireEstimate } from "./estimateErrors";
 import { calculateExtendedCents } from "./estimateMath";
 import { documentSettingsModel, type DocumentSettings } from "@workspace/db/document-contracts";
 import { readDocumentSettings } from "./documentSettings";
 import { renderDocumentPdf } from "./documents/render";
+import { chromiumPdf } from "./documents/browser";
+import { stampDocument } from "./documents/stamp";
+import { PDFDocument } from "pdf-lib";
+import { ObjectStorageService } from "../objectStorage";
+import { loadPlantLinesForVersion } from "./proposalExhibits";
+import { proposalPlantRows } from "./proposalPlants";
+import { exhibitImageUri } from "./documents/exhibitImage";
+import type { EstimateDocumentExhibits } from "./documents/estimateExhibits";
 import { estimateDocumentHtml, estimateDocumentNumber } from "./documents/estimate";
 import { categoryLabel } from "./documents/categories";
 
@@ -39,6 +47,7 @@ export interface EstimateDocumentModel {
   categorySummary: { label: string; cents: number }[];
   companyDocument: DocumentSettings;
   workLocation: string | null;
+  exhibits?: EstimateDocumentExhibits;
 }
 
 /** Calendar date in Colorado; clock is supplied by the orchestration layer, never the model. */
@@ -110,31 +119,63 @@ export function buildEstimateDocumentModel(payload: DocumentInput, display: Disp
 
 /** Estimates have exactly one design. Renderer unavailability is handled by the route. */
 export async function renderEstimateDocument(model: EstimateDocumentModel): Promise<Buffer> {
-  return renderDocumentPdf({
-    html: estimateDocumentHtml(model),
+  const stamp = {
     footerLabel: `Estimate ${model.estimateNumber}${model.showVersion ? `, version ${model.versionNumber}` : ""} · ${model.customerName}`,
     shortHeaderNumber: estimateDocumentNumber(model),
-  });
+  };
+  if (!model.exhibits?.photos.length) return renderDocumentPdf({ ...stamp, html: estimateDocumentHtml(model) });
+  const prefix = await chromiumPdf(estimateDocumentHtml(model, false));
+  const endOfDocumentPage = (await PDFDocument.load(prefix)).getPageCount() - 1;
+  return chromiumPdf(estimateDocumentHtml(model), bytes => stampDocument(bytes, { ...stamp, endOfDocumentPage }));
 }
 
-/** Scoped, reusable Phase 4 entry point. No HTTP dependency or catalog re-resolution. */
-export async function loadEstimateDocumentModel(companyId: string, estimateId: string, versionId: string): Promise<EstimateDocumentModel> {
-  const model = await db.transaction(async tx => {
+/** Pricing is snapshot-based. Only standalone estimates request the exhibit projection. */
+export async function loadEstimateDocumentModel(companyId: string, estimateId: string, versionId: string, withExhibits = false): Promise<EstimateDocumentModel> {
+  const { model, plants, photos } = await db.transaction(async tx => {
     const estimate = requireEstimate((await tx.select().from(estimates).where(and(eq(estimates.companyId, companyId), eq(estimates.id, estimateId))))[0]);
     const version = requireEstimate((await tx.select().from(estimateVersions).where(and(
       eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimate.id), eq(estimateVersions.id, versionId),
     )))[0]);
     const payload = await estimatePayload(tx, companyId, estimate, version.versionNumber);
     const companyDocument = await readDocumentSettings(companyId, tx);
-    return buildEstimateDocumentModel(payload, payload.display, coloradoDate(new Date()), companyDocument, payload.versions.length);
+    return {
+      model: buildEstimateDocumentModel(payload, payload.display, coloradoDate(new Date()), companyDocument, payload.versions.length),
+      plants: withExhibits && version.includePlantTable
+        ? proposalPlantRows((await loadPlantLinesForVersion(companyId, version.id, tx)).filter(line => line.includeInPalette)) : [],
+      photos: withExhibits && payload.version.photos.length ? await readEstimatePhotoRows(tx, companyId, version.id) : [],
+    };
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
+  if (plants.length || photos.length) {
+    const store = new ObjectStorageService();
+    const thumbnails = new Map<string, string | null>();
+    const table: EstimateDocumentExhibits["plants"] = [];
+    for (const { imagePath, quantity, name, botanicalName, size } of plants) {
+      if (imagePath?.startsWith("/") && !imagePath.startsWith("//") && !thumbnails.has(imagePath)) {
+        try {
+          const bytes = imagePath.startsWith("/objects/")
+            ? (await (await store.getObjectEntityFile(imagePath)).download())[0]
+            : await store.downloadByPath(imagePath);
+          thumbnails.set(imagePath, await exhibitImageUri(bytes));
+        } catch { thumbnails.set(imagePath, null); } // Thumbnails are optional, the plant row is not.
+      }
+      table.push({ quantity, name, botanicalName, size, dataUri: imagePath ? thumbnails.get(imagePath) ?? null : null });
+    }
+    const images: EstimateDocumentExhibits["photos"] = [];
+    for (const { storageObjectPath, caption } of photos) {
+      const file = await store.getObjectEntityFile(storageObjectPath, { allowEstimatePhoto: true });
+      const [bytes] = await file.download();
+      images.push({ dataUri: `data:image/jpeg;base64,${bytes.toString("base64")}`, caption });
+    }
+    model.exhibits = { plants: table, photos: images };
+  }
   return model;
 }
+/** Linked proposal attachments preserve the pre-E4 estimate-only rendering. */
 export async function renderEstimatePdf(companyId: string, estimateId: string, versionId: string): Promise<Buffer> {
-  return (await renderEstimatePdfFile(companyId, estimateId, versionId)).pdf;
+  return renderEstimateDocument(await loadEstimateDocumentModel(companyId, estimateId, versionId));
 }
 export async function renderEstimatePdfFile(companyId: string, estimateId: string, versionId: string) {
-  const model = await loadEstimateDocumentModel(companyId, estimateId, versionId);
+  const model = await loadEstimateDocumentModel(companyId, estimateId, versionId, true);
   return {
     pdf: await renderEstimateDocument(model),
     filename: estimatePdfFilename(model.estimateNumber, model.versionNumber, model.showVersion),

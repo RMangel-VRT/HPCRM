@@ -48,7 +48,9 @@ import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, InsertT
 import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@workspace/db";
 import { runAutomationRule, runAllAutomationRules } from "../services/automationService";
 import { sendPushToUser } from "../services/pushNotifications";
-import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL } from "../objectStorage";
+import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL, isEstimatePhotoObject } from "../objectStorage";
+import { canReadCrewWorksheets, canWriteCrewWorksheets } from "../lib/crewWorksheetAccess";
+import { formatEstimateUnit } from "../../../../lib/db/src/estimateUnits";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "../objectAcl";
 import { processEmailEvent, resendEmail, sendEmail, getDefaultWorkCompletedTemplate, buildChemicalNotificationVariables, formatTimeWindow, buildChemicalCompletionEmailVars, renderTemplate, renderChemicalNotificationTemplate, resolveChemicalNotificationTemplate, MissingChemicalNotificationTemplateError, classifyChemTemplateVariables, filterUserChemTemplateVars, CHEM_SYSTEM_TEMPLATE_VARS, getSendGridConnectionStatus } from '../services/emailService';
 import type { ChemTemplateVarSpec } from '../services/emailService';
@@ -12690,16 +12692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // per company per calendar year.
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const CW_READ_ROLES = new Set([
-    "admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor",
-    "field", "chemical_manager", "irrigation_manager", "shop_manager", "mapping",
-  ]);
-  const CW_WRITE_ROLES = new Set([
-    "admin", "office", "field_manager", "crew_supervisor", "landscape_supervisor",
-  ]);
   const CW_FINALIZE_ROLES = new Set(["admin", "office"]);
-  const canReadCrewWorksheets = (role: string) => CW_READ_ROLES.has(accessRole(role));
-  const canWriteCrewWorksheets = (role: string) => CW_WRITE_ROLES.has(accessRole(role));
   const canFinalizeCrewWorksheets = (role: string) => CW_FINALIZE_ROLES.has(accessRole(role));
 
   function sanitizeFilenamePart(s: string, maxLen: number): string {
@@ -12887,6 +12880,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!existing) return res.status(404).send("Crew worksheet not found");
     await storage.deleteCrewWorksheet(req.params.id, user.activeCompanyId);
     res.json({ success: true });
+  });
+
+  // ---- Read a private estimate photo captured by this worksheet ----
+  app.get("/api/crew-worksheets/:id/photos/:photoId/image", async (req, res) => {
+    res.set("Cache-Control", "private, no-store");
+    if (!req.isAuthenticated()) { res.sendStatus(401); return; }
+    const user = req.user as UserWithContext;
+    if (!canReadCrewWorksheets(user.activeRole)) { res.sendStatus(403); return; }
+    if (req.query.company !== undefined && req.query.company !== user.activeCompanyId) { res.sendStatus(404); return; }
+    const photo = await storage.getCrewWorksheetPhotoById(req.params.photoId, user.activeCompanyId);
+    if (!photo || photo.crewWorksheetId !== req.params.id || !isEstimatePhotoObject(photo.storageObjectPath)) { res.sendStatus(404); return; }
+    try {
+      const file = await new ObjectStorageService().getObjectEntityFile(photo.storageObjectPath, { allowEstimatePhoto: true });
+      const [bytes] = await file.download();
+      res.set("X-Content-Type-Options", "nosniff").type(photo.mimeType).send(bytes);
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) { res.sendStatus(404); return; }
+      throw error;
+    }
   });
 
   // ---- Photo upload-url ----
@@ -13145,6 +13157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (ws.assignedCrewLeadName) row("Crew Lead:", ws.assignedCrewLeadName);
     if (ws.estimatedHours) row("Est. Hours:", String(ws.estimatedHours));
     if (ws.sourceProposalTitle) row("Source Proposal:", ws.sourceProposalTitle);
+    if (ws.sourceEstimateLabelSnapshot) row("Source Estimate:", ws.sourceEstimateLabelSnapshot);
 
     doc.moveDown(0.8);
     doc.moveTo(LM, doc.y).lineTo(W - RM, doc.y).strokeColor("#cccccc").lineWidth(0.5).stroke();
@@ -13167,6 +13180,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         doc.text(`  \u2022  ${txt}`, LM, doc.y, { width: cw, lineGap: 4 });
       } else {
         doc.text(line, LM, doc.y, { width: cw, lineGap: 4 });
+      }
+    }
+
+    if (ws.estimateLinesSnapshot?.some(section => section.lines.length)) {
+      doc.moveDown(0.8).fillColor(BRAND).fontSize(12).font("Helvetica-Bold").text("ESTIMATE LINE ITEMS", LM, doc.y, { width: cw });
+      for (const section of ws.estimateLinesSnapshot) {
+        if (!section.lines.length) continue;
+        doc.moveDown(0.4).fillColor(BRAND).font("Helvetica-Bold").fontSize(10.5).text(section.name, LM, doc.y, { width: cw });
+        doc.fillColor(bodyState.color).fontSize(bodyState.size).font(bodyState.font);
+        for (const line of section.lines) {
+          doc.text(`${line.quantity} ${formatEstimateUnit(line.unit)} — ${line.name}${line.detail ? `\n${line.detail}` : ""}`,
+            LM, doc.y, { width: cw, lineGap: 3 });
+        }
       }
     }
 
@@ -13250,7 +13276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const photoBuffers: { buffer: Buffer; caption: string | null; filename: string }[] = [];
     for (const p of photos) {
       try {
-        const gcsFile = await objectStorageService.getObjectEntityFile(p.storageObjectPath);
+        const gcsFile = await objectStorageService.getObjectEntityFile(p.storageObjectPath, { allowEstimatePhoto: true });
         const [data] = await gcsFile.download();
         photoBuffers.push({ buffer: data as Buffer, caption: p.caption ?? null, filename: p.filename });
       } catch (err) {

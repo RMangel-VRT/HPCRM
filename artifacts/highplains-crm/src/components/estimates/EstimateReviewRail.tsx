@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { UMBRELLAS, formatDate, type EstimateDetailDto } from "@/lib/estimateBuilder";
 import { formatCents } from "@/lib/hardscapeCatalog";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
 
 type VersionSummary = EstimateDetailDto["versions"][number];
 
@@ -27,19 +28,26 @@ function PdfItem({ included = true, children }: { included?: boolean; children: 
   );
 }
 
-function PdfChecklist({ version }: { version: EstimateDetailDto["version"] }) {
+function PdfChecklist({ version, canEditPlants, onPlantsChange }: {
+  version: EstimateDetailDto["version"]; canEditPlants: boolean; onPlantsChange: (value: boolean) => void;
+}) {
   const { t } = useTranslation();
   const { sections } = version;
   const lines = sections.flatMap(s => s.lines);
   const scope = version.scopeOfWork?.trim() ?? "";
   const hasPlants = lines.some(l => l.umbrellaKey === "plants");
+  const plants = lines.filter(line => line.lineType === "plant");
+  const included = plants.filter(line => line.includeInPalette).length;
+  const photos = version.photos?.length ?? 0;
+  const includePlantTable = version.includePlantTable ?? true;
   // Estimate the variable pricing pages using rough wrapped-text row heights.
   // The standalone template starts the terms and signature block on its own page.
   const wrappedRows = (text: string, chars: number) =>
     text.split(/\r?\n/).reduce((n, row) => n + Math.max(1, Math.ceil(row.length / chars)), 0);
   const bodyRows = 9 + sections.length + (scope ? 2 + wrappedRows(scope, 90) : 0)
     + lines.reduce((n, l) => n + wrappedRows(l.name, 38) + (l.detail ? wrappedRows(l.detail, 50) : 0), 0);
-  const pages = Math.max(1, Math.ceil(bodyRows / 34)) + 1;
+  const plantRows = includePlantTable && included ? 2 + included * 3 : 0;
+  const pages = Math.max(1, Math.ceil((bodyRows + plantRows) / 34)) + 1 + Math.ceil(photos / 2);
   return (
     <RailCard title={t("estimateBuilder.rail.onPdf")} testId="card-on-pdf">
       <ul className="space-y-1.5 text-sm">
@@ -50,8 +58,17 @@ function PdfChecklist({ version }: { version: EstimateDetailDto["version"] }) {
             sections: t("estimateBuilder.rail.pdfSections", { count: sections.length }),
           })}
         </PdfItem>
+        <li className="flex items-center justify-between gap-2" data-testid="row-pdf-plant-table">
+          <label htmlFor="switch-estimate-plant-table" className="min-w-0">
+            <span className="block">{t("estimateBuilder.exhibits.plantsWithPictures")}</span>
+            <span className="block text-xs text-muted-foreground">{t("estimateBuilder.exhibits.plantCount", { count: includePlantTable ? included : 0, total: plants.length })}</span>
+          </label>
+          <Switch id="switch-estimate-plant-table" checked={includePlantTable} disabled={!canEditPlants} onCheckedChange={onPlantsChange}
+            aria-label={t("estimateBuilder.exhibits.plantsWithPictures")} data-testid="switch-estimate-plant-table" />
+        </li>
         <PdfItem>{t(hasPlants ? "estimateBuilder.rail.pdfPlantTerms" : "estimateBuilder.rail.pdfTerms")}</PdfItem>
         <PdfItem>{t("estimateBuilder.rail.pdfSignature")}</PdfItem>
+        <PdfItem included={photos > 0}><span data-testid="text-pdf-photo-count">{t("estimateBuilder.exhibits.photoCount", { count: photos })}</span></PdfItem>
       </ul>
       <p className="mt-2 border-t pt-2 text-xs text-muted-foreground" data-testid="text-pdf-page-estimate">
         {t("estimateBuilder.rail.pdfPages", { count: pages })}
@@ -112,9 +129,10 @@ function VersionsCard({ data, lang, onView, onPdf }: {
   );
 }
 
-export function EstimateReviewRail({ data, lang, onViewVersion, onVersionPdf }: {
+export function EstimateReviewRail({ data, lang, onViewVersion, onVersionPdf, canEditPlants, onPlantsChange }: {
   data: EstimateDetailDto; lang: string;
   onViewVersion: (version: VersionSummary) => void; onVersionPdf: (version: VersionSummary) => void;
+  canEditPlants: boolean; onPlantsChange: (value: boolean) => void;
 }) {
   const { t } = useTranslation();
   const v = data.version;
@@ -140,7 +158,7 @@ export function EstimateReviewRail({ data, lang, onViewVersion, onVersionPdf }: 
           <AlertTriangle aria-hidden className="h-3.5 w-3.5 shrink-0" />{t("estimateBuilder.rail.missingPrice", { count: missing })}
         </p>}
       </RailCard>
-      <PdfChecklist version={v} />
+      <PdfChecklist version={v} canEditPlants={canEditPlants} onPlantsChange={onPlantsChange} />
       <section className="rounded-lg border border-[hsl(var(--est-warn))]/35 bg-[hsl(var(--est-warn-bg))]/60 p-4 text-sm" data-testid="card-internal-margin">
         <h2 className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.12em] text-[hsl(var(--est-warn))]">{t("estimateBuilder.rail.internal")}</h2>
         <div className="flex justify-between gap-2"><span>{t("estimateBuilder.rail.knownCost")}</span><span className="tabular-nums" data-testid="text-known-cost">{formatCents(tot.costKnownCents, lang)}</span></div>
