@@ -10,7 +10,7 @@ import {
   DEFAULT_UMBRELLA, FREE_UNITS, UMBRELLAS, validQuantity,
   type EstimateLineType, type EstimateUmbrella,
 } from "@/lib/estimateBuilder";
-import { idPart, pickerFetch, pickerQueryKey, pickerRows, type PickerRow } from "@/lib/pickerSources";
+import { idPart, pickerFetch, pickerQueryKey, pickerRows, type PickerRow, type PickerLinePreview } from "@/lib/pickerSources";
 import { CustomForm } from "@/components/estimates/CustomLineForm";
 import { RequiredMark } from "@/components/estimates/RequiredMark";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 
 export type AddLineBody = Record<string, unknown> & { lineType: EstimateLineType; sectionId: string; quantity: string };
 /** Detailed result for custom saves: the error envelope is kept so the dialog can show it inline and recover. */
-export type AddLineResult = { ok: true } | { ok: false; error: unknown };
+export type AddLineResult = { ok: true; affectedLineId?: string; line?: import("@/lib/estimateBuilder").EstimateLineDto } | { ok: false; error: unknown };
 /** Handoff from section search: query prefill, row to select, or custom Name prefill. */
 export interface AddLineInitial { search?: string; rowKey?: string; name?: string }
 
@@ -36,7 +36,8 @@ function useDebounced<T>(value: T, ms: number): T {
 
 interface DialogProps {
   type: EstimateLineType | null; sectionId: string; customerId: string; companyId: string; initial?: AddLineInitial;
-  onClose: () => void; onSubmit: (body: AddLineBody) => Promise<boolean>; onSubmitCustom?: (body: AddLineBody) => Promise<AddLineResult>;
+  onClose: () => void; onSubmit: (body: AddLineBody, preview?: PickerLinePreview) => Promise<boolean>;
+  onSubmitCustom?: (body: AddLineBody, preview?: PickerLinePreview) => Promise<AddLineResult>;
 }
 
 export function AddLineDialog(props: DialogProps) {
@@ -99,14 +100,14 @@ function PickerBody({ type, sectionId, customerId, companyId, initial, onClose, 
     el?.scrollIntoView?.({ block: "nearest" });
   }, [highlight]);
 
-  async function submit(extra: Record<string, unknown>) {
+  async function submit(extra: Record<string, unknown>, preview?: PickerLinePreview) {
     const qty = validQuantity(quantity);
     if (!qty) { setQtyError(t("estimateBuilder.err.quantity")); return; }
     if (submittingRef.current) return;
     submittingRef.current = true;
     setQtyError(null); setPending(true);
     let ok = false;
-    try { ok = await onSubmit({ lineType: type, sectionId, quantity: qty, ...extra }); }
+    try { ok = await onSubmit({ lineType: type, sectionId, quantity: qty, ...extra }, preview); }
     finally { submittingRef.current = false; setPending(false); }
     if (ok) onClose();
   }
@@ -114,7 +115,7 @@ function PickerBody({ type, sectionId, customerId, companyId, initial, onClose, 
     if (!r || pending || submittingRef.current) return;
     if (r.free) { setFreeMode(true); return; }
     if (r.disabled || !r.body) return;
-    void submit(r.body);
+    void submit(r.body, r.preview);
   }
   /** Single click (every picker type): select the row and move focus to Quantity. Never adds. */
   function select(i: number) {

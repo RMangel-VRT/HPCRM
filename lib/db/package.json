@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
     "./estimate-contracts": "./src/estimateContracts.ts",
+    "./estimate-math": "./src/estimateMath.ts",
     "./invoice-contracts": "./src/invoiceContracts.ts",
     "./contract-non-renewal": "./src/contractNonRenewal.ts",
     "./active-customers": "./src/activeCustomers.ts",

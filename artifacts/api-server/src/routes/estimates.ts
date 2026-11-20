@@ -4,12 +4,14 @@ import { createEstimateSchema, patchEstimateSchema, patchEstimateVersionSchema, 
   createEstimateLineSchema, patchEstimateLineSchema, estimateListQuerySchema, estimateDetailQuerySchema, estimateIdSchema,
    sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, reviseEstimateSchema, catalogMatchesQuerySchema } from "@workspace/db";
 import { PutEstimateWorkLocationBody, PutEstimateWorkLocationResponse } from "@workspace/api-zod";
+import { estimateOrderSchema, replaceEstimateLineSchema } from "@workspace/db/estimate-contracts";
 import type { UserWithContext } from "../auth";
 import { estimateAccess } from "../lib/estimateAccess";
 import { logger } from "../lib/logger";
 import { EstimateError, postgresCode } from "../services/estimateErrors";
 import { listEstimates, readEstimate } from "../services/estimateReads";
-import { createEstimate, retitleEstimate, patchVersion, createSection, patchSection, deleteSection, createLine, patchLine, deleteLine } from "../services/estimates";
+import { createEstimate, retitleEstimate, patchVersion, createSection, patchSection, deleteSection, createLine, patchLine, deleteLine,
+  reorderEstimate, duplicateEstimateLine, replaceEstimateLine } from "../services/estimates";
 import { transitionEstimate } from "../services/estimateLifecycle";
 import { readTicketEstimate } from "../services/ticketEstimates";
 import { renderEstimatePdfFile } from "../services/estimatePdf";
@@ -134,6 +136,19 @@ export function registerEstimateRoutes(app: Express) {
   router.post(`${versionPath}/lines`, handle(async (req, res) => {
     const { id, versionId } = pathSchema.parse(req.params);
     res.status(201).json(await createLine((req.user as UserWithContext).activeCompanyId, id, versionId!, createEstimateLineSchema.parse(req.body)));
+  }));
+  router.put(`${versionPath}/order`, handle(async (req, res) => {
+    const { id, versionId } = pathSchema.parse(req.params);
+    res.json(await reorderEstimate((req.user as UserWithContext).activeCompanyId, id, versionId!, estimateOrderSchema.parse(req.body)));
+  }));
+  router.post(`${versionPath}/lines/:lineId/duplicate`, handle(async (req, res) => {
+    const { id, versionId, lineId } = pathSchema.parse(req.params);
+    emptyEstimateActionSchema.parse(req.body ?? {});
+    res.status(201).json(await duplicateEstimateLine((req.user as UserWithContext).activeCompanyId, id, versionId!, lineId!));
+  }));
+  router.post(`${versionPath}/lines/:lineId/replace`, handle(async (req, res) => {
+    const { id, versionId, lineId } = pathSchema.parse(req.params);
+    res.json(await replaceEstimateLine((req.user as UserWithContext).activeCompanyId, id, versionId!, lineId!, replaceEstimateLineSchema.parse(req.body)));
   }));
   router.patch(`${versionPath}/lines/:lineId`, handle(async (req, res) => {
     const { id, versionId, lineId } = pathSchema.parse(req.params);

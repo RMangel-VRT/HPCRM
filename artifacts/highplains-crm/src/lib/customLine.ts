@@ -1,5 +1,6 @@
 import { QUICK_ITEM_UNITS } from "@shared/estimateSetup";
 import type { EstimateUmbrella } from "@/lib/estimateBuilder";
+import { ESTIMATE_UMBRELLAS, type CatalogMatchDto } from "../../../../lib/db/src/estimateContracts";
 
 /** All estimate forms and catalog save targets use the same ordered units. */
 export const CUSTOM_UNITS = QUICK_ITEM_UNITS;
@@ -8,7 +9,7 @@ export type CustomUnit = (typeof CUSTOM_UNITS)[number];
 export const CATALOG_MATCHES_API = "/api/estimates/catalog-matches";
 export type SaveCatalog = "hardscape" | "equipment" | "fee" | "service";
 export type SaveToCatalog = { catalog: "hardscape" } | { catalog: "equipment" } | { catalog: "fee" } | { catalog: "service"; serviceCategoryId: string };
-export interface CatalogMatch { id: string; name: string; unit: string; priceCents: number | null; categoryName: string | null }
+export type CatalogMatch = CatalogMatchDto;
 
 /** Fixed category chips; active service categories are inserted between irrigation labor and equipment. */
 export type FixedCategory = "plants" | "hardscape" | "irrigation_parts" | "landscape_labor" | "irrigation_labor" | "equipment" | "fees";
@@ -52,7 +53,10 @@ export function referenceBody(kind: SaveCatalog, id: string): Record<string, unk
   return kind === "hardscape" ? { lineType: "hardscape", hardscapeCatalogItemId: id } : { lineType: kind, quickItemId: id };
 }
 
-export interface ExistingItem { id: string; name: string; kind: "equipment" | "fee" | "service"; isActive: boolean; serviceCategoryIsActive: boolean | null }
+export interface ExistingItem {
+  id: string; name: string; kind: "equipment" | "fee" | "service"; isActive: boolean; serviceCategoryIsActive: boolean | null;
+  unit?: string; priceCents?: number | null; umbrellaKey?: EstimateUmbrella;
+}
 export interface CustomSaveError { status: number | null; code: string | null; existing?: ExistingItem }
 
 /** Parses apiRequest's "NNN: {json}" envelope without losing structured fields. */
@@ -66,7 +70,9 @@ export function customSaveError(err: unknown): CustomSaveError {
     const code = b && typeof b.error === "string" ? b.error : null;
     const e = b?.existing;
     const existing = e && typeof e.id === "string" && typeof e.name === "string" && ["equipment", "fee", "service"].includes(e.kind)
-      ? { id: e.id, name: e.name, kind: e.kind, isActive: e.isActive === true, serviceCategoryIsActive: typeof e.serviceCategoryIsActive === "boolean" ? e.serviceCategoryIsActive : null } as ExistingItem
+      ? { id: e.id, name: e.name, kind: e.kind, isActive: e.isActive === true, serviceCategoryIsActive: typeof e.serviceCategoryIsActive === "boolean" ? e.serviceCategoryIsActive : null,
+        unit: typeof e.unit === "string" ? e.unit : undefined, priceCents: typeof e.priceCents === "number" || e.priceCents === null ? e.priceCents : undefined,
+        umbrellaKey: ESTIMATE_UMBRELLAS.find(k => k === e.umbrellaKey) } as ExistingItem
       : undefined;
     return { status, code, existing };
   } catch { return { status, code: null }; }

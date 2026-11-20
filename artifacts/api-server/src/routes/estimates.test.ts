@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   createEstimate: vi.fn(), retitleEstimate: vi.fn(), patchVersion: vi.fn(), createSection: vi.fn(), patchSection: vi.fn(), deleteSection: vi.fn(),
   createLine: vi.fn(), patchLine: vi.fn(), deleteLine: vi.fn(), readEstimate: vi.fn(), listEstimates: vi.fn(), log: vi.fn(),
+  reorderEstimate: vi.fn(), duplicateEstimateLine: vi.fn(), replaceEstimateLine: vi.fn(),
   readTicketEstimate: vi.fn(), renderEstimatePdfFile: vi.fn(),
 }));
 vi.mock("../services/estimates", () => mocks);
@@ -36,6 +37,9 @@ const endpoints = [
   ["patch", "/api/estimates/e/versions/v/sections/s", { name: "S" }, "patchSection"],
   ["delete", "/api/estimates/e/versions/v/sections/s", {}, "deleteSection"],
   ["post", "/api/estimates/e/versions/v/lines", custom, "createLine"],
+  ["put", "/api/estimates/e/versions/v/order", { sections: [{ id: "s", lineIds: ["l"] }] }, "reorderEstimate"],
+  ["post", "/api/estimates/e/versions/v/lines/l/duplicate", {}, "duplicateEstimateLine"],
+  ["post", "/api/estimates/e/versions/v/lines/l/replace", { lineType: "plant", plantCatalogItemId: "p", keepPrice: true }, "replaceEstimateLine"],
   ["patch", "/api/estimates/e/versions/v/lines/l", { quantity: "2" }, "patchLine"],
   ["delete", "/api/estimates/e/versions/v/lines/l", {}, "deleteLine"],
 ] as const;
@@ -52,6 +56,20 @@ beforeEach(() => {
   for (const [key, fn] of Object.entries(mocks)) if (key !== "log") fn.mockResolvedValue({ id: "e", version: { totals: { subtotalCents: 0 } } });
 });
 describe("all estimate endpoint boundaries", () => {
+  it("rejects non-reference replacement fields and malformed order or duplicate bodies", async () => {
+    const app = request(appFor()), base = "/api/estimates/e/versions/v";
+    for (const body of [
+      { lineType: "plant", plantCatalogItemId: "p", quantity: "1" },
+      { lineType: "fee", quickItemId: "q", unitPriceCents: 100 },
+      { lineType: "hardscape", hardscapeCatalogItemId: "h", keepPrice: "true" },
+      { lineType: "custom", name: "No reference" },
+    ]) expect((await app.post(`${base}/lines/l/replace`).send(body)).status).toBe(400);
+    expect((await app.put(`${base}/order`).send({ sections: [{ id: "s", lineIds: "l" }] })).status).toBe(400);
+    expect((await app.post(`${base}/lines/l/duplicate`).send({ id: "other" })).status).toBe(400);
+    expect(mocks.reorderEstimate).not.toHaveBeenCalled();
+    expect(mocks.duplicateEstimateLine).not.toHaveBeenCalled();
+    expect(mocks.replaceEstimateLine).not.toHaveBeenCalled();
+  });
   it("keeps by-ticket separate from list/dynamic ID reads and returns null for no live estimate", async () => {
     mocks.readTicketEstimate.mockResolvedValue(null);
     expect((await request(appFor()).get("/api/estimates/by-ticket/ticket").set("X-Company-Id", "a")).body).toBeNull();
@@ -72,7 +90,7 @@ describe("all estimate endpoint boundaries", () => {
     expect(mocks[service]).not.toHaveBeenCalled();
     for (const role of ["admin", "office"]) {
       const response = await request(appFor(role))[method](url).set("X-Company-Id", "a").send(body);
-      expect(response.status).toBe(method === "post" ? 201 : 200);
+      expect(response.status).toBe(method === "post" && service !== "replaceEstimateLine" ? 201 : 200);
       expect(response.headers["cache-control"]).toBe("no-store");
       expect(mocks[service].mock.calls.at(-1)?.[0]).toBe("a");
     }

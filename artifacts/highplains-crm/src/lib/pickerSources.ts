@@ -1,9 +1,10 @@
 import type { TFunction } from "i18next";
-import { unitLabel } from "./estimateUnits";
+import { normalizeEstimateUnit, unitLabel } from "./estimateUnits";
 import { catalogListUrl, fetchJson, formatCents, parseDollarsToCents, type HardscapeListResponse } from "@/lib/hardscapeCatalog";
 import { irrigationListUrl, type IrrigationListResponse } from "@/lib/irrigationCatalog";
 import { QUICK_ITEMS_API, RATES_PREVIEW_API, moneyOrText, type QuickItem } from "@/lib/estimateSettings";
-import type { EstimateLineType, PlantVariety, RatesPreviewWithContext } from "@/lib/estimateBuilder";
+import { UMBRELLAS, type EstimateLineDto, type EstimateLineType, type PlantVariety, type RatesPreviewWithContext } from "@/lib/estimateBuilder";
+import { moneyStringToCents, PLANT_DEFAULT_PRICE } from "../../../../lib/db/src/estimateMath";
 
 /**
  * Shared picker data contracts (Slice 4.7).
@@ -14,9 +15,12 @@ import type { EstimateLineType, PlantVariety, RatesPreviewWithContext } from "@/
 export interface PickerRow {
   key: string; title: string; detail?: string; meta?: string; badge?: string; warn?: string; disabled?: string;
   body?: Record<string, unknown>; free?: boolean;
+  preview?: PickerLinePreview;
   /** Service rows only: the (active) service category the row belongs to. */
   group?: { id: string; name: string };
 }
+export type PickerLinePreview = Pick<EstimateLineDto, "name" | "detail" | "unit" | "unitPriceCents" | "unitCostCents" | "priceSource" | "umbrellaKey"> &
+  Partial<Pick<EstimateLineDto, "termId">>;
 export interface PickerFilters { search: string; category: string | null; brand: string | null; customerId: string }
 export type PickerScope = readonly [string | null | undefined, string | null | undefined, string | null | undefined];
 
@@ -66,12 +70,21 @@ export function pickerRows(type: EstimateLineType, d: unknown, o: { search: stri
   const free = (): PickerRow => ({ key: "__free", title: t("estimateBuilder.picker.freeType"), detail: t("estimateBuilder.picker.freeTypeHint"), free: true });
   if (type === "plant") {
     for (const v of d as PlantVariety[]) for (const sz of v.sizes.filter((x) => x.isActive !== false)) {
+      let preview: PickerLinePreview | undefined;
+      try {
+        preview = {
+          name: [v.commonName, sz.sizeLabel].filter(Boolean).join(" "), detail: ["Plant Library", v.category, sz.sizeLabel].filter(Boolean).join(" · "),
+          unit: "EA", unitPriceCents: PLANT_DEFAULT_PRICE(sz.wholesaleCost, sz.salePrice),
+          unitCostCents: sz.wholesaleCost === null ? null : moneyStringToCents(sz.wholesaleCost), umbrellaKey: "plants", priceSource: "catalog",
+        };
+      } catch { /* Keep the picker usable; the server reports unsupported catalog amounts. */ }
       rows.push({
         key: `${v.varietyKey}-${sz.productCode}`, title: v.commonName, detail: [v.botanicalName, sz.sizeLabel].filter(Boolean).join(" · "),
         meta: [t("estimateBuilder.picker.onHand", { count: sz.onHand }), plantDollars(sz.wholesaleCost, lang) && t("estimateBuilder.picker.cost", { amount: plantDollars(sz.wholesaleCost, lang) }),
           plantDollars(sz.salePrice, lang) && t("estimateBuilder.picker.price", { amount: plantDollars(sz.salePrice, lang) })].filter(Boolean).join(" · "),
         disabled: sz.id ? undefined : t("estimateBuilder.picker.noRef"),
         body: sz.id ? { plantCatalogItemId: sz.id } : undefined,
+        preview,
       });
     }
   } else if (type === "hardscape" || type === "irrigation") {
@@ -82,6 +95,11 @@ export function pickerRows(type: EstimateLineType, d: unknown, o: { search: stri
       meta: [unitLabel(i.unit, t), i.retailPriceCents != null && t("estimateBuilder.picker.price", { amount: formatCents(i.retailPriceCents, lang) }),
         i.wholesaleCostCents != null && t("estimateBuilder.picker.cost", { amount: formatCents(i.wholesaleCostCents, lang) })].filter(Boolean).join(" · "),
       body: type === "hardscape" ? { hardscapeCatalogItemId: i.id } : { irrigationCatalogItemId: i.id },
+      preview: {
+        name: i.name, detail: [i.category, type === "hardscape" ? i.sku : ("externalSku" in i ? i.externalSku : null)].filter(Boolean).join(" · "),
+        unit: normalizeEstimateUnit(i.unit) ?? i.unit, unitPriceCents: i.retailPriceCents ?? 0, unitCostCents: i.wholesaleCostCents ?? null,
+        umbrellaKey: UMBRELLAS.find(key => key === i.umbrellaKey) ?? (type === "hardscape" ? "landscape_materials" : "irrigation_materials"), priceSource: "catalog",
+      },
     }));
   } else if (type === "labor") {
     // Customer-specific rate preview, filtered locally. Text-only rates stay pickable; unset rates stay disabled.
@@ -94,6 +112,11 @@ export function pickerRows(type: EstimateLineType, d: unknown, o: { search: stri
         warn: textOnly ? t("estimateBuilder.picker.textRate", { text: r.priceText }) : undefined,
         disabled: r.source === "unset" || (r.rateCents == null && !textOnly) ? t("estimateBuilder.picker.unset") : undefined,
         body: { rateKey: r.rateKey },
+        preview: r.source === "unset" ? undefined : {
+          name: r.label, detail: r.priceText ?? null, unit: normalizeEstimateUnit(r.unit ?? "HR") ?? r.unit ?? "HR",
+          unitPriceCents: r.rateCents ?? 0, unitCostCents: null, priceSource: r.source, termId: r.termId ?? null,
+          umbrellaKey: r.line === "irrigation" ? "irrigation_labor" : "landscape_labor",
+        },
       };
     });
   } else if (type === "service") {
@@ -108,6 +131,7 @@ export function pickerRows(type: EstimateLineType, d: unknown, o: { search: stri
         detail: [i.serviceCategoryName, unitLabel(i.defaultUnit, t)].filter(Boolean).join(" · "),
         meta: i.defaultRateCents != null ? formatCents(i.defaultRateCents, lang) : t("estimateBuilder.picker.noDefault"),
         body: { quickItemId: i.id },
+        preview: quickPreview(i),
         group: { id: i.serviceCategoryId!, name: i.serviceCategoryName ?? "" },
       }));
     if (o.withFree) rows.push(free());
@@ -117,23 +141,29 @@ export function pickerRows(type: EstimateLineType, d: unknown, o: { search: stri
         key: i.id, title: i.label, detail: unitLabel(i.defaultUnit, t),
         meta: i.defaultRateCents != null ? formatCents(i.defaultRateCents, lang) : t("estimateBuilder.picker.noDefault"),
         body: { quickItemId: i.id },
+        preview: quickPreview(i),
       }));
     if (o.withFree) rows.push(free());
   }
   return { rows, categories, brands, serviceCats };
 }
 
+function quickPreview(i: QuickItem): PickerLinePreview {
+  return { name: i.label, detail: null, unit: normalizeEstimateUnit(i.defaultUnit) ?? i.defaultUnit, unitPriceCents: i.defaultRateCents ?? 0,
+    unitCostCents: null, priceSource: "quick_list", umbrellaKey: i.umbrellaKey };
+}
+
 /** One group of section-search results: a catalog, or one service category within Services. */
 export interface SearchGroup { id: string; type: SearchType; label?: string; rows: PickerRow[]; total: number }
 
-export function groupSearchRows(type: SearchType, rows: PickerRow[]): SearchGroup[] {
+export function groupSearchRows(type: SearchType, rows: PickerRow[], limit = SEARCH_GROUP_MAX): SearchGroup[] {
   const pickable = rows.filter((r) => !r.free);
-  if (type !== "service") return pickable.length ? [{ id: type, type, rows: pickable.slice(0, SEARCH_GROUP_MAX), total: pickable.length }] : [];
+  if (type !== "service") return pickable.length ? [{ id: type, type, rows: pickable.slice(0, limit), total: pickable.length }] : [];
   const by = new Map<string, SearchGroup>();
   for (const r of pickable) {
     const gid = r.group?.id ?? "__none";
     const g = by.get(gid) ?? { id: `service-${gid}`, type, label: r.group?.name, rows: [], total: 0 };
-    g.total++; if (g.rows.length < SEARCH_GROUP_MAX) g.rows.push(r);
+    g.total++; if (g.rows.length < limit) g.rows.push(r);
     by.set(gid, g);
   }
   return [...by.values()].sort((a, b) => (a.label ?? "").localeCompare(b.label ?? ""));

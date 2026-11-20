@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-export interface SearchHandoff { type: EstimateLineType; search?: string; rowKey?: string; name?: string }
+export interface SearchHandoff { type: EstimateLineType; search?: string; rowKey?: string; name?: string; row?: PickerRow }
 
 type Opt =
   | { kind: "row"; id: string; type: SearchType; row: PickerRow }
@@ -23,10 +23,11 @@ type Opt =
 
 /**
  * Section-wide search: fans out to the seven catalog pickers in parallel through the
- * shared picker helpers. Choosing never adds; it hands off to the typed picker.
+ * shared picker helpers. The caller handles add, replace, or a typed form.
  */
-export function SectionSearch({ sectionId, customerId, companyId, onOpen }: {
+export function SectionSearch({ sectionId, customerId, companyId, onOpen, preferredType, onDismiss }: {
   sectionId: string; customerId: string; companyId: string; onOpen: (h: SearchHandoff) => void;
+  preferredType?: EstimateLineType; onDismiss?: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
@@ -35,7 +36,8 @@ export function SectionSearch({ sectionId, customerId, companyId, onOpen }: {
   const [input, setInput] = useState("");
   const [debounced, setDebounced] = useState("");
   const [closed, setClosed] = useState(false);
-  const [active, setActive] = useState(-1);
+  const [active, setActive] = useState<string | null>(null);
+  const swapping = preferredType !== undefined;
   useEffect(() => { const id = setTimeout(() => setDebounced(input.trim()), SEARCH_DEBOUNCE_MS); return () => clearTimeout(id); }, [input]);
   // Results (and handoff) exist only for the exact current text: never a previous debounced query.
   const fresh = input.trim() === debounced;
@@ -59,9 +61,10 @@ export function SectionSearch({ sectionId, customerId, companyId, onOpen }: {
   // Projection per type; a query result whose search differs from the current one is never shown.
   const sections = SEARCH_TYPES.map((type, i) => {
     const r = results[i];
-    const groups: SearchGroup[] = r.data && query ? groupSearchRows(type, pickerRows(type, r.data, { search: query, category: null, t, lang }).rows) : [];
+    const rows = r.data && query ? pickerRows(type, r.data, { search: query, category: null, t, lang }).rows : [];
+    const groups: SearchGroup[] = groupSearchRows(type, rows, swapping ? Infinity : undefined);
     return { type, groups, error: r.isError, loading: r.isLoading && r.fetchStatus !== "idle", refetch: r.refetch };
-  });
+  }).sort((a, b) => Number(b.type === preferredType) - Number(a.type === preferredType));
 
   const opts: Opt[] = [];
   for (const s of sections) {
@@ -70,33 +73,39 @@ export function SectionSearch({ sectionId, customerId, companyId, onOpen }: {
       for (const row of g.rows) opts.push({ kind: "row", id: `${base}-opt-${s.type}-${idPart(row.key)}`, type: s.type, row });
     }
     const total = s.groups.reduce((n, g) => n + g.total, 0);
-    if (total > 0) opts.push({ kind: "seeAll", id: `${base}-all-${s.type}`, type: s.type });
+    if (!swapping && total > 0) opts.push({ kind: "seeAll", id: `${base}-all-${s.type}`, type: s.type });
   }
-  if (query) opts.push({ kind: "custom", id: `${base}-custom` });
+  if (query && !swapping) opts.push({ kind: "custom", id: `${base}-custom` });
   const optIndex = useMemo(() => new Map(opts.map((o, i) => [o.id, i])), [opts.map((o) => o.id).join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { setActive(-1); }, [query]);
+  useEffect(() => { setActive(null); }, [query]);
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const o = opts[active];
-    if (o) listRef.current?.querySelector<HTMLElement>(`[data-opt="${o.id}"]`)?.scrollIntoView?.({ block: "nearest" });
+    if (active) listRef.current?.querySelector<HTMLElement>(`[data-opt="${active}"]`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function choose(o: Opt | undefined) {
     if (!o || !query) return;
-    if (o.kind === "row") { if (o.row.disabled || !o.row.body) return; onOpen({ type: o.type, search: query, rowKey: o.row.key }); }
+    if (o.kind === "row") { if (o.row.disabled) return; onOpen({ type: o.type, search: query, rowKey: o.row.key, row: o.row }); }
     else if (o.kind === "seeAll") onOpen({ type: o.type, search: query });
-    else if (o.kind === "error") void sections.find((s) => s.type === o.type)?.refetch();
+    else if (o.kind === "error") { void sections.find((s) => s.type === o.type)?.refetch(); return; }
     else onOpen({ type: "custom", name: query });
+    setInput(""); setDebounced(""); setClosed(true); setActive(null);
   }
   function onKey(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setInput(""); setDebounced(""); setClosed(true); setActive(-1); return; }
-    if (!open || !opts.length) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(opts.length - 1, a + 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
-    else if (e.key === "Enter") { e.preventDefault(); choose(opts[active]); }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setInput(""); setDebounced(""); setClosed(true); setActive(null); onDismiss?.(); return; }
+    if (!open || !opts.length || e.nativeEvent.isComposing) return;
+    const eligible = opts.filter(o => o.kind !== "row" || !o.row.disabled);
+    const index = eligible.findIndex(o => o.id === active);
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(eligible[Math.min(eligible.length - 1, index + 1)]?.id ?? null); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(eligible[Math.max(0, index - 1)]?.id ?? null); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      const first = eligible.find(o => o.kind === "row") ?? (!anyLoading && eligible.find(o => o.kind === "custom"));
+      choose(eligible[index] ?? (first || undefined));
+    }
   }
-  const activeId = open && opts[active] ? opts[active].id : undefined;
+  const activeId = open && active && optIndex.has(active) ? active : undefined;
   const typeLabel = (type: EstimateLineType) => t(`estimateBuilder.line.type.${type}`);
   const optCls = (id: string, extra?: string) => cn("flex cursor-pointer select-none items-start gap-2.5 border-l-2 border-l-transparent px-3 py-2 text-sm hover:bg-muted/50",
     activeId === id && "border-l-[hsl(var(--rail-active-icon))] bg-rail-hover hover:bg-rail-hover", extra);
@@ -104,16 +113,19 @@ export function SectionSearch({ sectionId, customerId, companyId, onOpen }: {
   const nothing = !anyLoading && opts.every((o) => o.kind === "custom");
 
   return (
-    <div className="mb-2" data-testid={`section-search-${sectionId}`}>
+    <div className="relative" data-testid={`section-search-${sectionId}`} onBlur={e => {
+      if (!e.currentTarget.contains(e.relatedTarget)) setClosed(true);
+    }}>
       <div className="relative">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input type="search" value={input} onChange={(e) => { setInput(e.target.value); setClosed(false); }} onKeyDown={onKey}
-          placeholder={t("estimateBuilder.inlineSearch.placeholder")} aria-label={t("estimateBuilder.inlineSearch.label")}
+        <Input type="search" autoFocus={swapping} maxLength={500} value={input} onFocus={() => setClosed(false)} onChange={(e) => { setInput(e.target.value); setClosed(false); setActive(null); }} onKeyDown={onKey}
+          placeholder={t(swapping ? "estimateBuilder.lineEdit.swapSearch" : "estimateBuilder.inlineSearch.placeholder")} aria-label={t(swapping ? "estimateBuilder.lineEdit.swapSearch" : "estimateBuilder.inlineSearch.label")}
           role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={listId} aria-activedescendant={activeId}
           className="h-9 bg-background pl-8 text-[13px]" data-testid={`input-section-search-${sectionId}`} />
       </div>
       {open && (
-        <div className="mt-1.5 overflow-hidden rounded-md border bg-card shadow-sm" data-testid={`panel-section-search-${sectionId}`}>
+        <div className="mt-1.5 overflow-hidden rounded-md border bg-card shadow-sm"
+          onMouseDown={e => { if ((e.target as HTMLElement).closest('[role="option"]')) e.preventDefault(); }} data-testid={`panel-section-search-${sectionId}`}>
           <div id={listId} ref={listRef} role="listbox" aria-label={t("estimateBuilder.inlineSearch.results")} aria-busy={!query || anyLoading} className="max-h-[420px] overflow-y-auto">
             {!query && <div role="presentation" className="space-y-1.5 px-3 py-2" data-testid="search-pending"><Skeleton className="h-4 w-1/2" /><Skeleton className="h-4 w-1/3" /></div>}
             {query && sections.map((s) => {
@@ -154,7 +166,7 @@ export function SectionSearch({ sectionId, customerId, companyId, onOpen }: {
                           const id = `${base}-opt-${s.type}-${idPart(r.key)}`;
                           return (
                             <div key={r.key} id={id} data-opt={id} role="option" aria-selected={activeId === id} aria-disabled={!!r.disabled}
-                              onClick={() => choose(opts[optIndex.get(id)!])} onMouseMove={() => { const i = optIndex.get(id); if (i != null && i !== active) setActive(i); }}
+                              onClick={() => choose(opts[optIndex.get(id)!])} onMouseMove={() => { if (!r.disabled) setActive(id); }}
                               className={optCls(id, r.disabled ? "cursor-not-allowed opacity-70" : undefined)} data-testid={`search-option-${s.type}-${r.key}`}>
                               {chip}
                               <div className="min-w-0 flex-1">
@@ -170,15 +182,15 @@ export function SectionSearch({ sectionId, customerId, companyId, onOpen }: {
                       </div>
                     );
                   })}
-                  <div id={allId} data-opt={allId} role="option" aria-selected={activeId === allId} onClick={() => choose(opts[optIndex.get(allId)!])}
+                  {!swapping && <div id={allId} data-opt={allId} role="option" aria-selected={activeId === allId} onClick={() => choose(opts[optIndex.get(allId)!])}
                     className={optCls(allId, "py-1.5 text-xs font-medium text-[hsl(var(--rail-active-icon))]")} data-testid={`search-see-all-${s.type}`}>
                     <span>{t("estimateBuilder.inlineSearch.seeAll", { catalog: typeLabel(s.type) })}</span><ArrowRight className="mt-0.5 h-3 w-3" />
-                  </div>
+                  </div>}
                 </div>
               );
             })}
             {query && nothing && <p role="presentation" className="px-3 py-3 text-xs text-muted-foreground" data-testid="search-empty">{t("estimateBuilder.inlineSearch.empty")}</p>}
-            {query && <div id={`${base}-custom`} data-opt={`${base}-custom`} role="option" aria-selected={activeId === `${base}-custom`}
+            {query && !swapping && <div id={`${base}-custom`} data-opt={`${base}-custom`} role="option" aria-selected={activeId === `${base}-custom`}
               onClick={() => choose(opts[optIndex.get(`${base}-custom`)!])} className={optCls(`${base}-custom`, "text-[13px]")} data-testid="search-create-custom">
               <PenLine className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span>{t("estimateBuilder.inlineSearch.notInCatalog")} <span className="font-semibold">{t("estimateBuilder.inlineSearch.createCustom", { query })}</span></span>

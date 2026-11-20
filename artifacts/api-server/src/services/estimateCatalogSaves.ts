@@ -10,14 +10,16 @@ export async function catalogMatches(companyId: string, query: CatalogMatchesQue
   if (query.catalog === "hardscape") {
     const t = hardscapeCatalogItems;
     const score = sql<number>`similarity(lower(${t.name}), lower(${q}))`;
-    return db.select({ id: t.id, name: t.name, unit: t.unit, priceCents: t.retailPriceCents, categoryName: t.category })
+    const rows = await db.select({ id: t.id, name: t.name, unit: t.unit, priceCents: t.retailPriceCents, categoryName: t.category,
+      umbrellaKey: t.umbrellaKey, unitCostCents: t.wholesaleCostCents, sku: t.sku })
       .from(t).where(and(eq(t.companyId, companyId), eq(t.isActive, true),
         or(sql`${score} >= 0.3`, sql`strpos(lower(${t.name}), lower(${q})) > 0`)))
       .orderBy(desc(score), asc(t.name), asc(t.id)).limit(5);
+    return rows.map(({ sku, ...r }) => ({ ...r, umbrellaKey: r.umbrellaKey as CatalogMatchDto["umbrellaKey"], detail: [r.categoryName, sku].filter(Boolean).join(" · ") }));
   }
   const t = estimateQuickItems, c = estimateServiceCategories;
   const score = sql<number>`similarity(lower(${t.label}), lower(${q}))`;
-  return db.select({ id: t.id, name: t.label, unit: t.defaultUnit, priceCents: t.defaultRateCents, categoryName: c.name })
+  return db.select({ id: t.id, name: t.label, unit: t.defaultUnit, priceCents: t.defaultRateCents, categoryName: c.name, umbrellaKey: t.umbrellaKey })
     .from(t).leftJoin(c, and(eq(c.id, t.serviceCategoryId), eq(c.companyId, companyId)))
     .where(and(eq(t.companyId, companyId), eq(t.isActive, true), eq(t.kind, query.catalog),
       query.catalog === "service" ? and(eq(c.id, query.serviceCategoryId!), eq(c.isActive, true)) : undefined,
@@ -66,6 +68,7 @@ export async function conflictingQuickItem(companyId: string, name: string) {
   const t = estimateQuickItems, c = estimateServiceCategories;
   const [existing] = await db.select({
     id: t.id, name: t.label, kind: t.kind, isActive: t.isActive, serviceCategoryIsActive: c.isActive,
+    unit: t.defaultUnit, priceCents: t.defaultRateCents, umbrellaKey: t.umbrellaKey,
   }).from(t).leftJoin(c, and(eq(c.id, t.serviceCategoryId), eq(c.companyId, companyId)))
     .where(and(eq(t.companyId, companyId), sql`lower(${t.label}) = lower(${name})`)).limit(1);
   return existing;

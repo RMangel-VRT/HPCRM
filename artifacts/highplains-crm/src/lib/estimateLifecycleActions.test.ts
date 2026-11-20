@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { runEstimateLifecycle } from "./estimateLifecycleActions";
+import { estimateErrorText, runEstimateLifecycle } from "./estimateLifecycleActions";
 import { sendEstimate } from "./estimateBuilder";
 import { advanceLinkedTicket } from "./advanceLinkedTicket";
 import type { EstimateDetailDto } from "@shared/schema";
@@ -23,6 +23,9 @@ beforeEach(() => {
   vi.mocked(advanceLinkedTicket).mockResolvedValue({ moved: true, reason: null, ticketNumber: "ticket", statusName: "Ready" });
 });
 describe("shared lifecycle orchestration", () => {
+  it("explains when a catalog price reset was rejected because the item changed", () => {
+    expect(estimateErrorText(new Error('409: {"error":"ESTIMATE_LINE_CHANGED"}'), k => k)).toBe("estimateBuilder.lineEdit.resetStale");
+  });
   it.each(["send", "accept", "decline"] as const)("%s advances once, toasts and invalidates shared surfaces", async kind => {
     const o = { ...options(), kind };
     const result = await runEstimateLifecycle(o);

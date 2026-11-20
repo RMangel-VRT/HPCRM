@@ -8,7 +8,7 @@ import { canonicalEstimateUnit } from "./estimateUnit";
 
 type Snapshot = Pick<EstimateLine, "name" | "detail" | "unit" | "unitPriceCents" | "unitCostCents" | "umbrellaKey" | "priceSource"> &
   Partial<Pick<EstimateLine, "plantCatalogItemId" | "hardscapeCatalogItemId" | "irrigationCatalogItemId" | "quickItemId" | "rateKey" | "termId">>;
-/** Sources are read ONLY on insertion, through the caller's transaction. */
+/** Sources are read only when inserting or explicitly replacing an item, in the caller's transaction. */
 export async function snapshotEstimateLine(tx: AppTransaction, companyId: string, customerId: string, input: CreateEstimateLineInput): Promise<Snapshot> {
   switch (input.lineType) {
     case "plant": {

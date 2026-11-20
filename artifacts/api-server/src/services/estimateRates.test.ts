@@ -87,7 +87,7 @@ describe("preview governing context metadata", () => {
   it("reports the governing season even when its missing exact key falls back to card", () => {
     const result = previewFromRows([card()], [term({ seasonLabel: "2026 landscape" })], [], today);
     expect(result.governingContexts).toEqual([{ line: "landscape", termId: "t", seasonLabel: "2026 landscape" }]);
-    expect(result.items[0]).toEqual(resolveFromRows(card(), [term({ seasonLabel: "2026 landscape" })], [], "labor", today));
+    expect(result.items[0]).toEqual({ ...resolveFromRows(card(), [term({ seasonLabel: "2026 landscape" })], [], "labor", today), line: "landscape" });
     expect(result.items[0].source).toBe("rate_card");
     expect(result.items[0]).not.toHaveProperty("termId");
   });

@@ -95,7 +95,7 @@ describe("catalog matching and transactional custom saves", () => {
     await quick({ label: `${label} fee`, kind: "fee" });
     await quick({ label: `${label} inactive`, kind: "service", serviceCategoryId: categoryId, isActive: false });
     const r = await matches({ catalog: "service", serviceCategoryId: categoryId, name: label });
-    expect(r.body).toEqual([{ id: active.id, name: label, unit: "EA", priceCents: null, categoryName: "Treatments" }]);
+    expect(r.body).toEqual([{ id: active.id, name: label, unit: "EA", priceCents: null, categoryName: "Treatments", umbrellaKey: "landscape_labor" }]);
     expect((await matches({ catalog: "service", serviceCategoryId: categoryId, name: label }, b)).body).toEqual([]);
     await db.update(estimateServiceCategories).set({ isActive: false }).where(eq(estimateServiceCategories.id, categoryId));
     expect((await matches({ catalog: "service", serviceCategoryId: categoryId, name: label })).body).toEqual([]);

@@ -52,5 +52,5 @@ export function previewFromRows(card: RateCardItem[], terms: AgreementTerm[], ra
     const term = selectInEffectTerm(terms.filter(t => applies(t.line, line)), today);
     return { line, termId: term?.id ?? null, seasonLabel: term?.seasonLabel ?? null };
   });
-  return { items: labor.map(r => resolveFromRows(r, terms, rates, r.rateKey, today)), governingContexts };
+  return { items: labor.map(r => ({ ...resolveFromRows(r, terms, rates, r.rateKey, today), line: r.line })), governingContexts };
 }

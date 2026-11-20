@@ -69,3 +69,5 @@
 - [Work location ownership](work-location-ownership.md) — linked tickets own location text; standalone estimates own theirs; otherwise display the property address.
 - [Estimate rework direction](estimate-rework-direction.md) — one estimate workspace replaces proposal authoring only after exhibits, worksheets and email work; retain old proposals.
 - [Guarded ticket identity edits](guarded-ticket-identity-edits.md) — keep customer and type rules separate; closed visit history has different meaning for each.
+- [Estimate keyboard sorting](estimate-keyboard-sorting.md) — follow logical row order, not measured centers; restore focus after cross-section rows remount.
+- [Estimate rate reset boundaries](estimate-rate-reset-boundaries.md) — a same-item price reset never refreshes the item snapshot or customer-facing edits.

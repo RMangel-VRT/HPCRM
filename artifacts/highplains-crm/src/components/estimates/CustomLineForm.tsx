@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { unitLabel } from "@/lib/estimateUnits";
+import { normalizeEstimateUnit, unitLabel } from "@/lib/estimateUnits";
 import type { FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -18,6 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import type { PickerLinePreview } from "@/lib/pickerSources";
+import type { ExistingItem } from "@/lib/customLine";
 
 type Body = Record<string, unknown> & { lineType: EstimateLineType; sectionId: string; quantity: string };
 type Result = { ok: true } | { ok: false; error: unknown };
@@ -33,7 +35,8 @@ const SVC = "svc:";
 /** Category-led custom line (Slice 4.7): category decides the umbrella; optional atomic save to a catalog. */
 export function CustomForm({ sectionId, companyId, initial, onClose, onSubmit, onSubmitCustom }: {
   sectionId: string; companyId: string; initial?: { name?: string };
-  onClose: () => void; onSubmit: (body: Body) => Promise<boolean>; onSubmitCustom?: (body: Body) => Promise<Result>;
+  onClose: () => void; onSubmit: (body: Body, preview?: PickerLinePreview) => Promise<boolean>;
+  onSubmitCustom?: (body: Body, preview?: PickerLinePreview) => Promise<Result>;
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
@@ -94,12 +97,12 @@ export function CustomForm({ sectionId, companyId, initial, onClose, onSubmit, o
   // Any edit makes the previous server message stale; fields are never cleared.
   useEffect(() => { setServerError(null); }, [categoryId, name, unit, save]);
 
-  async function send(body: Body): Promise<boolean> {
+  async function send(body: Body, preview?: PickerLinePreview): Promise<boolean> {
     if (submittingRef.current) return false;
     submittingRef.current = true; setPending(true); setServerError(null);
     let result: Result;
     try {
-      result = onSubmitCustom ? await onSubmitCustom(body) : (await onSubmit(body)) ? { ok: true } : { ok: false, error: null };
+      result = onSubmitCustom ? await onSubmitCustom(body, preview) : (await onSubmit(body, preview)) ? { ok: true } : { ok: false, error: null };
     } catch (error) { result = { ok: false, error }; }
     finally { submittingRef.current = false; if (mounted.current) setPending(false); }
     if (!mounted.current) return false;
@@ -136,10 +139,14 @@ export function CustomForm({ sectionId, companyId, initial, onClose, onSubmit, o
   }
 
   /** Reuse an existing catalog item with the entered quantity, via its normal typed reference body. */
-  function reuse(kind: SaveCatalog, id: string) {
+  function reuse(kind: SaveCatalog, item: CatalogMatch | ExistingItem) {
     const qty = checkQty();
     if (!qty) return;
-    void send({ ...referenceBody(kind, id), sectionId, quantity: qty });
+    const preview: PickerLinePreview | undefined = item.unit && item.umbrellaKey && item.priceCents !== undefined
+      ? { name: item.name, unit: normalizeEstimateUnit(item.unit) ?? item.unit, unitPriceCents: item.priceCents ?? 0,
+        detail: "detail" in item ? item.detail ?? null : null, unitCostCents: "unitCostCents" in item ? item.unitCostCents ?? null : null,
+        umbrellaKey: item.umbrellaKey, priceSource: kind === "hardscape" ? "catalog" : "quick_list" } : undefined;
+    void send({ ...referenceBody(kind, item.id), sectionId, quantity: qty }, preview);
   }
 
   const chip = (on: boolean) => cn("h-7 rounded-full border px-3 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--rail-active-icon))]",
@@ -243,7 +250,7 @@ export function CustomForm({ sectionId, companyId, initial, onClose, onSubmit, o
                       {[m.categoryName, unitLabel(m.unit, t), m.priceCents != null ? formatCents(m.priceCents, lang) : t("estimateBuilder.picker.noDefault")].filter(Boolean).join(" · ")}
                     </div>
                   </div>
-                  <Button type="button" size="sm" variant="outline" className="h-7 shrink-0" disabled={pending} onClick={() => reuse(saveTarget!.catalog, m.id)} data-testid={`button-use-match-${m.id}`}>
+                  <Button type="button" size="sm" variant="outline" className="h-7 shrink-0" disabled={pending} onClick={() => reuse(saveTarget!.catalog, m)} data-testid={`button-use-match-${m.id}`}>
                     {t("estimateBuilder.customLine.useInstead")}
                   </Button>
                 </li>
@@ -262,7 +269,7 @@ export function CustomForm({ sectionId, companyId, initial, onClose, onSubmit, o
           <div role="alert" className="rounded-md border border-[hsl(var(--est-warn))]/40 bg-[hsl(var(--est-warn-bg))]/60 p-3 text-sm" data-testid="alert-catalog-exists">
             <p className="font-medium">{t("estimateBuilder.customLine.exists", { name: existing.name, catalog: catalogName(existing.kind) })}</p>
             {canReuse(existing) ? (
-              <Button type="button" size="sm" variant="outline" className="mt-2 h-7" disabled={pending} onClick={() => reuse(existing.kind, existing.id)} data-testid="button-use-existing">
+              <Button type="button" size="sm" variant="outline" className="mt-2 h-7" disabled={pending} onClick={() => reuse(existing.kind, existing)} data-testid="button-use-existing">
                 {t("estimateBuilder.customLine.useInstead")}
               </Button>
             ) : <p className="mt-1 text-xs text-muted-foreground" data-testid="text-existing-inactive">{t("estimateBuilder.customLine.existsInactive")}</p>}

@@ -9,9 +9,12 @@ type Translate = (key: string, params?: Record<string, unknown>) => string;
 export function estimateErrorText(err: unknown, t: Translate): string {
   const status = errorStatus(err);
   if (status === 404) return t("estimateBuilder.notFound");
-  if (status === 409) return /void/i.test(String(err)) ? t("estimateBuilder.voidedError") : t("estimateBuilder.conflict");
+  if (status === 409) {
+    if (conflictOf(err)?.error === "ESTIMATE_LINE_CHANGED") return t("estimateBuilder.lineEdit.resetStale");
+    return /void/i.test(String(err)) ? t("estimateBuilder.voidedError") : t("estimateBuilder.conflict");
+  }
   if (status === 422) return t("estimateBuilder.err.unprocessable");
-  if (status === 400) return t("estimateBuilder.err.invalid");
+  if (status === 400) return t(conflictOf(err)?.error === "INVALID_ESTIMATE_ORDER" ? "estimateBuilder.lineEdit.invalidOrder" : "estimateBuilder.err.invalid");
   return t("estimateBuilder.err.generic");
 }
 

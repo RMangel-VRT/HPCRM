@@ -8,6 +8,7 @@ import { memoryLocation } from "wouter/memory-location";
 import "@/i18n";
 import i18n from "@/i18n";
 import EstimateBuilder from "./EstimateBuilder";
+import { openEstimatePicker } from "./estimateBuilderTestInteractions";
 import EstimateBuilderList from "./EstimateBuilderList";
 import { EstimatesRail, isEstimatesHubPage } from "@/components/nav/estimatesRail";
 import { distinctContexts } from "@/lib/estimateBuilder";
@@ -93,7 +94,7 @@ beforeEach(() => {
     if (c.url.startsWith("/api/customers/")) return res({ id: "cu1", name: "Ridge HOA" });
     if (c.url.startsWith("/api/tickets/")) return res({ ticket: { id: "t1", ticketNumber: "T-118", currentStatusId: "ts1" }, statuses: [{ id: "ts1", name: "Estimating" }] });
     if (c.url.startsWith("/api/estimates/e1")) return res(c.url.includes("version=1") ? makeDetail({ versionNumber: 1 }) : detail);
-    if (c.url.startsWith("/api/estimates")) return res([]);
+    if (c.url.startsWith("/api/estimates") || c.url.startsWith("/api/plant-library") || c.url.startsWith("/api/quick-items")) return res([]);
     return res({ items: [], categories: [] });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -214,22 +215,20 @@ describe("header contexts", () => {
   });
 });
 
-describe("add-line buttons", () => {
-  it("are real buttons in type order, focusable, hidden when read-only", async () => {
+describe("inline add", () => {
+  it("offers one focusable catalog search per section, hidden when read-only", async () => {
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    const group = screen.getByTestId("group-add-s1");
-    const buttons = within(group).getAllByRole("button");
-    expect(buttons.map((b) => b.getAttribute("data-testid"))).toEqual(
-      ["plant", "hardscape", "irrigation", "labor", "service", "equipment", "fee", "custom"].map((ty) => `button-add-${ty}-s1`));
-    for (const b of buttons) { expect(b.tagName).toBe("BUTTON"); expect(b.className).toContain("focus-visible:ring-2"); expect(b.className).toContain("h-8"); }
-    buttons[0].focus();
-    expect(document.activeElement).toBe(buttons[0]);
+    const group = screen.getByTestId("bar-add-s1");
+    expect(within(group).getAllByRole("combobox")).toHaveLength(1);
+    const search = within(group).getByRole("combobox");
+    search.focus();
+    expect(document.activeElement).toBe(search);
     cleanup();
     detail = makeDetail({ status: "accepted" });
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    expect(screen.queryByTestId("group-add-s1")).toBeNull();
+    expect(screen.queryByTestId("bar-add-s1")).toBeNull();
   });
 });
 
@@ -241,16 +240,16 @@ describe("container layout", () => {
     const grid = screen.getByTestId("layout-builder");
     expect(grid.className).toContain("estimate-builder-grid");
     expect(grid.style.gridTemplateColumns).toBe("");
-    expect(screen.getByTestId("group-add-s1").className).toContain("estimate-add-buttons");
+    expect(screen.getByTestId("input-section-search-s1")).toBeTruthy();
     expect(screen.getByTestId("row-line-l-plant").className).toContain("estimate-line-row");
   });
   it("defines 984px split threshold and narrow controls using container queries, not viewport breakpoints", async () => {
     const css = readFileSync("src/components/estimates/estimateBuilder.css", "utf8");
     expect(css).toContain("@container estimate-builder (min-width: 984px)");
     expect(css).toContain("grid-template-columns: minmax(640px, 1fr) 320px");
-    expect(css).toContain("@container estimate-sections (min-width: 560px)");
-    expect(css).toContain("grid-template-columns: repeat(2, minmax(0, 1fr))");
-    expect(css).toContain("@container estimate-sections (min-width: 640px)");
+    expect(css).toContain("@container estimate-sections (max-width: 400px)");
+    expect(css).toContain("@container estimate-sections (min-width: 570px)");
+    expect(css).toContain('grid-template-areas: "handle icon item qty unit rate amount menu"');
     expect(css).not.toContain("@media");
   });
 });
@@ -372,6 +371,7 @@ describe("pdf preview", () => {
 describe("picker selection", () => {
   const ok = () => res(makeDetail({ updatedAt: "2025-04-01T11:00:00.000Z" }), 201);
   const posts = () => mutations().filter((c) => c.method === "POST");
+  const terms: Record<string, string> = { hardscape: "flagstone", irrigation: "rotor", plant: "maple", labor: "crew", fee: "disposal", equipment: "loader" };
   const pickers: [string, (c: Call) => unknown, string][] = [
     ["hardscape", (c) => c.url.startsWith("/api/hardscape") ? res({ categories: [], items: [{ id: "h1", name: "Flagstone", sku: null, description: null, unit: "ton", category: "stone", retailPriceCents: 100, wholesaleCostCents: 50, isActive: true }] }) : undefined, "option-h1"],
     ["irrigation", (c) => c.url.startsWith("/api/irrigation-catalog") ? res({ categories: [], brands: [], items: [{ id: "i1", name: "Rotor", sku: null, description: null, unit: "ea", category: "rotors", retailPriceCents: 100, wholesaleCostCents: 50, isActive: true }] }) : undefined, "option-i1"],
@@ -384,7 +384,7 @@ describe("picker selection", () => {
     handler = h;
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    fireEvent.click(screen.getByTestId(`button-add-${type}-s1`));
+    await openEstimatePicker(type, terms[type]);
     await screen.findByTestId(opt);
     fireEvent.keyDown(screen.getByTestId("input-picker-search"), { key: "ArrowUp" });
     await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("input-picker-quantity")));
@@ -395,7 +395,7 @@ describe("picker selection", () => {
     handler = (c) => c.method === "POST" ? ok() : h(c);
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    fireEvent.click(screen.getByTestId(`button-add-${type}-s1`));
+    await openEstimatePicker(type, terms[type]);
     fireEvent.click(await screen.findByTestId(opt));
     expect(screen.getByTestId(opt).getAttribute("aria-selected")).toBe("true");
     await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("input-picker-quantity")));
@@ -409,7 +409,7 @@ describe("picker selection", () => {
     handler = (c) => c.method === "POST" ? ok() : h(c);
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    fireEvent.click(screen.getByTestId(`button-add-${type}-s1`));
+    await openEstimatePicker(type, terms[type]);
     const row = await screen.findByTestId(opt);
     fireEvent.click(row); fireEvent.click(row); fireEvent.doubleClick(row);
     await waitFor(() => expect(posts()).toHaveLength(1));
@@ -419,7 +419,7 @@ describe("picker selection", () => {
     handler = (c) => c.method === "POST" ? ok() : pickers[0][1](c);
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    fireEvent.click(screen.getByTestId("button-add-hardscape-s1"));
+    await openEstimatePicker("hardscape", "flagstone");
     fireEvent.click(await screen.findByTestId("option-h1"));
     fireEvent.click(screen.getByTestId("button-picker-add"));
     await waitFor(() => expect(posts()).toHaveLength(1));

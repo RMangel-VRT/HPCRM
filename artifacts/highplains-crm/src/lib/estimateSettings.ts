@@ -40,6 +40,7 @@ export interface RatePreviewRow {
   rateKey: string; label: string; unit: string | null; priceText: string | null;
   cardRateCents: number | null; cardPriceText: string | null; contractRateCents: number | null; contractPriceText: string | null;
   rateCents: number | null; source: RateSource; termId?: string | null;
+  line?: string;
 }
 export interface RatePreviewResponse { items: RatePreviewRow[] }
 

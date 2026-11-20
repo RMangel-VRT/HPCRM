@@ -1,5 +1,22 @@
 # Estimate Builder: model and draft API
 
+## Faster draft line edits (E2)
+
+All paths below are relative to `/api/estimates/:id/versions/:versionId`.
+They return the authoritative detail envelope and use the same company scope,
+estimate lock, draft-only guard, and transaction as other version mutations.
+
+| Method and path | Request and result |
+| --- | --- |
+| `PUT /order` | `{ sections: [{ id, lineIds }] }` must include every section and line exactly once (including empty sections). An incomplete, duplicate, or foreign ID returns `400 INVALID_ESTIMATE_ORDER` without changing any positions. |
+| `POST /lines/:lineId/duplicate` | No body or `{}`. Inserts a new row immediately after the original with the same snapshot and quantity. Returns `201` with `affectedLineId`. |
+| `POST /lines/:lineId/replace` | One typed catalog reference with optional `keepPrice`. Updates the original row in place, retaining its quantity and placement. `keepPrice: true` retains a manual price only. With the current reference, `keepPrice: false` refreshes only the rate and its provenance, preserving the item snapshot, customer description, and plant-table choices. The builder sends `priceOnly: true` to reject stale resets if the item has since changed. |
+
+Creation also returns `affectedLineId` for focusing the saved row. Line PATCH
+accepts sparse `detail` edits on every type. Catalog-backed lines still protect
+their captured name, unit and umbrella; swapping is how those fields change.
+No migration or change to pricing resolution is needed.
+
 ### Service line extension
 
 `service` is also a valid line type. Like equipment/fee, it accepts **either**

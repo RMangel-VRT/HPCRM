@@ -1,32 +1,34 @@
-import { useEffect, useRef, useState } from "react";
-import { unitLabel, normalizeEstimateUnit } from "@/lib/estimateUnits";
-import { derivePaletteTypeLabel, EXHIBITS_KEY } from "../../../../lib/db/src/plantExhibitContracts";
-import { estimateHasMultipleVersions } from "../../../../lib/db/src/estimateContracts";
-import type { KeyboardEvent, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { EXHIBITS_KEY } from "../../../../lib/db/src/plantExhibitContracts";
+import { estimateCatalogReference, estimateHasMultipleVersions, type EstimateCatalogReference, type EstimateOrderInput } from "../../../../lib/db/src/estimateContracts";
+import type { ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useCustomerActivation } from "@/components/customerWizard/CustomerActivationDialog";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Ban, Check, CheckCircle2, FileText, GitBranch, History, Lock, MoreHorizontal,
-  Palette, Plus, Send, ThumbsDown, Trash2,
+  ArrowLeft, Ban, Check, CheckCircle2, FileText, GitBranch, History, Lock, MoreHorizontal, Plus, Send, ThumbsDown, Trash2,
 } from "lucide-react";
 import type { EstimateTicketSummaryDto } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { TicketAdvanceNotice } from "@/components/estimates/TicketAdvanceNotice";
 import { runEstimateLifecycle, estimateErrorText as errorText } from "@/lib/estimateLifecycleActions";
-import { centsToInput, fetchJson, formatCents, parseDollarsToCents, HARDSCAPE_API } from "@/lib/hardscapeCatalog";
+import { fetchJson, formatCents, HARDSCAPE_API } from "@/lib/hardscapeCatalog";
 import { RATES_PREVIEW_API, scopeOf, QUICK_ITEMS_API, SERVICE_CATEGORIES_API } from "@/lib/estimateSettings";
 import {
-  ESTIMATES_API, ESTIMATE_BUILDER_PATH, FREE_UNITS, FREE_UNIT_TYPES, LINE_TINT, UMBRELLAS, builderPath, distinctContexts,
-  conflictOf, denverToday, errorStatus, formatCalendarDate, formatDate, isVersionLocked, sendEstimate, validQuantity,
+  ESTIMATES_API, ESTIMATE_BUILDER_PATH, UMBRELLAS, builderPath, distinctContexts,
+   conflictOf, denverToday, errorStatus, formatCalendarDate, formatDate, isVersionLocked, sendEstimate,
   type EstimateDetailDto, type EstimateLineDto, type EstimateLineType, type EstimateSectionDto, type RatesPreviewWithContext,
 } from "@/lib/estimateBuilder";
-import { replayEstimateEdits, startEstimateEditRevision, type EstimateEdit } from "@/lib/estimateRevision";
+import { replayEstimateEdits, startEstimateEditRevision } from "@/lib/estimateRevision";
+import { EstimateEditQueue, editResult, hasEstimateEdits, lineFrom, newTemporaryLineId, waitForEstimateEdits, type BuilderEdit } from "@/lib/estimateEditQueue";
+import type { PickerLinePreview } from "@/lib/pickerSources";
 import { SectionRailLayout } from "@/components/nav/SectionRail";
 import { EstimatesRail } from "@/components/nav/estimatesRail";
-import { AddLineButtons, LINE_TYPE_ICON } from "@/components/estimates/AddLineButtons";
+import { EstimateSectionCard } from "@/components/estimates/EstimateSectionCard";
+import { EstimateSorting, moveEstimateLine } from "@/components/estimates/EstimateSorting";
+import { InlineInput } from "@/components/estimates/InlineEstimateInput";
 import { ScopeOfWorkCard } from "@/components/estimates/ScopeOfWorkCard";
 import { PdfPreviewDialog } from "@/components/estimates/PdfPreviewDialog";
 import { EstimateProposalButton, proposalPath, useEstimateProposals } from "@/components/estimates/EstimateProposalAction";
@@ -37,7 +39,7 @@ import { TicketStatusPill, type TicketStatusLike } from "@/components/TicketIden
 import { AddLineDialog, type AddLineBody, type AddLineInitial, type AddLineResult } from "@/components/estimates/AddLineDialog";
 import type { SearchHandoff } from "@/components/estimates/SectionSearch";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ToastAction } from "@/components/ui/toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
@@ -48,8 +50,6 @@ import {
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-
-const TYPE_ICON = LINE_TYPE_ICON;
 
 /** Optional display enrichment from the server (backend-owned); fields fall back to scoped reads. */
 interface EstimateDisplay {
@@ -63,11 +63,13 @@ function freshness(d: EstimateDetailDto): number {
   return Math.max(Date.parse(d.updatedAt) || 0, Date.parse(d.version.updatedAt) || 0);
 }
 
-type Run = (method: string, url: string, body?: unknown) => Promise<boolean>;
 type LifeKind = "send" | "accept" | "decline" | "revise" | "discard" | "void";
 type LifeDialog = Exclude<LifeKind, "revise"> | null;
-type PendingRevision = { source: EstimateDetailDto; edits: EstimateEdit[]; resolve: (result: AddLineResult) => void };
+type PendingRevision = { source: EstimateDetailDto; edit: BuilderEdit; focusAdded: boolean; resolve: (result: AddLineResult) => void };
 const cancelledEdit: AddLineResult = { ok: false, error: null };
+type ResetPrice = (id: string, reference: EstimateCatalogReference, preview?: PickerLinePreview) => void;
+const openBuilderPriceActions = new Map<string, ResetPrice>();
+const revisionQuantityFocus = new Map<string, string>();
 
 export default function EstimateBuilder() {
   const { user } = useAuth();
@@ -75,39 +77,6 @@ export default function EstimateBuilder() {
   const search = useSearch();
   // Keyed by tenant scope + estimate: old-scope values never render in a new scope.
   return <BuilderContent key={`${scopeOf(user)}|${params.id ?? ""}|${search}`} id={params.id ?? ""} />;
-}
-
-/** Commits once on blur (Enter blurs); restores the authoritative value on invalid input or failure. */
-function InlineInput(props: {
-  value: string; disabled: boolean; label: string; testId: string; className?: string; inputMode?: "decimal" | "text";
-  validate: (raw: string) => { value: unknown; same: boolean } | { error: string };
-  onCommit: (v: unknown) => Promise<boolean>; onInvalid: (msg: string) => void;
-}) {
-  const { value, disabled } = props;
-  const [draft, setDraft] = useState(value);
-  const inflight = useRef<string | null>(null);
-  useEffect(() => { setDraft(value); }, [value]);
-  async function commit() {
-    const raw = draft;
-    if (disabled || raw === value || inflight.current === raw) return;
-    const v = props.validate(raw);
-    if ("error" in v) { setDraft(value); props.onInvalid(v.error); return; }
-    if (v.same) { setDraft(value); return; }
-    inflight.current = raw;
-    const ok = await props.onCommit(v.value);
-    inflight.current = null;
-    if (!ok) setDraft(value);
-  }
-  function onKey(e: KeyboardEvent<HTMLInputElement>) {
-    if (disabled) return;
-    if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
-    else if (e.key === "Escape") { setDraft(value); }
-  }
-  return (
-    <Input value={draft} readOnly={disabled} disabled={disabled} aria-label={props.label} inputMode={props.inputMode}
-      onChange={(e) => setDraft(e.target.value)} onBlur={() => void commit()} onKeyDown={onKey}
-      className={cn("h-8 disabled:cursor-default disabled:opacity-100", props.className)} data-testid={props.testId} />
-  );
 }
 
 function BuilderContent({ id }: { id: string }) {
@@ -124,8 +93,14 @@ function BuilderContent({ id }: { id: string }) {
   const [companyId] = useState(() => user?.activeCompanyId ?? "");
   const allowed = user?.accessRole === "admin" || user?.accessRole === "office";
 
-  const key = [ESTIMATES_API, "detail", user?.activeCompanyId, user?.id, user?.activeRole, id, requestedVersion ?? "current"] as const;
+  const scopePrefix = useMemo(() => [ESTIMATES_API, "detail", user?.activeCompanyId, user?.id, user?.activeRole, id] as const,
+    [user?.activeCompanyId, user?.id, user?.activeRole, id]);
+  const key = useMemo(() => [...scopePrefix, requestedVersion ?? "current"] as const, [scopePrefix, requestedVersion]);
+  const editScope = JSON.stringify([companyId, id]);
+  const edits = useMemo(() => new EstimateEditQueue(qc, key, companyId, editScope), [qc, key, companyId, editScope]);
   const viewTag = key.join("|");
+  const identity = scopeOf(user);
+  const editorScope = JSON.stringify([identity, id]);
   const viewRef = useRef(viewTag);
   // Synchronous re-arm on every render: callbacks from a previous version/scope are dropped immediately.
   viewRef.current = viewTag;
@@ -137,7 +112,11 @@ function BuilderContent({ id }: { id: string }) {
 
   const { data, isLoading, isError, error, refetch } = useQuery<EstimateDetailDto>({
     queryKey: key,
-    queryFn: ({ signal }) => fetchJson<EstimateDetailDto>(`${ESTIMATES_API}/${encodeURIComponent(id)}${requestedVersion ? `?version=${requestedVersion}` : ""}`, companyId, signal),
+    queryFn: async ({ signal }) => {
+      if (edits.pending) await waitForEstimateEdits(editScope);
+      signal.throwIfAborted();
+      return fetchJson<EstimateDetailDto>(`${ESTIMATES_API}/${encodeURIComponent(id)}${requestedVersion ? `?version=${requestedVersion}` : ""}`, companyId, signal);
+    },
     enabled: !!user && allowed && !!id,
     retry: false,
     staleTime: 0,
@@ -177,57 +156,57 @@ function BuilderContent({ id }: { id: string }) {
     enabled: !!ticketId && !(data as DetailWithDisplay | undefined)?.display?.ticket,
   });
 
-  /** Single mutation path: scoped header, stale-view drop, newest-response-wins install.
-   *  `inline` keeps the error envelope for the caller (custom saves) instead of toasting it. */
-  const runEdits = async (edits: EstimateEdit[], inline = false): Promise<AddLineResult> => {
-    if (!data || !edits.length || viewRef.current !== viewTag || activeVersionRef.current !== data.version.id
+  /** `inline` keeps the error envelope for custom saves instead of toasting it. */
+  const runEdit = async (edit: BuilderEdit, inline = false, focusAdded = false): Promise<AddLineResult> => {
+    if (!data || viewRef.current !== viewTag || activeVersionRef.current !== data.version.id
       || !contentEditableRef.current || pendingRef.current || busyRef.current) return cancelledEdit;
     if (firstEditRef.current) {
       return new Promise(resolve => {
-        const pending = { source: data, edits, resolve };
+        const pending = { source: data, edit, focusAdded, resolve };
         pendingRef.current = pending;
         setPendingRevision(pending);
       });
     }
     const view = viewTag;
+    const sameIdentity = () => {
+      const currentUser = qc.getQueryData<typeof user>(["/api/auth/me"]);
+      return !!currentUser && scopeOf(currentUser) === identity;
+    };
     try {
-      let d = data;
-      for (const { method, url, body } of edits) {
-        if (viewRef.current !== view || activeVersionRef.current !== data.version.id) return cancelledEdit;
-        d = await sendEstimate(method, url, companyId, body);
-      }
-      if (viewRef.current !== view) return { ok: false, error: null };
-      qc.invalidateQueries({ queryKey: [ESTIMATES_API, "list"] });
-      await qc.cancelQueries({ queryKey: key });
-      if (viewRef.current !== view) return { ok: false, error: null };
-      // Server order, not request order: never replace a newer authoritative payload.
-      const cached = qc.getQueryData<EstimateDetailDto>(key);
-      if (!cached || freshness(d) >= freshness(cached)) qc.setQueryData(key, d);
+      // A route change must not discard earlier committed keystrokes. The
+      // initiating identity is still checked before dispatch from a closed view.
+      const result = await edits.enqueue(data, edit, () => viewRef.current === view
+        ? activeVersionRef.current === data.version.id && contentEditableRef.current : sameIdentity());
+      if (!result) return cancelledEdit;
+      void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "list"] });
       void qc.invalidateQueries({ queryKey: [EXHIBITS_KEY, companyId] });
-      return { ok: true };
+      return viewRef.current === view ? result : cancelledEdit;
     } catch (err) {
-      if (viewRef.current !== view) return { ok: false, error: null };
+      if (viewRef.current !== view) {
+        if (sameIdentity()) toast({ title: t("estimateBuilder.saveFailed"), description: errorText(err, t), variant: "destructive" });
+        return cancelledEdit;
+      }
       if (isVersionLocked(err)) {
         setLocked(true);
+        contentEditableRef.current = false;
+        activeVersionRef.current = undefined;
         void qc.invalidateQueries({ queryKey: key });
         toast({ title: t("estimateBuilder.saveFailed"), description: t("estimateBuilder.locked"), variant: "destructive" });
       } else {
         const c = conflictOf(err);
         const catalogError = inline && (c?.error === "CATALOG_ITEM_EXISTS" || c?.error === "UMBRELLA_MISMATCH" || errorStatus(err) === 422 || errorStatus(err) === 400);
         if (!inline) toast({ title: t("estimateBuilder.saveFailed"), description: errorText(err, t), variant: "destructive" });
-        if (edits.length > 1 || (!catalogError && (errorStatus(err) === 409 || errorStatus(err) === 404))) void qc.invalidateQueries({ queryKey: key });
+        if (c?.error === "INVALID_ESTIMATE_ORDER" || (!catalogError && (errorStatus(err) === 409 || errorStatus(err) === 404))) void qc.invalidateQueries({ queryKey: key });
         // Catalog rows may have been reused/created elsewhere; refresh pickers and search.
         if (catalogError) void qc.invalidateQueries({ queryKey: ["estimate-picker"] });
       }
       return { ok: false, error: err };
     }
   };
-  const runDetailed = (method: string, url: string, body?: unknown, inline = false) => runEdits([{ method, url, body }], inline);
-  const run: Run = async (method, url, body) => (await runDetailed(method, url, body)).ok;
+  const run = async (method: string, url: string, body?: unknown) => (await runEdit({ method, url, body })).ok;
   const invalid = (msg: string) => toast({ title: t("estimateBuilder.saveFailed"), description: msg, variant: "destructive" });
 
   // ---- Lifecycle (send/accept/decline/revise/discard/void) ----
-  const scopePrefix = [ESTIMATES_API, "detail", user?.activeCompanyId, user?.id, user?.activeRole, id] as const;
   const currentKey = [...scopePrefix, "current"] as const;
   const [dialog, setDialog] = useState<LifeDialog>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -281,6 +260,7 @@ function BuilderContent({ id }: { id: string }) {
     const op = ++opRef.current;
     busyRef.current = true; setBusy(true); setDialogError(null);
     try {
+      if (hasEstimateEdits(editScope)) await waitForEstimateEdits(editScope);
       const result = await runEstimateLifecycle({
         kind, method, url, body, companyId, queryClient: qc,
         isActive: () => viewRef.current === view && opRef.current === op,
@@ -317,10 +297,38 @@ function BuilderContent({ id }: { id: string }) {
   dialogRef.current = dialog;
 
   const [addFor, setAddFor] = useState<{ type: EstimateLineType; sectionId: string; initial?: AddLineInitial } | null>(null);
+  const [focusQty, setFocusQty] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusQty || addFor || pendingRevision) return;
+    const input = document.getElementById(`input-quantity-${focusQty}`);
+    if (!(input instanceof HTMLInputElement) || input.disabled) return;
+    input.focus();
+    input.select();
+    setFocusQty(null);
+  }, [focusQty, data, addFor, pendingRevision]);
+  const resetPriceRef = useRef<ResetPrice>(() => {});
+  useEffect(() => {
+    const action: ResetPrice = (...args) => resetPriceRef.current(...args);
+    openBuilderPriceActions.set(editorScope, action);
+    if (!requestedVersion) {
+      const qtyId = revisionQuantityFocus.get(editorScope);
+      if (qtyId) {
+        revisionQuantityFocus.delete(editorScope);
+        setFocusQty(qtyId);
+      }
+    }
+    return () => { if (openBuilderPriceActions.get(editorScope) === action) openBuilderPriceActions.delete(editorScope); };
+  }, [editorScope, requestedVersion]);
   useEffect(() => { setAddFor(null); }, [viewTag]);
   const [removeSection, setRemoveSection] = useState<EstimateSectionDto | null>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
   useEffect(() => { setPdfOpen(false); }, [viewTag]);
+  const keyboardDrop = useRef<{ lineId: string; from: string | undefined; to: string } | null>(null);
+  useEffect(() => {
+    const focus = keyboardDrop.current;
+    if (!focus || (!data?.version.sections.some(s => s.id === focus.to && s.lines.some(l => l.id === focus.lineId)))) return;
+    document.getElementById(`button-drag-line-${focus.lineId}`)?.focus();
+  }, [data?.version.sections]);
 
   function finishRevision(result: AddLineResult) {
     const pending = pendingRef.current;
@@ -343,15 +351,16 @@ function BuilderContent({ id }: { id: string }) {
       const revision = await startEstimateEditRevision(companyId, pending.source, controller.signal);
       if (!active()) return;
       draft = revision.draft;
-      const edits = replayEstimateEdits(pending.source, revision.from, draft, revision.idMap, pending.edits);
-      if (!edits) {
+      const replay = replayEstimateEdits(pending.source, revision.from, draft, revision.idMap, [pending.edit]);
+      if (!replay) {
         toast({ title: t("estimateBuilder.saveFailed"), description: t("estimateBuilder.life.firstEdit.missingTarget"), variant: "destructive" });
       } else {
-        for (const { method, url, body } of edits) {
-          if (!active()) return;
-          draft = await sendEstimate(method, url, companyId, body, controller.signal);
-        }
-        result = { ok: true };
+        const edit = replay[0];
+        if (!active()) return;
+        const response = await sendEstimate(edit.method, edit.url, companyId, edit.body, controller.signal);
+        result = editResult(response, edit);
+        const { affectedLineId: _added, ...detail } = response;
+        draft = detail;
       }
     } catch (err) {
       if (!active()) return;
@@ -367,7 +376,10 @@ function BuilderContent({ id }: { id: string }) {
           if (installed) {
             setAddFor(null);
             setRemoveSection(null);
-            if (requestedVersion) setLocation(builderPath(pending.source.id));
+            if (requestedVersion) {
+              if (pending.focusAdded && result.ok && result.affectedLineId) revisionQuantityFocus.set(editorScope, result.affectedLineId);
+              setLocation(builderPath(pending.source.id));
+            }
           }
           if (!result.ok) refreshScope();
           busyRef.current = false;
@@ -469,14 +481,17 @@ function BuilderContent({ id }: { id: string }) {
     }
   };
 
-  async function addLine(body: AddLineBody) {
-    const ok = await run("POST", `${vBase}/lines`, body);
-    if (ok) toast({ title: t("estimateBuilder.lineAdded") });
-    return ok;
+  async function addLine(body: AddLineBody, preview?: PickerLinePreview) {
+    const r = await runEdit({ method: "POST", url: `${vBase}/lines`, body, temporaryId: newTemporaryLineId(), preview }, false, true);
+    if (r.ok) {
+      if (r.affectedLineId) setFocusQty(r.affectedLineId);
+      toast({ title: t("estimateBuilder.lineAdded") });
+    }
+    return r.ok;
   }
   /** Custom dialog path: errors keep their envelope so the dialog shows them inline and stays recoverable. */
-  async function addLineDetailed(body: AddLineBody): Promise<AddLineResult> {
-    const r = await runDetailed("POST", `${vBase}/lines`, body, true);
+  async function addLineDetailed(body: AddLineBody, preview?: PickerLinePreview): Promise<AddLineResult> {
+    const r = await runEdit({ method: "POST", url: `${vBase}/lines`, body, temporaryId: newTemporaryLineId(), preview }, true);
     if (r.ok) {
       toast({ title: t("estimateBuilder.lineAdded") });
       if (body.saveToCatalog) {
@@ -488,18 +503,43 @@ function BuilderContent({ id }: { id: string }) {
     }
     return r;
   }
-  async function reorder(section: EstimateSectionDto, from: number, to: number) {
-    const list = [...section.lines];
-    const [m] = list.splice(from, 1); list.splice(to, 0, m);
-    await runEdits(list.flatMap((line, i) => line.sortOrder === i ? []
-      : [{ method: "PATCH", url: `${vBase}/lines/${encodeURIComponent(line.id)}`, body: { sortOrder: i } }]));
+  function saveOrder(order: EstimateOrderInput, keyboardLineId?: string) {
+    const target = keyboardLineId && !revisable && order.sections.find(s => s.lineIds.includes(keyboardLineId));
+    const focus = target && keyboardLineId ? { lineId: keyboardLineId, from: data?.version.sections.find(s => s.lines.some(l => l.id === keyboardLineId))?.id, to: target.id } : null;
+    if (focus && focus.from !== focus.to) keyboardDrop.current = focus;
+    void run("PUT", `${vBase}/order`, order).then(ok => {
+      if (!focus || keyboardDrop.current !== focus || viewRef.current !== viewTag) return;
+      keyboardDrop.current = null;
+      if (!ok) requestAnimationFrame(() => {
+        if (viewRef.current === viewTag && document.activeElement === document.body) document.getElementById(`button-drag-line-${focus.lineId}`)?.focus();
+      });
+    });
   }
   function moveTo(line: EstimateLineDto, targetId: string) {
-    const target = sections.find((s) => s.id === targetId);
-    if (!target) return;
-    const next = target.lines.length ? Math.max(...target.lines.map((l) => l.sortOrder)) + 1 : 0;
-    void run("PATCH", `${vBase}/lines/${encodeURIComponent(line.id)}`, { sectionId: targetId, sortOrder: next });
+    const order = moveEstimateLine(qc.getQueryData<EstimateDetailDto>(key)?.version.sections ?? sections, line.id, targetId);
+    if (order) saveOrder(order);
   }
+  function searchAdd(sectionId: string, { type, row, ...initial }: SearchHandoff) {
+    if (pendingRef.current) return;
+    if (row?.body) void addLine({ ...row.body, lineType: type, sectionId, quantity: "1" }, row.preview);
+    else setAddFor({ type, sectionId, initial });
+  }
+  async function replace(lineId: string, reference: EstimateCatalogReference, keepPrice: boolean, preview?: PickerLinePreview) {
+    const result = await runEdit({ method: "POST", url: `${vBase}/lines/${encodeURIComponent(lineId)}/replace`,
+      body: { ...reference, keepPrice, ...(!keepPrice && { priceOnly: true }) }, preview });
+    if (!result.ok || !result.line) return;
+    const line = result.line;
+    const label = t("estimateBuilder.lineEdit.useCatalogPrice");
+    toast({ title: t(keepPrice ? "estimateBuilder.lineEdit.changedTo" : "estimateBuilder.lineEdit.resetDone", { name: line.name }),
+      action: keepPrice && line.priceSource === "manual" ? <ToastAction altText={label}
+        onClick={() => openBuilderPriceActions.get(editorScope)?.(line.id, reference, preview)}>{label}</ToastAction> : undefined });
+  }
+  resetPriceRef.current = (lineId, reference, preview) => {
+    const current = qc.getQueryData<EstimateDetailDto>(key);
+    const line = current && lineFrom(current, lineId);
+    if (!line || line.priceSource !== "manual" || JSON.stringify(estimateCatalogReference(line)) !== JSON.stringify(reference) || viewRef.current !== viewTag) return;
+    void replace(lineId, reference, false, preview);
+  };
 
   return (
     <SectionRailLayout rail={rail}>
@@ -550,7 +590,12 @@ function BuilderContent({ id }: { id: string }) {
               )}
             </div>
             <div role="toolbar" aria-label={t("estimateBuilder.life.actions")} className="flex flex-wrap items-center gap-1.5" data-testid="bar-lifecycle">
-              <Button size="sm" variant="outline" onClick={() => { if (!pendingRef.current) setPdfOpen(true); }} data-testid="button-preview-pdf"><FileText className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.pdf.preview")}</Button>
+              <Button size="sm" variant="outline" onClick={() => {
+                if (!pendingRef.current) {
+                  if (!hasEstimateEdits(editScope)) setPdfOpen(true);
+                  else void waitForEstimateEdits(editScope).then(() => { if (viewRef.current === viewTag) setPdfOpen(true); });
+                }
+              }} data-testid="button-preview-pdf"><FileText className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.pdf.preview")}</Button>
               {!data.voidedAt && <EstimateProposalButton estimateId={data.id} state={proposals} />}
               {lifeOn && v.status === "draft" && isCurrent && (
                 <Button size="sm" disabled={busy} onClick={() => openDialog("send")} data-testid="button-mark-sent"><Send className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.markSent")}</Button>
@@ -676,13 +721,17 @@ function BuilderContent({ id }: { id: string }) {
                 const detail = qc.getQueryData<EstimateDetailDto>(key);
                 return detail?.version.id === v.id ? { scopeOfWork: detail.version.scopeOfWork } : null;
               }} />
-            {sections.map((s) => (
-              <SectionCard key={s.id} section={s} sections={sections} paletteDefaults={v.plantPaletteDefaults} subtotal={v.totals.bySection[s.id] ?? 0} editable={editable} lang={lang}
-                vBase={vBase} run={run} invalid={invalid} canRemove={sections.length > 1}
-                onRemove={() => { if (!pendingRef.current) setRemoveSection(s); }} onAdd={(type) => { if (!pendingRef.current) setAddFor({ type, sectionId: s.id }); }}
-                search={{ customerId: data.customerId, companyId, onOpen: ({ type, ...initial }) => { if (!pendingRef.current) setAddFor({ type, sectionId: s.id, initial }); } }}
-                onReorder={(from, to) => void reorder(s, from, to)} onMoveTo={moveTo} />
-            ))}
+            <EstimateSorting sections={sections} onOrder={saveOrder}>
+              {sections.map(s => (
+                <EstimateSectionCard key={s.id} section={s} sections={sections} paletteDefaults={v.plantPaletteDefaults}
+                  subtotal={v.totals.bySection[s.id] ?? 0} editable={editable} lang={lang} vBase={vBase} run={run} invalid={invalid}
+                  customerId={data.customerId} companyId={companyId} onRemove={() => { if (!pendingRef.current) setRemoveSection(s); }}
+                  onAdd={selection => searchAdd(s.id, selection)} onMoveTo={moveTo}
+                  onSwap={(line, reference, preview) => void replace(line.id, reference, true, preview)}
+                  onReset={(line, reference) => resetPriceRef.current(line.id, reference)}
+                  onDuplicate={line => void runEdit({ method: "POST", url: `${vBase}/lines/${encodeURIComponent(line.id)}/duplicate`, temporaryId: newTemporaryLineId() })} />
+              ))}
+            </EstimateSorting>
             {editable && (
               <button type="button" onClick={() => void run("POST", `${vBase}/sections`, { name: t("estimateBuilder.section.newName") })}
                 className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed py-5 text-sm font-medium text-muted-foreground transition-colors hover:border-[hsl(var(--rail-active-icon))]/50 hover:text-foreground"
@@ -843,145 +892,6 @@ function RatesChip({ q }: { q: { data?: RatesPreviewWithContext; isLoading: bool
         <span key={g.termId ?? "card"} className={cls} data-testid={`chip-rates-${g.termId ?? "card"}`}>{label(g)} ({g.lines.join(", ")})</span>
       ))}
     </span>
-  );
-}
-
-function SectionCard(props: {
-  paletteDefaults?: Record<string, string>;
-  section: EstimateSectionDto; sections: EstimateSectionDto[]; subtotal: number; editable: boolean; lang: string; vBase: string; run: Run;
-  invalid: (m: string) => void; canRemove: boolean; onRemove: () => void; onAdd: (t: EstimateLineType) => void;
-  search?: { customerId: string; companyId: string; onOpen: (h: SearchHandoff) => void };
-  onReorder: (from: number, to: number) => void; onMoveTo: (line: EstimateLineDto, sectionId: string) => void;
-}) {
-  const { section: s, editable, lang, run, vBase } = props;
-  const { t } = useTranslation();
-  return (
-    <section className="overflow-hidden rounded-lg border bg-card" data-testid={`card-section-${s.id}`} aria-label={s.name}>
-      <div className="flex flex-wrap items-center gap-3 border-b bg-[hsl(var(--table-header))] px-3 py-2">
-        <div className="min-w-0 flex-1">
-          {editable ? (
-            <InlineInput value={s.name} disabled={false} label={t("estimateBuilder.section.name")} testId={`input-section-name-${s.id}`}
-              className="border-transparent bg-transparent px-1 font-semibold shadow-none hover:border-input focus-visible:border-input"
-              validate={(raw) => raw.trim() ? { value: raw.trim(), same: raw.trim() === s.name } : { error: t("estimateBuilder.err.required") }}
-              onCommit={(name) => run("PATCH", `${vBase}/sections/${encodeURIComponent(s.id)}`, { name })} onInvalid={props.invalid} />
-          ) : <h2 className="px-1 font-semibold" data-testid={`text-section-name-${s.id}`}>{s.name}</h2>}
-        </div>
-        <span className="text-xs text-muted-foreground" data-testid={`text-section-count-${s.id}`}>{t("estimateBuilder.section.lines", { count: s.lines.length })}</span>
-        <span className="font-semibold tabular-nums" data-testid={`text-section-subtotal-${s.id}`}>{formatCents(props.subtotal, lang)}</span>
-        {editable && props.canRemove && (
-          <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={t("estimateBuilder.section.remove")} onClick={props.onRemove} data-testid={`button-remove-section-${s.id}`}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        )}
-      </div>
-      {s.lines.length === 0 ? (
-        <p className="px-4 py-6 text-center text-sm text-muted-foreground" data-testid={`text-section-empty-${s.id}`}>{t("estimateBuilder.section.empty")}</p>
-      ) : (
-        <ul className="divide-y">
-          {s.lines.map((l, i) => (
-            <LineRow key={l.id} line={l} index={i} count={s.lines.length} {...props} />
-          ))}
-        </ul>
-      )}
-      {editable && <AddLineButtons sectionId={s.id} onAdd={props.onAdd} search={props.search} />}
-    </section>
-  );
-}
-
-function LineRow(props: {
-  paletteDefaults?: Record<string, string>;
-  line: EstimateLineDto; index: number; count: number; sections: EstimateSectionDto[]; editable: boolean; lang: string; vBase: string; run: Run;
-  invalid: (m: string) => void; onReorder: (from: number, to: number) => void; onMoveTo: (line: EstimateLineDto, sectionId: string) => void;
-}) {
-  const { line: l, editable, lang, run, vBase, index } = props;
-  const { t } = useTranslation();
-  const Icon = TYPE_ICON[l.lineType];
-  const url = `${vBase}/lines/${encodeURIComponent(l.id)}`;
-  const patch = (body: Record<string, unknown>) => run("PATCH", url, body);
-  const units = FREE_UNIT_TYPES.includes(l.lineType) ? FREE_UNITS : null;
-  const others = props.sections.filter((s) => s.id !== l.sectionId);
-  const tint = LINE_TINT[l.lineType];
-  return (
-    <li className="estimate-line-row grid gap-x-3 gap-y-2 px-3 py-2.5" data-testid={`row-line-${l.id}`} data-line-type={l.lineType}>
-      <span className="mt-0.5 inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold"
-        style={{ background: `hsl(${tint} / 0.12)`, color: `hsl(${tint})` }} data-testid={`chip-type-${l.id}`}>
-        <Icon className="h-3.5 w-3.5" /><span className="hidden sm:inline">{t(`estimateBuilder.line.type.${l.lineType}`)}</span>
-      </span>
-      <div className="min-w-0">
-        <div className="font-bold leading-tight" data-testid={`text-line-name-${l.id}`}>{l.name}</div>
-        {l.detail && <div className="truncate text-xs text-muted-foreground" data-testid={`text-line-detail-${l.id}`}>{l.detail}</div>}
-        <span className="mt-1 inline-block rounded border px-1.5 text-[10.5px] uppercase tracking-wide text-muted-foreground" data-testid={`badge-source-${l.id}`}>
-          {t(`estimateBuilder.line.source.${l.priceSource}`)}
-        </span>
-        {l.lineType === "plant" && (
-          <div className="mt-2 flex flex-wrap items-center gap-1">
-            <button type="button" disabled={!editable} aria-pressed={l.includeInPalette} aria-label={t("estimateBuilder.line.palette", { name: l.name })}
-              onClick={() => editable && void patch({ includeInPalette: !l.includeInPalette })} data-testid={`toggle-palette-${l.id}`}
-              className={cn("inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors disabled:cursor-default",
-                l.includeInPalette ? "bg-[hsl(var(--rail-active-icon))]/15 text-[hsl(var(--rail-active-icon))]" : "text-muted-foreground/50 hover:text-muted-foreground")}>
-              <Palette className="h-4 w-4" />
-            </button>
-            {editable ? <>
-              <InlineInput value={l.paletteTypeLabel ?? props.paletteDefaults?.[l.id] ?? derivePaletteTypeLabel("other")}
-                disabled={!editable} label={t("plantExhibits.label", { name: l.name })} testId={`palette-label-${l.id}`}
-                className={cn("w-32 max-w-full text-xs", l.paletteTypeLabel === null && "text-muted-foreground")}
-                validate={raw => raw.trim() && raw.trim().length <= 500 ? { value: raw.trim(), same: raw.trim() === (l.paletteTypeLabel ?? props.paletteDefaults?.[l.id] ?? derivePaletteTypeLabel("other")) } : { error: t("plantExhibits.labelRequired") }}
-                onCommit={paletteTypeLabel => patch({ paletteTypeLabel })} onInvalid={props.invalid} />
-              {l.paletteTypeLabel !== null && <Button variant="ghost" size="sm" disabled={!editable} onClick={() => void patch({ paletteTypeLabel: null })}
-                aria-label={t("plantExhibits.resetLabel", { name: l.name })} data-testid={`palette-reset-${l.id}`}>{t("plantExhibits.reset")}</Button>}
-            </> : <span className="text-xs text-muted-foreground" data-testid={`palette-label-readonly-${l.id}`}>{l.paletteTypeLabel ?? props.paletteDefaults?.[l.id] ?? derivePaletteTypeLabel("other")}</span>}
-          </div>
-        )}
-      </div>
-      <div className="estimate-line-actions flex flex-wrap items-center justify-end gap-2">
-        <div className="w-20">
-          <InlineInput value={l.quantity} disabled={!editable} inputMode="decimal" label={t("estimateBuilder.line.quantity", { name: l.name })} testId={`input-quantity-${l.id}`}
-            className="text-right tabular-nums"
-            validate={(raw) => { const q = validQuantity(raw); return q ? { value: q, same: Number(q) === Number(l.quantity) } : { error: t("estimateBuilder.err.quantity") }; }}
-            onCommit={(quantity) => patch({ quantity })} onInvalid={props.invalid} />
-        </div>
-        <span className="text-xs text-muted-foreground">×</span>
-        <div className="relative w-24">
-          <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
-          <InlineInput value={centsToInput(l.unitPriceCents)} disabled={!editable} inputMode="decimal" label={t("estimateBuilder.line.rate", { name: l.name })} testId={`input-rate-${l.id}`}
-            className="pl-5 text-right tabular-nums"
-            validate={(raw) => { const c = parseDollarsToCents(raw); return typeof c === "number" ? { value: c, same: c === l.unitPriceCents } : { error: c === "tooLarge" ? t("estimateBuilder.err.tooLarge") : t("estimateBuilder.err.rate") }; }}
-            onCommit={(unitPriceCents) => patch({ unitPriceCents })} onInvalid={props.invalid} />
-        </div>
-        {units && editable ? (
-          <div>
-          {!normalizeEstimateUnit(l.unit) && <span className="text-xs text-destructive">{l.unit}</span>}
-          <select aria-label={t("estimateBuilder.line.unit", { name: l.name })} value={normalizeEstimateUnit(l.unit) ?? ""} onChange={(e) => void patch({ unit: e.target.value })}
-            className="h-8 rounded-md border border-input bg-background px-1.5 text-xs" data-testid={`select-unit-${l.id}`}>
-            {units.map((u) => <option key={u} value={u}>{unitLabel(u, t)}</option>)}
-          </select>
-          </div>
-        ) : <span className="w-12 text-xs text-muted-foreground" data-testid={`text-unit-${l.id}`}>/{unitLabel(l.unit, t)}</span>}
-        {l.needsPrice && (
-          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[hsl(var(--est-warn))]" data-testid={`marker-needs-price-${l.id}`}>
-            <AlertTriangle className="h-3 w-3" />{t("estimateBuilder.line.needsPrice")}
-          </span>
-        )}
-        <span className="w-24 text-right font-semibold tabular-nums" aria-label={t("estimateBuilder.line.extended")} data-testid={`text-extended-${l.id}`}>{formatCents(l.extendedCents, lang)}</span>
-        {editable && (
-          <span className="inline-flex items-center">
-            <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === 0} aria-label={t("estimateBuilder.line.moveUp", { name: l.name })}
-              onClick={() => props.onReorder(index, index - 1)} data-testid={`button-move-up-${l.id}`}><ArrowUp className="h-3.5 w-3.5" /></Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" disabled={index === props.count - 1} aria-label={t("estimateBuilder.line.moveDown", { name: l.name })}
-              onClick={() => props.onReorder(index, index + 1)} data-testid={`button-move-down-${l.id}`}><ArrowDown className="h-3.5 w-3.5" /></Button>
-            {others.length > 0 && (
-              <select aria-label={t("estimateBuilder.line.moveTo", { name: l.name })} value="" onChange={(e) => { if (e.target.value) props.onMoveTo(l, e.target.value); }}
-                className="ml-1 h-7 max-w-[8.5rem] rounded-md border border-input bg-background px-1 text-[11px]" data-testid={`select-move-${l.id}`}>
-                <option value="">{t("estimateBuilder.line.moveToLabel")}</option>
-                {others.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            )}
-            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label={t("estimateBuilder.line.remove", { name: l.name })}
-              onClick={() => void run("DELETE", url)} data-testid={`button-remove-line-${l.id}`}><Trash2 className="h-3.5 w-3.5" /></Button>
-          </span>
-        )}
-      </div>
-    </li>
   );
 }
 

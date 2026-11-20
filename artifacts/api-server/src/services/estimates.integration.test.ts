@@ -356,6 +356,115 @@ describe("immutable snapshots and exact totals over HTTP", () => {
 });
 
 describe("serialized draft edits, read payloads and isolation", () => {
+  it("atomically saves a complete section and line permutation, including empty and foreign sections", async () => {
+    const d = await fresh(), app = request(appFor()), base = versionPath(d);
+    const added = await createSection(a, d.id, d.version.id, "Second");
+    const [first, second] = added.version.sections.map(s => s.id);
+    const h = await hardscape();
+    const ids: string[] = [];
+    for (const sectionId of [first, first, second]) {
+      const result = await postLine(d, { sectionId, lineType: "hardscape", hardscapeCatalogItemId: h.id });
+      expect(result.status).toBe(201);
+      ids.push(result.body.affectedLineId);
+    }
+    const [x, y, z] = ids;
+    const foreign = await fresh(b, customerB);
+    const foreignLine = await postLine(foreign, { lineType: "custom", name: "Foreign", unit: "EA", unitPriceCents: 1, umbrellaKey: "plants" }, b);
+    const prior = await readEstimate(a, d.id);
+    for (const sections of [
+      [{ id: second, lineIds: [z, y, x] }],
+      [{ id: second, lineIds: [z, y, x] }, { id: second, lineIds: [] }],
+      [{ id: second, lineIds: [y, z] }, { id: first, lineIds: [y] }],
+      [{ id: second, lineIds: [x, y] }, { id: first, lineIds: [] }],
+      [{ id: second, lineIds: [x, y, foreignLine.body.affectedLineId] }, { id: first, lineIds: [] }],
+      [{ id: second, lineIds: [z, y, x] }, { id: foreign.version.sections[0].id, lineIds: [] }],
+    ]) {
+      const invalid = await app.put(`${base}/order`).send({ sections });
+      expect(invalid.status).toBe(400);
+      expect(invalid.body.error).toBe("INVALID_ESTIMATE_ORDER");
+      expect(await readEstimate(a, d.id)).toEqual(prior);
+    }
+    const order = { sections: [{ id: second, lineIds: [z, y, x] }, { id: first, lineIds: [] }] };
+    expect((await app.put(`${base}/order`).send(order)).status).toBe(200);
+    const reload = (await app.get(`/api/estimates/${d.id}`)).body as Draft;
+    expect(reload.version.sections.map(s => ({ id: s.id, lineIds: s.lines.map(l => l.id) }))).toEqual(order.sections);
+    expect(reload.version.sections[0].lines.map(l => [l.sectionId, l.sortOrder])).toEqual([[second, 0], [second, 1], [second, 2]]);
+    expect(reload.version.totals.bySection).toEqual({ [first]: 0, [second]: 99 });
+  });
+  it("duplicates the snapshot immediately below its source and replaces the same row across types", async () => {
+    const d = await fresh(), app = request(appFor()), h = await hardscape(), p = await plant();
+    const add = await postLine(d, { lineType: "hardscape", hardscapeCatalogItemId: h.id, quantity: "2.50" });
+    const original = allLines(add.body)[0];
+    const after = await postLine(d, { lineType: "hardscape", hardscapeCatalogItemId: h.id });
+    const path = `${versionPath(d)}/lines/${original.id}`;
+    const edit = await app.patch(path).send({ detail: "Customer wording", unitPriceCents: 99 });
+    expect(edit.status).toBe(200);
+    const duplicate = await app.post(`${path}/duplicate`).send({});
+    expect(duplicate.status).toBe(201);
+    const copyId = duplicate.body.affectedLineId;
+    expect(allLines(duplicate.body).map(l => l.id)).toEqual([original.id, copyId, after.body.affectedLineId]);
+    expect(allLines(duplicate.body)[1]).toMatchObject({ name: original.name, detail: "Customer wording", quantity: "2.50",
+      unitPriceCents: 99, extendedCents: 248, priceSource: "manual", hardscapeCatalogItemId: h.id, sortOrder: 1 });
+    const keep = await app.post(`${path}/replace`).send({ lineType: "plant", plantCatalogItemId: p.id, keepPrice: true });
+    expect(keep.status).toBe(200);
+    expect(allLines(keep.body)[0]).toMatchObject({ id: original.id, sectionId: original.sectionId, sortOrder: original.sortOrder,
+      quantity: "2.50", lineType: "plant", plantCatalogItemId: p.id, hardscapeCatalogItemId: null, includeInPalette: true,
+      unitPriceCents: 99, extendedCents: 248, priceSource: "manual", unit: "EA", umbrellaKey: "plants" });
+    expect(allLines(keep.body)[0].detail).not.toBe("Customer wording");
+    const reset = await app.post(`${path}/replace`).send({ lineType: "plant", plantCatalogItemId: p.id, keepPrice: false });
+    expect(reset.status).toBe(200);
+    expect(allLines(reset.body)[0]).toMatchObject({ id: original.id, unitPriceCents: 2468, extendedCents: 6170, priceSource: "catalog" });
+    const catalog = await app.post(`${path}/replace`).send({ lineType: "hardscape", hardscapeCatalogItemId: h.id, keepPrice: true });
+    expect(catalog.status).toBe(200);
+    expect(allLines(catalog.body)[0]).toMatchObject({ id: original.id, lineType: "hardscape", plantCatalogItemId: null, includeInPalette: false,
+      quantity: "2.50", unitPriceCents: 33, extendedCents: 83, priceSource: "catalog" });
+    expect((await app.post(`${path}/replace`).send({ lineType: "hardscape", hardscapeCatalogItemId: (await hardscape(b)).id })).status).toBe(404);
+    expect((await app.post(`${versionPath(d)}/send`).send({ method: "email" })).status).toBe(200);
+    expect((await app.post(`${path}/duplicate`).send({})).status).toBe(409);
+    expect((await app.post(`${path}/replace`).send({ lineType: "plant", plantCatalogItemId: p.id })).status).toBe(409);
+    expect((await app.put(`${versionPath(d)}/order`).send({ sections: [{ id: original.sectionId, lineIds: [original.id, copyId, after.body.affectedLineId] }] })).status).toBe(409);
+  });
+  it("resets the same catalog reference's rate without re-snapshotting non-price fields", async () => {
+    const d = await fresh(), app = request(appFor()), p = await plant();
+    const added = await postLine(d, { lineType: "plant", plantCatalogItemId: p.id, quantity: "2.50" });
+    expect(added.status).toBe(201);
+    const path = `${versionPath(d)}/lines/${added.body.affectedLineId}`;
+    const patch = await app.patch(path).send({
+      detail: "Customer description", includeInPalette: false, paletteTypeLabel: "Custom plant type", unitPriceCents: 1250,
+    });
+    expect(patch.status).toBe(200);
+    const before = allLines(patch.body)[0];
+    const h = await hardscape();
+    const stale = await app.post(`${path}/replace`).send({ lineType: "hardscape", hardscapeCatalogItemId: h.id, keepPrice: false, priceOnly: true });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error).toBe("ESTIMATE_LINE_CHANGED");
+    expect(allLines((await app.get(`/api/estimates/${d.id}`)).body)[0]).toEqual(before);
+    const reset = await app.post(`${path}/replace`).send({ lineType: "plant", plantCatalogItemId: p.id, keepPrice: false, priceOnly: true });
+    expect(reset.status).toBe(200);
+    expect(allLines(reset.body)[0]).toEqual({ ...before, unitPriceCents: 2468, extendedCents: 6170, priceSource: "catalog", updatedAt: expect.any(String) });
+  }, 20000);
+  it("accepts description-only edits on every referenced type without modifying its catalog identity or price", async () => {
+    const d = await fresh(), app = request(appFor()), p = await plant(), h = await hardscape(), q = await quick();
+    const [i] = await db.insert(irrigationCatalogItems).values({ companyId: a, externalSku: randomUUID(), name: "Valve", category: "Valves", unit: "EA" }).returning();
+    const rateKey = randomUUID();
+    await card(rateKey, { priceCents: 800 });
+    for (const ref of [{ lineType: "plant", plantCatalogItemId: p.id }, { lineType: "hardscape", hardscapeCatalogItemId: h.id },
+      { lineType: "irrigation", irrigationCatalogItemId: i.id }, { lineType: "labor", rateKey }, { lineType: "equipment", quickItemId: q.id }]) {
+      const added = await postLine(d, ref);
+      expect(added.status).toBe(201);
+      const line = allLines(added.body).at(-1)!;
+      const path = `${versionPath(d)}/lines/${line.id}`;
+      for (const detail of ["Customer wording", null]) {
+        const patched = await app.patch(path).send({ detail });
+        expect(patched.status).toBe(200);
+        const { updatedAt: _before, ...before } = line;
+        const { updatedAt: _after, ...after } = allLines(patched.body).at(-1)!;
+        expect(after).toEqual({ ...before, detail });
+      }
+      for (const fields of [{ name: "No" }, { unit: "DAY" }, { umbrellaKey: "fees_surcharges" }])
+        expect((await app.patch(path).send(fields)).body.error).toBe("FIELD_NOT_EDITABLE");
+    }
+  }, 20000);
   it("edits sections, moves lines within version, preserves PATCH values/nulls and returns authoritative payloads", async () => {
     const d = await fresh(), p = await plant(), app = appFor();
     const added = await createSection(a, d.id, d.version.id, "Second");
@@ -375,8 +484,8 @@ describe("serialized draft edits, read payloads and isolation", () => {
     expect(allLines(unchanged.body)[0].priceSource).toBe("catalog");
     const manual = await request(app).patch(path).send({ unitPriceCents: 0 });
     expect(allLines(manual.body)[0]).toMatchObject({ priceSource: "manual", extendedCents: 0, needsPrice: false });
-    for (const field of ["name", "detail", "unit", "umbrellaKey"]) {
-      expect((await request(app).patch(path).send({ [field]: field === "umbrellaKey" ? "plants" : "Override" })).status).toBe(400);
+    for (const fields of [{ name: "Override" }, { unit: "EA" }, { umbrellaKey: "fees_surcharges" }]) {
+      expect((await request(app).patch(path).send(fields)).body.error).toBe("FIELD_NOT_EDITABLE");
     }
     const edited = await request(app).patch(`${versionPath(d)}/sections/${second}`).send({ name: "Renamed", sortOrder: -10 });
     expect(edited.body.version.sections[0]).toMatchObject({ id: second, name: "Renamed", sortOrder: -10 });

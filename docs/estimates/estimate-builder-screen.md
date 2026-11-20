@@ -1,5 +1,29 @@
 # Estimate builder screen
 
+## Faster line editing (E2)
+
+- Drag with a handle to reorder sections or move lines within and between
+  sections. For keyboard sorting, focus a handle, press Space or Enter to
+  pick up, use the arrow keys, then press Space or Enter to drop. Escape
+  cancels. A drop sends one complete order, including empty sections.
+- Open the item name to look for a replacement, with its current catalog
+  type shown first. When the line had a manual rate, the swap keeps it and
+  offers **Use catalog price** in the confirmation. Resetting the rate leaves
+  the customer description, plant-table choices and other line details intact.
+  The row menu also has duplicate, move, reset (when applicable), and remove.
+- Edit descriptions beneath item names. Quantity, rate and description
+  commit with Enter or blur; missing rates and amounts are marked **Needs
+  price**. One search per section adds eligible items at quantity 1 and
+  selects the saved Qty field. More detailed and custom entries use the
+  existing forms.
+- Draft line edits update the cached detail and totals immediately. A scoped
+  queue reconciles each response with later edits and rolls back failures.
+  The first edit of a sent or declined version still uses E1 confirmation
+  and replays against the new draft only.
+
+See the [E2 verification report](reports/e2-faster-line-editing.md).
+The earlier slice descriptions below document how the builder evolved.
+
 The builder consumes the Slice 3.1 driver-free DTOs and strict input schemas.
 The draft API and all captured snapshot/totals behavior remain unchanged.
 Lifecycle actions belong to the following slice.

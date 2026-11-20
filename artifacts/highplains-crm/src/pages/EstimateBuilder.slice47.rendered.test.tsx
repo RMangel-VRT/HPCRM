@@ -7,6 +7,7 @@ import { memoryLocation } from "wouter/memory-location";
 import "@/i18n";
 import i18n from "@/i18n";
 import EstimateBuilder from "./EstimateBuilder";
+import { openEstimatePicker } from "./estimateBuilderTestInteractions";
 import EstimateBuilderList from "./EstimateBuilderList";
 import { idPart } from "@/lib/pickerSources";
 
@@ -156,12 +157,11 @@ async function type(q: string) {
 }
 
 describe("section search", () => {
-  it("sits above the unchanged type buttons, fans out to all seven catalogs in parallel with existing filters", async () => {
+  it("replaces the type buttons and searches all seven catalogs with existing filters", async () => {
     handler = catalogs();
     await openBuilder();
-    expect(screen.getByTestId("text-browse-s2").textContent).toBe("or browse a catalog");
-    expect(box().getAttribute("placeholder")).toBe("Search plants, hardscape, irrigation, labor, services, equipment and fees");
-    expect(screen.getByTestId("button-add-service-s2")).toBeTruthy();
+    expect(box().getAttribute("placeholder")).toBe("Add a line — type to search the catalog");
+    expect(screen.queryByTestId("button-add-service-s2")).toBeNull();
     fireEvent.change(box(), { target: { value: "p" } });
     await new Promise((r) => setTimeout(r, 300));
     expect(calls().some((c) => c.url.startsWith("/api/plant-library"))).toBe(false);
@@ -210,19 +210,20 @@ describe("section search", () => {
     await screen.findByTestId("search-group-hardscape");
   });
 
-  it("click opens the typed picker with the row selected and Quantity focused; never adds; Enter there adds", async () => {
-    handler = catalogs();
+  it("adds the eligible row with Enter at quantity one and selects the saved Qty", async () => {
+    const saved = makeDetail({ updatedAt: "2025-04-01T11:00:00.000Z" });
+    saved.version.sections[1].lines.push(line("new-service", "s2", "service", { name: "Pa aerate", quickItemId: "sv2", priceSource: "quick_list" }));
+    handler = catalogs({ post: () => res({ ...saved, affectedLineId: "new-service" }, 201) });
     await openBuilder();
     await type("pa");
-    fireEvent.click(await screen.findByTestId("search-option-service-sv2"));
-    await screen.findByTestId("dialog-add-line");
-    expect((screen.getByTestId("input-picker-search") as HTMLInputElement).value).toBe("pa");
-    await waitFor(() => expect(screen.getByTestId("option-sv2").getAttribute("aria-selected")).toBe("true"));
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("input-picker-quantity")));
-    expect(posts()).toHaveLength(0);
-    fireEvent.change(screen.getByTestId("input-picker-quantity"), { target: { value: "3" } });
-    fireEvent.keyDown(screen.getByTestId("input-picker-quantity"), { key: "Enter" });
-    await waitFor(() => expect(posts()[0]?.body).toEqual({ lineType: "service", sectionId: "s2", quantity: "3", quickItemId: "sv2" }));
+    fireEvent.mouseMove(await screen.findByTestId("search-option-service-sv2"));
+    fireEvent.keyDown(box(), { key: "Enter" });
+    const qty = await screen.findByTestId<HTMLInputElement>("input-quantity-new-service");
+    await waitFor(() => expect(document.activeElement).toBe(qty));
+    expect([qty.selectionStart, qty.selectionEnd]).toEqual([0, qty.value.length]);
+    expect(screen.queryByTestId("dialog-add-line")).toBeNull();
+    expect(posts()).toHaveLength(1);
+    expect(posts()[0]?.body).toEqual({ lineType: "service", sectionId: "s2", quantity: "1", quickItemId: "sv2" });
   });
 
   it("keyboard: arrows move aria-activedescendant over unique ids, Enter hands off, disabled rows cannot be chosen, Esc clears", async () => {
@@ -234,10 +235,8 @@ describe("section search", () => {
     expect(box().getAttribute("role")).toBe("combobox");
     expect(box().getAttribute("aria-controls")).toBe(screen.getByRole("listbox").id);
     fireEvent.click(ghost);
-    const at = within(screen.getByRole("listbox")).getAllByRole("option").indexOf(ghost);
-    for (let i = 0; i <= at; i++) fireEvent.keyDown(box(), { key: "ArrowDown" });
-    expect(box().getAttribute("aria-activedescendant")).toBe(ghost.id);
-    fireEvent.keyDown(box(), { key: "Enter" });
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    expect(box().getAttribute("aria-activedescendant")).not.toBe(ghost.id);
     expect(screen.queryByTestId("dialog-add-line")).toBeNull();
     const ids = within(screen.getByRole("listbox")).getAllByRole("option").map((o) => o.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -245,11 +244,11 @@ describe("section search", () => {
     expect((box() as HTMLInputElement).value).toBe("");
     expect(screen.queryByTestId("panel-section-search-s2")).toBeNull();
     await type("pal");
-    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    const option = await screen.findByTestId("search-option-plant-pa.v-P1");
+    fireEvent.mouseMove(option);
     fireEvent.keyDown(box(), { key: "Enter" });
-    await screen.findByTestId("dialog-add-line");
-    expect(screen.getByText("Add plant")).toBeTruthy();
-    expect(posts()).toHaveLength(0);
+    await waitFor(() => expect(posts()[0]?.body).toMatchObject({ lineType: "plant", quantity: "1" }));
+    expect(screen.queryByTestId("dialog-add-line")).toBeNull();
   });
 
   it("never shows or hands off rows from a previous query while the new text is debouncing", async () => {
@@ -268,7 +267,7 @@ describe("section search", () => {
     handler = catalogs();
     await openBuilder();
     await type("Flagstone cap");
-    expect(screen.getByTestId("search-create-custom").textContent).toContain("Create custom item \u201cFlagstone cap\u201d");
+    expect(screen.getByTestId("search-create-custom").textContent).toContain("Add \u201cFlagstone cap\u201d as a custom line");
     fireEvent.click(screen.getByTestId("search-create-custom"));
     expect((await screen.findByTestId("input-free-name") as HTMLInputElement).value).toBe("Flagstone cap");
   });
@@ -303,7 +302,7 @@ describe("section search", () => {
     await i18n.changeLanguage("es");
     handler = catalogs({ "/api/hardscape-catalog": () => res({}, 500) });
     await openBuilder();
-    expect(screen.getByTestId("text-browse-s2").textContent).toBe("o explore un catálogo");
+    expect(box().getAttribute("placeholder")).toBe("Agregar línea — escriba para buscar en el catálogo");
     await type("pa");
     expect(screen.getByTestId("text-search-keyboard-hint").textContent).toContain("Esc para cerrar");
     expect((await screen.findByTestId("search-error-hardscape")).textContent).toContain("No se pudo cargar");
@@ -313,7 +312,7 @@ describe("section search", () => {
 describe("custom line dialog", () => {
   async function openCustom() {
     await openBuilder();
-    fireEvent.click(screen.getByTestId("button-add-custom-s1"));
+    await openEstimatePicker("custom", "aa");
     await screen.findByTestId("dialog-add-line");
     await screen.findByTestId("chip-custom-category-service-sc1");
   }
@@ -424,7 +423,7 @@ describe("custom line dialog", () => {
     await waitFor(() => expect(screen.queryByTestId("dialog-add-line")).toBeNull());
     // Inactive / hidden category: no reuse offered.
     existing = { id: "sv8", name: "Old edge", kind: "service", isActive: true, serviceCategoryIsActive: false };
-    fireEvent.click(screen.getByTestId("button-add-custom-s1"));
+    await openEstimatePicker("custom", "New item");
     fireEvent.click(await screen.findByTestId("chip-custom-category-equipment"));
     fireEvent.click(screen.getByTestId("checkbox-save-catalog"));
     fill("Old edge");
@@ -453,7 +452,7 @@ describe("custom line dialog", () => {
     await ready();
     const prefixes = ["estimate-picker", "estimate-catalog-matches", "/api/hardscape-catalog", "/api/quick-items", "/api/estimates/service-categories"];
     for (const prefix of prefixes) view.client.setQueryData([prefix, "inactive-cache"], []);
-    fireEvent.click(screen.getByTestId("button-add-custom-s1"));
+    await openEstimatePicker("custom", "New item");
     fireEvent.click(await screen.findByTestId("chip-custom-category-equipment"));
     fireEvent.click(screen.getByTestId("checkbox-save-catalog"));
     fill("Saved rental", "12", "2");
@@ -468,7 +467,7 @@ describe("custom line dialog", () => {
     handler = catalogs({ post: () => delayed, "/api/estimates/catalog-matches": () => res([]) });
     const view = renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    fireEvent.click(screen.getByTestId("button-add-custom-s1"));
+    await openEstimatePicker("custom", "New item");
     fireEvent.click(await screen.findByTestId("chip-custom-category-equipment"));
     fill("Previous company rental");
     fireEvent.click(screen.getByTestId("button-free-add"));
@@ -476,7 +475,7 @@ describe("custom line dialog", () => {
     auth.user = { id: "u2", activeCompanyId: "c2", activeRole: "admin" };
     view.rerenderPage();
     await ready();
-    fireEvent.click(screen.getByTestId("button-add-custom-s1"));
+    await openEstimatePicker("custom", "New item");
     await screen.findByTestId("input-free-name");
     fireEvent.change(screen.getByTestId("input-free-name"), { target: { value: "New unsaved item" } });
     await act(async () => { resolveSave(ok()); });

@@ -8,17 +8,33 @@
   grid-template-columns: minmax(0, 1fr);
 }
 .estimate-builder-sections { container: estimate-sections / inline-size; min-width: 0; }
-.estimate-add-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.375rem; }
-.estimate-line-row { grid-template-columns: auto minmax(0, 1fr); }
-.estimate-line-actions { grid-column: 1 / -1; min-width: 0; }
+.estimate-line-row {
+  grid-template-columns: 1.5rem 1.5rem minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 1.75rem;
+  grid-template-areas: "handle icon item item item item menu" ". . qty unit rate amount .";
+}
+.estimate-line-heading { display: none; }
+.estimate-handle { grid-area: handle; }
+.estimate-icon { grid-area: icon; }
+.estimate-item { grid-area: item; }
+.estimate-qty { grid-area: qty; }
+.estimate-unit { grid-area: unit; }
+.estimate-rate { grid-area: rate; }
+.estimate-amount { grid-area: amount; }
+.estimate-menu { grid-area: menu; }
 @container estimate-builder (min-width: 984px) {
   .estimate-builder-grid { grid-template-columns: minmax(640px, 1fr) 320px; }
   .estimate-builder-grid > aside { position: sticky; top: 1rem; }
 }
-@container estimate-sections (min-width: 560px) {
-  .estimate-add-buttons { display: flex; flex-wrap: wrap; }
+@container estimate-sections (min-width: 570px) {
+  .estimate-line-row {
+    grid-template-columns: 1.5rem 1.5rem minmax(0, 1fr) 3.5rem 4.5rem 5.5rem 6rem 1.75rem;
+    grid-template-areas: "handle icon item qty unit rate amount menu";
+  }
+  .estimate-line-heading { display: grid; }
 }
-@container estimate-sections (min-width: 640px) {
-  .estimate-line-row { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .estimate-line-actions { grid-column: auto; }
+@container estimate-sections (max-width: 400px) {
+  .estimate-line-row {
+    grid-template-columns: 1.5rem minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 1.75rem;
+    grid-template-areas: "handle icon item item item menu" "qty qty unit rate amount amount";
+  }
 }

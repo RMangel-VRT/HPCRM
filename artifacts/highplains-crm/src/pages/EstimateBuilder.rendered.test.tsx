@@ -7,6 +7,7 @@ import { memoryLocation } from "wouter/memory-location";
 import "@/i18n";
 import i18n from "@/i18n";
 import EstimateBuilder from "./EstimateBuilder";
+import { openEstimateLineMenu, openEstimatePicker } from "./estimateBuilderTestInteractions";
 import EstimateBuilderList from "./EstimateBuilderList";
 import { EstimatesRail, isEstimatesHubPage } from "@/components/nav/estimatesRail";
 import { distinctContexts } from "@/lib/estimateBuilder";
@@ -96,7 +97,7 @@ beforeEach(() => {
     if (c.url.startsWith("/api/customers/")) return res({ id: "cu1", name: "Ridge HOA" });
     if (c.url.startsWith("/api/tickets/")) return res({ ticket: { id: "t1", ticketNumber: "T-118", currentStatusId: "ts1" }, statuses: [{ id: "ts1", name: "Estimating" }] });
     if (c.url.startsWith("/api/estimates/e1")) return res(c.url.includes("version=1") ? makeDetail({ versionNumber: 1 }) : detail);
-    if (c.url.startsWith("/api/estimates")) return res([]);
+    if (c.url.startsWith("/api/estimates") || c.url.startsWith("/api/plant-library") || c.url.startsWith("/api/quick-items")) return res([]);
     return res({ items: [], categories: [] });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -172,7 +173,7 @@ describe("builder rendering", () => {
     expect(mutations()).toHaveLength(1);
     expect(mutations()[0]).toMatchObject({ url: "/api/estimates/e1/versions/v2", body: { scopeOfWork: "New scope" }, headers: { "X-Company-Id": "c1" } });
     fireEvent.blur(input); expect(mutations()).toHaveLength(1);
-    expect(screen.getByRole("status").textContent).toContain("Saved");
+    expect(within(screen.getByTestId("scope-of-work-card")).getByRole("status").textContent).toContain("Saved");
   });
   it("keeps newer typing during a save and saves the queued blur after the first response", async () => {
     renderAt("/dashboard/estimates/builder/e1"); await ready();
@@ -182,6 +183,7 @@ describe("builder rendering", () => {
     fireEvent.change(input, { target: { value: "First scope" } }); fireEvent.blur(input);
     fireEvent.change(input, { target: { value: "Newer typing" } }); fireEvent.blur(input);
     const first = makeDetail({ updatedAt: "2025-04-03T10:00:00Z" }); first.version.scopeOfWork = "First scope";
+    await waitFor(() => expect(mutations()).toHaveLength(1));
     await act(async () => finish(res(first)));
     expect(input.value).toBe("Newer typing");
     await waitFor(() => expect(mutations()).toHaveLength(2));
@@ -205,12 +207,18 @@ describe("builder rendering", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(input.value).toBe(""));
   });
-  it.each(["sent", "accepted", "declined", "superseded", "void"])("shows localized locked empty scope for %s", async status => {
+  it.each(["accepted", "superseded", "void"])("shows localized locked empty scope for %s", async status => {
     await i18n.changeLanguage("es");
     detail = makeDetail({ status });
     renderAt("/dashboard/estimates/builder/e1"); await ready();
     expect(screen.getByText("Sin alcance del trabajo")).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Alcance del trabajo" })).toBeNull();
+  });
+  it.each(["sent", "declined"])("shows the E1 first-edit controls for a current %s version", async status => {
+    detail = makeDetail({ status });
+    renderAt("/dashboard/estimates/builder/e1"); await ready();
+    expect(screen.getByTestId("banner-edit-revision")).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Scope of work" })).toBeTruthy();
   });
   it("shows the scope card even without sections", async () => {
     detail.version.sections = [];
@@ -229,6 +237,7 @@ describe("builder rendering", () => {
     handler = c => c.method === "PATCH" ? new Promise(resolve => { finish = resolve; }) : undefined;
     const input = screen.getByRole("textbox", { name: "Scope of work" });
     fireEvent.change(input, { target: { value: "Old pending scope" } }); fireEvent.blur(input);
+    await waitFor(() => expect(mutations()).toHaveLength(1));
     const old = makeDetail({ updatedAt: "2025-04-03T10:00:00Z" }); old.version.scopeOfWork = "Old pending scope";
     detail = makeDetail(); detail.version.scopeOfWork = "New context scope";
     if (kind === "version") act(() => page.loc.navigate("/dashboard/estimates/builder/e1?version=1"));
@@ -251,12 +260,13 @@ describe("builder rendering", () => {
     await waitFor(() => expect(screen.getByTestId("chip-rates").textContent).toBe("Contract · 2025 Season"));
     for (const ty of ["plant", "hardscape", "irrigation", "labor", "equipment", "fee", "custom"]) {
       expect(screen.getByTestId(`row-line-l-${ty}`).getAttribute("data-line-type")).toBe(ty);
-      expect(screen.getByTestId(`button-add-${ty}-s1`)).toBeTruthy();
     }
     const tints = new Set(["plant", "hardscape", "irrigation", "labor", "equipment", "fee", "custom"].map((ty) => screen.getByTestId(`chip-type-l-${ty}`).style.color));
     expect(tints.size).toBe(7);
-    expect(screen.getByTestId("badge-source-l-labor").textContent).toBe("rate card");
-    expect(screen.getByTestId("badge-source-l-fee").textContent).toBe("quick list");
+    expect(screen.getByTestId("input-section-search-s1")).toBeTruthy();
+    openEstimateLineMenu("l-labor");
+    expect((await screen.findByTestId("badge-source-l-labor")).textContent).toBe("From rate card");
+    fireEvent.keyDown(screen.getByTestId("badge-source-l-labor"), { key: "Escape" });
     expect(screen.getByTestId("marker-needs-price-l-labor")).toBeTruthy();
     expect(screen.queryByTestId("marker-needs-price-l-plant")).toBeNull();
     expect(screen.getByTestId("toggle-palette-l-plant").getAttribute("aria-pressed")).toBe("true");
@@ -322,7 +332,7 @@ describe("inline edits", () => {
     for (const call of mutations()) expect(call.headers["X-Company-Id"]).toBe("c1");
   });
   it("shows labels without editing or reset controls on read-only versions", async () => {
-    detail = makeDetail({ status: "sent" });
+    detail = makeDetail({ status: "accepted" });
     Object.assign(detail.version.sections[0].lines[0], { paletteTypeLabel: "Feature tree" });
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
@@ -354,10 +364,33 @@ describe("inline edits", () => {
     fireEvent.change(r, { target: { value: "1.234" } });
     fireEvent.blur(r);
     expect(mutations()).toHaveLength(0);
-    expect(r.value).toBe("0.00");
+    expect(r.value).toBe("");
     fireEvent.change(r, { target: { value: "$1,212.50" } });
     fireEvent.blur(r);
     await waitFor(() => expect(mutations()[0]?.body).toEqual({ unitPriceCents: 121250 }));
+  });
+
+  it("resets an excluded plant's rate without changing its description, palette settings or identity", async () => {
+    const oldPlant = detail.version.sections[0].lines[0];
+    Object.assign(oldPlant, { plantCatalogItemId: "plant-source", priceSource: "manual", detail: "Customer description",
+      includeInPalette: false, paletteTypeLabel: "Custom plant type", quantity: "2.00", extendedCents: 2000 });
+    const saved = structuredClone(detail);
+    Object.assign(saved.version.sections[0].lines[0], { unitPriceCents: 1500, extendedCents: 3000, priceSource: "catalog" });
+    saved.updatedAt = "2025-04-01T11:00:00.000Z";
+    handler = c => c.method === "POST" && c.url.endsWith("/replace") ? res(saved) : undefined;
+    renderAt("/dashboard/estimates/builder/e1");
+    await ready();
+    openEstimateLineMenu("l-plant");
+    fireEvent.click(await screen.findByTestId("menu-reset-price-l-plant"));
+    await waitFor(() => expect(screen.getByTestId<HTMLInputElement>("input-rate-l-plant").value).toBe("15.00"));
+    expect(mutations()).toEqual([expect.objectContaining({
+      url: "/api/estimates/e1/versions/v2/lines/l-plant/replace",
+      body: { lineType: "plant", plantCatalogItemId: "plant-source", keepPrice: false, priceOnly: true },
+    })]);
+    expect(screen.getByTestId<HTMLInputElement>("input-description-l-plant").value).toBe("Customer description");
+    expect(screen.getByTestId("toggle-palette-l-plant").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId<HTMLInputElement>("input-quantity-l-plant").value).toBe("2.00");
+    expect(screen.getByTestId("text-extended-l-plant").textContent).toBe("$30.00");
   });
 
   it("failed save restores the authoritative value and shows translated feedback", async () => {
@@ -371,7 +404,7 @@ describe("inline edits", () => {
     expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: "Save failed", description: "Something went wrong. Your change was not saved." }));
   });
 
-  it("title edits, palette toggle, unit select, removal, reorder and move send exact payloads", async () => {
+  it("title edits, palette toggle, unit select, removal and move send exact scoped payloads", async () => {
     handler = (c) => c.method !== "GET" ? res(makeDetail({ updatedAt: "2025-04-01T11:00:00.000Z" })) : undefined;
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
@@ -381,18 +414,19 @@ describe("inline edits", () => {
     expect(mutations()[0]).toMatchObject({ method: "PATCH", url: "/api/estimates/e1", body: { title: "Spring install II" } });
     fireEvent.click(screen.getByTestId("toggle-palette-l-plant"));
     fireEvent.change(screen.getByTestId("select-unit-l-equipment"), { target: { value: "DAY" } });
-    fireEvent.click(screen.getByTestId("button-remove-line-l-fee"));
-    fireEvent.change(screen.getByTestId("select-move-l-custom"), { target: { value: "s2" } });
+    openEstimateLineMenu("l-fee");
+    fireEvent.click(await screen.findByTestId("menu-remove-line-l-fee"));
+    await waitFor(() => expect(mutations()).toHaveLength(4));
+    openEstimateLineMenu("l-custom");
+    fireEvent.keyDown(await screen.findByTestId("menu-move-l-custom"), { key: "ArrowRight" });
+    fireEvent.click(await screen.findByTestId("menu-move-l-custom-s2"));
     await waitFor(() => expect(mutations()).toHaveLength(5));
     const m = mutations();
     expect(m[1].body).toEqual({ includeInPalette: false });
     expect(m[2].body).toEqual({ unit: "DAY" });
     expect(m[3]).toMatchObject({ method: "DELETE", url: "/api/estimates/e1/versions/v2/lines/l-fee" });
-    expect(m[4].body).toEqual({ sectionId: "s2", sortOrder: 0 });
-    fireEvent.click(screen.getByTestId("button-move-down-l-plant"));
-    await waitFor(() => expect(mutations().length).toBeGreaterThanOrEqual(7));
-    expect(mutations().slice(5, 7).map((c) => [c.url.split("/").pop(), c.body])).toEqual([["l-hardscape", { sortOrder: 0 }], ["l-plant", { sortOrder: 1 }]]);
-    expect((screen.getByTestId("button-move-up-l-plant") as HTMLButtonElement).disabled).toBe(true);
+    expect(m[4]).toMatchObject({ method: "PUT", url: "/api/estimates/e1/versions/v2/order",
+      body: { sections: [{ id: "s1", lineIds: expect.not.arrayContaining(["l-custom"]) }, { id: "s2", lineIds: ["l-custom"] }] } });
   });
 });
 
@@ -422,13 +456,13 @@ describe("sections", () => {
 });
 
 describe("read-only and lock", () => {
-  it("non-draft current version is read-only with no mutation paths", async () => {
-    detail = makeDetail({ status: "sent" });
+  it("an accepted current version is read-only with no direct line mutation paths", async () => {
+    detail = makeDetail({ status: "accepted" });
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    expect(screen.getByTestId("banner-read-only").textContent).toContain("Sent");
+    expect(screen.getByTestId("banner-read-only").textContent).toContain("Accepted");
     expect(screen.queryByTestId("input-estimate-title")).toBeNull();
-    expect(screen.getByTestId("text-unit-l-hardscape").textContent).toBe("/EA");
+    expect(screen.getByTestId("text-unit-l-hardscape").textContent).toBe("EA");
     expect(screen.queryByTestId("button-add-section")).toBeNull();
     expect(screen.queryByTestId("bar-add-s1")).toBeNull();
     expect(screen.queryByTestId("button-remove-line-l-plant")).toBeNull();
@@ -437,7 +471,7 @@ describe("read-only and lock", () => {
     fireEvent.change(q, { target: { value: "5" } }); fireEvent.keyDown(q, { key: "Enter" }); fireEvent.blur(q);
     fireEvent.click(screen.getByTestId("toggle-palette-l-plant"));
     expect(mutations()).toHaveLength(0);
-    expect(screen.getByTestId("flow-sent").getAttribute("data-lit")).toBe("true");
+    expect(screen.getByTestId("flow-accepted").getAttribute("data-lit")).toBe("true");
     expect(screen.getByTestId("flow-draft").getAttribute("data-lit")).toBe("false");
   });
   it("historical ?version=N loads that version read-only with the current version indicated", async () => {
@@ -495,19 +529,27 @@ describe("races", () => {
     expect(screen.getByTestId("text-estimate-total").textContent).toBe("$8,734.12");
     expect(toastSpy).not.toHaveBeenCalled();
   });
-  it("a late older server payload never overwrites a newer one", async () => {
+  it("serializes five rapid edits and keeps later projections across failures and older responses", async () => {
     const pending: Array<(v: unknown) => void> = [];
     handler = (c) => c.method === "PATCH" ? new Promise((r) => pending.push(r)) : undefined;
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    const a = screen.getByTestId("input-quantity-l-plant"), b = screen.getByTestId("input-quantity-l-hardscape");
-    fireEvent.change(a, { target: { value: "2" } }); fireEvent.blur(a);
-    fireEvent.change(b, { target: { value: "3" } }); fireEvent.blur(b);
-    await waitFor(() => expect(pending).toHaveLength(2));
-    await act(async () => { pending[0](res(makeDetail({ subtotal: 222222, updatedAt: "2025-04-01T12:00:00.000Z" }))); });
-    await waitFor(() => expect(screen.getByTestId("text-estimate-total").textContent).toBe("$2,222.22"));
-    await act(async () => { pending[1](res(makeDetail({ subtotal: 111111, updatedAt: "2025-04-01T11:00:00.000Z" }))); });
-    expect(screen.getByTestId("text-estimate-total").textContent).toBe("$2,222.22");
+    const input = screen.getByTestId("input-quantity-l-plant") as HTMLInputElement;
+    for (const value of ["2", "3", "4", "5", "6.25"]) {
+      fireEvent.change(input, { target: { value } }); fireEvent.blur(input);
+    }
+    await waitFor(() => expect(screen.getByTestId("text-extended-l-plant").textContent).toBe("$62.50"));
+    expect(input.value).toBe("6.25");
+    for (const [i, quantity] of ["2", "3", "4", "5", "6.25"].entries()) {
+      await waitFor(() => expect(pending).toHaveLength(i + 1));
+      expect(mutations().at(-1)?.body).toEqual({ quantity });
+      const next = makeDetail({ subtotal: 5000 + Number(quantity) * 1000, updatedAt: `2025-04-01T12:00:0${i}.000Z` });
+      Object.assign(next.version.sections[0].lines[0], { quantity: Number(quantity).toFixed(2), extendedCents: Number(quantity) * 1000 });
+      await act(async () => pending[i](i === 1 ? res({ error: "INTERNAL_ERROR" }, 500) : res(next)));
+      expect(input.value).toBe("6.25");
+    }
+    expect(screen.getByTestId("text-estimate-total").textContent).toBe("$112.50");
+    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: "Save failed" }));
   });
   it("tenant switch remounts and never shows prior-company values", async () => {
     const { rerenderPage } = renderAt("/dashboard/estimates/builder/e1");
@@ -517,7 +559,7 @@ describe("races", () => {
     rerenderPage();
     expect(screen.queryByTestId("text-estimate-total")).toBeNull();
     expect(screen.getByTestId("builder-loading")).toBeTruthy();
-    expect(calls().filter((c) => c.url === "/api/estimates/e1").at(-1)?.headers["X-Company-Id"]).toBe("c2");
+    await waitFor(() => expect(calls().filter((c) => c.url === "/api/estimates/e1").at(-1)?.headers["X-Company-Id"]).toBe("c2"));
   });
 });
 
@@ -526,8 +568,8 @@ describe("pickers", () => {
   async function open(type: string) {
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    fireEvent.click(screen.getByTestId(`button-add-${type}-s1`));
-    return screen.findByTestId("dialog-add-line");
+    const terms: Record<string, string> = { hardscape: "paver", irrigation: "valve", plant: "maple", labor: "design", equipment: "skid", fee: "disposal", custom: "Boulder set" };
+    return openEstimatePicker(type, terms[type]);
   }
   const posted = () => mutations().find((c) => c.method === "POST")?.body;
 
@@ -594,9 +636,11 @@ describe("pickers", () => {
   it("labor: resolved rows with source badges, text-only warning, unset disabled, rateKey only", async () => {
     handler = (c) => c.method === "POST" ? ok() : undefined;
     await open("labor");
+    fireEvent.change(screen.getByTestId("input-picker-search"), { target: { value: "" } });
     expect((await screen.findByTestId("warn-design")).textContent).toContain("you'll set the price");
-    expect(screen.getByTestId("option-ghost").getAttribute("aria-disabled")).toBe("true");
-    fireEvent.click(screen.getByTestId("option-ghost"));
+    const ghost = await screen.findByTestId("option-ghost");
+    expect(ghost.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(ghost);
     expect(posted()).toBeUndefined();
     expect(screen.getByTestId("option-crew").textContent).toContain("contract");
     fireEvent.keyDown(screen.getByTestId("input-picker-search"), { key: "ArrowUp" });
@@ -612,7 +656,9 @@ describe("pickers", () => {
         { id: "q2", kind, label: "Retired", defaultUnit: "day", defaultRateCents: 100, umbrellaKey: umbrella, isActive: false, sortOrder: 1, companyId: "c1" }]);
       return undefined;
     };
-    await open(kind);
+    renderAt("/dashboard/estimates/builder/e1");
+    await ready();
+    await openEstimatePicker(kind, "skid");
     expect((await screen.findByTestId("option-q1")).textContent).toContain("no default — you set the price");
     expect(screen.queryByTestId("option-q2")).toBeNull();
     fireEvent.doubleClick(screen.getByTestId("option-__free"));

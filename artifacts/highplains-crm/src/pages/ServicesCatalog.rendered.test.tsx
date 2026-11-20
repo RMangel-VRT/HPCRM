@@ -10,7 +10,6 @@ import i18n from "@/i18n";
 import ServicesCatalog from "./ServicesCatalog";
 import EquipmentFeesCatalog from "./EquipmentFeesCatalog";
 import { AddLineDialog } from "@/components/estimates/AddLineDialog";
-import { AddLineButtons } from "@/components/estimates/AddLineButtons";
 import { estimatesRailSections } from "@/components/nav/estimatesRail";
 import { LINE_TINT, LINE_TYPES } from "@/lib/estimateBuilder";
 
@@ -238,13 +237,9 @@ describe("Equipment & Fees stays two-kind", () => {
 });
 
 describe("builder service line", () => {
-  it("Service button sits between Labor and Equipment with its own tint", () => {
+  it("Service remains between Labor and Equipment and keeps its own tint", () => {
     expect(LINE_TYPES.slice(3, 6)).toEqual(["labor", "service", "equipment"]);
     expect(new Set(Object.values(LINE_TINT)).size).toBe(LINE_TYPES.length);
-    const onAdd = vi.fn();
-    render(<AddLineButtons sectionId="sec1" onAdd={onAdd} />);
-    fireEvent.click(screen.getByTestId("button-add-service-sec1"));
-    expect(onAdd).toHaveBeenCalledWith("service");
   });
 
   it("picker shows active services in active categories with chips, and submits quickItemId", async () => {
@@ -261,7 +256,8 @@ describe("builder service line", () => {
     fireEvent.click(screen.getByTestId("option-s3"));
     fireEvent.change(screen.getByTestId("input-picker-quantity"), { target: { value: "4" } });
     fireEvent.click(screen.getByTestId("button-picker-add"));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ lineType: "service", sectionId: "sec1", quantity: "4", quickItemId: "s3" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ lineType: "service", sectionId: "sec1", quantity: "4", quickItemId: "s3" },
+      expect.objectContaining({ name: "Crabgrass Pre-emergent", unitPriceCents: 1850, priceSource: "quick_list" })));
     expect(calls().find((c) => c.url.startsWith("/api/quick-items"))!.headers["X-Company-Id"]).toBe("c1");
   });
 
@@ -274,6 +270,6 @@ describe("builder service line", () => {
     fireEvent.change(await screen.findByTestId("input-free-name"), { target: { value: "Topdressing" } });
     fireEvent.change(screen.getByTestId("input-free-rate"), { target: { value: "42.10" } });
     fireEvent.click(screen.getByTestId("button-free-add"));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ lineType: "service", sectionId: "sec1", quantity: "1", name: "Topdressing", unit: "1,000 SF", unitPriceCents: 4210, umbrellaKey: "landscape_labor" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ lineType: "service", sectionId: "sec1", quantity: "1", name: "Topdressing", unit: "1,000 SF", unitPriceCents: 4210, umbrellaKey: "landscape_labor" }, undefined));
   });
 });

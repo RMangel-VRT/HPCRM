@@ -82,6 +82,7 @@ export const catalogMatchesQuerySchema = z.object({
 export type CatalogMatchesQuery = z.infer<typeof catalogMatchesQuerySchema>;
 export interface CatalogMatchDto {
   id: string; name: string; unit: string; priceCents: number | null; categoryName: string | null;
+  umbrellaKey?: EstimateUmbrella; unitCostCents?: number | null; detail?: string | null;
 }
 // Equipment/fee use an exclusive reference-or-free-entry union inside each
 // discriminator branch: a reference plus a client price must never be accepted.
@@ -105,6 +106,55 @@ export const createEstimateLineSchema = z.discriminatedUnion("lineType", [
   quickBranch("service"), quickBranch("equipment"), quickBranch("fee"),
   z.object({ ...base, lineType: z.literal("custom"), ...free, saveToCatalog: saveToCatalogSchema.optional() }).strict(),
 ]);
+const catalogReferences = {
+  plant: z.object({ lineType: z.literal("plant"), plantCatalogItemId: estimateIdSchema }).strict(),
+  hardscape: z.object({ lineType: z.literal("hardscape"), hardscapeCatalogItemId: estimateIdSchema }).strict(),
+  irrigation: z.object({ lineType: z.literal("irrigation"), irrigationCatalogItemId: estimateIdSchema }).strict(),
+  labor: z.object({ lineType: z.literal("labor"), rateKey: name }).strict(),
+  service: z.object({ lineType: z.literal("service"), quickItemId: estimateIdSchema }).strict(),
+  equipment: z.object({ lineType: z.literal("equipment"), quickItemId: estimateIdSchema }).strict(),
+  fee: z.object({ lineType: z.literal("fee"), quickItemId: estimateIdSchema }).strict(),
+};
+export const estimateCatalogReferenceSchema = z.discriminatedUnion("lineType", [
+  catalogReferences.plant, catalogReferences.hardscape, catalogReferences.irrigation, catalogReferences.labor,
+  catalogReferences.service, catalogReferences.equipment, catalogReferences.fee,
+]);
+const keepPrice = { keepPrice: z.boolean().optional(), priceOnly: z.literal(true).optional() };
+export const replaceEstimateLineSchema = z.discriminatedUnion("lineType", [
+  catalogReferences.plant.extend(keepPrice),
+  catalogReferences.hardscape.extend(keepPrice),
+  catalogReferences.irrigation.extend(keepPrice),
+  catalogReferences.labor.extend(keepPrice),
+  catalogReferences.service.extend(keepPrice),
+  catalogReferences.equipment.extend(keepPrice),
+  catalogReferences.fee.extend(keepPrice),
+]);
+export const estimateOrderSchema = z.object({
+  sections: z.array(z.object({ id: estimateIdSchema, lineIds: z.array(estimateIdSchema) }).strict()).min(1),
+}).strict();
+export type EstimateCatalogReference = z.infer<typeof estimateCatalogReferenceSchema>;
+export type ReplaceEstimateLineInput = z.infer<typeof replaceEstimateLineSchema>;
+export type EstimateOrderInput = z.infer<typeof estimateOrderSchema>;
+
+/** Quick-list references are catalog lines; free-entry rows of the same types are not. */
+export function estimateCatalogReference(line: {
+  lineType: typeof ESTIMATE_LINE_TYPES[number]; plantCatalogItemId: string | null; hardscapeCatalogItemId: string | null;
+  irrigationCatalogItemId: string | null; rateKey: string | null; quickItemId: string | null;
+}): EstimateCatalogReference | null {
+  const { lineType, plantCatalogItemId, hardscapeCatalogItemId, irrigationCatalogItemId, rateKey, quickItemId } = line;
+  switch (lineType) {
+    case "plant": return plantCatalogItemId ? { lineType, plantCatalogItemId } : null;
+    case "hardscape": return hardscapeCatalogItemId ? { lineType, hardscapeCatalogItemId } : null;
+    case "irrigation": return irrigationCatalogItemId ? { lineType, irrigationCatalogItemId } : null;
+    case "labor": return rateKey ? { lineType, rateKey } : null;
+    case "service": case "equipment": case "fee": return quickItemId ? { lineType, quickItemId } : null;
+    default: return null;
+  }
+}
+export function matchesEstimateCatalogReference(line: Parameters<typeof estimateCatalogReference>[0], reference: EstimateCatalogReference) {
+  const current = estimateCatalogReference(line);
+  return !!current && Object.entries(current).every(([field, value]) => (reference as Record<string, unknown>)[field] === value);
+}
 // Explicit PATCH fields have NO defaults. Null is a real clear operation.
 export const patchEstimateLineSchema = z.object({
   quantity: estimateQuantitySchema.optional(), unitPriceCents: cents.optional(),
@@ -175,6 +225,8 @@ export interface EstimateVersionDto extends EstimateVersionSummaryDto {
 /** Every mutation and detail read uses this envelope; version is affected/current. */
 export interface EstimateDetailDto extends EstimateContainerDto {
   versions: EstimateVersionSummaryDto[]; version: EstimateVersionDto;
+  /** Present when a line mutation inserts a new row, for optimistic identity reconciliation. */
+  affectedLineId?: string;
   display?: {
     companyName: string; customerName: string; customerAddress: string; createdByName: string | null;
     workLocation?: string | null;

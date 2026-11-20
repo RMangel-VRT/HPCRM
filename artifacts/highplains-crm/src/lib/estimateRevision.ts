@@ -1,4 +1,5 @@
 import type { EstimateRevisionIdMap } from "../../../../lib/db/src/estimateContracts";
+import { estimateOrderSchema } from "../../../../lib/db/src/estimateContracts";
 import { conflictOf, ESTIMATES_API, sendEstimate, type EstimateDetailDto } from "./estimateBuilder";
 import { fetchJson } from "./hardscapeCatalog";
 
@@ -38,7 +39,21 @@ export function replayEstimateEdits(source: EstimateDetailDto, from: string, dra
     let path = target;
     if (edit.url !== from) {
       if (!edit.url.startsWith(`${from}/`)) return null;
-      const match = /^(sections|lines)(?:\/([^/]+))?$/.exec(edit.url.slice(from.length + 1));
+      const suffix = edit.url.slice(from.length + 1);
+      if (suffix === "order" && edit.method === "PUT") {
+        const order = estimateOrderSchema.safeParse(edit.body);
+        if (!order.success) return null;
+        const mappedSections = [];
+        for (const section of order.data.sections) {
+          const id = mapped("sections", section.id);
+          const lineIds = section.lineIds.map(lineId => mapped("lines", lineId));
+          if (!id || lineIds.some(lineId => lineId === null)) return null;
+          mappedSections.push({ id, lineIds });
+        }
+        result.push({ method: edit.method, url: `${target}/order`, body: { sections: mappedSections } });
+        continue;
+      }
+      const match = /^(sections|lines)(?:\/([^/]+))?(?:\/(duplicate|replace))?$/.exec(suffix);
       if (!match) return null;
       const kind = match[1] as "sections" | "lines";
       path += `/${kind}`;
@@ -46,6 +61,10 @@ export function replayEstimateEdits(source: EstimateDetailDto, from: string, dra
         const id = mapped(kind, decodeURIComponent(match[2]));
         if (!id) return null;
         path += `/${encodeURIComponent(id)}`;
+      }
+      if (match[3]) {
+        if (kind !== "lines" || !match[2]) return null;
+        path += `/${match[3]}`;
       }
     }
     let body = edit.body;

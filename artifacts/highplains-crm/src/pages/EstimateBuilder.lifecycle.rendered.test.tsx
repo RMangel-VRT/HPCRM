@@ -7,6 +7,7 @@ import { memoryLocation } from "wouter/memory-location";
 import "@/i18n";
 import i18n from "@/i18n";
 import EstimateBuilder from "./EstimateBuilder";
+import { openEstimateLineMenu, openEstimatePicker } from "./estimateBuilderTestInteractions";
 import EstimateBuilderList from "./EstimateBuilderList";
 import { conflictOf, denverToday, formatCalendarDate, isCalendarDate, listUrl } from "@/lib/estimateBuilder";
 
@@ -66,7 +67,8 @@ beforeEach(() => {
     if (c.url.startsWith("/api/estimates/rates")) return res({ items: [] });
     if (c.url.startsWith("/api/customers/")) return res({ name: "Ridge HOA" });
     if (c.url.startsWith("/api/estimates/e1")) return res(detail);
-    if (c.url.startsWith("/api/estimates")) return res([]);
+    if (c.url.startsWith("/api/estimates") || c.url.startsWith("/api/plant-library") || c.url.startsWith("/api/quick-items")) return res([]);
+    if (c.url.startsWith("/api/hardscape-catalog") || c.url.startsWith("/api/irrigation-catalog")) return res({ items: [], categories: [] });
     return res({});
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -476,17 +478,23 @@ describe("first edit on a sent or declined estimate", () => {
     ["scope", "PATCH", "/v2", { scopeOfWork: "New scope" }],
     ["rename", "PATCH", "/v2/sections/draft-section", { name: "Side beds" }],
     ["delete", "DELETE", "/v2/lines/new-b", undefined],
-    ["add", "POST", "/v2/lines", { sectionId: "draft-section", lineType: "fee", name: "Site fee", unitPriceCents: 500 }],
+    ["add", "POST", "/v2/lines", { sectionId: "draft-section", lineType: "custom", name: "Site fee", unitPriceCents: 500 }],
+    ["duplicate", "POST", "/v2/lines/new-b/duplicate", undefined],
+    ["description", "PATCH", "/v2/lines/new-b", { detail: "Customer wording" }],
   ] as const)("replays a declined version's first %s edit", async (operation, method, suffix, body) => {
     setup("declined");
     renderAt(path);
     await ready();
     if (operation === "scope") edit(screen.getByRole("textbox", { name: "Scope of work" }), "New scope");
     if (operation === "rename") edit(screen.getByTestId("input-section-name-s1"), "Side beds");
-    if (operation === "delete") fireEvent.click(screen.getByTestId("button-remove-line-lb"));
+    if (operation === "delete" || operation === "duplicate") {
+      openEstimateLineMenu("lb");
+      fireEvent.click(await screen.findByTestId(operation === "delete" ? "menu-remove-line-lb" : "menu-duplicate-lb"));
+    }
+    if (operation === "description") edit(screen.getByTestId("input-description-lb"), "Customer wording");
     if (operation === "add") {
-      fireEvent.click(screen.getByTestId("button-add-fee-s1"));
-      fireEvent.doubleClick(await screen.findByTestId("option-__free"));
+      await openEstimatePicker("custom", "Site fee");
+      fireEvent.click(await screen.findByTestId("chip-custom-category-fees"));
       fireEvent.change(await screen.findByTestId("input-free-name"), { target: { value: "Site fee" } });
       fireEvent.change(screen.getByTestId("input-free-rate"), { target: { value: "5" } });
       fireEvent.submit(screen.getByTestId("form-free-entry"));
