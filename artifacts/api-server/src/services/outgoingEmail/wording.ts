@@ -1,26 +1,10 @@
-export const WORDING_FIELDS = ["subject", "preview", "eyebrow", "headline", "intro", "closing"] as const;
-export type EmailWording = Record<typeof WORDING_FIELDS[number], string>;
+import { and, eq } from "drizzle-orm";
+import { companyEmailWording } from "@workspace/db";
+import { db } from "../../db";
+import { PLACEHOLDERS, WORDING_FIELDS, WORDING_LIMITS, wordingProblem,
+  type EmailKey, type EmailWording, type WordingField } from "../../../../../lib/db/src/emailWordingContracts";
 
-const reminder = ["invoiceNumber", "amountDue", "dueDate", "pastDueText"] as const;
-const extras = {
-  estimate: ["estimateNumber", "title", "total", "validUntil"],
-  estimate_revised: ["estimateNumber", "title", "total", "versionNumber", "previousSentDate"],
-  invoice_contract: ["invoiceNumber", "period", "amountDue", "dueDate", "contractName", "paymentOf"],
-  invoice_project: ["invoiceNumber", "title", "amountDue", "dueDate", "completedDate"],
-  reminder_friendly: reminder, reminder_past_due: reminder, reminder_final: reminder,
-  chemical_upcoming: ["treatmentName", "campaignTitle", "plannedDate", "backupDate", "timeWindow"],
-  chemical_completed: ["treatmentName", "campaignTitle", "completedDate"],
-  work_completed: ["ticketTitle", "completedDate"],
-  documents: ["documentCount"],
-  general_message: [],
-  contract_renewal: ["contractName", "renewalStart", "renewalTotal"],
-  contract_welcome: ["contractName", "startDate"],
-} as const;
-export type EmailKey = keyof typeof extras;
-const global = ["customerName", "companyName", "companyPhone", "companyEmail"] as const;
-export const PLACEHOLDERS = Object.fromEntries<readonly string[]>(
-  Object.entries(extras).map(([key, tokens]) => [key, [...global, ...tokens]]),
-) as Record<EmailKey, readonly string[]>;
+export { PLACEHOLDERS, WORDING_FIELDS, type EmailKey, type EmailWording };
 
 export const DEFAULT_WORDING: Record<EmailKey, Readonly<EmailWording>> = {
   estimate: {
@@ -150,6 +134,29 @@ export function fillWording(template: string, values: Readonly<Record<string, st
   }).join(" ").trim();
 }
 
-export function getEmailWording(_companyId: string, key: EmailKey): EmailWording {
-  return { ...DEFAULT_WORDING[key] };
+export function selectWording({ subject, preview, eyebrow, headline, intro, closing }: EmailWording): EmailWording {
+  return { subject, preview, eyebrow, headline, intro, closing };
+}
+
+export async function getEmailWording(companyId: string, key: EmailKey, connection: Pick<typeof db, "select"> = db): Promise<EmailWording> {
+  const [row] = await connection.select().from(companyEmailWording)
+    .where(and(eq(companyEmailWording.companyId, companyId), eq(companyEmailWording.emailKey, key)));
+  return selectWording(row ?? DEFAULT_WORDING[key]);
+}
+
+export function validateWording(key: EmailKey, input: unknown): Partial<Record<WordingField, string>> | null {
+  const raw = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const errors: Partial<Record<WordingField, string>> = {};
+  for (const field of WORDING_FIELDS) {
+    const problem = wordingProblem(key, field, raw[field]);
+    switch (problem?.code) {
+      case "required": errors[field] = "This field is required."; break;
+      case "length": errors[field] = `Use ${WORDING_LIMITS[field]} characters or fewer.`; break;
+      case "newline": errors[field] = "Keep this to one paragraph."; break;
+      case "plaintext": errors[field] = "Use plain text without HTML, formatting, or links."; break;
+      case "braces": errors[field] = "Placeholders need both braces, like {customerName}."; break;
+      case "placeholder": errors[field] = `Unknown placeholder ${problem.token}. Use one of: ${PLACEHOLDERS[key].map(name => `{${name}}`).join(", ")}`; break;
+    }
+  }
+  return Object.keys(errors).length ? errors : null;
 }

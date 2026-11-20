@@ -15,6 +15,8 @@ import { transitionEstimate } from "./estimateLifecycle";
 import { renderEstimatePdfFile } from "./estimatePdf";
 import { ObjectStorageService } from "../objectStorage";
 import { issuedEstimatePdfs } from "./estimateIssuedPdf";
+import { DEFAULT_WORDING } from "./outgoingEmail/wording";
+import { resetCompanyWording, saveCompanyWording } from "./outgoingEmail/wordingAdmin";
 
 vi.mock("./gmailSender", async importOriginal => ({ ...await importOriginal<typeof import("./gmailSender")>(), sendEmail: vi.fn() }));
 vi.mock("./estimateLifecycle", async importOriginal => {
@@ -144,6 +146,28 @@ it("previews the company-scoped version with no write, delivery or PDF access", 
   expect(await logs()).toHaveLength(0);
   expect(render).not.toHaveBeenCalled();
   expect(gmail).not.toHaveBeenCalled();
+});
+
+it("uses saved wording in the live estimate preview and provider payload", async () => {
+  const draft = await newDraft();
+  const wording = { ...DEFAULT_WORDING.estimate, subject: "For review: {estimateNumber}",
+    intro: "Here is the customized estimate for {customerName}." };
+  await saveCompanyWording(company, { id: user, name: "Estimate Tester" }, "estimate", wording);
+  try {
+    const pdf = await PDFDocument.create();
+    pdf.addPage();
+    render.mockResolvedValueOnce({ pdf: Buffer.from(await pdf.save()), filename: `${draft.estimateNumber}.pdf` });
+    const preview = await application().post(`${draft.url}/email-preview`).send({}).expect(200);
+    expect(preview.body.subject).toBe(`For review: ${draft.estimateNumber}`);
+    expect(preview.body.html).toContain("Here is the customized estimate for Estimate Test Customer.");
+    await application().post(`${draft.url}/send-email`).send({ ...input(), subject: preview.body.subject }).expect(200);
+    expect(gmail).toHaveBeenCalledWith(mailboxId, expect.objectContaining({
+      subject: preview.body.subject, bodyHtml: expect.stringContaining("Here is the customized estimate for Estimate Test Customer."),
+      bodyText: expect.stringContaining("Here is the customized estimate for Estimate Test Customer."),
+    }), expect.any(String));
+  } finally {
+    await resetCompanyWording(company, user, "estimate");
+  }
 });
 
 it("guards no lines and needs-price before Gmail, then stores and resends the same original even after a revision and location edit", async () => {

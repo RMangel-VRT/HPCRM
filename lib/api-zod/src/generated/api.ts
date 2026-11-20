@@ -7,6 +7,211 @@
  */
 import * as zod from "zod";
 
+export const ListEmailWordingHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const listEmailWordingResponseDefaultsSubjectMax = 150;
+
+export const listEmailWordingResponseDefaultsPreviewMax = 120;
+
+export const listEmailWordingResponseDefaultsEyebrowMax = 60;
+
+export const listEmailWordingResponseDefaultsHeadlineMax = 120;
+
+export const listEmailWordingResponseDefaultsIntroMax = 800;
+
+export const listEmailWordingResponseDefaultsClosingMax = 400;
+
+export const listEmailWordingResponseWordingSubjectMax = 150;
+
+export const listEmailWordingResponseWordingPreviewMax = 120;
+
+export const listEmailWordingResponseWordingEyebrowMax = 60;
+
+export const listEmailWordingResponseWordingHeadlineMax = 120;
+
+export const listEmailWordingResponseWordingIntroMax = 800;
+
+export const listEmailWordingResponseWordingClosingMax = 400;
+
+export const ListEmailWordingResponseItem = zod.object({
+  key: zod.string(),
+  label: zod.string(),
+  group: zod.string(),
+  placeholders: zod.array(zod.string()),
+  defaults: zod.object({
+    subject: zod.string().max(listEmailWordingResponseDefaultsSubjectMax),
+    preview: zod.string().max(listEmailWordingResponseDefaultsPreviewMax),
+    eyebrow: zod.string().max(listEmailWordingResponseDefaultsEyebrowMax),
+    headline: zod.string().max(listEmailWordingResponseDefaultsHeadlineMax),
+    intro: zod.string().max(listEmailWordingResponseDefaultsIntroMax),
+    closing: zod.string().max(listEmailWordingResponseDefaultsClosingMax),
+  }),
+  wording: zod.object({
+    subject: zod.string().max(listEmailWordingResponseWordingSubjectMax),
+    preview: zod.string().max(listEmailWordingResponseWordingPreviewMax),
+    eyebrow: zod.string().max(listEmailWordingResponseWordingEyebrowMax),
+    headline: zod.string().max(listEmailWordingResponseWordingHeadlineMax),
+    intro: zod.string().max(listEmailWordingResponseWordingIntroMax),
+    closing: zod.string().max(listEmailWordingResponseWordingClosingMax),
+  }),
+  isCustom: zod.boolean(),
+  updatedAt: zod.coerce.date().nullable(),
+  updatedBy: zod.string().nullable(),
+});
+export const ListEmailWordingResponse = zod.array(ListEmailWordingResponseItem);
+
+export const GetWorkCompletedEmailRuleHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const GetWorkCompletedEmailRuleResponse = zod.object({
+  rule: zod.union([
+    zod.null(),
+    zod.object({
+      id: zod.string(),
+      isEnabled: zod.boolean(),
+    }),
+  ]),
+});
+
+export const SaveEmailWordingParams = zod.object({
+  key: zod.coerce.string(),
+});
+
+export const SaveEmailWordingHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const saveEmailWordingBodySubjectMax = 150;
+
+export const saveEmailWordingBodyPreviewMax = 120;
+
+export const saveEmailWordingBodyEyebrowMax = 60;
+
+export const saveEmailWordingBodyHeadlineMax = 120;
+
+export const saveEmailWordingBodyIntroMax = 800;
+
+export const saveEmailWordingBodyClosingMax = 400;
+
+export const SaveEmailWordingBody = zod.object({
+  subject: zod.string().max(saveEmailWordingBodySubjectMax),
+  preview: zod.string().max(saveEmailWordingBodyPreviewMax),
+  eyebrow: zod.string().max(saveEmailWordingBodyEyebrowMax),
+  headline: zod.string().max(saveEmailWordingBodyHeadlineMax),
+  intro: zod.string().max(saveEmailWordingBodyIntroMax),
+  closing: zod.string().max(saveEmailWordingBodyClosingMax),
+});
+
+export const saveEmailWordingResponseDefaultsSubjectMax = 150;
+
+export const saveEmailWordingResponseDefaultsPreviewMax = 120;
+
+export const saveEmailWordingResponseDefaultsEyebrowMax = 60;
+
+export const saveEmailWordingResponseDefaultsHeadlineMax = 120;
+
+export const saveEmailWordingResponseDefaultsIntroMax = 800;
+
+export const saveEmailWordingResponseDefaultsClosingMax = 400;
+
+export const saveEmailWordingResponseWordingSubjectMax = 150;
+
+export const saveEmailWordingResponseWordingPreviewMax = 120;
+
+export const saveEmailWordingResponseWordingEyebrowMax = 60;
+
+export const saveEmailWordingResponseWordingHeadlineMax = 120;
+
+export const saveEmailWordingResponseWordingIntroMax = 800;
+
+export const saveEmailWordingResponseWordingClosingMax = 400;
+
+export const SaveEmailWordingResponse = zod.object({
+  key: zod.string(),
+  label: zod.string(),
+  group: zod.string(),
+  placeholders: zod.array(zod.string()),
+  defaults: zod.object({
+    subject: zod.string().max(saveEmailWordingResponseDefaultsSubjectMax),
+    preview: zod.string().max(saveEmailWordingResponseDefaultsPreviewMax),
+    eyebrow: zod.string().max(saveEmailWordingResponseDefaultsEyebrowMax),
+    headline: zod.string().max(saveEmailWordingResponseDefaultsHeadlineMax),
+    intro: zod.string().max(saveEmailWordingResponseDefaultsIntroMax),
+    closing: zod.string().max(saveEmailWordingResponseDefaultsClosingMax),
+  }),
+  wording: zod.object({
+    subject: zod.string().max(saveEmailWordingResponseWordingSubjectMax),
+    preview: zod.string().max(saveEmailWordingResponseWordingPreviewMax),
+    eyebrow: zod.string().max(saveEmailWordingResponseWordingEyebrowMax),
+    headline: zod.string().max(saveEmailWordingResponseWordingHeadlineMax),
+    intro: zod.string().max(saveEmailWordingResponseWordingIntroMax),
+    closing: zod.string().max(saveEmailWordingResponseWordingClosingMax),
+  }),
+  isCustom: zod.boolean(),
+  updatedAt: zod.coerce.date().nullable(),
+  updatedBy: zod.string().nullable(),
+});
+
+export const ResetEmailWordingParams = zod.object({
+  key: zod.coerce.string(),
+});
+
+export const ResetEmailWordingHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const PreviewEmailWordingParams = zod.object({
+  key: zod.coerce.string(),
+});
+
+export const PreviewEmailWordingHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const previewEmailWordingBodySubjectMax = 150;
+
+export const previewEmailWordingBodyPreviewMax = 120;
+
+export const previewEmailWordingBodyEyebrowMax = 60;
+
+export const previewEmailWordingBodyHeadlineMax = 120;
+
+export const previewEmailWordingBodyIntroMax = 800;
+
+export const previewEmailWordingBodyClosingMax = 400;
+
+export const PreviewEmailWordingBody = zod.object({
+  subject: zod.string().max(previewEmailWordingBodySubjectMax),
+  preview: zod.string().max(previewEmailWordingBodyPreviewMax),
+  eyebrow: zod.string().max(previewEmailWordingBodyEyebrowMax),
+  headline: zod.string().max(previewEmailWordingBodyHeadlineMax),
+  intro: zod.string().max(previewEmailWordingBodyIntroMax),
+  closing: zod.string().max(previewEmailWordingBodyClosingMax),
+});
+
+export const PreviewEmailWordingResponse = zod.union([
+  zod.object({
+    subject: zod.string(),
+    preview: zod.string(),
+    html: zod.string(),
+    text: zod.string(),
+    fieldErrors: zod.null(),
+  }),
+  zod.object({
+    fieldErrors: zod.object({
+      subject: zod.string().optional(),
+      preview: zod.string().optional(),
+      eyebrow: zod.string().optional(),
+      headline: zod.string().optional(),
+      intro: zod.string().optional(),
+      closing: zod.string().optional(),
+    }),
+  }),
+]);
+
 export const previewCompanyDocumentEmailBodyToItemMax = 254;
 
 export const previewCompanyDocumentEmailBodyToMax = 10;

@@ -11,6 +11,7 @@ import { createGmailMessageId, sendEmail } from "./gmailSender";
 import { PDFDocument } from "pdf-lib";
 import { loadEmailCompany } from "./outgoingEmail/company";
 import { buildDocumentsEmail } from "./outgoingEmail/serviceEmails";
+import { DEFAULT_WORDING, getEmailWording } from "./outgoingEmail/wording";
 
 /** Every To address must identify the SAME single customer. Shared manager addresses are ambiguous. */
 export function unambiguousDocumentCustomer(to: string[], candidates: { customerId: string; emails: string[] }[]) {
@@ -43,11 +44,17 @@ const defaults = {
   objects: new CompanyDocumentObjects(),
   visible: resolveVisibleMailboxes,
   company: loadEmailCompany,
+  wording: getEmailWording,
   async mailbox(company: string, id: string) {
     const [mailbox] = await db.select().from(mailboxAccounts).where(and(eq(mailboxAccounts.companyId, company), eq(mailboxAccounts.id, id), eq(mailboxAccounts.isActive, true)));
     return mailbox;
   },
   matchCustomer: matchDocumentCustomer,
+  async customerName(company: string, id: string) {
+    const [row] = await db.select({ name: customers.name }).from(customers)
+      .where(and(eq(customers.companyId, company), eq(customers.id, id)));
+    return row?.name;
+  },
   async record(values: typeof communications.$inferInsert) { const [row] = await db.insert(communications).values(values).returning(); return row; },
   async stamp(company: string, id: string, values: Partial<typeof communications.$inferInsert>) {
     await db.update(communications).set(values).where(and(eq(communications.companyId, company), eq(communications.id, id)));
@@ -82,8 +89,13 @@ async function prepareCompanyDocuments(company: string, user: UserWithContext, b
       : undefined;
     documents.push({ title: document.name, filename: fileName, pageCount });
   }
-  const email = buildDocumentsEmail({ company: await deps.company(company), documents, note: input.note, subject: input.subject });
-  return { input, mailbox, snapshots, attachments, email };
+  const [details, wording, customerId] = await Promise.all([
+    deps.company(company), deps.wording(company, "documents"), deps.matchCustomer(company, input.to),
+  ]);
+  const customerName = customerId ? await deps.customerName(company, customerId) : undefined;
+  const email = await buildDocumentsEmail({ companyId: company, company: details, documents, note: input.note,
+    subject: input.subject, wording, customerName });
+  return { input, mailbox, snapshots, attachments, email, customerId };
 }
 
 export async function previewCompanyDocuments(company: string, user: UserWithContext, body: unknown, deps = defaults) {
@@ -92,9 +104,8 @@ export async function previewCompanyDocuments(company: string, user: UserWithCon
 }
 
 export async function emailCompanyDocuments(company: string, user: UserWithContext, body: CompanyDocumentEmailInput, deps = defaults) {
-  const { input, mailbox, snapshots, attachments, email } = await prepareCompanyDocuments(company, user, body, deps);
+  const { input, mailbox, snapshots, attachments, email, customerId } = await prepareCompanyDocuments(company, user, body, deps);
   const messageId = createGmailMessageId();
-  const customerId = await deps.matchCustomer(company, input.to);
   const row = await deps.record({ companyId: company, customerId, direction: "outbound", type: "email", status: "sent",
     routingMethod: "company_documents", mailboxAccountId: mailbox.id, toAddresses: input.to, ccAddresses: input.cc ?? [],
     subject: email.subject, body: email.text, bodyText: email.text, bodyHtml: email.html, fromAddress: mailbox.emailAddress,
@@ -123,6 +134,9 @@ export async function companyDocumentSends(company: string, id: string) {
 }
 export async function companyDocumentEmailOptions(company: string) {
   const details = await loadEmailCompany(company);
+  // This endpoint has no documents or recipients yet. The preview evaluates
+  // saved wording with the actual document count and any matched customer.
+  const email = await buildDocumentsEmail({ companyId: company, company: details, documents: [], wording: DEFAULT_WORDING.documents });
   return { companyName: details.name, phone: details.phone || null,
-    subject: buildDocumentsEmail({ company: details, documents: [] }).subject.slice(0, 255).replace(/[\uD800-\uDBFF]$/, "") };
+    subject: email.subject.slice(0, 255).replace(/[\uD800-\uDBFF]$/, "") };
 }

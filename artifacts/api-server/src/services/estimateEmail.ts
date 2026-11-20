@@ -42,7 +42,7 @@ async function composeEstimateEmail(tx: AppTransaction, estimate: Estimate, sele
   return buildEstimateEmail({
     estimate: { companyId: estimate.companyId, estimateNumber: estimate.estimateNumber, title: estimate.title,
       customerName: display.customerName, workLocation: display.workLocation },
-    version, previous, company: await loadEmailCompany(estimate.companyId, tx), now: new Date(), ...input,
+    version, previous, company: await loadEmailCompany(estimate.companyId, tx), connection: tx, now: new Date(), ...input,
     attachment: attachment ?? {
       filename: estimatePdfFilename(estimate.estimateNumber, version.versionNumber, estimateHasMultipleVersions(versions.length)),
       pageCount: estimateApproximatePages(version), approximate: true,

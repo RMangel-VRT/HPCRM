@@ -23,6 +23,93 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /email-wording:
+    get:
+      operationId: listEmailWording
+      parameters:
+        - { in: header, name: X-Company-Id, schema: { type: string } }
+      responses:
+        "200":
+          description: Company wording catalog
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/EmailWordingEntry" } }
+  /email-wording/work-completed-rule:
+    get:
+      operationId: getWorkCompletedEmailRule
+      parameters:
+        - { in: header, name: X-Company-Id, schema: { type: string } }
+      responses:
+        "200":
+          description: Existing automatic completion rule, if configured
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rule]
+                properties:
+                  rule:
+                    anyOf:
+                      - type: "null"
+                      - type: object
+                        required: [id, isEnabled]
+                        properties:
+                          id: { type: string }
+                          isEnabled: { type: boolean }
+  /email-wording/{key}:
+    parameters:
+      - { in: path, name: key, required: true, schema: { type: string } }
+      - { in: header, name: X-Company-Id, schema: { type: string } }
+    put:
+      operationId: saveEmailWording
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmailWordingFields" }
+      responses:
+        "200":
+          description: Saved company wording
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmailWordingEntry" }
+        "422":
+          description: Invalid wording
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message, fieldErrors]
+                properties:
+                  message: { type: string }
+                  fieldErrors: { $ref: "#/components/schemas/EmailWordingFieldErrors" }
+    delete:
+      operationId: resetEmailWording
+      responses:
+        "204": { description: Restored defaults }
+  /email-wording/{key}/preview:
+    post:
+      operationId: previewEmailWording
+      parameters:
+        - { in: path, name: key, required: true, schema: { type: string } }
+        - { in: header, name: X-Company-Id, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmailWordingFields" }
+      responses:
+        "200":
+          description: Rendered sample or field errors without HTML
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/EmailWordingRenderedPreview"
+                  - type: object
+                    required: [fieldErrors]
+                    properties:
+                      fieldErrors: { $ref: "#/components/schemas/EmailWordingFieldErrors" }
   /company-documents/email-preview:
     post:
       operationId: previewCompanyDocumentEmail
@@ -1670,6 +1757,47 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    EmailWordingFields:
+      type: object
+      required: [subject, preview, eyebrow, headline, intro, closing]
+      properties:
+        subject: { type: string, maxLength: 150 }
+        preview: { type: string, maxLength: 120 }
+        eyebrow: { type: string, maxLength: 60 }
+        headline: { type: string, maxLength: 120 }
+        intro: { type: string, maxLength: 800 }
+        closing: { type: string, maxLength: 400 }
+    EmailWordingFieldErrors:
+      type: object
+      properties:
+        subject: { type: string }
+        preview: { type: string }
+        eyebrow: { type: string }
+        headline: { type: string }
+        intro: { type: string }
+        closing: { type: string }
+    EmailWordingEntry:
+      type: object
+      required: [key, label, group, placeholders, defaults, wording, isCustom, updatedAt, updatedBy]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        group: { type: string }
+        placeholders: { type: array, items: { type: string } }
+        defaults: { $ref: "#/components/schemas/EmailWordingFields" }
+        wording: { $ref: "#/components/schemas/EmailWordingFields" }
+        isCustom: { type: boolean }
+        updatedAt: { type: ["string", "null"], format: date-time }
+        updatedBy: { type: ["string", "null"] }
+    EmailWordingRenderedPreview:
+      type: object
+      required: [subject, preview, html, text, fieldErrors]
+      properties:
+        subject: { type: string }
+        preview: { type: string }
+        html: { type: string }
+        text: { type: string }
+        fieldErrors: { type: "null" }
     ComposePreviewInput:
       type: object
       additionalProperties: false

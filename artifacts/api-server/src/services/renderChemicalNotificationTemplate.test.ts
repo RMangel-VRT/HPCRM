@@ -8,6 +8,10 @@ vi.mock('../storage', () => ({ storage: {
 vi.mock('./outgoingEmail/company', () => ({ loadEmailCompany: async () => ({
   name: 'Acme Lawn Co', phone: '303-555-0123', email: 'office@acme.example', addressLine: '1 Main Street', website: 'acme.example',
 }) }));
+vi.mock('./outgoingEmail/wording', async importOriginal => {
+  const actual = await importOriginal<typeof import('./outgoingEmail/wording')>();
+  return { ...actual, getEmailWording: async (_company: string, key: keyof typeof actual.DEFAULT_WORDING) => actual.DEFAULT_WORDING[key] };
+});
 
 import { chemicalVisitVariableSpec, renderChemicalNotificationTemplate, MissingChemicalNotificationTemplateError } from './emailService';
 

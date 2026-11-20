@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { DEFAULT_WORDING } from "./wording";
 import { buildEstimateEmail } from "./estimateEmail";
 
 const args: Parameters<typeof buildEstimateEmail>[0] = {
@@ -8,11 +9,11 @@ const args: Parameters<typeof buildEstimateEmail>[0] = {
     sections: [{ id: "bed", name: "Bed prep & turf", lines: [{}, {}] }], photos: [{}, {}, {}] },
   company: { name: "High Plains", addressLine: "123 Main St", email: "info@example.test", website: "", phone: "" },
   now: new Date("2026-11-21T04:30:00Z"), attachment: { filename: "EST-2026-0014.pdf", pageCount: 4, approximate: true },
-  note: " Start Dec 1 ",
+  note: " Start Dec 1 ", wording: DEFAULT_WORDING.estimate,
 };
 
-it("renders first-version blocks in order using the Colorado day and selected section totals", () => {
-  const result = buildEstimateEmail(args);
+it("renders first-version blocks in order using the Colorado day and selected section totals", async () => {
+  const result = await buildEstimateEmail(args);
   expect(result.subject).toBe("Estimate EST-2026-0014 – Front entry conversion");
   expect(result.preview).toBe("$3,079.60 · good for 30 days · sign the last page to approve");
   const expected = ["A note from High Plains\nStart Dec 1", "Total: $3,079.60\nValid until: Dec 20, 2026\nPhotos: 3 attached",
@@ -29,8 +30,8 @@ it("renders first-version blocks in order using the Colorado day and selected se
   expect(result.text).toContain("Questions about this estimate?");
 });
 
-it("renders the revised estimate against a prior sent total, without first-version blocks", () => {
-  const result = buildEstimateEmail({ ...args, version: { ...args.version, versionNumber: 2, frozenSubtotalCents: 282960 },
+it("renders the revised estimate against a prior sent total, without first-version blocks", async () => {
+  const result = await buildEstimateEmail({ ...args, wording: DEFAULT_WORDING.estimate_revised, version: { ...args.version, versionNumber: 2, frozenSubtotalCents: 282960 },
     previous: { versionNumber: 1, sentAt: new Date("2026-10-31T05:35:00Z"), frozenSubtotalCents: 307960 },
     attachment: { filename: "original-v2.pdf", pageCount: 5 } });
   expect(result.subject).toBe("Revised estimate EST-2026-0014 (Version 2) – Front entry conversion");
@@ -44,14 +45,14 @@ it("renders the revised estimate against a prior sent total, without first-versi
   expect(result.text).not.toMatch(/What happens next|Work location|Summary|Valid until|Questions or changes\?/);
 });
 
-it("uses the selected historical date and omits unavailable comparison and photo facts", () => {
+it("uses the selected historical date and omits unavailable comparison and photo facts", async () => {
   const historicalVersion = { ...args.version, sentAt: "2026-03-08T06:45:00Z", photos: [] };
-  const first = buildEstimateEmail({ ...args, note: " ", subject: "Original custom subject", version: historicalVersion });
+  const first = await buildEstimateEmail({ ...args, note: " ", subject: "Original custom subject", version: historicalVersion });
   expect(first.subject).toBe("Original custom subject");
   expect(first.text).toContain("Estimate date: Mar 7, 2026");
   expect(first.text).toContain("Valid until: Apr 6, 2026");
   expect(first.text).not.toMatch(/Photos:|A note from High Plains/);
-  const revised = buildEstimateEmail({ ...args, version: { ...args.version, versionNumber: 3 } });
+  const revised = await buildEstimateEmail({ ...args, wording: DEFAULT_WORDING.estimate_revised, version: { ...args.version, versionNumber: 3 } });
   expect(revised.text).toContain("Here is Version 3 of your estimate.");
   expect(revised.text).not.toMatch(/version we sent on|Version 2 total|Change:/);
 });

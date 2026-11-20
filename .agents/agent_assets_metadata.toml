@@ -448,3 +448,31 @@ mtime_ms = 1795203646709
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/0af27cb3-adeb-46e9-bb5b-fb6096b9e0c2/caaabaff-acae-44bc-9e4f-42b1c2ecd2a6"
 storage_version_token = "1795203674373489"
 content_type = "image/png"
+
+[[outputs]]
+id = "D2-Hkq1RaL0aNHDoXh0h0"
+uri = "file://generated-artifacts/email-wording/email-wording-editor-loaded-1440.png"
+type = "image"
+title = "Email wording editor — 1440 px"
+description = "Signed-in desktop view with the three editor columns and a live estimate preview."
+logical_id = "7a36dea4-ee36-4faa-9a95-61160401b44e"
+content_hash = "sha256:a194c3a22ebb838ab36369d4a63eb2446a5b8866827f85dcc4a85dff020e5864"
+size = 273812
+mtime_ms = 1795210403063
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/7a36dea4-ee36-4faa-9a95-61160401b44e/3ab085d1-01b8-4a23-9877-7e393a6129fb"
+storage_version_token = "1795210427510431"
+content_type = "image/png"
+
+[[outputs]]
+id = "YjwvMOSsD6IHIOYR2XvIx"
+uri = "file://generated-artifacts/email-wording/email-wording-375-preview.png"
+type = "image"
+title = "Email wording editor — 375 px"
+description = "Signed-in phone view with the estimate preview stacked below the fields."
+logical_id = "061a065f-4f2d-4e0d-85c6-afbb2d60f4cd"
+content_hash = "sha256:4f064ee99acc056af52ddedb9b75592f3f088e0e8da061c80782cfc7d5d16a73"
+size = 70871
+mtime_ms = 1795210403191
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/061a065f-4f2d-4e0d-85c6-afbb2d60f4cd/138fa8cd-89da-49c1-81f5-85bfd4181482"
+storage_version_token = "1795210428069666"
+content_type = "image/png"

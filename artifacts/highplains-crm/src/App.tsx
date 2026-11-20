@@ -55,6 +55,7 @@ const BillingPage = lazy(() => import("@/pages/BillingPage"));
 const MyTickets = lazy(() => import("@/pages/MyTickets"));
 const UsersPage = lazy(() => import("@/pages/UsersPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
+const EmailWordingPage = lazy(() => import("@/pages/EmailWordingPage"));
 const PropertyMapsPage = lazy(() => import("@/pages/PropertyMapsPage"));
 const SchedulingPage = lazy(() => import("@/pages/SchedulingPage"));
 const RoutesPage = lazy(() => import("@/pages/RoutesPage"));
@@ -434,6 +435,10 @@ function Router() {
           <QueryPreservingRedirect to="/dashboard/settings/shared-mailboxes" />
         </Route>
         <ProtectedRoute path="/dashboard/settings/my-mailbox" component={MyMailboxPage} />
+        <Route path="/dashboard/settings/email-templates">
+          <QueryPreservingRedirect to="/dashboard/settings/email-wording" />
+        </Route>
+        <ProtectedRoute path="/dashboard/settings/email-wording" component={EmailWordingPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/settings/notification-templates" component={ChemicalNotificationTemplates} allowedRoles={["admin"]} />
         <ProtectedRoute path="/dashboard/settings/qbo-customers" component={QboCustomerMapping} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/settings/service-calendar" component={ServiceCalendarPage} allowedRoles={["admin", "office"]} />

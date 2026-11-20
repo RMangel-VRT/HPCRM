@@ -40,7 +40,7 @@ const repo = {
 const email = vi.fn(async () => ({ communicationId: "comm", deliveryStatus: "sent" }));
 const sends = vi.fn(async () => []);
 const emailOptions = vi.fn(async () => ({ companyName: "Fixture", phone: null, subject: "Requested documents – Fixture" }));
-const emailPreview = vi.fn(async () => ({ subject: "Preview", html: "<p>Preview</p>", text: "Preview" }));
+const emailPreview = vi.fn(async () => ({ subject: "Preview", preview: "Preview", html: "<p>Preview</p>", text: "Preview" }));
 const reconcile = vi.fn(async () => {});
 function app() {
   const a = express(); a.use(express.json()); a.use((req, _res, next) => {

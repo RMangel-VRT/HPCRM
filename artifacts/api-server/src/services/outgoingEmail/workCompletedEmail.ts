@@ -1,16 +1,16 @@
 import { renderEmailLayout, type Block, type EmailCompany } from "./layout";
-import { fillWording, getEmailWording, PLACEHOLDERS } from "./wording";
+import { DEFAULT_WORDING, fillWording, getEmailWording, PLACEHOLDERS, type EmailWording } from "./wording";
 
 const colorado = { timeZone: "America/Denver" };
 const date = new Intl.DateTimeFormat("en-US", { ...colorado, year: "numeric", month: "long", day: "numeric" });
 const time = new Intl.DateTimeFormat("en-US", { ...colorado, hour: "numeric", minute: "2-digit" });
 
-export function buildWorkCompletedEmail({ ticket, customer, company, photoUrls, followUp }: {
+export async function buildWorkCompletedEmail({ ticket, customer, company, photoUrls, followUp, wording }: {
   ticket: { id: string; companyId: string; title: string; completedAt?: Date | null; workCompletedDate?: Date | null;
     actualStartTime?: Date | null; actualEndTime?: Date | null; areasWorked?: string | null;
     workSummaryForCustomer?: string | null; materialsUsed?: string | null; recommendations?: string | null };
   customer: { name: string }; company: EmailCompany; photoUrls: string[];
-  followUp?: { title: string; description?: string | null };
+  followUp?: { title: string; description?: string | null }; wording?: EmailWording;
 }) {
   const completed = ticket.completedAt ?? ticket.workCompletedDate;
   const completedDate = completed ? date.format(completed) : "";
@@ -20,11 +20,13 @@ export function buildWorkCompletedEmail({ ticket, customer, company, photoUrls, 
   const timeOnSite = start && end && mins >= 0 ? `Arrived ${time.format(start)}, departed ${time.format(end)} (${duration})` : "";
   const values = { ticketTitle: ticket.title, completedDate, customerName: customer.name,
     companyName: company.name, companyEmail: company.email, companyPhone: company.phone };
-  const template = getEmailWording(ticket.companyId, "work_completed");
+  const template = wording ?? await getEmailWording(ticket.companyId, "work_completed");
   const fill = (text: string) => fillWording(text, values, PLACEHOLDERS.work_completed);
   const subject = fill(template.subject).replace(/[\s\u0000]+/g, " ").trim();
-  const preview = completedDate ? fill(photoUrls.length ? template.preview : template.preview.replace(" · photos inside", ""))
-    : photoUrls.length ? "Photos inside" : "";
+  const defaults = DEFAULT_WORDING.work_completed;
+  const preview = template.preview !== defaults.preview ? fill(template.preview)
+    : completedDate ? fill(photoUrls.length ? template.preview : template.preview.replace(" · photos inside", ""))
+      : photoUrls.length ? "Photos inside" : "";
   const blocks: Block[] = [];
   const chips = [{ label: "Completed", value: completedDate }, { label: "Time on site", value: timeOnSite },
     { label: "Area", value: ticket.areasWorked?.trim() ?? "" }].filter(item => item.value);
@@ -39,10 +41,11 @@ export function buildWorkCompletedEmail({ ticket, customer, company, photoUrls, 
   const rows = [{ label: "Title", value: followUp?.title.trim() ?? "" },
     { label: "Details", value: followUp?.description?.trim() ?? "" }].filter(row => row.value);
   if (rows.length) blocks.push({ kind: "facts", title: "Follow-up", rows });
-  return { subject, ...renderEmailLayout({
+  return { subject, preview, ...renderEmailLayout({
     subject, preview, docType: "Work complete", docNumber: `#${ticket.id.slice(0, 6).toUpperCase()}`, stripe: "lime", company,
     wording: { eyebrow: fill(template.eyebrow), headline: fill(template.headline),
-      intro: fill(photoUrls.length ? template.intro : template.intro.replace(", with photos", "")), closing: fill(template.closing) },
+      intro: fill(!photoUrls.length && template.intro === defaults.intro ? template.intro.replace(", with photos", "") : template.intro),
+      closing: fill(template.closing) },
     greeting: customer.name ? `Hello ${customer.name},` : "Hello,", blocks,
   }) };
 }

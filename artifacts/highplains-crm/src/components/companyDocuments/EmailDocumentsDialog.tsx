@@ -42,9 +42,8 @@ export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose
   const [mailboxId, setMailboxId] = useState("");
   const [to, setTo] = useState(""), [cc, setCc] = useState("");
   const [ids, setIds] = useState(initialIds);
-  const [subject, setSubject] = useState(""), [note, setNote] = useState("");
+  const [subjectOverride, setSubjectOverride] = useState<string>(), [note, setNote] = useState("");
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
-  const [initialized, setInitialized] = useState(false);
   const options = useQuery<{ subject: string }>({
     queryKey: ["/api/company-documents", companyId, "email-options"],
     queryFn: async () => (await companyRequest(companyId, "GET", "/api/company-documents/email-options")).json(),
@@ -72,13 +71,7 @@ export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose
     if (!mailboxId && mailboxes.data) setMailboxId((mailboxes.data.find(m => m.accountType === "shared") ??
       mailboxes.data.find(m => m.ownerUserId === user?.id))?.id ?? "");
   }, [mailboxes.data, mailboxId, user?.id]);
-  useEffect(() => {
-    if (!initialized && options.data) {
-      setSubject(options.data.subject);
-      setInitialized(true);
-    }
-  }, [initialized, options.data]);
-  const payload = { mailboxAccountId: mailboxId, to: split(to), cc: split(cc), subject, note, documentIds: ids };
+  const payload = { mailboxAccountId: mailboxId, to: split(to), cc: split(cc), subject: subjectOverride, note, documentIds: ids };
   const parsed = companyDocumentEmailInput.safeParse(payload);
   const preview = useBrandedEmailPreview(companyId, "/api/company-documents/email-preview", parsed.success ? parsed.data : undefined);
   const valid = parsed.success && !!preview.result;
@@ -126,7 +119,8 @@ export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose
             <span className="flex-1">{d.name}</span><StatusChip doc={d} />
           </label>)}</div></div>
         <div className="space-y-1"><Label htmlFor="cd-email-subject">{t("companyDocuments.email.subject")}</Label>
-          <Input id="cd-email-subject" value={subject} onChange={e => setSubject(e.target.value)} maxLength={255} disabled={busy} /></div>
+          <Input id="cd-email-subject" value={subjectOverride ?? preview.result?.subject ?? options.data?.subject ?? ""}
+            onChange={e => setSubjectOverride(e.target.value)} maxLength={255} disabled={busy} /></div>
         <div className="space-y-1"><Label htmlFor="cd-email-message">{t("companyDocuments.email.note")}</Label>
           <Textarea id="cd-email-message" value={note} onChange={e => setNote(e.target.value)} rows={4} maxLength={2000} disabled={busy} /></div>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -135,7 +129,7 @@ export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose
         </div>
       </div>
       <DialogFooter><Button variant="outline" onClick={onClose} disabled={busy}>{t("companyDocuments.actions.cancel")}</Button>
-        <Button onClick={send} disabled={!valid || busy || !initialized || mailboxes.isError}>{t(busy ? "companyDocuments.email.sending" : "companyDocuments.email.send")}</Button></DialogFooter>
+        <Button onClick={send} disabled={!valid || busy || mailboxes.isError}>{t(busy ? "companyDocuments.email.sending" : "companyDocuments.email.send")}</Button></DialogFooter>
     </DialogContent>
   </Dialog>;
 }

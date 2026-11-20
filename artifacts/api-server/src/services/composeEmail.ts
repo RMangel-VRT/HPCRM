@@ -31,7 +31,7 @@ export async function previewComposeEmail(companyId: string, input: z.infer<type
     customerName = customer.name;
   }
   const company = await loadEmailCompany(companyId);
-  return buildGeneralMessage({ ...input, customerName, company });
+  return buildGeneralMessage({ ...input, companyId, customerName, company, connection });
 }
 
 export function assertSendableDraft(draft: Communication | undefined) {

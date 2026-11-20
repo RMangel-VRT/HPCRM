@@ -88,6 +88,7 @@ import { registerCustomerDocuments } from "./customerDocuments";
 import { registerCompanyDocuments } from "./companyDocuments";
 import { registerComposeEmailRoutes } from "./composeEmail";
 import { registerCommunicationTemplates } from "./communicationTemplates";
+import { registerEmailWording } from "./emailWording";
 import { createCustomerCommunication } from "./customerCommunicationCreate";
 import { COMM_LIST_ROLES_SET, COMM_VIEW_ROLES_SET, requireCommPermission } from "../lib/communicationPermissions";
 import { composeEmailOptions, previewComposeEmail, sendComposeDraft } from "../services/composeEmail";
@@ -9862,6 +9863,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== EMAIL MANAGEMENT ROUTES =====
+  registerEmailWording(app);
   
   // Get email templates for company
   app.get("/api/email-templates", async (req, res) => {
@@ -9900,6 +9902,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update email rule (enable/disable)
   app.patch("/api/email-rules/:id", requireCommPermission("manage_automations"), async (req, res) => {
     const user = req.user as UserWithContext;
+    const expectedCompany = req.get("X-Company-Id");
+    if (expectedCompany && expectedCompany !== user.activeCompanyId) {
+      return res.status(409).json({ message: "Active company changed. Reload and try again." });
+    }
     const result = insertEmailRuleSchema.partial().omit({ companyId: true }).safeParse(req.body);
     if (!result.success) {
       return res.status(400).send(result.error.message);
@@ -10217,7 +10223,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).send("No email address found for customer contacts");
       }
 
-      let email: Promise<ReturnType<typeof buildWorkCompletedEmail>> | undefined;
+      let email: ReturnType<typeof buildWorkCompletedEmail> | undefined;
       const rendered = () => email ??= Promise.all([
         loadEmailCompany(user.activeCompanyId),
         completionPhotoUrls("ticket", ticket, "send"),
@@ -10400,115 +10406,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!ticket.customerId) return res.status(400).send("Ticket has no customer");
 
       const customer = await storage.getCustomerById(ticket.customerId, user.activeCompanyId);
-      const company = await storage.getCompanyById(user.activeCompanyId);
-      const completionDate = (ticket.completedAt || ticket.workCompletedDate || new Date()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-
-      let leadTechName = '';
-      if (ticket.leadTechUserId) {
-        const u = await storage.getUserById(ticket.leadTechUserId as string);
-        if (u) leadTechName = (u.name || '').trim();
-      }
-      if (!leadTechName && ticket.assignedToId) {
-        const u = await storage.getUserById(ticket.assignedToId);
-        if (u) leadTechName = (u.name || '').trim();
-      }
-
-      const crewIds: string[] = (ticket.crewMemberUserIds as string[] | null) || [];
-      let crewSummary = '';
-      if (crewIds.length > 0) {
-        const names: string[] = [];
-        for (const uid of crewIds) {
-          const u = await storage.getUserById(uid);
-          if (u) names.push((u.name || '').trim());
-        }
-        const validNames = names.filter(Boolean);
-        if (validNames.length === 1) crewSummary = `With ${validNames[0]}`;
-        else if (validNames.length === 2) crewSummary = `With ${validNames[0]} and ${validNames[1]}`;
-        else if (validNames.length >= 3) crewSummary = `With ${validNames[0]}, ${validNames[1]}, and ${validNames.length - 2} more`;
-      } else if (!leadTechName) {
-        crewSummary = 'Solo';
-      }
-
-      const _fmtTime = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-      const _fmtDur = (mins: number) => { if (mins >= 60) { const h = Math.floor(mins / 60); const m = mins % 60; return m > 0 ? `${h}h ${m}m` : `${h}h`; } return `${mins}m`; };
-      let timeOnSite = '';
-      if (ticket.actualStartTime && ticket.actualEndTime) {
-        const start = new Date(ticket.actualStartTime);
-        const end = new Date(ticket.actualEndTime);
-        const diffMins = Math.round((end.getTime() - start.getTime()) / 60000);
-        timeOnSite = `Arrived ${_fmtTime(start)}, departed ${_fmtTime(end)} (${_fmtDur(diffMins)})`;
-      } else if (ticket.completedAt || ticket.workCompletedDate) {
-        const done = new Date((ticket.completedAt || ticket.workCompletedDate) as Date);
-        const today = new Date();
-        const isToday = done.toDateString() === today.toDateString();
-        timeOnSite = isToday ? `Completed today at ${_fmtTime(done)}` : `Completed ${done.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} at ${_fmtTime(done)}`;
-      }
-
-      let completionPhotosHtml = '';
-      const photoKeys: string[] = (ticket.completionPhotoStorageKeys as string[] | null) || [];
-      if (photoKeys.length > 0) {
-        const objectStorageService = new ObjectStorageService();
-        const imgs: string[] = [];
-        for (const key of photoKeys) {
-          try {
-            const file = await objectStorageService.getObjectEntityFile(key);
-            const url = await signObjectURL({ bucketName: file.bucket.name, objectName: file.name, method: 'GET', ttlSec: 7 * 24 * 3600 });
-            imgs.push(`<img src="${url}" alt="Completion photo" />`);
-          } catch { }
-        }
-        completionPhotosHtml = imgs.join('');
-      }
-
-      let followUpTitle = '';
-      let followUpDetails = '';
-      if (ticket.followUpTicketId) {
-        const fu = await storage.getTicketById(ticket.followUpTicketId as string, user.activeCompanyId);
-        if (fu) { followUpTitle = fu.title; followUpDetails = fu.description || ''; }
-      }
-
-      const contacts = await storage.getContactsByCustomerId(ticket.customerId, user.activeCompanyId);
-      const primaryContact = contacts.find(c => c.isPrimary === "true") || contacts[0];
-      let serviceCategory = 'Service visit';
-      if (ticket.ticketTypeId) {
-        const tt = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
-        if (tt?.name) serviceCategory = tt.name;
-      }
-
-      const { substituteVariables } = await import('./services/emailService');
-      // Use DB template if available (matches what actual send uses), fall back to default
-      let htmlBody = getDefaultWorkCompletedTemplate().htmlBody;
-      const rules = await storage.getEmailRulesByEvent('ticket.work_completed', user.activeCompanyId);
-      if (rules.length > 0) {
-        const dbTemplate = await storage.getEmailTemplateById(rules[0].templateId, user.activeCompanyId);
-        if (dbTemplate?.isActive && dbTemplate.htmlBody) {
-          htmlBody = dbTemplate.htmlBody;
-        }
-      }
-      const variables: Record<string, string> = {
-        ticketTitle: ticket.title,
-        customerName: customer?.name || '',
-        companyName: company?.name || 'Property Maintenance',
-        completionDate,
-        ticketDescription: ticket.description || '',
-        workSummaryForCustomer: (ticket.workSummaryForCustomer as string | null) || ticket.description || ticket.title,
-        materialsUsed: (ticket.materialsUsed as string | null) || '',
-        areasWorked: (ticket.areasWorked as string | null) || '',
-        recommendations: (ticket.recommendations as string | null) || '',
-        leadTechName,
-        crewSummary,
-        timeOnSite,
-        completionPhotosHtml,
-        scopeItemsHtml: '',
-        followUpTitle,
-        followUpDetails,
-        ticketNumber: `#${ticket.id.slice(0, 6).toUpperCase()}`,
-        serviceCategory,
-        contactEmail: primaryContact?.emails?.[0] || '',
-        contactPhone: primaryContact?.phones?.[0] || '',
-      };
-      const html = substituteVariables(htmlBody, variables);
-      res.set('Content-Type', 'text/html');
-      res.send(html);
+      if (!customer) return res.status(404).send("Customer not found");
+      const [company, photoUrls, followUp] = await Promise.all([
+        loadEmailCompany(user.activeCompanyId),
+        completionPhotoUrls("ticket", ticket, "preview"),
+        ticket.followUpTicketId ? storage.getTicketById(ticket.followUpTicketId, user.activeCompanyId) : undefined,
+      ]);
+      const { html } = await buildWorkCompletedEmail({ ticket, customer, company, photoUrls, followUp });
+      res.type("html").send(html);
     } catch (err: any) {
       console.error("Failed to preview completion email:", err);
       res.status(500).send("Failed to preview completion email");
@@ -10552,18 +10457,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         
         console.log(`Seeded default email template and rule for company ${companyId}`);
-      } else {
-        // Always upsert the HTML body and subject so existing companies get the latest template
-        const defaultTemplate = getDefaultWorkCompletedTemplate();
-        await storage.updateEmailTemplate(existing.id, companyId, {
-          htmlBody: defaultTemplate.htmlBody,
-          textBody: defaultTemplate.textBody,
-          subject: defaultTemplate.subject,
-        });
       }
 
       // Chemical notification templates: seed the eight standard templates per company,
-      // then run the per-company legacy cleanup of System-1 email_templates / email_rules.
+      // then retire unreferenced System-1 templates without changing rules.
       await seedChemicalNotificationTemplates(companyId, storage);
       await migrateRemoveChemicalEmailTemplates(companyId);
     } catch (err) {

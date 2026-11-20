@@ -23,7 +23,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Textarea } from "@/components/ui/textarea";
 import { Building2, User, Plus, Pencil, Trash2, X, Phone, Mail, Copy, FileText, Eye, CheckCircle, XCircle, Clock, Loader2, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -133,22 +132,6 @@ export default function SettingsPage() {
     queryKey: ["/api/property-managers"],
   });
 
-  // Email Templates state and queries
-  const [editingTemplate, setEditingTemplate] = useState<any | null>(null);
-  const [templateSubject, setTemplateSubject] = useState("");
-  const [templateHtmlBody, setTemplateHtmlBody] = useState("");
-
-  const { data: emailTemplates = [] } = useQuery<any[]>({
-    queryKey: ["/api/email-templates"],
-    enabled: isAdmin === true,
-  });
-
-
-  const { data: emailRules = [] } = useQuery<any[]>({
-    queryKey: ["/api/email-rules"],
-    enabled: isAdmin === true,
-  });
-
   // QBO connection
   const { data: qboStatus, refetch: refetchQboStatus } = useQuery<QboConnectionStatus>({
     queryKey: ["/api/qbo/connection"],
@@ -221,33 +204,6 @@ export default function SettingsPage() {
     const cleanPath = location.split("?")[0];
     navigate(cleanPath, { replace: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const updateTemplateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: any }) => {
-      return await apiRequest("PATCH", `/api/email-templates/${id}`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/email-templates"] });
-      setEditingTemplate(null);
-      toast({ title: t("settings.templateUpdated") });
-    },
-    onError: () => {
-      toast({ title: t("settings.templateFailed"), variant: "destructive" });
-    },
-  });
-
-  const toggleRuleMutation = useMutation({
-    mutationFn: async ({ id, isEnabled }: { id: string; isEnabled: boolean }) => {
-      return await apiRequest("PATCH", `/api/email-rules/${id}`, { isEnabled });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/email-rules"] });
-      toast({ title: t("settings.ruleUpdated") });
-    },
-    onError: () => {
-      toast({ title: t("settings.ruleFailed"), variant: "destructive" });
-    },
-  });
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (updates: Partial<Settings>) => {
@@ -1179,100 +1135,6 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="email-templates" className="space-y-6">
-          <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-800 dark:text-blue-300" data-testid="banner-chem-templates-moved">
-            These are system notification templates for non-chemical events (welcome emails, ticket alerts, work completion). Chemical campaign templates are managed under{" "}
-            <Link href="/dashboard/settings/notification-templates" className="underline font-medium">Settings → Notification Templates</Link>.
-          </div>
-          <Card>
-            <CardHeader>
-              <CardTitle>{t("settings.tabs.emailTemplates")}</CardTitle>
-              <CardDescription>
-                Manage email templates used for notifications. Available variables: {"{{ticketTitle}}"}, {"{{customerName}}"}, {"{{companyName}}"}, {"{{completionDate}}"}, {"{{ticketDescription}}"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {emailTemplates.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">{t("common.noResults")}</p>
-              ) : (
-                <div className="space-y-3">
-                  {emailTemplates.map((template: any) => (
-                    <div key={template.id} className="border rounded-md p-4 space-y-3">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-                          <div className="min-w-0">
-                            <p className="font-medium text-sm truncate">{template.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Category: {template.category}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant={template.isActive ? "default" : "secondary"}>
-                            {template.isActive ? t("statuses.active") : t("statuses.inactive")}
-                          </Badge>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setEditingTemplate(template);
-                              setTemplateSubject(template.subject);
-                              setTemplateHtmlBody(template.htmlBody);
-                            }}
-                            data-testid={`button-edit-template-${template.id}`}
-                          >
-                            <Pencil className="w-3 h-3 mr-1" />
-                            {t("common.edit")}
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <span className="font-medium">Subject:</span> {template.subject}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{t("settings.tabs.emailTemplates")}</CardTitle>
-              <CardDescription>
-                {t("settings.manage")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {emailRules.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">{t("common.noResults")}</p>
-              ) : (
-                <div className="space-y-3">
-                  {emailRules.map((rule: any) => {
-                    const linkedTemplate = emailTemplates.find((tmpl: any) => tmpl.id === rule.templateId);
-                    return (
-                      <div key={rule.id} className="flex items-center justify-between gap-2 flex-wrap p-3 border rounded-md">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium">{rule.eventKey.replace(/\./g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {linkedTemplate?.name || t("common.unknown")}
-                          </p>
-                        </div>
-                        <Switch
-                          checked={rule.isEnabled}
-                          onCheckedChange={(checked) => toggleRuleMutation.mutate({ id: rule.id, isEnabled: checked })}
-                          data-testid={`switch-rule-${rule.id}`}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         <TabsContent value="billing" className="space-y-6">
           <BillingSettings />
         </TabsContent>
@@ -1306,95 +1168,6 @@ export default function SettingsPage() {
         )}
 
       </Tabs>
-
-      {/* Edit Email Template Dialog */}
-      <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{t("common.edit")} {t("settings.tabs.emailTemplates")}</DialogTitle>
-            <DialogDescription>
-              Modify the subject and body of this template. Use {"{{variableName}}"} for dynamic content.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-            <div className="space-y-2">
-              <Label>{t("schedule.templateName")}</Label>
-              <p className="text-sm text-muted-foreground">{editingTemplate?.name}</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="template-subject">{t("common.title")}</Label>
-              <Input
-                id="template-subject"
-                value={templateSubject}
-                onChange={(e) => setTemplateSubject(e.target.value)}
-                data-testid="input-template-subject"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="template-body">HTML Body</Label>
-              <Textarea
-                id="template-body"
-                value={templateHtmlBody}
-                onChange={(e) => setTemplateHtmlBody(e.target.value)}
-                rows={12}
-                className="font-mono text-xs"
-                data-testid="textarea-template-body"
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Eye className="w-4 h-4 text-muted-foreground" />
-                <Label>{t("common.preview")}</Label>
-              </div>
-              <iframe
-                className="border rounded-md w-full bg-white"
-                style={{ height: "200px" }}
-                sandbox=""
-                srcDoc={templateHtmlBody
-                  .replace(/\{\{ticketTitle\}\}/g, "Sample Ticket Title")
-                  .replace(/\{\{customerName\}\}/g, "Sample Customer")
-                  .replace(/\{\{companyName\}\}/g, "High Plains Property Maintenance")
-                  .replace(/\{\{completionDate\}\}/g, new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }))
-                  .replace(/\{\{ticketDescription\}\}/g, "Sample description of the work completed.")}
-                data-testid="template-preview"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={editingTemplate?.isActive ?? true}
-                onCheckedChange={(checked) => {
-                  if (editingTemplate) {
-                    setEditingTemplate({ ...editingTemplate, isActive: checked });
-                  }
-                }}
-                data-testid="switch-template-active"
-              />
-              <Label>{t("common.active")}</Label>
-            </div>
-          </div>
-          <DialogFooter className="pt-4">
-            <Button variant="outline" onClick={() => setEditingTemplate(null)}>{t("common.cancel")}</Button>
-            <Button
-              onClick={() => {
-                if (editingTemplate) {
-                  updateTemplateMutation.mutate({
-                    id: editingTemplate.id,
-                    data: {
-                      subject: templateSubject,
-                      htmlBody: templateHtmlBody,
-                      isActive: editingTemplate.isActive,
-                    },
-                  });
-                }
-              }}
-              disabled={updateTemplateMutation.isPending}
-              data-testid="button-save-template"
-            >
-              {updateTemplateMutation.isPending ? t("common.saving") : t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Property Management Company Dialog */}
       <Dialog open={pmCompanyDialogOpen} onOpenChange={setPmCompanyDialogOpen}>

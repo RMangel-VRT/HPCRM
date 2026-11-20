@@ -23,7 +23,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   ] },
   { labelKey: "settings.rail.sections.scheduling", items: [item("service-calendar", ["admin", "office"])] },
   { labelKey: "settings.rail.sections.communication", items: [
-    item("email-templates"), item("notification-templates"), item("shared-mailboxes"),
+    item("email-wording", ["admin", "office"]), item("notification-templates"), item("shared-mailboxes"),
   ] },
   { labelKey: "settings.rail.sections.integrations", items: [item("billing"), item("qbo-customers")] },
   { labelKey: "settings.rail.sections.system", items: [item("features"), item("database")] },
@@ -40,7 +40,7 @@ export function settingsRailFor(user: SettingsViewer): RailSection[] {
 }
 
 /** Standalone destinations are routed before SettingsPage, never rendered as stub tabs. */
-const standaloneKeys = new Set(["notification-templates", "shared-mailboxes", "qbo-customers", "service-calendar"]);
+const standaloneKeys = new Set(["email-wording", "notification-templates", "shared-mailboxes", "qbo-customers", "service-calendar"]);
 export function settingsSectionFor(location: string, user: SettingsViewer): string {
   const requested = location.split("?")[0].split("/").filter(Boolean).at(-1);
   const validTabs = settingsRailFor(user).flatMap(section => section.items)

@@ -5,6 +5,53 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface EmailWordingFields {
+  /** @maxLength 150 */
+  subject: string;
+  /** @maxLength 120 */
+  preview: string;
+  /** @maxLength 60 */
+  eyebrow: string;
+  /** @maxLength 120 */
+  headline: string;
+  /** @maxLength 800 */
+  intro: string;
+  /** @maxLength 400 */
+  closing: string;
+}
+
+export interface EmailWordingFieldErrors {
+  subject?: string;
+  preview?: string;
+  eyebrow?: string;
+  headline?: string;
+  intro?: string;
+  closing?: string;
+}
+
+export interface EmailWordingEntry {
+  key: string;
+  label: string;
+  group: string;
+  placeholders: string[];
+  defaults: EmailWordingFields;
+  wording: EmailWordingFields;
+  isCustom: boolean;
+  /** @nullable */
+  updatedAt: string | null;
+  /** @nullable */
+  updatedBy: string | null;
+}
+
+export interface EmailWordingRenderedPreview {
+  subject: string;
+  preview: string;
+  html: string;
+  text: string;
+  /** @nullable */
+  fieldErrors: null;
+}
+
 export interface ComposePreviewInput {
   /** @minLength 1 */
   customerId?: string;
@@ -1493,6 +1540,26 @@ export interface OwnerResponseTicket {
   followUpNote?: string | null;
   [key: string]: unknown;
 }
+
+export type GetWorkCompletedEmailRule200Rule = null | {
+  id: string;
+  isEnabled: boolean;
+};
+
+export type GetWorkCompletedEmailRule200 = {
+  rule: GetWorkCompletedEmailRule200Rule;
+};
+
+export type SaveEmailWording422 = {
+  message: string;
+  fieldErrors: EmailWordingFieldErrors;
+};
+
+export type PreviewEmailWording200 =
+  | EmailWordingRenderedPreview
+  | {
+      fieldErrors: EmailWordingFieldErrors;
+    };
 
 export type SendCompanyDocumentEmail201DeliveryStatus =
   (typeof SendCompanyDocumentEmail201DeliveryStatus)[keyof typeof SendCompanyDocumentEmail201DeliveryStatus];

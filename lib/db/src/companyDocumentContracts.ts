@@ -55,7 +55,7 @@ export const companyDocumentEmailInput = z.object({
   mailboxAccountId: z.string().min(1),
   to: z.array(z.string().trim().email().max(254)).min(1).max(10),
   cc: z.array(z.string().trim().email().max(254)).max(10).optional(),
-  subject: z.string().trim().min(1).max(255).refine(v => !/[\r\n\u0000]/.test(v)),
+  subject: z.string().trim().min(1).max(255).refine(v => !/[\r\n\u0000]/.test(v)).optional(),
   note: z.string().trim().max(2000).optional(),
   documentIds: z.array(z.string().min(1)).min(1).max(10).refine(v => new Set(v).size === v.length),
 }).strict().refine(v => v.to.length + (v.cc?.length ?? 0) <= 10);

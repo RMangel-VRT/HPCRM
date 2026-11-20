@@ -14,7 +14,7 @@ interface VersionFacts extends SentFacts {
 interface Input {
   estimate: EstimateFacts; version: VersionFacts; previous?: SentFacts; company: EmailCompany;
   now: Date; attachment: IssuedEstimateAttachment & { approximate?: boolean };
-  note?: string; subject?: string; wording?: EmailWording;
+  note?: string; subject?: string; wording?: EmailWording; connection?: Parameters<typeof getEmailWording>[2];
 }
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const dollars = (cents: number) => currency.format(cents / 100);
@@ -22,12 +22,12 @@ const prettyDate = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "s
 const formatDate = (calendar: string) => prettyDate.format(new Date(`${calendar}T12:00:00Z`));
 const savedDate = (instant: Instant) => companyDateString(new Date(instant));
 
-export function buildEstimateEmail({ estimate, version, previous, company, note, now, attachment,
-  subject: subjectOverride, wording }: Input) {
+export async function buildEstimateEmail({ estimate, version, previous, company, note, now, attachment,
+  subject: subjectOverride, wording, connection }: Input) {
   const { versionNumber } = version;
   const revised = versionNumber > 1;
   const key = revised ? "estimate_revised" : "estimate";
-  const template = wording ?? getEmailWording(estimate.companyId, key);
+  const template = wording ?? await getEmailWording(estimate.companyId, key, connection);
   const date = version.sentAt ? savedDate(version.sentAt) : companyDateString(now);
   const validUntil = formatDate(addCalendarDays(date, ESTIMATE_VALIDITY_DAYS));
   const cents = version.frozenSubtotalCents ?? version.totals.subtotalCents;

@@ -1,0 +1,11 @@
+.email-wording-shell {
+  container: email-wording / inline-size;
+}
+
+/* The app and Settings rails can both be open on a wide viewport.
+   Size the preview against the remaining space, not the window. */
+@container email-wording (min-width: 51rem) {
+  .email-wording-grid {
+    grid-template-columns: 16rem minmax(13rem, 26rem) minmax(19.5rem, 1fr);
+  }
+}

@@ -3,11 +3,13 @@ import { emailCompanyDocuments, previewCompanyDocuments, unambiguousDocumentCust
 import { PDFDocument } from "pdf-lib";
 import { companyDocumentEmailInput } from "../../../../lib/db/src/companyDocumentContracts";
 import { CustomerDocumentError } from "./customerDocumentContent";
+import { DEFAULT_WORDING } from "./outgoingEmail/wording";
 const user = { id: "editor", name: "Office", activeRole: "office" } as any;
 const input = { mailboxAccountId: "mail", to: ["to@example.test"], subject: "Documents", note: " Hi <team> ", documentIds: ["doc"] };
 const deps = {
   visible: vi.fn(async () => ({ mailboxIds: null as string[] | null, includeNullMailbox: true, scopeLabel: "All" })),
   company: vi.fn(async () => ({ name: "Fixture Company", addressLine: "123 Test St", phone: "", website: "", email: "" })),
+  wording: vi.fn(async () => DEFAULT_WORDING.documents),
   mailbox: vi.fn(async () => ({ id: "mail", companyId: "co", syncEnabled: true, syncStatus: "connected", emailAddress: "office@example.test" })),
   repo: { get: vi.fn(async (_co: string, id: string) => ({ id, currentFileId: `file-${id}`, name: `COI ${id}` })),
     file: vi.fn(async (_co: string, id: string) => ({ id: `file-${id}`, filePath: `private/${id}`, fileSize: 5, fileType: "pdf", mimeType: "application/pdf" })) },
@@ -48,6 +50,19 @@ it("previews both documents, known page counts and the trimmed note without reco
   expect(deps.record).not.toHaveBeenCalled();
   expect(deps.stamp).not.toHaveBeenCalled();
   expect(deps.send).not.toHaveBeenCalled();
+});
+it("uses the saved subject with the real attachment count unless the sender overrides it", async () => {
+  deps.wording.mockResolvedValue({ ...DEFAULT_WORDING.documents, subject: "{documentCount} documents from {companyName}" });
+  try {
+    const args = { ...input, subject: undefined, documentIds: ["doc", "doc2"] };
+    const preview = await previewCompanyDocuments("co", user, args, deps as any);
+    expect(preview.subject).toBe("2 documents from Fixture Company");
+    await emailCompanyDocuments("co", user, args, deps as any);
+    expect(deps.send).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ subject: preview.subject }), expect.any(String));
+    expect((await previewCompanyDocuments("co", user, { ...args, subject: "Custom subject" }, deps as any)).subject).toBe("Custom subject");
+  } finally {
+    deps.wording.mockResolvedValue(DEFAULT_WORDING.documents);
+  }
 });
 it.each(["foreign", "hidden", "disabled", "disconnected"])("rejects %s mailbox before reading files or recording", async kind => {
   if (kind === "hidden") deps.visible.mockResolvedValueOnce({ mailboxIds: [], includeNullMailbox: false, scopeLabel: "" });

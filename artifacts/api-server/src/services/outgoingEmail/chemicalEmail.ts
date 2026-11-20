@@ -1,8 +1,8 @@
 import type { ChemicalNotificationTemplate } from "@workspace/db";
 import { loadEmailCompany } from "./company";
-import { renderEmailLayout, type Block } from "./layout";
+import { renderEmailLayout, type Block, type EmailCompany } from "./layout";
 import { httpUrl } from "./markup";
-import { fillWording, getEmailWording } from "./wording";
+import { fillWording, getEmailWording, PLACEHOLDERS, type EmailWording } from "./wording";
 
 export const emptyLegacyChemicalWording = {
   preVisitSubject: "", preVisitHtml: "", postVisitSubject: "", postVisitHtml: "",
@@ -18,6 +18,7 @@ export async function renderChemicalEmail(
   kind: "pre" | "post",
   visit: Record<string, string>,
   photoUrls: readonly string[] = [],
+  options?: { wording?: EmailWording; company?: EmailCompany },
 ) {
   const vars: Record<string, string | null> = {
     productName: template.productName,
@@ -33,7 +34,11 @@ export async function renderChemicalEmail(
     if (value?.trim()) vars[key] = value;
   }
   const read = (key: string) => vars[key]?.trim() ?? "";
-  const company = await loadEmailCompany(companyId);
+  const key = kind === "pre" ? "chemical_upcoming" : "chemical_completed";
+  const [company, wording] = await Promise.all([
+    options?.company ?? loadEmailCompany(companyId),
+    options?.wording ?? getEmailWording(companyId, key),
+  ]);
   const values = {
     companyName: company.name, companyPhone: company.phone, companyEmail: company.email,
     treatmentName: template.name.trim(), customerName: read("customerName"),
@@ -41,8 +46,7 @@ export async function renderChemicalEmail(
     backupDate: read("backupDate"), timeWindow: read("timeWindow"),
     completedDate: read("completionDate"),
   };
-  const defaults = getEmailWording(companyId, kind === "pre" ? "chemical_upcoming" : "chemical_completed");
-  const fill = (key: keyof typeof defaults) => fillWording(defaults[key], values);
+  const fill = (field: keyof EmailWording) => fillWording(wording[field], values, PLACEHOLDERS[key]);
   const aftercare = [
     read("reentryInterval") && `Stay off treated areas: ${read("reentryInterval").replace(/\.$/, "")}.`,
     read("wateringInstructions"), read("mowingInstructions"),
@@ -100,12 +104,13 @@ export async function renderChemicalEmail(
   if (read("notes")) blocks.push({ kind: "note", text: read("notes") });
 
   const subject = fill("subject");
+  const preview = fill("preview");
   const { html, text } = renderEmailLayout({
-    company, subject, preview: fill("preview"), stripe: "lime", docNumber: values.treatmentName,
+    company, subject, preview, stripe: "lime", docNumber: values.treatmentName,
     docType: kind === "pre" ? "Scheduled visit" : "Visit complete",
     greeting: values.customerName ? `Hello ${values.customerName},` : "Hello,",
     wording: { eyebrow: fill("eyebrow"), headline: fill("headline"), intro: fill("intro"), closing: fill("closing") },
     blocks,
   });
-  return { subject, html, textBody: text };
+  return { subject, preview, html, textBody: text };
 }

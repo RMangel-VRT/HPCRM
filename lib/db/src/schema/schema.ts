@@ -9,6 +9,7 @@ import { estimates, estimateVersions } from "./estimates";
 import type { EstimateWorksheetSection } from "../estimateContracts";
 import { campaignIdentityCheckName, campaignIdentityCheckSql } from "../campaignSql";
 import { serviceCalendarCheckSql } from "../serviceCalendarSql";
+import { EMAIL_WORDING_KEYS, type EmailKey } from "../emailWordingContracts";
 export { serviceCalendarReplacementSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../serviceCalendarContracts";
 export { routeStopBody, routeStopFields, routeDate, routeService, validRouteSeason } from "../routeContracts";
 
@@ -2119,6 +2120,23 @@ export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit
 
 export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
+
+export const companyEmailWording = pgTable("company_email_wording", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  emailKey: text("email_key").$type<EmailKey>().notNull(),
+  subject: text("subject").notNull(),
+  preview: text("preview").notNull(),
+  eyebrow: text("eyebrow").notNull(),
+  headline: text("headline").notNull(),
+  intro: text("intro").notNull(),
+  closing: text("closing").notNull(),
+  updatedById: varchar("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => ({
+  companyKey: unique("company_email_wording_company_key_unique").on(table.companyId, table.emailKey),
+  keyCheck: check("company_email_wording_email_key_check", sql`${table.emailKey} IN (${sql.raw(EMAIL_WORDING_KEYS.map(key => `'${key}'`).join(", "))})`),
+}));
 
 export const emailRules = pgTable("email_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

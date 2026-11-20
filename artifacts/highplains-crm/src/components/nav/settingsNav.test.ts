@@ -7,20 +7,20 @@ const expected = [
   ["Company", ["company", "documents", "seasons", "benchmarks", "crews", "property-management"]],
   ["Services & catalog", ["service-plans", "work-item-templates", "chemical-products", "contracts"]],
   ["Scheduling", ["service-calendar"]],
-  ["Communication", ["email-templates", "notification-templates", "shared-mailboxes"]],
+  ["Communication", ["email-wording", "notification-templates", "shared-mailboxes"]],
   ["Integrations", ["billing", "qbo-customers"]],
   ["System", ["features", "database"]],
 ] as const;
 const labels = [
   "Company profile", "Documents", "Seasons", "Benchmarks", "Crews", "Property managers",
   "Service plans", "Work item templates", "Chemical products", "Contract defaults",
-  "Service calendar", "Email templates", "Notification templates", "Shared mailboxes",
+  "Service calendar", "Email wording", "Notification templates", "Shared mailboxes",
   "QuickBooks invoicing", "QuickBooks customer mapping", "Feature flags", "Database",
 ];
 const spanish = [
   "Perfil de la empresa", "Documentos", "Temporadas", "Referencias", "Cuadrillas", "Administradores de propiedades",
   "Planes de servicio", "Plantillas de trabajo", "Productos químicos", "Valores de contrato",
-  "Calendario de servicios", "Plantillas de correo", "Plantillas de notificación", "Buzones compartidos",
+  "Calendario de servicios", "Redacción de correos", "Plantillas de notificación", "Buzones compartidos",
   "Facturación de QuickBooks", "Vinculación de clientes de QuickBooks", "Funciones", "Base de datos",
 ];
 const app = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
@@ -36,11 +36,13 @@ describe("Settings navigation source of truth", () => {
     );
     expect(SETTINGS_SECTIONS).toHaveLength(6);
   });
-  it("shows office only Property managers and Service calendar and drops all empty groups", () => {
+  it("shows office only its authorized destinations and drops empty groups", () => {
     expect(settingsRailFor({ activeRole: "office" })).toEqual([{
       label: "Company", items: [{ key: "property-management", label: "Property managers", href: "/dashboard/settings/property-management" }],
     }, {
       label: "Scheduling", items: [{ key: "service-calendar", label: "Service calendar", href: "/dashboard/settings/service-calendar" }],
+    }, {
+      label: "Communication", items: [{ key: "email-wording", label: "Email wording", href: "/dashboard/settings/email-wording" }],
     }]);
   });
   it("keeps Platform Admin visibility, with no Settings items for other roles", () => {
@@ -62,6 +64,7 @@ describe("Settings navigation source of truth", () => {
       }
     }
     expect(app).toContain('path="/dashboard/settings/notification-templates" component={ChemicalNotificationTemplates} allowedRoles={["admin"]}');
+    expect(app).toMatch(/path="\/dashboard\/settings\/email-templates">\s*<QueryPreservingRedirect to="\/dashboard\/settings\/email-wording"/);
     expect(app).toContain('path="/dashboard/settings/shared-mailboxes" component={SharedMailboxesAndOversightPage} allowedRoles={["admin", "office"]}');
     expect(app).toContain('path="/dashboard/settings/qbo-customers" component={QboCustomerMapping} allowedRoles={["admin", "office"]}');
   });
