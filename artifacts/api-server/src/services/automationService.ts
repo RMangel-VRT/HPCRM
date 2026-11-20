@@ -1,6 +1,7 @@
 import { storage } from '../storage';
 import type { CommunicationAutomationRule, InsertCommunication } from '@workspace/db';
 import { sendEmail } from './emailService';
+import { isRetiredAutomation } from "./communicationTemplateCleanup";
 
 export interface AutomationRunResult {
   ruleId: string;
@@ -266,7 +267,7 @@ export async function runAutomationRule(
   companyId: string
 ): Promise<AutomationRunResult> {
   const rule = await storage.getCommunicationAutomationRuleById(ruleId, companyId);
-  if (!rule) {
+  if (!rule || isRetiredAutomation(rule)) {
     return { ruleId, ruleName: 'Unknown', draftsCreated: 0, errors: ['Rule not found'] };
   }
 
@@ -282,7 +283,7 @@ export async function runAllAutomationRules(): Promise<void> {
     for (const company of companies) {
       const rules = await storage.getCommunicationAutomationRules(company.id);
       for (const rule of rules) {
-        if (!rule.isEnabled) continue;
+        if (!rule.isEnabled || isRetiredAutomation(rule)) continue;
         try {
           await runRule(rule, company.id);
           await storage.updateCommunicationAutomationRuleLastRun(rule.id, company.id);

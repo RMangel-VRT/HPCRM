@@ -41,9 +41,9 @@ import { rejectLegacyContractWrite, hasFrozenLegacyRows } from "../lib/legacyCon
 import { db, inTransaction } from "../db";
 import { logger } from "../lib/logger";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema } from "@workspace/db";
-import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, InsertTicketType, InsertTicketTypeStatus, Season, InsertCommunication, InsertCommunicationTemplate, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct, InsertVisualScopeSheet } from "@workspace/db";
-import { insertCommunicationTemplateSchema, insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@workspace/db";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, communications as communicationsTable, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema } from "@workspace/db";
+import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, InsertTicketType, InsertTicketTypeStatus, Season, InsertCommunication, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct, InsertVisualScopeSheet } from "@workspace/db";
+import { insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@workspace/db";
 import { runAutomationRule, runAllAutomationRules } from "../services/automationService";
 import { sendPushToUser } from "../services/pushNotifications";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL, isEstimatePhotoObject } from "../objectStorage";
@@ -86,8 +86,16 @@ import { registerCustomerNotePins } from "./customerNotePins";
 import { registerCustomerListSummary } from "./customerListSummary";
 import { registerCustomerDocuments } from "./customerDocuments";
 import { registerCompanyDocuments } from "./companyDocuments";
+import { registerComposeEmailRoutes } from "./composeEmail";
+import { registerCommunicationTemplates } from "./communicationTemplates";
+import { createCustomerCommunication } from "./customerCommunicationCreate";
+import { COMM_LIST_ROLES_SET, COMM_VIEW_ROLES_SET, requireCommPermission } from "../lib/communicationPermissions";
+import { composeEmailOptions, previewComposeEmail, sendComposeDraft } from "../services/composeEmail";
+import { isRetiredAutomation, normalizeStoredCommunicationTemplates } from "../services/communicationTemplateCleanup";
 import { registerChemicalTemplateWrites } from "./chemicalTemplateWrites";
 import { completionPhotoUrls } from "../services/outgoingEmail/completionPhotoUrls";
+import { loadEmailCompany } from "../services/outgoingEmail/company";
+import { buildWorkCompletedEmail } from "../services/outgoingEmail/workCompletedEmail";
 import { customerDocumentRawAccess } from "../services/customerDocumentRawAccess";
 import { loadCustomerListMetadata } from "../services/customerListSummary";
 import { isLoggedCustomerCommunication } from "../services/customerCommunicationPresentation";
@@ -2249,23 +2257,11 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
   const templates = [
     {
       companyId,
-      name: "Proposal Follow-Up — Standard",
-      category: "proposal_follow_up" as const,
-      type: "email" as const,
-      subject: "Following Up on Your Proposal — {{proposal_name}}",
-      body: "Dear {{customer_name}},\n\nI wanted to follow up on the proposal we sent over for {{property_name}}. We understand you may have questions, and we're happy to walk you through any details.\n\nProposal Total: {{proposal_total}}\n\nPlease don't hesitate to reach out — we'd love to move forward when you're ready.\n\nBest regards,\n{{pm_name}}\n{{company_name}}",
-      description: "Standard follow-up email after a proposal is sent. Use within 5–7 business days of delivery.",
-      isActive: true,
-      isArchived: false,
-      defaultCommunicationType: "email" as const,
-    },
-    {
-      companyId,
       name: "Irrigation System Approval Request",
       category: "irrigation_approval_request" as const,
       type: "email" as const,
-      subject: "Irrigation System Startup Approval — {{property_name}}",
-      body: "Dear {{contact_name}},\n\nWe are scheduling irrigation system startups for the upcoming season at {{property_name}} and need your approval to proceed.\n\nPlanned Service Date: {{service_date}}\n\nPlease reply to confirm or suggest an alternate date. Our crew will be ready to begin as soon as we receive your authorization.\n\nThank you,\n{{pm_name}}\n{{company_name}}",
+      subject: "Irrigation System Startup Approval — {propertyName}",
+      body: "Dear {contactName},\n\nWe are scheduling irrigation system startups for the upcoming season at {propertyName} and need your approval to proceed.\n\nPlanned Service Date: {serviceDate}\n\nPlease reply to confirm or suggest an alternate date. Our crew will be ready to begin as soon as we receive your authorization.",
       description: "Sent to property contacts requesting approval before irrigation startup visits.",
       isActive: true,
       isArchived: false,
@@ -2276,8 +2272,8 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
       name: "Chemical Application Pre-Notice",
       category: "chemical_notice" as const,
       type: "email" as const,
-      subject: "Upcoming Chemical Application at {{property_name}}",
-      body: "Dear {{customer_name}},\n\nThis is an advance notice that a chemical application is scheduled at {{property_name}} on {{service_date}}.\n\nPlease ensure that children and pets are kept off treated areas for 24 hours following application. Our technicians will post temporary signage at the time of service.\n\nIf you have any questions or concerns, please contact us before the scheduled date.\n\n{{pm_name}}\n{{company_name}}",
+      subject: "Upcoming Chemical Application at {propertyName}",
+      body: "Dear {customerName},\n\nThis is an advance notice that a chemical application is scheduled at {propertyName} on {serviceDate}.\n\nPlease ensure that children and pets are kept off treated areas for 24 hours following application. Our technicians will post temporary signage at the time of service.\n\nIf you have any questions or concerns, please contact us before the scheduled date.",
       description: "Pre-notification for chemical/fertilizer applications. Send 2–3 days before service.",
       isActive: true,
       isArchived: false,
@@ -2285,23 +2281,11 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
     },
     {
       companyId,
-      name: "Snow Event Service Notice",
-      category: "snow_event_notice" as const,
-      type: "sms" as const,
-      subject: "Snow Event — Service Underway",
-      body: "Hi {{contact_name}}, this is {{company_name}}. Snow removal crews are currently servicing {{property_name}}. Please allow extra time and keep walkways clear while work is in progress. Reply STOP to opt out.",
-      description: "Quick SMS notice sent to property contacts during active snow events.",
-      isActive: true,
-      isArchived: false,
-      defaultCommunicationType: "sms" as const,
-    },
-    {
-      companyId,
       name: "Billing Reminder — Past Due",
       category: "billing_reminder" as const,
       type: "email" as const,
-      subject: "Friendly Reminder — Balance Due for {{customer_name}}",
-      body: "Dear {{customer_name}},\n\nThis is a friendly reminder that there is an outstanding balance on your account for services at {{property_name}}.\n\nPlease contact our office at your earliest convenience to make arrangements. We appreciate your prompt attention to this matter.\n\nThank you for your continued partnership,\n{{pm_name}}\n{{company_name}}",
+      subject: "Friendly Reminder — Balance Due for {customerName}",
+      body: "Dear {customerName},\n\nThis is a friendly reminder that there is an outstanding balance on your account for services at {propertyName}.\n\nPlease contact our office at your earliest convenience to make arrangements. We appreciate your prompt attention to this matter.",
       description: "Polite billing reminder for past-due accounts. Adjust tone as needed for the relationship.",
       isActive: true,
       isArchived: false,
@@ -2312,8 +2296,8 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
       name: "Winter Watering Reminder",
       category: "winter_watering" as const,
       type: "email" as const,
-      subject: "Winter Watering Guidelines for {{property_name}}",
-      body: "Dear {{customer_name}},\n\nAs temperatures fluctuate this winter, we want to remind you about best practices for winter watering at {{property_name}}.\n\nWater during the warmest part of the day (10am–2pm) when temperatures are above 40°F. Avoid watering if snow or ice is expected within 24 hours. Trees and shrubs benefit from deep monthly watering throughout winter.\n\nOur team is available to assist with any questions.\n\n{{pm_name}}\n{{company_name}}",
+      subject: "Winter Watering Guidelines for {propertyName}",
+      body: "Dear {customerName},\n\nAs temperatures fluctuate this winter, we want to remind you about best practices for winter watering at {propertyName}.\n\nWater during the warmest part of the day (10am–2pm) when temperatures are above 40°F. Avoid watering if snow or ice is expected within 24 hours. Trees and shrubs benefit from deep monthly watering throughout winter.\n\nOur team is available to assist with any questions.",
       description: "Educational reminder for clients about proper winter irrigation practices.",
       isActive: true,
       isArchived: false,
@@ -2321,23 +2305,11 @@ async function seedCommunicationTemplates(companyId: string): Promise<number> {
     },
     {
       companyId,
-      name: "Service Update — Delay Notice",
-      category: "service_update" as const,
-      type: "sms" as const,
-      subject: "Service Update for {{property_name}}",
-      body: "Hi {{contact_name}}, {{company_name}} here. Due to weather or crew availability, your scheduled service at {{property_name}} on {{service_date}} has been delayed. We'll be in touch with a rescheduled date soon. Sorry for the inconvenience!",
-      description: "Short SMS notice to let contacts know about a service delay.",
-      isActive: true,
-      isArchived: false,
-      defaultCommunicationType: "sms" as const,
-    },
-    {
-      companyId,
       name: "General Outreach — Check-In",
       category: "general_outreach" as const,
       type: "email" as const,
-      subject: "Checking In — {{customer_name}}",
-      body: "Dear {{customer_name}},\n\nI hope this message finds you well. I wanted to take a moment to check in and see how things are going at {{property_name}}.\n\nIf you have any questions about your services, upcoming schedules, or anything else, please feel free to reach out. We appreciate your business and look forward to another great season together.\n\nBest,\n{{pm_name}}\n{{company_name}}",
+      subject: "Checking In — {customerName}",
+      body: "Dear {customerName},\n\nI hope this message finds you well. I wanted to take a moment to check in and see how things are going at {propertyName}.\n\nIf you have any questions about your services, upcoming schedules, or anything else, please feel free to reach out. We appreciate your business and look forward to another great season together.",
       description: "A friendly general check-in note. Useful for relationship maintenance.",
       isActive: true,
       isArchived: false,
@@ -2501,25 +2473,13 @@ export async function seedAutomationRulesBootstrap(): Promise<void> {
       const seedRules = [
         {
           companyId: company.id,
-          name: "Proposal Follow-Up",
-          description: "Send a follow-up communication 3 days after a proposal is created",
-          triggerType: "time_after_event" as const,
-          eventKey: "proposal_created" as const,
-          delayDays: 3,
-          recipientScope: "primary_contact" as const,
-          autoSend: false,
-          isEnabled: true,
-          createdById: firstUser.userId,
-        },
-        {
-          companyId: company.id,
           name: "Winter Watering Reminder",
           description: "Recurring reminder every 21 days for winter watering best practices",
           triggerType: "recurring" as const,
           recurringIntervalDays: 21,
           recipientScope: "primary_contact" as const,
           autoSend: false,
-          isEnabled: true,
+          isEnabled: false,
           createdById: firstUser.userId,
         },
         {
@@ -2531,7 +2491,7 @@ export async function seedAutomationRulesBootstrap(): Promise<void> {
           delayDays: 2,
           recipientScope: "primary_contact" as const,
           autoSend: false,
-          isEnabled: true,
+          isEnabled: false,
           createdById: firstUser.userId,
         },
         {
@@ -2543,7 +2503,7 @@ export async function seedAutomationRulesBootstrap(): Promise<void> {
           delayDays: 0,
           recipientScope: "primary_contact" as const,
           autoSend: false,
-          isEnabled: true,
+          isEnabled: false,
           createdById: firstUser.userId,
         },
         {
@@ -2676,6 +2636,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await linkCrewsByName();
   await backfillVisitsFromTickets();
   await backfillVisitServices();
+  try {
+    const changes = await normalizeStoredCommunicationTemplates();
+    if (changes.converted || changes.retiredRules) logger.info(changes, "Updated legacy communication templates and rules");
+  } catch (err) {
+    logger.error({ err }, "Could not update legacy communication templates and rules");
+  }
 
   setupAuth(app);
   registerContractQuestionReconciliation(app);
@@ -2719,31 +2685,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Communication Center permission constants & helpers ──────────────────────
   // These must be defined early because they are used on routes registered
   // throughout the file (including email-rules routes at line ~7620).
-  const COMM_VIEW_ROLES_SET = ["admin", "office"];
-  const COMM_LIST_ROLES_SET = ["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "mapping", "landscape_supervisor"];
-  const COMM_MANAGE_TEMPLATES_ROLES_SET = ["admin", "office"];
-  const COMM_SEND_ROLES_SET = ["admin", "office"];
-  const COMM_AUTOMATIONS_ROLES_SET = ["admin"];
-
-  function requireCommPermission(level: "view" | "manage_templates" | "send" | "manage_automations") {
-    const allowed = level === "manage_automations" ? COMM_AUTOMATIONS_ROLES_SET
-      : level === "view" ? COMM_VIEW_ROLES_SET
-      : level === "manage_templates" ? COMM_MANAGE_TEMPLATES_ROLES_SET
-      : COMM_SEND_ROLES_SET;
-    return (req: any, res: any, next: any) => {
-      if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
-      const user = req.user as UserWithContext;
-      if (!allowed.includes(user.accessRole)) {
-        return res.status(403).json({
-          error: "Access denied",
-          message: `You do not have permission to perform this action. Required permission: ${level}.`,
-          requiredPermission: level,
-        });
-      }
-      next();
-    };
-  }
-
   async function writeCommAuditLog(
     companyId: string,
     userId: string,
@@ -10276,135 +10217,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).send("No email address found for customer contacts");
       }
 
-      const company = await storage.getCompanyById(user.activeCompanyId);
-      const completionDate = (ticket.completedAt || ticket.workCompletedDate || new Date()).toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric'
-      });
-
-      // Resolve lead tech name
-      let leadTechName = '';
-      if (ticket.leadTechUserId) {
-        const leadTech = await storage.getUserById(ticket.leadTechUserId);
-        if (leadTech) leadTechName = (leadTech.name || '').trim();
-      }
-      if (!leadTechName && ticket.assignedToId) {
-        const assignee = await storage.getUserById(ticket.assignedToId);
-        if (assignee) leadTechName = (assignee.name || '').trim();
-      }
-
-      // Resolve crew member names with natural-language formatting
-      let crewSummary = '';
-      const crewIds: string[] = (ticket.crewMemberUserIds as string[] | null) || [];
-      if (crewIds.length > 0) {
-        const crewNames: string[] = [];
-        for (const uid of crewIds) {
-          const u = await storage.getUserById(uid);
-          if (u) crewNames.push((u.name || '').trim());
-        }
-        const validNames = crewNames.filter(Boolean);
-        if (validNames.length === 1) crewSummary = `With ${validNames[0]}`;
-        else if (validNames.length === 2) crewSummary = `With ${validNames[0]} and ${validNames[1]}`;
-        else if (validNames.length >= 3) crewSummary = `With ${validNames[0]}, ${validNames[1]}, and ${validNames.length - 2} more`;
-      } else if (!leadTechName) {
-        crewSummary = 'Solo';
-      }
-
-      // Build time-on-site string with required fallback forms
-      const fmtTime = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-      const fmtDuration = (mins: number) => {
-        if (mins >= 60) { const h = Math.floor(mins / 60); const m = mins % 60; return m > 0 ? `${h}h ${m}m` : `${h}h`; }
-        return `${mins}m`;
-      };
-      let timeOnSite = '';
-      if (ticket.actualStartTime && ticket.actualEndTime) {
-        const start = new Date(ticket.actualStartTime);
-        const end = new Date(ticket.actualEndTime);
-        const diffMins = Math.round((end.getTime() - start.getTime()) / 60000);
-        timeOnSite = `Arrived ${fmtTime(start)}, departed ${fmtTime(end)} (${fmtDuration(diffMins)})`;
-      } else if (ticket.completedAt || ticket.workCompletedDate) {
-        const done = new Date((ticket.completedAt || ticket.workCompletedDate) as Date);
-        const today = new Date();
-        const isToday = done.toDateString() === today.toDateString();
-        timeOnSite = isToday ? `Completed today at ${fmtTime(done)}` : `Completed ${done.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} at ${fmtTime(done)}`;
-      }
-
-      // Generate signed photo URLs for completion photos (7-day TTL for email recipients)
-      let completionPhotosHtml = '';
-      const photoKeys: string[] = (ticket.completionPhotoStorageKeys as string[] | null) || [];
-      if (photoKeys.length > 0) {
-        const objectStorageService = new ObjectStorageService();
-        const photoImgTags: string[] = [];
-        for (const key of photoKeys) {
-          try {
-            const file = await objectStorageService.getObjectEntityFile(key);
-            const bucketName = file.bucket.name;
-            const objectName = file.name;
-            const signedUrl = await signObjectURL({ bucketName, objectName, method: 'GET', ttlSec: 7 * 24 * 3600 });
-            photoImgTags.push(`<img src="${signedUrl}" alt="Completion photo" />`);
-          } catch {
-            // Skip photos that can't be signed
-          }
-        }
-        completionPhotosHtml = photoImgTags.join('');
-      }
-
-      // Resolve follow-up ticket info
-      let followUpTitle = '';
-      let followUpDetails = '';
-      if (ticket.followUpTicketId) {
-        const followUp = await storage.getTicketById(ticket.followUpTicketId, user.activeCompanyId);
-        if (followUp) {
-          followUpTitle = followUp.title;
-          followUpDetails = followUp.description || '';
-        }
-      }
-
-      // Ticket number / reference
-      const ticketNumber = `#${ticket.id.slice(0, 6).toUpperCase()}`;
-
-      // Service category label (ticket type name), fallback to "Service visit"
-      let serviceCategory = 'Service visit';
-      if (ticket.ticketTypeId) {
-        const ttype = await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId);
-        if (ttype?.name) serviceCategory = ttype.name;
-      }
-
-      // Contact email/phone for footer
-      const contacts = await storage.getContactsByCustomerId(ticket.customerId!, user.activeCompanyId);
-      const primaryContact = contacts.find(c => c.isPrimary === "true") || contacts[0];
-      const contactEmail = primaryContact?.emails?.[0] || '';
-      const contactPhone = primaryContact?.phones?.[0] || '';
-
-      const workSummaryForCustomer = (ticket.workSummaryForCustomer as string | null) || ticket.description || ticket.title;
-
-      const allResults: any[] = [];
+      let email: Promise<ReturnType<typeof buildWorkCompletedEmail>> | undefined;
+      const rendered = () => email ??= Promise.all([
+        loadEmailCompany(user.activeCompanyId),
+        completionPhotoUrls("ticket", ticket, "send"),
+        ticket.followUpTicketId ? storage.getTicketById(ticket.followUpTicketId, user.activeCompanyId) : undefined,
+      ]).then(([company, photoUrls, followUp]) => buildWorkCompletedEmail({ ticket, customer, company, photoUrls, followUp }));
+      const allResults: Awaited<ReturnType<typeof processEmailEvent>> = [];
       for (const toEmail of toEmails) {
-        const results = await processEmailEvent('ticket.work_completed', user.activeCompanyId, {
-          ticketTitle: ticket.title,
-          customerName: customer.name,
-          companyName: company?.name || 'Property Maintenance',
-          completionDate,
-          ticketDescription: ticket.description || '',
-          workSummaryForCustomer,
-          materialsUsed: (ticket.materialsUsed as string | null) || '',
-          areasWorked: (ticket.areasWorked as string | null) || '',
-          recommendations: (ticket.recommendations as string | null) || '',
-          leadTechName,
-          crewSummary,
-          timeOnSite,
-          completionPhotosHtml,
-          scopeItemsHtml: '',
-          followUpTitle,
-          followUpDetails,
-          ticketNumber,
-          serviceCategory,
-          contactEmail,
-          contactPhone,
-        }, {
+        const results = await processEmailEvent('ticket.work_completed', user.activeCompanyId, {}, {
           customerId: ticket.customerId,
           ticketId: ticket.id,
           toEmail,
           sentById: user.id,
+          rendered,
         });
         allResults.push(...results);
       }
@@ -15854,6 +15680,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/communications/:id
+  registerComposeEmailRoutes(app, requireCommPermission("send"), {
+    preview: previewComposeEmail, send: sendComposeDraft,
+    audit: (company, actor, result) => writeCommAuditLog(company, actor, "communication_sent", {
+      communicationId: result.id, actionDetails: { subject: result.subject, type: result.type, status: result.status },
+    }),
+  });
+
   app.get("/api/communications/:id", requireCommPermission("view"), async (req, res) => {
     const user = req.user as UserWithContext;
     const comm = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
@@ -15865,6 +15698,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/communications — create / send / schedule a communication
   app.post("/api/communications", requireCommPermission("send"), async (req, res) => {
     const user = req.user as UserWithContext;
+    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) {
+      return res.status(409).json({ error: "Active company changed. Reload and try again." });
+    }
     if (req.body.customerId) {
       if (await assertNotParentCustomer(req.body.customerId, user.activeCompanyId, res)) return;
     }
@@ -15917,6 +15753,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const comm = await storage.createCommunication({
       ...data,
+      ...(data.status === "draft" ? {
+        deliveryStatus: "pending", providerMessageId: null, providerThreadId: null, sentAt: null, failureReason: null,
+      } : {}),
       threadId: threadId ?? null,
       companyId: user.activeCompanyId,
       sentById: user.id,
@@ -15938,13 +15777,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/communications/:id", requireCommPermission("send"), async (req, res) => {
     const user = req.user as UserWithContext;
-    const updates = req.body;
-    if (updates.scheduledFor) updates.scheduledFor = new Date(updates.scheduledFor);
-    if (updates.followUpDueAt) updates.followUpDueAt = new Date(updates.followUpDueAt);
-    if (updates.sentAt) updates.sentAt = new Date(updates.sentAt);
-    const comm = await storage.updateCommunication(req.params.id, user.activeCompanyId, updates);
-    if (!comm) return res.status(404).json({ error: "Not found" });
-    res.json(comm);
+    const parsed = z.object({
+      status: z.literal("scheduled").optional(),
+      scheduledFor: z.coerce.date().nullable().optional(),
+      followUpDueAt: z.coerce.date().nullable().optional(),
+      followUpStatus: z.enum(["none", "open", "done", "snoozed"]).optional(),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid communication updates" });
+    const updates = parsed.data;
+    const id = req.params.id;
+    const result = await db.transaction(async tx => {
+      const where = and(eq(communicationsTable.companyId, user.activeCompanyId), eq(communicationsTable.id, id), isNull(communicationsTable.deletedAt));
+      const [row] = await tx.select().from(communicationsTable).where(where).for("update");
+      if (!row) return { status: 404 };
+      if ((updates.status || updates.scheduledFor !== undefined) && (row.status !== "draft" || (row.deliveryStatus === "pending" && row.providerMessageId)))
+        return { status: 409 };
+      const [updated] = await tx.update(communicationsTable).set({ ...updates, updatedAt: new Date() }).where(where).returning();
+      return { status: 200, updated };
+    });
+    if (result.status === 404) return res.status(404).json({ error: "Not found" });
+    if (result.status === 409) return res.status(409).json({ error: "Only an unsent draft can be scheduled." });
+    res.json(result.updated);
   });
 
   app.delete("/api/communications/:id", requireCommPermission("send"), async (req, res) => {
@@ -16020,27 +15873,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ restoredCount: restoredIds.length, restoredIds });
   });
 
-  // GET /api/communication-templates
-  app.get("/api/communication-templates", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const templates = await storage.getCommunicationTemplates(user.activeCompanyId);
-    res.json(templates);
-  });
-
-  // POST /api/communication-templates
-  app.post("/api/communication-templates", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const { insertCommunicationTemplateSchema } = await import("@workspace/db");
-    const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, createdById: user.id });
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const template = await storage.createCommunicationTemplate(parsed.data);
-    res.status(201).json(template);
-  });
-
   // GET /api/communication-threads
   app.get("/api/communication-threads", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
@@ -16077,46 +15909,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(messages);
   });
 
-  app.get("/api/communication-templates", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const includeInactive = req.query.includeInactive === "true";
-    const items = await storage.getCommunicationTemplates(user.activeCompanyId, includeInactive);
-    res.json(items);
-  });
-
-  app.get("/api/communication-templates/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const item = await storage.getCommunicationTemplateById(req.params.id, user.activeCompanyId);
-    if (!item) return res.status(404).json({ error: "Not found" });
-    res.json(item);
-  });
-
-  app.post("/api/communication-templates", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const item = await storage.createCommunicationTemplate(parsed.data);
-    res.status(201).json(item);
-  });
-
-  app.patch("/api/communication-templates/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const parsed = insertCommunicationTemplateSchema.partial().omit({ companyId: true }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const updates = pickProvided(parsed.data, req.body);
-    const item = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, updates);
-    if (!item) return res.status(404).json({ error: "Not found" });
-    res.json(item);
-  });
-
   // PATCH /api/communications/:id/cancel-schedule — cancel a scheduled send
   app.patch("/api/communications/:id/cancel-schedule", requireCommPermission("send"), async (req, res) => {
     const user = req.user as UserWithContext;
@@ -16138,65 +15930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(updated);
   });
 
-  // GET /api/communication-templates
-  app.get("/api/communication-templates", requireCommPermission("manage_templates"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const includeArchived = req.query.includeArchived === "true";
-    const items = await storage.getCommunicationTemplates(user.activeCompanyId, includeArchived);
-    res.json(items);
-  });
-
-  // POST /api/communication-templates — create template
-  app.post("/api/communication-templates", requireCommPermission("manage_templates"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const result = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
-    if (!result.success) {
-      return res.status(400).json({ error: result.error.message });
-    }
-    const template = await storage.createCommunicationTemplate(result.data);
-
-    await writeCommAuditLog(user.activeCompanyId, user.id, "template_created", {
-      templateId: template.id,
-      actionDetails: { templateName: template.name, subject: template.subject },
-    });
-
-    res.status(201).json(template);
-  });
-
-  // PATCH /api/communication-templates/:id — edit template
-  app.patch("/api/communication-templates/:id", requireCommPermission("manage_templates"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const parsed = insertCommunicationTemplateSchema.partial().omit({ companyId: true }).parse(req.body);
-    const updates = pickProvided(parsed, req.body);
-    const template = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, updates);
-    if (!template) return res.status(404).json({ error: "Template not found" });
-
-    await writeCommAuditLog(user.activeCompanyId, user.id, "template_edited", {
-      templateId: template.id,
-      actionDetails: { templateName: template.name, subject: template.subject },
-    });
-
-    res.json(template);
-  });
-
-  // POST /api/communication-templates/:id/archive — archive/unarchive template
-  app.post("/api/communication-templates/:id/archive", requireCommPermission("manage_templates"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const existing = await storage.getCommunicationTemplateById(req.params.id, user.activeCompanyId);
-    if (!existing) return res.status(404).json({ error: "Template not found" });
-
-    const archive = req.body.archive !== false;
-    const template = await storage.updateCommunicationTemplate(req.params.id, user.activeCompanyId, {
-      isArchived: archive,
-    });
-
-    await writeCommAuditLog(user.activeCompanyId, user.id, "template_archived", {
-      templateId: existing.id,
-      actionDetails: { templateName: existing.name, archived: archive },
-    });
-
-    res.json(template);
-  });
+  registerCommunicationTemplates(app, requireCommPermission("view"), requireCommPermission("manage_templates"), writeCommAuditLog);
 
   // Seed communications if none exist for this company
   app.post("/api/communications/seed", requireCommPermission("view"), async (req, res) => {
@@ -16213,7 +15947,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
     const rules = await storage.getCommunicationAutomationRules(user.activeCompanyId);
-    res.json(rules);
+    res.json(rules.filter(rule => !isRetiredAutomation(rule)));
   });
 
   app.post("/api/automation-rules", async (req, res) => {
@@ -16226,6 +15960,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       createdById: user.id,
     });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    if (isRetiredAutomation(parsed.data)) return res.status(422).json({ error: "This automation is retired" });
     const rule = await storage.createCommunicationAutomationRule(parsed.data);
     res.status(201).json(rule);
   });
@@ -16234,6 +15969,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
+    const existing = await storage.getCommunicationAutomationRuleById(req.params.id, user.activeCompanyId);
+    if (!existing || isRetiredAutomation(existing)) return res.status(404).json({ error: "Not found" });
+    if (isRetiredAutomation({ ...existing, ...req.body })) return res.status(422).json({ error: "This automation is retired" });
     const rule = await storage.updateCommunicationAutomationRule(req.params.id, user.activeCompanyId, req.body);
     if (!rule) return res.status(404).json({ error: "Not found" });
     res.json(rule);
@@ -16243,6 +15981,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
     if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
+    const existing = await storage.getCommunicationAutomationRuleById(req.params.id, user.activeCompanyId);
+    if (existing && isRetiredAutomation(existing)) return res.status(404).json({ error: "Not found" });
     await storage.deleteCommunicationAutomationRule(req.params.id, user.activeCompanyId);
     res.status(204).send();
   });
@@ -16817,84 +16557,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/customers/:customerId/communications", async (req, res) => {
-    try {
-      const user = req.user as UserWithContext;
-      if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-      if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
-        return res.status(403).json({ error: "Admin or office role required" });
-      }
-      const { customerId } = req.params;
-      const customer = await storage.getCustomerById(customerId, user.activeCompanyId);
-      if (!customer) return res.status(404).json({ error: "Customer not found" });
-      const payload = {
-        ...req.body,
-        companyId: user.activeCompanyId,
-        customerId,
-        sentById: user.id,
-        sentByName: user.name,
-        routingMethod: "manual",
-        status: req.body.status ?? "sent",
-        type: req.body.type ?? "email",
-      };
-      if (!payload.subject) payload.subject = "(No subject)";
-      if (!payload.body) payload.body = payload.bodyText ?? "";
-      if (!payload.sentAt && !payload.receivedAt) {
-        if (payload.direction === "inbound") payload.receivedAt = new Date();
-        else payload.sentAt = new Date();
-      }
-      const parsed = insertCommunicationSchema.safeParse(payload);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-      const comm = await storage.createCommunication(parsed.data);
-
-      // Attempt Gmail send if conditions met
-      if (
-        parsed.data.direction === "outbound" &&
-        parsed.data.status === "sent" &&
-        parsed.data.mailboxAccountId
-      ) {
-        try {
-          const { mailboxAccounts: mbTable } = await import("@workspace/db");
-          const { eq: eqFn, and: andFn } = await import("drizzle-orm");
-          // Scope mailbox lookup to the requester's company to prevent cross-tenant IDOR
-          const [mbAccount] = await db.select().from(mbTable).where(
-            andFn(eqFn(mbTable.id, parsed.data.mailboxAccountId), eqFn(mbTable.companyId, user.activeCompanyId))
-          );
-          if (mbAccount?.syncEnabled === true && mbAccount.syncStatus === "connected") {
-            const { sendEmail: gmailSend } = await import("./services/gmailSender");
-            const toAddresses = (parsed.data.toAddresses ?? []).filter(Boolean);
-            const ccAddresses = (parsed.data.ccAddresses ?? []).filter(Boolean);
-            const bccAddresses = (parsed.data.bccAddresses ?? []).filter(Boolean);
-            const gmailResult = await gmailSend(parsed.data.mailboxAccountId, {
-              to: toAddresses,
-              cc: ccAddresses.length ? ccAddresses : undefined,
-              bcc: bccAddresses.length ? bccAddresses : undefined,
-              subject: parsed.data.subject ?? "(No subject)",
-              bodyText: parsed.data.bodyText ?? parsed.data.body ?? "",
-              bodyHtml: parsed.data.bodyHtml ?? undefined,
-            });
-            // Update communication record with delivery info
-            await db.execute(
-              sql`UPDATE communications SET provider_message_id = ${gmailResult.messageId}, provider_thread_id = ${gmailResult.threadId}, delivery_provider = 'gmail', delivery_status = 'sent', sent_at = NOW() WHERE id = ${comm.id}`
-            );
-            return res.status(201).json({ ...comm, deliveryProvider: "gmail", deliveryStatus: "sent" });
-          }
-        } catch (gmailErr: unknown) {
-          const errMsg = gmailErr instanceof Error ? gmailErr.message : "Gmail send failed";
-          console.error("Gmail send error:", errMsg);
-          await db.execute(
-            sql`UPDATE communications SET delivery_status = 'failed', failure_reason = ${errMsg} WHERE id = ${comm.id}`
-          );
-          return res.status(500).json({ error: errMsg, communicationId: comm.id });
-        }
-      }
-
-      res.status(201).json(comm);
-    } catch (err) {
-      console.error("POST /api/customers/:customerId/communications error:", err);
-      res.status(500).json({ error: "Internal server error" });
-    }
-  });
+  app.post("/api/customers/:customerId/communications", createCustomerCommunication({
+    getCustomerById: (id, company) => storage.getCustomerById(id, company),
+    createCommunication: data => storage.createCommunication(data),
+    options: composeEmailOptions,
+    send: sendComposeDraft,
+    audit: (company, actor, result) => writeCommAuditLog(company, actor, "communication_sent", {
+      communicationId: result.id, actionDetails: { subject: result.subject, type: result.type, status: result.status },
+    }),
+  }));
 
   // ─── Mailbox and unsorted email routing ──────────────────────────────────────
   const mailboxAccountsRouter = (await import("./mailboxAccounts")).default;

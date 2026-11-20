@@ -51,3 +51,15 @@ it("rejects actual attachment bytes above 20 MB before token lookup or transport
     .rejects.toThrow("COMPANY_DOCUMENT_EMAIL_TOO_LARGE");
   expect(mocks.token).not.toHaveBeenCalled(); expect(mocks.send).not.toHaveBeenCalled();
 });
+it("submits replies to the Gmail thread with validated RFC headers and plain-text MIME", async () => {
+  await sendEmail("mail", { ...opts, inReplyTo: "<parent@example.test>", references: ["<root@example.test>", "<parent@example.test>"],
+    threadId: "existing-thread" }, "<reply@example.test>");
+  const body = mocks.send.mock.calls[0][0].requestBody;
+  expect(body.threadId).toBe("existing-thread");
+  const mime = Buffer.from(body.raw, "base64url").toString();
+  expect(mime).toContain("In-Reply-To: <parent@example.test>\r\nReferences: <root@example.test>\r\n <parent@example.test>");
+  expect(mime).toContain('Content-Type: text/plain; charset="UTF-8"');
+  expect(mime).not.toContain("text/html");
+  expect(() => buildMimeMessage("office@example.test", { ...opts, inReplyTo: "<p@example.test>\r\nBcc: another@example.test" }, "<reply@example.test>"))
+    .toThrow("Invalid email reply headers");
+});

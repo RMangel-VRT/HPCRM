@@ -7,12 +7,13 @@ import { CustomerDocumentError, validateCustomerDocument } from "../services/cus
 import { signDocumentGrant, readDocumentGrant } from "../services/customerDocumentGrants";
 import { CompanyDocumentObjects } from "../services/companyDocumentObjects";
 import { companyDocumentRepository, companyDocumentMissing, type CompanyDocumentRepository } from "../services/companyDocuments";
-import { emailCompanyDocuments, companyDocumentSends, companyDocumentEmailOptions } from "../services/companyDocumentEmail";
+import { emailCompanyDocuments, previewCompanyDocuments, companyDocumentSends, companyDocumentEmailOptions } from "../services/companyDocumentEmail";
 import { registerCompanyDocumentReconciliation, scheduleCompanyDocumentExpiry } from "../lib/companyDocumentExpiryFlags";
 
 export const canManageCompanyDocuments = (user: UserWithContext) => ["admin", "office"].includes(user.accessRole);
 export function registerCompanyDocuments(app: Express, dependencies: { repository?: CompanyDocumentRepository; objects?: CompanyDocumentObjects;
   email?: typeof emailCompanyDocuments; sends?: typeof companyDocumentSends; emailOptions?: typeof companyDocumentEmailOptions;
+  emailPreview?: typeof previewCompanyDocuments;
   reconcile?: typeof scheduleCompanyDocumentExpiry } = {}) {
   registerCompanyDocumentReconciliation(app, dependencies.reconcile);
   const repo = dependencies.repository ?? companyDocumentRepository, objects = dependencies.objects ?? new CompanyDocumentObjects();
@@ -44,6 +45,9 @@ export function registerCompanyDocuments(app: Express, dependencies: { repositor
   app.get(root, handle(false, async (_req, res, user, company) => { res.json(await repo.list(company, canManageCompanyDocuments(user))); }));
   app.post(`${root}/email`, handle(true, async (req, res, user, company) => {
     res.status(201).json(await (dependencies.email ?? emailCompanyDocuments)(company, user, req.body));
+  }));
+  app.post(`${root}/email-preview`, handle(true, async (req, res, user, company) => {
+    res.json(await (dependencies.emailPreview ?? previewCompanyDocuments)(company, user, req.body));
   }));
   app.get(`${root}/email-options`, handle(true, async (_req, res, _user, company) => {
     res.json(await (dependencies.emailOptions ?? companyDocumentEmailOptions)(company));

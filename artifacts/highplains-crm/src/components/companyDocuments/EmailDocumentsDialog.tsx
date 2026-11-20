@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { companyDocumentEmailInput } from "../../../../../lib/db/src/companyDocumentContracts";
 import { companyRequest, companyDocumentErrorText, type CompanyDocumentDto } from "./companyDocumentsApi";
 import { StatusChip } from "./bits";
+import { BrandedEmailPreview, useBrandedEmailPreview } from "@/components/BrandedEmailPreview";
 
 type Mailbox = { id: string; companyId: string; syncEnabled: boolean; syncStatus: string; isActive: boolean;
   accountType: string; ownerUserId: string | null; displayName: string; emailAddress: string };
@@ -41,10 +42,10 @@ export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose
   const [mailboxId, setMailboxId] = useState("");
   const [to, setTo] = useState(""), [cc, setCc] = useState("");
   const [ids, setIds] = useState(initialIds);
-  const [subject, setSubject] = useState(""), [body, setBody] = useState("");
+  const [subject, setSubject] = useState(""), [note, setNote] = useState("");
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [initialized, setInitialized] = useState(false);
-  const options = useQuery<{ companyName: string; phone: string | null }>({
+  const options = useQuery<{ subject: string }>({
     queryKey: ["/api/company-documents", companyId, "email-options"],
     queryFn: async () => (await companyRequest(companyId, "GET", "/api/company-documents/email-options")).json(),
   });
@@ -73,19 +74,19 @@ export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose
   }, [mailboxes.data, mailboxId, user?.id]);
   useEffect(() => {
     if (!initialized && options.data) {
-      const name = options.data.companyName;
-      setSubject(t("companyDocuments.email.defaultSubject", { name }));
-      setBody(t("companyDocuments.email.defaultBody", { name, phone: options.data.phone ? ` · ${options.data.phone}` : "" }));
+      setSubject(options.data.subject);
       setInitialized(true);
     }
-  }, [initialized, options.data, t]);
-  const payload = { mailboxAccountId: mailboxId, to: split(to), cc: split(cc), subject, bodyText: body, documentIds: ids };
-  const valid = companyDocumentEmailInput.safeParse(payload).success;
+  }, [initialized, options.data]);
+  const payload = { mailboxAccountId: mailboxId, to: split(to), cc: split(cc), subject, note, documentIds: ids };
+  const parsed = companyDocumentEmailInput.safeParse(payload);
+  const preview = useBrandedEmailPreview(companyId, "/api/company-documents/email-preview", parsed.success ? parsed.data : undefined);
+  const valid = parsed.success && !!preview.result;
   const send = async () => {
     if (!valid || busy) return;
     setBusy(true); setError("");
     try {
-      await companyRequest(companyId, "POST", "/api/company-documents/email", payload);
+      await companyRequest(companyId, "POST", "/api/company-documents/email", parsed.data);
       await qc.invalidateQueries({ queryKey: ["/api/company-documents", companyId] });
       toast({ title: t("companyDocuments.email.sentTo", { to: payload.to.join(", ") }) });
       onClose();
@@ -93,10 +94,12 @@ export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose
     finally { setBusy(false); }
   };
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
-    <DialogContent className="flex max-h-[90vh] max-w-xl flex-col overflow-hidden">
+    <DialogContent className="flex max-h-[90dvh] w-[calc(100%-1.5rem)] max-w-xl flex-col overflow-hidden rounded-lg lg:max-w-[min(1120px,calc(100vw-3rem))]">
       <DialogHeader><DialogTitle>{t("companyDocuments.email.title")}</DialogTitle>
         <DialogDescription>{t("companyDocuments.email.description")}</DialogDescription></DialogHeader>
-      <div className="space-y-4 overflow-y-auto px-1">
+      <div className="min-h-0 overflow-y-auto overflow-x-hidden px-1">
+        <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <div className="min-w-0 space-y-4">
         {(options.isError || mailboxes.isError) && <p role="alert" className="text-sm text-destructive">{t("companyDocuments.email.loadError")}
           <Button variant="ghost" onClick={() => { void options.refetch(); void mailboxes.refetch(); }}>{t("companyDocuments.actions.retry")}</Button></p>}
         {mailboxes.data?.length === 0 && <p className="text-sm">{t("companyDocuments.email.noMailbox")}{" "}
@@ -124,9 +127,12 @@ export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose
           </label>)}</div></div>
         <div className="space-y-1"><Label htmlFor="cd-email-subject">{t("companyDocuments.email.subject")}</Label>
           <Input id="cd-email-subject" value={subject} onChange={e => setSubject(e.target.value)} maxLength={255} disabled={busy} /></div>
-        <div className="space-y-1"><Label htmlFor="cd-email-message">{t("companyDocuments.email.message")}</Label>
-          <Textarea id="cd-email-message" value={body} onChange={e => setBody(e.target.value)} rows={6} disabled={busy} /></div>
+        <div className="space-y-1"><Label htmlFor="cd-email-message">{t("companyDocuments.email.note")}</Label>
+          <Textarea id="cd-email-message" value={note} onChange={e => setNote(e.target.value)} rows={4} maxLength={2000} disabled={busy} /></div>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        </div>
+        <BrandedEmailPreview preview={preview} ready={parsed.success} />
+        </div>
       </div>
       <DialogFooter><Button variant="outline" onClick={onClose} disabled={busy}>{t("companyDocuments.actions.cancel")}</Button>
         <Button onClick={send} disabled={!valid || busy || !initialized || mailboxes.isError}>{t(busy ? "companyDocuments.email.sending" : "companyDocuments.email.send")}</Button></DialogFooter>

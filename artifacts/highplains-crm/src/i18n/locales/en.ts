@@ -1,6 +1,13 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { activeCustomersText } from "../../../../../lib/db/src/activeCustomersText";
 const en = {
+  emailPreview: { title: "Email preview", hide: "Hide preview", loading: "Preparing preview…",
+    notReady: "Complete the required fields to preview this email.", failed: "Couldn't load the email preview." },
+  compose: { reply: "Reply", replyTitle: "Reply to message", sent: "Email sent", failed: "Couldn't send email",
+    deliveryFailed: "Email delivery failed", recipientRequired: "Enter a recipient email.", officeMailbox: "Office mailbox",
+    mailboxUnavailable: "Original mailbox unavailable", noMailbox: "Connect the office mailbox before sending.",
+    templateSubjectExample: "e.g. Checking in with {customerName}",
+    templateBodyExample: "Write a message. Insert placeholders like {customerName}, {propertyName}, or {serviceDate}." },
   contractedServices: { pdf: "Contracted Services PDF", fixScope: "Fix the scope first: {{services}}", failed: "Unable to open the PDF. Please try again.", customerName: "Customer name", sameName: "Same as round name" },
   quickItemCsv: {
     errors: {
@@ -1319,12 +1326,10 @@ const en = {
     documentExpiring: "Document expiring",
     email: {
       title: "Email documents", description: "Send current files through a connected company mailbox.",
-      from: "From", to: "To", cc: "Cc", attachments: "Attachments", subject: "Subject", message: "Message",
+      from: "From", to: "To", cc: "Cc", attachments: "Attachments", subject: "Subject", note: "Note (optional)",
       chooseMailbox: "Choose a mailbox", noMailbox: "Connect a mailbox in Settings › Shared mailboxes to email documents.",
       connect: "Open Shared mailboxes", loadError: "Couldn't load email settings.", suggestionsError: "Suggestions aren't available. Enter email addresses directly.",
       limits: "Use commas or spaces between addresses. Maximum 10 recipients, 10 documents and 20 MB.",
-      defaultSubject: "{{name}} — requested documents",
-      defaultBody: "Hi,\n\nAttached are the documents you requested. Let us know if you need anything else.\n\n{{name}}{{phone}}",
       send: "Send", sending: "Sending…", sentTo: "Sent to {{to}}", remove: "Remove {{name}}",
       history: "Sent", noHistory: "This document hasn't been emailed yet.", loading: "Loading…",
       delivery: { pending: "Pending", sent: "Sent", failed: "Failed" },

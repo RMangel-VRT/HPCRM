@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  BrandedEmailPreview,
   CalendarReplacement,
   CampaignGenerationInput,
   CampaignGenerationReport,
@@ -30,6 +31,9 @@ import type {
   ChangeTicketType200,
   ChangeTicketType409,
   ChangeTicketTypeBody,
+  CompanyDocumentMailInput,
+  ComposeDraftSendInput,
+  ComposePreviewInput,
   ContractedServicesTargets,
   Crew,
   CrewInput,
@@ -48,6 +52,7 @@ import type {
   EstimateEmailRecovery,
   EstimateWorkLocationInput,
   GetCampaignRoundCalendarParams,
+  GetComposeSendOptions200,
   GetCustomerContractedServicesPdfParams,
   GetCustomerServicesParams,
   HealthStatus,
@@ -84,6 +89,8 @@ import type {
   SchedulingQueueResult,
   SchedulingSkipInput,
   SchedulingSkipResult,
+  SendCompanyDocumentEmail201,
+  SendComposeDraft200,
   ServiceCalendarDocument,
   ServiceTypeTemplate,
   ServiceTypeTemplateInput,
@@ -110,6 +117,400 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getPreviewCompanyDocumentEmailUrl = () => {
+  return `/api/company-documents/email-preview`;
+};
+
+export const previewCompanyDocumentEmail = async (
+  companyDocumentMailInput: CompanyDocumentMailInput,
+  options?: RequestInit,
+): Promise<BrandedEmailPreview> => {
+  return customFetch<BrandedEmailPreview>(getPreviewCompanyDocumentEmailUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(companyDocumentMailInput),
+  });
+};
+
+export const getPreviewCompanyDocumentEmailMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewCompanyDocumentEmail>>,
+    TError,
+    { data: BodyType<CompanyDocumentMailInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewCompanyDocumentEmail>>,
+  TError,
+  { data: BodyType<CompanyDocumentMailInput> },
+  TContext
+> => {
+  const mutationKey = ["previewCompanyDocumentEmail"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewCompanyDocumentEmail>>,
+    { data: BodyType<CompanyDocumentMailInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return previewCompanyDocumentEmail(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewCompanyDocumentEmailMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewCompanyDocumentEmail>>
+>;
+export type PreviewCompanyDocumentEmailMutationBody =
+  BodyType<CompanyDocumentMailInput>;
+export type PreviewCompanyDocumentEmailMutationError = ErrorType<void>;
+
+export const usePreviewCompanyDocumentEmail = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewCompanyDocumentEmail>>,
+    TError,
+    { data: BodyType<CompanyDocumentMailInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof previewCompanyDocumentEmail>>,
+  TError,
+  { data: BodyType<CompanyDocumentMailInput> },
+  TContext
+> => {
+  return useMutation(getPreviewCompanyDocumentEmailMutationOptions(options));
+};
+
+export const getSendCompanyDocumentEmailUrl = () => {
+  return `/api/company-documents/email`;
+};
+
+export const sendCompanyDocumentEmail = async (
+  companyDocumentMailInput: CompanyDocumentMailInput,
+  options?: RequestInit,
+): Promise<SendCompanyDocumentEmail201> => {
+  return customFetch<SendCompanyDocumentEmail201>(
+    getSendCompanyDocumentEmailUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(companyDocumentMailInput),
+    },
+  );
+};
+
+export const getSendCompanyDocumentEmailMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendCompanyDocumentEmail>>,
+    TError,
+    { data: BodyType<CompanyDocumentMailInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendCompanyDocumentEmail>>,
+  TError,
+  { data: BodyType<CompanyDocumentMailInput> },
+  TContext
+> => {
+  const mutationKey = ["sendCompanyDocumentEmail"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendCompanyDocumentEmail>>,
+    { data: BodyType<CompanyDocumentMailInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return sendCompanyDocumentEmail(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendCompanyDocumentEmailMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendCompanyDocumentEmail>>
+>;
+export type SendCompanyDocumentEmailMutationBody =
+  BodyType<CompanyDocumentMailInput>;
+export type SendCompanyDocumentEmailMutationError = ErrorType<void>;
+
+export const useSendCompanyDocumentEmail = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendCompanyDocumentEmail>>,
+    TError,
+    { data: BodyType<CompanyDocumentMailInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendCompanyDocumentEmail>>,
+  TError,
+  { data: BodyType<CompanyDocumentMailInput> },
+  TContext
+> => {
+  return useMutation(getSendCompanyDocumentEmailMutationOptions(options));
+};
+
+export const getPreviewComposeEmailUrl = () => {
+  return `/api/communications/preview`;
+};
+
+export const previewComposeEmail = async (
+  composePreviewInput: ComposePreviewInput,
+  options?: RequestInit,
+): Promise<BrandedEmailPreview> => {
+  return customFetch<BrandedEmailPreview>(getPreviewComposeEmailUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(composePreviewInput),
+  });
+};
+
+export const getPreviewComposeEmailMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewComposeEmail>>,
+    TError,
+    { data: BodyType<ComposePreviewInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewComposeEmail>>,
+  TError,
+  { data: BodyType<ComposePreviewInput> },
+  TContext
+> => {
+  const mutationKey = ["previewComposeEmail"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewComposeEmail>>,
+    { data: BodyType<ComposePreviewInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return previewComposeEmail(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewComposeEmailMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewComposeEmail>>
+>;
+export type PreviewComposeEmailMutationBody = BodyType<ComposePreviewInput>;
+export type PreviewComposeEmailMutationError = ErrorType<void>;
+
+export const usePreviewComposeEmail = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewComposeEmail>>,
+    TError,
+    { data: BodyType<ComposePreviewInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof previewComposeEmail>>,
+  TError,
+  { data: BodyType<ComposePreviewInput> },
+  TContext
+> => {
+  return useMutation(getPreviewComposeEmailMutationOptions(options));
+};
+
+export const getGetComposeSendOptionsUrl = () => {
+  return `/api/communications/send-options`;
+};
+
+export const getComposeSendOptions = async (
+  options?: RequestInit,
+): Promise<GetComposeSendOptions200> => {
+  return customFetch<GetComposeSendOptions200>(getGetComposeSendOptionsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetComposeSendOptionsQueryKey = () => {
+  return [`/api/communications/send-options`] as const;
+};
+
+export const getGetComposeSendOptionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getComposeSendOptions>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getComposeSendOptions>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetComposeSendOptionsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getComposeSendOptions>>
+  > = ({ signal }) => getComposeSendOptions({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getComposeSendOptions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetComposeSendOptionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getComposeSendOptions>>
+>;
+export type GetComposeSendOptionsQueryError = ErrorType<void>;
+
+export function useGetComposeSendOptions<
+  TData = Awaited<ReturnType<typeof getComposeSendOptions>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getComposeSendOptions>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetComposeSendOptionsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getSendComposeDraftUrl = (id: string) => {
+  return `/api/communications/${id}/send`;
+};
+
+export const sendComposeDraft = async (
+  id: string,
+  composeDraftSendInput: ComposeDraftSendInput,
+  options?: RequestInit,
+): Promise<SendComposeDraft200> => {
+  return customFetch<SendComposeDraft200>(getSendComposeDraftUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(composeDraftSendInput),
+  });
+};
+
+export const getSendComposeDraftMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendComposeDraft>>,
+    TError,
+    { id: string; data: BodyType<ComposeDraftSendInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendComposeDraft>>,
+  TError,
+  { id: string; data: BodyType<ComposeDraftSendInput> },
+  TContext
+> => {
+  const mutationKey = ["sendComposeDraft"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendComposeDraft>>,
+    { id: string; data: BodyType<ComposeDraftSendInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return sendComposeDraft(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendComposeDraftMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendComposeDraft>>
+>;
+export type SendComposeDraftMutationBody = BodyType<ComposeDraftSendInput>;
+export type SendComposeDraftMutationError = ErrorType<void>;
+
+export const useSendComposeDraft = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendComposeDraft>>,
+    TError,
+    { id: string; data: BodyType<ComposeDraftSendInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendComposeDraft>>,
+  TError,
+  { id: string; data: BodyType<ComposeDraftSendInput> },
+  TContext
+> => {
+  return useMutation(getSendComposeDraftMutationOptions(options));
+};
 
 export const getGetEstimateEmailOptionsUrl = (id: string) => {
   return `/api/estimates/${id}/email-options`;

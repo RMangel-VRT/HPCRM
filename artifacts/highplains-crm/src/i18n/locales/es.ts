@@ -1,6 +1,13 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { activeCustomersText } from "../../../../../lib/db/src/activeCustomersText";
 const es = {
+  emailPreview: { title: "Vista previa del correo", hide: "Ocultar vista previa", loading: "Preparando la vista previa…",
+    notReady: "Complete los campos obligatorios para ver el correo.", failed: "No se pudo cargar la vista previa del correo." },
+  compose: { reply: "Responder", replyTitle: "Responder al mensaje", sent: "Correo enviado", failed: "No se pudo enviar el correo",
+    deliveryFailed: "Falló la entrega del correo", recipientRequired: "Ingrese el correo del destinatario.", officeMailbox: "Buzón de la oficina",
+    mailboxUnavailable: "El buzón original no está disponible", noMailbox: "Conecte el buzón de la oficina antes de enviar.",
+    templateSubjectExample: "Ejemplo: Seguimiento con {customerName}",
+    templateBodyExample: "Escriba un mensaje. Use marcadores como {customerName}, {propertyName} o {serviceDate}." },
   contractedServices: { pdf: "PDF de servicios contratados", fixScope: "Corrija primero el alcance: {{services}}", failed: "No se pudo abrir el PDF. Inténtelo de nuevo.", customerName: "Nombre para el cliente", sameName: "Igual que el nombre de la ronda" },
   quickItemCsv: {
     errors: {
@@ -1320,12 +1327,10 @@ const es = {
     documentExpiring: "Documento próximo a vencer",
     email: {
       title: "Enviar documentos", description: "Envíe los archivos actuales desde un buzón conectado de la empresa.",
-      from: "De", to: "Para", cc: "Cc", attachments: "Archivos adjuntos", subject: "Asunto", message: "Mensaje",
+      from: "De", to: "Para", cc: "Cc", attachments: "Archivos adjuntos", subject: "Asunto", note: "Nota (opcional)",
       chooseMailbox: "Elija un buzón", noMailbox: "Conecte un buzón en Configuración › Buzones compartidos para enviar documentos.",
       connect: "Abrir Buzones compartidos", loadError: "No se pudo cargar la configuración del correo.", suggestionsError: "No hay sugerencias disponibles. Escriba las direcciones directamente.",
       limits: "Separe las direcciones con comas o espacios. Máximo: 10 destinatarios, 10 documentos y 20 MB.",
-      defaultSubject: "{{name}} — documentos solicitados",
-      defaultBody: "Hola:\n\nAdjuntamos los documentos solicitados. Avísenos si necesita algo más.\n\n{{name}}{{phone}}",
       send: "Enviar", sending: "Enviando…", sentTo: "Enviado a {{to}}", remove: "Quitar {{name}}",
       history: "Enviados", noHistory: "Este documento aún no se ha enviado.", loading: "Cargando…",
       delivery: { pending: "Pendiente", sent: "Enviado", failed: "Falló" },

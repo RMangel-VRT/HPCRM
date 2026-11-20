@@ -7,6 +7,126 @@
  */
 import * as zod from "zod";
 
+export const previewCompanyDocumentEmailBodyToItemMax = 254;
+
+export const previewCompanyDocumentEmailBodyToMax = 10;
+
+export const previewCompanyDocumentEmailBodyCcItemMax = 254;
+
+export const previewCompanyDocumentEmailBodyCcMax = 10;
+
+export const previewCompanyDocumentEmailBodySubjectMax = 255;
+
+export const previewCompanyDocumentEmailBodyNoteMax = 2000;
+
+export const previewCompanyDocumentEmailBodyDocumentIdsMax = 10;
+
+export const PreviewCompanyDocumentEmailBody = zod.object({
+  mailboxAccountId: zod.string().min(1),
+  to: zod
+    .array(zod.string().email().max(previewCompanyDocumentEmailBodyToItemMax))
+    .min(1)
+    .max(previewCompanyDocumentEmailBodyToMax),
+  cc: zod
+    .array(zod.string().email().max(previewCompanyDocumentEmailBodyCcItemMax))
+    .max(previewCompanyDocumentEmailBodyCcMax)
+    .optional(),
+  subject: zod.string().min(1).max(previewCompanyDocumentEmailBodySubjectMax),
+  note: zod.string().max(previewCompanyDocumentEmailBodyNoteMax).optional(),
+  documentIds: zod
+    .array(zod.string().min(1))
+    .min(1)
+    .max(previewCompanyDocumentEmailBodyDocumentIdsMax),
+});
+
+export const PreviewCompanyDocumentEmailResponse = zod.object({
+  subject: zod.string(),
+  html: zod.string(),
+  text: zod.string(),
+});
+
+export const sendCompanyDocumentEmailBodyToItemMax = 254;
+
+export const sendCompanyDocumentEmailBodyToMax = 10;
+
+export const sendCompanyDocumentEmailBodyCcItemMax = 254;
+
+export const sendCompanyDocumentEmailBodyCcMax = 10;
+
+export const sendCompanyDocumentEmailBodySubjectMax = 255;
+
+export const sendCompanyDocumentEmailBodyNoteMax = 2000;
+
+export const sendCompanyDocumentEmailBodyDocumentIdsMax = 10;
+
+export const SendCompanyDocumentEmailBody = zod.object({
+  mailboxAccountId: zod.string().min(1),
+  to: zod
+    .array(zod.string().email().max(sendCompanyDocumentEmailBodyToItemMax))
+    .min(1)
+    .max(sendCompanyDocumentEmailBodyToMax),
+  cc: zod
+    .array(zod.string().email().max(sendCompanyDocumentEmailBodyCcItemMax))
+    .max(sendCompanyDocumentEmailBodyCcMax)
+    .optional(),
+  subject: zod.string().min(1).max(sendCompanyDocumentEmailBodySubjectMax),
+  note: zod.string().max(sendCompanyDocumentEmailBodyNoteMax).optional(),
+  documentIds: zod
+    .array(zod.string().min(1))
+    .min(1)
+    .max(sendCompanyDocumentEmailBodyDocumentIdsMax),
+});
+
+export const previewComposeEmailBodySubjectMax = 998;
+
+export const previewComposeEmailBodyBodyMax = 100000;
+
+export const PreviewComposeEmailBody = zod.object({
+  customerId: zod.string().min(1).optional(),
+  subject: zod.string().min(1).max(previewComposeEmailBodySubjectMax),
+  body: zod.string().min(1).max(previewComposeEmailBodyBodyMax),
+});
+
+export const PreviewComposeEmailResponse = zod.object({
+  subject: zod.string(),
+  html: zod.string(),
+  text: zod.string(),
+});
+
+export const GetComposeSendOptionsResponse = zod.object({
+  sharedMailboxId: zod.string().nullable(),
+  mailboxes: zod.array(
+    zod.object({
+      id: zod.string(),
+      accountType: zod.enum(["shared", "personal"]),
+      displayName: zod.string(),
+      emailAddress: zod.string(),
+    }),
+  ),
+});
+
+export const SendComposeDraftParams = zod.object({
+  id: zod.coerce.string().min(1),
+});
+
+export const sendComposeDraftBodyRecipientEmailMax = 254;
+
+export const SendComposeDraftBody = zod.object({
+  recipientEmail: zod
+    .string()
+    .email()
+    .max(sendComposeDraftBodyRecipientEmailMax)
+    .optional(),
+});
+
+export const SendComposeDraftResponse = zod.object({
+  id: zod.string(),
+  status: zod.enum(["draft", "sent"]),
+  deliveryStatus: zod.enum(["sent", "failed"]),
+  failureReason: zod.string().nullable(),
+  recipientEmail: zod.string().nullish(),
+});
+
 export const getEstimateEmailOptionsPathIdMax = 200;
 
 export const GetEstimateEmailOptionsParams = zod.object({

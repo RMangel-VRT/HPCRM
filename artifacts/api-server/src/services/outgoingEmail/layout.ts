@@ -14,6 +14,7 @@ export interface EmailLayoutInput {
   subject: string; preview: string; docType: string; docNumber: string; stripe: Stripe;
   wording: Pick<EmailWording, "eyebrow" | "headline" | "intro" | "closing">;
   greeting: string | null;
+  introParagraphs?: string[];
   blocks: Block[];
   company: EmailCompany;
   internal?: boolean;
@@ -53,7 +54,8 @@ export function renderEmailLayout(input: EmailLayoutInput): { html: string; text
 <div style="${font};font-size:18px;font-weight:800;color:#fff">${escape(input.docNumber)}</div></td></tr>`)}</td></tr>`;
   const intro = content((wording.eyebrow ? label(wording.eyebrow, eyebrow) : "")
     + (wording.headline ? `<h1 style="margin:0 0 14px;${font};font-size:26px;line-height:1.25;color:${c.ink};font-weight:800">${escape(wording.headline.replace(/-/g, "\u2011"))}</h1>` : "")
-    + paragraph(greeting ?? "", 15, c.ink) + paragraph(wording.intro, 15, c.copy));
+    + paragraph(greeting ?? "", 15, c.ink)
+    + (input.introParagraphs ?? [wording.intro]).map(text => paragraph(text, 15, c.copy)).join(""));
   const plainFooter = `<tr><td bgcolor="${c.soft}" style="padding:16px 32px;border-top:1px solid ${c.line};border-radius:0 0 14px 14px;${font};font-size:12px;color:${c.muted}">${internalFooter}</td></tr>`;
   const main = header
     + `<tr><td bgcolor="${stripe}" height="6" style="height:6px;line-height:6px;font-size:0">&nbsp;</td></tr>`
@@ -66,7 +68,7 @@ export function renderEmailLayout(input: EmailLayoutInput): { html: string; text
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>${escape(input.subject)}</title></head>
 <body style="margin:0;padding:0;background:${c.page}"><div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${escape(input.preview)}</div>
 ${table(`<tr><td align="center" style="padding:24px 12px">${table(main, "width:100%;max-width:600px;border-radius:14px", c.white, "600")}</td></tr>`, "", c.page)}</body></html>`;
-  const text = [company.name, wording.headline, greeting, wording.intro, ...blocks.map(block => block.text),
+  const text = [company.name, wording.headline, greeting, ...(input.introParagraphs ?? [wording.intro]), ...blocks.map(block => block.text),
     wording.closing, link && href && `${link.label}: ${href}`, `Thank you,\n${company.name}`,
     input.internal ? internalFooter : [company.addressLine, company.phone, company.email, company.website].filter(Boolean).join("\n"),
   ].filter(Boolean).join("\n\n");

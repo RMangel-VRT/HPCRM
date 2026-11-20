@@ -60,7 +60,9 @@ beforeEach(() => {
     calls.push({ method, url, body, headers: opts?.headers });
     if (method === "GET" && url === "/api/company-documents") return json(listBody);
     if (method === "GET" && url === "/api/chemical-notification-templates") return json(templates);
-    if (method === "GET" && url === "/api/company-documents/email-options") return json({ companyName: "Fixture Company", phone: "303-555-0100" });
+    if (method === "GET" && url === "/api/company-documents/email-options") return json({ subject: "Requested documents – Fixture Company" });
+    if (method === "POST" && url === "/api/company-documents/email-preview")
+      return json({ subject: "Requested documents – Fixture Company", html: "<p>Branded document preview</p>", text: "Preview" });
     if (method === "GET" && url === "/api/mailbox-accounts") return json([
       { id: "own", companyId: "co1", syncEnabled: true, syncStatus: "connected", isActive: true, accountType: "personal", ownerUserId: "u1", displayName: "Own", emailAddress: "own@example.test" },
       { id: "shared", companyId: "co1", syncEnabled: true, syncStatus: "connected", isActive: true, accountType: "shared", displayName: "Office", emailAddress: "office@example.test" },
@@ -82,20 +84,23 @@ afterEach(() => { cleanup(); qc.clear(); });
 const renderPage = () => render(<QueryClientProvider client={qc}><CompanyDocumentsPage /></QueryClientProvider>);
 
 describe("Company documents page", () => {
-  it("compose loads suggestions only on open, defaults shared mailbox/phone and sends exact selection", async () => {
+  it("compose loads suggestions only on open, previews the note and sends the previewed selection", async () => {
     renderPage(); await screen.findByTestId("table-company-documents");
     expect(calls.some(c => c.url === "/api/property-managers")).toBe(false);
     fireEvent.click(screen.getAllByRole("button", { name: "Email documents" })[0]);
     const dialog = await screen.findByRole("dialog", { name: "Email documents" });
     await waitFor(() => expect((within(dialog).getByLabelText("From") as HTMLSelectElement).value).toBe("shared"));
-    expect((within(dialog).getByLabelText("Subject") as HTMLInputElement).value).toBe("Fixture Company — requested documents");
-    expect((within(dialog).getByLabelText("Message") as HTMLTextAreaElement).value).toContain("303-555-0100");
+    expect((within(dialog).getByLabelText("Subject") as HTMLInputElement).value).toBe("Requested documents – Fixture Company");
+    fireEvent.change(within(dialog).getByLabelText("Note (optional)"), { target: { value: " Hello from the office " } });
     await waitFor(() => expect(calls.some(c => c.url === "/api/property-managers/pm/emails")).toBe(true));
     fireEvent.change(within(dialog).getByLabelText("To"), { target: { value: "pm@example.test" } });
     fireEvent.click(within(dialog).getByLabelText(/W-9/));
+    expect((await within(dialog).findByTitle("Email preview")).getAttribute("sandbox")).toBe("");
+    expect(calls.find(c => c.url.endsWith("email-preview"))?.body).toMatchObject({ note: "Hello from the office", documentIds: ["w9"] });
+    expect(calls.some(c => c.url === "/api/company-documents/email")).toBe(false);
     fireEvent.click(within(dialog).getByRole("button", { name: "Send" }));
     await waitFor(() => expect(calls.find(c => c.url === "/api/company-documents/email")?.body).toMatchObject({
-      mailboxAccountId: "shared", to: ["pm@example.test"], documentIds: ["w9"],
+      mailboxAccountId: "shared", to: ["pm@example.test"], documentIds: ["w9"], note: "Hello from the office",
     }));
     expect(calls.find(c => c.url === "/api/company-documents/email")?.headers).toEqual({ "X-Company-Id": "co1" });
   });
@@ -112,6 +117,7 @@ describe("Company documents page", () => {
     const dialog = await screen.findByRole("dialog", { name: "Email documents" });
     await waitFor(() => expect((within(dialog).getByLabelText("From") as HTMLSelectElement).value).toBe("shared"));
     fireEvent.change(within(dialog).getByLabelText("To"), { target: { value: "pm@example.test" } });
+    await within(dialog).findByTitle("Email preview");
     fireEvent.click(within(dialog).getByRole("button", { name: "Send" }));
     expect((await within(dialog).findByRole("alert")).textContent).toContain("Nothing was retried automatically");
     expect(calls.filter(c => c.url === "/api/company-documents/email")).toHaveLength(1);

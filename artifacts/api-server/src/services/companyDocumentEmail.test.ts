@@ -1,11 +1,13 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { emailCompanyDocuments, unambiguousDocumentCustomer, companyDocumentAttachmentName } from "./companyDocumentEmail";
+import { emailCompanyDocuments, previewCompanyDocuments, unambiguousDocumentCustomer, companyDocumentAttachmentName } from "./companyDocumentEmail";
+import { PDFDocument } from "pdf-lib";
 import { companyDocumentEmailInput } from "../../../../lib/db/src/companyDocumentContracts";
 import { CustomerDocumentError } from "./customerDocumentContent";
 const user = { id: "editor", name: "Office", activeRole: "office" } as any;
-const input = { mailboxAccountId: "mail", to: ["to@example.test"], subject: "Documents", bodyText: "Hi", documentIds: ["doc"] };
+const input = { mailboxAccountId: "mail", to: ["to@example.test"], subject: "Documents", note: " Hi <team> ", documentIds: ["doc"] };
 const deps = {
   visible: vi.fn(async () => ({ mailboxIds: null as string[] | null, includeNullMailbox: true, scopeLabel: "All" })),
+  company: vi.fn(async () => ({ name: "Fixture Company", addressLine: "123 Test St", phone: "", website: "", email: "" })),
   mailbox: vi.fn(async () => ({ id: "mail", companyId: "co", syncEnabled: true, syncStatus: "connected", emailAddress: "office@example.test" })),
   repo: { get: vi.fn(async (_co: string, id: string) => ({ id, currentFileId: `file-${id}`, name: `COI ${id}` })),
     file: vi.fn(async (_co: string, id: string) => ({ id: `file-${id}`, filePath: `private/${id}`, fileSize: 5, fileType: "pdf", mimeType: "application/pdf" })) },
@@ -32,7 +34,20 @@ it("records exact current-file snapshots and RFC ID before sending one or severa
   expect(row.providerMessageId).toMatch(/^<.*@highplains.crm>$/);
   expect(deps.record.mock.invocationCallOrder[0]).toBeLessThan(deps.send.mock.invocationCallOrder[0]);
   expect(deps.send.mock.calls[0][2]).toBe(row.providerMessageId);
+  expect(deps.send.mock.calls[0][1]).toMatchObject({ subject: row.subject, bodyHtml: row.bodyHtml, bodyText: row.bodyText });
   expect(deps.stamp).toHaveBeenCalledWith("co", "communication", expect.objectContaining({ deliveryStatus: "sent", providerThreadId: "thread", providerMessageId: row.providerMessageId }));
+});
+it("previews both documents, known page counts and the trimmed note without recording or sending", async () => {
+  const pdf = await PDFDocument.create();
+  pdf.addPage(); pdf.addPage();
+  deps.objects.read.mockResolvedValueOnce(Buffer.from(await pdf.save()));
+  const preview = await previewCompanyDocuments("co", user, { ...input, documentIds: ["doc", "doc2"] }, deps as any);
+  expect(preview.html).toContain("Hi &lt;team&gt;");
+  expect(preview.text).toContain("COI doc.pdf · 2 pages");
+  expect(preview.text).toContain("COI doc2.pdf");
+  expect(deps.record).not.toHaveBeenCalled();
+  expect(deps.stamp).not.toHaveBeenCalled();
+  expect(deps.send).not.toHaveBeenCalled();
 });
 it.each(["foreign", "hidden", "disabled", "disconnected"])("rejects %s mailbox before reading files or recording", async kind => {
   if (kind === "hidden") deps.visible.mockResolvedValueOnce({ mailboxIds: [], includeNullMailbox: false, scopeLabel: "" });
@@ -55,7 +70,7 @@ it("stamps failures with no automatic retry and retains the pre-saved RFC ID", a
 });
 it("requires 1–10 recipients/documents, validates addresses and prevents header injection", () => {
   for (const change of [{ to: [] }, { to: ["bad"] }, { to: Array(10).fill("a@example.test"), cc: ["b@example.test"] },
-    { documentIds: [] }, { documentIds: ["same", "same"] }, { subject: "Hello\r\nBcc:evil" }])
+    { documentIds: [] }, { documentIds: ["same", "same"] }, { subject: "Hello\r\nBcc:evil" }, { bodyText: "Legacy" }, { note: "x".repeat(2001) }])
     expect(companyDocumentEmailInput.safeParse({ ...input, ...change }).success).toBe(false);
   expect(companyDocumentEmailInput.safeParse({ ...input, documentIds: Array.from({ length: 10 }, (_, i) => String(i)) }).success).toBe(true);
 });

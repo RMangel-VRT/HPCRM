@@ -23,6 +23,122 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /company-documents/email-preview:
+    post:
+      operationId: previewCompanyDocumentEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompanyDocumentMailInput" }
+      responses:
+        "200":
+          description: Renders the current attachments and note without sending
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandedEmailPreview" }
+        "400": { description: Invalid input }
+        "403": { description: Forbidden or mailbox not available }
+        "404": { description: Document or file not found }
+        "409": { description: Active company changed }
+        "413": { description: Attachments exceed the byte limit }
+  /company-documents/email:
+    post:
+      operationId: sendCompanyDocumentEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompanyDocumentMailInput" }
+      responses:
+        "201":
+          description: The email was accepted by Gmail and the send was recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [communicationId, deliveryStatus]
+                properties:
+                  communicationId: { type: string }
+                  deliveryStatus: { type: string, enum: [sent] }
+        "400": { description: Invalid input }
+        "403": { description: Forbidden or mailbox not available }
+        "404": { description: Document or file not found }
+        "409": { description: Active company changed }
+        "413": { description: Attachments exceed the byte limit }
+        "502": { description: Gmail delivery failed }
+  /communications/preview:
+    post:
+      operationId: previewComposeEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComposePreviewInput" }
+      responses:
+        "200":
+          description: Renders a new email without saving a draft or contacting Gmail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandedEmailPreview" }
+        "400": { description: Invalid subject or message }
+        "403": { description: Forbidden }
+        "404": { description: Customer not found }
+        "409": { description: Active company changed }
+  /communications/send-options:
+    get:
+      operationId: getComposeSendOptions
+      responses:
+        "200":
+          description: Connected mailboxes visible to the current sender
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mailboxes, sharedMailboxId]
+                properties:
+                  sharedMailboxId: { type: [string, "null"] }
+                  mailboxes:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, accountType, displayName, emailAddress]
+                      properties:
+                        id: { type: string }
+                        accountType: { type: string, enum: [shared, personal] }
+                        displayName: { type: string }
+                        emailAddress: { type: string }
+        "403": { description: Forbidden }
+        "409": { description: Active company changed }
+  /communications/{id}/send:
+    post:
+      operationId: sendComposeDraft
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, minLength: 1 } }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComposeDraftSendInput" }
+      responses:
+        "200":
+          description: Updated communication, including the recorded outcome of delivery
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                required: [id, status, deliveryStatus, failureReason]
+                properties:
+                  id: { type: string }
+                  status: { type: string, enum: [draft, sent] }
+                  deliveryStatus: { type: string, enum: [sent, failed] }
+                  failureReason: { type: [string, "null"] }
+                  recipientEmail: { type: [string, "null"] }
+        "400": { description: Invalid recipient override }
+        "403": { description: Forbidden }
+        "404": { description: Communication not found in the active company }
+        "409": { description: "Already sent, sending, or active company changed" }
+        "422": { description: "Draft, recipients, mailbox or reply thread is not sendable" }
   /estimates/{id}/email-options:
     get:
       operationId: getEstimateEmailOptions
@@ -1554,6 +1670,49 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    ComposePreviewInput:
+      type: object
+      additionalProperties: false
+      required: [subject, body]
+      properties:
+        customerId: { type: string, minLength: 1 }
+        subject: { type: string, minLength: 1, maxLength: 998 }
+        body: { type: string, minLength: 1, maxLength: 100000 }
+    ComposeDraftSendInput:
+      type: object
+      additionalProperties: false
+      properties:
+        recipientEmail: { type: string, format: email, maxLength: 254 }
+    BrandedEmailPreview:
+      type: object
+      required: [subject, html, text]
+      properties:
+        subject: { type: string }
+        html: { type: string }
+        text: { type: string }
+    CompanyDocumentMailInput:
+      type: object
+      additionalProperties: false
+      required: [mailboxAccountId, to, subject, documentIds]
+      properties:
+        mailboxAccountId: { type: string, minLength: 1 }
+        to:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: { type: string, format: email, maxLength: 254 }
+        cc:
+          type: array
+          maxItems: 10
+          items: { type: string, format: email, maxLength: 254 }
+        subject: { type: string, minLength: 1, maxLength: 255 }
+        note: { type: string, maxLength: 2000 }
+        documentIds:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          items: { type: string, minLength: 1 }
     EstimateEmailInput:
       type: object
       additionalProperties: false

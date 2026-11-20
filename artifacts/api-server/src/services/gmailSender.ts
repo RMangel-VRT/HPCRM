@@ -13,6 +13,9 @@ export interface SendEmailOptions {
   subject: string;
   bodyText: string;
   bodyHtml?: string;
+  inReplyTo?: string;
+  references?: string[];
+  threadId?: string;
   attachments?: { filename: string; mimeType: string; content: Buffer }[];
 }
 
@@ -52,11 +55,17 @@ function formatAddressWithName(displayName: string | null | undefined, email: st
   return `${name} <${email}>`;
 }
 
+export const isRfcMessageId = (id: string) => /^<[^<>\s@]+@[^<>\s@]+>$/u.test(id) && !/[\u0000-\u001f\u007f]/u.test(id);
+
 export function buildMimeMessage(
   from: string,
   opts: SendEmailOptions,
   rfcMessageId: string
 ): string {
+  const references = opts.references ?? [];
+  if ((opts.inReplyTo && !isRfcMessageId(opts.inReplyTo)) || references.some(id => !isRfcMessageId(id))) {
+    throw new Error("Invalid email reply headers");
+  }
   const boundary = `boundary_${randomBytes(12).toString("hex")}`;
   const date = new Date().toUTCString();
 
@@ -68,6 +77,8 @@ export function buildMimeMessage(
     `Subject: ${encodeHeaderValue(opts.subject)}`,
     `Date: ${date}`,
     `Message-ID: ${rfcMessageId}`,
+    opts.inReplyTo ? `In-Reply-To: ${opts.inReplyTo}` : null,
+    references.length ? `References: ${references.join("\r\n ")}` : null,
     `MIME-Version: 1.0`,
   ].filter(Boolean);
 
@@ -161,7 +172,7 @@ export async function sendEmail(
       media: { mimeType: "message/rfc822", body: Readable.from([mimeMessage]) },
     }, { retry: false }) : await gmail.users.messages.send({
       userId: "me",
-      requestBody: { raw: encodedMessage },
+      requestBody: { raw: encodedMessage, ...(opts.threadId ? { threadId: opts.threadId } : {}) },
     });
 
     return {

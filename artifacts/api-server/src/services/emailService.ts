@@ -276,6 +276,7 @@ export async function processEmailEvent(
     ticketId?: string;
     toEmail?: string;
     sentById?: string;
+    rendered?: () => Promise<{ subject: string; html: string; text: string }>;
   }
 ): Promise<EmailLog[]> {
   const rules = await storage.getEmailRulesByEvent(eventKey, companyId);
@@ -301,13 +302,15 @@ export async function processEmailEvent(
         templateId: template.id,
         sentById: options.sentById,
         variables,
+        alreadyRendered: !!options.rendered,
       };
 
+      const rendered = await options.rendered?.();
       const log = await sendEmail(
         options.toEmail,
-        template.subject,
-        template.htmlBody,
-        template.textBody,
+        rendered?.subject ?? template.subject,
+        rendered?.html ?? template.htmlBody,
+        rendered?.text ?? template.textBody,
         context
       );
       results.push(log);

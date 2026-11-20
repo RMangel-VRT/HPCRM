@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
@@ -1106,8 +1107,9 @@ function FollowUpPanel({
   );
 }
 
-function DetailPanel({ id }: { id: string | null }) {
+function DetailPanel({ id, onReply }: { id: string | null; onReply?: (message: CommunicationWithDetails) => void }) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const isAdmin = user?.accessRole === "admin";
   const [scheduleFor, setScheduleFor] = useState<string>("");
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
@@ -1279,6 +1281,12 @@ function DetailPanel({ id }: { id: string | null }) {
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Message</p>
           <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="text-detail-body">{data.body}</p>
         </div>
+        {onReply && data.status === "sent" && data.type === "email" && data.mailboxAccountId
+          && data.providerThreadId && data.providerMessageId?.startsWith("<") && (
+            <Button size="sm" variant="outline" onClick={() => onReply(data)} data-testid="button-reply-email">
+              <Reply className="mr-1.5 h-4 w-4" />{t("compose.reply")}
+            </Button>
+          )}
       </div>
 
       {data.status === "draft" && (
@@ -1552,6 +1560,7 @@ type TemplateFormValues = z.infer<typeof templateFormSchema>;
 
 function TemplateManager() {
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isNewTemplate, setIsNewTemplate] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
@@ -1820,7 +1829,7 @@ function TemplateManager() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {COMMUNICATION_TEMPLATE_CATEGORIES.map((cat) => (
+                            {COMMUNICATION_TEMPLATE_CATEGORIES.filter(cat => cat !== "proposal_follow_up" || field.value === cat).map((cat) => (
                               <SelectItem key={cat} value={cat}>
                                 {COMMUNICATION_TEMPLATE_CATEGORY_LABELS[cat]}
                               </SelectItem>
@@ -1864,7 +1873,7 @@ function TemplateManager() {
                     <FormItem>
                       <FormLabel>Subject</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g. Following up on your proposal — {{proposal_name}}" {...field} data-testid="input-template-subject" />
+                        <Input placeholder={t("compose.templateSubjectExample")} {...field} data-testid="input-template-subject" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -1879,7 +1888,7 @@ function TemplateManager() {
                       <FormLabel>Body</FormLabel>
                       <FormControl>
                         <Textarea
-                          placeholder="Write your message here. Use {{customer_name}}, {{property_name}}, {{pm_name}}, etc. to insert dynamic values."
+                          placeholder={t("compose.templateBodyExample")}
                           rows={8}
                           {...field}
                           data-testid="textarea-template-body"
@@ -2373,7 +2382,7 @@ export default function AllCommunicationsTab() {
             </div>
           </div>
           <div className="w-[450px] shrink-0 overflow-hidden">
-            <DetailPanel id={selectedId} />
+            <DetailPanel id={selectedId} onReply={permissions.canSend ? message => { setReplyTo(message); setComposeOpen(true); } : undefined} />
           </div>
         </>
       )}

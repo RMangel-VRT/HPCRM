@@ -5,6 +5,56 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface ComposePreviewInput {
+  /** @minLength 1 */
+  customerId?: string;
+  /**
+   * @minLength 1
+   * @maxLength 998
+   */
+  subject: string;
+  /**
+   * @minLength 1
+   * @maxLength 100000
+   */
+  body: string;
+}
+
+export interface ComposeDraftSendInput {
+  /** @maxLength 254 */
+  recipientEmail?: string;
+}
+
+export interface BrandedEmailPreview {
+  subject: string;
+  html: string;
+  text: string;
+}
+
+export interface CompanyDocumentMailInput {
+  /** @minLength 1 */
+  mailboxAccountId: string;
+  /**
+   * @minItems 1
+   * @maxItems 10
+   */
+  to: string[];
+  /** @maxItems 10 */
+  cc?: string[];
+  /**
+   * @minLength 1
+   * @maxLength 255
+   */
+  subject: string;
+  /** @maxLength 2000 */
+  note?: string;
+  /**
+   * @minItems 1
+   * @maxItems 10
+   */
+  documentIds: string[];
+}
+
 /**
  * To and Cc combined may contain up to ten distinct addresses.
  */
@@ -1443,6 +1493,66 @@ export interface OwnerResponseTicket {
   followUpNote?: string | null;
   [key: string]: unknown;
 }
+
+export type SendCompanyDocumentEmail201DeliveryStatus =
+  (typeof SendCompanyDocumentEmail201DeliveryStatus)[keyof typeof SendCompanyDocumentEmail201DeliveryStatus];
+
+export const SendCompanyDocumentEmail201DeliveryStatus = {
+  sent: "sent",
+} as const;
+
+export type SendCompanyDocumentEmail201 = {
+  communicationId: string;
+  deliveryStatus: SendCompanyDocumentEmail201DeliveryStatus;
+};
+
+export type GetComposeSendOptions200MailboxesItemAccountType =
+  (typeof GetComposeSendOptions200MailboxesItemAccountType)[keyof typeof GetComposeSendOptions200MailboxesItemAccountType];
+
+export const GetComposeSendOptions200MailboxesItemAccountType = {
+  shared: "shared",
+  personal: "personal",
+} as const;
+
+export type GetComposeSendOptions200MailboxesItem = {
+  id: string;
+  accountType: GetComposeSendOptions200MailboxesItemAccountType;
+  displayName: string;
+  emailAddress: string;
+};
+
+export type GetComposeSendOptions200 = {
+  /** @nullable */
+  sharedMailboxId: string | null;
+  mailboxes: GetComposeSendOptions200MailboxesItem[];
+};
+
+export type SendComposeDraft200Status =
+  (typeof SendComposeDraft200Status)[keyof typeof SendComposeDraft200Status];
+
+export const SendComposeDraft200Status = {
+  draft: "draft",
+  sent: "sent",
+} as const;
+
+export type SendComposeDraft200DeliveryStatus =
+  (typeof SendComposeDraft200DeliveryStatus)[keyof typeof SendComposeDraft200DeliveryStatus];
+
+export const SendComposeDraft200DeliveryStatus = {
+  sent: "sent",
+  failed: "failed",
+} as const;
+
+export type SendComposeDraft200 = {
+  id: string;
+  status: SendComposeDraft200Status;
+  deliveryStatus: SendComposeDraft200DeliveryStatus;
+  /** @nullable */
+  failureReason: string | null;
+  /** @nullable */
+  recipientEmail?: string | null;
+  [key: string]: unknown;
+};
 
 export type EmailEstimateVersion200 = {
   id: string;

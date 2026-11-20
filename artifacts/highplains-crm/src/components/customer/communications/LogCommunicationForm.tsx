@@ -128,6 +128,7 @@ export default function LogCommunicationForm({ customerId, onSuccess, onCancel, 
         ccAddresses: values.ccAddresses,
         type: "email",
         status: "sent",
+        deliveryIntent: isGmailSend ? "send" : "log",
         mailboxAccountId: values.mailboxAccountId || undefined,
         fromAddress: values.direction === "outbound"
           ? (selectedMailbox?.emailAddress || values.fromAddress)

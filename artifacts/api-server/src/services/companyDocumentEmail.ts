@@ -1,5 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
-import { companies, companyDocumentSettings, communications, contacts, customers, mailboxAccounts, propertyManagerEmails, propertyManagers } from "@workspace/db";
+import { communications, contacts, customers, mailboxAccounts, propertyManagerEmails, propertyManagers } from "@workspace/db";
 import type { UserWithContext } from "../auth";
 import { db } from "../db";
 import { companyDocumentEmailInput, type CompanyDocumentEmailInput } from "../../../../lib/db/src/companyDocumentContracts";
@@ -8,6 +8,9 @@ import { CompanyDocumentObjects } from "./companyDocumentObjects";
 import { CustomerDocumentError } from "./customerDocumentContent";
 import { resolveVisibleMailboxes } from "./mailboxScope";
 import { createGmailMessageId, sendEmail } from "./gmailSender";
+import { PDFDocument } from "pdf-lib";
+import { loadEmailCompany } from "./outgoingEmail/company";
+import { buildDocumentsEmail } from "./outgoingEmail/serviceEmails";
 
 /** Every To address must identify the SAME single customer. Shared manager addresses are ambiguous. */
 export function unambiguousDocumentCustomer(to: string[], candidates: { customerId: string; emails: string[] }[]) {
@@ -39,6 +42,7 @@ const defaults = {
   repo: companyDocumentRepository,
   objects: new CompanyDocumentObjects(),
   visible: resolveVisibleMailboxes,
+  company: loadEmailCompany,
   async mailbox(company: string, id: string) {
     const [mailbox] = await db.select().from(mailboxAccounts).where(and(eq(mailboxAccounts.companyId, company), eq(mailboxAccounts.id, id), eq(mailboxAccounts.isActive, true)));
     return mailbox;
@@ -50,14 +54,14 @@ const defaults = {
   },
   send: sendEmail,
 };
-export async function emailCompanyDocuments(company: string, user: UserWithContext, body: CompanyDocumentEmailInput, deps = defaults) {
+async function prepareCompanyDocuments(company: string, user: UserWithContext, body: unknown, deps: typeof defaults) {
   const input = companyDocumentEmailInput.parse(body);
   const visible = await deps.visible({ companyId: company, userId: user.id, role: user.activeRole, isSuperAdmin: user.isSuperAdminBool });
   const mailbox = await deps.mailbox(company, input.mailboxAccountId);
   if (!mailbox || mailbox.companyId !== company || !mailbox.syncEnabled || mailbox.syncStatus !== "connected" ||
     (visible.mailboxIds !== null && !visible.mailboxIds.includes(mailbox.id)))
     throw new CustomerDocumentError(403, "COMPANY_DOCUMENT_MAILBOX_UNAVAILABLE");
-  const snapshots = [], attachments = [];
+  const snapshots = [], attachments = [], documents = [];
   let total = 0;
   for (const id of input.documentIds) {
     const document = await deps.repo.get(company, id);
@@ -72,17 +76,33 @@ export async function emailCompanyDocuments(company: string, user: UserWithConte
     const fileName = companyDocumentAttachmentName(document.name, file.fileType);
     attachments.push({ filename: fileName, mimeType: file.mimeType ?? "application/octet-stream", content });
     snapshots.push({ kind: "company_document", documentId: id, fileId: file.id, fileName, fileSize: content.length });
+    // Older files need not be readable by pdf-lib to remain attachable.
+    const pageCount = file.fileType === "pdf"
+      ? await PDFDocument.load(content, { updateMetadata: false }).then(pdf => pdf.getPageCount()).catch(() => undefined)
+      : undefined;
+    documents.push({ title: document.name, filename: fileName, pageCount });
   }
+  const email = buildDocumentsEmail({ company: await deps.company(company), documents, note: input.note, subject: input.subject });
+  return { input, mailbox, snapshots, attachments, email };
+}
+
+export async function previewCompanyDocuments(company: string, user: UserWithContext, body: unknown, deps = defaults) {
+  const { email } = await prepareCompanyDocuments(company, user, body, deps);
+  return email;
+}
+
+export async function emailCompanyDocuments(company: string, user: UserWithContext, body: CompanyDocumentEmailInput, deps = defaults) {
+  const { input, mailbox, snapshots, attachments, email } = await prepareCompanyDocuments(company, user, body, deps);
   const messageId = createGmailMessageId();
   const customerId = await deps.matchCustomer(company, input.to);
   const row = await deps.record({ companyId: company, customerId, direction: "outbound", type: "email", status: "sent",
     routingMethod: "company_documents", mailboxAccountId: mailbox.id, toAddresses: input.to, ccAddresses: input.cc ?? [],
-    subject: input.subject, body: input.bodyText, bodyText: input.bodyText, fromAddress: mailbox.emailAddress,
+    subject: email.subject, body: email.text, bodyText: email.text, bodyHtml: email.html, fromAddress: mailbox.emailAddress,
     sentById: user.id, fromName: user.name, attachmentsJson: snapshots, providerMessageId: messageId,
     deliveryProvider: "gmail", deliveryStatus: "pending" });
   let result;
   try {
-    result = await deps.send(mailbox.id, { to: input.to, cc: input.cc, subject: input.subject, bodyText: input.bodyText, attachments }, messageId);
+    result = await deps.send(mailbox.id, { to: input.to, cc: input.cc, subject: email.subject, bodyText: email.text, bodyHtml: email.html, attachments }, messageId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gmail send failed";
     await deps.stamp(company, row.id, { deliveryStatus: "failed", failureReason: message.slice(0, 2000) });
@@ -102,7 +122,7 @@ export async function companyDocumentSends(company: string, id: string) {
     subject: row.subject, sentByName: row.fromName, deliveryStatus: row.deliveryStatus }));
 }
 export async function companyDocumentEmailOptions(company: string) {
-  const [row] = await db.select({ companyName: companies.name, phone: companyDocumentSettings.phone }).from(companies)
-    .leftJoin(companyDocumentSettings, eq(companyDocumentSettings.companyId, companies.id)).where(eq(companies.id, company));
-  return { companyName: row?.companyName ?? "", phone: row?.phone?.trim() || null };
+  const details = await loadEmailCompany(company);
+  return { companyName: details.name, phone: details.phone || null,
+    subject: buildDocumentsEmail({ company: details, documents: [] }).subject.slice(0, 255).replace(/[\uD800-\uDBFF]$/, "") };
 }

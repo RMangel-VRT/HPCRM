@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./brandedEmailPreview";
 export * from "./calendarEntry";
 export * from "./calendarEntryKind";
 export * from "./calendarReplacement";
@@ -39,6 +40,9 @@ export * from "./changeTicketType200";
 export * from "./changeTicketType409";
 export * from "./changeTicketTypeBody";
 export * from "./changeTicketTypeBodyWorkType";
+export * from "./companyDocumentMailInput";
+export * from "./composeDraftSendInput";
+export * from "./composePreviewInput";
 export * from "./contractedServicesTargets";
 export * from "./contractedServicesTargetsTargetsItem";
 export * from "./crew";
@@ -64,6 +68,9 @@ export * from "./estimateEmailPreviewInput";
 export * from "./estimateEmailRecovery";
 export * from "./estimateWorkLocationInput";
 export * from "./getCampaignRoundCalendarParams";
+export * from "./getComposeSendOptions200";
+export * from "./getComposeSendOptions200MailboxesItem";
+export * from "./getComposeSendOptions200MailboxesItemAccountType";
 export * from "./getCustomerContractedServicesPdfDownload";
 export * from "./getCustomerContractedServicesPdfParams";
 export * from "./getCustomerServicesParams";
@@ -125,6 +132,11 @@ export * from "./schedulingQueueItemVisit";
 export * from "./schedulingQueueResult";
 export * from "./schedulingSkipInput";
 export * from "./schedulingSkipResult";
+export * from "./sendCompanyDocumentEmail201";
+export * from "./sendCompanyDocumentEmail201DeliveryStatus";
+export * from "./sendComposeDraft200";
+export * from "./sendComposeDraft200DeliveryStatus";
+export * from "./sendComposeDraft200Status";
 export * from "./serviceCalendarDocument";
 export * from "./serviceCalendarDocumentUsageItem";
 export * from "./serviceFulfillment";

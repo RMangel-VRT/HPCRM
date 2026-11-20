@@ -39,14 +39,15 @@ const repo = {
 };
 const email = vi.fn(async () => ({ communicationId: "comm", deliveryStatus: "sent" }));
 const sends = vi.fn(async () => []);
-const emailOptions = vi.fn(async () => ({ companyName: "Fixture", phone: null }));
+const emailOptions = vi.fn(async () => ({ companyName: "Fixture", phone: null, subject: "Requested documents – Fixture" }));
+const emailPreview = vi.fn(async () => ({ subject: "Preview", html: "<p>Preview</p>", text: "Preview" }));
 const reconcile = vi.fn(async () => {});
 function app() {
   const a = express(); a.use(express.json()); a.use((req, _res, next) => {
     Object.assign(req, { isAuthenticated: () => authenticated, sessionID: session,
       user: { id: "editor", name: "Editor", accessRole: accessRole(role), activeCompanyId: company } }); next();
   });
-  registerCompanyDocuments(a, { repository: repo as any, objects: objects as any, email, sends, emailOptions, reconcile }); return request(a);
+  registerCompanyDocuments(a, { repository: repo as any, objects: objects as any, email, emailPreview, sends, emailOptions, reconcile }); return request(a);
 }
 const root = "/api/company-documents";
 const metadata = { name: "W9", category: "tax", visibility: "office", pinned: true };
@@ -72,12 +73,21 @@ it.each(ROLE_VALUES)("enforces canonical %s visibility and every route's role ga
   await c.get(`${root}/everyone/sends`).expect(manage ? 200 : 403);
   await c.get(`${root}/email-options`).expect(manage ? 200 : 403);
   await c.post(`${root}/email`).send({}).expect(manage ? 201 : 403);
+  await c.post(`${root}/email-preview`).send({}).expect(manage ? 200 : 403);
   await c.post(`${root}/upload-url`).send({ fileName: "a.pdf" }).expect(manage ? 200 : 403);
   await c.post(root).send({}).expect(manage ? 400 : 403);
   await c.post(`${root}/everyone/files`).send({}).expect(manage ? 400 : 403);
   await c.patch(`${root}/everyone`).send({ name: "updated" }).expect(manage ? 200 : 403);
   await c.put(`${root}/license-number`).send({ number: " 123 " }).expect(manage ? 200 : 403);
   await c.delete(`${root}/everyone`).expect(manage ? 204 : 403);
+});
+it("does not send or cross company when previewing", async () => {
+  const c = app();
+  await c.post(`${root}/email-preview`).set("X-Company-Id", "other").send({}).expect(409);
+  expect(emailPreview).not.toHaveBeenCalled();
+  const result = await c.post(`${root}/email-preview`).send({}).expect(200);
+  expect(result.body.text).toBe("Preview");
+  expect(email).not.toHaveBeenCalled();
 });
 it("creates and replaces idempotently while retaining history and immutable accepted paths", async () => {
   const token = await upload(), c = app();

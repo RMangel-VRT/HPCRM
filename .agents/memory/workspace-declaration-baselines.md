@@ -12,3 +12,9 @@ Leaf-package typechecks can read stale emitted workspace declarations while Vite
 If an incremental build reports success but a newly exported symbol is still
 absent from its emitted declaration, force the workspace library build before
 changing the import or reporting a regression.
+
+Keep a temporary baseline checkout outside the workspace, or exclude its
+Drizzle config when extracting it.
+
+**Why:** Schema validation scans the workspace for duplicate Drizzle configs,
+including in ignored output directories, to match production schema discovery.
