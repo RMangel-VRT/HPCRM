@@ -73,7 +73,7 @@ export class ObjectStorageService {
   async searchPublicObject(filePath: string): Promise<File | null> {
     for (const searchPath of this.getPublicObjectSearchPaths()) {
       const fullPath = `${searchPath}/${filePath}`;
-      if (this.isReservedEstimatePhotoPath(fullPath)) continue;
+      if (this.isReservedEstimatePath(fullPath)) continue;
 
       const { bucketName, objectName } = parseObjectPath(fullPath);
       const bucket = objectStorageClient.bucket(bucketName);
@@ -150,7 +150,7 @@ export class ObjectStorageService {
       );
     }
     const cleaned = scopedSubpath.replace(/^\/+/, "");
-    if (cleaned.includes("..")) {
+    if (cleaned.includes("..") || cleaned.startsWith(ESTIMATE_ISSUED_PDF_PREFIX)) {
       throw new Error("Invalid scoped upload path");
     }
     const dir = privateObjectDir.endsWith("/") ? privateObjectDir.slice(0, -1) : privateObjectDir;
@@ -161,7 +161,7 @@ export class ObjectStorageService {
     return { uploadUrl, storagePath };
   }
 
-  async getObjectEntityFile(objectPath: string, options?: { allowEstimatePhoto?: boolean }): Promise<File> {
+  async getObjectEntityFile(objectPath: string, options?: { allowEstimatePhoto?: boolean; allowIssuedEstimatePdf?: boolean }): Promise<File> {
     if (!objectPath.startsWith("/objects/")) {
       throw new ObjectNotFoundError();
     }
@@ -175,6 +175,7 @@ export class ObjectStorageService {
     // Estimate uploads and accepted images have dedicated, row-scoped readers.
     // Legacy registration and generic object routes cannot claim these paths.
     if (isEstimatePhotoObject(objectPath) && !options?.allowEstimatePhoto) throw new ObjectNotFoundError();
+    if (entityId.startsWith(ESTIMATE_ISSUED_PDF_PREFIX) && !options?.allowIssuedEstimatePdf) throw new ObjectNotFoundError();
     let entityDir = this.getPrivateObjectDir();
     if (!entityDir.endsWith("/")) {
       entityDir = `${entityDir}/`;
@@ -253,16 +254,17 @@ export class ObjectStorageService {
   }
 
   async downloadByPath(fullGcsPath: string): Promise<Buffer> {
-    if (this.isReservedEstimatePhotoPath(fullGcsPath)) throw new ObjectNotFoundError();
+    if (this.isReservedEstimatePath(fullGcsPath)) throw new ObjectNotFoundError();
     const { bucketName, objectName } = parseObjectPath(fullGcsPath);
     const bucket = objectStorageClient.bucket(bucketName);
     const [data] = await bucket.file(objectName).download();
     return data as Buffer;
   }
 
-  private isReservedEstimatePhotoPath(fullGcsPath: string): boolean {
+  private isReservedEstimatePath(fullGcsPath: string): boolean {
     const directory = process.env.PRIVATE_OBJECT_DIR?.replace(/^\/|\/$/g, "");
-    return !!directory && fullGcsPath.replace(/^\//, "").startsWith(`${directory}/${ESTIMATE_PHOTO_PREFIX}`);
+    const path = fullGcsPath.replace(/^\//, "");
+    return !!directory && [ESTIMATE_PHOTO_PREFIX, ESTIMATE_ISSUED_PDF_PREFIX].some(prefix => path.startsWith(`${directory}/${prefix}`));
   }
 
   /** Only for newly allocated private paths whose owner is rolling back a write. */
@@ -276,6 +278,7 @@ export class ObjectStorageService {
 }
 
 export const ESTIMATE_PHOTO_PREFIX = "estimate-version-photos/";
+export const ESTIMATE_ISSUED_PDF_PREFIX = "estimate-issued-pdfs/";
 export const isEstimatePhotoObject = (path: string) => path.startsWith(`/objects/${ESTIMATE_PHOTO_PREFIX}`);
 
 function parseObjectPath(path: string): {

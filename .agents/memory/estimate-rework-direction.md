@@ -39,3 +39,18 @@ the worksheet or its files.
 
 **How to apply:** If adding cleanup, verify both kinds of references before
 deleting accepted photo bytes. Do not let proposal retirement sweep this media.
+
+For CRM email, the user approved retaining the exact first attachment and
+filename privately on its estimate version. Preview, download, and deliberate
+resends use the archived original. Versions marked sent outside the CRM have
+no original; do not reconstruct one or offer an exact resend.
+
+**Why:** A later revision can change the displayed version label, while live
+location and catalog metadata can change independently of frozen prices.
+
+**How to apply:** Keep the issued document immutable, retain live ownership of
+location and catalog facts, and let the communication record own recipients and
+delivery. A confirmed delivery awaiting status recovery must not call Gmail again.
+Treat a missing Gmail acknowledgement as unknown delivery, not rejection: keep
+the private attachment and RFC identity until the outcome can be verified.
+**Why:** Gmail can accept the email before its connection drops.

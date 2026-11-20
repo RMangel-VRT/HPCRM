@@ -58,10 +58,21 @@ function Footer({ busy, onClose, submit, testId, destructive }: { busy: boolean;
   );
 }
 
+export function EstimateNeedsPriceWarning({ lines }: { lines: { id: string; name: string | null }[] }) {
+  const { t } = useTranslation();
+  return <div role="alert" className="rounded-md border border-[hsl(var(--est-warn))]/40 bg-[hsl(var(--est-warn-bg))] p-3 text-sm" data-testid="panel-need-price">
+    <p className="flex items-center gap-1.5 font-semibold text-[hsl(var(--est-warn))]"><AlertTriangle className="h-4 w-4" />{t("estimateBuilder.life.send.needPriceTitle")}</p>
+    <p className="mt-1 text-xs">{t("estimateBuilder.life.send.needPriceBody")}</p>
+    <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs">
+      {lines.map((l) => <li key={l.id} data-testid={`need-price-${l.id}`}>{l.name ?? t("estimateBuilder.life.send.unknownLine", { id: l.id })}</li>)}
+    </ul>
+  </div>;
+}
+
 export function SendDialog(props: Base & { needPrice: { id: string; name: string | null }[] | null; onSubmit: (b: { method: SentMethod; confirmZeroPriced?: boolean }) => void }) {
   const { t } = useTranslation();
-  const [method, setMethod] = useState<SentMethod>("email");
-  useEffect(() => { if (props.open) setMethod("email"); }, [props.open]);
+  const [method, setMethod] = useState<SentMethod>("hard_copy");
+  useEffect(() => { if (props.open) setMethod("hard_copy"); }, [props.open]);
   const confirming = !!props.needPrice?.length;
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -70,19 +81,11 @@ export function SendDialog(props: Base & { needPrice: { id: string; name: string
   }
   return (
     <Shell open={props.open} busy={props.busy} onClose={props.onClose} testId="dialog-send"
-      title={t("estimateBuilder.life.send.title", { n: props.versionNumber })} body={t("estimateBuilder.life.send.body")}>
+      title={t("estimateBuilder.email.markOnly")} body={t("estimateBuilder.life.send.body")}>
       <form onSubmit={submit} noValidate className="grid gap-4">
-        <MethodGroup name="send-method" legend={t("estimateBuilder.life.send.method")} options={SENT_METHODS} value={method}
+        <MethodGroup name="send-method" legend={t("estimateBuilder.life.send.method")} options={SENT_METHODS.filter(m => m !== "email")} value={method}
           onChange={(m: SentMethod) => setMethod(m)} label={(m: SentMethod) => t(`estimateBuilder.life.sentMethod.${m}`)} />
-        {confirming && (
-          <div role="alert" className="rounded-md border border-[hsl(var(--est-warn))]/40 bg-[hsl(var(--est-warn-bg))] p-3 text-sm" data-testid="panel-need-price">
-            <p className="flex items-center gap-1.5 font-semibold text-[hsl(var(--est-warn))]"><AlertTriangle className="h-4 w-4" />{t("estimateBuilder.life.send.needPriceTitle")}</p>
-            <p className="mt-1 text-xs">{t("estimateBuilder.life.send.needPriceBody")}</p>
-            <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs">
-              {props.needPrice!.map((l) => <li key={l.id} data-testid={`need-price-${l.id}`}>{l.name ?? t("estimateBuilder.life.send.unknownLine", { id: l.id })}</li>)}
-            </ul>
-          </div>
-        )}
+        {confirming && <EstimateNeedsPriceWarning lines={props.needPrice!} />}
         <FormError error={props.error} />
         <Footer busy={props.busy} onClose={props.onClose} testId={confirming ? "button-send-anyway" : "button-submit-send"}
           submit={confirming ? t("estimateBuilder.life.send.sendAnyway") : t("estimateBuilder.life.send.submit")} />

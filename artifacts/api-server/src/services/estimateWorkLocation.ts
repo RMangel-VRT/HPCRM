@@ -1,5 +1,5 @@
-import { and, eq } from "drizzle-orm";
-import { estimates, type EstimateWorkLocationInput, type ResolvedWorkLocation } from "@workspace/db";
+import { and, eq, isNotNull } from "drizzle-orm";
+import { estimates, estimateVersions, type EstimateWorkLocationInput, type ResolvedWorkLocation } from "@workspace/db";
 import { db, inTransaction } from "../db";
 import { lockVisitCompany, lockVisitTickets } from "../lib/visitLocks";
 import { recordTicketLocationEdit } from "../lib/ticketLocationHistory";
@@ -18,6 +18,12 @@ export async function updateEstimateWorkLocation(companyId: string, userId: stri
     const [ticket] = candidate.ticketId ? await lockVisitTickets(tx, companyId, [candidate.ticketId]) : [];
     let estimate = requireEstimate((await tx.select().from(estimates).where(scope).for("update"))[0]);
     if (estimate.voidedAt) throw new EstimateError(409, "ESTIMATE_VOIDED");
+    if (estimate.currentVersionId) {
+      const [current] = await tx.select({ id: estimateVersions.id }).from(estimateVersions).where(and(
+        eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, id), eq(estimateVersions.id, estimate.currentVersionId),
+        eq(estimateVersions.status, "draft"), isNotNull(estimateVersions.emailIssue)));
+      if (current) throw new EstimateError(409, "ESTIMATE_EMAIL_IN_PROGRESS");
+    }
     const { label, details } = input;
     if (estimate.ticketId !== null) {
       if (!ticket || estimate.ticketId !== ticket.id) throw new EstimateError(409, "WORK_LOCATION_OWNER_CHANGED");

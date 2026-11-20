@@ -37,6 +37,7 @@ interface Options {
   offerActivation: (data: EstimateDetailDto & ActivationResponse, name: string) => void; customerName: string;
   install?: (data: EstimateDetailDto) => Promise<boolean>;
   onCommitted?: () => void;
+  email?: { to: string[]; resend: boolean };
 }
 
 /** One lifecycle request/effects contract for builder and action list.
@@ -47,7 +48,14 @@ export async function runEstimateLifecycle(o: Options): Promise<EstimateLifecycl
   const { queryClient: qc, t } = o;
   if (!o.isActive()) return { kind: "stale" };
   try {
-    const data = await sendEstimate(o.method, o.url, o.companyId, o.body);
+    const data = o.email?.resend
+      ? await sendEstimate(o.method, o.url, o.companyId, o.body, undefined, true)
+      : await sendEstimate(o.method, o.url, o.companyId, o.body);
+    if (o.email && data.emailed !== true) throw new Error("Missing estimate email acknowledgement");
+    if (o.email) {
+      void qc.invalidateQueries({ queryKey: ["/api/customers", data.customerId, "communications"] });
+      void qc.invalidateQueries({ queryKey: ["/api/communications"] });
+    }
     void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "list"] });
     // Mark inactive builder caches stale without refetching over a live editor.
     void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "detail"], refetchType: "none" });
@@ -56,9 +64,9 @@ export async function runEstimateLifecycle(o: Options): Promise<EstimateLifecycl
     if (o.install && !(await o.install(data))) return { kind: "stale" };
     if (!o.isActive()) return { kind: "stale" };
     o.onCommitted?.();
-    o.toast({ title: t(`estimateBuilder.life.done.${o.kind}`) });
+    o.toast({ title: o.email ? t("estimateBuilder.email.sentTo", { to: o.email.to.join(", ") }) : t(`estimateBuilder.life.done.${o.kind}`) });
     if (o.kind === "accept") o.offerActivation(data, data.display?.customerName ?? o.customerName);
-    if (["send", "accept", "decline"].includes(o.kind) && data.ticketId) {
+    if (!o.email?.resend && ["send", "accept", "decline"].includes(o.kind) && data.ticketId) {
       const result = await advanceLinkedTicket(data, ticketRequest(o.companyId, o.isActive));
       // Invalidate even when navigation happened during advancement. Its PATCH
       // may have committed, and the destination ticket must not retain old data.
@@ -87,6 +95,13 @@ export async function runEstimateLifecycle(o: Options): Promise<EstimateLifecycl
       void qc.invalidateQueries({ queryKey: ["estimate-ticket-recovery"] });
     }
     const known = conflict && ["DRAFT_EXISTS", "INVALID_TRANSITION", "NO_LINES", "HAS_ACCEPTED_VERSION", "ESTIMATE_VOIDED", "CONFLICT", "LINES_NEED_PRICE"].includes(conflict.error);
+    if (o.email && !known) {
+      const code = conflict?.error;
+      const emailErrors = ["ESTIMATE_EMAIL_IN_PROGRESS", "ESTIMATE_EMAIL_MAILBOX_UNAVAILABLE", "ESTIMATE_EMAIL_QUOTA",
+        "ESTIMATE_EMAIL_RECONNECT", "ESTIMATE_EMAIL_INVALID_RECIPIENT", "ESTIMATE_EMAIL_DELIVERY_UNCERTAIN", "ESTIMATE_EMAIL_ORIGINAL_UNAVAILABLE",
+        "ESTIMATE_EMAIL_PDF_UNAVAILABLE", "DOCUMENT_RENDERER_UNAVAILABLE", "ESTIMATE_EMAIL_TOO_LARGE"];
+      return { kind: "error", message: t(`estimateBuilder.email.errors.${code && emailErrors.includes(code) ? code : "unknown"}`), status, conflict };
+    }
     return { kind: "error", message: known ? t(`estimateBuilder.life.err.${conflict.error}`) : estimateErrorText(err, t), status, conflict };
   }
 }

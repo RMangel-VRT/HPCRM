@@ -2,14 +2,14 @@ import { Router, type Express, type RequestHandler } from "express";
 import { z } from "zod/v4";
 import { createEstimateSchema, patchEstimateSchema, patchEstimateVersionSchema, createEstimateSectionSchema, patchEstimateSectionSchema,
   createEstimateLineSchema, patchEstimateLineSchema, estimateListQuerySchema, estimateDetailQuerySchema, estimateIdSchema,
-   sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, reviseEstimateSchema, catalogMatchesQuerySchema } from "@workspace/db";
-import { PutEstimateWorkLocationBody, PutEstimateWorkLocationResponse } from "@workspace/api-zod";
+   sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, reviseEstimateSchema, catalogMatchesQuerySchema, estimates } from "@workspace/db";
+import { PutEstimateWorkLocationBody, PutEstimateWorkLocationResponse, GetEstimateEmailOptionsResponse } from "@workspace/api-zod";
 import { estimateOrderSchema, replaceEstimateLineSchema, estimatePhotoUploadSchema, registerEstimatePhotoSchema,
   estimatePhotoCaptionSchema, estimatePhotoOrderSchema } from "@workspace/db/estimate-contracts";
 import type { UserWithContext } from "../auth";
 import { estimateAccess } from "../lib/estimateAccess";
 import { logger } from "../lib/logger";
-import { EstimateError, postgresCode } from "../services/estimateErrors";
+import { EstimateError, postgresCode, requireEstimate } from "../services/estimateErrors";
 import { listEstimates, readEstimate } from "../services/estimateReads";
 import { createEstimate, retitleEstimate, patchVersion, createSection, patchSection, deleteSection, createLine, patchLine, deleteLine,
   reorderEstimate, duplicateEstimateLine, replaceEstimateLine } from "../services/estimates";
@@ -24,6 +24,10 @@ import { readEstimatePhoto, startEstimatePhotoUpload, registerEstimatePhoto, pat
 import { ObjectNotFoundError, ObjectStorageService } from "../objectStorage";
 import { canWriteCrewWorksheets } from "../lib/crewWorksheetAccess";
 import { generateEstimateCrewWorksheet } from "../services/estimateCrewWorksheet";
+import { emailEstimate } from "../services/estimateEmail";
+import { estimateEmailOptions } from "../services/estimateEmailOptions";
+import { and, eq } from "drizzle-orm";
+import { db } from "../db";
 
 const handle = (fn: RequestHandler): RequestHandler => async (req, res, next) => {
   try { await fn(req, res, next); } catch (error) {
@@ -78,6 +82,18 @@ export function registerEstimateRoutes(app: Express) {
     res.json(PutEstimateWorkLocationResponse.parse(resolved));
   }));
   const versionPath = "/:id/versions/:versionId";
+  router.get("/:id/email-options", handle(async (req, res) => {
+    const { id } = pathSchema.parse(req.params);
+    const user = req.user as UserWithContext;
+    const [estimate] = await db.select({ customerId: estimates.customerId }).from(estimates)
+      .where(and(eq(estimates.companyId, user.activeCompanyId), eq(estimates.id, id)));
+    res.json(GetEstimateEmailOptionsResponse.parse(await estimateEmailOptions(user, requireEstimate(estimate).customerId)));
+  }));
+  router.post(`${versionPath}/send-email`, handle(async (req, res) => {
+    const { id, versionId } = pathSchema.parse(req.params);
+    const resend = z.literal("1").optional().parse(req.get("X-Estimate-Resend"));
+    res.json(await emailEstimate(req.user as UserWithContext, id, versionId!, req.body, resend === "1"));
+  }));
   router.patch(versionPath, handle(async (req, res) => {
     const { id, versionId } = pathSchema.parse(req.params);
     if (req.body && typeof req.body === "object" && !Array.isArray(req.body) && Object.keys(req.body).length === 0)

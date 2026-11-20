@@ -54,7 +54,7 @@ type State = { kind: "loading" } | { kind: "error"; unavailable?: boolean } | { 
 export function PdfPreviewDialog(props: {
   open: boolean; onClose: () => void; companyId: string; estimateId: string; versionId: string;
   estimateNumber: string; versionNumber: number; showVersion?: boolean;
-  workLocation?: string | null; regenerated?: boolean;
+  workLocation?: string | null; regenerated?: boolean; original?: boolean;
 }) {
   const { t } = useTranslation();
   const { open, companyId, estimateId, versionId, workLocation, estimateNumber, versionNumber, showVersion } = props;
@@ -110,7 +110,8 @@ export function PdfPreviewDialog(props: {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><FileText className="h-4 w-4 text-[hsl(var(--rail-active-icon))]" />
             {titleShowsVersion ? t("estimateBuilder.pdf.title", { number: estimateNumber, n: versionNumber }) : estimateNumber}</DialogTitle>
-          <DialogDescription data-testid="text-pdf-hint">{t(props.regenerated ? "estimateBuilder.pdf.regenerated" : "estimateBuilder.pdf.desc")}</DialogDescription>
+          <DialogDescription data-testid="text-pdf-hint">{t(props.original ? "estimateBuilder.email.originalPdf"
+            : props.regenerated ? "estimateBuilder.pdf.regenerated" : "estimateBuilder.pdf.desc")}</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-hidden rounded-md border bg-muted/40">
           {state.kind === "loading" && (

@@ -28,6 +28,23 @@ function PdfItem({ included = true, children }: { included?: boolean; children: 
   );
 }
 
+export function estimateApproximatePages(version: EstimateDetailDto["version"]) {
+  if (version.issuedAttachment) return version.issuedAttachment.pageCount;
+  const { sections } = version;
+  const lines = sections.flatMap(s => s.lines);
+  const scope = version.scopeOfWork?.trim() ?? "";
+  const included = lines.filter(line => line.lineType === "plant" && line.includeInPalette).length;
+  const photos = version.photos?.length ?? 0;
+  // Estimate the variable pricing pages using rough wrapped-text row heights.
+  // The standalone template starts the terms and signature block on its own page.
+  const wrappedRows = (text: string, chars: number) =>
+    text.split(/\r?\n/).reduce((n, row) => n + Math.max(1, Math.ceil(row.length / chars)), 0);
+  const bodyRows = 9 + sections.length + (scope ? 2 + wrappedRows(scope, 90) : 0)
+    + lines.reduce((n, l) => n + wrappedRows(l.name, 38) + (l.detail ? wrappedRows(l.detail, 50) : 0), 0);
+  const plantRows = version.includePlantTable !== false && included ? 2 + included * 3 : 0;
+  return Math.max(1, Math.ceil((bodyRows + plantRows) / 34)) + 1 + Math.ceil(photos / 2);
+}
+
 function PdfChecklist({ version, canEditPlants, onPlantsChange }: {
   version: EstimateDetailDto["version"]; canEditPlants: boolean; onPlantsChange: (value: boolean) => void;
 }) {
@@ -40,14 +57,7 @@ function PdfChecklist({ version, canEditPlants, onPlantsChange }: {
   const included = plants.filter(line => line.includeInPalette).length;
   const photos = version.photos?.length ?? 0;
   const includePlantTable = version.includePlantTable ?? true;
-  // Estimate the variable pricing pages using rough wrapped-text row heights.
-  // The standalone template starts the terms and signature block on its own page.
-  const wrappedRows = (text: string, chars: number) =>
-    text.split(/\r?\n/).reduce((n, row) => n + Math.max(1, Math.ceil(row.length / chars)), 0);
-  const bodyRows = 9 + sections.length + (scope ? 2 + wrappedRows(scope, 90) : 0)
-    + lines.reduce((n, l) => n + wrappedRows(l.name, 38) + (l.detail ? wrappedRows(l.detail, 50) : 0), 0);
-  const plantRows = includePlantTable && included ? 2 + included * 3 : 0;
-  const pages = Math.max(1, Math.ceil((bodyRows + plantRows) / 34)) + 1 + Math.ceil(photos / 2);
+  const pages = estimateApproximatePages(version);
   return (
     <RailCard title={t("estimateBuilder.rail.onPdf")} testId="card-on-pdf">
       <ul className="space-y-1.5 text-sm">
@@ -71,7 +81,7 @@ function PdfChecklist({ version, canEditPlants, onPlantsChange }: {
         <PdfItem included={photos > 0}><span data-testid="text-pdf-photo-count">{t("estimateBuilder.exhibits.photoCount", { count: photos })}</span></PdfItem>
       </ul>
       <p className="mt-2 border-t pt-2 text-xs text-muted-foreground" data-testid="text-pdf-page-estimate">
-        {t("estimateBuilder.rail.pdfPages", { count: pages })}
+        {t(version.issuedAttachment ? "estimateBuilder.email.pages" : "estimateBuilder.rail.pdfPages", { count: pages })}
       </p>
     </RailCard>
   );
@@ -109,10 +119,11 @@ function VersionsCard({ data, lang, onView, onPdf }: {
                   <p className="text-xs text-muted-foreground" data-testid={`text-version-sent-${s.versionNumber}`}>
                     {formatDate(version.sentAt, lang)}
                     {version.sentMethod && ` · ${t(`estimateBuilder.life.sentMethod.${version.sentMethod}`)}`}
+                    {!!version.emailedTo?.length && ` · ${version.emailedTo.join(", ")}`}
                     {version.frozenSubtotalCents != null && ` · ${formatCents(version.frozenSubtotalCents, lang)}`}
                   </p>
                 )}
-                {version.sentAt && <p className="text-xs text-muted-foreground">{t("estimateBuilder.rail.regeneratedPdf")}</p>}
+                {version.sentAt && <p className="text-xs text-muted-foreground">{t(version.issuedAttachment ? "estimateBuilder.email.originalPdf" : "estimateBuilder.rail.regeneratedPdf")}</p>}
               </div>
               <button type="button" className="rounded-sm text-xs font-medium text-muted-foreground underline hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => onPdf(s)} aria-label={t("estimateBuilder.rail.versionPdf", { n: s.versionNumber })}

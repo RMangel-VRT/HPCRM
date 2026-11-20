@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, isNotNull, ilike, or, desc, asc, getTableColumns } from "drizzle-orm";
-import { estimates, estimateVersions, estimateSections, estimateLines, estimateVersionPhotos, customers, estimateLineNeedsPrice, type Estimate, type EstimateVersion, type EstimateLine } from "@workspace/db";
+import { estimates, estimateVersions, estimateSections, estimateLines, estimateVersionPhotos, communications, customers, estimateLineNeedsPrice, type Estimate, type EstimateVersion, type EstimateLine } from "@workspace/db";
+import type { IssuedEstimateAttachment } from "@workspace/db/estimate-contracts";
 import { db, type AppTransaction } from "../db";
 import { computeVersionTotals } from "./estimateMath";
 import { requireEstimate } from "./estimateErrors";
@@ -7,8 +8,10 @@ import { estimateDisplay } from "./estimateDisplay";
 import { loadPlantLinesForVersion, derivePaletteTypeLabel } from "./proposalExhibits";
 
 export type EstimateConnection = typeof db | AppTransaction;
-const { revisionIdMap: _revisionIdMap, ...versionColumns } = getTableColumns(estimateVersions);
-type VisibleEstimateVersion = Omit<EstimateVersion, "revisionIdMap">;
+const { revisionIdMap: _revisionIdMap, emailIssue: _emailIssue, ...versionColumns } = getTableColumns(estimateVersions);
+type VisibleEstimateVersion = Omit<EstimateVersion, "revisionIdMap" | "emailIssue"> & {
+  issuedAttachment?: IssuedEstimateAttachment; emailedTo?: string[]; emailDelivery?: "sending" | "delivered" | "uncertain";
+};
 export function estimateLinePayload(line: EstimateLine) {
   return { ...line, needsPrice: estimateLineNeedsPrice(line) };
 }
@@ -48,8 +51,22 @@ export async function versionPayload(tx: EstimateConnection, companyId: string, 
     sections: sections.map(section => ({ ...section, lines: grouped.get(section.id) ?? [] })), totals };
 }
 export async function estimatePayload(tx: EstimateConnection, companyId: string, estimate: Estimate, versionNumber?: number, affectedVersionId?: string) {
-  const versions = await tx.select(versionColumns).from(estimateVersions).where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimate.id)))
+  const rows = await tx.select({ ...versionColumns, emailIssue: estimateVersions.emailIssue }).from(estimateVersions).where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimate.id)))
     .orderBy(desc(estimateVersions.versionNumber));
+  const issuedIds = rows.flatMap(v => v.emailIssue && v.emailIssue.firstCommunicationId !== v.emailIssue.pendingCommunicationId
+    ? [v.emailIssue.firstCommunicationId] : []);
+  const receipts = issuedIds.length ? await tx.select({ id: communications.id, to: communications.toAddresses }).from(communications)
+    .where(and(eq(communications.companyId, companyId), eq(communications.routingMethod, "estimate_email"),
+      eq(communications.deliveryStatus, "sent"), inArray(communications.id, issuedIds))) : [];
+  const byId = new Map(receipts.map(r => [r.id, r.to]));
+  const versions: VisibleEstimateVersion[] = rows.map(({ emailIssue, ...row }) => {
+    if (!emailIssue) return row;
+    const emailDelivery = emailIssue.uncertain ? "uncertain" : emailIssue.pendingCommunicationId ? "sending" : "delivered";
+    if (emailIssue.firstCommunicationId === emailIssue.pendingCommunicationId) return { ...row, emailDelivery };
+    return { ...row, emailDelivery,
+      issuedAttachment: { filename: emailIssue.filename, pageCount: emailIssue.pageCount },
+      emailedTo: byId.get(emailIssue.firstCommunicationId) ?? [] };
+  });
   const version = requireEstimate(versions.find(v => versionNumber !== undefined ? v.versionNumber === versionNumber : v.id === (affectedVersionId ?? estimate.currentVersionId)));
   return { ...estimate, versions,
     display: await estimateDisplay(tx, companyId, estimate),

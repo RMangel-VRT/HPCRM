@@ -7,6 +7,87 @@
  */
 import * as zod from "zod";
 
+export const getEstimateEmailOptionsPathIdMax = 200;
+
+export const GetEstimateEmailOptionsParams = zod.object({
+  id: zod.coerce.string().min(1).max(getEstimateEmailOptionsPathIdMax),
+});
+
+export const GetEstimateEmailOptionsResponse = zod.object({
+  mailboxes: zod.array(
+    zod.object({
+      id: zod.string(),
+      displayName: zod.string(),
+      emailAddress: zod.string(),
+    }),
+  ),
+  recipients: zod.array(
+    zod.object({
+      email: zod.string(),
+      name: zod.string(),
+    }),
+  ),
+  defaultMailboxId: zod.string().nullable(),
+  defaultTo: zod.string().nullable(),
+  companyName: zod.string(),
+  phone: zod.string().nullable(),
+});
+
+export const emailEstimateVersionPathIdMax = 200;
+
+export const emailEstimateVersionPathVersionIdMax = 200;
+
+export const EmailEstimateVersionParams = zod.object({
+  id: zod.coerce.string().min(1).max(emailEstimateVersionPathIdMax),
+  versionId: zod.coerce
+    .string()
+    .min(1)
+    .max(emailEstimateVersionPathVersionIdMax),
+});
+
+export const EmailEstimateVersionHeader = zod.object({
+  "X-Estimate-Resend": zod
+    .enum(["1"])
+    .optional()
+    .describe(
+      "Explicit resend intent for a sent version with an archived original",
+    ),
+});
+
+export const emailEstimateVersionBodyToItemMax = 254;
+
+export const emailEstimateVersionBodyToMax = 10;
+
+export const emailEstimateVersionBodyCcItemMax = 254;
+
+export const emailEstimateVersionBodyCcMax = 10;
+
+export const emailEstimateVersionBodySubjectMax = 255;
+
+export const emailEstimateVersionBodyBodyTextMax = 100000;
+
+export const EmailEstimateVersionBody = zod
+  .object({
+    mailboxAccountId: zod.string().min(1),
+    to: zod
+      .array(zod.string().email().max(emailEstimateVersionBodyToItemMax))
+      .min(1)
+      .max(emailEstimateVersionBodyToMax),
+    cc: zod
+      .array(zod.string().email().max(emailEstimateVersionBodyCcItemMax))
+      .max(emailEstimateVersionBodyCcMax)
+      .optional(),
+    subject: zod.string().min(1).max(emailEstimateVersionBodySubjectMax),
+    bodyText: zod.string().max(emailEstimateVersionBodyBodyTextMax),
+    confirmZeroPriced: zod.boolean().optional(),
+  })
+  .describe("To and Cc combined may contain up to ten distinct addresses.");
+
+export const EmailEstimateVersionResponse = zod.object({
+  id: zod.string(),
+  emailed: zod.literal(true),
+});
+
 export const putEstimateWorkLocationPathIdMax = 200;
 
 export const PutEstimateWorkLocationParams = zod.object({

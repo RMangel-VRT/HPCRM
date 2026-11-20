@@ -23,6 +23,58 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /estimates/{id}/email-options:
+    get:
+      operationId: getEstimateEmailOptions
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      responses:
+        "200":
+          description: Visible connected mailboxes, scoped recipient suggestions and sender defaults
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EstimateEmailOptions" }
+        "403": { description: Forbidden }
+        "404": { description: Estimate not found }
+  /estimates/{id}/versions/{versionId}/send-email:
+    post:
+      operationId: emailEstimateVersion
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: versionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - name: X-Estimate-Resend
+          in: header
+          description: Explicit resend intent for a sent version with an archived original
+          schema: { type: string, enum: ["1"] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EstimateEmailInput" }
+      responses:
+        "200":
+          description: Updated estimate detail payload with confirmed email delivery
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                required: [id, emailed]
+                properties:
+                  id: { type: string }
+                  emailed: { type: boolean, enum: [true] }
+        "400": { description: Invalid recipient or message }
+        "403": { description: Forbidden or mailbox unavailable }
+        "404": { description: Estimate/version not found }
+        "409": { description: "Invalid send state, needs price confirmation, or delivery already in progress" }
+        "413": { description: PDF exceeds Gmail attachment limit }
+        "500":
+          description: Gmail accepted the message; either local receipt or lifecycle recording failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EstimateEmailRecovery" }
+        "502": { description: Gmail rejected the send or delivery could not be confirmed }
+        "503": { description: PDF could not be rendered or the original could not be read }
   /estimates/{id}/work-location:
     put:
       operationId: putEstimateWorkLocation
@@ -1481,6 +1533,57 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    EstimateEmailInput:
+      type: object
+      additionalProperties: false
+      required: [mailboxAccountId, to, subject, bodyText]
+      description: To and Cc combined may contain up to ten distinct addresses.
+      properties:
+        mailboxAccountId: { type: string, minLength: 1 }
+        to:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: { type: string, format: email, maxLength: 254 }
+        cc:
+          type: array
+          maxItems: 10
+          items: { type: string, format: email, maxLength: 254 }
+        subject: { type: string, minLength: 1, maxLength: 255 }
+        bodyText: { type: string, maxLength: 100000 }
+        confirmZeroPriced: { type: boolean }
+    EstimateEmailOptions:
+      type: object
+      required: [mailboxes, defaultMailboxId, recipients, defaultTo, companyName, phone]
+      properties:
+        mailboxes:
+          type: array
+          items:
+            type: object
+            required: [id, displayName, emailAddress]
+            properties:
+              id: { type: string }
+              displayName: { type: string }
+              emailAddress: { type: string }
+        recipients:
+          type: array
+          items:
+            type: object
+            required: [email, name]
+            properties:
+              email: { type: string }
+              name: { type: string }
+        defaultMailboxId: { type: ["string", "null"] }
+        defaultTo: { type: ["string", "null"] }
+        companyName: { type: string }
+        phone: { type: ["string", "null"] }
+    EstimateEmailRecovery:
+      type: object
+      required: [error, emailed, recoveryAvailable]
+      properties:
+        error: { type: string }
+        emailed: { type: boolean, enum: [true] }
+        recoveryAvailable: { type: boolean }
     EstimateWorkLocationInput:
       type: object
       additionalProperties: false

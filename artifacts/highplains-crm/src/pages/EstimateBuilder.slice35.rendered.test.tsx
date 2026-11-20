@@ -154,7 +154,7 @@ describe("identity header", () => {
     const bar = screen.getByTestId("bar-lifecycle");
     expect(within(bar).getByTestId("button-preview-pdf")).toBeTruthy();
     expect(within(bar).getByTestId("button-download-pdf").textContent).toBe("Download PDF");
-    expect(within(bar).getByTestId("button-mark-sent")).toBeTruthy();
+    expect(within(bar).getByTestId("button-send-estimate")).toBeTruthy();
     expect(screen.getByTestId("link-back-list").getAttribute("href")).toBe("/dashboard/estimates/builder");
     expect(screen.queryByRole("navigation", { name: "Estimates navigation" })).toBeNull();
     expect(within(card).queryByTestId("card-versions")).toBeNull();
@@ -380,7 +380,7 @@ describe("pdf preview", () => {
         url: "/api/estimates/e1/versions/v2/pdf?download=1", method: "GET", headers: { "X-Company-Id": "c1" },
       });
       expect(mutations()).toEqual([]);
-      expect(screen.getByTestId("button-mark-sent")).toBeTruthy();
+      expect(screen.getByTestId("button-send-estimate")).toBeTruthy();
       expect(screen.getByTestId("pill-status-draft").textContent).toContain("Draft");
     } finally { click.mockRestore(); }
   });

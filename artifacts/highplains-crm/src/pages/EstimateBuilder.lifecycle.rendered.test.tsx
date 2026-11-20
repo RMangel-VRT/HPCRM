@@ -93,6 +93,10 @@ function renderAt(path: string) {
   return { ...r, loc, client, rerenderPage: () => r.rerender(ui()) };
 }
 const ready = () => screen.findByTestId("text-estimate-total");
+async function markWithoutEmail() {
+  fireEvent.keyDown(screen.getByTestId("button-overflow"), { key: "Enter" });
+  fireEvent.click(await screen.findByTestId("button-mark-sent"));
+}
 
 const galleryPhoto = (id: string, displayOrder: number, caption: string | null = null) =>
   ({ id, displayOrder, caption, filename: `${id}.jpg`, fileSize: 12, mimeType: "image/jpeg", createdAt: T0 });
@@ -246,7 +250,7 @@ describe("header actions per state", () => {
   it("draft v1: Mark as Sent, no discard (v1 voids instead), overflow void", async () => {
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    expect(screen.getByTestId("button-mark-sent")).toBeTruthy();
+    expect(screen.getByTestId("button-send-estimate")).toBeTruthy();
     expect(screen.getByTestId("pill-status-draft").textContent).toBe("Draft");
     expect(screen.getByTestId("text-single-version-pdf")).toBeTruthy();
     expect(screen.queryByTestId("button-discard-draft")).toBeNull();
@@ -394,8 +398,9 @@ describe("dialogs", () => {
     };
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    fireEvent.click(screen.getByTestId("button-mark-sent"));
+    await markWithoutEmail();
     await screen.findByTestId("dialog-send");
+    expect(screen.queryByTestId("radio-send-method-email")).toBeNull();
     fireEvent.click(screen.getByTestId("radio-send-method-portal"));
     fireEvent.click(screen.getByTestId("button-submit-send"));
     await screen.findByTestId("panel-need-price");
@@ -414,7 +419,7 @@ describe("dialogs", () => {
     handler = (c) => c.method === "POST" ? new Promise((r) => { release = () => r(res(detailOf([{ id: "v1", n: 1, status: "sent" }], undefined, { updatedAt: LATER }))); }) : undefined;
     renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    fireEvent.click(screen.getByTestId("button-mark-sent"));
+    await markWithoutEmail();
     const btn = await screen.findByTestId("button-submit-send");
     fireEvent.click(btn); fireEvent.click(btn);
     fireEvent.submit(btn.closest("form")!);
@@ -611,7 +616,7 @@ describe("stale scope and version", () => {
     };
     const { loc } = renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    fireEvent.click(screen.getByTestId("button-mark-sent"));
+    await markWithoutEmail();
     fireEvent.click(await screen.findByTestId("button-submit-send"));
     await waitFor(() => expect(mutations()).toHaveLength(1));
     act(() => loc.navigate("/dashboard/estimates/builder/e1?version=1"));
@@ -621,23 +626,143 @@ describe("stale scope and version", () => {
     expect(screen.getByTestId("bar-not-current")).toBeTruthy();
     expect(toastSpy).not.toHaveBeenCalled();
     act(() => loc.navigate("/dashboard/estimates/builder/e1"));
-    expect(await screen.findByTestId("button-mark-sent").catch(() => screen.findByTestId("button-record-accept"))).toBeTruthy();
-    expect((screen.queryByTestId("button-mark-sent") ?? screen.getByTestId("button-record-accept")).hasAttribute("disabled")).toBe(false);
+    expect(await screen.findByTestId("button-send-estimate").catch(() => screen.findByTestId("button-record-accept"))).toBeTruthy();
+    expect((screen.queryByTestId("button-send-estimate") ?? screen.getByTestId("button-record-accept")).hasAttribute("disabled")).toBe(false);
   });
   it("tenant switch drops an in-flight lifecycle result", async () => {
     let release!: () => void;
     handler = (c) => c.method === "POST" ? new Promise((r) => { release = () => r(res(detailOf([{ id: "v1", n: 1, status: "sent" }], undefined, { updatedAt: LATER }))); }) : undefined;
     const { rerenderPage } = renderAt("/dashboard/estimates/builder/e1");
     await ready();
-    fireEvent.click(screen.getByTestId("button-mark-sent"));
+    await markWithoutEmail();
     fireEvent.click(await screen.findByTestId("button-submit-send"));
     await waitFor(() => expect(mutations()).toHaveLength(1));
     auth.user = { id: "u1", activeCompanyId: "c2", activeRole: "office" };
     rerenderPage();
     await act(async () => { release(); });
     await ready();
-    expect(screen.getByTestId("button-mark-sent")).toBeTruthy();
+    expect(screen.getByTestId("button-send-estimate")).toBeTruthy();
     expect(toastSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("sending estimate email", () => {
+  const path = "/dashboard/estimates/builder/e1";
+  const send = "/api/estimates/e1/versions/v1/send-email";
+  const options = {
+    mailboxes: [{ id: "office", displayName: "Shared office", emailAddress: "office@example.test" }],
+    defaultMailboxId: "office", recipients: [{ email: "manager@example.test", name: "Manager" }, { email: "billing@example.test", name: "" }],
+    defaultTo: "manager@example.test", companyName: "High Plains", phone: "303-555-0100",
+  };
+  const sent = { sentAt: LATER, sentMethod: "email", frozenSubtotalCents: 2000, emailedTo: ["manager@example.test"],
+    issuedAttachment: { filename: "EST-2025-0042.pdf", pageCount: 2 }, emailDelivery: "delivered" };
+  const open = async () => {
+    await ready();
+    fireEvent.click(screen.getByTestId("button-send-estimate"));
+    return screen.findByTestId("dialog-estimate-email");
+  };
+  const input = (id: string) => document.getElementById(`estimate-email-${id}`) as HTMLInputElement | HTMLTextAreaElement;
+  const readyToSend = async () => {
+    const button = await screen.findByTestId("button-submit-estimate-email") as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    return button;
+  };
+  it("sends a scoped message, confirms missing prices, shows delivery, and advances the linked ticket", async () => {
+    auth.user.name = "Estimator";
+    detail = detailOf([{ id: "v1", status: "draft", n: 1 }], undefined, { ticketId: "ticket1", estimateNumber: "EST-2025-0042" });
+    let sendCount = 0;
+    handler = c => {
+      if (c.url.endsWith("/email-options")) return res(options);
+      if (c.url === send) {
+        if (++sendCount === 1) return res({ error: "LINES_NEED_PRICE", lineIds: ["lb"] }, 409);
+        detail = detailOf([{ id: "v1", status: "sent", n: 1, o: sent }], undefined,
+          { ticketId: "ticket1", estimateNumber: "EST-2025-0042", updatedAt: LATER });
+        return res({ ...(detail as object), emailed: true });
+      }
+      if (c.url === "/api/tickets/ticket1") return res({ id: "ticket1", companyId: "c1", ticketTypeId: "tt", currentStatusId: "new" });
+      if (c.url.endsWith("/tt/statuses")) return res([{ id: "new", name: "New", displayOrder: 0, isFinal: "false" },
+        { id: "target", name: "Proposal Sent", statusKey: "proposal_sent", displayOrder: 1, isFinal: "false" }]);
+      if (c.url.endsWith("/tt/fields") || c.url.endsWith("/field-values")) return res([]);
+      return undefined;
+    };
+    renderAt(path);
+    await open();
+    const button = await readyToSend();
+    expect(input("from").value).toBe("office");
+    expect(input("to").value).toBe("manager@example.test");
+    expect(input("subject").value).toBe("Estimate EST-2025-0042 — Spring install");
+    expect(input("body").value).toContain("High Plains · 303-555-0100");
+    expect(input("body").value).toContain("Estimator");
+    expect(input("body").value).toContain("Prices are good for 30 days");
+    expect(screen.getByTestId("estimate-email-attachment").textContent).toContain("EST-2025-0042.pdf");
+    fireEvent.change(input("cc"), { target: { value: "billing@example.test" } });
+    fireEvent.click(button);
+    await waitFor(() => expect(button.textContent).toContain("Send anyway"));
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.getByTestId("banner-edit-revision").textContent).toContain("Emailed to manager@example.test"));
+    expect(screen.getByTestId("text-version-sent-1").textContent).toContain("Email · manager@example.test");
+    await waitFor(() => expect(mutations().find(c => c.url === "/api/tickets/ticket1")?.body).toMatchObject({ currentStatusId: "target" }));
+    expect(mutations().filter(c => c.url === send)).toMatchObject([
+      { headers: { "X-Company-Id": "c1" }, body: { mailboxAccountId: "office", to: ["manager@example.test"], cc: ["billing@example.test"] } },
+      { body: { confirmZeroPriced: true } },
+    ]);
+    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: "Emailed to manager@example.test" }));
+  });
+  it("offers a transition-only recovery after Gmail delivered", async () => {
+    handler = c => {
+      if (c.url.endsWith("/email-options")) return res(options);
+      if (c.url === send) return res({ error: "ESTIMATE_EMAIL_TRANSITION_FAILED", emailed: true, recoveryAvailable: true }, 500);
+      if (c.url.endsWith("/send")) return res(detailOf([{ id: "v1", status: "sent", n: 1, o: sent }], undefined, { updatedAt: LATER }));
+      return undefined;
+    };
+    renderAt(path);
+    await open();
+    fireEvent.click(await readyToSend());
+    const recovery = await screen.findByTestId("button-recover-estimate-email");
+    expect(screen.queryByTestId("button-submit-estimate-email")).toBeNull();
+    fireEvent.click(recovery);
+    await screen.findByTestId("button-record-accept");
+    expect(mutations()).toMatchObject([{ url: send }, { url: "/api/estimates/e1/versions/v1/send", body: { method: "email" } }]);
+  });
+  it("blocks both send and mark-sent when Gmail has not confirmed delivery", async () => {
+    handler = c => c.url.endsWith("/email-options") ? res(options)
+      : c.url === send ? res({ error: "ESTIMATE_EMAIL_DELIVERY_UNCERTAIN" }, 502) : undefined;
+    renderAt(path);
+    const dialog = await open();
+    fireEvent.click(await readyToSend());
+    await waitFor(() => expect(dialog.textContent).toContain("Gmail did not confirm delivery."));
+    expect(screen.queryByTestId("button-submit-estimate-email")).toBeNull();
+    expect(screen.queryByTestId("button-recover-estimate-email")).toBeNull();
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" })[0]);
+    await waitFor(() => expect((screen.getByTestId("button-send-estimate") as HTMLButtonElement).disabled).toBe(true));
+    expect(mutations()).toHaveLength(1);
+  });
+  it("shows the Spanish default copy and version suffix but prevents send without a mailbox", async () => {
+    await i18n.changeLanguage("es");
+    detail = detailOf([{ id: "old", status: "sent", n: 1 }, { id: "v1", status: "draft", n: 2 }], undefined, { estimateNumber: "EST-2025-0042" });
+    handler = c => c.url.endsWith("/email-options") ? res({ ...options, mailboxes: [], defaultMailboxId: null }) : undefined;
+    renderAt(path);
+    await open();
+    const link = await screen.findByRole("link", { name: "Conectar un buzón" });
+    expect(link.getAttribute("href")).toBe("/dashboard/settings/shared-mailboxes");
+    await waitFor(() => expect(input("subject").value).toBe("Estimado EST-2025-0042 — Spring install (Versión 2)"));
+    expect(input("body").value).toContain("Los precios son válidos durante 30 días.");
+    expect((screen.getByTestId("button-submit-estimate-email") as HTMLButtonElement).disabled).toBe(true);
+    expect(mutations()).toHaveLength(0);
+  });
+  it("explicitly resends the archived filename from a historical sent version without advancing", async () => {
+    detail = detailOf([{ id: "v1", status: "sent", n: 1, o: sent }, { id: "v2", status: "draft", n: 2 }], "v1", { ticketId: "ticket1" });
+    handler = c => c.url.endsWith("/email-options") ? res(options) : c.url === send ? res({ ...(detail as object), emailed: true }) : undefined;
+    renderAt(`${path}?version=1`);
+    await ready();
+    fireEvent.keyDown(screen.getByTestId("button-overflow"), { key: "Enter" });
+    fireEvent.click(await screen.findByTestId("menu-email-estimate-again"));
+    const button = await readyToSend();
+    expect(screen.getByTestId("estimate-email-attachment").textContent).toContain("EST-2025-0042.pdf");
+    expect(screen.getByTestId("estimate-email-attachment").textContent).not.toContain("-v1.pdf");
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.queryByTestId("dialog-estimate-email")).toBeNull());
+    expect(mutations()).toMatchObject([{ url: send, headers: { "X-Company-Id": "c1", "X-Estimate-Resend": "1" } }]);
   });
 });
 

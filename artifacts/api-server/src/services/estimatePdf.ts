@@ -3,7 +3,8 @@ import { formatEstimateUnit } from "../../../../lib/db/src/estimateUnits";
 import { estimates, estimateVersions } from "@workspace/db";
 import { estimateHasMultipleVersions, estimatePdfFilename, type EstimateDetailDto } from "@workspace/db/estimate-contracts";
 import { db } from "../db";
-import { estimatePayload, readEstimatePhotoRows } from "./estimateReads";
+import { estimatePayload, readEstimatePhotoRows, type EstimateConnection } from "./estimateReads";
+import { issuedEstimatePdfs } from "./estimateIssuedPdf";
 import { requireEstimate } from "./estimateErrors";
 import { calculateExtendedCents } from "./estimateMath";
 import { documentSettingsModel, type DocumentSettings } from "@workspace/db/document-contracts";
@@ -130,8 +131,8 @@ export async function renderEstimateDocument(model: EstimateDocumentModel): Prom
 }
 
 /** Pricing is snapshot-based. Only standalone estimates request the exhibit projection. */
-export async function loadEstimateDocumentModel(companyId: string, estimateId: string, versionId: string, withExhibits = false): Promise<EstimateDocumentModel> {
-  const { model, plants, photos } = await db.transaction(async tx => {
+export async function loadEstimateDocumentModel(companyId: string, estimateId: string, versionId: string, withExhibits = false, connection?: EstimateConnection): Promise<EstimateDocumentModel> {
+  const load = async (tx: EstimateConnection) => {
     const estimate = requireEstimate((await tx.select().from(estimates).where(and(eq(estimates.companyId, companyId), eq(estimates.id, estimateId))))[0]);
     const version = requireEstimate((await tx.select().from(estimateVersions).where(and(
       eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimate.id), eq(estimateVersions.id, versionId),
@@ -144,7 +145,8 @@ export async function loadEstimateDocumentModel(companyId: string, estimateId: s
         ? proposalPlantRows((await loadPlantLinesForVersion(companyId, version.id, tx)).filter(line => line.includeInPalette)) : [],
       photos: withExhibits && payload.version.photos.length ? await readEstimatePhotoRows(tx, companyId, version.id) : [],
     };
-  }, { isolationLevel: "repeatable read", accessMode: "read only" });
+  };
+  const { model, plants, photos } = await (connection ? load(connection) : db.transaction(load, { isolationLevel: "repeatable read", accessMode: "read only" }));
   if (plants.length || photos.length) {
     const store = new ObjectStorageService();
     const thumbnails = new Map<string, string | null>();
@@ -174,8 +176,13 @@ export async function loadEstimateDocumentModel(companyId: string, estimateId: s
 export async function renderEstimatePdf(companyId: string, estimateId: string, versionId: string): Promise<Buffer> {
   return renderEstimateDocument(await loadEstimateDocumentModel(companyId, estimateId, versionId));
 }
-export async function renderEstimatePdfFile(companyId: string, estimateId: string, versionId: string) {
-  const model = await loadEstimateDocumentModel(companyId, estimateId, versionId, true);
+export async function renderEstimatePdfFile(companyId: string, estimateId: string, versionId: string, connection?: EstimateConnection) {
+  const [version] = await (connection ?? db).select({ issue: estimateVersions.emailIssue }).from(estimateVersions)
+    .where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimateId), eq(estimateVersions.id, versionId)));
+  const issue = requireEstimate(version).issue;
+  if (issue && issue.firstCommunicationId !== issue.pendingCommunicationId)
+    return { pdf: await issuedEstimatePdfs.read(issue.objectId), filename: issue.filename };
+  const model = await loadEstimateDocumentModel(companyId, estimateId, versionId, true, connection);
   return {
     pdf: await renderEstimateDocument(model),
     filename: estimatePdfFilename(model.estimateNumber, model.versionNumber, model.showVersion),

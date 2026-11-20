@@ -60,6 +60,11 @@ export async function withDraftEstimate<T>(companyId: string, id: string, versio
     if (versionId) {
       version = requireEstimate((await tx.select().from(estimateVersions).where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, id), eq(estimateVersions.id, versionId))))[0]);
       if (version.status !== "draft") throw new EstimateError(409, "VERSION_LOCKED");
+      if (version.emailIssue) throw new EstimateError(409, "ESTIMATE_EMAIL_IN_PROGRESS");
+    } else if (estimate.currentVersionId) {
+      const [current] = await tx.select({ status: estimateVersions.status, emailIssue: estimateVersions.emailIssue }).from(estimateVersions)
+        .where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, id), eq(estimateVersions.id, estimate.currentVersionId)));
+      if (current?.status === "draft" && current.emailIssue) throw new EstimateError(409, "ESTIMATE_EMAIL_IN_PROGRESS");
     }
     return work({ tx, estimate, version });
   });

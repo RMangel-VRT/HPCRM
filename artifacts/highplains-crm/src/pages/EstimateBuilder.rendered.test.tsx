@@ -283,7 +283,7 @@ describe("builder rendering", () => {
     expect(screen.getByTestId("row-umbrella-landscape_labor")).toBeTruthy();
     expect(screen.queryByTestId("row-umbrella-irrigation_materials")).toBeNull();
     expect(screen.getByTestId("chip-version-2").textContent).toContain("Draft (editing)");
-    expect(screen.getByTestId("button-mark-sent")).toBeTruthy();
+    expect(screen.getByTestId("button-send-estimate")).toBeTruthy();
     expect(screen.queryByTestId("button-record-accept")).toBeNull();
     expect(screen.queryByTestId("button-revise")).toBeNull();
     expect(screen.getByTestId("chip-version-2").getAttribute("data-current")).toBe("true");

@@ -38,8 +38,12 @@ import type {
   CustomerContractedServicesTargetsParams,
   CustomerServices,
   EligibleSupervisor,
+  EmailEstimateVersion200,
   EnrichedVisit,
   ErrorResponse,
+  EstimateEmailInput,
+  EstimateEmailOptions,
+  EstimateEmailRecovery,
   EstimateWorkLocationInput,
   GetCampaignRoundCalendarParams,
   GetCustomerContractedServicesPdfParams,
@@ -104,6 +108,174 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getGetEstimateEmailOptionsUrl = (id: string) => {
+  return `/api/estimates/${id}/email-options`;
+};
+
+export const getEstimateEmailOptions = async (
+  id: string,
+  options?: RequestInit,
+): Promise<EstimateEmailOptions> => {
+  return customFetch<EstimateEmailOptions>(getGetEstimateEmailOptionsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetEstimateEmailOptionsQueryKey = (id: string) => {
+  return [`/api/estimates/${id}/email-options`] as const;
+};
+
+export const getGetEstimateEmailOptionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEstimateEmailOptions>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEstimateEmailOptions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetEstimateEmailOptionsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getEstimateEmailOptions>>
+  > = ({ signal }) =>
+    getEstimateEmailOptions(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEstimateEmailOptions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetEstimateEmailOptionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEstimateEmailOptions>>
+>;
+export type GetEstimateEmailOptionsQueryError = ErrorType<void>;
+
+export function useGetEstimateEmailOptions<
+  TData = Awaited<ReturnType<typeof getEstimateEmailOptions>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getEstimateEmailOptions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetEstimateEmailOptionsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getEmailEstimateVersionUrl = (id: string, versionId: string) => {
+  return `/api/estimates/${id}/versions/${versionId}/send-email`;
+};
+
+export const emailEstimateVersion = async (
+  id: string,
+  versionId: string,
+  estimateEmailInput: EstimateEmailInput,
+  options?: RequestInit,
+): Promise<EmailEstimateVersion200> => {
+  return customFetch<EmailEstimateVersion200>(
+    getEmailEstimateVersionUrl(id, versionId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(estimateEmailInput),
+    },
+  );
+};
+
+export const getEmailEstimateVersionMutationOptions = <
+  TError = ErrorType<void | EstimateEmailRecovery>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof emailEstimateVersion>>,
+    TError,
+    { id: string; versionId: string; data: BodyType<EstimateEmailInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof emailEstimateVersion>>,
+  TError,
+  { id: string; versionId: string; data: BodyType<EstimateEmailInput> },
+  TContext
+> => {
+  const mutationKey = ["emailEstimateVersion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof emailEstimateVersion>>,
+    { id: string; versionId: string; data: BodyType<EstimateEmailInput> }
+  > = (props) => {
+    const { id, versionId, data } = props ?? {};
+
+    return emailEstimateVersion(id, versionId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type EmailEstimateVersionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof emailEstimateVersion>>
+>;
+export type EmailEstimateVersionMutationBody = BodyType<EstimateEmailInput>;
+export type EmailEstimateVersionMutationError =
+  ErrorType<void | EstimateEmailRecovery>;
+
+export const useEmailEstimateVersion = <
+  TError = ErrorType<void | EstimateEmailRecovery>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof emailEstimateVersion>>,
+    TError,
+    { id: string; versionId: string; data: BodyType<EstimateEmailInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof emailEstimateVersion>>,
+  TError,
+  { id: string; versionId: string; data: BodyType<EstimateEmailInput> },
+  TContext
+> => {
+  return useMutation(getEmailEstimateVersionMutationOptions(options));
+};
 
 export const getPutEstimateWorkLocationUrl = (id: string) => {
   return `/api/estimates/${id}/work-location`;

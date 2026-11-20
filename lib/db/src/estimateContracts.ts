@@ -1,6 +1,7 @@
 /** Driver-free Estimate Builder request contracts, shared by CRM and API. */
 import { z } from "zod/v4";
 import { ESTIMATE_UNITS } from "./estimateUnits";
+import { companyDocumentEmailInput } from "./companyDocumentContracts";
 
 /** Copy provenance, keyed by IDs from the immediate source version. */
 export interface EstimateRevisionIdMap {
@@ -43,6 +44,28 @@ export const ESTIMATE_ACCEPTANCE_METHODS = ["email_approval", "signed_pdf", "pho
 export const sendEstimateSchema = z.object({
   method: z.enum(ESTIMATE_SENT_METHODS), confirmZeroPriced: z.boolean().optional(),
 }).strict();
+export const estimateEmailInput = z.object({
+  mailboxAccountId: companyDocumentEmailInput.shape.mailboxAccountId,
+  to: companyDocumentEmailInput.shape.to,
+  cc: companyDocumentEmailInput.shape.cc,
+  subject: companyDocumentEmailInput.shape.subject,
+  bodyText: companyDocumentEmailInput.shape.bodyText,
+  confirmZeroPriced: z.boolean().optional(),
+}).strict().refine(input => {
+  const recipients = [...input.to, ...(input.cc ?? [])];
+  return recipients.length <= 10 && new Set(recipients.map(email => email.toLowerCase())).size === recipients.length;
+});
+export type EstimateEmailInput = z.infer<typeof estimateEmailInput>;
+export interface IssuedEstimateAttachment { filename: string; pageCount: number }
+export interface EstimateEmailOptionsDto {
+  mailboxes: { id: string; displayName: string; emailAddress: string }[];
+  defaultMailboxId: string | null;
+  recipients: { email: string; name: string }[];
+  defaultTo: string | null;
+  companyName: string;
+  phone: string | null;
+}
+export type EstimateEmailResult = EstimateDetailDto & { emailed: true };
 export const acceptEstimateSchema = z.object({
   method: z.enum(ESTIMATE_ACCEPTANCE_METHODS), poNumber: z.string().trim().max(500).optional(),
   acceptedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate).optional(),
@@ -221,6 +244,9 @@ export interface EstimateVersionSummaryDto extends EstimateTimestampsDto {
   id: string; versionNumber: number; status: typeof ESTIMATE_STATUSES[number];
   createdFromVersionId?: string | null;
   sentAt?: string | null; sentById?: string | null; sentMethod?: typeof ESTIMATE_SENT_METHODS[number] | null;
+  issuedAttachment?: IssuedEstimateAttachment;
+  emailedTo?: string[];
+  emailDelivery?: "sending" | "delivered" | "uncertain";
   acceptedAt?: string | null; acceptedOn?: string | null; acceptedById?: string | null;
   acceptanceMethod?: typeof ESTIMATE_ACCEPTANCE_METHODS[number] | null; poNumber?: string | null;
   declinedAt?: string | null; declinedById?: string | null; declineReason?: string | null;

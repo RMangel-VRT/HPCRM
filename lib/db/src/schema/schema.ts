@@ -3575,7 +3575,7 @@ export const communications = pgTable("communications", {
   bccAddresses: text("bcc_addresses").array().default(sql`ARRAY[]::text[]`),
   receivedAt: timestamp("received_at"),
   providerThreadId: text("provider_thread_id"),
-  routingMethod: text("routing_method").$type<"manual" | "email_match" | "thread_match" | "content_match" | "llm" | "company_documents">(),
+  routingMethod: text("routing_method").$type<"manual" | "email_match" | "thread_match" | "content_match" | "llm" | "company_documents" | "estimate_email">(),
   routingConfidence: real("routing_confidence"),
   attachmentsJson: jsonb("attachments_json").default(sql`'[]'::jsonb`),
   automationRuleId: varchar("automation_rule_id"),

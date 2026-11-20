@@ -46,6 +46,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AcceptDialog, DeclineDialog, DiscardDialog, SendDialog, VoidDialog } from "@/components/estimates/LifecycleDialogs";
+import { SendEstimateDialog } from "@/components/estimates/SendEstimateDialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
@@ -65,7 +66,7 @@ function freshness(d: EstimateDetailDto): number {
 }
 
 type LifeKind = "send" | "accept" | "decline" | "revise" | "discard" | "void";
-type LifeDialog = Exclude<LifeKind, "revise"> | null;
+type LifeDialog = Exclude<LifeKind, "revise"> | "email" | "resendEmail" | null;
 type PendingRevision = { source: EstimateDetailDto; edit: BuilderEdit; focusAdded: boolean; resolve: (result: AddLineResult) => void };
 const cancelledEdit: AddLineResult = { ok: false, error: null };
 type ResetPrice = (id: string, reference: EstimateCatalogReference, preview?: PickerLinePreview) => void;
@@ -216,6 +217,7 @@ function BuilderContent({ id }: { id: string }) {
   const [dialog, setDialog] = useState<LifeDialog>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [needPrice, setNeedPrice] = useState<string[] | null>(null);
+  const [emailOutcome, setEmailOutcome] = useState<"recover" | "recordUnavailable" | "uncertain" | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const opRef = useRef(0);
@@ -225,9 +227,12 @@ function BuilderContent({ id }: { id: string }) {
   useEffect(() => {
     // New view: invalidate any in-flight operation identity and drop old dialog state.
     opRef.current++; busyRef.current = false;
-    setBusy(false); setDialog(null); setDialogError(null); setNeedPrice(null);
+    setBusy(false); setDialog(null); setDialogError(null); setNeedPrice(null); setEmailOutcome(null);
   }, [viewTag]);
-  const openDialog = (d: LifeDialog) => { if (busyRef.current || pendingRef.current || (d && !gateRef.current(d))) return; setDialogError(null); setNeedPrice(null); setDialog(d); };
+  const openDialog = (d: LifeDialog) => {
+    if (busyRef.current || pendingRef.current || (d && d !== "resendEmail" && !gateRef.current(d === "email" ? "send" : d))) return;
+    setDialogError(null); setNeedPrice(null); setDialog(d);
+  };
   const closeDialog = () => { if (busyRef.current) return; setDialog(null); setDialogError(null); setNeedPrice(null); };
   const refreshScope = () => { void qc.invalidateQueries({ queryKey: [...scopePrefix] }); };
 
@@ -259,28 +264,40 @@ function BuilderContent({ id }: { id: string }) {
     return true;
   }
 
-  async function lifecycle(kind: LifeKind, method: string, url: string, body?: unknown): Promise<void> {
-    if (viewRef.current !== viewTag || activeVersionRef.current !== data?.version.id || busyRef.current || pendingRef.current || !gateRef.current(kind)) return;
+  async function lifecycle(kind: LifeKind, method: string, url: string, body?: unknown, email?: { to: string[]; resend: boolean }): Promise<void> {
+    if (viewRef.current !== viewTag || activeVersionRef.current !== data?.version.id || busyRef.current || pendingRef.current ||
+      (email?.resend ? locked || !!data?.voidedAt || data?.version.status !== "sent" || !data.version.issuedAttachment : !gateRef.current(kind))) return;
     const view = viewTag;
     const op = ++opRef.current;
     busyRef.current = true; setBusy(true); setDialogError(null);
     try {
       if (hasEstimateEdits(editScope)) await waitForEstimateEdits(editScope);
       const result = await runEstimateLifecycle({
-        kind, method, url, body, companyId, queryClient: qc,
+        kind, method, url, body, companyId, queryClient: qc, email,
         isActive: () => viewRef.current === view && opRef.current === op,
         t, toast, offerActivation: activation.offer,
         customerName: customer.data?.name ?? t("estimateBuilder.customer"),
-        install: d => installCurrent(d, view),
-        onCommitted: () => { setDialog(null); setNeedPrice(null); },
+        install: email?.resend ? undefined : d => installCurrent(d, view),
+        onCommitted: () => { setDialog(null); setNeedPrice(null); setEmailOutcome(null); },
       });
       if (result.kind === "stale") { refreshScope(); return; }
       if (result.kind === "success") {
-        if (requestedVersion) setLocation(builderPath(result.data.id));
+        if (email?.resend) refreshScope();
+        else if (requestedVersion) setLocation(builderPath(result.data.id));
         return;
       }
       if (result.kind === "needsPrice") { setNeedPrice(result.lineIds); return; }
       const c = result.conflict;
+      if (email && c?.error === "ESTIMATE_EMAIL_DELIVERY_UNCERTAIN") {
+        setEmailOutcome("uncertain");
+        refreshScope();
+        return;
+      }
+      if (email && c?.emailed) {
+        setEmailOutcome(c.recoveryAvailable && !email.resend ? "recover" : "recordUnavailable");
+        refreshScope();
+        return;
+      }
       if (c?.error === "DRAFT_EXISTS") {
         setDialog(null);
         toast({ title: t("estimateBuilder.life.failed"), description: t("estimateBuilder.life.err.DRAFT_EXISTS") });
@@ -436,8 +453,11 @@ function BuilderContent({ id }: { id: string }) {
 
   const v = data.version;
   const isCurrent = v.id === data.currentVersionId;
+  const draftIssuing = v.status === "draft" && (v.emailDelivery || emailOutcome);
+  const recoverDelivery = v.status === "draft" && (emailOutcome === "recover" || v.emailDelivery === "delivered");
+  const uncertainDelivery = v.emailDelivery === "uncertain" || emailOutcome === "uncertain";
   const revisable = !locked && !data.voidedAt && isCurrent && (v.status === "sent" || v.status === "declined");
-  const editable = !locked && !data.voidedAt && isCurrent && (v.status === "draft" || revisable);
+  const editable = !locked && !data.voidedAt && isCurrent && ((v.status === "draft" && !draftIssuing) || revisable);
   contentEditableRef.current = editable;
   firstEditRef.current = revisable;
   const showVersion = estimateHasMultipleVersions(data.versions.length);
@@ -465,7 +485,7 @@ function BuilderContent({ id }: { id: string }) {
   const headerTotal = v.status === "draft" ? v.totals.subtotalCents : (v.frozenSubtotalCents ?? v.totals.subtotalCents);
   const isChangeOrder = v.status === "draft" && !!v.createdFromVersionId && !!acceptedSummary && acceptedSummary.id !== v.id;
   const canRevise = lifeOn && (v.status === "sent" || v.status === "accepted" || v.status === "declined");
-  const canVoid = !data.voidedAt && !acceptedSummary && isCurrent;
+  const canVoid = !data.voidedAt && !acceptedSummary && isCurrent && !draftIssuing;
   const pendingSource = pendingRevision?.source.version;
   const pendingNext = pendingRevision && Math.max(...pendingRevision.source.versions.map(s => s.versionNumber)) + 1;
   const pdfVersion = pdfVersionId === v.id ? v : data.versions.find(s => s.id === pdfVersionId);
@@ -519,7 +539,7 @@ function BuilderContent({ id }: { id: string }) {
     if (!lifeOn) return false;
     switch (k) {
       case "send": return v.status === "draft" && isCurrent;
-      case "discard": return v.status === "draft" && isCurrent && v.versionNumber > 1;
+      case "discard": return v.status === "draft" && isCurrent && v.versionNumber > 1 && !draftIssuing;
       case "accept": case "decline": return v.status === "sent";
       case "revise": return canRevise && !draftSummary;
       case "void": return canVoid;
@@ -611,7 +631,8 @@ function BuilderContent({ id }: { id: string }) {
                 data-testid="button-download-pdf"><Download className="mr-1.5 h-3.5 w-3.5" />{t(downloading ? "estimateBuilder.pdf.downloading" : "estimateBuilder.pdf.downloadAction")}</Button>
               {!data.voidedAt && <EstimateProposalButton estimateId={data.id} state={proposals} />}
               {lifeOn && v.status === "draft" && isCurrent && (
-                <Button size="sm" disabled={busy} onClick={() => openDialog("send")} data-testid="button-mark-sent"><Send className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.markSent")}</Button>
+                <Button size="sm" disabled={busy || (!!draftIssuing && !recoverDelivery)} onClick={() => openDialog("email")} data-testid="button-send-estimate">
+                  <Send className="mr-1.5 h-3.5 w-3.5" />{t(recoverDelivery ? "estimateBuilder.email.recoveryAction" : "estimateBuilder.email.action")}</Button>
               )}
               {lifeOn && v.status === "sent" && (<>
                 <Button size="sm" disabled={busy} onClick={() => openDialog("accept")} data-testid="button-record-accept"><CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.recordAccept")}</Button>
@@ -628,7 +649,7 @@ function BuilderContent({ id }: { id: string }) {
                 v.status === "accepted" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void lifecycle("revise", "POST", `${vBase}/revise`, {})} data-testid="button-revise">
                   <GitBranch className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.changeOrder", { n: nextN })}</Button>
               ))}
-              {lifeOn && v.status === "draft" && isCurrent && v.versionNumber > 1 && (
+              {lifeOn && v.status === "draft" && isCurrent && v.versionNumber > 1 && !draftIssuing && (
                 <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => openDialog("discard")} data-testid="button-discard-draft">
                   <Trash2 className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.discard")}</Button>
               )}
@@ -638,6 +659,13 @@ function BuilderContent({ id }: { id: string }) {
                     <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={t("estimateBuilder.life.more")} disabled={busy} data-testid="button-overflow"><MoreHorizontal className="h-4 w-4" /></Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-64">
+                    {lifeOn && v.status === "draft" && !draftIssuing && <DropdownMenuItem onSelect={() => openDialog("send")} data-testid="button-mark-sent">
+                      <CheckCircle2 className="mr-2 h-4 w-4" />{t("estimateBuilder.email.markOnly")}
+                    </DropdownMenuItem>}
+                    {!locked && v.status === "sent" && v.issuedAttachment && <DropdownMenuItem disabled={v.emailDelivery === "sending" || uncertainDelivery}
+                      onSelect={() => { setEmailOutcome(null); openDialog("resendEmail"); }} data-testid="menu-email-estimate-again">
+                      <Send className="mr-2 h-4 w-4" />{t("estimateBuilder.email.resend")}
+                    </DropdownMenuItem>}
                     <DropdownMenuItem disabled={busy || !!pendingRevision} onSelect={() => void openCrewWorksheet()} data-testid="menu-estimate-crew-worksheet">
                       <HardHat className="mr-2 h-4 w-4" />{t("estimateBuilder.exhibits.crewWorksheet")}
                     </DropdownMenuItem>
@@ -729,9 +757,14 @@ function BuilderContent({ id }: { id: string }) {
             <Button size="sm" variant="outline" onClick={() => setLocation(builderPath(data.id))} data-testid="button-view-current">{t("estimateBuilder.life.backToCurrent")}</Button>
           </div>
         )}
-        {(!editable || revisable) && !locked && (
+        {(!editable || revisable) && !locked && !draftIssuing && (
           <LifecycleBanner data={data} lang={lang} notCurrent={!isCurrent} nextEditVersion={revisable ? nextN : undefined} />
         )}
+        {(draftIssuing || uncertainDelivery) && !locked && <p role="status" className="mt-3 rounded-md border bg-muted/40 p-3 text-sm">
+          {t(recoverDelivery ? "estimateBuilder.email.recoveryBody" : uncertainDelivery ? "estimateBuilder.email.errors.ESTIMATE_EMAIL_DELIVERY_UNCERTAIN"
+            : emailOutcome ? "estimateBuilder.email.recordUnavailable"
+            : "estimateBuilder.email.errors.ESTIMATE_EMAIL_IN_PROGRESS")}
+        </p>}
         <TicketAdvanceNotice key={`${companyId}|${user?.id}|${user?.activeRole}|${id}`} estimate={data} />
         {v.status === "draft" && acceptedSummary && acceptedSummary.id !== v.id && !data.voidedAt && (
           <div className="mt-3 flex items-start gap-2 rounded-md border border-emerald-700/30 bg-emerald-700/5 p-3 text-sm text-emerald-900 dark:text-emerald-200" data-testid="banner-contract">
@@ -815,7 +848,13 @@ function BuilderContent({ id }: { id: string }) {
       </AlertDialog>
       {pdfVersion && <PdfPreviewDialog key={pdfVersion.id} open onClose={() => setPdfVersionId(null)} companyId={companyId} estimateId={data.id} versionId={pdfVersion.id}
         estimateNumber={data.estimateNumber} versionNumber={pdfVersion.versionNumber} showVersion={showVersion}
-        workLocation={display?.workLocation} regenerated={!!pdfVersion.sentAt} />}
+        workLocation={pdfVersion.issuedAttachment ? null : display?.workLocation} regenerated={!!pdfVersion.sentAt} original={!!pdfVersion.issuedAttachment} />}
+      {(dialog === "email" || dialog === "resendEmail") && <SendEstimateDialog
+        estimate={data} companyId={companyId} senderId={user?.id} senderName={user?.name ?? ""} customerName={customerName ?? t("estimateBuilder.customer")} lang={lang}
+        busy={busy} error={dialogError} resend={dialog === "resendEmail"} needPrice={needPriceLines}
+        delivery={dialog === "email" && recoverDelivery ? "recover" : emailOutcome} onClose={closeDialog}
+        onSend={body => void lifecycle("send", "POST", `${vBase}/send-email`, body, { to: body.to, resend: dialog === "resendEmail" })}
+        onRecover={() => void lifecycle("send", "POST", `${vBase}/send`, { method: "email" })} />}
       <SendDialog open={dialog === "send"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog} needPrice={needPriceLines}
         onSubmit={(b) => void lifecycle("send", "POST", `${vBase}/send`, b)} />
       {activation.dialog}
@@ -835,6 +874,7 @@ function BuilderContent({ id }: { id: string }) {
 function LifecycleBanner({ data, lang, notCurrent, nextEditVersion }: { data: EstimateDetailDto; lang: string; notCurrent: boolean; nextEditVersion?: number }) {
   const { t } = useTranslation();
   const v = data.version;
+  const recipient = v.emailedTo?.length ? t("estimateBuilder.email.sentTo", { to: v.emailedTo.join(", ") }) : null;
   const box = "mt-3 flex items-start gap-2 rounded-md border p-3 text-sm";
   if (nextEditVersion !== undefined) {
     const date = v.sentAt ? formatCalendarDate(denverToday(new Date(v.sentAt)), lang) : "";
@@ -845,7 +885,7 @@ function LifecycleBanner({ data, lang, notCurrent, nextEditVersion }: { data: Es
     return (
       <div className={cn(box, "border-[hsl(var(--est-warn))]/40 bg-[hsl(var(--est-warn-bg))] text-[hsl(var(--est-warn))]")} data-testid="banner-edit-revision" data-tone={v.status}>
         <GitBranch className="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{v.status === "sent" ? sent : <span data-testid="text-decline-reason">{t("estimateBuilder.life.banner.declined", { reason: v.declineReason || "—" })}</span>}{" "}
+        <span>{v.status === "sent" ? <>{sent}{recipient && <> · {recipient}</>}</> : <span data-testid="text-decline-reason">{t("estimateBuilder.life.banner.declined", { reason: v.declineReason || "—" })}</span>}{" "}
           {t("estimateBuilder.life.banner.firstEdit", { n: nextEditVersion })}
         </span>
       </div>
@@ -865,6 +905,7 @@ function LifecycleBanner({ data, lang, notCurrent, nextEditVersion }: { data: Es
         <Lock className="mt-0.5 h-4 w-4 shrink-0" />
         <span>{t("estimateBuilder.life.banner.sentHistory")}
           {v.sentAt && v.sentMethod && <> {t("estimateBuilder.life.banner.sentMeta", { date: formatDate(v.sentAt, lang), method: t(`estimateBuilder.life.sentMethod.${v.sentMethod}`) })}</>}
+          {recipient && <> · {recipient}</>}
         </span>
       </div>
     );

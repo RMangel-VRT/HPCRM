@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, ne, desc } from "drizzle-orm";
-import { estimates, estimateVersions, estimateSections, estimateLines, estimateVersionPhotos,
+import { estimates, estimateVersions, estimateSections, estimateLines, estimateVersionPhotos, communications,
   sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, reviseEstimateSchema,
   estimateLineNeedsPrice, type EstimateVersion, type EstimateRevisionIdMap } from "@workspace/db";
-import { db } from "../db";
+import { db, type AppTransaction } from "../db";
 import { companyToday } from "../lib/companyDay";
 import { EstimateError, requireEstimate } from "./estimateErrors";
 import { estimatePayload, readEstimatePhotoRows } from "./estimateReads";
@@ -19,6 +19,15 @@ const allowed: Record<EstimateAction, readonly EstimateVersion["status"][]> = {
 export function assertEstimateTransition(from: EstimateVersion["status"] | "void", action: EstimateAction, versionNumber?: number) {
   if (!allowed[action].includes(from) || (action === "discard" && versionNumber === 1))
     throw new EstimateError(409, "INVALID_TRANSITION", { from, action });
+}
+export async function preflightEstimateSend(tx: AppTransaction, companyId: string, version: EstimateVersion, confirmZeroPriced?: boolean) {
+  assertEstimateTransition(version.status, "send", version.versionNumber);
+  const lines = await tx.select().from(estimateLines)
+    .where(and(eq(estimateLines.companyId, companyId), eq(estimateLines.versionId, version.id)));
+  if (!lines.length) throw new EstimateError(409, "NO_LINES");
+  const lineIds = lines.filter(estimateLineNeedsPrice).map(l => l.id);
+  if (lineIds.length && !confirmZeroPriced) throw new EstimateError(409, "LINES_NEED_PRICE", { lineIds });
+  return computeVersionTotals(lines);
 }
 /** One transaction/parent lock shared by every lifecycle operation. No catalog
  * access: revisions copy commercial snapshots, send freezes the existing math. */
@@ -40,6 +49,8 @@ export async function transitionEstimate(companyId: string, userId: string | nul
     let currentVersionId = estimate.currentVersionId;
     let idMap: EstimateRevisionIdMap | undefined;
     if (action === "void") {
+      if (versions.some(v => v.emailIssue && (v.status === "draft" || v.emailIssue.pendingCommunicationId)))
+        throw new EstimateError(409, "ESTIMATE_EMAIL_IN_PROGRESS");
       if (versions.some(v => v.status === "accepted")) throw new EstimateError(409, "HAS_ACCEPTED_VERSION");
       const { reason } = estimateReasonSchema.parse(input);
       await tx.update(estimates).set({ voidedAt: now, voidReason: reason })
@@ -50,17 +61,20 @@ export async function transitionEstimate(companyId: string, userId: string | nul
       const version = requireEstimate(versions.find(v => v.id === versionId));
       assertEstimateTransition(version.status, action, version.versionNumber);
       const versionScope = and(scope, eq(estimateVersions.id, version.id));
+      if (version.emailIssue?.pendingCommunicationId || (version.status === "draft" && version.emailIssue && action !== "send"))
+        throw new EstimateError(409, "ESTIMATE_EMAIL_IN_PROGRESS");
       if (action === "send") {
         const { method, confirmZeroPriced } = sendEstimateSchema.parse(input);
-        const lines = await tx.select().from(estimateLines)
-          .where(and(eq(estimateLines.companyId, companyId), eq(estimateLines.versionId, version.id)));
-        if (!lines.length) throw new EstimateError(409, "NO_LINES");
-        const lineIds = lines.filter(estimateLineNeedsPrice).map(l => l.id);
-        if (lineIds.length && !confirmZeroPriced) throw new EstimateError(409, "LINES_NEED_PRICE", { lineIds });
-        const totals = computeVersionTotals(lines);
+        if (currentVersionId !== version.id) throw new EstimateError(409, "INVALID_TRANSITION", { from: version.status, action });
+        if (version.emailIssue && method !== "email") throw new EstimateError(409, "ESTIMATE_EMAIL_ALREADY_DELIVERED", { emailed: true });
+        const receipt = version.emailIssue && requireEstimate((await tx.select({ sentAt: communications.sentAt, sentById: communications.sentById })
+          .from(communications).where(and(eq(communications.companyId, companyId), eq(communications.id, version.emailIssue.firstCommunicationId),
+            eq(communications.routingMethod, "estimate_email"), eq(communications.deliveryStatus, "sent"))))[0]);
+        // Delivery already passed these checks and no draft edits have been allowed since.
+        const totals = await preflightEstimateSend(tx, companyId, version, !!receipt || confirmZeroPriced);
         await tx.update(estimateVersions).set({ status: "superseded", supersededAt: now, updatedAt: now })
           .where(and(scope, ne(estimateVersions.id, version.id), eq(estimateVersions.status, "sent")));
-        await tx.update(estimateVersions).set({ status: "sent", sentAt: now, sentById: userId, sentMethod: method,
+        await tx.update(estimateVersions).set({ status: "sent", sentAt: receipt?.sentAt ?? now, sentById: receipt ? receipt.sentById : userId, sentMethod: method,
           frozenSubtotalCents: totals.subtotalCents, frozenCostKnownCents: totals.costKnownCents,
           frozenCostUnknownLines: totals.costUnknownLines, updatedAt: now }).where(versionScope);
       } else if (action === "accept") {

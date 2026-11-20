@@ -4,7 +4,7 @@ import { companies, customers, tickets, users, plantCatalogItems, hardscapeCatal
 import { irrigationCatalogItems } from "./irrigation";
 import { estimateQuickItems } from "./estimateSetup";
 import { type ESTIMATE_STATUSES, type ESTIMATE_LINE_TYPES, type ESTIMATE_PRICE_SOURCES, type EstimateUmbrella, type ESTIMATE_SENT_METHODS, type ESTIMATE_ACCEPTANCE_METHODS } from "../estimateContracts";
-import type { EstimateRevisionIdMap } from "../estimateContracts";
+import type { EstimateRevisionIdMap, IssuedEstimateAttachment } from "../estimateContracts";
 export * from "../estimateContracts";
 
 const id = () => varchar("id").primaryKey().default(sql`gen_random_uuid()`);
@@ -29,6 +29,14 @@ export const estimates = pgTable("estimates", {
 export const estimateNumberCounters = pgTable("estimate_number_counters", {
   companyId: company(), year: integer("year").notNull(), lastValue: integer("last_value").notNull(),
 }, t => ({ companyYear: uniqueIndex("estimate_number_counters_company_year_idx").on(t.companyId, t.year) }));
+/** The original issued PDF belongs to its version, not to live location or pricing.
+ * Communications own the delivery facts and recipient list. */
+export interface EstimateEmailIssue extends IssuedEstimateAttachment {
+  objectId: string;
+  firstCommunicationId: string;
+  pendingCommunicationId: string | null;
+  uncertain?: true;
+}
 // Version owns document state; these fields are deliberately absent from CRUD inputs.
 export const estimateVersions = pgTable("estimate_versions", {
   id: id(), companyId: company(), estimateId: varchar("estimate_id").notNull().references(() => estimates.id, { onDelete: "cascade" }),
@@ -39,6 +47,7 @@ export const estimateVersions = pgTable("estimate_versions", {
   createdFromVersionId: varchar("created_from_version_id"),
   // Immutable copy provenance, not a second owner of section or line content.
   revisionIdMap: jsonb("revision_id_map").$type<EstimateRevisionIdMap>(),
+  emailIssue: jsonb("email_issue").$type<EstimateEmailIssue>(),
   sentAt: timestamp("sent_at"), sentById: userRef("sent_by_id"), sentMethod: text("sent_method").$type<typeof ESTIMATE_SENT_METHODS[number]>(),
   acceptedAt: timestamp("accepted_at"), acceptedById: userRef("accepted_by_id"), acceptanceMethod: text("acceptance_method").$type<typeof ESTIMATE_ACCEPTANCE_METHODS[number]>(),
   acceptedOn: date("accepted_on", { mode: "string" }),

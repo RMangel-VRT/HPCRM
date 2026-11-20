@@ -5,6 +5,58 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+/**
+ * To and Cc combined may contain up to ten distinct addresses.
+ */
+export interface EstimateEmailInput {
+  /** @minLength 1 */
+  mailboxAccountId: string;
+  /**
+   * @minItems 1
+   * @maxItems 10
+   */
+  to: string[];
+  /** @maxItems 10 */
+  cc?: string[];
+  /**
+   * @minLength 1
+   * @maxLength 255
+   */
+  subject: string;
+  /** @maxLength 100000 */
+  bodyText: string;
+  confirmZeroPriced?: boolean;
+}
+
+export type EstimateEmailOptionsMailboxesItem = {
+  id: string;
+  displayName: string;
+  emailAddress: string;
+};
+
+export type EstimateEmailOptionsRecipientsItem = {
+  email: string;
+  name: string;
+};
+
+export interface EstimateEmailOptions {
+  mailboxes: EstimateEmailOptionsMailboxesItem[];
+  recipients: EstimateEmailOptionsRecipientsItem[];
+  /** @nullable */
+  defaultMailboxId: string | null;
+  /** @nullable */
+  defaultTo: string | null;
+  companyName: string;
+  /** @nullable */
+  phone: string | null;
+}
+
+export interface EstimateEmailRecovery {
+  error: string;
+  emailed: boolean;
+  recoveryAvailable: boolean;
+}
+
 export interface EstimateWorkLocationInput {
   /**
    * @maxLength 500
@@ -1366,6 +1418,12 @@ export interface OwnerResponseTicket {
   followUpNote?: string | null;
   [key: string]: unknown;
 }
+
+export type EmailEstimateVersion200 = {
+  id: string;
+  emailed: boolean;
+  [key: string]: unknown;
+};
 
 export type CustomerContractedServicesTargetsParams = {
   /**
