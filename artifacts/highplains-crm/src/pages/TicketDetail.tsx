@@ -69,7 +69,6 @@ import {
   AlertCircle,
   Eye,
   Camera,
-  HardHat,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -250,9 +249,6 @@ export default function TicketDetail() {
   const [showDelegateDialog, setShowDelegateDialog] = useState(false);
   const [delegateTargetId, setDelegateTargetId] = useState<string | null>(null);
   
-  // Proposal choice dialog state
-  const [showProposalChoiceDialog, setShowProposalChoiceDialog] = useState(false);
-
   // Step-back state
   const [showStepBackDialog, setShowStepBackDialog] = useState(false);
   const [stepBackNotes, setStepBackNotes] = useState("");
@@ -283,8 +279,6 @@ export default function TicketDetail() {
   });
   const [uploadingFileNames, setUploadingFileNames] = useState<string[]>([]);
   const newlyUploadedKeysRef = useRef<string[]>([]);
-  const pendingProposalMakerNavRef = useRef<boolean>(false);
-  const navigateToProposalMakerRef = useRef<(() => void) | null>(null);
 
   // Preview email dialog state
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
@@ -702,13 +696,8 @@ export default function TicketDetail() {
       setStatusNotes("");
       setStepBackInvoiceWarning(null);
       toast({ title: t('ticketDetail.statusUpdated') });
-      if (pendingProposalMakerNavRef.current) {
-        pendingProposalMakerNavRef.current = false;
-        navigateToProposalMakerRef.current?.();
-      }
     },
     onError: (error: any) => {
-      pendingProposalMakerNavRef.current = false;
       if (error?.isInvoiceConflict) {
         setStepBackInvoiceWarning({
           invoiceTicketId: error.invoiceTicketId,
@@ -754,17 +743,14 @@ export default function TicketDetail() {
     },
   });
 
-  const showProposals = isAdminOrOffice
-    && isSeededTicketType(details?.ticketType, "estimate_request");
+  const showProposals = isAdminOrOffice && !!details?.ticket;
 
-  const { data: linkedProposals = [], isLoading: proposalsLoading } = useQuery<ProposalWithDetails[]>({
-    queryKey: ["/api/tickets", ticketId, "proposals"],
-    queryFn: async () => {
-      const res = await fetch(`/api/tickets/${ticketId}/proposals`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: showProposals && !!ticketId,
+  const { data: linkedProposals = [], isLoading: proposalsLoading, isError: proposalsError } = useQuery<ProposalWithDetails[]>({
+    queryKey: ["/api/tickets", ticketId, "proposals", editCompanyId, currentUser?.id, currentUser?.activeRole],
+    queryFn: ({ signal }) => apiRequest("GET", `/api/tickets/${ticketId}/proposals`, undefined, {
+      signal, headers: { "X-Company-Id": editCompanyId! },
+    }).then(r => r.json()),
+    enabled: showProposals && !!ticketId && !!editCompanyId,
     staleTime: 0,
   });
 
@@ -943,7 +929,12 @@ export default function TicketDetail() {
       return statuses.find(status => status.statusKey === "closed_won");
     }
     // Use sorted index to find next status in order
-    const defaultNext = sortedStatuses[sortedCurrentIndex + 1];
+    // Keep the former manual skip path. Estimate delivery still advances the
+    // ticket through its existing lifecycle mapping.
+    const nextInOrder = sortedStatuses[sortedCurrentIndex + 1];
+    const defaultNext = isSeededTicketType(ticketType, "estimate_request") && isSeededStatus(nextInOrder, "proposal_draft")
+      ? findSeededStatus(statuses, "decision_received")
+      : nextInOrder;
     
     // Check if this is at Decision Received - need to branch based on outcome
     if (isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "rfp_request")) {
@@ -1040,20 +1031,9 @@ export default function TicketDetail() {
     return isAtBillingStatus && !invoiceComplete;
   })();
 
-  const handleAdvanceStatus = (bypassProposalCheck = false) => {
+  const handleAdvanceStatus = () => {
     if (!nextStatus || gateFor(nextStatus)) return;
 
-    // Intercept: Estimate Request ticket advancing from Estimating → Create Proposal
-    if (
-      !bypassProposalCheck &&
-      isSeededStatus(currentStatus, "estimating") &&
-      isSeededTicketType(ticketType, "estimate_request") &&
-      isSeededStatus(nextStatus, "proposal_draft")
-    ) {
-      setShowProposalChoiceDialog(true);
-      return;
-    }
-    
     // Check if current status has unfilled required fields
     const currentStatusFields = currentStatus?.fields || [];
     const missingCurrentFields = currentStatusFields.filter(field => {
@@ -1113,25 +1093,9 @@ export default function TicketDetail() {
   const handleConfirmStatusChange = async () => {
     if (!pendingStatusId) return;
 
-    // Intercept: if the pending target is "Create Proposal" on a Project ticket,
-    // close the field dialog and show the proposal choice dialog instead.
     const pendingTargetStatus = statuses.find(s => s.id === pendingStatusId);
     if (gateFor(pendingTargetStatus)) return;
-    if (
-      isSeededStatus(pendingTargetStatus, "proposal_draft") &&
-      isSeededTicketType(ticketType, "estimate_request")
-    ) {
-      // Save any current-status field values entered by the user before showing choice
-      for (const [fieldId, value] of Object.entries(fieldInputs)) {
-        if (value) {
-          try { await saveFieldValueMutation.mutateAsync({ fieldId, value }); } catch {}
-        }
-      }
-      setShowStatusDialog(false);
-      setShowProposalChoiceDialog(true);
-      return;
-    }
-    
+
     // Validate CURRENT status required fields first
     const currentStatusFields = currentStatus?.fields || [];
     for (const field of currentStatusFields) {
@@ -1192,45 +1156,6 @@ export default function TicketDetail() {
       statusId: actualTargetStatusId, 
       notes: statusNotes,
     });
-  };
-
-  const navigateToProposalMaker = () => {
-    const ticket = details?.ticket;
-    const params = new URLSearchParams({
-      ticketId: ticketId ?? "",
-      ticketTitle: ticket?.title ?? "",
-      ...(ticket?.customerId ? { customerId: ticket.customerId } : {}),
-    });
-    setLocation(`/dashboard/tools/proposals?${params.toString()}`);
-  };
-  navigateToProposalMakerRef.current = navigateToProposalMaker;
-
-  const handleUseProposalMaker = async () => {
-    setShowProposalChoiceDialog(false);
-    // Move to "Create Proposal" status directly (fields already saved if we came via field dialog)
-    const createProposalStatus = findSeededStatus(statuses, "proposal_draft");
-    if (createProposalStatus) {
-      try {
-        await updateStatusMutation.mutateAsync({ statusId: createProposalStatus.id });
-        navigateToProposalMaker();
-      } catch {
-        // Error toast is handled by the mutation's onError; stay on the page.
-      }
-    } else {
-      // Fallback: use normal advance flow with bypass; navigation happens
-      // in updateStatusMutation.onSuccess once the status flip lands (handles
-      // both the direct mutate and the field-dialog save-and-advance path).
-      pendingProposalMakerNavRef.current = true;
-      handleAdvanceStatus(true);
-    }
-  };
-
-  const handleSkipProposal = () => {
-    const decisionStatus = findSeededStatus(statuses, "decision_received");
-    if (decisionStatus) {
-      updateStatusMutation.mutate({ statusId: decisionStatus.id, notes: "Proposal steps skipped" });
-    }
-    setShowProposalChoiceDialog(false);
   };
 
   const getFieldValue = (fieldId: string) => {
@@ -2083,50 +2008,24 @@ export default function TicketDetail() {
           <TicketEstimatePanel ticket={ticket} ticketType={ticketType} statuses={statuses} />
 
           {showProposals && (() => {
-            const ticket = details?.ticket;
-            const params = new URLSearchParams({
-              ticketId: ticketId ?? "",
-              ticketTitle: ticket?.title ?? "",
-              ...(ticket?.customerId ? { customerId: ticket.customerId } : {}),
-            });
-            const proposalMakerUrl = `/dashboard/tools/proposals?${params.toString()}`;
-
-            if (proposalsLoading) {
-              return (
-                <div className="h-9 bg-muted animate-pulse rounded-md" />
-              );
-            }
-
-            if (linkedProposals.length === 0) {
-              return (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2 w-full justify-start"
-                  onClick={() => setLocation(proposalMakerUrl)}
-                  data-testid="button-open-proposal-maker"
-                >
-                  <FileText className="w-4 h-4" />
-                  {t('ticketDetail.openProposalMaker')}
-                  <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
-                </Button>
-              );
-            }
+            if (proposalsLoading) return <div className="h-9 animate-pulse rounded-md bg-muted" />;
+            if (proposalsError) return <p role="alert" className="text-sm text-muted-foreground">{t("proposals.history.loadError")}</p>;
+            if (linkedProposals.length === 0) return null;
 
             return (
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  {linkedProposals.length === 1 ? "Proposal" : "Proposals"}
+                  {t("proposals.history.title")}
                 </p>
                 {linkedProposals.map((proposal) => {
                   const statusBadge = (() => {
                     if (proposal.status === "finalized") {
-                      return <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-500/50" data-testid={`badge-proposal-status-${proposal.id}`}>Finalized</Badge>;
+                      return <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-500/50" data-testid={`badge-proposal-status-${proposal.id}`}>{t("statuses.finalized")}</Badge>;
                     }
                     if (proposal.status === "published") {
-                      return <Badge data-testid={`badge-proposal-status-${proposal.id}`}>Published</Badge>;
+                      return <Badge data-testid={`badge-proposal-status-${proposal.id}`}>{t("statuses.published")}</Badge>;
                     }
-                    return <Badge variant="secondary" data-testid={`badge-proposal-status-${proposal.id}`}>Draft</Badge>;
+                    return <Badge variant="secondary" data-testid={`badge-proposal-status-${proposal.id}`}>{t("statuses.draft")}</Badge>;
                   })();
 
                   return (
@@ -2166,16 +2065,6 @@ export default function TicketDetail() {
                     </Card>
                   );
                 })}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2 w-full justify-start text-muted-foreground"
-                  onClick={() => setLocation(proposalMakerUrl)}
-                  data-testid="button-open-proposal-maker"
-                >
-                  <Plus className="w-4 h-4" />
-                  {t('ticketDetail.openProposalMaker')}
-                </Button>
               </div>
             );
           })()}
@@ -2191,45 +2080,7 @@ export default function TicketDetail() {
               ...(ticket?.customerId ? { customerId: ticket.customerId } : {}),
             });
             const cwMakerUrl = `/dashboard/tools/crew-worksheets?${params.toString()}`;
-            if (linkedCrewWorksheets.length === 0) {
-              // Per spec: when neither proposals nor worksheets exist, render nothing.
-              if (linkedProposals.length === 0) return null;
-
-              const finalizedProposals = linkedProposals
-                .filter(p => p.status === "finalized")
-                .sort((a, b) => new Date(b.createdAt as unknown as string).getTime() - new Date(a.createdAt as unknown as string).getTime());
-              const sourceProposal = finalizedProposals[0]
-                ?? [...linkedProposals].sort((a, b) => new Date(b.createdAt as unknown as string).getTime() - new Date(a.createdAt as unknown as string).getTime())[0];
-
-              // Read-only roles (e.g. field, mapping, chemical_manager) get nothing.
-              if (!canWriteCw) return null;
-
-              return (
-                <div className="flex flex-col gap-2">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="gap-2 w-full justify-start whitespace-normal text-left h-auto py-2"
-                    onClick={async () => {
-                      try {
-                        const res = await apiRequest("POST", `/api/proposals/${sourceProposal.id}/crew-worksheets`, {});
-                        if (!res.ok) throw new Error(await res.text());
-                        const ws = await res.json();
-                        await queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "crew-worksheets"] });
-                        setLocation(`/dashboard/tools/crew-worksheets/${ws.id}`);
-                      } catch (err: unknown) {
-                        const msg = err instanceof Error ? err.message : String(err);
-                        toast({ title: t('crewWorksheets.generateFailed'), description: msg, variant: "destructive" });
-                      }
-                    }}
-                    data-testid="button-generate-crew-worksheet-from-proposal"
-                  >
-                    <HardHat className="w-4 h-4 shrink-0" />
-                    {t('crewWorksheets.generateFromLatestProposal', { defaultValue: "Generate Crew Worksheet from latest proposal" })}
-                  </Button>
-                </div>
-              );
-            }
+            if (linkedCrewWorksheets.length === 0) return null;
             return (
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -4261,36 +4112,6 @@ export default function TicketDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Proposal Choice Dialog */}
-      <Dialog open={showProposalChoiceDialog} onOpenChange={setShowProposalChoiceDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Use Proposal Maker?</DialogTitle>
-            <DialogDescription>
-              Would you like to create a formal proposal for this project using the Proposal Maker tool?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={handleSkipProposal}
-              disabled={updateStatusMutation.isPending}
-              data-testid="button-skip-proposal"
-            >
-              No, skip to decision
-            </Button>
-            <Button
-              className="flex-1"
-              onClick={handleUseProposalMaker}
-              disabled={updateStatusMutation.isPending}
-              data-testid="button-use-proposal-maker"
-            >
-              Yes, use Proposal Maker
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

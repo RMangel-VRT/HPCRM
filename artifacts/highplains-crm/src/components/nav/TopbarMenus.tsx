@@ -31,7 +31,6 @@ export default function TopbarMenus() {
   if (user.accessRole !== "admin" && user.accessRole !== "office") return null;
 
   const tools = [
-    { id: "proposals", href: "/dashboard/tools/proposals", label: t("topbar.proposalMaker"), hint: t("topbar.proposalMakerHint") },
     { id: "visual-scope", href: "/dashboard/tools/visual-scope", label: t("topbar.visualScope") },
     { id: "crew-worksheets", href: "/dashboard/tools/crew-worksheets", label: t("topbar.crewWorksheets"), hint: t("topbar.crewWorksheetsHint") },
     { id: "plant-library", href: "/dashboard/estimates/catalogs/plants", label: t("topbar.plantLibrary") },

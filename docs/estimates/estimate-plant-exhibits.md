@@ -1,5 +1,9 @@
 # Estimate-derived plant exhibits
 
+For new documents, plant-table inclusion and photos belong to the estimate
+version; see [estimate builder](estimate-builder-screen.md). The proposal
+settings and render details below apply only to historical reads.
+
 ## Ownership and compatibility
 
 Estimate lines own plant selections, `includeInPalette`, and explicit palette-label

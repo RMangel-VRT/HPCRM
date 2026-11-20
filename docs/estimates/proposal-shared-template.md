@@ -1,5 +1,9 @@
 # Linked proposals on the shared document kit
 
+> **Historical reference.** The linked proposal template remains for draft
+> previews only. Finalized versions open the stored PDF. Use the
+> [estimate builder](estimate-builder-screen.md) for new documents.
+
 ## Ownership and migration
 
 `docs/documents/document-design-system.md` is the supplied governing standard, including

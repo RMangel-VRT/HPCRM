@@ -1,5 +1,19 @@
 # Estimate builder screen
 
+## Estimate workflow after Proposal Maker retirement (E6)
+
+Create or open an estimate to add scope, pricing, a plant table, and photos.
+Preview or download the PDF in the estimate, then **Send estimate** from a
+connected mailbox or **Mark sent without emailing** for outside delivery. Use
+the estimate's **Crew worksheet** action to create a worksheet from that
+version. There is no separate proposal authoring or cover step.
+
+Use **Old proposals** (`/dashboard/tools/proposals`), a customer's **Proposals**
+tab, or the linked ticket for past proposals. The old pages now allow only
+viewing, downloading, and the existing confirmed Delete. Saved versions still
+open their original PDF; draft previews use the available source material.
+Earlier worksheets keep their source snapshots.
+
 ## One-page builder (E3)
 
 The estimate detail page drops its Estimates section rail; the builder list,

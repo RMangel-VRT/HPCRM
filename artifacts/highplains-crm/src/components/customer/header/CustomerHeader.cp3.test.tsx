@@ -31,8 +31,8 @@ const base: CustomerHeaderProps = {
   managedBy: { status: "ready", value: { company: "Property Group", manager: "Synthetic Manager" } },
   accountManager: { status: "ready", value: null }, qbo: { status: "ready", value: "linked" },
   contract: { status: "ready", value: aggregateTerms([term(), term({ agreementId: "snow", termId: "snow-term", line: "snow", annualCents: 353600 })]) },
-  canEdit: true, actions: { note: true, ticket: true, proposal: true, logCommunication: true },
-  onAddNote: vi.fn(), onAddProposal: vi.fn(), onLogCommunication: vi.fn(),
+  canEdit: true, actions: { note: true, ticket: true, logCommunication: true },
+  onAddNote: vi.fn(), onLogCommunication: vi.fn(),
 };
 function Probe() { const [location] = useLocation(); return <output data-testid="location">{location}</output>; }
 async function mount(props: Partial<CustomerHeaderProps> = {}, language = "en") {
@@ -100,20 +100,21 @@ describe("CP3 Banner real localization and navigation", () => {
     expect(screen.getByTestId("location").textContent).toBe("/dashboard/customers");
   });
   it("launches authorized actions, preserves customer ticket context", async () => {
-    const onAddNote = vi.fn(), onAddProposal = vi.fn(), onLogCommunication = vi.fn();
-    await mount({ onAddNote, onAddProposal, onLogCommunication });
+    const onAddNote = vi.fn(), onLogCommunication = vi.fn();
+    await mount({ onAddNote, onLogCommunication });
     const user = userEvent.setup();
-    for (const [id, callback] of [["menu-add-note", onAddNote], ["menu-add-proposal", onAddProposal], ["menu-log-communication", onLogCommunication]] as const) {
+    for (const [id, callback] of [["menu-add-note", onAddNote], ["menu-log-communication", onLogCommunication]] as const) {
       await user.click(screen.getByTestId("button-header-add"));
       await user.click(screen.getByTestId(id));
       expect(callback).toHaveBeenCalledOnce();
     }
     await user.click(screen.getByTestId("button-header-add"));
+    expect(screen.queryByTestId("menu-add-proposal")).toBeNull();
     await user.click(screen.getByTestId("menu-add-ticket"));
     expect(screen.getByTestId("location").textContent).toContain("/dashboard/tickets/new");
   });
   it("field-equivalent action configuration offers Note only", async () => {
-    await mount({ canEdit: false, actions: { note: true, ticket: false, proposal: false, logCommunication: false }, contract: undefined, qbo: undefined });
+    await mount({ canEdit: false, actions: { note: true, ticket: false, logCommunication: false }, contract: undefined, qbo: undefined });
     const user = userEvent.setup();
     await user.click(screen.getByTestId("button-header-add"));
     expect(screen.getByTestId("menu-add-note")).toBeTruthy();

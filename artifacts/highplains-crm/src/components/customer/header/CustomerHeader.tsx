@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "wouter";
 import type { TFunction } from "i18next";
 import {
-  ArrowLeft, Check, ChevronDown, Edit, FileText, Mail, MapPin, MessageSquare, Plus, Ticket as TicketIcon,
+  ArrowLeft, Check, ChevronDown, Edit, Mail, MapPin, MessageSquare, Plus, Ticket as TicketIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -55,11 +55,9 @@ export interface CustomerHeaderProps {
   accountManager: Loadable<string | null>;
   branchCount?: number;
   canEdit: boolean;
-  actions: { note: boolean; ticket: boolean; proposal: boolean; logCommunication: boolean };
+  actions: { note: boolean; ticket: boolean; logCommunication: boolean };
   onAddNote: () => void;
-  onAddProposal: () => void;
   onLogCommunication: () => void;
-  proposalPending?: boolean;
 }
 
 function Chip({ label, value, href, testId, dot }: { label: string; value: ReactNode; href?: string; testId: string; dot?: string }) {
@@ -87,7 +85,7 @@ export default function CustomerHeader(p: CustomerHeaderProps) {
     l.status === "loading" ? t("common.loading") : l.status === "error" ? t("cp3.unavailable") : ready(l.value);
   const address = [c.street, [c.city, c.state].filter(Boolean).join(", "), c.zip].filter(Boolean).join(" ").trim();
   const status = c.status && ["active", "prospect", "inactive"].includes(c.status) ? c.status : null;
-  const anyAction = p.actions.note || p.actions.ticket || p.actions.proposal || p.actions.logCommunication;
+  const anyAction = p.actions.note || p.actions.ticket || p.actions.logCommunication;
 
   const quiet: ReactNode[] = isParent ? [
     <span key="parent" data-testid="quiet-parent-account">{t("cp3.quiet.parentAccount")}</span>,
@@ -179,7 +177,6 @@ export default function CustomerHeader(p: CustomerHeaderProps) {
                 <DropdownMenuContent align="end" className="min-w-[13rem]">
                   {p.actions.note && <DropdownMenuItem onSelect={p.onAddNote} data-testid="menu-add-note"><MessageSquare className="mr-2 h-4 w-4" />{t("cp3.add.note")}</DropdownMenuItem>}
                   {p.actions.ticket && <DropdownMenuItem onSelect={() => navigate(`/dashboard/tickets/new?customerId=${c.id}`)} data-testid="menu-add-ticket"><TicketIcon className="mr-2 h-4 w-4" />{t("cp3.add.ticket")}</DropdownMenuItem>}
-                  {p.actions.proposal && <DropdownMenuItem disabled={p.proposalPending} onSelect={p.onAddProposal} data-testid="menu-add-proposal"><FileText className="mr-2 h-4 w-4" />{t("cp3.add.proposal")}</DropdownMenuItem>}
                   {p.actions.logCommunication && <DropdownMenuItem onSelect={p.onLogCommunication} data-testid="menu-log-communication"><Mail className="mr-2 h-4 w-4" />{t("cp3.add.logCommunication")}</DropdownMenuItem>}
                 </DropdownMenuContent>
               </DropdownMenu>

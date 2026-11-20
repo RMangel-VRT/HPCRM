@@ -1,76 +1,38 @@
 import { randomUUID } from "node:crypto";
-import { proposalCoverPatch, coverSelectionError } from "./proposalCover";
-import { accessRole } from "../../../../lib/db/src/accessRole";
 import { readFile } from "node:fs/promises";
 import { transform } from "esbuild";
 import express from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { z } from "zod/v4";
-import { companies, customers, users, estimates, estimateVersions, proposals, proposalVersions, proposalFiles, visualScopeSheets,
-  tickets, ticketTypes, ticketTypeStatuses, hardscapeCatalogItems, pool as schemaPool } from "@workspace/db";
+import { companies, customers, users, proposals, proposalFiles, proposalVersions, crewWorksheets,
+  tickets, ticketTypes, ticketTypeStatuses, plantCatalogItems, plantEnrichment, estimateLines,
+  estimateSections, plantPalettes, plantPaletteItems, pool as schemaPool } from "@workspace/db";
+import { accessRole } from "../../../../lib/db/src/accessRole";
 import { db, pool } from "../db";
-import { createEstimate, createLine } from "./estimates";
-import { readEstimate } from "./estimateReads";
-import { transitionEstimate } from "./estimateLifecycle";
-import { readTicketEstimate } from "./ticketEstimates";
-import { assertProposalEstimateLink, validateProposalEstimate, loadProposalEstimateSummaries, prepareProposalEstimate } from "./proposalEstimates";
-import { EstimateError } from "./estimateErrors";
 import { estimateAccess } from "../lib/estimateAccess";
+import { canReadCrewWorksheets } from "../lib/crewWorksheetAccess";
+import { registerRetiredProposalWrites } from "../routes/retiredProposalWrites";
+import { registerProposalPdfReads } from "../routes/proposalPdfReads";
+import { createEstimate, createLine } from "./estimates";
+import { loadProposalEstimateSummaries } from "./proposalEstimates";
 import { loadProposalExhibits, loadPlantLinesForVersion, buildPlantScheduleModel } from "./proposalExhibits";
-import { proposalExhibitSettingsSchema, type ProposalExhibits } from "../../../../lib/db/src/plantExhibitContracts";
-import { plantCatalogItems, plantEnrichment, estimateLines, estimateSections } from "@workspace/db";
-import { plantPalettes, plantPaletteItems } from "@workspace/db";
-import { storage as proposalStorage } from "../storage";
-import { carryProposalScope } from "../lib/carryProposalScope";
-import { loadProposalDocumentModel, renderProposalDocument } from "./proposalDocument";
-import { renderEstimatePdf } from "./estimatePdf";
-import { registerEstimateRoutes } from "../routes/estimates";
-import { ObjectStorageService as RealObjectStorageService } from "../objectStorage";
+import { loadProposalDocumentModel, renderLinkedProposal } from "./proposalDocument";
 import { closeDocumentBrowser } from "./documents/browser";
+import { ObjectStorageService } from "../objectStorage";
+import { storage } from "../storage";
 import { PDFDocument } from "pdf-lib";
-import { execFileSync } from "node:child_process";
-import type { ProposalWithDetails } from "@workspace/db";
+import { readEstimate } from "./estimateReads";
 
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 const companyId = randomUUID(), otherCompany = randomUUID(), actor = randomUUID();
-let customerId: string, otherCustomer: string, foreignCustomer: string, ticketId: string;
+let customerId: string, ticketId: string;
 let app: express.Express;
 const stored = new Map<string, Buffer>();
-const render = vi.fn(async (_p: unknown, _c: string, versionId?: string, _exhibits?: ProposalExhibits): Promise<Buffer> => Buffer.from(`PDF:${versionId ?? "uploaded"}`));
-let failStore = false;
-let recordConflicts = 0;
-const legacyUploads = new Set<string>();
-const storage = {
-  getCustomerById: async (id: string, company: string) => (await db.select().from(customers).where(and(eq(customers.id, id), eq(customers.companyId, company))))[0],
-  getTicketById: async (id: string, company: string) => (await db.select().from(tickets).where(and(eq(tickets.id, id), eq(tickets.companyId, company))))[0],
-  createProposal: proposalStorage.createProposal.bind(proposalStorage),
-  deleteProposal: proposalStorage.deleteProposal.bind(proposalStorage),
-  updateProposal: proposalStorage.updateProposal.bind(proposalStorage),
-  getProposalFileById: proposalStorage.getProposalFileById.bind(proposalStorage),
-  updateProposalFile: proposalStorage.updateProposalFile.bind(proposalStorage),
-  reorderProposalImageFiles: proposalStorage.reorderProposalImageFiles.bind(proposalStorage),
-  deleteProposalFiles: proposalStorage.deleteProposalFiles.bind(proposalStorage),
-  deleteProposalFile: proposalStorage.deleteProposalFile.bind(proposalStorage),
-  getVisualScopeSheet: proposalStorage.getVisualScopeSheet.bind(proposalStorage),
-  getProposalById: async (id: string, company: string) => {
-    const p = (await db.select().from(proposals).where(and(eq(proposals.id, id), eq(proposals.companyId, company))))[0];
-    const images = await db.select().from(proposalFiles).where(and(eq(proposalFiles.proposalId, id), eq(proposalFiles.companyId, company)));
-    return p ? { ...p, files: [...images, ...(legacyUploads.has(id) ? [{ fileType: "estimate_pdf" }] : [])], plantItems: [], versions: [], customerName: "Disposable",
-      estimate: p.estimateId ? (await loadProposalEstimateSummaries(company, [p.estimateId])).get(p.estimateId) : null } : undefined;
-  },
-  getNextVersionNumber: async (id: string, company: string) => {
-    const rows = await db.select().from(proposalVersions).where(and(eq(proposalVersions.proposalId, id), eq(proposalVersions.companyId, company)));
-    return Math.max(0, ...rows.map(r => r.versionNumber)) + 1;
-  },
-  createProposalVersion: async (data: typeof proposalVersions.$inferInsert) => {
-    if (recordConflicts-- > 0) throw Object.assign(new Error("conflict"), { code: "23505" });
-    return (await db.insert(proposalVersions).values(data).returning())[0];
-  },
-  getProposalVersionById: async (id: string, company: string) =>
-    (await db.select().from(proposalVersions).where(and(eq(proposalVersions.id, id), eq(proposalVersions.companyId, company))))[0],
-};
+const render = vi.fn(async (company: string, p: Parameters<typeof renderLinkedProposal>[1]) => {
+  if (!p.estimateId) throw new Error("No synthetic legacy renderer supplied");
+  return renderLinkedProposal(company, p, await loadProposalExhibits(company, p));
+});
 const proposal = async (estimateId: string | null = null, linkedTicket: string | null = null) => storage.createProposal({
   companyId, customerId, ticketId: linkedTicket, estimateId, title: "Disposable proposal", proposalDate: "2026-11-03", proposalNumber: randomUUID(),
 });
@@ -80,57 +42,47 @@ async function draft(linkedTicketId?: string) {
     name: "Install", unit: "EA", quantity: "2", unitPriceCents: 1234, umbrellaKey: "landscape_labor" });
 }
 beforeAll(async () => {
-  const migration = await readFile(new URL("../../../../.migration-backup/migrations/0064_proposal_estimates.sql", import.meta.url), "utf8");
-  await db.execute(sql.raw(migration)); await db.execute(sql.raw(migration));
-  const exhibitsMigration = await readFile(new URL("../../../../.migration-backup/migrations/0065_proposal_plant_exhibits.sql", import.meta.url), "utf8");
-  await db.execute(sql.raw(exhibitsMigration)); await db.execute(sql.raw(exhibitsMigration));
-  const coverMigration = await readFile(new URL("../../../../.migration-backup/migrations/0066_proposal_cover.sql", import.meta.url), "utf8");
-  await db.execute(sql.raw(coverMigration)); await db.execute(sql.raw(coverMigration));
   await db.insert(companies).values([{ id: companyId, name: "Disposable proposals", slug: companyId }, { id: otherCompany, name: "Disposable foreign", slug: otherCompany }]);
   await db.insert(users).values({ id: actor, name: "Disposable proposal actor", passwordHash: "not-a-login" });
-  [customerId, otherCustomer, foreignCustomer] = (await db.insert(customers).values([
-    { companyId, name: "A", street: "Test", city: "Test", state: "CO", zip: "00000" },
-    { companyId, name: "B", street: "Test", city: "Test", state: "CO", zip: "00000" },
-    { companyId: otherCompany, name: "Foreign", street: "Test", city: "Test", state: "CO", zip: "00000" },
-  ]).returning()).map(c => c.id);
+  [{ id: customerId }] = await db.insert(customers).values({ companyId, name: "A", street: "Test", city: "Test", state: "CO", zip: "00000" }).returning();
   const [type] = await db.insert(ticketTypes).values({ companyId, name: "Estimate Request", typeKey: "estimate_request", color: "#000000" }).returning();
   const [status] = await db.insert(ticketTypeStatuses).values({ ticketTypeId: type.id, name: "New", displayOrder: 0 }).returning();
-  [ticketId] = (await db.insert(tickets).values({ companyId, customerId, ticketTypeId: type.id, currentStatusId: status.id, title: "Disposable ticket", createdById: actor }).returning()).map(t => t.id);
-  // Exercise the actual route handlers while isolating external storage/rendering.
-  const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
-  const links = source.slice(source.indexOf("  const canAccessProposals ="), source.indexOf('  app.post("/api/convert-heic"'));
-  const finalize = source.slice(source.indexOf('  app.post("/api/proposals/:id/finalize"'), source.indexOf("  // ---- List finalized versions"));
-  const download = source.slice(source.indexOf('  app.get("/api/proposals/:id/versions/:versionId/download"'), source.indexOf("  // ---- Download a frozen VS"));
-  const files = source.slice(source.indexOf('  app.post("/api/proposals/:id/files/reorder"'), source.indexOf("  // ---- Proposal plant items CRUD"));
-  const { code } = await transform(`${links}\n${finalize}\n${download}\n${files}`, { loader: "ts", target: "es2022" });
+  [{ id: ticketId }] = await db.insert(tickets).values({ companyId, customerId, ticketTypeId: type.id, currentStatusId: status.id, title: "Disposable ticket", createdById: actor }).returning();
+
   app = express(); app.use(express.json());
   app.use((req, _res, next) => {
     Object.assign(req, { isAuthenticated: () => req.get("X-Test-Auth") !== "no",
       user: { id: actor, activeCompanyId: req.get("X-Test-Company") ?? companyId, activeRole: req.get("X-Test-Role") ?? "office" } });
     next();
   });
-  class ObjectStorageService {
-    async downloadByPath(path: string) {
-      const bytes = stored.get(path);
-      if (!bytes) throw new Error("Missing fixture");
-      return bytes;
-    }
-    async saveBufferToPrivatePath(path: string, bytes: Buffer) {
-      if (failStore) throw new Error("simulated storage failure");
-      if (stored.has(path)) throw new Error("immutable path overwritten");
-      stored.set(path, bytes);
-      return path;
-    }
-  }
-  const deps = { app, db, storage, sql, and, eq, estimates, proposals, express, proposalZ: z, estimateAccess, accessRole,
-    loadProposalEstimateSummaries, readTicketEstimate, validateProposalEstimate, prepareProposalEstimate,
-    loadProposalExhibits, proposalExhibitSettingsSchema, proposalCoverPatch, coverSelectionError,
-    EstimateError, randomUUID, ObjectStorageService, generateProposalPdf: render,
-    assertNotParentCustomer: async () => false,
-    objectStorageClient: { bucket: () => ({ file: () => ({ delete: async () => {} }) }) } };
+  // Exercise the production route handlers without the unrelated startup jobs.
+  const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
+  const between = (start: string, end: string) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+  const links = between("  const canAccessProposals =", '  app.post("/api/convert-heic"');
+  const worksheet = between('  app.get("/api/crew-worksheets/:id"', '  app.get("/api/customers/:customerId/crew-worksheets"');
+  const { code } = await transform(`${links}\n${worksheet}`, { loader: "ts", target: "es2022" });
+  const deps = { app, db, storage, sql, and, eq, proposals, estimateAccess, accessRole, canReadCrewWorksheets,
+    registerRetiredProposalWrites, loadProposalEstimateSummaries, loadProposalExhibits };
   new Function(...Object.keys(deps), code)(...Object.values(deps));
-  registerEstimateRoutes(app);
+  registerProposalPdfReads(app, {
+    getProposal: storage.getProposalById.bind(storage), getVersion: storage.getProposalVersionById.bind(storage),
+    loadStoredPdf: async path => {
+      const bytes = stored.get(path);
+      if (!bytes) throw new Error("Missing synthetic PDF");
+      return bytes;
+    },
+    renderDraft: (p, company) => render(company, p),
+  });
 });
+
+afterAll(async () => {
+  await closeDocumentBrowser();
+  await db.delete(tickets).where(eq(tickets.companyId, companyId));
+  await db.delete(companies).where(inArray(companies.id, [companyId, otherCompany]));
+  await db.delete(users).where(eq(users.id, actor));
+  await Promise.all([pool.end(), schemaPool.end()]);
+});
+
 async function plantDraft() {
   const d = await createEstimate(companyId, actor, { customerId, title: "Plant fixture" });
   const varietyKey = randomUUID();
@@ -157,9 +109,9 @@ describe("estimate-derived proposal exhibits", () => {
   it("embeds only the selected version's own-company Plants images, keeping rows after enrichment removal", async () => {
     const { d } = await plantDraft(), p = await proposal(d.id);
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN1kAAAAASUVORK5CYII=", "base64");
-    const download = vi.spyOn(RealObjectStorageService.prototype, "downloadByPath").mockResolvedValue(png);
+    const download = vi.spyOn(ObjectStorageService.prototype, "downloadByPath").mockResolvedValue(png);
     try {
-      const full = await storage.getProposalById(p.id, companyId) as ProposalWithDetails;
+      const full = (await storage.getProposalById(p.id, companyId))!;
       let exhibits = await loadProposalExhibits(companyId, { ...full, estimate: { number: "", currentVersion: { id: d.version.id, versionNumber: 1 } } });
       const model = await loadProposalDocumentModel(companyId, full, exhibits);
       expect(model.plants).toHaveLength(2);
@@ -175,79 +127,6 @@ describe("estimate-derived proposal exhibits", () => {
       expect(noOwnImage.plants?.every(r => r.dataUri === null)).toBe(true);
       expect(download).not.toHaveBeenCalled();
     } finally { download.mockRestore(); }
-  });
-  it("prints a shared two-line property fallback and keeps finalized bytes through later location edits and revisions", async () => {
-    const [{ ticketTypeId, currentStatusId }] = await db.select({ ticketTypeId: tickets.ticketTypeId, currentStatusId: tickets.currentStatusId })
-      .from(tickets).where(eq(tickets.id, ticketId));
-    const [locationTicket] = await db.insert(tickets).values({
-      companyId, customerId, ticketTypeId, currentStatusId, title: "Disposable location ticket", createdById: actor,
-    }).returning();
-    const d = await draft(locationTicket.id), p = await proposal(d.id, locationTicket.id);
-    render.mockImplementationOnce(async (proposal, company, versionId, exhibits) => {
-      const selected = await readEstimate(company, d.id);
-      expect(selected.version.status).toBe("sent");
-      expect(selected.version.frozenSubtotalCents).toBe(2468);
-      expect(exhibits?.provenance.versionId).toBe(versionId);
-      return renderProposalDocument(await loadProposalDocumentModel(company, proposal as ProposalWithDetails, exhibits!));
-    });
-    const response = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "portal", expectedEstimateVersionId: d.version.id }).expect(201);
-    const bytes = stored.get(response.body.pdfStoragePath)!;
-    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(2);
-    const pdfText = (pdf: Buffer) => execFileSync("pdftotext", ["-layout", "-", "-"], { input: pdf }).toString();
-    const text = pdfText(bytes);
-    expect(text).toContain("PROPOSAL TOTAL");
-    expect(text).toContain("Signing below accepts");
-    // Layout extraction interleaves the labels/values of neighboring columns.
-    const twoLines = /WORK LOCATION[^\n]*\n(?:[^\n]*\n){0,3}[^\n]*\bTest\b[^\n]*\n[^\n]*Test CO 00000/;
-    for (const page of text.split("\f").slice(0, 2)) {
-      expect(page).toMatch(twoLines);
-    }
-    expect(pdfText(await renderEstimatePdf(companyId, d.id, d.version.id))).toMatch(twoLines);
-    await request(app).put(`/api/estimates/${d.id}/work-location`).send({ label: "West Work Gate", details: "Entrance near pond" })
-      .expect(200, { text: "West Work Gate\nEntrance near pond", source: "ticket" });
-    const full = await storage.getProposalById(p.id, companyId) as ProposalWithDetails;
-    const exhibits = await loadProposalExhibits(companyId, { ...full, estimate: { number: d.estimateNumber,
-      currentVersion: { id: d.version.id, versionNumber: 1 } } });
-    const live = await renderProposalDocument(await loadProposalDocumentModel(companyId, full, exhibits));
-    for (const page of pdfText(live).split("\f").slice(0, 2)) {
-      expect(page).toContain("West Work Gate");
-      expect(page).toContain("Entrance near pond");
-    }
-    expect(pdfText(await renderEstimatePdf(companyId, d.id, d.version.id))).toContain("West Work Gate");
-    await transitionEstimate(companyId, actor, d.id, d.version.id, "revise", {});
-    render.mockClear();
-    const downloaded = await request(app).get(`/api/proposals/${p.id}/versions/${response.body.id}/download`).expect(200);
-    expect(downloaded.body).toEqual(bytes);
-    expect(stored.get(response.body.pdfStoragePath)).toEqual(bytes);
-    expect(render).not.toHaveBeenCalled();
-  });
-  it("validates effective cover PATCH state, tenant/photo ownership and rerunnable FK deletion", async () => {
-    const d = await draft();
-    const p = await proposal(d.id);
-    const other = await proposal(d.id);
-    const [photo, mismatch] = await db.insert(proposalFiles).values([p, other].map(v => ({
-      proposalId: v.id, companyId, fileType: "image", storageObjectPath: "/test/image.jpg",
-      filename: "image.jpg", mimeType: "image/jpeg", fileSize: 100,
-    }))).returning();
-    await request(app).patch(`/api/proposals/${p.id}`).send({ coverSource: "photo", coverPhotoFileId: mismatch.id }).expect(400);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ coverSource: "photo", coverPhotoFileId: photo.id }).expect(200);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ title: "Unrelated edit" }).expect(200);
-    let current = await storage.getProposalById(p.id, companyId);
-    expect(current?.coverSource).toBe("photo"); expect(current?.coverPhotoFileId).toBe(photo.id);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ coverPhotoFileId: null }).expect(400);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ coverSource: "visual_scope" }).expect(400);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ coverSource: "invalid" }).expect(400);
-    await request(app).patch(`/api/proposals/${p.id}`).set("X-Company-Id", otherCompany).send({ coverSource: "none" }).expect(409);
-    await db.delete(proposalFiles).where(eq(proposalFiles.id, photo.id));
-    current = await storage.getProposalById(p.id, companyId);
-    expect(current?.coverPhotoFileId).toBeNull(); expect(current?.coverSource).toBe("photo");
-    await request(app).patch(`/api/proposals/${p.id}`).send({ title: "Still editable after deletion" }).expect(200);
-    const [scope] = await db.insert(visualScopeSheets).values({ companyId, customerId, title: "Cover scope", scopeDate: "2026-11-03" }).returning();
-    await request(app).patch(`/api/proposals/${p.id}`).send({ visualScopeSheetId: scope.id, coverSource: "visual_scope" }).expect(200);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ visualScopeSheetId: null }).expect(200);
-    current = await storage.getProposalById(p.id, companyId);
-    expect(current?.coverSource).toBe("visual_scope"); expect(current?.visualScopeSheetId).toBeNull();
-    await expect(db.update(proposals).set({ coverSource: "invalid" }).where(eq(proposals.id, p.id))).rejects.toThrow();
   });
   it("loads one ordered price-free query, isolates enrichment and preserves deleted catalog snapshots", async () => {
     const { d, items } = await plantDraft();
@@ -266,7 +145,7 @@ describe("estimate-derived proposal exhibits", () => {
     expect(rows).toHaveLength(3);
     expect(rows[0]).toMatchObject({ name: "Snapshot Pine 5 gal", size: "Snapshot size", botanicalName: null, imagePath: null });
   });
-  it("exposes scoped lightweight previews, explicit unlinked/missing/denied cases, and omitted-setting preservation", async () => {
+  it("exposes scoped lightweight previews, explicit unlinked/missing/denied cases", async () => {
     const { d } = await plantDraft(), p = await proposal(d.id), legacy = await proposal();
     render.mockClear();
     const preview = await request(app).get(`/api/proposals/${p.id}/exhibits`).expect(200);
@@ -280,186 +159,7 @@ describe("estimate-derived proposal exhibits", () => {
     await request(app).get(`/api/proposals/${p.id}/exhibits`).set("X-Company-Id", otherCompany).expect(409);
     await request(app).get(`/api/proposals/${p.id}/exhibits`).set("X-Test-Role", "field_manager").expect(403);
     await request(app).get(`/api/proposals/${p.id}/exhibits`).set("X-Test-Auth", "no").expect(401);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ includePlantSchedule: false, includePlantPalette: false, paletteIntroText: "" }).expect(200);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ title: "Only title" }).expect(200);
-    expect(await storage.getProposalById(p.id, companyId)).toMatchObject({ includePlantSchedule: false, includePlantPalette: false, paletteIntroText: "" });
-    expect((await request(app).get(`/api/proposals/${p.id}/exhibits`)).body.palette.introText).toBe("");
-    await request(app).patch(`/api/proposals/${p.id}`).send({ includePlantPalette: "false" }).expect(400);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ paletteIntroText: null }).expect(200);
-    expect((await request(app).get(`/api/proposals/${p.id}/exhibits`)).body.palette.introText).toContain("Colorado-hardy");
   });
-  it("reuses the exact pinned schedule for the PDF and snapshot despite a concurrent revision", async () => {
-    const { d } = await plantDraft(), p = await proposal(d.id);
-    const expected = buildPlantScheduleModel(await loadPlantLinesForVersion(companyId, d.version.id));
-    render.mockImplementationOnce(async (_proposal, _company, versionId) => {
-      await transitionEstimate(companyId, actor, d.id, d.version.id, "revise", {});
-      return Buffer.from(`PDF:${versionId}`);
-    });
-    const result = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "email" }).expect(201);
-    expect(result.body).toMatchObject({ estimateVersionId: d.version.id, plantItemsSnapshot: expected });
-    expect(render.mock.lastCall?.[3]).toMatchObject({ schedule: expected, provenance: { versionId: d.version.id } });
-    expect((await readEstimate(companyId, d.id)).version.id).not.toBe(d.version.id);
-  });
-});
-afterAll(async () => {
-  await closeDocumentBrowser();
-  await db.delete(tickets).where(eq(tickets.companyId, companyId));
-  await db.delete(companies).where(inArray(companies.id, [companyId, otherCompany]));
-  await db.delete(users).where(eq(users.id, actor));
-  await Promise.all([pool.end(), schemaPool.end()]);
-});
-describe("proposal relationships and scoped HTTP contracts", () => {
-  it("reorders and bulk-deletes linked images while protecting foreign-proposal attachments", async () => {
-    const d = await draft(), p = await proposal(d.id), legacy = await proposal();
-    const [one, two, retained] = await db.insert(proposalFiles).values([
-      { companyId, proposalId: p.id, fileType: "image", filename: "one.png", mimeType: "image/png", fileSize: 10, storageObjectPath: "/objects/test-one", displayOrder: 0 },
-      { companyId, proposalId: p.id, fileType: "image", filename: "two.png", mimeType: "image/png", fileSize: 10, storageObjectPath: "/objects/test-two", displayOrder: 1 },
-      { companyId, proposalId: legacy.id, fileType: "image", filename: "retained.png", mimeType: "image/png", fileSize: 10, storageObjectPath: "/objects/test-legacy", displayOrder: 0 },
-    ]).returning();
-    await request(app).post(`/api/proposals/${p.id}/files/reorder`).send({ orderedFileIds: [two.id, one.id] }).expect(200);
-    const ordered = await proposalStorage.getProposalFiles(p.id, companyId);
-    expect(ordered.map(f => f.id)).toEqual([two.id, one.id]);
-    await request(app).patch(`/api/proposals/${p.id}/files/${one.id}`).send({ caption: "Saved caption" }).expect(200);
-    await request(app).patch(`/api/proposals/${p.id}/files/${retained.id}`).send({ caption: "No" }).expect(404);
-    await request(app).delete(`/api/proposals/${p.id}/files/${retained.id}`).expect(404);
-    await request(app).post(`/api/proposals/${p.id}/files/bulk-delete`).send({ fileIds: [two.id, retained.id] }).expect(200);
-    expect(await proposalStorage.getProposalFileById(two.id, companyId)).toBeUndefined();
-    expect((await proposalStorage.getProposalFileById(one.id, companyId))?.caption).toBe("Saved caption");
-    expect(await proposalStorage.getProposalFileById(retained.id, companyId)).toBeTruthy();
-  });
-  it("rejects proposal-owned scope on linked POST/PATCH", async () => {
-    const d = await draft(), p = await proposal(d.id);
-    await request(app).post("/api/proposals").send({ estimateId: d.id, scopeOfWork: "No" })
-      .expect(400).expect({ error: "ESTIMATE_SCOPE_OWNED" });
-    await request(app).patch(`/api/proposals/${p.id}`).send({ scopeOfWork: "No" })
-      .expect(400).expect({ error: "ESTIMATE_SCOPE_OWNED" });
-    expect((await storage.getProposalById(p.id, companyId))?.scopeOfWork).toBe("");
-  });
-  it("carries only into empty current drafts, selects deterministically, and is concurrent/rerun safe", async () => {
-    const empty = await draft(), populated = await draft(), frozen = await draft(), foreign = await draft();
-    const first = await proposal(empty.id), second = await proposal(empty.id);
-    const whitespace = await proposal(empty.id);
-    await db.update(proposals).set({ scopeOfWork: " \n\t ", createdAt: new Date("2019-01-01") }).where(eq(proposals.id, whitespace.id));
-    await db.update(estimateVersions).set({ scopeOfWork: " \n\t " }).where(eq(estimateVersions.id, empty.version.id));
-    const kept = await proposal(populated.id), skipped = await proposal(frozen.id);
-    await db.update(proposals).set({ scopeOfWork: "FIRST\n[PAGE BREAK]\ncontinued", createdAt: new Date("2020-01-01") }).where(eq(proposals.id, first.id));
-    await db.update(proposals).set({ scopeOfWork: "SECOND", createdAt: new Date("2020-01-02") }).where(eq(proposals.id, second.id));
-    await db.update(proposals).set({ scopeOfWork: "never overwrite" }).where(inArray(proposals.id, [kept.id, skipped.id]));
-    await db.update(estimateVersions).set({ scopeOfWork: "existing" }).where(eq(estimateVersions.id, populated.version.id));
-    await db.insert(proposals).values({ companyId: otherCompany, customerId: foreignCustomer, estimateId: foreign.id,
-      proposalDate: "2026-11-13", scopeOfWork: "foreign forbidden", proposalNumber: randomUUID() });
-    await transitionEstimate(companyId, actor, frozen.id, frozen.version.id, "send", { method: "email" });
-    const before = (await db.select().from(estimateVersions).where(eq(estimateVersions.id, frozen.version.id)))[0];
-    const results = await Promise.all([carryProposalScope(), carryProposalScope()]);
-    expect(results.reduce((n, r) => n + (r?.copied ?? 0), 0)).toBe(1);
-    expect(results.flatMap(r => r?.ambiguous ?? [])).toContainEqual({
-      estimateId: empty.id, proposalIds: [first.id, second.id], selectedProposalId: first.id });
-    expect(results[0]?.skippedFrozenProposalIds).toContain(skipped.id);
-    expect((await readEstimate(companyId, empty.id)).version.scopeOfWork).toBe("FIRST\n[PAGE BREAK]\ncontinued");
-    expect((await readEstimate(companyId, populated.id)).version.scopeOfWork).toBe("existing");
-    expect((await readEstimate(companyId, foreign.id)).version.scopeOfWork).toBeNull();
-    expect((await db.select().from(estimateVersions).where(eq(estimateVersions.id, frozen.version.id)))[0]).toEqual(before);
-    expect((await carryProposalScope())?.copied).toBe(0);
-  });
-  it("waits for an in-flight estimate edit and never replaces its scope", async () => {
-    const d = await draft(), p = await proposal(d.id);
-    await db.update(proposals).set({ scopeOfWork: "carry candidate" }).where(eq(proposals.id, p.id));
-    let ready!: () => void, release!: () => void;
-    const locked = new Promise<void>(resolve => { ready = resolve; });
-    const proceed = new Promise<void>(resolve => { release = resolve; });
-    const editor = db.transaction(async tx => {
-      await tx.select().from(estimates).where(eq(estimates.id, d.id)).for("update");
-      ready();
-      await proceed;
-      await tx.update(estimateVersions).set({ scopeOfWork: "concurrent editor wins" }).where(eq(estimateVersions.id, d.version.id));
-    });
-    await locked;
-    const initializer = carryProposalScope();
-    release();
-    await Promise.all([editor, initializer]);
-    expect((await readEstimate(companyId, d.id)).version.scopeOfWork).toBe("concurrent editor wins");
-  });
-  it("crew worksheets snapshot the estimate-owned scope instead of stale proposal text", async () => {
-    const d = await draft(), p = await proposal(d.id);
-    await db.update(estimateVersions).set({ scopeOfWork: "Crew scope from estimate" }).where(eq(estimateVersions.id, d.version.id));
-    await db.update(proposals).set({ scopeOfWork: "stale proposal text" }).where(eq(proposals.id, p.id));
-    const worksheet = await proposalStorage.createCrewWorksheetFromProposal({ companyId, proposalId: p.id,
-      createdById: actor, worksheetNumber: randomUUID(), worksheetDate: "2026-11-13", title: "Disposable" });
-    expect(worksheet?.scopeOfWork).toBe("Crew scope from estimate");
-  });
-  it("requires an eligible estimate, derives relationships/defaults, and scopes the narrow lookup", async () => {
-    await request(app).post("/api/proposals").expect(400).expect({ error: "ESTIMATE_REQUIRED" });
-    await request(app).post("/api/proposals").send({ customerId }).expect(400).expect({ error: "ESTIMATE_REQUIRED" });
-    const d = await draft();
-    const created = await request(app).post("/api/proposals").send({ estimateId: d.id, customerId: foreignCustomer, ticketId }).expect(201);
-    expect(created.body).toMatchObject({ customerId, ticketId: null, estimateId: d.id, estimateNumber: d.estimateNumber, title: d.title });
-    expect(created.body.proposalDate).toBe(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Denver" }).format(new Date()));
-    const lookup = await request(app).get(`/api/proposals?estimateId=${d.id}`).expect(200);
-    expect(lookup.body.map((p: { id: string }) => p.id)).toEqual([created.body.id]);
-    expect(lookup.body[0]).not.toHaveProperty("scopeOfWork");
-    await request(app).get(`/api/proposals?estimateId=${d.id}`).set("X-Test-Company", otherCompany).expect(200).expect([]);
-    await request(app).post("/api/proposals").set("X-Test-Company", otherCompany).send({ estimateId: d.id }).expect(422);
-    await transitionEstimate(companyId, actor, d.id, undefined, "void", { reason: "Test" });
-    await request(app).post("/api/proposals").send({ estimateId: d.id }).expect(422);
-  });
-  it("protects every legacy nested mutation while preserving reads", async () => {
-    const p = await proposal();
-    await request(app).get(`/api/proposals/${p.id}`).expect(200);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ title: "No" }).expect(409);
-    for (const path of ["files", "files/upload-url", "files/reorder", "files/bulk-delete", "plant-items", "finalize", "crew-worksheets"]) {
-      await request(app).post(`/api/proposals/${p.id}/${path}`).send({}).expect(409);
-    }
-    for (const path of ["files/missing", "plant-items/missing"]) {
-      await request(app).delete(`/api/proposals/${p.id}/${path}`).expect(409);
-      await request(app).patch(`/api/proposals/${p.id}/${path}`).send({}).expect(409);
-    }
-    await request(app).delete(`/api/proposals/${p.id}`).expect(200);
-    await request(app).get(`/api/proposals/${p.id}`).expect(404);
-    const linked = await proposal((await draft()).id);
-    await request(app).post(`/api/proposals/${linked.id}/files/upload-url`).send({ fileType: "estimate_pdf" }).expect(400).expect({ error: "ESTIMATE_PDF_RETIRED" });
-    await request(app).post(`/api/proposals/${linked.id}/files`).send({ fileType: "estimate_pdf" }).expect(400).expect({ error: "ESTIMATE_PDF_RETIRED" });
-  });
-  it("serves immutable historical legacy PDFs only to authorized company/proposal readers", async () => {
-    const p = await proposal();
-    const v = await storage.createProposalVersion({ companyId, proposalId: p.id, versionNumber: 1,
-      title: p.title, proposalDate: p.proposalDate, pdfStoragePath: randomUUID() });
-    const bytes = Buffer.from("%PDF-1.4 retained legacy bytes");
-    stored.set(v.pdfStoragePath, bytes);
-    const response = await request(app).get(`/api/proposals/${p.id}/versions/${v.id}/download`).expect(200);
-    expect(response.body).toEqual(bytes);
-    const other = await proposal();
-    await request(app).get(`/api/proposals/${other.id}/versions/${v.id}/download`).expect(404);
-    await request(app).get(`/api/proposals/${p.id}/versions/${v.id}/download`).set("X-Test-Company", otherCompany).expect(404);
-    await request(app).get(`/api/proposals/${p.id}/versions/${v.id}/download`).set("X-Test-Role", "field_manager").expect(403);
-    expect(stored.get(v.pdfStoragePath)).toEqual(bytes);
-  });
-  it("retires attachments on every write, preserves omission, and clears null or estimate links atomically", async () => {
-    const [palette] = await db.insert(plantPalettes).values({ companyId, title: "Read-only legacy" }).returning();
-    const p = await proposal((await draft()).id);
-    // Historical fixtures must bypass the retired application write paths.
-    await db.update(proposals).set({ plantPaletteId: palette.id }).where(eq(proposals.id, p.id));
-    for (const value of [palette.id, "foreign", "", false, 0, [], {}]) {
-      await request(app).patch(`/api/proposals/${p.id}`).send({ plantPaletteId: value }).expect(400);
-      await request(app).post("/api/proposals").send({ customerId, plantPaletteId: value }).expect(400);
-    }
-    await request(app).patch(`/api/proposals/${p.id}`).send({ title: "Unrelated edit" }).expect(200);
-    expect((await storage.getProposalById(p.id, companyId))?.plantPaletteId).toBeNull();
-    await request(app).patch(`/api/proposals/${p.id}`).set("X-Test-Company", otherCompany).send({ plantPaletteId: null }).expect(404);
-    await request(app).patch(`/api/proposals/${p.id}`).set("X-Test-Role", "field").send({ plantPaletteId: null }).expect(403);
-    await request(app).patch(`/api/proposals/${p.id}`).set("X-Company-Id", otherCompany).send({ plantPaletteId: null }).expect(409);
-    await request(app).patch(`/api/proposals/${p.id}`).send({ plantPaletteId: null }).expect(200);
-    expect((await storage.getProposalById(p.id, companyId))?.plantPaletteId).toBeNull();
-    await db.update(proposals).set({ plantPaletteId: palette.id }).where(eq(proposals.id, p.id));
-    const d = await draft();
-    const linked = await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: d.id }).expect(200);
-    expect(linked.body).toMatchObject({ estimateId: d.id, plantPaletteId: null });
-    await expect(proposalStorage.updateProposal(p.id, companyId, { plantPaletteId: palette.id })).rejects.toThrow("PLANT_PALETTES_RETIRED");
-    await expect(proposalStorage.createProposal({ companyId, customerId, proposalDate: "2026-11-03", plantPaletteId: palette.id })).rejects.toThrow("PLANT_PALETTES_RETIRED");
-    // The internal link boundary also clears in the same SQL UPDATE.
-    await db.update(proposals).set({ plantPaletteId: palette.id, estimateId: null }).where(eq(proposals.id, p.id));
-    expect(await proposalStorage.updateProposal(p.id, companyId, { estimateId: d.id })).toMatchObject({ estimateId: d.id, plantPaletteId: null });
-  });
-
   it("keeps legacy palette reads proposal-owned and company scoped without deleting any legacy rows", async () => {
     const [own, foreign] = await db.insert(plantPalettes).values([
       { companyId, title: "Own" }, { companyId: otherCompany, title: "Foreign" },
@@ -470,154 +170,98 @@ describe("proposal relationships and scoped HTTP contracts", () => {
     ]);
     const p = await proposal();
     await db.update(proposals).set({ plantPaletteId: own.id }).where(eq(proposals.id, p.id));
-    const read = await proposalStorage.getProposalById(p.id, companyId);
+    const read = await storage.getProposalById(p.id, companyId);
     expect(read?.plantPalette?.items.map(item => item.nameSnapshot)).toEqual(["Own plant"]);
-    expect(await proposalStorage.getProposalById(p.id, otherCompany)).toBeUndefined();
+    expect(await storage.getProposalById(p.id, otherCompany)).toBeUndefined();
     await db.update(proposals).set({ plantPaletteId: foreign.id }).where(eq(proposals.id, p.id));
-    expect((await proposalStorage.getProposalById(p.id, companyId))?.plantPalette).toBeNull();
-    await proposalStorage.updateProposal(p.id, companyId, { plantPaletteId: null });
-    expect((await proposalStorage.getProposalById(p.id, companyId))?.plantPalette).toBeNull();
+    expect((await storage.getProposalById(p.id, companyId))?.plantPalette).toBeNull();
     expect((await db.select().from(plantPalettes).where(eq(plantPalettes.id, own.id)))).toHaveLength(1);
     expect((await db.select().from(plantPaletteItems).where(eq(plantPaletteItems.paletteId, own.id)))).toHaveLength(2);
   });
-  it("guards invalid company, customer, ticket and void links and mirrors the number", async () => {
-    const d = await draft(), p = await proposal(d.id);
-    expect((await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: d.id })).status).toBe(200);
-    expect((await storage.getProposalById(p.id, companyId))?.estimateNumber).toBe(d.estimateNumber);
-    await storage.updateProposal(p.id, companyId, { scopeOfWork: "keep", photoLayout: "grid" });
-    await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: null }).expect(400);
-    const unlinked = await storage.getProposalById(p.id, companyId);
-    expect(unlinked).toMatchObject({ estimateId: d.id, scopeOfWork: "keep", photoLayout: "grid" });
-    const foreign = await createEstimate(otherCompany, actor, { customerId: foreignCustomer, title: "Foreign" });
-    for (const [id, error] of [[foreign.id, "ESTIMATE_NOT_FOUND"], [(await createEstimate(companyId, actor, { customerId: otherCustomer, title: "Wrong customer" })).id, "ESTIMATE_CUSTOMER_MISMATCH"]]) {
-      const res = await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: id });
-      expect(res.status).toBe(422); expect(res.body.error).toBe(error);
-    }
-    expect(() => assertProposalEstimateLink({ customerId, ticketId }, d)).toThrow("ESTIMATE_TICKET_MISMATCH");
-    await transitionEstimate(companyId, actor, d.id, undefined, "void", { reason: "Test" });
-    await request(app).patch(`/api/proposals/${p.id}`).send({ estimateId: d.id }).expect(422);
-    await request(app).get(`/api/proposals/${p.id}`).set("X-Test-Company", otherCompany).expect(404);
-    await request(app).patch(`/api/proposals/${p.id}`).set("X-Company-Id", otherCompany).send({ title: "No" }).expect(409);
-    await request(app).patch(`/api/proposals/${p.id}`).set("X-Test-Role", "field_manager").send({ title: "No" }).expect(403);
-    await request(app).get(`/api/proposals/${p.id}`).set("X-Test-Auth", "no").expect(401);
-  });
-  it("auto-links only the ticket's scoped live estimate on create", async () => {
-    const d = await createEstimate(companyId, actor, { customerId, ticketId, title: "Ticket estimate" });
-    const res = await request(app).post("/api/proposals").send({ customerId, ticketId, title: "Auto" });
-    expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ estimateId: d.id, estimateNumber: d.estimateNumber, ticketId, plantPaletteId: null });
-    const summary = (await request(app).get(`/api/proposals/${res.body.id}`)).body.estimate;
-    expect(summary).toMatchObject({ id: d.id, subtotalCents: 0, currentVersion: { id: d.version.id, status: "draft" } });
-    expect((await loadProposalEstimateSummaries(otherCompany, [d.id])).size).toBe(0);
-  });
-  it("guarded migration is rerunnable and both foreign keys set null on deletion", async () => {
-    const d = await draft(), p = await proposal(d.id);
-    const v = await storage.createProposalVersion({ proposalId: p.id, companyId, versionNumber: 1, title: p.title,
-      proposalDate: p.proposalDate, pdfStoragePath: "test", estimateVersionId: d.version.id });
-    await db.delete(estimateVersions).where(eq(estimateVersions.id, d.version.id));
-    expect((await storage.getProposalVersionById(v.id, companyId))?.estimateVersionId).toBeNull();
-    await db.delete(estimates).where(eq(estimates.id, d.id));
-    expect((await storage.getProposalById(p.id, companyId))?.estimateId).toBeNull();
-  });
 });
-describe("finalize sends first and pins exactly what was rendered", () => {
-  it("requires a method, sends once, pins the frozen version and preserves earlier stored PDFs", async () => {
-    const d = await draft(), p = await proposal(d.id);
-    const missing = await request(app).post(`/api/proposals/${p.id}/finalize`).send({});
-    expect(missing.status).toBe(400); expect(missing.body).toEqual({ error: "ESTIMATE_SEND_METHOD_REQUIRED" });
-    const first = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "email" });
-    expect(first.status).toBe(201);
-    expect(first.body).toMatchObject({ estimateVersionId: d.version.id, estimateTransition: { sent: true, versionId: d.version.id, method: "email" } });
-    expect(stored.get(first.body.pdfStoragePath)?.toString()).toBe(`PDF:${d.version.id}`);
-    expect((await readEstimate(companyId, d.id)).version.frozenSubtotalCents).toBe(2468);
-    const second = await request(app).post(`/api/proposals/${p.id}/finalize`).send({});
-    expect(second.status).toBe(201); expect(second.body.estimateTransition.sent).toBe(false);
-    expect(second.body.estimateTransition.sentOn).toBe(first.body.estimateTransition.sentOn);
-    const revised = await transitionEstimate(companyId, actor, d.id, d.version.id, "revise", {});
-    const stale = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "portal", expectedEstimateVersionId: d.version.id });
-    expect(stale.status).toBe(409); expect(stale.body.error).toBe("ESTIMATE_VERSION_CHANGED");
-    const third = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "portal", expectedEstimateVersionId: revised.version.id });
-    expect(third.status).toBe(201); expect(third.body.estimateVersionId).toBe(revised.version.id);
-    expect(stored.get(first.body.pdfStoragePath)?.toString()).toBe(`PDF:${d.version.id}`);
-    expect(third.body.pdfStoragePath).not.toBe(first.body.pdfStoragePath);
-  });
-  it("reports post-send storage and render failures without undoing send; retry does not send again", async () => {
-    const d = await draft(), p = await proposal(d.id);
-    failStore = true;
-    const failed = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "hard_copy" });
-    failStore = false;
-    expect(failed.status).toBe(500); expect(failed.body).toMatchObject({ error: "PROPOSAL_FINALIZE_FAILED", estimateTransition: { sent: true, versionId: d.version.id } });
-    const sent = await readEstimate(companyId, d.id);
-    expect(sent.version.status).toBe("sent");
-    render.mockRejectedValueOnce(new Error("simulated render failure"));
-    const renderFail = await request(app).post(`/api/proposals/${p.id}/finalize`).send({});
-    expect(renderFail.status).toBe(500); expect(renderFail.body.estimateTransition.sent).toBe(false);
-    const retry = await request(app).post(`/api/proposals/${p.id}/finalize`).send({});
-    expect(retry.status).toBe(201); expect(retry.body.estimateTransition.sent).toBe(false);
-    expect(retry.body.estimateTransition.sentOn).toBe(new Date(sent.version.sentAt!).toISOString());
-  });
-  it("zero-price confirmation returns lineIds and supports confirmed retry", async () => {
-    const d = await draft();
-    const [item] = await db.insert(hardscapeCatalogItems).values({ companyId, name: "Unpriced", category: "Stone", sku: randomUUID(), unit: "EA", retailPriceCents: null }).returning();
-    const changed = await createLine(companyId, d.id, d.version.id, { sectionId: d.version.sections[0].id, lineType: "hardscape", hardscapeCatalogItemId: item.id, quantity: "1" });
-    const lineId = changed.version.sections.flatMap(s => s.lines).find(l => l.lineType === "hardscape")!.id;
-    const p = await proposal(d.id);
-    const fail = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "other" });
-    expect(fail.status).toBe(409); expect(fail.body).toEqual({ error: "LINES_NEED_PRICE", lineIds: [lineId] });
-    const yes = await request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod: "other", confirmZeroPriced: true });
-    expect(yes.status).toBe(201);
-  });
-  it("accepted uses the frozen version without send; void/declined fail and legacy stays read-only", async () => {
-    const d = await draft(), p = await proposal(d.id);
-    await transitionEstimate(companyId, actor, d.id, d.version.id, "send", { method: "email" });
-    await transitionEstimate(companyId, actor, d.id, d.version.id, "accept", { method: "phone" });
-    const accepted = await request(app).post(`/api/proposals/${p.id}/finalize`).send({});
-    expect(accepted.status).toBe(201); expect(accepted.body.estimateTransition.sent).toBe(false);
-    const declined = await draft(), dp = await proposal(declined.id);
-    await transitionEstimate(companyId, actor, declined.id, declined.version.id, "send", { method: "email" });
-    await transitionEstimate(companyId, actor, declined.id, declined.version.id, "decline", { reason: "Test" });
-    await request(app).post(`/api/proposals/${dp.id}/finalize`).send({}).expect(409);
-    await transitionEstimate(companyId, actor, declined.id, undefined, "void", { reason: "Test" });
-    const voided = await request(app).post(`/api/proposals/${dp.id}/finalize`).send({});
-    expect(voided.status).toBe(409); expect(voided.body.error).toBe("ESTIMATE_VOID");
-    const unlinked = await proposal();
-    await request(app).post(`/api/proposals/${unlinked.id}/finalize`).send({}).expect(409);
-    legacyUploads.add(unlinked.id);
-    const legacy = await request(app).post(`/api/proposals/${unlinked.id}/finalize`).send({});
-    expect(legacy.status).toBe(409);
-    expect(legacy.body.error).toBe("LEGACY_PROPOSAL_READ_ONLY");
-    await request(app).post(`/api/proposals/${p.id}/finalize`).set("X-Company-Id", otherCompany).send({}).expect(409);
-    await request(app).post(`/api/proposals/${p.id}/finalize`).set("X-Test-Role", "crew_supervisor").send({}).expect(403);
-  });
-  it("record conflicts retry with unique immutable paths, and a concurrent revision cannot replace the selected pin", async () => {
-    const d = await draft(), p = await proposal(d.id);
-    await transitionEstimate(companyId, actor, d.id, d.version.id, "send", { method: "email" });
-    recordConflicts = 1;
-    render.mockImplementationOnce(async (_p, _c, versionId) => {
-      await transitionEstimate(companyId, actor, d.id, d.version.id, "revise", {});
-      return Buffer.from(`PDF:${versionId}`);
-    });
-    const res = await request(app).post(`/api/proposals/${p.id}/finalize`).send({});
-    expect(res.status).toBe(201); expect(res.body.estimateVersionId).toBe(d.version.id);
-    expect(stored.get(res.body.pdfStoragePath)?.toString()).toBe(`PDF:${d.version.id}`);
-    // Multiple requests selecting an already-sent version may both complete,
-    // but no storage key can be reused even if the DB version number collides.
-    const sent = await draft(), pp = await proposal(sent.id);
-    await transitionEstimate(companyId, actor, sent.id, sent.version.id, "send", { method: "email" });
-    const results = await Promise.all([request(app).post(`/api/proposals/${pp.id}/finalize`).send({}), request(app).post(`/api/proposals/${pp.id}/finalize`).send({})]);
-    expect(results.every(r => r.status === 201 || r.status === 409)).toBe(true);
-    for (const r of results.filter(r => r.status === 201)) expect(stored.get(r.body.pdfStoragePath)?.toString()).toBe(`PDF:${sent.version.id}`);
-  });
-  it("concurrent draft finalization sends at most once and never substitutes another version", async () => {
-    const d = await draft(), p = await proposal(d.id);
-    const results = await Promise.all(["email", "portal"].map(estimateSendMethod =>
-      request(app).post(`/api/proposals/${p.id}/finalize`).send({ estimateSendMethod, expectedEstimateVersionId: d.version.id })));
-    expect(results.some(r => r.status === 201)).toBe(true);
-    expect(results.every(r => r.status === 201 || r.status === 409)).toBe(true);
-    expect(results.filter(r => r.body.estimateTransition?.sent === true)).toHaveLength(1);
-    for (const r of results.filter(r => r.status === 201)) {
-      expect(r.body.estimateVersionId).toBe(d.version.id);
-      expect(stored.get(r.body.pdfStoragePath)?.toString()).toBe(`PDF:${d.version.id}`);
+
+describe("retired proposal routes", () => {
+  it("rejects every former mutation for both linked and unlinked proposals without changing rows", async () => {
+    const d = await draft(ticketId), linked = await proposal(d.id, ticketId), legacy = await proposal();
+    const contract = { error: "PROPOSALS_RETIRED", estimateBuilderPath: "/dashboard/estimates/builder" };
+    const verify = async (r: request.Test) => expect((await r.expect(409)).body).toMatchObject(contract);
+    await verify(request(app).post("/api/proposals").send({ estimateId: d.id }));
+    for (const p of [linked, legacy]) {
+      const path = `/api/proposals/${p.id}`;
+      const before = (await request(app).get(path).expect(200)).body;
+      await verify(request(app).patch(path).send({ estimateId: null, coverSource: "none", title: "forbidden" }));
+      for (const suffix of ["files/upload-url", "files", "files/reorder", "files/bulk-delete", "plant-items", "plant-items/reorder", "finalize", "crew-worksheets"]) {
+        await verify(request(app).post(`${path}/${suffix}`).send({}));
+      }
+      for (const suffix of ["files/file-id", "plant-items/item-id"]) {
+        await verify(request(app).patch(`${path}/${suffix}`).send({}));
+        await verify(request(app).delete(`${path}/${suffix}`));
+      }
+      await verify(request(app).post(`/api/crew-worksheets/from-proposal/${p.id}`).set("X-Test-Role", "crew_supervisor"));
+      expect((await request(app).get(path).expect(200)).body).toEqual(before);
     }
+    expect((await readEstimate(companyId, d.id)).version.status).toBe("draft");
+    expect(await db.select().from(crewWorksheets).where(eq(crewWorksheets.companyId, companyId))).toEqual([]);
+    await request(app).patch(`/api/proposals/${linked.id}`).set("X-Test-Auth", "no").expect(401);
+    await request(app).patch(`/api/proposals/${linked.id}`).set("X-Test-Role", "field").expect(403);
+    const stale = await request(app).patch(`/api/proposals/${linked.id}`).set("X-Company-Id", otherCompany).expect(409);
+    expect(stale.body.error).not.toBe("PROPOSALS_RETIRED");
+  });
+
+  it("lists historical drafts by company, customer, ticket and estimate, and renders a linked draft inline", async () => {
+    const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    const [fixtureTicket] = await db.insert(tickets).values({ companyId, customerId, title: "Preview ticket",
+      ticketTypeId: ticket.ticketTypeId, currentStatusId: ticket.currentStatusId, createdById: actor }).returning();
+    const d = await draft(fixtureTicket.id), p = await proposal(d.id, fixtureTicket.id), legacy = await proposal();
+    const ids = (rows: { id: string }[]) => rows.map(row => row.id);
+    for (const route of ["/api/proposals", `/api/customers/${customerId}/proposals`]) {
+      expect(ids((await request(app).get(route).expect(200)).body)).toEqual(expect.arrayContaining([p.id, legacy.id]));
+      await request(app).get(route).set("X-Test-Company", otherCompany).expect(200, []);
+    }
+    expect(ids((await request(app).get(`/api/tickets/${fixtureTicket.id}/proposals`).expect(200)).body)).toEqual([p.id]);
+    expect(ids((await request(app).get(`/api/proposals?estimateId=${d.id}`).expect(200)).body)).toEqual([p.id]);
+    const preview = await request(app).get(`/api/proposals/${p.id}/pdf?inline=1`).expect(200).expect("Content-Type", /application\/pdf/).expect("Content-Disposition", /^inline/);
+    expect((await PDFDocument.load(preview.body)).getPageCount()).toBeGreaterThan(0);
+    expect((await readEstimate(companyId, d.id)).version.status).toBe("draft");
+    await request(app).get(`/api/proposals/${p.id}/pdf`).set("X-Test-Company", otherCompany).expect(404);
+    await request(app).get(`/api/proposals/${p.id}/pdf`).set("X-Test-Role", "field_manager").expect(403);
+    await request(app).get(`/api/proposals/${legacy.id}/pdf`).expect(404);
+    // A legacy draft with a surviving estimate attachment still uses the draft renderer, not storage for finalized bytes.
+    await db.insert(proposalFiles).values({ companyId, proposalId: legacy.id, fileType: "estimate_pdf", filename: "original.pdf", mimeType: "application/pdf", fileSize: 42, storageObjectPath: "/fixture/original" });
+    const legacyBytes = Buffer.from("%PDF-1.4 synthetic legacy draft");
+    render.mockResolvedValueOnce(legacyBytes);
+    // Linked and legacy production renderers are distinct (the latter is covered by pdfBrand tests).
+    const response = await request(app).get(`/api/proposals/${legacy.id}/pdf`).expect(200).expect("Content-Disposition", /^attachment/);
+    expect(response.body).toEqual(legacyBytes);
+  });
+
+  it("serves existing stored bytes without regenerating and keeps worksheet snapshots after authorized deletion", async () => {
+    const p = await proposal(), other = await proposal();
+    // Legacy finalize used to leave the container as draft.
+    const v = await storage.createProposalVersion({ companyId, proposalId: p.id, versionNumber: 3,
+      title: p.title, proposalDate: p.proposalDate, pdfStoragePath: randomUUID() });
+    const bytes = Buffer.from("%PDF-1.4 retained legacy bytes");
+    stored.set(v.pdfStoragePath, bytes);
+    const path = `/api/proposals/${p.id}`;
+    render.mockClear();
+    expect((await request(app).get(`${path}/pdf`).expect(200)).body).toEqual(bytes);
+    await db.update(proposals).set({ status: "finalized" }).where(eq(proposals.id, p.id));
+    expect((await request(app).get(`${path}/pdf?inline=1`).expect(200).expect("Content-Disposition", /^inline/)).body).toEqual(bytes);
+    expect((await request(app).get(`${path}/versions/${v.id}/download`).expect(200)).body).toEqual(bytes);
+    expect(render).not.toHaveBeenCalled();
+    await request(app).get(`/api/proposals/${other.id}/versions/${v.id}/download`).expect(404);
+    await request(app).get(`${path}/versions/${v.id}/download`).set("X-Test-Company", otherCompany).expect(404);
+    await request(app).get(`${path}/versions/${v.id}/download`).set("X-Test-Role", "field_manager").expect(403);
+    const [worksheet] = await db.insert(crewWorksheets).values({ companyId, customerId, createdById: actor,
+      sourceProposalId: p.id, sourceProposalNumberSnapshot: p.proposalNumber, sourceProposalTitleSnapshot: p.title,
+      worksheetNumber: randomUUID(), worksheetDate: p.proposalDate, scopeOfWork: "Crew snapshot" }).returning();
+    await request(app).delete(path).set("X-Test-Company", otherCompany).expect(404);
+    await request(app).delete(path).set("X-Test-Role", "field_manager").expect(403);
+    await request(app).delete(path).set("X-Test-Auth", "no").expect(401);
+    await request(app).delete(path).expect(200, { success: true });
+    await request(app).get(path).expect(404);
+    const read = await request(app).get(`/api/crew-worksheets/${worksheet.id}`).expect(200);
+    expect(read.body).toMatchObject({ sourceProposalId: null, sourceProposalTitle: p.title, scopeOfWork: "Crew snapshot" });
+    expect(stored.get(v.pdfStoragePath)).toEqual(bytes);
   });
 });

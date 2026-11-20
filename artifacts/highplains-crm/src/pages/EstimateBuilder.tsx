@@ -32,7 +32,6 @@ import { InlineInput } from "@/components/estimates/InlineEstimateInput";
 import { ScopeOfWorkCard } from "@/components/estimates/ScopeOfWorkCard";
 import { downloadEstimatePdf, PdfPreviewDialog } from "@/components/estimates/PdfPreviewDialog";
 import { EstimateReviewRail } from "@/components/estimates/EstimateReviewRail";
-import { EstimateProposalButton, proposalPath, useEstimateProposals } from "@/components/estimates/EstimateProposalAction";
 import { DocumentBadge, EstimateStatePill, IdentityHeaderCard, MetadataCell, MetadataStrip } from "@/components/estimates/EstimateIdentityHeader";
 import { EstimateWorkLocation } from "@/components/workLocation/EstimateWorkLocation";
 import "@/components/estimates/estimateBuilder.css";
@@ -139,7 +138,6 @@ function BuilderContent({ id }: { id: string }) {
     pendingRef.current = null;
   }, [viewTag]);
 
-  const proposals = useEstimateProposals(id, !!data?.voidedAt);
   const customerId = data?.customerId;
   const rates = useQuery<RatesPreviewWithContext>({
     queryKey: [RATES_PREVIEW_API, user?.activeCompanyId, user?.id, user?.activeRole, customerId],
@@ -629,7 +627,6 @@ function BuilderContent({ id }: { id: string }) {
                 data-testid="button-preview-pdf"><FileText className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.pdf.preview")}</Button>
               <Button size="sm" variant="outline" onClick={() => void downloadPdf()} disabled={downloading}
                 data-testid="button-download-pdf"><Download className="mr-1.5 h-3.5 w-3.5" />{t(downloading ? "estimateBuilder.pdf.downloading" : "estimateBuilder.pdf.downloadAction")}</Button>
-              {!data.voidedAt && <EstimateProposalButton estimateId={data.id} state={proposals} />}
               {lifeOn && v.status === "draft" && isCurrent && (
                 <Button size="sm" disabled={busy || (!!draftIssuing && !recoverDelivery)} onClick={() => openDialog("email")} data-testid="button-send-estimate">
                   <Send className="mr-1.5 h-3.5 w-3.5" />{t(recoverDelivery ? "estimateBuilder.email.recoveryAction" : "estimateBuilder.email.action")}</Button>
@@ -669,14 +666,6 @@ function BuilderContent({ id }: { id: string }) {
                     <DropdownMenuItem disabled={busy || !!pendingRevision} onSelect={() => void openCrewWorksheet()} data-testid="menu-estimate-crew-worksheet">
                       <HardHat className="mr-2 h-4 w-4" />{t("estimateBuilder.exhibits.crewWorksheet")}
                     </DropdownMenuItem>
-                    {isCurrent && proposals.older.length > 0 && (<>
-                      <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground" data-testid="label-older-proposals">{t("proposalP1.otherProposals")}</DropdownMenuLabel>
-                      {proposals.older.map((p) => (
-                        <DropdownMenuItem key={p.id} onSelect={() => setLocation(proposalPath(p.id))} data-testid={`menu-open-proposal-${p.id}`}>
-                          <FileText className="mr-2 h-4 w-4" />{t("proposalP1.openProposal", { number: p.proposalNumber ?? p.title })}
-                        </DropdownMenuItem>
-                      ))}
-                    </>)}
                     {isCurrent && <>
                       {revisable && !draftSummary && <DropdownMenuItem onSelect={() => void lifecycle("revise", "POST", `${vBase}/revise`, {})} data-testid="menu-start-version">
                         <GitBranch className="mr-2 h-4 w-4" />{t("estimateBuilder.life.firstEdit.start", { n: nextN })}

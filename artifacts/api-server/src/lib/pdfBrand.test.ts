@@ -18,7 +18,7 @@ const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 async function proposalHarness(source: string, options: { scope?: string | null; linked?: (...args: unknown[]) => Promise<Buffer>; render?: (companyId: string, estimateId: string, versionId: string) => Promise<Buffer>; uploads?: unknown[]; exhibits?: ProposalExhibits } = {}) {
   const start = source.indexOf("  async function proposalEstimatePages(") >= 0
     ? source.indexOf("  async function proposalEstimatePages(") : source.indexOf("  async function generateProposalPdf(");
-  const end = source.indexOf('  app.get("/api/proposals/:id/pdf"', start);
+  const end = source.indexOf("  registerProposalPdfReads(app", start);
   expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
   const code = source.slice(start, end).replaceAll("await import('pdfkit')", "({ default: InjectedPDFKit })")
     .replaceAll("await import('pdf-lib')", "PDFLib");
@@ -132,10 +132,12 @@ describe("mechanical proposal branding extraction", () => {
     const empty = await (await proposalHarness(source, { render, exhibits: { schedule: [], palette: { introText: "No blank page", groups: [] }, provenance: { estimateId: "estimate", estimateNumber: "EST", versionId: "draft", versionNumber: 1 } } }))(linked, "company");
     expect((await PDFLib.PDFDocument.load(empty)).getPageCount()).toBe(6);
   });
-  it("unlinked missing-upload behavior is unchanged", async () => {
+  it("explains when a legacy draft has no estimate PDF without suggesting an upload", async () => {
     const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");
     const generate = await proposalHarness(source, { uploads: [] });
-    await expect(generate(fixture("Short scope."), "company")).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining("No estimate PDF attached") });
+    await expect(generate(fixture("Short scope."), "company")).rejects.toMatchObject({
+      statusCode: 400, message: "No estimate PDF is available for this historical proposal.",
+    });
   });
   it("explicit removal omits only the legacy palette exhibit", async () => {
     const source = await readFile(new URL("../routes/routes.ts", import.meta.url), "utf8");

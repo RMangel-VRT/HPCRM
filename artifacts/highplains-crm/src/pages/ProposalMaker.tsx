@@ -1,57 +1,18 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ClipboardList, ArrowLeft, ArrowRight, Link2, FileText, Search, ArrowUp, ArrowDown, ArrowUpDown, Calculator, AlertTriangle } from "lucide-react";
-import { useAuth } from "@/hooks/use-auth";
-import { fetchJson } from "@/lib/hardscapeCatalog";
-import { ESTIMATE_BUILDER_PATH, ESTIMATES_API, builderPath, type EstimateListItemDto } from "@/lib/estimateBuilder";
+import { ClipboardList, ArrowLeft, Link2, Search, ArrowUp, ArrowDown, ArrowUpDown, Calculator } from "lucide-react";
+import { ESTIMATE_BUILDER_PATH, formatCalendarDate } from "@/lib/estimateBuilder";
+import { OLD_PROPOSALS_PATH, ProposalRetiredNotice, useProposalHistory } from "@/components/proposals/ProposalHistory";
 import type { ProposalWithDetails } from "@shared/schema";
-
-/** Ticket context: proposals start from the ticket's estimate, or the ticket needs one first. */
-function TicketEstimateNotice({ ticketId }: { ticketId: string }) {
-  const { t } = useTranslation();
-  const { user } = useAuth();
-  const [, navigate] = useLocation();
-  const companyId = user?.activeCompanyId ?? "";
-  const q = useQuery<EstimateListItemDto | null>({
-    queryKey: [ESTIMATES_API, "by-ticket", companyId, user?.id, user?.activeRole, ticketId],
-    queryFn: ({ signal }) => fetchJson<EstimateListItemDto | null>(`${ESTIMATES_API}/by-ticket/${encodeURIComponent(ticketId)}`, companyId, signal),
-    enabled: !!companyId, retry: false, staleTime: 0,
-  });
-  if (q.isLoading) return <Skeleton className="h-8 w-56" data-testid="ticket-estimate-loading" />;
-  if (q.isError) return (
-    <div role="alert" className="flex items-center gap-2 text-sm" data-testid="ticket-estimate-error">
-      <AlertTriangle className="w-4 h-4 text-destructive" />{t("proposalP1.ticketError")}
-      <Button size="sm" variant="outline" onClick={() => void q.refetch()} data-testid="button-ticket-estimate-retry">{t("proposalEstimate.retry")}</Button>
-    </div>
-  );
-  if (q.data) return (
-    <div className="flex flex-wrap items-center gap-2" data-testid="ticket-estimate-found">
-      <span className="text-sm text-muted-foreground">{t("proposalP1.ticketHasEstimate", { number: q.data.estimateNumber })}</span>
-      <Button size="sm" onClick={() => navigate(builderPath(q.data!.id))} data-testid="button-open-ticket-estimate">
-        <Calculator className="w-3.5 h-3.5 mr-1.5" />{t("proposalP1.openTicketEstimate", { number: q.data.estimateNumber })}
-      </Button>
-    </div>
-  );
-  return (
-    <div className="flex flex-wrap items-center gap-2" data-testid="ticket-estimate-missing">
-      <span className="text-sm text-muted-foreground">{t("proposalP1.ticketNeedsEstimate")}</span>
-      <Button size="sm" variant="outline" onClick={() => navigate(`/dashboard/tickets/${encodeURIComponent(ticketId)}`)} data-testid="button-ticket-needs-estimate">
-        {t("proposalP1.goToTicket")}
-      </Button>
-    </div>
-  );
-}
 
 export default function ProposalMaker() {
   const [, navigate] = useLocation();
   const search = useSearch();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const params = new URLSearchParams(search);
   const contextTicketId = params.get("ticketId") || null;
@@ -61,19 +22,8 @@ export default function ProposalMaker() {
   const [sortColumn, setSortColumn] = useState<"title" | "customer" | "status" | "date">("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const { data: proposals = [], isLoading } = useQuery<ProposalWithDetails[]>({
-    queryKey: ["/api/proposals"],
-  });
-
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return "";
-    try {
-      const [year, month, day] = dateStr.split("-");
-      return `${month}/${day}/${year}`;
-    } catch {
-      return dateStr;
-    }
-  };
+  const { data, isPending, isError, refetch } = useProposalHistory<ProposalWithDetails[]>();
+  const proposals = data ?? [];
 
   const handleSort = (col: typeof sortColumn) => {
     if (sortColumn === col) {
@@ -131,47 +81,30 @@ export default function ProposalMaker() {
   return (
     <div className="p-6 max-w-5xl mx-auto">
       {hasTicketContext && (
-        <div className="flex items-center justify-between gap-3 mb-5 p-3 rounded-md border bg-muted/40 flex-wrap">
-          <div className="flex items-center gap-2 min-w-0">
-            <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">{t("proposalP1.ticketContext")}</p>
-              <p className="text-sm font-medium truncate">{contextTicketTitle}</p>
-              <div className="mt-2"><TicketEstimateNotice ticketId={contextTicketId!} /></div>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 shrink-0"
-            onClick={() => navigate(`/dashboard/tickets/${contextTicketId}`)}
-            data-testid="button-back-to-ticket"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            {t("proposals.backToTicket")}
-          </Button>
+        <div className="mb-4 flex items-center gap-2 text-sm">
+          <Link href={`/dashboard/tickets/${encodeURIComponent(contextTicketId!)}`} className="inline-flex items-center gap-1.5 text-primary underline" data-testid="button-back-to-ticket">
+            <ArrowLeft className="h-4 w-4" />{t("proposals.backToTicket")}
+          </Link>
+          {contextTicketTitle && <span className="truncate text-muted-foreground">{contextTicketTitle}</span>}
         </div>
       )}
 
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">
-            {t("proposals.title")}
+            {t("proposals.history.title")}
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            {t("tools.proposalMakerDesc")}
+            {t("proposals.history.listDescription")}
           </p>
         </div>
         <Button asChild variant="outline" data-testid="button-go-to-estimates">
-          <Link href={ESTIMATE_BUILDER_PATH}><Calculator className="w-4 h-4 mr-2" />{t("proposalP1.goToEstimates")}</Link>
+          <Link href={ESTIMATE_BUILDER_PATH}><Calculator className="w-4 h-4 mr-2" />{t("proposals.history.goToEstimates")}</Link>
         </Button>
       </div>
-      <div className="flex items-start gap-2 mb-5 -mt-2 rounded-md border border-dashed px-3 py-2.5 text-sm text-muted-foreground" data-testid="text-start-from-estimate">
-        <FileText className="w-4 h-4 mt-0.5 shrink-0" />
-        <span>{t("proposalP1.listLead")}</span>
-      </div>
+      <div className="mb-5"><ProposalRetiredNotice /></div>
 
-      {isLoading ? (
+      {isPending ? (
         <div className="border rounded-md overflow-hidden">
           <div className="divide-y">
             {[1, 2, 3].map(i => (
@@ -184,16 +117,15 @@ export default function ProposalMaker() {
             ))}
           </div>
         </div>
+      ) : isError ? (
+        <div role="alert" className="flex items-center gap-3 text-sm">
+          {t("proposals.history.loadError")}
+          <Button size="sm" variant="outline" onClick={() => void refetch()}>{t("estimateBuilder.retry")}</Button>
+        </div>
       ) : proposals.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <ClipboardList className="w-12 h-12 text-muted-foreground mb-4" />
           <h3 className="text-lg font-medium mb-1">{t("proposals.noProposals")}</h3>
-          <p className="text-muted-foreground text-sm mb-4 max-w-sm">
-            {t("proposalP1.emptyBody")}
-          </p>
-          <Button asChild data-testid="button-empty-go-to-estimates">
-            <Link href={ESTIMATE_BUILDER_PATH}>{t("proposalP1.goToEstimates")}<ArrowRight className="w-4 h-4 ml-2" /></Link>
-          </Button>
         </div>
       ) : (
         <>
@@ -279,7 +211,7 @@ export default function ProposalMaker() {
                     <tr
                       key={p.id}
                       className="hover-elevate cursor-pointer transition-colors"
-                      onClick={() => navigate(`/dashboard/tools/proposals/${p.id}`)}
+                      onClick={() => navigate(`${OLD_PROPOSALS_PATH}/${encodeURIComponent(p.id)}`)}
                       data-testid={`row-proposal-${p.id}`}
                     >
                       <td className="px-4 py-3 text-muted-foreground text-xs font-mono whitespace-nowrap hidden sm:table-cell" data-testid={`text-proposal-number-${p.id}`}>
@@ -287,9 +219,10 @@ export default function ProposalMaker() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1 min-w-0">
-                          <span className="font-medium truncate" data-testid={`text-proposal-title-${p.id}`}>
+                          <Link href={`${OLD_PROPOSALS_PATH}/${encodeURIComponent(p.id)}`} onClick={event => event.stopPropagation()}
+                            className="truncate font-medium hover:underline" data-testid={`text-proposal-title-${p.id}`}>
                             {p.title}
-                          </span>
+                          </Link>
                           {p.ticketId && (
                             <Badge variant="outline" className="text-xs gap-1 w-fit" data-testid={`badge-linked-ticket-${p.id}`}>
                               <Link2 className="w-3 h-3" />
@@ -315,7 +248,7 @@ export default function ProposalMaker() {
                         {p.estimateNumber ?? "—"}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
-                        {formatDate(p.proposalDate)}
+                        {formatCalendarDate(p.proposalDate, i18n.language)}
                       </td>
                     </tr>
                   ))

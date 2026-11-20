@@ -9,12 +9,12 @@ export default function ToolsPage() {
 
   const tools = [
     {
-      title: t("tools.proposalMaker"),
-      description: t("tools.proposalMakerDesc"),
+      title: t("proposals.history.title"),
+      description: t("proposals.history.listDescription"),
       icon: ClipboardList,
       href: "/dashboard/tools/proposals",
       available: true,
-      testId: "card-proposal-maker",
+      testId: "card-old-proposals",
     },
     {
       title: t("tools.crewWorksheets"),

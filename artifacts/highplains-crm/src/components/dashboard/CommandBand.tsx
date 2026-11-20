@@ -2,7 +2,6 @@ import {
   CalendarClock,
   ClipboardList,
   FilePlus2,
-  FileText,
   Search,
   Snowflake,
   TicketPlus,
@@ -89,7 +88,6 @@ export default function CommandBand({ pulse }: CommandBandProps) {
   const actions: CommandAction[] = [
     { id: "new-ticket", href: "/dashboard/tickets/new", label: t("dashboard.commandNewTicket"), roles: ["admin", "office"], icon: TicketPlus },
     { id: "estimate-request", href: "/dashboard/tickets/new", label: t("dashboard.commandEstimateRequest"), roles: ["admin", "office"], icon: FilePlus2 },
-    { id: "build-proposal", href: "/dashboard/tools/proposals", label: t("dashboard.commandBuildProposal"), roles: ["admin", "office"], icon: FileText },
     { id: "crew-worksheet", href: "/dashboard/tools/crew-worksheets", label: t("dashboard.commandCrewWorksheet"), roles: ["admin", "office"], icon: ClipboardList },
     { id: "log-snow-event", href: "/dashboard/snow/new", label: t("dashboard.commandLogSnowEvent"), roles: ["admin", "office"], icon: Snowflake },
     { id: "open-routes", href: "/dashboard/routes", label: t("dashboard.commandOpenRoutes"), roles: ["admin", "office"], icon: CalendarClock },

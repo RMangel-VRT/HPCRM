@@ -1,10 +1,14 @@
 # High Plains document system: proposals, estimates, invoices
 
-> **Newer proposal reference:** The [November 16 proposal build references](proposal-build-references-2026-11-16.md)
-> retain updated rules and both sample PDFs. Those rules supersede conflicting
-> cover, flow, Plants, photo-layout, unit and scope instructions below.
-> This older guide is retained for historical context; the reference upload alone
-> does not authorize implementation or publishing.
+> **Proposal Maker is retired.** Use the [estimate builder](../estimates/estimate-builder-screen.md)
+> to write, price, illustrate, preview and send new work. A new estimate has no
+> cover or Visual Scope. Its optional plant table prints before the photo
+> attachment, which prints two photos per page. Existing proposals and their
+> PDFs remain available in **Old proposals**, the customer's **Proposals** tab,
+> and linked tickets. The proposal design rules below and the
+> [November 16 reference](proposal-build-references-2026-11-16.md) document
+> historical PDFs and draft previews; they are not new-document instructions.
+> The invoice template is unchanged.
 
 **Created Nov 2, 2026, from the Invoice Center design.** This is the shared look and page rules for every customer-facing PDF the CRM produces. Any chat working on proposals, estimates, invoices, statements or contract documents should start here.
 
@@ -14,17 +18,17 @@
 
 ## The idea
 
-There's one family of documents. The estimate is the priced core. A proposal wraps it with a cover, narrative and exhibits. An invoice bills it.
+The estimate is the customer-facing document for new priced work. An invoice bills it. Old proposals remain available as historical records.
 
 | Document | Pages |
 |---|---|
-| **Estimate** (short form) | Header + pricing; then terms, warranty and acceptance |
-| **Proposal** (long form) | Cover → scope narrative → Visual Scope/renderings → **pricing (the estimate pages, same renderer)** → plant palette + plant schedule (built from estimate plant lines) → terms, warranty and acceptance |
+| **Estimate** | Header, scope and pricing; then terms, warranty and acceptance, plus an optional plant table and photo pages |
+| **Proposal** (retired; historical layout) | Cover → scope narrative → Visual Scope/renderings → pricing → plant palette and schedule → terms, warranty and acceptance |
 | **Invoice** | Header + lines + totals + how to pay |
 
-A small job or a change order gets the estimate PDF by itself. A design-build job gets the full proposal. Either way, the pricing pages are identical.
+Small jobs, change orders and design-build jobs all use the estimate PDF.
 
-## Data rules
+## Data rules (including historical proposal rules)
 
 - **A proposal references exactly one estimate version.** It never stores its own prices or totals. When the estimate changes, the proposal gets a new version.
 - **One acceptance.** Signing the proposal records acceptance on that estimate version. There's never a second signature block.
@@ -58,8 +62,8 @@ A small job or a change order gets the estimate PDF by itself. A design-build jo
 - **Every page:** a full-width 1.5 px green footer line 47 px from the bottom, with the document number, customer and "Page X of Y" below it.
 - **Last page only:** full-width mountains sit on the footer line. Content stops at least 16 px above the mountains, or above the footer line on other pages.
 - **Tables:** the header row repeats on every page. Totals and payment/acceptance blocks never split across pages.
-- **Proposal cover (approved Nov 3):** a full-bleed `#37443D` page with the large white logo, project name, "Prepared for" and a hero image chosen per proposal: one of the proposal's photos or the Visual Scope rendering. When none is chosen it falls back to the logo-only cover. No header band, no footer, no mountains. The cover isn't numbered: "Page X of Y" counts from the first page after it.
-- **Attachments (approved Nov 3):** proposal photos are an attachment after the acceptance page, never inline.
+- **Historical proposal cover (approved Nov 3):** a full-bleed `#37443D` page with the large white logo, project name, "Prepared for" and a hero image chosen per proposal: one of the proposal's photos or the Visual Scope rendering. When none is chosen it falls back to the logo-only cover. No header band, no footer, no mountains. The cover isn't numbered: "Page X of Y" counts from the first page after it.
+- **Historical proposal attachments (approved Nov 3):** proposal photos are an attachment after the acceptance page, never inline.
   - They open with an "Attachment A: Photos" heading, and each photo has its caption above the image.
   - Two layouts, chosen per proposal: **full page** (one photo per page, fitted inside the margins) or **grid** (2×2 per page).
   - Attachment pages carry the short header band and the footer, and their page numbers continue the document's.
@@ -69,7 +73,7 @@ A small job or a change order gets the estimate PDF by itself. A design-build jo
   - Palette cards use the same colors and type.
   - Photos run full-width, with captions placed above the image.
 
-## How they get drawn
+## Historical implementation and coordination notes
 
 - **The new documents are drawn as HTML pages and turned into PDFs by a built-in browser** (puppeteer-core + Chromium, as in IrrigoPro). One shared template module renders every document type. **That's Invoice Center slice IC4. Build it once, for both projects.**
 - **Current state:**

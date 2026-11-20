@@ -1,5 +1,10 @@
 # Proposals using CRM estimates
 
+> **Historical reference.** E6 retired proposal creation, linking, editing,
+> finalization, and worksheet generation. The relationships below still
+> explain existing reads. Use the [estimate builder](estimate-builder-screen.md)
+> for new work. Proposal data, stored files, and schema were not migrated.
+
 ## Ownership and compatibility
 
 `proposals.estimate_id` is a live relationship. Draft details use the estimate's

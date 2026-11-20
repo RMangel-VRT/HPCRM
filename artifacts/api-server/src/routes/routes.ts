@@ -1,17 +1,15 @@
-import { z as proposalZ } from "zod/v4";
+import { registerRetiredProposalWrites } from "./retiredProposalWrites";
+import { registerProposalPdfReads } from "./proposalPdfReads";
 import { registerAccountManagerRoutes } from "./accountManagers";
 import { registerCustomerDashboardRoutes } from "./customerDashboard";
 import { contactInstant, readDashboardCommunications } from "../services/customerDashboardActivity";
 import { accessRole, ROLE_VALUES, type Role } from "../../../../lib/db/src/accessRole";
 import { loadProposalExhibits } from "../services/proposalExhibits";
-import { proposalCoverPatch, coverSelectionError } from "../services/proposalCover";
 import { renderLinkedProposal } from "../services/proposalDocument";
 import { DocumentRendererUnavailable } from "../services/documents/browser";
-import { proposalExhibitSettingsSchema, type ProposalExhibits } from "../../../../lib/db/src/plantExhibitContracts";
+import type { ProposalExhibits } from "../../../../lib/db/src/plantExhibitContracts";
 import { estimateAccess } from "../lib/estimateAccess";
-import { EstimateError } from "../services/estimateErrors";
-import { loadProposalEstimateSummaries, validateProposalEstimate, prepareProposalEstimate, type ProposalEstimateTransition } from "../services/proposalEstimates";
-import { readTicketEstimate } from "../services/ticketEstimates";
+import { loadProposalEstimateSummaries } from "../services/proposalEstimates";
 import { renderEstimatePdf } from "../services/estimatePdf";
 import { withInvoiceLinkSummaries } from "../lib/ticketLinkSummary";
 import { BRAND, LM, RM, loadBrandLogo, wirePageDecorations } from "../lib/pdfBrand";
@@ -127,7 +125,6 @@ import { migrateSchedulingStatuses } from '../lib/schedulingStatuses';
 import { backfillScheduleBy } from '../lib/backfillScheduleBy';
 import { initializeEmptyServiceCategories } from '../lib/initializeEmptyServiceCategories';
 import { normalizeStoredEstimateUnits } from '../lib/normalizeEstimateUnits';
-import { carryProposalScope } from '../lib/carryProposalScope';
 import { loadEstimateDocumentModel } from "../services/estimatePdf";
 import { maintainScheduleBy } from '../lib/scheduleByMaintenance';
 import { applyTicketStatus } from "../lib/ticketStatusChange";
@@ -2038,70 +2035,6 @@ export async function backfillCustomerType(): Promise<void> {
   }
 }
 
-export async function migrateProposalNumbers(): Promise<void> {
-  console.log("Running startup migration: Adding proposal_number column, backfilling, and creating sequence...");
-  try {
-    // 1. Add the column as nullable first so we can backfill
-    await db.execute(sql`ALTER TABLE proposals ADD COLUMN IF NOT EXISTS proposal_number varchar`);
-
-    // 2. Backfill any rows that don't have a proposal number yet, ordered by created_at
-    const unassigned = await db.execute(sql`
-      SELECT id FROM proposals
-      WHERE proposal_number IS NULL
-      ORDER BY created_at ASC
-    `);
-    if (unassigned.rows.length > 0) {
-      // Find the current numeric max via regex extraction (safe numeric sort)
-      const maxRow = await db.execute(sql`
-        SELECT COALESCE(MAX(CAST(SUBSTRING(proposal_number FROM 3) AS integer)), 0) AS max_seq
-        FROM proposals
-        WHERE proposal_number IS NOT NULL AND proposal_number ~ '^P-[0-9]+$'
-      `);
-      let nextSeq = (maxRow.rows[0]?.max_seq as number ?? 0) + 1;
-      for (const row of unassigned.rows) {
-        const num = `P-${String(nextSeq).padStart(4, "0")}`;
-        await db.execute(sql`UPDATE proposals SET proposal_number = ${num} WHERE id = ${row.id as string}`);
-        nextSeq++;
-      }
-    }
-
-    // 3. Create a sequence (or sync it) so new inserts can use NEXTVAL atomically
-    await db.execute(sql`
-      CREATE SEQUENCE IF NOT EXISTS proposal_number_seq
-      START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1
-    `);
-    // Advance the sequence to be at least as high as the current max assignment
-    const maxRow2 = await db.execute(sql`
-      SELECT COALESCE(MAX(CAST(SUBSTRING(proposal_number FROM 3) AS integer)), 0) AS max_seq
-      FROM proposals
-      WHERE proposal_number IS NOT NULL AND proposal_number ~ '^P-[0-9]+$'
-    `);
-    const currentMax = maxRow2.rows[0]?.max_seq as number ?? 0;
-    if (currentMax > 0) {
-      await db.execute(sql`SELECT SETVAL('proposal_number_seq', ${currentMax})`);
-    }
-
-    // 4. Make the column NOT NULL after backfill
-    await db.execute(sql`ALTER TABLE proposals ALTER COLUMN proposal_number SET NOT NULL`);
-
-    // 5. Ensure the uniqueness constraint exists
-    await db.execute(sql`
-      DO $$ BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conname = 'proposals_proposal_number_unique'
-        ) THEN
-          ALTER TABLE proposals ADD CONSTRAINT proposals_proposal_number_unique UNIQUE (proposal_number);
-        END IF;
-      END $$
-    `);
-
-    console.log("Proposal number migration complete");
-  } catch (error) {
-    console.error("Error during proposal number migration:", error);
-  }
-}
-
 // Migration: Create communications tables and extend communication_templates schema
 export async function migrateCommunicationTemplatesSchema(): Promise<void> {
   console.log("Running startup migration: Ensuring communications tables exist and extending schema...");
@@ -2738,7 +2671,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await backfillScheduleBy();
   await repairUnplacedScheduledTickets();
   await initializeEmptyServiceCategories();
-  await carryProposalScope();
   await normalizeStoredEstimateUnits();
   await linkCrewsByName();
   await backfillVisitsFromTickets();
@@ -11048,25 +10980,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // -------------------- PROPOSAL MAKER ROUTES --------------------
+  // -------------------- HISTORICAL PROPOSAL ROUTES --------------------
 
   const canAccessProposals = (role: string) => accessRole(role) === "admin" || accessRole(role) === "office";
   // Also reject queued requests initiated before an active-company switch.
   app.use("/api/proposals", estimateAccess);
-  // All draft/attachment mutation entry points share this guard. GETs and the
-  // authorized whole-proposal DELETE intentionally remain available for legacy.
-  app.use("/api/proposals/:id", async (req, res, next) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    if (["GET", "HEAD", "OPTIONS"].includes(req.method) ||
-        (req.method === "DELETE" && req.path === "/")) return next();
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Not found");
-    if (req.body?.fileType === "estimate_pdf") return res.status(400).json({ error: "ESTIMATE_PDF_RETIRED" });
-    if (!proposal.estimateId) return res.status(409).json({ error: "LEGACY_PROPOSAL_READ_ONLY" });
-    next();
-  });
+  registerRetiredProposalWrites(app);
   const proposalEstimates = async (list: import("@workspace/db").ProposalWithDetails[], companyId: string) => {
     const summaries = await loadProposalEstimateSummaries(companyId, list.flatMap(p => p.estimateId ? [p.estimateId] : []));
     return list.map(p => ({ ...p, estimate: p.estimateId ? summaries.get(p.estimateId) ?? null : null }));
@@ -11086,50 +11005,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const list = await storage.getProposals(user.activeCompanyId);
     res.json(await proposalEstimates(list, user.activeCompanyId));
-  });
-
-  app.post("/api/proposals", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    req.body ??= {};
-    if (Object.hasOwn(req.body, "scopeOfWork")) return res.status(400).json({ error: "ESTIMATE_SCOPE_OWNED" });
-
-    const { title, proposalDate, ticketId } = req.body;
-    if (req.body.plantPaletteId !== undefined && req.body.plantPaletteId !== null) {
-      return res.status(400).json({ error: "PLANT_PALETTES_RETIRED" });
-    }
-    const input = proposalZ.object({ estimateId: proposalZ.string().trim().min(1).max(200).optional(),
-      ticketId: proposalZ.string().trim().min(1).max(200).optional(),
-      title: proposalZ.string().optional(), proposalDate: proposalZ.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).safeParse(req.body);
-    if (!input.success) return res.status(400).json({ error: "INVALID_REQUEST" });
-    let estimateId = input.data.estimateId;
-    if (!estimateId && ticketId) estimateId = (await readTicketEstimate(user.activeCompanyId, ticketId))?.id;
-    if (!estimateId) return res.status(400).json({ error: "ESTIMATE_REQUIRED" });
-    const [linkedEstimate] = await db.select().from(estimates)
-      .where(and(eq(estimates.companyId, user.activeCompanyId), eq(estimates.id, estimateId)));
-    if (!linkedEstimate) return res.status(422).json({ error: "ESTIMATE_NOT_FOUND" });
-    if (linkedEstimate.voidedAt) return res.status(422).json({ error: "ESTIMATE_LINK_VOID" });
-    const customerId = linkedEstimate.customerId;
-    if (await assertNotParentCustomer(customerId, user.activeCompanyId, res)) return;
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Denver", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-    // Use the DB sequence for atomic, concurrency-safe number assignment
-    const seqRow = await db.execute(sql`SELECT NEXTVAL('proposal_number_seq') AS seq`);
-    const nextSeq = seqRow.rows[0]?.seq as number ?? 1;
-    const proposalNumber = `P-${String(nextSeq).padStart(4, "0")}`;
-    const proposal = await storage.createProposal({
-      companyId: user.activeCompanyId,
-      customerId,
-      createdById: user.id,
-      ticketId: linkedEstimate.ticketId,
-      title: title || linkedEstimate.title,
-      proposalDate: proposalDate || today,
-      estimateId: linkedEstimate.id,
-      estimateNumber: linkedEstimate.estimateNumber,
-      status: "draft",
-      proposalNumber,
-    });
-    res.status(201).json(proposal);
   });
 
   app.get("/api/proposals/:id", async (req, res) => {
@@ -11158,79 +11033,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.log?.error({ err }, "Proposal exhibits failed");
       return res.status(err.statusCode ?? 500).json({ error: err.statusCode === 409 ? "ESTIMATE_VERSION_MISSING" : "EXHIBITS_FAILED" });
     }
-  });
-
-  app.patch("/api/proposals/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    req.body ??= {};
-    if (Object.hasOwn(req.body, "scopeOfWork")) return res.status(400).json({ error: "ESTIMATE_SCOPE_OWNED" });
-    if (req.get("X-Company-Id") && req.get("X-Company-Id") !== user.activeCompanyId) return res.status(409).json({ error: "COMPANY_CHANGED" });
-    const exhibitSettings = proposalExhibitSettingsSchema.safeParse(req.body);
-    if (!exhibitSettings.success) return res.status(400).json({ error: "INVALID_REQUEST" });
-    if (req.body.plantPaletteId !== undefined && req.body.plantPaletteId !== null) {
-      return res.status(400).json({ error: "PLANT_PALETTES_RETIRED" });
-    }
-    const existing = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!existing) return res.status(404).send("Not found");
-    const coverInput = proposalCoverPatch.safeParse(req.body);
-    if (!coverInput.success) return res.status(400).json({ error: "INVALID_REQUEST" });
-    const coverError = coverSelectionError(coverInput.data, existing,
-      req.body.visualScopeSheetId === undefined ? existing.visualScopeSheetId : req.body.visualScopeSheetId || null, existing.files);
-    if (coverError) return res.status(400).json({ error: coverError });
-    if (req.body.visualScopeSheetId) {
-      const scope = await storage.getVisualScopeSheet(req.body.visualScopeSheetId, user.activeCompanyId);
-      if (!scope || scope.customerId !== existing.customerId) return res.status(400).json({ error: "INVALID_VISUAL_SCOPE" });
-    }
-    if (coverInput.data.coverSource === "visual_scope") {
-      const scopeId = req.body.visualScopeSheetId === undefined ? existing.visualScopeSheetId : req.body.visualScopeSheetId;
-      const scope = scopeId ? await storage.getVisualScopeSheet(scopeId, user.activeCompanyId) : null;
-      if (!scope || scope.customerId !== existing.customerId) return res.status(400).json({ error: "COVER_VISUAL_SCOPE_REQUIRED" });
-    }
-    if (await assertNotParentCustomer(existing.customerId, user.activeCompanyId, res)) return;
-    const linkInput = proposalZ.object({ estimateId: proposalZ.string().trim().min(1).max(200).nullable().optional() }).safeParse(req.body);
-    if (!linkInput.success) return res.status(400).json({ error: "INVALID_REQUEST" });
-    const { estimateId } = linkInput.data;
-    if (estimateId === null) return res.status(400).json({ error: "ESTIMATE_REQUIRED" });
-    if (estimateId !== undefined && estimateId !== existing.estimateId &&
-        (existing.status !== "draft" || existing.versions.length)) return res.status(409).json({ error: "PROPOSAL_ESTIMATE_FROZEN" });
-    let linkNumber: string | undefined;
-    const effectiveEstimateId = estimateId === undefined ? existing.estimateId : estimateId;
-    if (effectiveEstimateId) {
-      try {
-        const estimate = await validateProposalEstimate(user.activeCompanyId, {
-          customerId: existing.customerId, ticketId: req.body.ticketId === undefined ? existing.ticketId : req.body.ticketId || null,
-        }, effectiveEstimateId);
-        linkNumber = estimate.estimateNumber;
-      } catch (err) {
-        if (err instanceof EstimateError) return res.status(err.status).json({ error: err.error });
-        throw err;
-      }
-    }
-    const { title, proposalDate, estimateNumber, scopeOfWork, ticketId,
-            visualScopeSheetId, vsIncludeBase, vsIncludeOverlay, photoLayout,
-            plantPaletteId } = req.body;
-    if (photoLayout !== undefined && photoLayout !== "large" && photoLayout !== "grid") {
-      return res.status(400).json({ error: "photoLayout must be 'large' or 'grid'" });
-    }
-    const updated = await storage.updateProposal(req.params.id, user.activeCompanyId, {
-      ...coverInput.data,
-      ...exhibitSettings.data,
-      ...(title !== undefined && { title }),
-      ...(proposalDate !== undefined && { proposalDate }),
-      ...(estimateId !== undefined && { estimateId }),
-      ...(linkNumber !== undefined ? { estimateNumber: linkNumber } : estimateNumber !== undefined ? { estimateNumber } : {}),
-      ...(scopeOfWork !== undefined && { scopeOfWork }),
-      ...(ticketId !== undefined && { ticketId: ticketId || null }),
-      ...(visualScopeSheetId !== undefined && { visualScopeSheetId: visualScopeSheetId || null }),
-      ...(vsIncludeBase !== undefined && { vsIncludeBase: !!vsIncludeBase }),
-      ...(vsIncludeOverlay !== undefined && { vsIncludeOverlay: !!vsIncludeOverlay }),
-      ...(photoLayout !== undefined && { photoLayout }),
-      ...(plantPaletteId === null || effectiveEstimateId ? { plantPaletteId: null } : {}),
-    });
-    if (!updated) return res.status(404).send("Not found");
-    res.json(updated);
   });
 
   app.delete("/api/proposals/:id", async (req, res) => {
@@ -11287,184 +11089,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/proposals/:id/files/upload-url", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const { fileType, mimeType, fileSize } = req.body;
-
-    if (!["estimate_pdf", "image"].includes(fileType)) {
-      return res.status(400).json({ error: "fileType must be 'estimate_pdf' or 'image'" });
-    }
-    if (fileType === "estimate_pdf") {
-      if (mimeType !== "application/pdf") return res.status(400).json({ error: "Estimate PDF must be a PDF file" });
-      if (fileSize > 25 * 1024 * 1024) return res.status(400).json({ error: "PDF must be ≤ 25MB" });
-    }
-    if (fileType === "image") {
-      if (!mimeType?.startsWith("image/")) return res.status(400).json({ error: "Image files must have an image/* MIME type" });
-      if (fileSize > 10 * 1024 * 1024) return res.status(400).json({ error: "Images must be ≤ 10MB" });
-    }
-
-    try {
-      const objectStorageService = new ObjectStorageService();
-      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-      const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
-      res.json({ uploadUrl: uploadURL, storagePath: normalizedPath });
-    } catch (error) {
-      console.error("Error getting proposal file upload URL:", error);
-      res.status(500).send("Failed to get upload URL");
-    }
-  });
-
-  app.post("/api/proposals/:id/files", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Proposal not found");
-
-    const { fileType, storagePath, filename, mimeType, fileSize, caption } = req.body;
-
-    if (!["estimate_pdf", "image"].includes(fileType)) {
-      return res.status(400).json({ error: "Invalid fileType" });
-    }
-
-    try {
-      const objectStorageService = new ObjectStorageService();
-
-      let displayOrder = 0;
-      const existingFiles = await storage.getProposalFiles(req.params.id, user.activeCompanyId);
-      if (fileType === "estimate_pdf") {
-        const existingPdfs = existingFiles.filter(f => f.fileType === "estimate_pdf");
-        displayOrder = existingPdfs.length > 0 ? Math.max(...existingPdfs.map(f => f.displayOrder)) + 1 : 0;
-      }
-      if (fileType === "image") {
-        const images = existingFiles.filter(f => f.fileType === "image");
-        displayOrder = images.length > 0 ? Math.max(...images.map(f => f.displayOrder)) + 1 : 0;
-      }
-
-      const objectFile = await objectStorageService.getObjectEntityFile(storagePath);
-      await setObjectAclPolicy(objectFile, {
-        owner: user.id,
-        visibility: "private",
-        aclRules: [{
-          group: { type: ObjectAccessGroupType.COMPANY_MEMBER, id: user.activeCompanyId },
-          permission: ObjectPermission.READ,
-        }],
-      });
-
-      const file = await storage.createProposalFile({
-        proposalId: req.params.id,
-        companyId: user.activeCompanyId,
-        fileType,
-        storageObjectPath: storagePath,
-        filename,
-        mimeType,
-        fileSize,
-        caption: caption || null,
-        displayOrder,
-      });
-      res.status(201).json(file);
-    } catch (error) {
-      console.error("Error creating proposal file:", error);
-      res.status(500).send("Failed to create proposal file");
-    }
-  });
-
-  app.post("/api/proposals/:id/files/reorder", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Proposal not found");
-
-    const { orderedFileIds } = req.body as { orderedFileIds?: unknown };
-    if (!Array.isArray(orderedFileIds) || !orderedFileIds.every(id => typeof id === "string")) {
-      return res.status(400).send("orderedFileIds must be an array of strings");
-    }
-
-    try {
-      const updated = await storage.reorderProposalImageFiles(
-        req.params.id,
-        user.activeCompanyId,
-        orderedFileIds as string[],
-      );
-      res.json(updated);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Failed to reorder files";
-      res.status(400).send(msg);
-    }
-  });
-
-  app.patch("/api/proposals/:id/files/:fileId", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const file = await storage.getProposalFileById(req.params.fileId, user.activeCompanyId);
-    if (!file || file.proposalId !== req.params.id) return res.status(404).send("File not found");
-
-    const { caption } = req.body;
-    const updated = await storage.updateProposalFile(req.params.fileId, user.activeCompanyId, { caption: caption ?? null });
-    res.json(updated);
-  });
-
-  app.post("/api/proposals/:id/files/bulk-delete", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Proposal not found");
-
-    const { fileIds } = req.body as { fileIds?: unknown };
-    if (!Array.isArray(fileIds) || !fileIds.every(id => typeof id === "string") || fileIds.length === 0) {
-      return res.status(400).send("fileIds must be a non-empty array of strings");
-    }
-
-    const files = await Promise.all(
-      (fileIds as string[]).map(fid => storage.getProposalFileById(fid, user.activeCompanyId))
-    );
-    const validFiles = files.filter((f): f is NonNullable<typeof f> => !!f && f.proposalId === req.params.id && f.fileType === "image");
-    if (validFiles.length === 0) return res.status(404).send("No matching image files found");
-
-    const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-    if (bucketId) {
-      const bucket = objectStorageClient.bucket(bucketId);
-      await Promise.all(validFiles.map(async (file) => {
-        const objectName = file.storageObjectPath.startsWith("/") ? file.storageObjectPath.slice(1) : file.storageObjectPath;
-        try { await bucket.file(objectName).delete({ ignoreNotFound: true }); } catch (_e) { /* ignore */ }
-      }));
-    }
-
-    const deleted = await storage.deleteProposalFiles(validFiles.map(f => f.id), user.activeCompanyId);
-    res.json({ success: true, deletedCount: deleted.length });
-  });
-
-  app.delete("/api/proposals/:id/files/:fileId", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const file = await storage.getProposalFileById(req.params.fileId, user.activeCompanyId);
-    if (!file || file.proposalId !== req.params.id) return res.status(404).send("File not found");
-
-    const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-    if (bucketId) {
-      const bucket = objectStorageClient.bucket(bucketId);
-      const objectName = file.storageObjectPath.startsWith("/") ? file.storageObjectPath.slice(1) : file.storageObjectPath;
-      try { await bucket.file(objectName).delete({ ignoreNotFound: true }); } catch (e) { /* ignore */ }
-    }
-
-    await storage.deleteProposalFile(req.params.fileId, user.activeCompanyId);
-    res.json({ success: true });
-  });
-
-  // ---- Proposal plant items CRUD ----
-
   app.get("/api/proposals/:id/plant-items", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
@@ -11472,134 +11096,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
     if (!proposal) return res.status(404).send("Proposal not found");
     res.json(proposal.plantItems ?? []);
-  });
-
-  app.post("/api/proposals/:id/plant-items", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Proposal not found");
-    try {
-      const { proposalPlantItems: plantItemsTable, plantCatalogItems, plantEnrichment } = await import("@workspace/db");
-      const { eq, and } = await import("drizzle-orm");
-      const body = req.body;
-      const items = Array.isArray(body) ? body : [body];
-      const inserted: unknown[] = [];
-      for (const item of items) {
-        const catalogId: string | null = item.plantCatalogItemId ?? null;
-        if (!catalogId) {
-          return res.status(400).json({ error: "plantCatalogItemId is required" });
-        }
-        // Server-side snapshotting: look up canonical catalog + enrichment data
-        // Frontend sends productCode (supplier code); catalog PK is a UUID
-        const [catalogRow] = await db
-          .select()
-          .from(plantCatalogItems)
-          .where(and(eq(plantCatalogItems.productCode, catalogId), eq(plantCatalogItems.companyId, user.activeCompanyId)));
-        if (!catalogRow) {
-          return res.status(404).json({ error: `Plant catalog item ${catalogId} not found` });
-        }
-        // Enrichment is keyed by varietyKey (shared across sizes of the same variety)
-        const [enrichRow] = await db
-          .select()
-          .from(plantEnrichment)
-          .where(and(eq(plantEnrichment.varietyKey, catalogRow.varietyKey), eq(plantEnrichment.companyId, user.activeCompanyId)));
-        const [row] = await db
-          .insert(plantItemsTable)
-          .values({
-            proposalId: req.params.id,
-            companyId: user.activeCompanyId,
-            plantCatalogItemId: catalogRow.id,
-            nameSnapshot: catalogRow.commonName,
-            botanicalSnapshot: catalogRow.botanicalName ?? null,
-            sizeSnapshot: catalogRow.sizeLabel ?? null,
-            imageUrlSnapshot: enrichRow?.imageUrl ?? null,
-            imageStoragePathSnapshot: enrichRow?.imageStoragePath ?? null,
-            wholesaleCostSnapshot: catalogRow.wholesaleCost ?? null,
-            quantity: typeof item.quantity === "number" ? item.quantity : 1,
-            notes: item.notes ?? null,
-            displayOrder: typeof item.displayOrder === "number" ? item.displayOrder : 0,
-          })
-          .returning();
-        inserted.push(row);
-      }
-      res.json(Array.isArray(body) ? inserted : inserted[0]);
-    } catch (err) {
-      req.log.error({ err }, "POST /api/proposals/:id/plant-items error");
-      res.status(500).json({ error: "Failed to add plant items" });
-    }
-  });
-
-  app.patch("/api/proposals/:id/plant-items/:itemId", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Proposal not found");
-    try {
-      const { proposalPlantItems: plantItemsTable } = await import("@workspace/db");
-      const { eq, and } = await import("drizzle-orm");
-      const allowed = ["quantity", "notes", "displayOrder"];
-      const updates: Record<string, unknown> = {};
-      for (const key of allowed) {
-        if (key in req.body) updates[key] = req.body[key];
-      }
-      updates.updatedAt = new Date();
-      const [row] = await db
-        .update(plantItemsTable)
-        .set(updates as any)
-        .where(and(eq(plantItemsTable.id, req.params.itemId), eq(plantItemsTable.proposalId, req.params.id), eq(plantItemsTable.companyId, user.activeCompanyId)))
-        .returning();
-      if (!row) return res.status(404).send("Plant item not found");
-      res.json(row);
-    } catch (err) {
-      console.error("PATCH /api/proposals/:id/plant-items/:itemId error:", err);
-      res.status(500).json({ error: "Failed to update plant item" });
-    }
-  });
-
-  app.delete("/api/proposals/:id/plant-items/:itemId", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Proposal not found");
-    try {
-      const { proposalPlantItems: plantItemsTable } = await import("@workspace/db");
-      const { eq, and } = await import("drizzle-orm");
-      await db
-        .delete(plantItemsTable)
-        .where(and(eq(plantItemsTable.id, req.params.itemId), eq(plantItemsTable.proposalId, req.params.id), eq(plantItemsTable.companyId, user.activeCompanyId)));
-      res.json({ success: true });
-    } catch (err) {
-      console.error("DELETE /api/proposals/:id/plant-items/:itemId error:", err);
-      res.status(500).json({ error: "Failed to delete plant item" });
-    }
-  });
-
-  app.post("/api/proposals/:id/plant-items/reorder", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Proposal not found");
-    const ids: string[] = req.body.ids;
-    if (!Array.isArray(ids)) return res.status(400).json({ error: "ids must be an array" });
-    try {
-      const { proposalPlantItems: plantItemsTable } = await import("@workspace/db");
-      const { eq, and } = await import("drizzle-orm");
-      for (let i = 0; i < ids.length; i++) {
-        await db
-          .update(plantItemsTable)
-          .set({ displayOrder: i })
-          .where(and(eq(plantItemsTable.id, ids[i]), eq(plantItemsTable.proposalId, req.params.id), eq(plantItemsTable.companyId, user.activeCompanyId)));
-      }
-      res.json({ success: true });
-    } catch (err) {
-      console.error("POST /api/proposals/:id/plant-items/reorder error:", err);
-      res.status(500).json({ error: "Failed to reorder plant items" });
-    }
   });
 
   // ---- Image compression helper for proposal PDF ----
@@ -11621,7 +11117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
-  // ---- Proposal PDF helper (used by both the preview endpoint and the finalize endpoint) ----
+  // ---- Historical proposal draft PDF renderer ----
   async function proposalEstimatePages(proposal: import("@workspace/db").ProposalWithDetails, companyId: string, selectedVersionId?: string): Promise<Buffer[]> {
     if (proposal.estimateId) {
       const versionId = selectedVersionId ?? proposal.estimate?.currentVersion?.id;
@@ -11630,7 +11126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     const estimateFiles = await storage.getProposalEstimatePdfs(proposal.id, companyId);
     if (estimateFiles.length === 0) {
-      throw Object.assign(new Error("No estimate PDF attached to this proposal. Upload a QB Estimate PDF before generating."), { statusCode: 400 });
+      throw Object.assign(new Error("No estimate PDF is available for this historical proposal."), { statusCode: 400 });
     }
     const objectStorageService = new ObjectStorageService();
     const estimateBuffers: Buffer[] = [];
@@ -12413,198 +11909,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return mergedBuffer;
   }
 
-  app.get("/api/proposals/:id/pdf", async (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Proposal not found");
-
-    let mergedBuffer: Buffer;
-    try {
-      mergedBuffer = await generateProposalPdf(proposal, user.activeCompanyId);
-    } catch (err: any) {
-      return res.status(err?.statusCode ?? 500).send(err?.message ?? "PDF generation failed");
-    }
-
-    const safeTitle = (proposal.title || 'Proposal')
-      .replace(/[/\\:*?"<>|]/g, '-')
-      .trim()
-      .substring(0, 80) || 'Proposal';
-    const safeCustomer = (proposal.customerName || 'Client')
-      .replace(/[/\\:*?"<>|]/g, '-')
-      .trim()
-      .substring(0, 60) || 'Client';
-    const dateStr = proposal.proposalDate
-      ? proposal.proposalDate.substring(0, 10)
-      : new Date().toISOString().substring(0, 10);
-    const filename = `${safeTitle} - ${safeCustomer} - ${dateStr}.pdf`;
-
-    const isInline = req.query.inline === '1';
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', isInline ? `inline; filename="proposal.pdf"` : `attachment; filename="${filename}"`);
-    res.end(mergedBuffer);
-  });
-
-  // ---- Finalize proposal (create immutable version) ----
-  app.post("/api/proposals/:id/finalize", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-    if (!proposal) return res.status(404).send("Proposal not found");
-
-    if (!proposal.estimateId) return res.status(409).json({ error: "LEGACY_PROPOSAL_READ_ONLY" });
-
-    const input = proposalZ.object({
-      estimateSendMethod: proposalZ.enum(["email", "hard_copy", "portal", "other"]).optional(),
-      confirmZeroPriced: proposalZ.boolean().optional(),
-      expectedEstimateVersionId: proposalZ.string().min(1).max(200).optional(),
-    }).strict().safeParse(req.body ?? {});
-    if (!input.success) return res.status(400).json({ error: "INVALID_REQUEST" });
-    let estimateTransition: ProposalEstimateTransition | null;
-    try {
-      estimateTransition = await prepareProposalEstimate(user.activeCompanyId, user.id, proposal, input.data);
-    } catch (err) {
-      if (err instanceof EstimateError) return res.status(err.status).json({ error: err.error, ...err.extra });
-      throw err;
-    }
-    // Sending is committed. A later failure is not compensated; retry finalizes
-    // the already-sent version and state-derived ticket recovery remains available.
-    const finalizeError = (status: number, message: string) => estimateTransition
-      ? res.status(status).json({ error: "PROPOSAL_FINALIZE_FAILED", message, estimateTransition, estimateRemainsSent: true })
-      : res.status(status).send(message);
-    let mergedBuffer: Buffer;
-    let selectedExhibits: ProposalExhibits | undefined;
-    try {
-      selectedExhibits = proposal.estimateId
-        ? await loadProposalExhibits(user.activeCompanyId, proposal, estimateTransition?.versionId) : undefined;
-      mergedBuffer = await generateProposalPdf(proposal, user.activeCompanyId, estimateTransition?.versionId, selectedExhibits);
-    } catch (err: any) {
-      return finalizeError(err?.statusCode ?? 500, `PDF generation failed: ${err?.message ?? "Unknown error"}`);
-    }
-
-    // Render VS PNGs once before the retry loop (expensive, render only once)
-    type VsSnapshots = {
-      combinedBuffer: Buffer;
-      baseBuffer: Buffer | null;
-      overlayBuffer: Buffer | null;
-    };
-    let vsSnapshots: VsSnapshots | null = null;
-
-    if (proposal.visualScopeSheetId && proposal.visualScopeSheet) {
-      const vsSheet = proposal.visualScopeSheet;
-      if (!vsSheet.baseImagePath) {
-        return finalizeError(400, "Attached Visual Scope Sheet has no base image. Capture or upload an image before finalizing.");
-      }
-      try {
-        const combinedBuffer = await renderVisualScope(vsSheet as any, "combined", 2000);
-        const baseBuffer = proposal.vsIncludeBase
-          ? await renderVisualScope(vsSheet as any, "base", 2000)
-          : null;
-        const overlayBuffer = proposal.vsIncludeOverlay
-          ? await renderVisualScope(vsSheet as any, "overlay", 2000)
-          : null;
-        vsSnapshots = { combinedBuffer, baseBuffer, overlayBuffer };
-      } catch (err: any) {
-        return finalizeError(400, `Visual Scope snapshot render failed: ${err?.message ?? "Unknown error"}`);
-      }
-    }
-
-    const attemptFinalize = async (): Promise<import("@workspace/db").ProposalVersion> => {
-      const nextVersion = await storage.getNextVersionNumber(proposal.id, user.activeCompanyId);
-      const objectStorageService = new ObjectStorageService();
-      // Never write bytes to a version-number-only key: two concurrent attempts
-      // may allocate the same number before the unique DB constraint arbitrates.
-      const attemptId = randomUUID();
-      const relativePath = `proposal-versions/${proposal.id}/${attemptId}/v${nextVersion}.pdf`;
-      let storedPath: string;
-      try {
-        storedPath = await objectStorageService.saveBufferToPrivatePath(relativePath, mergedBuffer, 'application/pdf');
-      } catch (err) {
-        console.error('Proposal finalize: GCS upload failed:', err);
-        throw Object.assign(new Error("Failed to store finalized PDF. Please try again."), { statusCode: 500 });
-      }
-
-      let vsCombinedPath: string | null = null;
-      let vsBasePath: string | null = null;
-      let vsOverlayPath: string | null = null;
-
-      if (vsSnapshots) {
-        const vsPrefix = `proposal-versions/${proposal.id}/${attemptId}/v${nextVersion}`;
-        try {
-          vsCombinedPath = await objectStorageService.saveBufferToPrivatePath(
-            `${vsPrefix}/visual-scope-combined.png`, vsSnapshots.combinedBuffer, "image/png"
-          );
-          if (vsSnapshots.baseBuffer) {
-            vsBasePath = await objectStorageService.saveBufferToPrivatePath(
-              `${vsPrefix}/visual-scope-base.png`, vsSnapshots.baseBuffer, "image/png"
-            );
-          }
-          if (vsSnapshots.overlayBuffer) {
-            vsOverlayPath = await objectStorageService.saveBufferToPrivatePath(
-              `${vsPrefix}/visual-scope-overlay.png`, vsSnapshots.overlayBuffer, "image/png"
-            );
-          }
-        } catch (err) {
-          console.error("Proposal finalize: VS PNG GCS upload failed:", err);
-          throw Object.assign(new Error("Failed to store Visual Scope snapshot. Please try again."), { statusCode: 500 });
-        }
-      }
-
-      try {
-        return await storage.createProposalVersion({
-          proposalId: proposal.id,
-          companyId: user.activeCompanyId,
-          versionNumber: nextVersion,
-          estimateVersionId: estimateTransition?.versionId ?? null,
-          title: proposal.title,
-          proposalDate: proposal.proposalDate,
-          estimateNumber: proposal.estimateNumber ?? null,
-          finalizedById: user.id,
-          pdfStoragePath: storedPath,
-          plantItemsSnapshot: (selectedExhibits ? selectedExhibits.schedule : (proposal.plantItems ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder)) as unknown as Record<string, unknown>[],
-          ...(vsSnapshots && proposal.visualScopeSheet ? {
-            visualScopeSheetId: proposal.visualScopeSheetId!,
-            visualScopeTitle: proposal.visualScopeSheet.title,
-            visualScopeDate: proposal.visualScopeSheet.scopeDate,
-            vsExportWidth: 2000,
-            vsIncludedBase: proposal.vsIncludeBase ?? false,
-            vsIncludedOverlay: proposal.vsIncludeOverlay ?? false,
-            vsFrozenAt: new Date(),
-            vsCombinedPath,
-            vsBasePath,
-            vsOverlayPath,
-          } : {}),
-        });
-      } catch (err: any) {
-        if (err?.code === '23505') {
-          throw Object.assign(new Error('RETRY'), { isRetry: true });
-        }
-        throw Object.assign(new Error("Failed to save finalized version record."), { statusCode: 500 });
-      }
-    };
-
-    let version: import("@workspace/db").ProposalVersion;
-    try {
-      version = await attemptFinalize();
-    } catch (err: any) {
-      if (err?.isRetry) {
-        try {
-          version = await attemptFinalize();
-        } catch (retryErr: any) {
-          return finalizeError(409, "Version number conflict. Please try again.");
-        }
-      } else {
-        return finalizeError((err as any)?.statusCode ?? 500, err?.message ?? "Finalization failed");
-      }
-    }
-
-    const versionWithUser = await storage.getProposalVersionById(version.id, user.activeCompanyId);
-    res.status(201).json({ ...versionWithUser, estimateTransition });
+  registerProposalPdfReads(app, {
+    getProposal: (id, companyId) => storage.getProposalById(id, companyId),
+    getVersion: (id, companyId) => storage.getProposalVersionById(id, companyId),
+    loadStoredPdf: path => new ObjectStorageService().downloadByPath(path),
+    renderDraft: generateProposalPdf,
   });
 
   // ---- List finalized versions for a proposal ----
@@ -12614,39 +11923,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
     const versions = await storage.getProposalVersions(req.params.id, user.activeCompanyId);
     res.json(versions);
-  });
-
-  // ---- Download a specific finalized version PDF ----
-  app.get("/api/proposals/:id/versions/:versionId/download", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canAccessProposals(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const version = await storage.getProposalVersionById(req.params.versionId, user.activeCompanyId);
-    if (!version || version.proposalId !== req.params.id) return res.status(404).send("Version not found");
-
-    const proposal = await storage.getProposalById(req.params.id, user.activeCompanyId);
-
-    let pdfBytes: Buffer;
-    try {
-      const objectStorageService = new ObjectStorageService();
-      pdfBytes = await objectStorageService.downloadByPath(version.pdfStoragePath);
-    } catch (err) {
-      console.error('Proposal version download: failed to retrieve stored PDF:', err);
-      return res.status(500).send("Failed to retrieve the finalized PDF. It may have been removed.");
-    }
-
-    const safeTitle = ((proposal?.title) || 'Proposal')
-      .replace(/[/\\:*?"<>|]/g, '-').trim().substring(0, 80) || 'Proposal';
-    const safeCustomer = ((proposal?.customerName) || 'Client')
-      .replace(/[/\\:*?"<>|]/g, '-').trim().substring(0, 60) || 'Client';
-    const dateStr = version.proposalDate ? version.proposalDate.substring(0, 10) : new Date().toISOString().substring(0, 10);
-    const filename = `${safeTitle} - ${safeCustomer} - v${version.versionNumber} - ${dateStr}.pdf`;
-
-    const isInline = req.query.inline === '1';
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', isInline ? `inline; filename="${filename}"` : `attachment; filename="${filename}"`);
-    res.end(pdfBytes);
   });
 
   // ---- Download a frozen VS PNG snapshot for a specific version ----
@@ -12800,44 +12076,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(201).json(created);
   });
 
-  // ---- Generate crew worksheet from a proposal (frozen snapshot of scope/photos) ----
-  async function generateCrewWorksheetFromProposalHandler(req: import("express").Request, res: import("express").Response) {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!canWriteCrewWorksheets(user.activeRole)) return res.status(403).send("Insufficient permissions");
-
-    const proposalId = (req.params.id ?? req.params.proposalId) as string;
-    // Existence pre-check so we can return 404 (vs the storage method returning undefined).
-    const proposalProbe = await storage.getProposalById(proposalId, user.activeCompanyId);
-    if (!proposalProbe) return res.status(404).send("Proposal not found");
-    if (!proposalProbe.estimateId) return res.status(409).json({ error: "LEGACY_PROPOSAL_READ_ONLY" });
-
-    const today = new Date();
-    const dateStr = today.toISOString().slice(0, 10);
-    const year = today.getFullYear();
-    const worksheetNumber = await generateCrewWorksheetNumberWithRetry(user.activeCompanyId, year);
-
-    const baseTitle = (proposalProbe.title || "Crew Worksheet").trim();
-    const title = /\bcrew worksheet\b/i.test(baseTitle) ? baseTitle : `${baseTitle} — Crew Worksheet`;
-
-    const enriched = await storage.createCrewWorksheetFromProposal({
-      companyId: user.activeCompanyId,
-      proposalId,
-      createdById: user.id,
-      worksheetNumber,
-      worksheetDate: dateStr,
-      title,
-    });
-    if (!enriched) return res.status(404).send("Proposal not found");
-    res.status(201).json(enriched);
-  }
-
-  // Canonical: POST /api/proposals/:id/crew-worksheets
-  app.post("/api/proposals/:id/crew-worksheets", generateCrewWorksheetFromProposalHandler);
-  // Back-compat alias
-  app.post("/api/crew-worksheets/from-proposal/:proposalId", generateCrewWorksheetFromProposalHandler);
-
-  // ---- Update crew worksheet ----
   app.patch("/api/crew-worksheets/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
     const user = req.user as UserWithContext;
@@ -19507,7 +18745,6 @@ export async function runStartupMigrations(): Promise<void> {
   await migrateUserPhoneColumn();
   await backfillCustomerType();
   await migrateEquipmentProfilePhotoColumn();
-  await migrateProposalNumbers();
   await migrateCommunicationTemplatesSchema();
   await migrateCommunicationsTable();
   await seedCommunicationsBootstrap();

@@ -10,8 +10,8 @@ import CustomerHeader, { type CustomerHeaderProps } from "@/components/customer/
 const base: CustomerHeaderProps = {
   customer: { id: "synthetic", name: "Synthetic Place" }, kind: "regular", pages: ["dashboard"], switcherCustomers: [],
   accountManager: { status: "loading" }, canEdit: false,
-  actions: { note: false, ticket: false, proposal: false, logCommunication: false },
-  onAddNote: () => {}, onAddProposal: () => {}, onLogCommunication: () => {},
+  actions: { note: false, ticket: false, logCommunication: false },
+  onAddNote: () => {}, onLogCommunication: () => {},
 };
 
 describe("CustomerHeader account manager chip", () => {

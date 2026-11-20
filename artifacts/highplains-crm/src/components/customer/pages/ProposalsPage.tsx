@@ -38,7 +38,9 @@ function ProposalsList({ customerId }: { customerId: string }) {
   });
   return (
     <div className="space-y-3">
-      {/* New proposal lives only in the header Add menu (no duplicate primary action). */}
+      <Link href="/dashboard/tools/proposals" className="text-sm text-primary underline underline-offset-2" data-testid="link-old-proposals">
+        {t("proposals.history.browseAll")}
+      </Link>
       <Rows loading={isLoading} empty={proposals.length ? null : t("customerDetail.noProposals")} emptyIcon={FileText}>
         {proposals.map(p => {
           const version = p.versions?.length ? p.versions[p.versions.length - 1].versionNumber : null;

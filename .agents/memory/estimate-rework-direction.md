@@ -54,3 +54,13 @@ delivery. A confirmed delivery awaiting status recovery must not call Gmail agai
 Treat a missing Gmail acknowledgement as unknown delivery, not rejection: keep
 the private attachment and RFC identity until the outcome can be verified.
 **Why:** Gmail can accept the email before its connection drops.
+
+Do not use a historical proposal's row status to infer whether it has a saved
+final PDF. Keep the stored version list accessible even on drafts.
+
+**Why:** The old Finalize action saved immutable versions but left the
+proposal container in draft status.
+
+**How to apply:** Archive links always read the stored bytes. A draft preview
+uses its historical source when available; when no draft source survives, the
+latest stored version can still be shown without relabeling the proposal.

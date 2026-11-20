@@ -1,11 +1,10 @@
 import { useParams, useLocation, Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Download, Eye, CheckCircle2, Plus, History, Map } from "lucide-react";
-import type { ProposalWithDetails } from "@shared/schema";
+import { ArrowLeft, Download, Eye, CheckCircle2, History, Map } from "lucide-react";
+import { ProposalRetiredNotice, useProposalHistory } from "@/components/proposals/ProposalHistory";
 
 function formatDateTime(ts: string | Date) {
   try {
@@ -28,10 +27,7 @@ export default function ProposalVersion() {
   const [, navigate] = useLocation();
   const { t } = useTranslation();
 
-  const { data: proposal, isLoading, isError } = useQuery<ProposalWithDetails>({
-    queryKey: ["/api/proposals", id],
-    enabled: !!id,
-  });
+  const { data: proposal, isPending: isLoading, isError } = useProposalHistory(id);
 
   if (isLoading) {
     return (
@@ -72,7 +68,7 @@ export default function ProposalVersion() {
         <Link href="/dashboard/tools/proposals">
           <button className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="link-back-to-list">
             <ArrowLeft className="w-3.5 h-3.5" />
-            {t("proposals.title")}
+            {t("proposals.history.title")}
           </button>
         </Link>
         <span>/</span>
@@ -84,6 +80,8 @@ export default function ProposalVersion() {
         <span>/</span>
         <span className="text-foreground font-medium">v{version.versionNumber}</span>
       </div>
+
+      <ProposalRetiredNotice />
 
       <div>
         <div className="flex items-center gap-3 flex-wrap mb-2">
@@ -253,34 +251,6 @@ export default function ProposalVersion() {
           </CardContent>
         </Card>
       )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("proposalVersion.proposalDraft")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            {t("proposalVersion.draftEditable", { next: version.versionNumber + 1 })}
-          </p>
-          <div className="flex items-center gap-3 flex-wrap">
-            <Button
-              variant="outline"
-              onClick={() => navigate(`/dashboard/tools/proposals/${id}`)}
-              data-testid="button-back-to-draft"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              {t("proposalVersion.backToDraft")}
-            </Button>
-            <Button
-              onClick={() => navigate(`/dashboard/tools/proposals/${id}`)}
-              data-testid="button-create-new-version"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              {t("proposalVersion.createNewVersion")}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
 
       {otherVersions.length > 0 && (
         <Card data-testid="div-other-versions">
