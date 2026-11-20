@@ -13,6 +13,38 @@ export function estimatePdfUrl(estimateId: string, versionId: string): string {
   return `${ESTIMATES_API}/${encodeURIComponent(estimateId)}/versions/${encodeURIComponent(versionId)}/pdf`;
 }
 
+export async function downloadEstimatePdf({
+  estimateId, versionId, companyId, estimateNumber, versionNumber, showVersion, signal,
+}: {
+  estimateId: string; versionId: string; companyId: string; estimateNumber: string;
+  versionNumber: number; showVersion: boolean; signal: AbortSignal;
+}) {
+  const response = await apiRequest("GET", `${estimatePdfUrl(estimateId, versionId)}?download=1`, undefined, {
+    headers: companyHeaders(companyId), signal,
+  });
+  const blob = await response.blob();
+  signal.throwIfAborted();
+  const url = URL.createObjectURL(blob);
+  const filename = estimateResponseFilename(response) ?? estimatePdfFilename(estimateNumber, versionNumber, showVersion);
+  try {
+    triggerDownload(url, filename);
+  } finally {
+    // Keep the blob available until the browser has started the download.
+    window.setTimeout(URL.revokeObjectURL.bind(URL, url), 1000);
+  }
+}
+
+function estimateResponseFilename(response: Response) {
+  return response.headers.get("Content-Disposition")?.match(/filename="(EST(?:-\d{4}-\d+)?(?:-v\d+)?\.pdf)"/)?.[1];
+}
+
+function triggerDownload(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.rel = "noopener";
+  document.body.appendChild(a);
+  try { a.click(); } finally { a.remove(); }
+}
+
 type State = { kind: "loading" } | { kind: "error"; unavailable?: boolean } | { kind: "ready"; url: string; filename: string };
 
 /**
@@ -22,7 +54,7 @@ type State = { kind: "loading" } | { kind: "error"; unavailable?: boolean } | { 
 export function PdfPreviewDialog(props: {
   open: boolean; onClose: () => void; companyId: string; estimateId: string; versionId: string;
   estimateNumber: string; versionNumber: number; showVersion?: boolean;
-  workLocation?: string | null;
+  workLocation?: string | null; regenerated?: boolean;
 }) {
   const { t } = useTranslation();
   const { open, companyId, estimateId, versionId, workLocation, estimateNumber, versionNumber, showVersion } = props;
@@ -43,7 +75,7 @@ export function PdfPreviewDialog(props: {
         if (!alive) return;
         created = URL.createObjectURL(blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" }));
         urlRef.current = created;
-        const filename = res.headers.get("Content-Disposition")?.match(/filename="(EST(?:-\d{4}-\d+)?(?:-v\d+)?\.pdf)"/)?.[1]
+        const filename = estimateResponseFilename(res)
           ?? estimatePdfFilename(estimateNumber, versionNumber, showVersion ?? false);
         setState({ kind: "ready", url: created, filename });
       } catch (error) {
@@ -64,9 +96,7 @@ export function PdfPreviewDialog(props: {
 
   function download() {
     if (state.kind !== "ready") return;
-    const a = document.createElement("a");
-    a.href = state.url; a.download = state.filename; a.rel = "noopener";
-    document.body.appendChild(a); a.click(); a.remove();
+    triggerDownload(state.url, state.filename);
   }
   function openTab() {
     if (state.kind !== "ready") return;
@@ -80,7 +110,7 @@ export function PdfPreviewDialog(props: {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><FileText className="h-4 w-4 text-[hsl(var(--rail-active-icon))]" />
             {titleShowsVersion ? t("estimateBuilder.pdf.title", { number: estimateNumber, n: versionNumber }) : estimateNumber}</DialogTitle>
-          <DialogDescription data-testid="text-pdf-hint">{t("estimateBuilder.pdf.desc")}</DialogDescription>
+          <DialogDescription data-testid="text-pdf-hint">{t(props.regenerated ? "estimateBuilder.pdf.regenerated" : "estimateBuilder.pdf.desc")}</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-hidden rounded-md border bg-muted/40">
           {state.kind === "loading" && (

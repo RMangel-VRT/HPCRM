@@ -162,7 +162,7 @@ describe("header actions per state", () => {
     await ready();
     expect(screen.getByTestId("button-mark-sent")).toBeTruthy();
     expect(screen.getByTestId("pill-status-draft").textContent).toBe("Draft");
-    expect(screen.queryByTestId("strip-versions")).toBeNull();
+    expect(screen.getByTestId("text-single-version-pdf")).toBeTruthy();
     expect(screen.queryByTestId("button-discard-draft")).toBeNull();
     expect(screen.queryByTestId("button-record-accept")).toBeNull();
     expect(screen.getByTestId("button-overflow")).toBeTruthy();
@@ -462,7 +462,7 @@ describe("first edit on a sent or declined estimate", () => {
       { method: "PATCH", url: `${versionBase}/v2/lines/new-a`, body: { quantity: "5" }, headers: { "X-Company-Id": "c1" } },
     ]);
     expect((await screen.findByTestId("pill-status-draft")).textContent).toContain("v2");
-    expect(screen.getByTestId("chip-version-1").textContent).toContain("v1");
+    expect(screen.getByTestId("chip-version-1").textContent).toContain("Version 1");
   });
   it("opens a competing draft without writing if its copied target was deleted", async () => {
     setup("sent", "missing-target");

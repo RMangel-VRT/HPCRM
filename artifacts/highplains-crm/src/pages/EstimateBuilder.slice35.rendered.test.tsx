@@ -153,8 +153,12 @@ describe("identity header", () => {
     expect(calls().some((c) => c.url.startsWith("/api/tickets/"))).toBe(false);
     const bar = screen.getByTestId("bar-lifecycle");
     expect(within(bar).getByTestId("button-preview-pdf")).toBeTruthy();
+    expect(within(bar).getByTestId("button-download-pdf").textContent).toBe("Download PDF");
     expect(within(bar).getByTestId("button-mark-sent")).toBeTruthy();
-    expect(within(card).getByTestId("strip-versions")).toBeTruthy();
+    expect(screen.getByTestId("link-back-list").getAttribute("href")).toBe("/dashboard/estimates/builder");
+    expect(screen.queryByRole("navigation", { name: "Estimates navigation" })).toBeNull();
+    expect(within(card).queryByTestId("card-versions")).toBeNull();
+    expect(within(screen.getByTestId("rail-totals")).getByTestId("card-versions")).toBeTruthy();
   });
 
   it("unlinked ticket, rate card, frozen total with sent and accepted cells", async () => {
@@ -243,10 +247,12 @@ describe("container layout", () => {
     expect(screen.getByTestId("input-section-search-s1")).toBeTruthy();
     expect(screen.getByTestId("row-line-l-plant").className).toContain("estimate-line-row");
   });
-  it("defines 984px split threshold and narrow controls using container queries, not viewport breakpoints", async () => {
+  it("defines the 860px split, 288px sticky rail and narrow controls using container queries", () => {
     const css = readFileSync("src/components/estimates/estimateBuilder.css", "utf8");
-    expect(css).toContain("@container estimate-builder (min-width: 984px)");
-    expect(css).toContain("grid-template-columns: minmax(640px, 1fr) 320px");
+    expect(css).toContain("max-width: 1400px");
+    expect(css).toContain("@container estimate-builder (min-width: 860px)");
+    expect(css).toContain("grid-template-columns: minmax(0, 1fr) 288px");
+    expect(css).toContain("position: sticky");
     expect(css).toContain("@container estimate-sections (max-width: 400px)");
     expect(css).toContain("@container estimate-sections (min-width: 570px)");
     expect(css).toContain('grid-template-areas: "handle icon item qty unit rate amount menu"');
@@ -254,13 +260,53 @@ describe("container layout", () => {
   });
 });
 
+describe("one-page review", () => {
+  it("shows draft-only pricing gaps, what prints, and the collapsed internal QuickBooks breakdown", async () => {
+    detail.version.sections[0].lines[0].umbrellaKey = "plants";
+    detail = withVersion(detail, { scopeOfWork: "Install the new bed." });
+    renderAt("/dashboard/estimates/builder/e1");
+    await ready();
+    const rail = within(screen.getByTestId("rail-totals"));
+    expect(rail.getByTestId("text-rail-section-s1").textContent).toBe("$8,734.12");
+    expect(rail.getByTestId("text-lines-need-price").textContent).toBe("1 line still needs a price");
+    const checklist = rail.getByTestId("card-on-pdf");
+    expect(checklist.textContent).toContain("Included: Scope of work");
+    expect(checklist.textContent).toContain("7 lines in 2 sections");
+    expect(checklist.textContent).toContain("Terms + plant warranty");
+    expect(checklist.textContent).toContain("Signature box");
+    expect(checklist.textContent).toMatch(/About \d+ pages/);
+    expect(within(checklist).queryByRole("switch")).toBeNull();
+    const internal = within(rail.getByTestId("card-internal-margin"));
+    expect(internal.getByTestId("text-margin").textContent).toBe("47.2%");
+    const qbo = internal.getByTestId("card-qbo") as HTMLDetailsElement;
+    expect(qbo.open).toBe(false);
+    fireEvent.click(internal.getByTestId("button-toggle-qbo"));
+    expect(qbo.open).toBe(true);
+  });
+
+  it("marks empty scope, omits plant warranty without plants, and shows singular/plural Spanish copy", async () => {
+    await i18n.changeLanguage("es");
+    detail.versions = [detail.versions[0]];
+    renderAt("/dashboard/estimates/builder/e1");
+    await ready();
+    const checklist = screen.getByTestId("card-on-pdf");
+    expect(checklist.textContent).toContain("No incluido: Alcance del trabajo");
+    expect(checklist.textContent).toContain("7 líneas en 2 secciones");
+    expect(checklist.textContent).not.toContain("garantía de plantas");
+    expect(screen.getByTestId("card-versions").textContent).toContain("Borrador (en edición)");
+    expect(screen.getByTestId("text-single-version-pdf").textContent).toContain("solo aparece en el PDF");
+  });
+});
+
 describe("pdf preview", () => {
   let created: string[]; let revoked: string[];
   beforeEach(() => {
-    created = []; revoked = [];
+    const createdThisTest: string[] = [];
+    const revokedThisTest: string[] = [];
+    created = createdThisTest; revoked = revokedThisTest;
     let n = 0;
-    URL.createObjectURL = vi.fn(() => { const u = `blob:pdf-${++n}`; created.push(u); return u; });
-    URL.revokeObjectURL = vi.fn((u: string) => { revoked.push(u); });
+    URL.createObjectURL = vi.fn(() => { const u = `blob:pdf-${++n}`; createdThisTest.push(u); return u; });
+    URL.revokeObjectURL = vi.fn((u: string) => { revokedThisTest.push(u); });
   });
   const pdfRes = () => ({ ...res({}), blob: async () => new Blob(["%PDF-1.7"], { type: "application/pdf" }) });
 
@@ -292,6 +338,94 @@ describe("pdf preview", () => {
     fireEvent.click(screen.getByTestId("button-preview-pdf"));
     await screen.findByTestId("frame-pdf");
     expect(calls().some((c) => c.url === "/api/estimates/e1/versions/v1/pdf")).toBe(true);
+  });
+
+  it("opens each version's own scoped PDF from the rail without changing the editor's version", async () => {
+    Object.assign(detail.versions[1], { sentAt: T0, sentMethod: "hard_copy", frozenSubtotalCents: 425086 });
+    handler = (c) => c.url.endsWith("/pdf") ? pdfRes() : undefined;
+    renderAt("/dashboard/estimates/builder/e1");
+    await ready();
+    expect(screen.getByTestId("text-version-sent-1").textContent).toMatch(/2025 · Hard copy · \$4,250.86/);
+    expect(screen.getByTestId("row-estimate-version-1").textContent).toContain("Regenerated PDF");
+    expect(screen.getByTestId("row-estimate-version-2").textContent).toContain("Version 2 · Draft (editing)");
+    fireEvent.click(screen.getByTestId("button-version-pdf-1"));
+    await screen.findByTestId("frame-pdf");
+    expect(screen.getByTestId("text-pdf-hint").textContent).toContain("not the original sent file");
+    fireEvent.click(screen.getByTestId("button-pdf-close"));
+    fireEvent.click(screen.getByTestId("button-version-pdf-2"));
+    await screen.findByTestId("frame-pdf");
+    expect(screen.getByTestId("text-pdf-hint").textContent).not.toContain("regenerated");
+    expect(calls().filter(c => c.url.endsWith("/pdf"))).toMatchObject([
+      { method: "GET", url: "/api/estimates/e1/versions/v1/pdf", headers: { "X-Company-Id": "c1" } },
+      { method: "GET", url: "/api/estimates/e1/versions/v2/pdf", headers: { "X-Company-Id": "c1" } },
+    ]);
+    expect(screen.getByTestId("chip-version-2").getAttribute("aria-pressed")).toBe("true");
+    expect(mutations()).toEqual([]);
+  });
+
+  it("downloads the viewed draft directly without a lifecycle write", async () => {
+    handler = (c) => c.url.endsWith("/pdf?download=1") ? {
+      ...pdfRes(), headers: new Headers({ "Content-Disposition": 'attachment; filename="EST-2025-0042-v2.pdf"' }),
+    } : undefined;
+    const files: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      files.push(this.download);
+    });
+    try {
+      renderAt("/dashboard/estimates/builder/e1");
+      await ready();
+      fireEvent.click(screen.getByTestId("button-download-pdf"));
+      await waitFor(() => expect(files).toEqual(["EST-2025-0042-v2.pdf"]));
+      expect(calls().find(c => c.url.includes("?download=1"))).toMatchObject({
+        url: "/api/estimates/e1/versions/v2/pdf?download=1", method: "GET", headers: { "X-Company-Id": "c1" },
+      });
+      expect(mutations()).toEqual([]);
+      expect(screen.getByTestId("button-mark-sent")).toBeTruthy();
+      expect(screen.getByTestId("pill-status-draft").textContent).toContain("Draft");
+    } finally { click.mockRestore(); }
+  });
+
+  it.each(["ticket", "estimate"])("edits %s-owned work location in the header and fetches a fresh PDF", async owner => {
+    const location = {
+      workLocation: "4120 Mesa Rd\nLongmont CO", workLocationSource: "property",
+      workLocationInput: { label: null, details: null }, propertyAddressLines: "4120 Mesa Rd\nLongmont CO",
+    };
+    const ticketId = owner === "ticket" ? "t1" : null;
+    detail = { ...detail, ticketId, display: { ...display, ticket: ticketId ? display.ticket : null, ...location } } as typeof detail;
+    handler = c => {
+      if (c.method === "PUT" && c.url === "/api/estimates/e1/work-location") {
+        Object.assign(detail, { display: { ...display, ...location,
+          workLocation: "West Service Gate\nUse the west drive", workLocationSource: owner,
+          workLocationInput: { label: "West Service Gate", details: "Use the west drive" },
+        } });
+        return new Response(JSON.stringify({ text: "West Service Gate\nUse the west drive", source: owner }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (c.url.endsWith("/pdf")) return pdfRes();
+      return undefined;
+    };
+    renderAt("/dashboard/estimates/builder/e1");
+    await ready();
+    const cell = within(screen.getByTestId("cell-work-location"));
+    expect(cell.getByTestId("text-work-location-fallback").textContent).toBe("Property address");
+    fireEvent.click(screen.getByTestId("button-preview-pdf"));
+    await screen.findByTestId("frame-pdf");
+    fireEvent.click(screen.getByTestId("button-pdf-close"));
+    fireEvent.click(cell.getByTestId("button-edit-work-location"));
+    const popover = within(await screen.findByTestId("popover-work-location"));
+    expect(screen.getByTestId("popover-work-location").textContent).toMatch(new RegExp(`Saved to (the |this )?${owner}`, "i"));
+    fireEvent.click(popover.getByTestId("button-use-work-property-address"));
+    expect((popover.getByTestId("input-work-location-details") as HTMLTextAreaElement).value).toContain("Mesa Rd");
+    fireEvent.change(popover.getByTestId("input-work-location-label"), { target: { value: "West Service Gate" } });
+    fireEvent.change(popover.getByTestId("input-work-location-details"), { target: { value: "Use the west drive" } });
+    fireEvent.click(popover.getByTestId("button-save-work-location"));
+    await waitFor(() => expect(cell.getByTestId("text-work-location").textContent).toBe("West Service Gate\nUse the west drive"));
+    expect(cell.queryByTestId("text-work-location-fallback")).toBeNull();
+    expect(mutations()).toMatchObject([{ method: "PUT", url: "/api/estimates/e1/work-location", body: { label: "West Service Gate", details: "Use the west drive" } }]);
+    fireEvent.click(screen.getByTestId("button-preview-pdf"));
+    await screen.findByTestId("frame-pdf");
+    expect(calls().filter(c => c.url.endsWith("/v2/pdf"))).toHaveLength(2);
   });
 
   it("shows a translated error with retry", async () => {

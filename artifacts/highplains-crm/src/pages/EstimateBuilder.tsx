@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EXHIBITS_KEY } from "../../../../lib/db/src/plantExhibitContracts";
 import { estimateCatalogReference, estimateHasMultipleVersions, type EstimateCatalogReference, type EstimateOrderInput } from "../../../../lib/db/src/estimateContracts";
-import type { ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useCustomerActivation } from "@/components/customerWizard/CustomerActivationDialog";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import {
-  ArrowLeft, Ban, Check, CheckCircle2, FileText, GitBranch, History, Lock, MoreHorizontal, Plus, Send, ThumbsDown, Trash2,
+  ArrowLeft, Ban, CheckCircle2, Download, FileText, GitBranch, History, Lock, MoreHorizontal, Plus, Send, ThumbsDown, Trash2,
 } from "lucide-react";
 import type { EstimateTicketSummaryDto } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
@@ -17,20 +16,19 @@ import { runEstimateLifecycle, estimateErrorText as errorText } from "@/lib/esti
 import { fetchJson, formatCents, HARDSCAPE_API } from "@/lib/hardscapeCatalog";
 import { RATES_PREVIEW_API, scopeOf, QUICK_ITEMS_API, SERVICE_CATEGORIES_API } from "@/lib/estimateSettings";
 import {
-  ESTIMATES_API, ESTIMATE_BUILDER_PATH, UMBRELLAS, builderPath, distinctContexts,
+  ESTIMATES_API, ESTIMATE_BUILDER_PATH, builderPath, distinctContexts,
    conflictOf, denverToday, errorStatus, formatCalendarDate, formatDate, isVersionLocked, sendEstimate,
   type EstimateDetailDto, type EstimateLineDto, type EstimateLineType, type EstimateSectionDto, type RatesPreviewWithContext,
 } from "@/lib/estimateBuilder";
 import { replayEstimateEdits, startEstimateEditRevision } from "@/lib/estimateRevision";
 import { EstimateEditQueue, editResult, hasEstimateEdits, lineFrom, newTemporaryLineId, waitForEstimateEdits, type BuilderEdit } from "@/lib/estimateEditQueue";
 import type { PickerLinePreview } from "@/lib/pickerSources";
-import { SectionRailLayout } from "@/components/nav/SectionRail";
-import { EstimatesRail } from "@/components/nav/estimatesRail";
 import { EstimateSectionCard } from "@/components/estimates/EstimateSectionCard";
 import { EstimateSorting, moveEstimateLine } from "@/components/estimates/EstimateSorting";
 import { InlineInput } from "@/components/estimates/InlineEstimateInput";
 import { ScopeOfWorkCard } from "@/components/estimates/ScopeOfWorkCard";
-import { PdfPreviewDialog } from "@/components/estimates/PdfPreviewDialog";
+import { downloadEstimatePdf, PdfPreviewDialog } from "@/components/estimates/PdfPreviewDialog";
+import { EstimateReviewRail } from "@/components/estimates/EstimateReviewRail";
 import { EstimateProposalButton, proposalPath, useEstimateProposals } from "@/components/estimates/EstimateProposalAction";
 import { DocumentBadge, EstimateStatePill, IdentityHeaderCard, MetadataCell, MetadataStrip } from "@/components/estimates/EstimateIdentityHeader";
 import { EstimateWorkLocation } from "@/components/workLocation/EstimateWorkLocation";
@@ -321,8 +319,10 @@ function BuilderContent({ id }: { id: string }) {
   }, [editorScope, requestedVersion]);
   useEffect(() => { setAddFor(null); }, [viewTag]);
   const [removeSection, setRemoveSection] = useState<EstimateSectionDto | null>(null);
-  const [pdfOpen, setPdfOpen] = useState(false);
-  useEffect(() => { setPdfOpen(false); }, [viewTag]);
+  const [pdfVersionId, setPdfVersionId] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const activeDownload = useRef<AbortController | null>(null);
+  useEffect(() => () => activeDownload.current?.abort(), [viewTag, data?.version.id]);
   const keyboardDrop = useRef<{ lineId: string; from: string | undefined; to: string } | null>(null);
   useEffect(() => {
     const focus = keyboardDrop.current;
@@ -392,38 +392,37 @@ function BuilderContent({ id }: { id: string }) {
     }
   }
 
-  const rail = <EstimatesRail activeKey="builder" />;
   const back = (
     <Link href={ESTIMATE_BUILDER_PATH} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground" data-testid="link-back-list">
       <ArrowLeft className="h-3.5 w-3.5" />{t("estimateBuilder.back")}
     </Link>
   );
+  const shell = "estimate-builder-container mx-auto w-full min-w-0 px-4 pb-6 pt-4 sm:px-6";
 
   if (isError || (!isLoading && !data)) {
     const notFound = errorStatus(error) === 404;
     return (
-      <SectionRailLayout rail={rail}>
-        <div className="mx-auto max-w-6xl" data-testid="page-estimate-builder">
-          {back}
-          <div role="alert" className="mt-4 flex flex-col items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-5" data-testid="builder-error">
-            <p className="text-sm">{notFound ? t("estimateBuilder.notFound") : t("estimateBuilder.loadErrorOne")}</p>
-            {!notFound && <Button variant="outline" onClick={() => refetch()} data-testid="button-retry">{t("estimateBuilder.retry")}</Button>}
-          </div>
+      <div className={shell} data-testid="page-estimate-builder">
+        {back}
+        <div role="alert" className="mt-4 flex flex-col items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-5" data-testid="builder-error">
+          <p className="text-sm">{notFound ? t("estimateBuilder.notFound") : t("estimateBuilder.loadErrorOne")}</p>
+          {!notFound && <Button variant="outline" onClick={() => refetch()} data-testid="button-retry">{t("estimateBuilder.retry")}</Button>}
         </div>
-      </SectionRailLayout>
+      </div>
     );
   }
   if (isLoading || !data) {
     return (
-      <SectionRailLayout rail={rail}>
-        <div className="mx-auto max-w-6xl" role="status" aria-label={t("estimateBuilder.loadingOne")} data-testid="builder-loading">
-          <Skeleton className="h-4 w-28" /><Skeleton className="mt-3 h-8 w-80" /><Skeleton className="mt-2 h-5 w-64" />
-          <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_320px]">
+      <div className={shell} data-testid="page-estimate-builder">
+        {back}
+        <div role="status" aria-label={t("estimateBuilder.loadingOne")} data-testid="builder-loading">
+          <Skeleton className="mt-3 h-24 w-full" />
+          <div className="estimate-builder-grid mt-6 gap-6">
             <div className="space-y-4"><Skeleton className="h-56 w-full" /><Skeleton className="h-40 w-full" /></div>
             <Skeleton className="h-72 w-full" />
           </div>
         </div>
-      </SectionRailLayout>
+      </div>
     );
   }
 
@@ -447,15 +446,6 @@ function BuilderContent({ id }: { id: string }) {
   const draftSummary = data.versions.find((s) => s.status === "draft");
   const acceptedSummary = data.versions.find((s) => s.status === "accepted");
   const lifeOn = !data.voidedAt && !locked && isCurrent;
-  const versionLabel = (s: EstimateDetailDto["versions"][number]) => {
-    if (s.status === "superseded" && s.sentAt) {
-      const original = s.acceptedAt ? "accepted" : "sent";
-      return `${t("estimateBuilder.versionPill", { n: s.versionNumber, status: statusLabel(original) })} · ${statusLabel("superseded")}`;
-    }
-    const base = t("estimateBuilder.versionPill", { n: s.versionNumber, status: statusLabel(s.status) });
-    if (s.status === "draft" && s.createdFromVersionId) return `${base} (${acceptedSummary ? t("estimateBuilder.life.changeOrderTag") : t("estimateBuilder.life.revisionTag")})`;
-    return base;
-  };
   const needPriceLines = needPrice?.map((lid) => ({ id: lid, name: sections.flatMap((s) => s.lines).find((l) => l.id === lid)?.name ?? null })) ?? null;
   const display = (data as DetailWithDisplay).display;
   const customerName = display?.customerName ?? customer.data?.name ?? null;
@@ -470,6 +460,33 @@ function BuilderContent({ id }: { id: string }) {
   const canVoid = !data.voidedAt && !acceptedSummary && isCurrent;
   const pendingSource = pendingRevision?.source.version;
   const pendingNext = pendingRevision && Math.max(...pendingRevision.source.versions.map(s => s.versionNumber)) + 1;
+  const pdfVersion = pdfVersionId === v.id ? v : data.versions.find(s => s.id === pdfVersionId);
+
+  async function previewPdf(versionId: string) {
+    if (pendingRef.current) return;
+    if (hasEstimateEdits(editScope)) await waitForEstimateEdits(editScope);
+    if (viewRef.current === viewTag) setPdfVersionId(versionId);
+  }
+
+  async function downloadPdf() {
+    if (!data || pendingRef.current || activeDownload.current) return;
+    const controller = new AbortController();
+    activeDownload.current = controller;
+    setDownloading(true);
+    try {
+      if (hasEstimateEdits(editScope)) await waitForEstimateEdits(editScope);
+      if (viewRef.current !== viewTag || activeVersionRef.current !== v.id || controller.signal.aborted) return;
+      await downloadEstimatePdf({
+        estimateId: data.id, versionId: v.id, companyId, estimateNumber: data.estimateNumber,
+        versionNumber: v.versionNumber, showVersion, signal: controller.signal,
+      });
+    } catch {
+      if (!controller.signal.aborted) toast({ title: t("estimateBuilder.pdf.downloadFailed"), variant: "destructive" });
+    } finally {
+      activeDownload.current = null;
+      if (viewRef.current === viewTag) setDownloading(false);
+    }
+  }
   gateRef.current = (k) => {
     if (!lifeOn) return false;
     switch (k) {
@@ -542,60 +559,28 @@ function BuilderContent({ id }: { id: string }) {
   };
 
   return (
-    <SectionRailLayout rail={rail}>
-      <div className="estimate-builder-container mx-auto w-full min-w-0 max-w-6xl" data-testid="page-estimate-builder" data-editable={editable ? "true" : "false"}>
-        <IdentityHeaderCard testId="header-estimate-identity" footer={showVersion &&
-          <nav className="flex flex-wrap items-end gap-1 border-t bg-muted/30 px-3 pt-1.5" aria-label={t("estimateBuilder.versions")} data-testid="strip-versions">
-            {data.versions.map((s) => {
-              const viewing = s.id === v.id;
-              const cur = s.id === data.currentVersionId;
-              return (
-                <button key={s.id} type="button" aria-pressed={viewing} aria-label={t("estimateBuilder.viewVersion", { n: s.versionNumber })}
-                  onClick={() => setLocation(cur ? builderPath(data.id) : builderPath(data.id, s.versionNumber))}
-                  data-testid={`chip-version-${s.versionNumber}`} data-current={cur ? "true" : "false"}
-                  className={cn("-mb-px h-8 rounded-t-md border border-b-0 px-3 text-[12px] tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--rail-active-icon))]",
-                    viewing ? "border-border bg-card font-semibold text-foreground" : "border-transparent text-muted-foreground hover:bg-rail-hover hover:text-foreground",
-                    cur && !viewing && "text-[hsl(var(--rail-active-icon))]")}>
-                  {s.status === "accepted" && <Check className="-ml-0.5 mr-1 inline h-3 w-3" aria-label={t("estimateBuilder.life.acceptedMark")} />}
-                  {versionLabel(s)}{cur ? ` · ${t("estimateBuilder.current")}` : ""}
-                </button>
-              );
-            })}
-          </nav>
-        }>
-          <div className="flex flex-wrap items-start gap-2">
-            <Button variant="ghost" size="icon" aria-label={t("estimateBuilder.back")} onClick={() => setLocation(ESTIMATE_BUILDER_PATH)} data-testid="button-back">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="min-w-0 flex-1 basis-[260px]">
-              <div className="mb-1 flex flex-wrap items-center gap-2">
-                <DocumentBadge label={t("estimateBuilder.header.badge", { number: data.estimateNumber })} testId="badge-estimate" />
-                <span className="sr-only" data-testid="text-estimate-number">{data.estimateNumber}</span>
-                <EstimateStatePill status={v.status} voided={false} testId={`pill-status-${v.status}`}
-                  label={showVersion ? t("estimateBuilder.versionPill", { n: v.versionNumber, status: statusLabel(v.status) }) : statusLabel(v.status)} />
-                {data.voidedAt && <EstimateStatePill status="void" voided testId="pill-status-void" label={t("estimateBuilder.voided")} />}
-                {isChangeOrder && (
-                  <span className="inline-flex items-center gap-1 rounded-md border border-emerald-700/30 bg-emerald-700/5 px-2 py-0.5 text-[11.5px] font-semibold text-emerald-800 dark:text-emerald-300" data-testid="chip-change-order">
-                    <GitBranch className="h-3 w-3" />{t("estimateBuilder.header.changeOrder")}
-                  </span>
-                )}
-              </div>
-              {editable && v.status === "draft" ? (
-                <InlineInput value={data.title} disabled={false} label={t("estimateBuilder.editTitle")} testId="input-estimate-title"
-                  className="h-auto -ml-1 border-transparent bg-transparent px-1 text-xl font-semibold tracking-tight shadow-none hover:border-input focus-visible:border-input md:text-2xl"
-                  validate={(raw) => raw.trim() ? { value: raw.trim(), same: raw.trim() === data.title } : { error: t("estimateBuilder.errTitle") }}
-                  onCommit={(title) => run("PATCH", base, { title })} onInvalid={invalid} />
-              ) : (
-                <h1 className="line-clamp-2 text-xl font-semibold tracking-tight md:text-2xl" data-testid="text-estimate-title">{data.title}</h1>
+    <>
+      <div className={shell} data-testid="page-estimate-builder" data-editable={editable ? "true" : "false"}>
+        <div className="mb-2">{back}</div>
+        <IdentityHeaderCard testId="header-estimate-identity">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <DocumentBadge label={t("estimateBuilder.header.badge", { number: data.estimateNumber })} testId="badge-estimate" />
+              <span className="sr-only" data-testid="text-estimate-number">{data.estimateNumber}</span>
+              <EstimateStatePill status={v.status} voided={false} testId={`pill-status-${v.status}`}
+                label={showVersion ? t("estimateBuilder.versionPill", { n: v.versionNumber, status: statusLabel(v.status) }) : statusLabel(v.status)} />
+              {data.voidedAt && <EstimateStatePill status="void" voided testId="pill-status-void" label={t("estimateBuilder.voided")} />}
+              {isChangeOrder && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-emerald-700/30 bg-emerald-700/5 px-2 py-0.5 text-[11.5px] font-semibold text-emerald-800 dark:text-emerald-300" data-testid="chip-change-order">
+                  <GitBranch className="h-3 w-3" />{t("estimateBuilder.header.changeOrder")}
+                </span>
               )}
             </div>
             <div role="toolbar" aria-label={t("estimateBuilder.life.actions")} className="flex flex-wrap items-center gap-1.5" data-testid="bar-lifecycle">
-              <Button size="sm" variant="outline" onClick={() => {
-                if (!pendingRef.current) {
-                  if (!hasEstimateEdits(editScope)) setPdfOpen(true);
-                  else void waitForEstimateEdits(editScope).then(() => { if (viewRef.current === viewTag) setPdfOpen(true); });
-                }
-              }} data-testid="button-preview-pdf"><FileText className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.pdf.preview")}</Button>
+              <Button size="sm" variant="outline" onClick={() => void previewPdf(v.id)}
+                data-testid="button-preview-pdf"><FileText className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.pdf.preview")}</Button>
+              <Button size="sm" variant="outline" onClick={() => void downloadPdf()} disabled={downloading}
+                data-testid="button-download-pdf"><Download className="mr-1.5 h-3.5 w-3.5" />{t(downloading ? "estimateBuilder.pdf.downloading" : "estimateBuilder.pdf.downloadAction")}</Button>
               {!data.voidedAt && <EstimateProposalButton estimateId={data.id} state={proposals} />}
               {lifeOn && v.status === "draft" && isCurrent && (
                 <Button size="sm" disabled={busy} onClick={() => openDialog("send")} data-testid="button-mark-sent"><Send className="mr-1.5 h-3.5 w-3.5" />{t("estimateBuilder.life.markSent")}</Button>
@@ -647,17 +632,25 @@ function BuilderContent({ id }: { id: string }) {
               )}
             </div>
           </div>
-          <MetadataStrip testId="strip-metadata">
+          {editable && v.status === "draft" ? (
+            <InlineInput value={data.title} disabled={false} label={t("estimateBuilder.editTitle")} testId="input-estimate-title"
+              className="h-auto -ml-1 border-transparent bg-transparent px-1 text-xl font-semibold tracking-tight shadow-none hover:border-input focus-visible:border-input md:text-2xl"
+              validate={(raw) => raw.trim() ? { value: raw.trim(), same: raw.trim() === data.title } : { error: t("estimateBuilder.errTitle") }}
+              onCommit={(title) => run("PATCH", base, { title })} onInvalid={invalid} />
+          ) : (
+            <h1 className="break-words text-xl font-semibold tracking-tight md:text-2xl" data-testid="text-estimate-title">{data.title}</h1>
+          )}
+          <MetadataStrip testId="strip-metadata" className="estimate-builder-metadata">
             <MetadataCell label={t("estimateBuilder.header.customer")} testId="cell-customer">
               <Link href={`/dashboard/customers/${data.customerId}`} className="font-medium hover:underline" data-testid="link-customer">
                 {customerName ?? t("estimateBuilder.customer")}
               </Link>
-              {display?.customerAddress && <div className="truncate text-xs text-muted-foreground" data-testid="text-customer-address">{display.customerAddress}</div>}
+              {display?.customerAddress && <div className="break-words text-xs text-muted-foreground" data-testid="text-customer-address">{display.customerAddress}</div>}
             </MetadataCell>
-            <MetadataCell label={t("estimateBuilder.header.ticket")} testId="cell-ticket" wide>
+            <MetadataCell label={t("estimateBuilder.header.ticket")} testId="cell-ticket">
               {data.ticketId ? (
                 <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <Link href={`/dashboard/tickets/${data.ticketId}`} className="min-w-0 max-w-full truncate hover:underline" data-testid="link-ticket">
+                  <Link href={`/dashboard/tickets/${data.ticketId}`} className="min-w-0 max-w-full break-words hover:underline" data-testid="link-ticket">
                     <span className="font-mono text-xs font-semibold">#{ticketShort}</span>
                     {ticketTitle && <span className="ml-1.5" data-testid="text-ticket-title">{ticketTitle}</span>}
                   </Link>
@@ -667,9 +660,8 @@ function BuilderContent({ id }: { id: string }) {
               ) : <span className="text-muted-foreground" data-testid="text-ticket-unlinked">{t("estimateBuilder.header.notLinked")}</span>}
             </MetadataCell>
             <MetadataCell label={t("workLocation.title")} testId="cell-work-location">
-              <EstimateWorkLocation estimate={data} companyId={companyId} canEdit={allowed && !locked} />
+              <EstimateWorkLocation estimate={data} companyId={companyId} canEdit={allowed && !locked} presentation="popover" />
             </MetadataCell>
-            <MetadataCell label={t("estimateBuilder.header.rates")} testId="cell-rates"><RatesChip q={rates} /></MetadataCell>
             <MetadataCell label={t("estimateBuilder.header.total")} testId="cell-total">
               <span className="font-semibold tabular-nums" data-testid="text-header-total">{formatCents(headerTotal, lang)}</span>
               {v.status !== "draft" && <span className="ml-1 text-xs text-muted-foreground" data-testid="text-total-frozen">{t("estimateBuilder.header.frozen")}</span>}
@@ -679,6 +671,9 @@ function BuilderContent({ id }: { id: string }) {
                 {formatDate(v.sentAt, lang)}{v.sentMethod && <span className="text-muted-foreground"> · {t(`estimateBuilder.life.sentMethod.${v.sentMethod}`)}</span>}
               </MetadataCell>
             )}
+          </MetadataStrip>
+          <MetadataStrip testId="strip-estimate-audit" className="estimate-builder-metadata">
+            <MetadataCell label={t("estimateBuilder.header.rates")} testId="cell-rates"><RatesChip q={rates} /></MetadataCell>
             {v.acceptedAt && (
               <MetadataCell label={t("estimateBuilder.header.accepted")} testId="cell-accepted">
                 {formatCalendarDate(v.acceptedOn, lang) || formatDate(v.acceptedAt, lang)}
@@ -739,8 +734,11 @@ function BuilderContent({ id }: { id: string }) {
                 <Plus className="h-4 w-4" />{t("estimateBuilder.section.add")}
               </button>
             )}
+            {/* E4 mounts the estimate version's Photos card here. */}
           </div>
-          <TotalsRail data={data} lang={lang} sticky={false} />
+          <EstimateReviewRail data={data} lang={lang}
+            onViewVersion={version => setLocation(version.id === data.currentVersionId ? builderPath(data.id) : builderPath(data.id, version.versionNumber))}
+            onVersionPdf={version => void previewPdf(version.id)} />
         </div>
       </div>
 
@@ -778,8 +776,9 @@ function BuilderContent({ id }: { id: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <PdfPreviewDialog open={pdfOpen} onClose={() => setPdfOpen(false)} companyId={companyId} estimateId={data.id} versionId={v.id}
-        estimateNumber={data.estimateNumber} versionNumber={v.versionNumber} showVersion={showVersion} workLocation={display?.workLocation} />
+      {pdfVersion && <PdfPreviewDialog key={pdfVersion.id} open onClose={() => setPdfVersionId(null)} companyId={companyId} estimateId={data.id} versionId={pdfVersion.id}
+        estimateNumber={data.estimateNumber} versionNumber={pdfVersion.versionNumber} showVersion={showVersion}
+        workLocation={display?.workLocation} regenerated={!!pdfVersion.sentAt} />}
       <SendDialog open={dialog === "send"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog} needPrice={needPriceLines}
         onSubmit={(b) => void lifecycle("send", "POST", `${vBase}/send`, b)} />
       {activation.dialog}
@@ -791,7 +790,7 @@ function BuilderContent({ id }: { id: string }) {
         onSubmit={() => void lifecycle("discard", "DELETE", vBase)} />
       <VoidDialog open={dialog === "void"} busy={busy} error={dialogError} versionNumber={v.versionNumber} onClose={closeDialog}
         onSubmit={(b) => void lifecycle("void", "POST", `${base}/void`, b)} />
-    </SectionRailLayout>
+    </>
   );
 }
 
@@ -892,76 +891,5 @@ function RatesChip({ q }: { q: { data?: RatesPreviewWithContext; isLoading: bool
         <span key={g.termId ?? "card"} className={cls} data-testid={`chip-rates-${g.termId ?? "card"}`}>{label(g)} ({g.lines.join(", ")})</span>
       ))}
     </span>
-  );
-}
-
-function RailCard({ title, children, className, testId }: { title: string; children: ReactNode; className?: string; testId: string }) {
-  return (
-    <section className={cn("rounded-lg border bg-card p-4", className)} data-testid={testId}>
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{title}</h3>
-      {children}
-    </section>
-  );
-}
-
-function TotalsRail({ data, lang, sticky }: { data: EstimateDetailDto; lang: string; sticky: boolean }) {
-  const { t } = useTranslation();
-  const v = data.version;
-  const tot = v.totals;
-  const buckets = UMBRELLAS.filter((u) => (tot.byUmbrella[u] ?? 0) !== 0);
-  const flow = ["draft", "sent", "accepted", "invoiced"] as const;
-  const inFlow = (flow as readonly string[]).includes(v.status);
-  return (
-    <aside className={cn("min-w-0 space-y-3", sticky && "sticky top-4")} data-testid="rail-totals">
-      <RailCard title={t("estimateBuilder.rail.totals")} testId="card-totals">
-        <ul className="space-y-1 text-sm">
-          {v.sections.map((s) => (
-            <li key={s.id} className="flex justify-between gap-3"><span className="truncate text-muted-foreground">{s.name}</span>
-              <span className="tabular-nums" data-testid={`text-rail-section-${s.id}`}>{formatCents(tot.bySection[s.id] ?? 0, lang)}</span></li>
-          ))}
-        </ul>
-        <div className="mt-2 flex items-baseline justify-between border-t pt-2">
-          <span className="font-semibold">{t("estimateBuilder.rail.total")}</span>
-          <span className="text-xl font-bold tabular-nums" data-testid="text-estimate-total">{formatCents(tot.subtotalCents, lang)}</span>
-        </div>
-      </RailCard>
-      <section className="rounded-lg border border-[hsl(var(--est-warn))]/35 bg-[hsl(var(--est-warn-bg))]/60 p-4 text-sm" data-testid="card-internal-margin">
-        <h3 className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.12em] text-[hsl(var(--est-warn))]">{t("estimateBuilder.rail.internal")}</h3>
-        <div className="flex justify-between"><span>{t("estimateBuilder.rail.knownCost")}</span><span className="tabular-nums" data-testid="text-known-cost">{formatCents(tot.costKnownCents, lang)}</span></div>
-        <div className="flex justify-between"><span>{t("estimateBuilder.rail.margin")}</span>
-          <span className="font-semibold tabular-nums" data-testid="text-margin">{tot.materialMarginPct == null ? t("estimateBuilder.rail.marginNone") : `${tot.materialMarginPct.toLocaleString(lang === "es" ? "es-US" : "en-US", { maximumFractionDigits: 1 })}%`}</span></div>
-        {tot.costUnknownLines > 0 && <p className="mt-2 text-xs text-[hsl(var(--est-warn))]" data-testid="text-unknown-cost">{t("estimateBuilder.rail.unknown", { count: tot.costUnknownLines })}</p>}
-      </section>
-      <RailCard title={t("estimateBuilder.rail.qbo")} testId="card-qbo">
-        {buckets.length === 0 ? <p className="text-sm text-muted-foreground">{t("estimateBuilder.rail.qboEmpty")}</p> : (
-          <ul className="space-y-1 text-sm">
-            {buckets.map((u) => (
-              <li key={u} className="flex justify-between gap-3" data-testid={`row-umbrella-${u}`}><span>{t(`qboSetup.umbrella.${u}`)}</span>
-                <span className="tabular-nums">{formatCents(tot.byUmbrella[u], lang)}</span></li>
-            ))}
-          </ul>
-        )}
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><FileText className="h-3 w-3" />{t("estimateBuilder.rail.qboNote")}</p>
-      </RailCard>
-      <RailCard title={t("estimateBuilder.rail.status")} testId="card-status">
-        <ol className="flex flex-wrap items-center gap-1" aria-label={t("estimateBuilder.rail.flow")}>
-          {flow.map((f, i) => {
-            const lit = f === v.status;
-            return (
-              <li key={f} className="flex items-center gap-1">
-                <span aria-current={lit ? "step" : undefined} data-testid={`flow-${f}`} data-lit={lit ? "true" : "false"}
-                  className={cn("rounded-full border px-2 py-0.5 text-[11px] font-semibold", lit ? "border-transparent bg-rail-active text-rail-active-foreground" : "text-muted-foreground")}>
-                  {t(`estimateBuilder.status.${f}`)}
-                </span>
-                {i < flow.length - 1 && <span className="text-muted-foreground/60">›</span>}
-              </li>
-            );
-          })}
-        </ol>
-        {!inFlow && <p className="mt-2 text-xs font-medium" data-testid="text-other-status">{t("estimateBuilder.rail.otherStatus", { status: t(`estimateBuilder.status.${v.status}`) })}</p>}
-        <p className="mt-2 text-xs text-foreground/80" data-testid="text-next-step">{data.voidedAt ? t("estimateBuilder.life.next.void") : t(`estimateBuilder.life.next.${v.status}`)}</p>
-        {v.status === "draft" && !data.voidedAt && <p className="mt-1 text-xs text-muted-foreground">{t("estimateBuilder.rail.lockNote")}</p>}
-      </RailCard>
-    </aside>
   );
 }

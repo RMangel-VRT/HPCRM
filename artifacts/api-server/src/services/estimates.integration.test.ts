@@ -115,6 +115,32 @@ describe("customer-safe version PDFs and display reads", () => {
     expect((await request(appFor()).get(`/api/estimates/${d.id}/versions/missing/pdf`)).status).toBe(404);
     expect((await request(appFor(a, "field")).get(`${versionPath(d)}/pdf`)).status).toBe(403);
   }, 45000);
+  it("updates the ticket or standalone estimate owner and regenerates its PDF with the new work location", async () => {
+    const tk = await ticket();
+    const linked = await createEstimate(a, actor, { customerId: customerA, title: "Linked work location", ticketId: tk.id });
+    const standalone = await fresh(a, customerA, "Standalone work location");
+    for (const [d, source, label] of [
+      [linked, "ticket", "West Service Gate"],
+      [standalone, "estimate", "East Loading Dock"],
+    ] as const) {
+      const app = appFor();
+      expect((await readEstimate(a, d.id)).display.workLocationSource).toBe("property");
+      await request(app).put(`/api/estimates/${d.id}/work-location`)
+        .send({ label, details: "Use the gravel entrance" })
+        .expect(200, { text: `${label}\nUse the gravel entrance`, source });
+      const after = await readEstimate(a, d.id);
+      expect(after.display).toMatchObject({ workLocation: `${label}\nUse the gravel entrance`, workLocationSource: source });
+      const [row] = await db.select().from(estimates).where(eq(estimates.id, d.id));
+      expect(row.workLocationLabel).toBe(source === "estimate" ? label : null);
+      const pdf = await request(app).get(`${versionPath(d)}/pdf?download=1`).expect(200);
+      const text = execFileSync("pdftotext", ["-layout", "-", "-"], { input: pdf.body }).toString();
+      expect(text).toContain(label);
+      expect(text).toContain("Use the gravel entrance");
+      expect(await readEstimate(a, d.id)).toEqual(after);
+    }
+    const [storedTicket] = await db.select().from(tickets).where(eq(tickets.id, tk.id));
+    expect(storedTicket).toMatchObject({ locationLabel: "West Service Gate", locationDescription: "Use the gravel entrance" });
+  }, 45000);
 });
 async function ticket(companyId = a, customerId: string | null = customerA, typeId = typeA, currentStatusId = statusA) {
   return (await db.insert(tickets).values({ companyId, customerId, ticketTypeId: typeId, currentStatusId, title: "Disposable estimate request", createdById: actor }).returning())[0];

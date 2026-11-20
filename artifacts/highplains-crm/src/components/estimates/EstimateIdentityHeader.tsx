@@ -67,9 +67,9 @@ export function EstimateStatePill({ status, voided, label, testId, title }: { st
   );
 }
 
-export function MetadataStrip({ children, testId }: { children: ReactNode; testId: string }) {
+export function MetadataStrip({ children, testId, className }: { children: ReactNode; testId: string; className?: string }) {
   return (
-    <dl className="mt-3 grid gap-x-5 gap-y-3 border-t pt-3 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]" data-testid={testId}>
+    <dl className={cn("mt-3 grid gap-x-5 gap-y-3 border-t pt-3", className ?? "[grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]")} data-testid={testId}>
       {children}
     </dl>
   );

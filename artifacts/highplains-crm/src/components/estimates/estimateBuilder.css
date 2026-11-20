@@ -1,6 +1,12 @@
 /* The container owns available width, independent of viewport and sidebar state.
    Native queries also apply before paint and cannot retain a stale measured width. */
-.estimate-builder-container { container: estimate-builder / inline-size; }
+.estimate-builder-container {
+  container: estimate-builder / inline-size;
+  max-width: 1400px;
+}
+.estimate-builder-metadata {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 134px), 1fr));
+}
 .estimate-builder-grid {
   display: grid;
   width: 100%;
@@ -21,9 +27,15 @@
 .estimate-rate { grid-area: rate; }
 .estimate-amount { grid-area: amount; }
 .estimate-menu { grid-area: menu; }
-@container estimate-builder (min-width: 984px) {
-  .estimate-builder-grid { grid-template-columns: minmax(640px, 1fr) 320px; }
-  .estimate-builder-grid > aside { position: sticky; top: 1rem; }
+@container estimate-builder (min-width: 860px) {
+  .estimate-builder-grid { grid-template-columns: minmax(0, 1fr) 288px; }
+  .estimate-builder-grid > aside {
+    position: sticky;
+    top: 1rem;
+    /* Allow long version histories to scroll inside the visible CRM main pane. */
+    max-height: calc(100dvh - 9rem);
+    overflow-y: auto;
+  }
 }
 @container estimate-sections (min-width: 570px) {
   .estimate-line-row {

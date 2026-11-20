@@ -1,5 +1,35 @@
 # Estimate builder screen
 
+## One-page builder (E3)
+
+The estimate detail page drops its Estimates section rail; the builder list,
+board, catalogs and settings keep theirs. **All estimates** returns to the
+builder list. The page is capped at 1,400px. A native container query puts a
+288px sticky review rail beside the editor at 860px of usable builder width
+and stacks it below the editor at smaller widths.
+
+- The identity card contains Preview PDF, Download PDF, and the existing
+  lifecycle and overflow actions. Customer, ticket, work location, total
+  and sent information appear together. Rates, created and acceptance details
+  remain in a secondary row. The work-location popover reuses W1's fields,
+  permissions, owner selection, property fallback, and cache invalidation.
+- Scope, sections, line editing and Add section stay in the main column.
+  There is an insertion point after them for E4; no photo or plant-table
+  controls ship in E3.
+- The review rail shows totals and draft pricing gaps, a read-only PDF
+  checklist with a rough page estimate, internal costs/margin with a collapsed
+  QuickBooks breakdown, and all versions. Version rows still open the
+  read-only history when appropriate. Each row's **PDF** action instead
+  previews that version without navigating the editor.
+- The direct download waits for queued edits, uses the viewed version's
+  company-scoped `GET …/pdf?download=1`, and never marks it sent. Historical
+  standalone PDFs are labeled as regenerated; W1 location and other live
+  display inputs may differ from what the customer originally saw. Mark as
+  Sent records a date and method, but not a recipient or PDF attachment.
+  Stored proposal PDFs remain separate.
+
+See the [E3 verification report](reports/e3-one-page-builder.md).
+
 ## Faster line editing (E2)
 
 - Drag with a handle to reorder sections or move lines within and between
@@ -152,13 +182,13 @@ The only additions to server reads are the metadata compatibility changes above.
 - Pill states: draft is needs-action (`--ts-active`), sent is waiting (dashed), accepted and invoiced are done, and declined, superseded and void are muted.
 - One deliberate difference: TicketDetail mixes the raw `var(--border)` / `var(--foreground)` HSL triplets into `color-mix`. The browser drops those declarations, so the ticket card falls back to the base border. The estimate card uses `hsl(var(--border))` so the hue tint actually shows. The ticket header's visual output is unchanged.
 - Metadata comes from `EstimateDetailDto.display` when present (customer name and address, created-by, ticket shortId, title and status). When `display` is missing it falls back to the scoped customer and ticket reads, which are disabled while `display` supplies the data. The Rates cell keeps `distinctContexts`: one chip per context ("Contract · {season}" / "Rate Card").
-- The version strip is a tab row along the bottom edge of the card. Actions: Preview PDF, the state's lifecycle action, and the overflow menu. All lifecycle and company gates are unchanged.
+- This slice originally put version tabs along the bottom of the card. E3 moves version navigation into the review rail and adds Download PDF; the lifecycle and company gates remain unchanged.
 
 ### Add-line buttons
 `AddLineButtons.tsx` renders seven outlined `Button`s, `h-8` (32px). Each has a tinted icon chip using `LINE_TINT` and a `focus-visible` ring. They are hidden whenever the version is not editable.
 
 ### Container layout
-`estimateBuilder.css` uses named native CSS container queries, not viewport breakpoints or a measured-width effect. Sections and the rail sit side by side only when the builder width is at least 640 + 24 + 320 = 984px. Below that the rail stacks under the sections. The add buttons use a two-column grid below a 560px sections width, wrapping above it. Line inputs/actions move below the description below a 640px sections width. This applies before paint and remains correct with populated rows and expanded or collapsed navigation.
+`estimateBuilder.css` uses named native CSS container queries, not viewport breakpoints or a measured-width effect. E3 replaces this slice's former 984px split with the 860px threshold described above. E2 still controls the compact line layout by the sections column's own width.
 
 ### Pickers
 In every picker type:
@@ -170,7 +200,7 @@ In every picker type:
 ### PDF preview
 `PdfPreviewDialog.tsx` fetches `GET /api/estimates/:id/versions/:versionId/pdf` for the version being viewed, as a blob sent with the captured `X-Company-Id`. It shows the PDF in an iframe and offers Download (`{number}-v{n}.pdf`) and Open in new tab.
 - Each fetch has an AbortController and an `alive` flag. The object URL is revoked on close, retry, version change and unmount. A company, user, role or version change remounts the builder, which closes the dialog and drops any in-flight blob.
-- Drafts show the hint "Draft — the PDF is marked DRAFT".
+- E1 removed the DRAFT mark. E3 identifies a regenerated historical PDF in the preview.
 
 ### Tests
 `pages/EstimateBuilder.slice35.rendered.test.tsx` covers:

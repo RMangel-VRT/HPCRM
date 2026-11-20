@@ -282,7 +282,7 @@ describe("builder rendering", () => {
     expect(screen.getByTestId("row-umbrella-plants")).toBeTruthy();
     expect(screen.getByTestId("row-umbrella-landscape_labor")).toBeTruthy();
     expect(screen.queryByTestId("row-umbrella-irrigation_materials")).toBeNull();
-    expect(screen.getByTestId("flow-draft").getAttribute("data-lit")).toBe("true");
+    expect(screen.getByTestId("chip-version-2").textContent).toContain("Draft (editing)");
     expect(screen.getByTestId("button-mark-sent")).toBeTruthy();
     expect(screen.queryByTestId("button-record-accept")).toBeNull();
     expect(screen.queryByTestId("button-revise")).toBeNull();
@@ -471,8 +471,8 @@ describe("read-only and lock", () => {
     fireEvent.change(q, { target: { value: "5" } }); fireEvent.keyDown(q, { key: "Enter" }); fireEvent.blur(q);
     fireEvent.click(screen.getByTestId("toggle-palette-l-plant"));
     expect(mutations()).toHaveLength(0);
-    expect(screen.getByTestId("flow-accepted").getAttribute("data-lit")).toBe("true");
-    expect(screen.getByTestId("flow-draft").getAttribute("data-lit")).toBe("false");
+    expect(screen.getByTestId("chip-version-2").textContent).toContain("Accepted");
+    expect(screen.getByTestId("chip-version-2").getAttribute("aria-pressed")).toBe("true");
   });
   it("historical ?version=N loads that version read-only with the current version indicated", async () => {
     const { loc } = renderAt("/dashboard/estimates/builder/e1?version=1");
