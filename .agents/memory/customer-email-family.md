@@ -23,6 +23,12 @@ M5 invoice and reminder mail waits for Invoice Center. M6 staff email needs
 the shared layout, not M5 or the customer wording editor. Do not make private
 flag attachments public just to reuse the completion-photo email route.
 
+Treat shared-renderer output as final when using a legacy mail transport.
+**Why:** A second template pass can consume literal brace expressions in a
+field note even when the note was correctly HTML-escaped.
+**How to apply:** Preserve the rendered subject and both MIME bodies unchanged;
+keep template substitution for callers that actually supply templates.
+
 Keep mail-client evidence separate from browser preview evidence. An empty
 iframe sandbox gives the preview an opaque origin, and Chromium can block
 images from loopback even when the files are served correctly. **Why:** local

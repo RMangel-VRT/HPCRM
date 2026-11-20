@@ -2,7 +2,7 @@ import { colors as c, escape, font, httpUrl, label, multiline, table } from "./m
 
 type Fact = { label: string; value: string; strike?: boolean };
 export type Block =
-  | { kind: "note"; text: string }
+  | { kind: "note"; text: string; label?: "Field note" }
   | { kind: "chips"; items: Fact[] }
   | { kind: "facts"; title?: string; rows: Fact[]; total?: { label: string; value: string } }
   | { kind: "summary"; title: string; rows: { label: string; detail?: string; amount: string }[]; footnote?: string }
@@ -40,11 +40,11 @@ function facts(rows: Fact[], total?: { label: string; value: string }) {
 <td align="right" bgcolor="${c.band}" style="padding:14px 16px;${font};font-size:22px;font-weight:800;color:#fff;border-radius:0 0 9px 0;overflow-wrap:anywhere">${escape(total.value)}</td></tr>` : ""));
 }
 
-export function renderBlock(block: Block): { html: string; text: string } {
+export function renderBlock(block: Block, internal = false): { html: string; text: string } {
   const render = (html: string, ...lines: (string | undefined)[]) => ({ html, text: lines.filter(Boolean).join("\n") });
   switch (block.kind) {
     case "note": {
-      const title = "A note from High Plains";
+      const title = (internal && block.label) || "A note from High Plains";
       return render(callout(title, block.text, c.paleLime, c.lime, c.limeText), title, block.text);
     }
     case "chips":

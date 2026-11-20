@@ -17,8 +17,11 @@ export interface EmailLayoutInput {
   blocks: Block[];
   company: EmailCompany;
   internal?: boolean;
+  /** Rendered only on internal notices. */
+  link?: { label: string; url: string };
 }
 
+const internalFooter = "Internal notice from High Plains CRM · you get this because of your role.";
 const asset = (name: string) => escape(`${publicAppUrl()}/email/${name}`);
 const content = (html: string) => `<tr><td style="padding:0 32px;overflow-wrap:anywhere">${html}</td></tr>`;
 const footerLink = (value: string, href: string | null) => href
@@ -38,7 +41,12 @@ function brandedFooter(company: EmailCompany) {
 export function renderEmailLayout(input: EmailLayoutInput): { html: string; text: string } {
   const { company, wording, greeting } = input;
   const [stripe, eyebrow] = tones[input.stripe];
-  const blocks = input.blocks.map(renderBlock);
+  const blocks = input.blocks.map(block => renderBlock(block, input.internal));
+  const link = input.internal ? input.link : undefined;
+  const href = link && httpUrl(link.url);
+  const linkHtml = link && href
+    ? `<p style="margin:0 0 14px;${font};font-size:14px;line-height:1.6"><a href="${escape(href)}" style="color:${c.limeText};text-decoration:underline">${escape(link.label)}</a></p>`
+    : "";
   const header = `<tr><td bgcolor="${c.band}" style="padding:20px 32px;border-radius:14px 14px 0 0">${table(`<tr>
 <td valign="middle" width="82"><img src="${asset("hp-logo-white-horizontal.png")}" height="44" alt="${escape(company.name)}" style="display:block;height:44px;width:auto"></td>
 <td valign="middle" align="right" style="padding-left:8px;overflow-wrap:anywhere"><div style="${font};font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#d6ecb8">${escape(input.docType)}</div>
@@ -46,20 +54,21 @@ export function renderEmailLayout(input: EmailLayoutInput): { html: string; text
   const intro = content((wording.eyebrow ? label(wording.eyebrow, eyebrow) : "")
     + (wording.headline ? `<h1 style="margin:0 0 14px;${font};font-size:26px;line-height:1.25;color:${c.ink};font-weight:800">${escape(wording.headline.replace(/-/g, "\u2011"))}</h1>` : "")
     + paragraph(greeting ?? "", 15, c.ink) + paragraph(wording.intro, 15, c.copy));
-  const plainFooter = `<tr><td bgcolor="${c.soft}" style="padding:16px 32px;border-top:1px solid ${c.line};${font};font-size:12px;color:${c.muted}">${escape(company.name)}</td></tr>`;
+  const plainFooter = `<tr><td bgcolor="${c.soft}" style="padding:16px 32px;border-top:1px solid ${c.line};border-radius:0 0 14px 14px;${font};font-size:12px;color:${c.muted}">${internalFooter}</td></tr>`;
   const main = header
     + `<tr><td bgcolor="${stripe}" height="6" style="height:6px;line-height:6px;font-size:0">&nbsp;</td></tr>`
     + spacer(28) + intro
     + blocks.map(({ html }, i) => spacer(i ? 18 : 4) + content(html)).join("")
-    + spacer(input.blocks.at(-1)?.kind === "attachments" ? 10 : 18)
-    + content(paragraph(wording.closing, 14, c.copy)
+    + spacer(input.internal && !blocks.length ? 4 : input.blocks.at(-1)?.kind === "attachments" ? 10 : 18)
+    + content(paragraph(wording.closing, 14, c.copy) + linkHtml
       + `<p style="margin:0 0 14px;${font};font-size:14px;line-height:1.6;color:${c.ink}">Thank you,<br><strong>${escape(company.name)}</strong></p>`)
     + spacer(14) + (input.internal ? plainFooter : brandedFooter(company));
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>${escape(input.subject)}</title></head>
 <body style="margin:0;padding:0;background:${c.page}"><div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${escape(input.preview)}</div>
 ${table(`<tr><td align="center" style="padding:24px 12px">${table(main, "width:100%;max-width:600px;border-radius:14px", c.white, "600")}</td></tr>`, "", c.page)}</body></html>`;
   const text = [company.name, wording.headline, greeting, wording.intro, ...blocks.map(block => block.text),
-    wording.closing, `Thank you,\n${company.name}`, !input.internal && [company.addressLine, company.phone, company.email, company.website].filter(Boolean).join("\n"),
+    wording.closing, link && href && `${link.label}: ${href}`, `Thank you,\n${company.name}`,
+    input.internal ? internalFooter : [company.addressLine, company.phone, company.email, company.website].filter(Boolean).join("\n"),
   ].filter(Boolean).join("\n\n");
   return { html, text };
 }

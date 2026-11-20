@@ -88,6 +88,9 @@ describe("customer-owned account manager", () => {
     vi.mocked(sendEmail).mockClear();
     await sendSyncErrorNotification("synthetic", company, "mailbox@example.invalid", suspended);
     expect(vi.mocked(sendEmail).mock.calls.map(c => c[0])).toEqual([`${suspended}@example.invalid`]);
+    expect(vi.mocked(sendEmail)).toHaveBeenCalledWith(`${suspended}@example.invalid`,
+      "Gmail sync stopped for mailbox@example.invalid", expect.stringContaining("/dashboard/settings/shared-mailboxes"),
+      expect.stringContaining("/dashboard/settings/shared-mailboxes"), expect.objectContaining({ companyId: company, alreadyRendered: true }));
     vi.mocked(sendEmail).mockClear();
     await sendSyncErrorNotification("synthetic", company, "mailbox@example.invalid", null);
     const emails = vi.mocked(sendEmail).mock.calls.map(c => c[0]);
@@ -101,8 +104,12 @@ describe("customer-owned account manager", () => {
     await db.update(companyUsers).set({ status: "active" }).where(and(eq(companyUsers.companyId, company), eq(companyUsers.userId, ordinary)));
     vi.mocked(sendEmail).mockClear();
     await notifyOfficeOfNewFlag({ flag: { id: "synthetic", companyId: company, note: "", createdByUserId: ordinary } as any,
-      createdByName: "Synthetic", propertyName: null, crewName: null, tagLabel: "Test", photoCount: 0, firstPhotoUrl: null });
+      createdByName: "Synthetic", propertyName: null, crewName: null, tagLabel: "Test", photoCount: 0 });
     expect(vi.mocked(sendEmail).mock.calls.map(c => c[0]).sort()).toEqual([`${manager}@example.invalid`, `${ordinary}@example.invalid`].sort());
+    for (const call of vi.mocked(sendEmail).mock.calls) {
+      expect(call.slice(2)).toEqual([expect.stringContaining("/dashboard/flags/synthetic"),
+        expect.stringContaining("/dashboard/flags/synthetic"), expect.objectContaining({ companyId: company, sentById: ordinary, alreadyRendered: true })]);
+    }
     // The separate fallback-owner query must remain admin-only, never projected.
     const fallback = readFileSync(new URL("../lib/ticketStatusChange.ts", import.meta.url), "utf8");
     expect(fallback).toContain('.find(c => c.role === "admin")');

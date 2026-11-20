@@ -44,6 +44,21 @@ describe("customer email layout", () => {
     expect(text).not.toMatch(/Hello|office@example/);
   });
 
+  it("escapes internal text links and omits them and the field note label from customer output", () => {
+    const link = { label: "Open <CRM>", url: "https://crm.example.test/?a=1&b=2" };
+    const blocks: Block[] = [{ kind: "note", label: "Field note", text: "Note" }];
+    const staff = renderEmailLayout({ ...input, blocks, link, internal: true });
+    expect(staff.html).toContain('href="https://crm.example.test/?a=1&amp;b=2"');
+    expect(staff.html).toContain(">Open &lt;CRM&gt;</a>");
+    expect(staff.text).toContain("Open <CRM>: https://crm.example.test/?a=1&b=2");
+    const customer = renderEmailLayout({ ...input, blocks, link });
+    expect(customer.html).toContain("A note from High Plains");
+    expect(customer.text).toContain("A note from High Plains");
+    expect(`${customer.html}\n${customer.text}`).not.toMatch(/Field note|crm\.example\.test|Open &lt;CRM/);
+    const unsafe = renderEmailLayout({ ...input, internal: true, link: { ...link, url: "javascript:alert(1)" } });
+    expect(`${unsafe.html}\n${unsafe.text}`).not.toContain("javascript:");
+  });
+
   const cases: [Block, string, string][] = [
     [{ kind: "note", text: "<script> alert &\nsecond line" }, "&lt;script&gt; alert &amp;<br>second line", "A note from High Plains\n<script> alert &\nsecond line"],
     [{ kind: "chips", items: [{ label: "Total", value: "$800" }, { label: "Photos", value: "3" }] }, "<strong>$800</strong>", "Total: $800\nPhotos: 3"],

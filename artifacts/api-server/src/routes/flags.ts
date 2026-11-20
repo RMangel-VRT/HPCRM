@@ -24,8 +24,9 @@ import { requireMobileAuth, MOBILE_ALLOWED_ROLES } from "../mobileAuth";
 import type { UserWithContext } from "../auth";
 import { objectStorageClient, signObjectURL } from "../objectStorage";
 import { logger } from "../lib/logger";
-import { publicAppUrl } from "../lib/publicAppUrl";
 import { sendEmail } from "../services/emailService";
+import { loadEmailCompany } from "../services/outgoingEmail/company";
+import { renderNewFieldFlagEmail } from "../services/outgoingEmail/staffNotices";
 import { sendPushToUser } from "../services/pushNotifications";
 
 const SIGNED_URL_TTL_SEC = 60 * 60;
@@ -280,7 +281,6 @@ export async function notifyOfficeOfNewFlag(args: {
   crewName: string | null;
   tagLabel: string;
   photoCount: number;
-  firstPhotoUrl: string | null;
 }): Promise<void> {
   try {
     const recipients = await db
@@ -294,39 +294,10 @@ export async function notifyOfficeOfNewFlag(args: {
       ));
     if (recipients.length === 0) return;
 
-    const flagUrl = `${publicAppUrl()}/dashboard/flags/${args.flag.id}`;
-    const fromLabel = args.crewName ?? args.createdByName ?? "the field";
-    const atLabel = args.propertyName ?? "an unspecified property";
-    const subject = `New field flag from ${fromLabel} at ${atLabel}`;
-    const lines: string[] = [
-      `A new field flag was just submitted.`,
-      ``,
-      `Tag: ${args.tagLabel}`,
-      args.propertyName ? `Property: ${args.propertyName}` : null,
-      args.crewName ? `Crew: ${args.crewName}` : null,
-      args.createdByName ? `Reported by: ${args.createdByName}` : null,
-      args.flag.note ? `Note: ${args.flag.note}` : null,
-      `Photos: ${args.photoCount}`,
-      args.firstPhotoUrl ? `First photo: ${args.firstPhotoUrl}` : null,
-      ``,
-      flagUrl ? `Open in CRM: ${flagUrl}` : null,
-    ].filter((l): l is string => l !== null);
-    const text = lines.join("\n");
-    const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color:#0f172a;">
-        <h2 style="color:#1a4d1a; margin:0 0 12px;">New field flag</h2>
-        <table style="border-collapse:collapse; font-size:14px;">
-          <tr><td style="padding:4px 12px 4px 0; color:#64748b;">Tag</td><td><strong>${escapeHtml(args.tagLabel)}</strong></td></tr>
-          ${args.propertyName ? `<tr><td style="padding:4px 12px 4px 0; color:#64748b;">Property</td><td>${escapeHtml(args.propertyName)}</td></tr>` : ""}
-          ${args.crewName ? `<tr><td style="padding:4px 12px 4px 0; color:#64748b;">Crew</td><td>${escapeHtml(args.crewName)}</td></tr>` : ""}
-          ${args.createdByName ? `<tr><td style="padding:4px 12px 4px 0; color:#64748b;">Reported by</td><td>${escapeHtml(args.createdByName)}</td></tr>` : ""}
-          <tr><td style="padding:4px 12px 4px 0; color:#64748b;">Photos</td><td>${args.photoCount}</td></tr>
-        </table>
-        ${args.flag.note ? `<p style="margin:16px 0; padding:12px; background:#f8fafc; border-left:3px solid #1a4d1a;">${escapeHtml(args.flag.note)}</p>` : ""}
-        ${args.firstPhotoUrl ? `<p style="margin:16px 0;"><a href="${args.firstPhotoUrl}"><img src="${args.firstPhotoUrl}" alt="Field flag photo" style="max-width:480px; width:100%; height:auto; border-radius:6px; border:1px solid #e2e8f0;" /></a></p>` : ""}
-        ${flagUrl ? `<p style="margin:20px 0 0;"><a href="${flagUrl}" style="background:#1a4d1a; color:white; padding:10px 16px; border-radius:6px; text-decoration:none; display:inline-block;">Open in CRM</a></p>` : ""}
-      </div>
-    `;
+    const company = await loadEmailCompany(args.flag.companyId);
+    const { subject, html, text } = renderNewFieldFlagEmail({
+      ...args, flagId: args.flag.id, note: args.flag.note,
+    }, company);
 
     await Promise.all(
       recipients
@@ -336,6 +307,7 @@ export async function notifyOfficeOfNewFlag(args: {
             companyId: args.flag.companyId,
             sentById: args.flag.createdByUserId ?? undefined,
             variables: {},
+            alreadyRendered: true,
           }).catch((err) => {
             logger.warn({ err, recipientId: r.id }, "Flag notification email failed");
           }),
@@ -344,15 +316,6 @@ export async function notifyOfficeOfNewFlag(args: {
   } catch (err) {
     logger.warn({ err, flagId: args.flag.id }, "Flag notification dispatch failed");
   }
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 const flagTagSchema = z.enum(FLAG_TAG_VALUES.filter(v => v !== "document_expiring") as [string, ...string[]]);
@@ -578,7 +541,6 @@ export function registerFlagsRoutes(app: Express): void {
       crewName,
       tagLabel,
       photoCount: insertedPhotos.length,
-      firstPhotoUrl: serializedPhotos[0]?.signedUrl ?? null,
     });
 
     res.status(201).json(

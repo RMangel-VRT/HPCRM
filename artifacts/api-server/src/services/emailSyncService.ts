@@ -5,7 +5,8 @@ import { google } from "googleapis";
 import { getValidAccessToken } from "./googleOAuth";
 import { routeMessage, type ParsedMessage } from "./emailRouter";
 import { sendEmail } from "./emailService";
-import { publicAppUrl } from "../lib/publicAppUrl";
+import { loadEmailCompany } from "./outgoingEmail/company";
+import { renderMailboxDisconnectedEmail } from "./outgoingEmail/staffNotices";
 
 // In-memory lock set: mailboxAccountId -> true if sync is in progress
 const syncLocks = new Set<string>();
@@ -321,69 +322,12 @@ export async function sendSyncErrorNotification(
     return;
   }
 
-  const settingsUrl = `${publicAppUrl()}/dashboard/settings/mailbox-accounts`;
-
-  const subject = `Gmail sync stopped for ${mailboxEmailAddress}`;
-
-  const htmlBody = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
-    .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
-    .header { background-color: #b91c1c; padding: 24px; text-align: center; }
-    .header h1 { color: #ffffff; margin: 0; font-size: 20px; }
-    .content { padding: 32px 24px; }
-    .alert-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 16px 20px; margin-bottom: 24px; }
-    .alert-box p { margin: 0; color: #991b1b; font-size: 15px; line-height: 1.6; }
-    .detail { font-size: 14px; color: #374151; line-height: 1.6; margin-bottom: 20px; }
-    .mailbox { font-weight: 600; color: #111827; }
-    .cta { text-align: center; margin: 28px 0; }
-    .cta a { background-color: #1d4ed8; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 15px; font-weight: 600; display: inline-block; }
-    .footer { padding: 20px 24px; background-color: #f9fafb; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>Gmail Sync Stopped</h1>
-    </div>
-    <div class="content">
-      <div class="alert-box">
-        <p>Gmail sync has stopped for <span class="mailbox">${mailboxEmailAddress}</span> due to an authentication error.</p>
-      </div>
-      <p class="detail">
-        Your mailbox could not be reached — this is usually caused by an expired or revoked Google authorization.
-        No new emails will be synced until you reconnect the account.
-      </p>
-      <p class="detail">
-        Your existing sync history is preserved. Simply reconnect your Google account to resume syncing from where it left off.
-      </p>
-      <div class="cta">
-        <a href="${settingsUrl}">Go to Mailbox Settings</a>
-      </div>
-    </div>
-    <div class="footer">
-      <p>This is an automated notification. You received this because you are the owner or admin of this mailbox account.</p>
-    </div>
-  </div>
-</body>
-</html>`;
-
-  const textBody = `Gmail sync stopped for ${mailboxEmailAddress}
-
-Gmail sync has stopped due to an authentication error. No new emails will be synced until you reconnect the account.
-
-This is usually caused by an expired or revoked Google authorization. Your existing sync history is preserved.
-
-To reconnect, visit your mailbox settings:
-${settingsUrl}`;
-
-  await sendEmail(recipientEmail, subject, htmlBody, textBody, {
+  const company = await loadEmailCompany(companyId);
+  const { subject, html, text } = renderMailboxDisconnectedEmail(mailboxEmailAddress, company);
+  await sendEmail(recipientEmail, subject, html, text, {
     companyId,
     variables: {},
+    alreadyRendered: true,
   });
 
   console.log(`[email-sync] Sent sync error notification to ${recipientEmail} for mailbox=${mailboxAccountId}`);

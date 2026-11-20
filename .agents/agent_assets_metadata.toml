@@ -420,3 +420,31 @@ mtime_ms = 1794873958105
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/f06f5e09-2c13-4bb7-82cf-ddd0de242ce8/ade3f56d-1953-455e-bc84-f977f5a3b995"
 storage_version_token = "1794874480601273"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "sICCMV3TaVQ5v3S6ZMwiL"
+uri = "file://generated-artifacts/m6/flag-phone-preview.png"
+type = "image"
+title = "Field flag email at phone width"
+description = "Browser render of the exact HTML accepted by SendGrid. Not an iPhone Mail screenshot."
+logical_id = "924313d0-65ca-4909-9e56-c40a29dde13a"
+content_hash = "sha256:25e3e0b1917b881658ef550193ae8e7cf303f316032d7241aadda24304fadc89"
+size = 64009
+mtime_ms = 1795203642509
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/924313d0-65ca-4909-9e56-c40a29dde13a/3af6acbb-a6f1-4a9f-9f80-be21bf38cc0b"
+storage_version_token = "1795203673813704"
+content_type = "image/png"
+
+[[outputs]]
+id = "pCwkz5i19fGzb2YGeSPBO"
+uri = "file://generated-artifacts/m6/mailbox-render.png"
+type = "image"
+title = "Mailbox disconnected email"
+description = "Browser render with synthetic data. No mailbox was disconnected and no mailbox notice was sent."
+logical_id = "0af27cb3-adeb-46e9-bb5b-fb6096b9e0c2"
+content_hash = "sha256:f2e501aa6d0aa09a0f974dd5472ad93b5642969593567d20c311dd8fdb852bbd"
+size = 54165
+mtime_ms = 1795203646709
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/0af27cb3-adeb-46e9-bb5b-fb6096b9e0c2/caaabaff-acae-44bc-9e4f-42b1c2ecd2a6"
+storage_version_token = "1795203674373489"
+content_type = "image/png"

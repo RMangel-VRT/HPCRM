@@ -150,6 +150,7 @@ export interface EmailContext {
   templateId?: string;
   sentById?: string;
   variables: Record<string, string>;
+  /** Shared-renderer output is final content, not a Handlebars template. */
   alreadyRendered?: boolean;
 }
 
@@ -205,9 +206,10 @@ export async function sendEmail(
   textBody: string | null,
   context: EmailContext
 ): Promise<EmailLog> {
-  const resolvedSubject = context.alreadyRendered ? subject : substituteVariables(subject, context.variables);
-  const resolvedHtml = context.alreadyRendered ? htmlBody : substituteVariables(htmlBody, context.variables);
-  const resolvedText = textBody ? (context.alreadyRendered ? textBody : substituteVariables(textBody, context.variables)) : undefined;
+  const resolve = (value: string) => context.alreadyRendered ? value : substituteVariables(value, context.variables);
+  const resolvedSubject = resolve(subject);
+  const resolvedHtml = resolve(htmlBody);
+  const resolvedText = textBody ? resolve(textBody) : undefined;
 
   const logEntry = await storage.createEmailLog({
     companyId: context.companyId,
