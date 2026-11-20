@@ -23,15 +23,40 @@ export interface EstimateEmailInput {
    * @maxLength 255
    */
   subject: string;
-  /** @maxLength 100000 */
-  bodyText: string;
+  /** @maxLength 2000 */
+  note?: string;
   confirmZeroPriced?: boolean;
 }
+
+export interface EstimateEmailPreviewInput {
+  /**
+   * @minLength 1
+   * @maxLength 255
+   */
+  subject?: string;
+  /** @maxLength 2000 */
+  note?: string;
+}
+
+export interface EstimateEmailPreview {
+  subject: string;
+  html: string;
+  text: string;
+}
+
+export type EstimateEmailOptionsMailboxesItemAccountType =
+  (typeof EstimateEmailOptionsMailboxesItemAccountType)[keyof typeof EstimateEmailOptionsMailboxesItemAccountType];
+
+export const EstimateEmailOptionsMailboxesItemAccountType = {
+  personal: "personal",
+  shared: "shared",
+} as const;
 
 export type EstimateEmailOptionsMailboxesItem = {
   id: string;
   displayName: string;
   emailAddress: string;
+  accountType: EstimateEmailOptionsMailboxesItemAccountType;
 };
 
 export type EstimateEmailOptionsRecipientsItem = {

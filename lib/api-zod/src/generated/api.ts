@@ -19,6 +19,7 @@ export const GetEstimateEmailOptionsResponse = zod.object({
       id: zod.string(),
       displayName: zod.string(),
       emailAddress: zod.string(),
+      accountType: zod.enum(["personal", "shared"]),
     }),
   ),
   recipients: zod.array(
@@ -31,6 +32,37 @@ export const GetEstimateEmailOptionsResponse = zod.object({
   defaultTo: zod.string().nullable(),
   companyName: zod.string(),
   phone: zod.string().nullable(),
+});
+
+export const previewEstimateEmailPathIdMax = 200;
+
+export const previewEstimateEmailPathVersionIdMax = 200;
+
+export const PreviewEstimateEmailParams = zod.object({
+  id: zod.coerce.string().min(1).max(previewEstimateEmailPathIdMax),
+  versionId: zod.coerce
+    .string()
+    .min(1)
+    .max(previewEstimateEmailPathVersionIdMax),
+});
+
+export const previewEstimateEmailBodySubjectMax = 255;
+
+export const previewEstimateEmailBodyNoteMax = 2000;
+
+export const PreviewEstimateEmailBody = zod.object({
+  subject: zod
+    .string()
+    .min(1)
+    .max(previewEstimateEmailBodySubjectMax)
+    .optional(),
+  note: zod.string().max(previewEstimateEmailBodyNoteMax).optional(),
+});
+
+export const PreviewEstimateEmailResponse = zod.object({
+  subject: zod.string(),
+  html: zod.string(),
+  text: zod.string(),
 });
 
 export const emailEstimateVersionPathIdMax = 200;
@@ -64,7 +96,7 @@ export const emailEstimateVersionBodyCcMax = 10;
 
 export const emailEstimateVersionBodySubjectMax = 255;
 
-export const emailEstimateVersionBodyBodyTextMax = 100000;
+export const emailEstimateVersionBodyNoteMax = 2000;
 
 export const EmailEstimateVersionBody = zod
   .object({
@@ -78,7 +110,7 @@ export const EmailEstimateVersionBody = zod
       .max(emailEstimateVersionBodyCcMax)
       .optional(),
     subject: zod.string().min(1).max(emailEstimateVersionBodySubjectMax),
-    bodyText: zod.string().max(emailEstimateVersionBodyBodyTextMax),
+    note: zod.string().max(emailEstimateVersionBodyNoteMax).optional(),
     confirmZeroPriced: zod.boolean().optional(),
   })
   .describe("To and Cc combined may contain up to ten distinct addresses.");

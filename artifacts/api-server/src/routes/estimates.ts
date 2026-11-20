@@ -3,7 +3,7 @@ import { z } from "zod/v4";
 import { createEstimateSchema, patchEstimateSchema, patchEstimateVersionSchema, createEstimateSectionSchema, patchEstimateSectionSchema,
   createEstimateLineSchema, patchEstimateLineSchema, estimateListQuerySchema, estimateDetailQuerySchema, estimateIdSchema,
    sendEstimateSchema, acceptEstimateSchema, estimateReasonSchema, emptyEstimateActionSchema, reviseEstimateSchema, catalogMatchesQuerySchema, estimates } from "@workspace/db";
-import { PutEstimateWorkLocationBody, PutEstimateWorkLocationResponse, GetEstimateEmailOptionsResponse } from "@workspace/api-zod";
+import { PutEstimateWorkLocationBody, PutEstimateWorkLocationResponse, GetEstimateEmailOptionsResponse, PreviewEstimateEmailResponse } from "@workspace/api-zod";
 import { estimateOrderSchema, replaceEstimateLineSchema, estimatePhotoUploadSchema, registerEstimatePhotoSchema,
   estimatePhotoCaptionSchema, estimatePhotoOrderSchema } from "@workspace/db/estimate-contracts";
 import type { UserWithContext } from "../auth";
@@ -24,7 +24,7 @@ import { readEstimatePhoto, startEstimatePhotoUpload, registerEstimatePhoto, pat
 import { ObjectNotFoundError, ObjectStorageService } from "../objectStorage";
 import { canWriteCrewWorksheets } from "../lib/crewWorksheetAccess";
 import { generateEstimateCrewWorksheet } from "../services/estimateCrewWorksheet";
-import { emailEstimate } from "../services/estimateEmail";
+import { emailEstimate, previewEstimateEmail } from "../services/estimateEmail";
 import { estimateEmailOptions } from "../services/estimateEmailOptions";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
@@ -93,6 +93,11 @@ export function registerEstimateRoutes(app: Express) {
     const { id, versionId } = pathSchema.parse(req.params);
     const resend = z.literal("1").optional().parse(req.get("X-Estimate-Resend"));
     res.json(await emailEstimate(req.user as UserWithContext, id, versionId!, req.body, resend === "1"));
+  }));
+  router.post(`${versionPath}/email-preview`, handle(async (req, res) => {
+    const { id, versionId } = pathSchema.parse(req.params);
+    const result = await previewEstimateEmail(req.user as UserWithContext, id, versionId!, req.body);
+    res.set("Cache-Control", "no-store").json(PreviewEstimateEmailResponse.parse(result));
   }));
   router.patch(versionPath, handle(async (req, res) => {
     const { id, versionId } = pathSchema.parse(req.params);

@@ -839,7 +839,7 @@ function BuilderContent({ id }: { id: string }) {
         estimateNumber={data.estimateNumber} versionNumber={pdfVersion.versionNumber} showVersion={showVersion}
         workLocation={pdfVersion.issuedAttachment ? null : display?.workLocation} regenerated={!!pdfVersion.sentAt} original={!!pdfVersion.issuedAttachment} />}
       {(dialog === "email" || dialog === "resendEmail") && <SendEstimateDialog
-        estimate={data} companyId={companyId} senderId={user?.id} senderName={user?.name ?? ""} customerName={customerName ?? t("estimateBuilder.customer")} lang={lang}
+        key={`${companyId}:${data.id}:${v.id}:${dialog}`} estimate={data} companyId={companyId} senderId={user?.id}
         busy={busy} error={dialogError} resend={dialog === "resendEmail"} needPrice={needPriceLines}
         delivery={dialog === "email" && recoverDelivery ? "recover" : emailOutcome} onClose={closeDialog}
         onSend={body => void lifecycle("send", "POST", `${vBase}/send-email`, body, { to: body.to, resend: dialog === "resendEmail" })}

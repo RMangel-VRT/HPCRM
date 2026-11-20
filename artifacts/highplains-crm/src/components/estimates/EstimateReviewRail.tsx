@@ -5,6 +5,7 @@ import { UMBRELLAS, formatDate, type EstimateDetailDto } from "@/lib/estimateBui
 import { formatCents } from "@/lib/hardscapeCatalog";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
+import { estimateApproximatePages } from "../../../../../lib/db/src/estimateContracts";
 
 type VersionSummary = EstimateDetailDto["versions"][number];
 
@@ -26,23 +27,6 @@ function PdfItem({ included = true, children }: { included?: boolean; children: 
       <span><span className="sr-only">{t(included ? "estimateBuilder.rail.included" : "estimateBuilder.rail.notIncluded")} </span>{children}</span>
     </li>
   );
-}
-
-export function estimateApproximatePages(version: EstimateDetailDto["version"]) {
-  if (version.issuedAttachment) return version.issuedAttachment.pageCount;
-  const { sections } = version;
-  const lines = sections.flatMap(s => s.lines);
-  const scope = version.scopeOfWork?.trim() ?? "";
-  const included = lines.filter(line => line.lineType === "plant" && line.includeInPalette).length;
-  const photos = version.photos?.length ?? 0;
-  // Estimate the variable pricing pages using rough wrapped-text row heights.
-  // The standalone template starts the terms and signature block on its own page.
-  const wrappedRows = (text: string, chars: number) =>
-    text.split(/\r?\n/).reduce((n, row) => n + Math.max(1, Math.ceil(row.length / chars)), 0);
-  const bodyRows = 9 + sections.length + (scope ? 2 + wrappedRows(scope, 90) : 0)
-    + lines.reduce((n, l) => n + wrappedRows(l.name, 38) + (l.detail ? wrappedRows(l.detail, 50) : 0), 0);
-  const plantRows = version.includePlantTable !== false && included ? 2 + included * 3 : 0;
-  return Math.max(1, Math.ceil((bodyRows + plantRows) / 34)) + 1 + Math.ceil(photos / 2);
 }
 
 function PdfChecklist({ version, canEditPlants, onPlantsChange }: {

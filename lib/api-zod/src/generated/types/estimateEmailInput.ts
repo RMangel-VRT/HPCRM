@@ -24,7 +24,7 @@ export interface EstimateEmailInput {
    * @maxLength 255
    */
   subject: string;
-  /** @maxLength 100000 */
-  bodyText: string;
+  /** @maxLength 2000 */
+  note?: string;
   confirmZeroPriced?: boolean;
 }

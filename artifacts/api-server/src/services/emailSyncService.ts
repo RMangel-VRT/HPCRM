@@ -5,6 +5,7 @@ import { google } from "googleapis";
 import { getValidAccessToken } from "./googleOAuth";
 import { routeMessage, type ParsedMessage } from "./emailRouter";
 import { sendEmail } from "./emailService";
+import { publicAppUrl } from "../lib/publicAppUrl";
 
 // In-memory lock set: mailboxAccountId -> true if sync is in progress
 const syncLocks = new Set<string>();
@@ -320,16 +321,7 @@ export async function sendSyncErrorNotification(
     return;
   }
 
-  // Build the settings page link — try all known Replit URL env vars in priority order
-  const baseUrl =
-    process.env.REPLIT_DEPLOYMENT_URL ||
-    (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}` : null) ||
-    (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null) ||
-    "";
-  if (!baseUrl) {
-    console.warn("[email-sync] Could not resolve absolute base URL for sync error notification email — link will be a relative path");
-  }
-  const settingsUrl = `${baseUrl}/dashboard/settings/mailbox-accounts`;
+  const settingsUrl = `${publicAppUrl()}/dashboard/settings/mailbox-accounts`;
 
   const subject = `Gmail sync stopped for ${mailboxEmailAddress}`;
 

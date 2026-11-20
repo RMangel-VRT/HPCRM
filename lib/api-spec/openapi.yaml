@@ -36,6 +36,27 @@ paths:
               schema: { $ref: "#/components/schemas/EstimateEmailOptions" }
         "403": { description: Forbidden }
         "404": { description: Estimate not found }
+  /estimates/{id}/versions/{versionId}/email-preview:
+    post:
+      operationId: previewEstimateEmail
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: versionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EstimateEmailPreviewInput" }
+      responses:
+        "200":
+          description: Rendered estimate email, without sending or creating an attachment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EstimateEmailPreview" }
+        "400": { description: Invalid note or subject }
+        "403": { description: Forbidden }
+        "404": { description: Estimate or version not found }
+        "409": { description: Version cannot be sent or original is unavailable }
   /estimates/{id}/versions/{versionId}/send-email:
     post:
       operationId: emailEstimateVersion
@@ -1536,7 +1557,7 @@ components:
     EstimateEmailInput:
       type: object
       additionalProperties: false
-      required: [mailboxAccountId, to, subject, bodyText]
+      required: [mailboxAccountId, to, subject]
       description: To and Cc combined may contain up to ten distinct addresses.
       properties:
         mailboxAccountId: { type: string, minLength: 1 }
@@ -1550,8 +1571,21 @@ components:
           maxItems: 10
           items: { type: string, format: email, maxLength: 254 }
         subject: { type: string, minLength: 1, maxLength: 255 }
-        bodyText: { type: string, maxLength: 100000 }
+        note: { type: string, maxLength: 2000 }
         confirmZeroPriced: { type: boolean }
+    EstimateEmailPreviewInput:
+      type: object
+      additionalProperties: false
+      properties:
+        subject: { type: string, minLength: 1, maxLength: 255 }
+        note: { type: string, maxLength: 2000 }
+    EstimateEmailPreview:
+      type: object
+      required: [subject, html, text]
+      properties:
+        subject: { type: string }
+        html: { type: string }
+        text: { type: string }
     EstimateEmailOptions:
       type: object
       required: [mailboxes, defaultMailboxId, recipients, defaultTo, companyName, phone]
@@ -1560,11 +1594,12 @@ components:
           type: array
           items:
             type: object
-            required: [id, displayName, emailAddress]
+            required: [id, displayName, emailAddress, accountType]
             properties:
               id: { type: string }
               displayName: { type: string }
               emailAddress: { type: string }
+              accountType: { type: string, enum: [personal, shared] }
         recipients:
           type: array
           items:

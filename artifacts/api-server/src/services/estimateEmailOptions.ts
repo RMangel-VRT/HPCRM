@@ -54,7 +54,7 @@ export async function estimateEmailOptions(user: UserWithContext, customerId: st
     const rank = (m: typeof a) => m.accountType === "shared" ? 0 : m.ownerUserId === user.id ? 1 : 2;
     return rank(a) - rank(b);
   });
-  return { ...settings, mailboxes: ranked.map(({ id, displayName, emailAddress }) => ({ id, displayName, emailAddress })),
+  return { ...settings, mailboxes: ranked.map(({ id, displayName, emailAddress, accountType }) => ({ id, displayName, emailAddress, accountType })),
     defaultMailboxId: ranked.find(m => m.accountType === "shared" || m.ownerUserId === user.id)?.id ?? null,
     recipients: [...options.values()], defaultTo: preferred.size === 1 ? options.get([...preferred][0])!.email : null };
 }

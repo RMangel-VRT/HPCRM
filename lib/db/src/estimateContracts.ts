@@ -26,6 +26,26 @@ export function estimatePdfFilename(estimateNumber: string, versionNumber: numbe
   const number = /^EST-\d{4}-\d+$/.test(estimateNumber) ? estimateNumber : "EST";
   return `${number}${showVersion ? `-v${versionNumber}` : ""}.pdf`;
 }
+
+/** Metadata-only estimate for previews. Issued PDFs always use their measured page count. */
+export function estimateApproximatePages(version: {
+  issuedAttachment?: IssuedEstimateAttachment | null;
+  scopeOfWork?: string | null;
+  includePlantTable?: boolean;
+  photos?: readonly unknown[];
+  sections: readonly { lines: readonly { name: string; detail?: string | null; lineType: string; includeInPalette?: boolean }[] }[];
+}) {
+  if (version.issuedAttachment) return version.issuedAttachment.pageCount;
+  const lines = version.sections.flatMap(section => section.lines);
+  const scope = version.scopeOfWork?.trim() ?? "";
+  const included = lines.filter(line => line.lineType === "plant" && line.includeInPalette).length;
+  const wrappedRows = (text: string, chars: number) =>
+    text.split(/\r?\n/).reduce((n, row) => n + Math.max(1, Math.ceil(row.length / chars)), 0);
+  const bodyRows = 9 + version.sections.length + (scope ? 2 + wrappedRows(scope, 90) : 0)
+    + lines.reduce((n, line) => n + wrappedRows(line.name, 38) + (line.detail ? wrappedRows(line.detail, 50) : 0), 0);
+  const plantRows = version.includePlantTable !== false && included ? 2 + included * 3 : 0;
+  return Math.max(1, Math.ceil((bodyRows + plantRows) / 34)) + 1 + Math.ceil((version.photos?.length ?? 0) / 2);
+}
 export type { ProposalEstimateSummary } from "./proposalContracts";
 import { isCalendarDate } from "./schema/calendarDate";
 export { isCalendarDate } from "./schema/calendarDate";
@@ -44,12 +64,17 @@ export const ESTIMATE_ACCEPTANCE_METHODS = ["email_approval", "signed_pdf", "pho
 export const sendEstimateSchema = z.object({
   method: z.enum(ESTIMATE_SENT_METHODS), confirmZeroPriced: z.boolean().optional(),
 }).strict();
+const estimateEmailNote = z.string().trim().max(2000).optional();
+export const estimateEmailPreviewInput = z.object({
+  subject: companyDocumentEmailInput.shape.subject.optional(),
+  note: estimateEmailNote,
+}).strict();
 export const estimateEmailInput = z.object({
   mailboxAccountId: companyDocumentEmailInput.shape.mailboxAccountId,
   to: companyDocumentEmailInput.shape.to,
   cc: companyDocumentEmailInput.shape.cc,
   subject: companyDocumentEmailInput.shape.subject,
-  bodyText: companyDocumentEmailInput.shape.bodyText,
+  note: estimateEmailNote,
   confirmZeroPriced: z.boolean().optional(),
 }).strict().refine(input => {
   const recipients = [...input.to, ...(input.cc ?? [])];
@@ -58,7 +83,7 @@ export const estimateEmailInput = z.object({
 export type EstimateEmailInput = z.infer<typeof estimateEmailInput>;
 export interface IssuedEstimateAttachment { filename: string; pageCount: number }
 export interface EstimateEmailOptionsDto {
-  mailboxes: { id: string; displayName: string; emailAddress: string }[];
+  mailboxes: { id: string; displayName: string; emailAddress: string; accountType: "shared" | "personal" }[];
   defaultMailboxId: string | null;
   recipients: { email: string; name: string }[];
   defaultTo: string | null;

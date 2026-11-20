@@ -8,3 +8,7 @@ Leaf-package typechecks can read stale emitted workspace declarations while Vite
 **Why:** A scheduling change initially appeared to add missing-column/type errors because the baseline declarations predated already-merged schema changes. Refreshing them removed those apparent regressions, but also changed the text of unrelated existing diagnostics.
 
 **How to apply:** Keep the pre-edit diagnostics, refresh workspace library declarations, and compare diagnostic categories rather than line numbers or generated target-type text. A library build can refresh some declarations even when another unchanged generated package fails; report that library failure separately rather than claiming a clean typecheck.
+
+If an incremental build reports success but a newly exported symbol is still
+absent from its emitted declaration, force the workspace library build before
+changing the import or reporting a regression.

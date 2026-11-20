@@ -22,3 +22,11 @@ scoped work. Never send development test mail to a real customer.
 M5 invoice and reminder mail waits for Invoice Center. M6 staff email needs
 the shared layout, not M5 or the customer wording editor. Do not make private
 flag attachments public just to reuse the completion-photo email route.
+
+Keep mail-client evidence separate from browser preview evidence. An empty
+iframe sandbox gives the preview an opaque origin, and Chromium can block
+images from loopback even when the files are served correctly. **Why:** local
+image failures do not establish how the public image URLs behave in real mail
+clients. **How to apply:** check the PNG responses separately and confirm image
+loading in actual mail clients only when the public paths and approved test
+mailbox are available.

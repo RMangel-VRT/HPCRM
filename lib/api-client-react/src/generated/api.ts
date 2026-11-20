@@ -43,6 +43,8 @@ import type {
   ErrorResponse,
   EstimateEmailInput,
   EstimateEmailOptions,
+  EstimateEmailPreview,
+  EstimateEmailPreviewInput,
   EstimateEmailRecovery,
   EstimateWorkLocationInput,
   GetCampaignRoundCalendarParams,
@@ -190,6 +192,100 @@ export function useGetEstimateEmailOptions<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+export const getPreviewEstimateEmailUrl = (id: string, versionId: string) => {
+  return `/api/estimates/${id}/versions/${versionId}/email-preview`;
+};
+
+export const previewEstimateEmail = async (
+  id: string,
+  versionId: string,
+  estimateEmailPreviewInput: EstimateEmailPreviewInput,
+  options?: RequestInit,
+): Promise<EstimateEmailPreview> => {
+  return customFetch<EstimateEmailPreview>(
+    getPreviewEstimateEmailUrl(id, versionId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(estimateEmailPreviewInput),
+    },
+  );
+};
+
+export const getPreviewEstimateEmailMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewEstimateEmail>>,
+    TError,
+    {
+      id: string;
+      versionId: string;
+      data: BodyType<EstimateEmailPreviewInput>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewEstimateEmail>>,
+  TError,
+  { id: string; versionId: string; data: BodyType<EstimateEmailPreviewInput> },
+  TContext
+> => {
+  const mutationKey = ["previewEstimateEmail"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewEstimateEmail>>,
+    { id: string; versionId: string; data: BodyType<EstimateEmailPreviewInput> }
+  > = (props) => {
+    const { id, versionId, data } = props ?? {};
+
+    return previewEstimateEmail(id, versionId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewEstimateEmailMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewEstimateEmail>>
+>;
+export type PreviewEstimateEmailMutationBody =
+  BodyType<EstimateEmailPreviewInput>;
+export type PreviewEstimateEmailMutationError = ErrorType<void>;
+
+export const usePreviewEstimateEmail = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewEstimateEmail>>,
+    TError,
+    {
+      id: string;
+      versionId: string;
+      data: BodyType<EstimateEmailPreviewInput>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof previewEstimateEmail>>,
+  TError,
+  { id: string; versionId: string; data: BodyType<EstimateEmailPreviewInput> },
+  TContext
+> => {
+  return useMutation(getPreviewEstimateEmailMutationOptions(options));
+};
 
 export const getEmailEstimateVersionUrl = (id: string, versionId: string) => {
   return `/api/estimates/${id}/versions/${versionId}/send-email`;

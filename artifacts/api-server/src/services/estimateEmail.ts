@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
-import { communications, estimates, estimateVersions, type EstimateEmailIssue } from "@workspace/db";
-import { estimateEmailInput } from "@workspace/db/estimate-contracts";
+import { communications, estimates, estimateVersions, type Estimate, type EstimateVersion, type EstimateEmailIssue } from "@workspace/db";
+import { estimateApproximatePages, estimateEmailInput, estimateEmailPreviewInput, estimateHasMultipleVersions,
+  estimatePdfFilename, type IssuedEstimateAttachment } from "@workspace/db/estimate-contracts";
 import { PDFDocument } from "pdf-lib";
 import type { UserWithContext } from "../auth";
 import { db, type AppTransaction } from "../db";
@@ -12,8 +13,10 @@ import { visibleEstimateSenders } from "./estimateEmailOptions";
 import { issuedEstimatePdfs } from "./estimateIssuedPdf";
 import { preflightEstimateSend, transitionEstimate } from "./estimateLifecycle";
 import { renderEstimatePdfFile } from "./estimatePdf";
-import { readEstimate } from "./estimateReads";
+import { estimatePayload, readEstimate } from "./estimateReads";
 import { createGmailMessageId, sendEmail } from "./gmailSender";
+import { loadEmailCompany } from "./outgoingEmail/company";
+import { buildEstimateEmail } from "./outgoingEmail/estimateEmail";
 
 const dependencies = { send: sendEmail, storage: issuedEstimatePdfs, render: renderEstimatePdfFile, transition: transitionEstimate };
 const estimateScope = (companyId: string, estimateId: string) =>
@@ -22,6 +25,48 @@ const versionScope = (companyId: string, estimateId: string, versionId: string) 
   and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, estimateId), eq(estimateVersions.id, versionId));
 const lockEstimate = async (tx: AppTransaction, companyId: string, estimateId: string) =>
   requireEstimate((await tx.select().from(estimates).where(estimateScope(companyId, estimateId)).for("update"))[0]);
+
+async function originalEstimateSubject(tx: AppTransaction, companyId: string, issue: EstimateEmailIssue) {
+  const [receipt] = await tx.select({ subject: communications.subject }).from(communications).where(and(
+    eq(communications.companyId, companyId), eq(communications.id, issue.firstCommunicationId),
+    eq(communications.routingMethod, "estimate_email"), eq(communications.deliveryStatus, "sent"),
+  ));
+  if (!receipt?.subject) throw new EstimateError(409, "ESTIMATE_EMAIL_ORIGINAL_UNAVAILABLE");
+  return receipt.subject;
+}
+
+async function composeEstimateEmail(tx: AppTransaction, estimate: Estimate, selected: EstimateVersion,
+  input: { subject?: string; note?: string }, attachment?: IssuedEstimateAttachment) {
+  const { version, versions, display } = await estimatePayload(tx, estimate.companyId, estimate, selected.versionNumber);
+  const previous = versions.find(v => v.versionNumber < version.versionNumber && v.sentAt);
+  return buildEstimateEmail({
+    estimate: { companyId: estimate.companyId, estimateNumber: estimate.estimateNumber, title: estimate.title,
+      customerName: display.customerName, workLocation: display.workLocation },
+    version, previous, company: await loadEmailCompany(estimate.companyId, tx), now: new Date(), ...input,
+    attachment: attachment ?? {
+      filename: estimatePdfFilename(estimate.estimateNumber, version.versionNumber, estimateHasMultipleVersions(versions.length)),
+      pageCount: estimateApproximatePages(version), approximate: true,
+    },
+  });
+}
+
+export async function previewEstimateEmail(user: UserWithContext, estimateId: string, versionId: string, body: unknown) {
+  const input = estimateEmailPreviewInput.parse(body);
+  const companyId = user.activeCompanyId;
+  return db.transaction(async tx => {
+    const estimate = requireEstimate((await tx.select().from(estimates).where(estimateScope(companyId, estimateId)))[0]);
+    const version = requireEstimate((await tx.select().from(estimateVersions).where(versionScope(companyId, estimateId, versionId)))[0]);
+    if (estimate.voidedAt || (version.status !== "sent" && (version.status !== "draft" || estimate.currentVersionId !== versionId)))
+      throw new EstimateError(409, "INVALID_TRANSITION", { from: estimate.voidedAt ? "void" : version.status, action: "send" });
+    const issue = version.emailIssue;
+    if (version.status === "sent" && !issue) throw new EstimateError(409, "ESTIMATE_EMAIL_ORIGINAL_UNAVAILABLE");
+    const originalSubject = version.status === "sent" && issue ? await originalEstimateSubject(tx, companyId, issue) : undefined;
+    const { subject, html, text } = await composeEstimateEmail(tx, estimate, version, {
+      note: input.note, subject: originalSubject ?? input.subject,
+    }, issue && issue.pendingCommunicationId !== issue.firstCommunicationId ? issue : undefined);
+    return { subject, html, text };
+  }, { isolationLevel: "repeatable read", accessMode: "read only" });
+}
 
 /** The shared sender also wraps timeouts/resets, without a status or cause.
  * Only recognize its fixed rejection messages (not arbitrary wrapped text).
@@ -74,6 +119,7 @@ export async function emailEstimate(user: UserWithContext, estimateId: string, v
     const [mailbox] = await visibleEstimateSenders(user, input.mailboxAccountId);
     if (!mailbox) throw new EstimateError(403, "ESTIMATE_EMAIL_MAILBOX_UNAVAILABLE");
     const prior = version.emailIssue;
+    const subject = resend && prior ? await originalEstimateSubject(tx, companyId, prior) : input.subject;
     let attachment: { pdf: Buffer; filename: string };
     try {
       attachment = prior ? { pdf: await deps.storage.read(prior.objectId), filename: prior.filename }
@@ -87,17 +133,19 @@ export async function emailEstimate(user: UserWithContext, estimateId: string, v
       objectId: randomUUID(), filename: attachment.filename, pageCount: (await PDFDocument.load(attachment.pdf)).getPageCount(),
       firstCommunicationId: attemptId, pendingCommunicationId: attemptId,
     };
+    const rendered = await composeEstimateEmail(tx, estimate, version, { subject, note: input.note }, issue);
     if (!prior) await deps.storage.save(issue.objectId, attachment.pdf);
     await tx.insert(communications).values({
       id: attemptId, companyId, customerId: estimate.customerId, sentById: user.id, fromName: user.name,
       direction: "outbound", type: "email", status: "draft", deliveryStatus: "pending", deliveryProvider: "gmail", followUpStatus: "none",
       // Hidden reservation, not a customer send log until Gmail acknowledges.
       deletedAt: new Date(), routingMethod: "estimate_email", mailboxAccountId: mailbox.id, providerMessageId: messageId,
-      fromAddress: mailbox.emailAddress, toAddresses: input.to, ccAddresses: input.cc ?? [], subject: input.subject, body: input.bodyText,
-      bodyText: input.bodyText, attachmentsJson: [{ kind: "estimate_pdf", estimateId, versionId, fileName: issue.filename, fileSize: attachment.pdf.length }],
+      fromAddress: mailbox.emailAddress, toAddresses: input.to, ccAddresses: input.cc ?? [], subject: rendered.subject, body: rendered.text,
+      bodyText: rendered.text, bodyHtml: rendered.html,
+      attachmentsJson: [{ kind: "estimate_pdf", estimateId, versionId, fileName: issue.filename, fileSize: attachment.pdf.length }],
     });
     await tx.update(estimateVersions).set({ emailIssue: issue }).where(scope);
-    return { issue, prior, attachment, versionNumber: version.versionNumber };
+    return { issue, prior, attachment, rendered, versionNumber: version.versionNumber };
   });
 
   const releaseUnsent = async () => {
@@ -121,7 +169,8 @@ export async function emailEstimate(user: UserWithContext, estimateId: string, v
   }
   let delivered: Awaited<ReturnType<typeof sendEmail>>;
   try {
-    delivered = await deps.send(input.mailboxAccountId, { to: input.to, cc: input.cc, subject: input.subject, bodyText: input.bodyText,
+    delivered = await deps.send(input.mailboxAccountId, { to: input.to, cc: input.cc, subject: job.rendered.subject,
+      bodyText: job.rendered.text, bodyHtml: job.rendered.html,
       attachments: [{ filename: job.attachment.filename, mimeType: "application/pdf", content: job.attachment.pdf }] }, messageId);
   } catch (error) {
     const rejection = definitiveMailboxFailure(error);

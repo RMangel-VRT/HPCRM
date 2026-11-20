@@ -53,7 +53,7 @@ const newDraft = async (withLine = true) => {
     name: "Work", unit: "EA", unitPriceCents: 2000, umbrellaKey: "landscape_labor" });
   return { ...d, url: `/api/estimates/${d.id}/versions/${d.version.id}` };
 };
-const input = () => ({ mailboxAccountId: mailboxId, to: ["primary@example.test"], cc: ["billing@example.test"], subject: "Estimate — Front planting", bodyText: "Please sign the last page.\nThank you." });
+const input = () => ({ mailboxAccountId: mailboxId, to: ["primary@example.test"], cc: ["billing@example.test"], subject: "Estimate — Front planting", note: " Ready to start next week. " });
 const logs = () => db.select().from(communications).where(and(eq(communications.companyId, company), eq(communications.routingMethod, "estimate_email")));
 const state = async (id: string) => (await db.select().from(estimateVersions).where(eq(estimateVersions.id, id)))[0];
 const gmail = vi.mocked(sendEmail);
@@ -100,6 +100,7 @@ it("scopes options and requests to the estimate and connected mailboxes", async 
   expect(response.body).toMatchObject({ defaultMailboxId: mailboxId, phone: "(303) 555-0100" });
   expect(response.body.defaultTo.toLowerCase()).toBe("primary@example.test");
   expect(response.body.mailboxes.map((m: { id: string }) => m.id)).toEqual([mailboxId, ownMailbox, extraMailbox]);
+  expect(response.body.mailboxes.map((m: { accountType: string }) => m.accountType)).toEqual(["shared", "personal", "personal"]);
   expect(response.body.recipients.map((r: { email: string }) => r.email.toLowerCase()))
     .toEqual(["primary@example.test", "facilities@example.test", "billing@example.test"]);
   expect((await application(other).get(url)).status).toBe(404);
@@ -117,6 +118,34 @@ it("scopes options and requests to the estimate and connected mailboxes", async 
   expect(await logs()).toHaveLength(0);
 });
 
+it("previews the company-scoped version with no write, delivery or PDF access", async () => {
+  const d = await newDraft(), url = `${d.url}/email-preview`;
+  const before = await state(d.version.id);
+  const response = await application().post(url).send({ note: "  <script>Should only be text</script>  " });
+  expect(response.status, JSON.stringify(response.body)).toBe(200);
+  expect(response.headers["cache-control"]).toBe("no-store");
+  expect(response.body.subject).toBe(`Estimate ${d.estimateNumber} – Front planting`);
+  expect(response.body.html).toContain("&lt;script&gt;Should only be text&lt;/script&gt;");
+  expect(response.body.html).not.toContain("<script>");
+  expect(response.body.text).toContain("A note from High Plains\n<script>Should only be text</script>");
+  expect(response.body.text).not.toContain("Ready to start next week.");
+  expect(response.body.text).toContain(`Attached: ${d.estimateNumber}.pdf · Approx. 2 pages`);
+  expect(response.body.text).toContain("Work location: Test Street");
+  expect(response.body.text).toContain("Thank you,\nEstimate Test Company");
+  expect(response.body.text).not.toContain("Estimate Tester");
+  const custom = await application().post(url).send({ subject: "  Custom review subject  " });
+  expect(custom.body.subject).toBe("Custom review subject");
+  expect((await application(other).post(url).send({})).status).toBe(404);
+  expect((await application(company, "field").post(url).send({})).status).toBe(403);
+  expect((await application().post(url).set("X-Company-Id", other).send({})).status).toBe(409);
+  expect((await application().post(url).send({ note: "x".repeat(2001) })).status).toBe(400);
+  expect((await application().post(url).send({ subject: "Unsafe\r\nBcc: caller@example.test" })).status).toBe(400);
+  expect(await state(d.version.id)).toEqual(before);
+  expect(await logs()).toHaveLength(0);
+  expect(render).not.toHaveBeenCalled();
+  expect(gmail).not.toHaveBeenCalled();
+});
+
 it("guards no lines and needs-price before Gmail, then stores and resends the same original even after a revision and location edit", async () => {
   const empty = await newDraft(false);
   expect((await application().post(`${empty.url}/send-email`).send(input())).body.error).toBe("NO_LINES");
@@ -131,16 +160,24 @@ it("guards no lines and needs-price before Gmail, then stores and resends the sa
   expect(original.body.version).not.toHaveProperty("emailIssue");
   const [mailbox, opts, rfcId] = gmail.mock.calls[0];
   expect(mailbox).toBe(mailboxId);
-  const { mailboxAccountId: _box, ...envelope } = input();
-  expect(opts).toMatchObject(envelope);
+  const { to, cc, subject } = input();
+  expect(opts).toMatchObject({ to, cc, subject });
+  expect(opts.bodyText).toContain("A note from High Plains\nReady to start next week.");
+  expect(opts.bodyHtml).toContain('bgcolor="#8CC640"');
   const attachment = opts.attachments![0];
   expect(opts.attachments).toHaveLength(1);
   expect(attachment).toMatchObject({ filename: `${d.estimateNumber}.pdf`, mimeType: "application/pdf" });
   expect((await PDFDocument.load(attachment.content)).getPageCount()).toBe(original.body.version.issuedAttachment.pageCount);
   const [record] = await logs();
   expect(record).toMatchObject({ customerId, mailboxAccountId: mailboxId, fromAddress: "office@example.test", direction: "outbound",
-    deliveryStatus: "sent", status: "sent", providerMessageId: rfcId, providerThreadId: "gmail-thread", toAddresses: envelope.to, ccAddresses: envelope.cc });
+    deliveryStatus: "sent", status: "sent", providerMessageId: rfcId, providerThreadId: "gmail-thread", toAddresses: to, ccAddresses: cc,
+    body: opts.bodyText, bodyText: opts.bodyText, bodyHtml: opts.bodyHtml });
   const mime = buildMimeMessage("office@example.test", opts, rfcId!);
+  expect(mime).toContain("multipart/alternative");
+  for (const [type, body] of [["plain", opts.bodyText], ["html", opts.bodyHtml]]) {
+    const part = mime.match(new RegExp(`Content-Type: text/${type};[^\\r]+\\r\\nContent-Transfer-Encoding: base64\\r\\n\\r\\n([\\s\\S]*?)\\r\\n\\r\\n--`))?.[1];
+    expect(Buffer.from(part!, "base64").toString("utf8")).toBe(body);
+  }
   const parsed = parseGmailMessage({ id: "gmail-id", threadId: "gmail-thread", payload: { headers: [
     { name: "From", value: "office@example.test" }, { name: "Message-ID", value: mime.match(/^Message-ID: (.+)$/m)![1].trim() },
   ] } });
@@ -157,13 +194,52 @@ it("guards no lines and needs-price before Gmail, then stores and resends the sa
   expect(doc.pdf.equals(attachment.content)).toBe(true);
   const before = await state(d.version.id);
   expect((await application().post(`${d.url}/send-email`).send(input())).status).toBe(409);
-  const resent = await application().post(`${d.url}/send-email`).set("X-Estimate-Resend", "1").send({ ...input(), to: ["again@example.test"] });
-  expect(resent.status).toBe(200);
-  expect(resent.body.emailed).toBe(true);
-  expect(gmail.mock.calls[1][1].attachments![0]).toEqual(attachment);
-  expect(gmail.mock.calls[1][2]).not.toBe(rfcId);
-  expect(await state(d.version.id)).toEqual(before);
-  expect(await logs()).toHaveLength(2);
+  // Reproduce an E5 receipt, which has a subject but does not have branded HTML.
+  const legacySubject = "Original E5 custom subject";
+  await db.update(communications).set({ subject: legacySubject, body: "Old content", bodyText: "Old content", bodyHtml: null })
+    .where(eq(communications.id, record.id));
+  await db.update(companyDocumentSettings).set({ phone: "(303) 555-0199" }).where(eq(companyDocumentSettings.companyId, company));
+  try {
+    const preview = await application().post(`${d.url}/email-preview`).send({ subject: "Do not use", note: input().note });
+    expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+    expect(preview.body.subject).toBe(legacySubject);
+    expect(preview.body.text).toContain("(303) 555-0199");
+    expect(preview.body.text).not.toMatch(/Approx\.|Version 2|Old content/);
+    const resent = await application().post(`${d.url}/send-email`).set("X-Estimate-Resend", "1")
+      .send({ ...input(), subject: "Still do not use", to: ["again@example.test"] });
+    expect(resent.status, JSON.stringify(resent.body)).toBe(200);
+    expect(resent.body.emailed).toBe(true);
+    expect(gmail.mock.calls[1][1]).toMatchObject({ subject: legacySubject, bodyText: preview.body.text, bodyHtml: preview.body.html });
+    expect(gmail.mock.calls[1][1].attachments![0]).toEqual(attachment);
+    expect(gmail.mock.calls[1][2]).not.toBe(rfcId);
+    expect(await state(d.version.id)).toEqual(before);
+    expect(await logs()).toHaveLength(2);
+  } finally {
+    await db.update(companyDocumentSettings).set({ phone: "(303) 555-0100" }).where(eq(companyDocumentSettings.companyId, company));
+  }
+}, 30_000);
+
+it("previews and sends a revision against its actual earlier sent facts", async () => {
+  const draft = await newDraft();
+  expect((await application().post(`${draft.url}/send`).send({ method: "hard_copy" })).status).toBe(200);
+  await db.update(estimateVersions).set({ sentAt: new Date("2025-06-01T05:00:00Z") }).where(eq(estimateVersions.id, draft.version.id));
+  const revised = await application().post(`${draft.url}/revise`).send({});
+  expect(revised.status).toBe(200);
+  const id = revised.body.version.id;
+  await db.update(estimateLines).set({ unitPriceCents: 3000 }).where(eq(estimateLines.versionId, id));
+  const url = `/api/estimates/${draft.id}/versions/${id}`;
+  const preview = await application().post(`${url}/email-preview`).send({});
+  expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+  expect(preview.body.subject).toBe(`Revised estimate ${draft.estimateNumber} (Version 2) – Front planting`);
+  expect(preview.body.text).toContain("It replaces the version we sent on May 31, 2025.");
+  expect(preview.body.text).toContain("Version 1 total: $20.00 (previous)\nChange: + $10.00\nNew total: $30.00");
+  expect(render).not.toHaveBeenCalled();
+  const sent = await application().post(`${url}/send-email`).send({ ...input(), subject: preview.body.subject });
+  expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+  const [{ bodyText, bodyHtml }] = await logs();
+  expect(bodyHtml).toContain('bgcolor="#5B9BD5"');
+  expect(bodyText).toContain(`Attached: ${draft.estimateNumber}-v2.pdf · ${sent.body.version.issuedAttachment.pageCount} pages`);
+  expect(bodyText).not.toContain("Approx.");
 }, 30_000);
 
 it("returns a Gmail failure without a communication, state change, or edit lock", async () => {

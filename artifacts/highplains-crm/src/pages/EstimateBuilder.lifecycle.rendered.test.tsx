@@ -49,13 +49,14 @@ function detailOf(versions: V[], viewId?: string, o: Record<string, unknown> = {
 
 const fetchMock = vi.fn();
 type Call = { url: string; method: string; headers: Record<string, string>; body: unknown };
-const res = (body: unknown, status = 200) => ({ ok: status < 400, status, statusText: "x", json: async () => body, text: async () => JSON.stringify(body), headers: new Headers() });
+const res = (body: unknown, status = 200) => ({ ok: status < 400, status, statusText: "x", json: async () => body, text: async () => JSON.stringify(body),
+  headers: new Headers({ "Content-Type": "application/json" }) });
 const requestBody = (init?: RequestInit) => typeof init?.body === "string" ? JSON.parse(init.body) : init?.body;
 let detail: unknown;
 let handler: (c: Call) => unknown | undefined;
 const calls = (): Call[] => fetchMock.mock.calls.map(([url, init]: [string, RequestInit | undefined]) => ({
   url: String(url), method: init?.method ?? "GET", headers: (init?.headers ?? {}) as Record<string, string>, body: requestBody(init) }));
-const mutations = () => calls().filter((c) => c.method !== "GET");
+const mutations = () => calls().filter((c) => c.method !== "GET" && !c.url.endsWith("/email-preview"));
 
 beforeEach(() => {
   auth.user = { id: "u1", activeCompanyId: "c1", activeRole: "office" };
@@ -649,13 +650,30 @@ describe("stale scope and version", () => {
 describe("sending estimate email", () => {
   const path = "/dashboard/estimates/builder/e1";
   const send = "/api/estimates/e1/versions/v1/send-email";
+  const preview = "/api/estimates/e1/versions/v1/email-preview";
   const options = {
-    mailboxes: [{ id: "office", displayName: "Shared office", emailAddress: "office@example.test" }],
+    mailboxes: [{ id: "office", displayName: "Shared office", emailAddress: "office@example.test", accountType: "shared" },
+      { id: "personal", displayName: "Personal", emailAddress: "personal@example.test", accountType: "personal" }],
     defaultMailboxId: "office", recipients: [{ email: "manager@example.test", name: "Manager" }, { email: "billing@example.test", name: "" }],
     defaultTo: "manager@example.test", companyName: "High Plains", phone: "303-555-0100",
   };
   const sent = { sentAt: LATER, sentMethod: "email", frozenSubtotalCents: 2000, emailedTo: ["manager@example.test"],
     issuedAttachment: { filename: "EST-2025-0042.pdf", pageCount: 2 }, emailDelivery: "delivered" };
+  const firstSubject = "Estimate EST-2025-0042 – Spring install";
+  const revisedSubject = "Revised estimate EST-2025-0042 (Version 2) – Spring install";
+  const rendered = (subject = firstSubject, detail = "Company sign-off") => res({
+    subject, html: `<html><body>${detail}</body></html>`, text: detail,
+  });
+  beforeEach(() => {
+    const previousFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === preview) {
+        const c = { url, method: "POST", headers: init?.headers as Record<string, string>, body: requestBody(init) };
+        return handler(c) ?? rendered();
+      }
+      return previousFetch(url, init);
+    });
+  });
   const open = async () => {
     await ready();
     fireEvent.click(screen.getByTestId("button-send-estimate"));
@@ -687,15 +705,17 @@ describe("sending estimate email", () => {
     };
     renderAt(path);
     await open();
-    const button = await readyToSend();
+    await readyToSend();
     expect(input("from").value).toBe("office");
     expect(input("to").value).toBe("manager@example.test");
-    expect(input("subject").value).toBe("Estimate EST-2025-0042 — Spring install");
-    expect(input("body").value).toContain("High Plains · 303-555-0100");
-    expect(input("body").value).toContain("Estimator");
-    expect(input("body").value).toContain("Prices are good for 30 days");
+    expect(input("subject").value).toBe(firstSubject);
+    expect(input("note").value).toBe("");
+    expect(screen.getByTestId("frame-estimate-email-preview").getAttribute("sandbox")).toBe("");
+    expect(screen.getByTestId("frame-estimate-email-preview").getAttribute("srcdoc")).toContain("Company sign-off");
     expect(screen.getByTestId("estimate-email-attachment").textContent).toContain("EST-2025-0042.pdf");
     fireEvent.change(input("cc"), { target: { value: "billing@example.test" } });
+    fireEvent.change(input("note"), { target: { value: "  Approved start next week.  " } });
+    const button = await readyToSend();
     fireEvent.click(button);
     await waitFor(() => expect(button.textContent).toContain("Send anyway"));
     fireEvent.click(button);
@@ -703,7 +723,8 @@ describe("sending estimate email", () => {
     expect(screen.getByTestId("text-version-sent-1").textContent).toContain("Email · manager@example.test");
     await waitFor(() => expect(mutations().find(c => c.url === "/api/tickets/ticket1")?.body).toMatchObject({ currentStatusId: "target" }));
     expect(mutations().filter(c => c.url === send)).toMatchObject([
-      { headers: { "X-Company-Id": "c1" }, body: { mailboxAccountId: "office", to: ["manager@example.test"], cc: ["billing@example.test"] } },
+      { headers: { "X-Company-Id": "c1" }, body: { mailboxAccountId: "office", to: ["manager@example.test"], cc: ["billing@example.test"],
+        note: "Approved start next week." } },
       { body: { confirmZeroPriced: true } },
     ]);
     expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: "Emailed to manager@example.test" }));
@@ -737,27 +758,62 @@ describe("sending estimate email", () => {
     await waitFor(() => expect((screen.getByTestId("button-send-estimate") as HTMLButtonElement).disabled).toBe(true));
     expect(mutations()).toHaveLength(1);
   });
-  it("shows the Spanish default copy and version suffix but prevents send without a mailbox", async () => {
+  it("localizes the controls but keeps revised email wording in English and requires a mailbox", async () => {
     await i18n.changeLanguage("es");
     detail = detailOf([{ id: "old", status: "sent", n: 1 }, { id: "v1", status: "draft", n: 2 }], undefined, { estimateNumber: "EST-2025-0042" });
-    handler = c => c.url.endsWith("/email-options") ? res({ ...options, mailboxes: [], defaultMailboxId: null }) : undefined;
+    handler = c => c.url.endsWith("/email-options") ? res({ ...options, mailboxes: [], defaultMailboxId: null })
+      : c.url === preview ? rendered(revisedSubject) : undefined;
     renderAt(path);
     await open();
     const link = await screen.findByRole("link", { name: "Conectar un buzón" });
     expect(link.getAttribute("href")).toBe("/dashboard/settings/shared-mailboxes");
-    await waitFor(() => expect(input("subject").value).toBe("Estimado EST-2025-0042 — Spring install (Versión 2)"));
-    expect(input("body").value).toContain("Los precios son válidos durante 30 días.");
+    await waitFor(() => expect(input("subject").value).toBe(revisedSubject));
+    expect(screen.getByLabelText("Agregar una nota (opcional)")).toBe(input("note"));
+    expect(screen.getByTitle("Vista previa del correo").getAttribute("srcdoc")).toContain("Company sign-off");
     expect((screen.getByTestId("button-submit-estimate-email") as HTMLButtonElement).disabled).toBe(true);
     expect(mutations()).toHaveLength(0);
   });
+  it("debounces note and subject changes, ignores stale results, and shows the personal-mailbox hint", async () => {
+    let release!: () => void;
+    handler = c => {
+      if (c.url.endsWith("/email-options")) return res(options);
+      if (c.url !== preview) return undefined;
+      const { subject, note } = c.body as { note: string; subject?: string };
+      if (note === "slow") return new Promise(resolve => { release = () => resolve(rendered(firstSubject, "Old preview")); });
+      return rendered(subject, note || "Initial preview");
+    };
+    renderAt(path);
+    await open();
+    const button = await readyToSend();
+    fireEvent.change(input("from"), { target: { value: "personal" } });
+    expect(screen.getByText("Customer emails normally go from the shared office mailbox.")).toBeTruthy();
+    fireEvent.change(input("note"), { target: { value: "skip" } });
+    fireEvent.change(input("note"), { target: { value: "slow" } });
+    expect(button.disabled).toBe(true);
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    fireEvent.change(input("subject"), { target: { value: "New subject" } });
+    fireEvent.change(input("note"), { target: { value: "Newest note" } });
+    await readyToSend();
+    await act(async () => { release(); });
+    const frame = screen.getByTestId("frame-estimate-email-preview");
+    expect(frame.getAttribute("srcdoc")).toContain("Newest note");
+    expect(frame.getAttribute("srcdoc")).not.toContain("Old preview");
+    expect(screen.getByTestId("estimate-email-preview").textContent).toContain("Subject: New subject");
+    const requests = calls().filter(c => c.url === preview);
+    expect(requests.map(c => c.body)).toEqual([{ note: "" }, { note: "slow" }, { subject: "New subject", note: "Newest note" }]);
+    expect(requests.every(c => new Headers(c.headers).get("X-Company-Id") === "c1")).toBe(true);
+  });
   it("explicitly resends the archived filename from a historical sent version without advancing", async () => {
     detail = detailOf([{ id: "v1", status: "sent", n: 1, o: sent }, { id: "v2", status: "draft", n: 2 }], "v1", { ticketId: "ticket1" });
-    handler = c => c.url.endsWith("/email-options") ? res(options) : c.url === send ? res({ ...(detail as object), emailed: true }) : undefined;
+    handler = c => c.url.endsWith("/email-options") ? res(options) : c.url === preview ? rendered("Original E5 subject")
+      : c.url === send ? res({ ...(detail as object), emailed: true }) : undefined;
     renderAt(`${path}?version=1`);
     await ready();
     fireEvent.keyDown(screen.getByTestId("button-overflow"), { key: "Enter" });
     fireEvent.click(await screen.findByTestId("menu-email-estimate-again"));
     const button = await readyToSend();
+    expect(input("subject").readOnly).toBe(true);
+    expect(input("subject").value).toBe("Original E5 subject");
     expect(screen.getByTestId("estimate-email-attachment").textContent).toContain("EST-2025-0042.pdf");
     expect(screen.getByTestId("estimate-email-attachment").textContent).not.toContain("-v1.pdf");
     fireEvent.click(button);

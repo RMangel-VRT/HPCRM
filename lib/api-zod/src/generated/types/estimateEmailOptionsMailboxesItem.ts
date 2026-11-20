@@ -5,9 +5,11 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { EstimateEmailOptionsMailboxesItemAccountType } from "./estimateEmailOptionsMailboxesItemAccountType";
 
 export type EstimateEmailOptionsMailboxesItem = {
   id: string;
   displayName: string;
   emailAddress: string;
+  accountType: EstimateEmailOptionsMailboxesItemAccountType;
 };

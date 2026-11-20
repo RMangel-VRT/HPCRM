@@ -24,6 +24,7 @@ import { requireMobileAuth, MOBILE_ALLOWED_ROLES } from "../mobileAuth";
 import type { UserWithContext } from "../auth";
 import { objectStorageClient, signObjectURL } from "../objectStorage";
 import { logger } from "../lib/logger";
+import { publicAppUrl } from "../lib/publicAppUrl";
 import { sendEmail } from "../services/emailService";
 import { sendPushToUser } from "../services/pushNotifications";
 
@@ -293,10 +294,7 @@ export async function notifyOfficeOfNewFlag(args: {
       ));
     if (recipients.length === 0) return;
 
-    const baseUrl =
-      process.env.APP_PUBLIC_URL ||
-      (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}` : "");
-    const flagUrl = `${baseUrl}/dashboard/flags/${args.flag.id}`;
+    const flagUrl = `${publicAppUrl()}/dashboard/flags/${args.flag.id}`;
     const fromLabel = args.crewName ?? args.createdByName ?? "the field";
     const atLabel = args.propertyName ?? "an unspecified property";
     const subject = `New field flag from ${fromLabel} at ${atLabel}`;
