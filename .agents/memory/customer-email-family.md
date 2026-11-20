@@ -18,3 +18,7 @@ stripe meaning and stable public images. Keep internal mail distinct (staff
 names allowed, plain footer). M1 adds only the shared foundation and estimate
 variants; the other email families and wording overrides require their own
 scoped work. Never send development test mail to a real customer.
+
+M5 invoice and reminder mail waits for Invoice Center. M6 staff email needs
+the shared layout, not M5 or the customer wording editor. Do not make private
+flag attachments public just to reuse the completion-photo email route.
