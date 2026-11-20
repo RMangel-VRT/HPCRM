@@ -191,6 +191,13 @@ export class ObjectStorageService {
     return objectFile;
   }
 
+  /** Ticket completion uploads use the default bucket, not the private-directory prefix. */
+  getTicketCompletionPhotoFile(key: string): File {
+    const bucket = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+    if (!bucket || !key.startsWith("ticket-photos/")) throw new ObjectNotFoundError();
+    return objectStorageClient.bucket(bucket).file(key);
+  }
+
   normalizeObjectEntityPath(rawPath: string): string {
     if (!rawPath.startsWith("https://storage.googleapis.com/")) {
       return rawPath;

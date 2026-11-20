@@ -52,7 +52,7 @@ describe("customer email layout", () => {
     [{ kind: "summary", title: "Summary", rows: [{ label: "Section", detail: "2 lines", amount: "$800" }], footnote: "Scope only" }, "Scope only", "Summary\nSection (2 lines): $800\nScope only"],
     [{ kind: "steps", title: "What happens next", items: [{ title: "Sign", text: "Reply" }], active: 1 }, 'align="center" bgcolor="#8CC640"', "What happens next\n1. Sign: Reply"],
     [{ kind: "dates", planned: { date: "Nov 21", window: "Morning" }, backup: { date: "Nov 22", note: "If wet" } }, "Backup date", "Planned date: Nov 21\nMorning\nBackup date: Nov 22\nIf wet"],
-    [{ kind: "checklist", title: "Before we arrive", tone: "amber", items: ["Open gate", "Secure pets"] }, "border-left:4px solid #E3A008", "Before we arrive\n- Open gate\n- Secure pets"],
+    [{ kind: "checklist", title: "Before we arrive", tone: "amber", items: ["Open gate", "Secure pets"] }, 'bgcolor="#E3A008"', "Before we arrive\n- Open gate\n- Secure pets"],
     [{ kind: "card", title: "Payment", rows: [{ label: "Account", value: "Office" }] }, ">Payment</div>", "Payment\nAccount: Office"],
     [{ kind: "person", title: "Contact", lines: ["Alex", "Office manager"] }, "Alex<br>Office manager", "Contact\nAlex\nOffice manager"],
     [{ kind: "photos", title: "Work photos", urls: ["https://example.test/a.png?x=1&y=2", "javascript:alert(1)"], caption: "North side" },

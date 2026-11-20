@@ -48,7 +48,7 @@ function legacyApp(action: "patch" | "work" | "work-v2" | "checklist" | "post" |
     req.user = identity ?? { id: actor, name: "Fixture", activeRole: "admin", accessRole: "admin", activeCompanyId: company } as UserWithContext; next(); });
   registerCampaignRoundLists(real);
   new Function("deps", `const {app,storage,canAccessGeneratedRound,toggleRoundChecklist,CrewLinkError,filterUserChemTemplateVars,
-    resolveChemRecipientEmail,resolveChemLabelAttachment,BLOCK_PRODUCT_LABEL_FALLBACK,resolveChemCompletionPhotosHtml,
+    resolveChemRecipientEmail,resolveChemLabelAttachment,BLOCK_PRODUCT_LABEL_FALLBACK,completionPhotoUrls, chemCompletionTime, chemCompletionAftercare,
     resolveChemApplicator,renderChemicalNotificationTemplate,sendEmail,resolveChemCompletionDate,MissingChemicalNotificationTemplateError,getEmailFallbacks,
     roundField,roundAssigned,roundTeamIds,withCampaignContractStates,campaignAllowedRoles}=deps;\n${
     transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code}`)({
@@ -58,7 +58,9 @@ function legacyApp(action: "patch" | "work" | "work-v2" | "checklist" | "post" |
     resolveChemRecipientEmail: async () => ({ email: "fixture@example.invalid" }),
     resolveChemLabelAttachment: async () => ({ url: "https://example.invalid/label", name: "Fixture label", source: "visit" }),
     BLOCK_PRODUCT_LABEL_FALLBACK: false,
-    resolveChemCompletionPhotosHtml: async () => "",
+    completionPhotoUrls: async () => [],
+    chemCompletionTime: () => "",
+    chemCompletionAftercare: () => ({}),
     resolveChemApplicator: async () => ({ name: "Fixture", license: "Fixture" }),
     renderChemicalNotificationTemplate: async () => ({ subject: "Fixture", html: "Fixture", textBody: "Fixture" }),
     sendEmail: async () => ({ id: null, status: deliveryStatus }),

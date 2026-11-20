@@ -51,7 +51,6 @@ export const companyDocumentsUrl = { root: ROOT, license: `${ROOT}/license-numbe
   doc: (id: string) => `${ROOT}/${encodeURIComponent(id)}`, files: (id: string) => `${ROOT}/${encodeURIComponent(id)}/files` };
 
 /** Same check SettingsPage used: a chemical template prints the license footer. */
-export const templateUsesLicense = (html: string | null | undefined) => /\{\{#if\s+pesticideLicenseNumber\}\}/.test(html ?? "");
 
 export const isAttention = (d: Pick<CompanyDocumentDto, "status">) => d.status === "expiring" || d.status === "expired";
 export function soonestAttention(docs: CompanyDocumentDto[]) {

@@ -3,8 +3,12 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { serveCompletionPhoto } from "./services/outgoingEmail/completionPhotoUrls";
 
 const app: Express = express();
+
+// Public bearer links: keep the token out of application request logs.
+app.get("/email-img/:token", serveCompletionPhoto);
 
 app.use(
   pinoHttp({

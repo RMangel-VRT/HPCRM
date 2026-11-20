@@ -7,13 +7,13 @@ export type Block =
   | { kind: "facts"; title?: string; rows: Fact[]; total?: { label: string; value: string } }
   | { kind: "summary"; title: string; rows: { label: string; detail?: string; amount: string }[]; footnote?: string }
   | { kind: "steps"; title: string; items: { title: string; text: string }[]; active: number }
-  | { kind: "dates"; planned: { date: string; window?: string }; backup?: { date: string; note: string } }
+  | { kind: "dates"; planned?: { date: string; window?: string }; backup?: { date: string; note: string } }
   | { kind: "checklist"; title: string; tone: "lime" | "amber"; items: string[] }
   | { kind: "card"; title: string; rows: Fact[] }
   | { kind: "person"; title: string; lines: string[] }
   | { kind: "photos"; title: string; urls: string[]; caption?: string }
   | { kind: "info"; tone: "sky" | "lime"; title: string; text: string }
-  | { kind: "attachments"; items: { title: string; filename: string; detail?: string }[] }
+  | { kind: "attachments"; title?: string; items: { title: string; filename: string; detail?: string; href?: string }[] }
   | { kind: "reply"; text: string };
 
 const line = (row: Fact) => `${row.label}: ${row.value}${row.strike ? " (previous)" : ""}`;
@@ -73,22 +73,29 @@ export function renderBlock(block: Block): { html: string; text: string } {
       block.title, ...block.items.map((item, i) => `${i + 1}. ${item.title}: ${item.text}`));
     case "dates":
       return render(columns([
-        callout("Planned date", [block.planned.date, block.planned.window].filter(Boolean).join("\n"), c.paleLime, c.lime, c.limeText),
+        ...(block.planned ? [callout("Planned date", [block.planned.date, block.planned.window].filter(Boolean).join("\n"), c.paleLime, c.lime, c.limeText)] : []),
         ...(block.backup ? [callout("Backup date", `${block.backup.date}\n${block.backup.note}`, "#fff5dd", "#E3A008", "#8a5a00")] : []),
-      ]), `Planned date: ${block.planned.date}`, block.planned.window,
+      ]), block.planned?.date ? `Planned date: ${block.planned.date}` : undefined, block.planned?.window,
       block.backup && `Backup date: ${block.backup.date}`, block.backup?.note);
     case "checklist": {
       const amber = block.tone === "amber";
-      return render(callout(block.title, block.items.map(item => `– ${item}`).join("\n"),
-        amber ? "#fff5dd" : c.paleLime, amber ? "#E3A008" : c.lime, amber ? "#8a5a00" : c.limeText),
+      return render(label(block.title) + table(block.items.map(item => `<tr>
+<td width="26" valign="top" style="padding:4px 0">${table(`<tr><td width="18" height="18" align="center" bgcolor="${amber ? "#E3A008" : c.lime}" style="border-radius:9px;${font};font-size:11px;font-weight:800;color:${amber ? c.white : c.ink}">${amber ? "!" : "&#10003;"}</td></tr>`, "", undefined, "18")}</td>
+<td style="padding:3px 0;${font};font-size:14px;line-height:1.55;color:${c.ink}">${multiline(item)}</td></tr>`).join("")),
       block.title, ...block.items.map(item => `- ${item}`));
     }
     case "person":
       return render(label(block.title) + card(block.lines.map(multiline).join("<br>")), block.title, ...block.lines);
     case "photos": {
-      const urls = block.urls.slice(0, 3).map(httpUrl).filter((url): url is string => !!url);
-      return render(label(block.title) + columns(urls.map((url, i) =>
-        `<img src="${escape(url)}" alt="Photo ${i + 1}" width="${Math.floor(520 / urls.length)}" style="display:block;width:100%;height:auto;border-radius:8px">`))
+      const urls = block.urls.map(httpUrl).filter((url): url is string => !!url);
+      if (!urls.length) return render("");
+      const rows: string[] = [];
+      for (let i = 0; i < urls.length; i += 3) {
+        const row = urls.slice(i, i + 3);
+        rows.push(columns(row.map((url, j) =>
+          `<img src="${escape(url)}" alt="Photo ${i + j + 1}" width="${Math.floor(520 / row.length)}" style="display:block;width:100%;height:auto;border-radius:8px">`)));
+      }
+      return render(label(block.title) + rows.join('<div style="height:8px;line-height:8px;font-size:0">&nbsp;</div>')
         + (block.caption ? small(block.caption) : ""), block.title, ...urls, block.caption);
     }
     case "info": {
@@ -96,12 +103,14 @@ export function renderBlock(block: Block): { html: string; text: string } {
       return render(callout(block.title, block.text, sky ? "#eaf3fa" : c.paleLime, sky ? "#5B9BD5" : c.lime, sky ? "#255a8a" : c.limeText),
         block.title, block.text);
     }
-    case "attachments":
-      return render(label("Attached") + block.items.map(item => table(`<tr><td width="44" align="center" style="padding:12px 0 12px 12px">
+    case "attachments": {
+      const items = block.items.map(item => ({ ...item, url: item.href ? httpUrl(item.href) : null }));
+      return render(label(block.title ?? "Attached") + items.map(item => table(`<tr><td width="44" align="center" style="padding:12px 0 12px 12px">
 ${table(`<tr><td width="30" height="36" align="center" bgcolor="${c.band}" style="border-radius:4px;${font};font-size:9px;font-weight:800;color:${c.lime};letter-spacing:.04em">${/\.pdf$/i.test(item.filename) ? "PDF" : "FILE"}</td></tr>`, "", undefined, "30")}
-</td><td style="padding:12px 14px;${font};font-size:14px;color:${c.ink};overflow-wrap:anywhere">${bold(item.title)}${small([item.filename, item.detail].filter(Boolean).join(" · "))}</td></tr>`,
+</td><td style="padding:12px 14px;${font};font-size:14px;color:${c.ink};overflow-wrap:anywhere">${item.url ? `<a href="${escape(item.url)}" style="color:${c.limeText};font-weight:700">${escape(item.title)}</a>` : bold(item.title)}${small([item.filename, item.detail].filter(Boolean).join(" · "))}</td></tr>`,
       `border:1px solid ${c.line};border-radius:10px;margin-bottom:8px;table-layout:fixed`, c.soft)).join(""),
-      ...block.items.map(item => `Attached: ${item.filename}${item.detail ? ` · ${item.detail}` : ""}`));
+      ...items.map(item => `${block.title ?? "Attached"}: ${[item.filename || item.title, item.detail].filter(Boolean).join(" · ")}${item.url ? `\n${item.url}` : ""}`));
+    }
     case "reply": {
       const question = block.text.match(/^[^?\n]+\?/u)?.[0];
       return render(card(question ? bold(question) + multiline(block.text.slice(question.length)) : multiline(block.text), c.white, "1px dashed #c9d6cd"), block.text);

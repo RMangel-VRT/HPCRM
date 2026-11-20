@@ -30,3 +30,12 @@ image failures do not establish how the public image URLs behave in real mail
 clients. **How to apply:** check the PNG responses separately and confirm image
 loading in actual mail clients only when the public paths and approved test
 mailbox are available.
+
+For chemical notices, leave product-label URLs on their existing signed-link
+path. Only actual completion images are eligible for durable email links.
+**Why:** recipients may retain or forward notices long after the visit; those
+intentionally shared copies remain readable without a session, but this does
+not authorize other private attachments.
+**How to apply:** verify both the public route and recipient rendering before
+claiming client compatibility. SendGrid acceptance and a successful direct
+image response are separate pieces of evidence.

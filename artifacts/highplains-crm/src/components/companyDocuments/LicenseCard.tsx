@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import {
-  companyDocumentErrorText, companyDocumentsUrl, companyRequest, formatDocDate, templateUsesLicense,
+  companyDocumentErrorText, companyDocumentsUrl, companyRequest, formatDocDate,
   useInvalidateCompanyDocuments, type CompanyDocumentsResponse,
 } from "./companyDocumentsApi";
 
@@ -33,7 +33,7 @@ export function LicenseCard({ companyId, canManage, license, onUploadLicense, on
   useEffect(() => { if (!editingNumber.current) setNumber(license.number ?? ""); }, [license.number]);
   useEffect(() => { setExpires(license.expiresOn ?? ""); }, [license.expiresOn, license.documentId]);
 
-  const { data: chemTemplates = [] } = useQuery<{ preVisitHtml: string; postVisitHtml: string }[]>({
+  const { data: chemTemplates = [] } = useQuery<{ id: string }[]>({
     queryKey: ["/api/chemical-notification-templates", companyId],
     queryFn: async () => (await companyRequest(companyId, "GET", "/api/chemical-notification-templates")).json(),
     enabled: canManage,
@@ -41,7 +41,7 @@ export function LicenseCard({ companyId, canManage, license, onUploadLicense, on
     staleTime: 5 * 60_000,
   });
   const templatesNeedLicense = canManage && !(license.number ?? "").trim() &&
-    chemTemplates.some(tpl => templateUsesLicense(tpl.preVisitHtml) || templateUsesLicense(tpl.postVisitHtml));
+    chemTemplates.length > 0;
 
   const fail = (err: unknown) => toast({ title: t("companyDocuments.errors.title"), description: companyDocumentErrorText(err, t), variant: "destructive" });
 

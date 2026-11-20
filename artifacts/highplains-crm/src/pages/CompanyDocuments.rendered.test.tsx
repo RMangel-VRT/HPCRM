@@ -49,7 +49,7 @@ const GL = doc({ id: "gl", name: "Certificate of insurance — General liability
 const GS = doc({ id: "gs", name: "Certificate of good standing", category: "business" });
 
 let listBody: CompanyDocumentsResponse;
-let templates: { preVisitHtml: string; postVisitHtml: string }[];
+let templates: { id: string; preVisitHtml: string; postVisitHtml: string }[];
 const calls: { method: string; url: string; body?: any; headers?: any }[] = [];
 let qc: QueryClient;
 
@@ -174,7 +174,7 @@ describe("Company documents page", () => {
 
   it("license card without a license document: upload prompt opens Upload with Licenses and role preset; blank number shows template warning", async () => {
     listBody = { documents: [W9], license: { number: null, documentId: null, expiresOn: null } };
-    templates = [{ preVisitHtml: "{{#if pesticideLicenseNumber}}Lic {{pesticideLicenseNumber}}{{/if}}", postVisitHtml: "" }];
+    templates = [{ id: "chemical-template", preVisitHtml: "", postVisitHtml: "" }];
     renderPage();
     expect(await screen.findByTestId("empty-company-license-document")).toBeTruthy();
     expect(screen.queryByTestId("input-company-license-expires")).toBeNull();

@@ -2708,6 +2708,14 @@ export default function CampaignItemDetail() {
                   ) : (
                     <div className="space-y-3" data-testid="form-template-vars">
                       {templateVarSpec.userVariables.map((v) => {
+                        const labelKey = ({
+                          targetDate: 'campaigns.chemNoticeTargetDate',
+                          backupDate: 'campaigns.chemNoticeBackupDate',
+                          areasTreated: 'campaigns.chemAreasLabel',
+                          applicationConditions: 'campaigns.chemConditionsLabel',
+                          nextVisitDate: 'campaigns.chemNoticeNextVisitDate',
+                          notes: 'campaigns.chemNoticeNotes',
+                        } as const)[v.name as 'targetDate' | 'backupDate' | 'areasTreated' | 'applicationConditions' | 'nextVisitDate' | 'notes'];
                         const value = formVars[v.name] ?? '';
                         const updateVar = (next: string) => {
                           const updated = { ...formVars, [v.name]: next };
@@ -2731,7 +2739,7 @@ export default function CampaignItemDetail() {
                         };
                         return (
                           <div key={v.name}>
-                            <Label className="text-xs text-muted-foreground">{v.label}</Label>
+                            <Label className="text-xs text-muted-foreground">{labelKey ? t(labelKey) : v.label}</Label>
                             {v.type === 'date' ? (
                               <DatePickerField
                                 value={value ? new Date(value + 'T00:00:00') : undefined}

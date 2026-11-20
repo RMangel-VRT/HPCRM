@@ -1,427 +1,113 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../storage', () => {
-  const templates: any[] = [];
-  return {
-    storage: {
-      getChemicalNotificationTemplate: vi.fn(async (id: string, companyId: string) =>
-        templates.find(t => t.id === id && t.companyId === companyId) ?? null,
-      ),
-      getChemicalNotificationTemplates: vi.fn(async (companyId: string) =>
-        templates.filter(t => t.companyId === companyId),
-      ),
-      __setTemplates: (rows: any[]) => {
-        templates.length = 0;
-        templates.push(...rows);
-      },
-    },
-  };
-});
+const { templates } = vi.hoisted(() => ({ templates: [] as Record<string, unknown>[] }));
+vi.mock('../storage', () => ({ storage: {
+  getChemicalNotificationTemplate: async (id: string, companyId: string) => templates.find(t => t.id === id && t.companyId === companyId),
+  getChemicalNotificationTemplates: async (companyId: string) => templates.filter(t => t.companyId === companyId),
+} }));
+vi.mock('./outgoingEmail/company', () => ({ loadEmailCompany: async () => ({
+  name: 'Acme Lawn Co', phone: '303-555-0123', email: 'office@acme.example', addressLine: '1 Main Street', website: 'acme.example',
+}) }));
 
-import { storage } from '../storage';
-import {
-  renderChemicalNotificationTemplate,
-  MissingChemicalNotificationTemplateError,
-} from './emailService';
-import { CHEM_NOTIF_TEMPLATE_SEEDS } from '../templates/seed';
+import { chemicalVisitVariableSpec, renderChemicalNotificationTemplate, MissingChemicalNotificationTemplateError } from './emailService';
 
-const setTemplates = (rows: any[]) => (storage as any).__setTemplates(rows);
-
-const baseTpl = {
-  id: 'tpl-1',
-  companyId: 'co-1',
-  name: 'Broadleaf Weed Control',
-  serviceType: 'broadleaf_weed_control',
-  isDefault: false,
-  preVisitSubject: 'Upcoming: {{customerName}} — {{productName}}',
-  preVisitHtml:
-    '<p>Visit for {{customerName}}.</p><p>Product: {{productName}}</p><p>Re-entry: {{reentryInterval}}</p>',
-  postVisitSubject: 'Completed: {{customerName}}',
-  postVisitHtml:
-    '<p>Done for {{customerName}}.</p><p>Watering: {{wateringInstructions}}</p>',
-  defaultLabelPdfStorageKey: null,
-  defaultLabelPdfFilename: null,
-  productName: 'Trimec Classic',
-  activeIngredient: '2,4-D',
-  epaRegNumber: '2217-543',
-  purposeText: 'Selective broadleaf weed control',
-  reentryInterval: 'Until dry',
-  wateringInstructions: 'No watering for 24h',
-  mowingInstructions: 'No mowing for 48h',
-  postApplicationExpectation: 'Wilt in 5-7 days',
+const fields = {
+  productName: 'Sample product', activeIngredient: 'Sample ingredient', epaRegNumber: '123-456', purposeText: 'Sample purpose',
+  reentryInterval: 'Until dry', wateringInstructions: 'Water tomorrow.', mowingInstructions: 'Mow next week.',
+  postApplicationExpectation: 'Signs of treatment appear next week.',
 };
-
-const stdSendVars = {
-  companyName: 'Acme Lawn Co',
-  customerName: 'Pat Customer',
-  campaignTitle: 'Spring Lawn Care',
-  targetDate: 'May 15, 2026',
-  backupDate: 'May 16, 2026',
-  timeWindow: '8:00 AM – 12:00 PM',
-  contactPhone: '555-0123',
-  contactEmail: 'office@acme.example',
-  applicatorName: 'Dana Tech',
-  applicatorLicense: 'CO-12345',
-  pesticideLicenseNumber: 'LIC-9001',
-  notes: 'Gate code 4321.',
-  completionDate: 'May 15, 2026',
-  completionTime: '10:45 AM',
+const base = {
+  id: 'template-1', companyId: 'company-a', name: 'Broadleaf Weed Control', isDefault: true,
+  preVisitSubject: 'Legacy subject', postVisitSubject: 'Legacy subject',
+  preVisitHtml: '<script>Legacy content</script>', postVisitHtml: '<script>Legacy content</script>', ...fields,
 };
+const visit = {
+  customerName: 'Sample Property', campaignTitle: 'Spring Round',
+  targetDate: 'May 15', backupDate: 'May 16', timeWindow: '8:00 AM – 12:00 PM',
+  completionDate: 'May 15', completionTime: '10:45 AM', areasTreated: 'Front lawn', applicationConditions: 'Calm',
+  nextVisitTitle: 'Summer Round', nextVisitDate: 'June 15',
+  pesticideLicenseNumber: 'CO-12345', applicatorName: 'Licensed Sample', applicatorLicense: 'BACKUP',
+  labelAttachmentUrl: 'https://storage.example.test/label?first=1&second=2', labelAttachmentName: 'Product & Label.pdf',
+  companyName: 'Wrong Company', companyPhone: 'Wrong Phone', notes: 'Gate closed after the visit.',
+};
+const render = (kind: 'pre' | 'post', vars = visit as Record<string, string>, urls?: string[], notificationTemplateId?: string) =>
+  renderChemicalNotificationTemplate({ notificationTemplateId }, 'company-a', kind, vars, urls);
 
-describe('renderChemicalNotificationTemplate', () => {
-  beforeEach(() => {
-    setTemplates([]);
-  });
-
-  it('throws MissingChemicalNotificationTemplateError when company has no templates', async () => {
-    await expect(
-      renderChemicalNotificationTemplate({ notificationTemplateId: null }, 'co-1', 'pre', {
-        customerName: 'Acme',
-      }),
-    ).rejects.toBeInstanceOf(MissingChemicalNotificationTemplateError);
-  });
-
-  it('exposes the standard error message on the missing-template error', async () => {
-    try {
-      await renderChemicalNotificationTemplate({ notificationTemplateId: null }, 'co-1', 'pre', {});
-      throw new Error('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(MissingChemicalNotificationTemplateError);
-      expect((err as Error).message).toContain('Notification Templates');
-    }
-  });
-
-  it('falls back to the company default when campaign has no template selected', async () => {
-    setTemplates([
-      { ...baseTpl, id: 'tpl-default', name: 'Default', isDefault: true },
-      { ...baseTpl, id: 'tpl-other', name: 'Other', isDefault: false },
-    ]);
-    const result = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: null },
-      'co-1',
-      'pre',
-      { customerName: 'Acme' },
-    );
-    expect(result.templateId).toBe('tpl-default');
-    expect(result.templateName).toBe('Default');
-    expect(result.subject).toContain('Acme');
-    expect(result.subject).toContain('Trimec Classic');
-    expect(result.html).toContain('Until dry');
-  });
-
-  it('prefers the campaign-selected template over the company default', async () => {
-    setTemplates([
-      { ...baseTpl, id: 'tpl-default', name: 'Default', isDefault: true },
-      { ...baseTpl, id: 'tpl-picked', name: 'Picked', isDefault: false, productName: 'Picked Product' },
-    ]);
-    const result = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: 'tpl-picked' },
-      'co-1',
-      'pre',
-      { customerName: 'Acme' },
-    );
-    expect(result.templateId).toBe('tpl-picked');
-    expect(result.subject).toContain('Picked Product');
-  });
-
-  it('lets caller-supplied non-empty vars override template product metadata', async () => {
-    setTemplates([{ ...baseTpl, isDefault: true }]);
-    const result = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: null },
-      'co-1',
-      'pre',
-      { customerName: 'Acme', productName: 'Override Product', reentryInterval: '' },
-    );
-    expect(result.subject).toContain('Override Product');
-    expect(result.subject).not.toContain('Trimec Classic');
-    expect(result.html).toContain('Until dry');
-  });
-
-  it('renders post-visit subject/html when kind=post', async () => {
-    setTemplates([{ ...baseTpl, isDefault: true }]);
-    const result = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: null },
-      'co-1',
-      'post',
-      { customerName: 'Acme' },
-    );
-    expect(result.subject).toBe('Completed: Acme');
-    expect(result.html).toContain('No watering for 24h');
-  });
-
-  it('returns a non-empty plain-text fallback derived from the rendered HTML', async () => {
-    setTemplates([{ ...baseTpl, isDefault: true }]);
-    const result = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: null },
-      'co-1',
-      'pre',
-      { customerName: 'Acme' },
-    );
-    expect(typeof result.textBody).toBe('string');
-    expect(result.textBody.length).toBeGreaterThan(0);
-    // Tags stripped, content preserved.
-    expect(result.textBody).not.toMatch(/<[a-z]/i);
-    expect(result.textBody).toContain('Acme');
-    expect(result.textBody).toContain('Trimec Classic');
-    expect(result.textBody).toContain('Until dry');
-  });
-
-  // Scenario 1: linked template has been deleted — must throw, never silently
-  // substitute the default (wrong body + wrong label PDF with no warning).
-  it('throws MissingChemicalNotificationTemplateError when the linked template no longer exists', async () => {
-    setTemplates([{ ...baseTpl, id: 'tpl-default', isDefault: true }]);
-    await expect(
-      renderChemicalNotificationTemplate(
-        { notificationTemplateId: 'tpl-deleted' },
-        'co-1',
-        'pre',
-        { customerName: 'Acme' },
-      ),
-    ).rejects.toBeInstanceOf(MissingChemicalNotificationTemplateError);
-  });
-
-  it('deleted-template error includes an actionable message for the user', async () => {
-    setTemplates([{ ...baseTpl, id: 'tpl-default', isDefault: true }]);
-    try {
-      await renderChemicalNotificationTemplate(
-        { notificationTemplateId: 'tpl-deleted' },
-        'co-1',
-        'pre',
-        { customerName: 'Acme' },
-      );
-      throw new Error('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(MissingChemicalNotificationTemplateError);
-      expect((err as Error).message).toContain('no longer exists');
-      expect((err as MissingChemicalNotificationTemplateError).status).toBe(400);
-    }
-  });
-
-  // Scenario 2: ambiguous defaults — two templates both marked isDefault with no
-  // explicit selection; the correct template cannot be determined automatically.
-  it('throws MissingChemicalNotificationTemplateError when two templates are both marked isDefault', async () => {
-    setTemplates([
-      { ...baseTpl, id: 'tpl-a', name: 'Default A', isDefault: true },
-      { ...baseTpl, id: 'tpl-b', name: 'Default B', isDefault: true },
-    ]);
-    await expect(
-      renderChemicalNotificationTemplate(
-        { notificationTemplateId: null },
-        'co-1',
-        'pre',
-        { customerName: 'Acme' },
-      ),
-    ).rejects.toBeInstanceOf(MissingChemicalNotificationTemplateError);
-  });
-
-  it('multiple-defaults error message directs the user to select explicitly', async () => {
-    setTemplates([
-      { ...baseTpl, id: 'tpl-a', isDefault: true },
-      { ...baseTpl, id: 'tpl-b', isDefault: true },
-    ]);
-    try {
-      await renderChemicalNotificationTemplate(
-        { notificationTemplateId: null },
-        'co-1',
-        'pre',
-        {},
-      );
-      throw new Error('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(MissingChemicalNotificationTemplateError);
-      expect((err as Error).message).toContain('Multiple');
-      expect((err as MissingChemicalNotificationTemplateError).status).toBe(400);
-    }
-  });
-});
-
-describe('renderChemicalNotificationTemplate — full template seed coverage', () => {
-  beforeEach(() => setTemplates([]));
-
-  it('exports exactly 8 standard service-type seeds', () => {
-    expect(CHEM_NOTIF_TEMPLATE_SEEDS).toHaveLength(8);
-    const serviceTypes = new Set(CHEM_NOTIF_TEMPLATE_SEEDS.map(s => s.serviceType));
-    expect(serviceTypes.size).toBe(8);
-  });
-
-  for (const seed of CHEM_NOTIF_TEMPLATE_SEEDS) {
-    it(`renders pre + post for "${seed.name}" with all required sections populated`, async () => {
-      setTemplates([{
-        ...baseTpl,
-        id: `tpl-${seed.serviceType}`,
-        name: seed.name,
-        serviceType: seed.serviceType,
-        isDefault: true,
-        preVisitSubject: seed.preVisitSubject,
-        preVisitHtml: seed.preVisitHtml,
-        postVisitSubject: seed.postVisitSubject,
-        postVisitHtml: seed.postVisitHtml,
-        productName: seed.productName,
-        activeIngredient: seed.activeIngredient,
-        epaRegNumber: seed.epaRegNumber,
-        purposeText: seed.purposeText,
-        reentryInterval: seed.reentryInterval,
-        wateringInstructions: seed.wateringInstructions,
-        mowingInstructions: seed.mowingInstructions,
-        postApplicationExpectation: seed.postApplicationExpectation,
-      }]);
-
-      const pre = await renderChemicalNotificationTemplate(
-        { notificationTemplateId: null }, 'co-1', 'pre', stdSendVars,
-      );
-      expect(pre.subject).toContain('Pat Customer');
-      expect(pre.html).toContain('Acme Lawn Co');
-      expect(pre.html).toContain('May 15, 2026');
-      expect(pre.html).toContain(seed.productName);
-      expect(pre.html).toContain('8:00 AM');
-      expect(pre.html).toContain('Dana Tech');
-      expect(pre.html).toContain('Gate code 4321.');
-      expect(pre.html).toContain('LIC-9001');
-
-      const post = await renderChemicalNotificationTemplate(
-        { notificationTemplateId: null }, 'co-1', 'post', stdSendVars,
-      );
-      expect(post.subject).toContain('Pat Customer');
-      expect(post.html).toContain('Visit completed');
-      expect(post.html).toContain(seed.productName);
-      expect(post.html).toContain('May 15, 2026');
-      expect(post.html).toContain(seed.postApplicationExpectation);
-      expect(post.html).toContain('LIC-9001');
-    });
+function ordered(content: string, terms: string[]) {
+  let index = -1;
+  for (const term of terms) {
+    const next = content.indexOf(term, index + 1);
+    expect(next, term).toBeGreaterThan(index);
+    index = next;
   }
+}
 
-  it('omits optional sections when their vars are empty', async () => {
-    const seed = CHEM_NOTIF_TEMPLATE_SEEDS[0];
-    setTemplates([{
-      ...baseTpl,
-      id: 'tpl-min',
-      name: seed.name,
-      isDefault: true,
-      preVisitSubject: seed.preVisitSubject,
-      preVisitHtml: seed.preVisitHtml,
-      postVisitSubject: seed.postVisitSubject,
-      postVisitHtml: seed.postVisitHtml,
-      productName: '',
-      activeIngredient: '',
-      epaRegNumber: '',
-      purposeText: '',
-      reentryInterval: '',
-      wateringInstructions: '',
-      mowingInstructions: '',
-      postApplicationExpectation: '',
-    }]);
-    const minimalVars = {
-      companyName: 'Acme',
-      customerName: 'Pat',
-      campaignTitle: 'Spring',
-      targetDate: 'May 15',
-      backupDate: 'May 16',
-      applicatorName: 'Dana',
-    };
+describe('branded chemical notices', () => {
+  beforeEach(() => templates.splice(0, templates.length, base));
 
-    const pre = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: null }, 'co-1', 'pre', minimalVars,
-    );
-    expect(pre.html).not.toContain('Active Ingredient');
-    expect(pre.html).not.toContain('EPA Registration');
-    expect(pre.html).not.toContain('Service Window');
-    expect(pre.html).not.toContain('License:');
-    expect(pre.html).not.toContain('Additional Notes');
-    expect(pre.html).not.toContain('Pesticide Applicator License');
-    expect(pre.html).not.toContain('View Product Label');
-
-    const post = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: null }, 'co-1', 'post', { ...minimalVars, completionDate: 'May 15' },
-    );
-    expect(post.html).not.toContain('Areas Treated');
-    expect(post.html).not.toContain('Application Conditions');
-    expect(post.html).not.toContain('Site Photos');
-    expect(post.html).not.toContain('Technician Notes');
-    expect(post.html).not.toContain('What to Expect Next');
-  });
-});
-
-// Extended base template with all four override-able fields in the HTML so
-// per-visit override tests can assert they appear or are absent.
-const overrideTpl = {
-  ...baseTpl,
-  preVisitHtml:
-    '<p>{{customerName}}</p><p>Purpose: {{purpose}}</p><p>Re-entry: {{reentryInterval}}</p><p>Watering: {{wateringInstructions}}</p><p>Mowing: {{mowingInstructions}}</p>',
-  postVisitHtml:
-    '<p>{{customerName}}</p><p>Purpose: {{purpose}}</p><p>Re-entry: {{reentryInterval}}</p><p>Watering: {{wateringInstructions}}</p><p>Mowing: {{mowingInstructions}}</p>',
-  purposeText: 'Template default purpose',
-  reentryInterval: 'Template default reentry',
-  wateringInstructions: 'Template default watering',
-  mowingInstructions: 'Template default mowing',
-};
-
-describe('renderChemicalNotificationTemplate — per-visit override vars', () => {
-  beforeEach(() => setTemplates([]));
-
-  it('pre-email: per-visit override vars win over template defaults', async () => {
-    setTemplates([{ ...overrideTpl, isDefault: true }]);
-    const result = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: null },
-      'co-1',
-      'pre',
-      {
-        ...stdSendVars,
-        purpose: 'Visit-specific crabgrass control',
-        reentryInterval: '6 hours (visit override)',
-      },
-    );
-    expect(result.html).toContain('Visit-specific crabgrass control');
-    expect(result.html).not.toContain('Template default purpose');
-    expect(result.html).toContain('6 hours (visit override)');
-    expect(result.html).not.toContain('Template default reentry');
-    // Fields not overridden still come from template defaults
-    expect(result.html).toContain('Template default watering');
-    expect(result.html).toContain('Template default mowing');
+  it('uses the exact upcoming subject, ordered blocks and company contact data', async () => {
+    const result = await render('pre', { ...visit, reentryInterval: '6 hours', wateringInstructions: '   ' });
+    expect(result.subject).toBe('Upcoming Broadleaf Weed Control – Sample Property');
+    expect(result.templateId).toBe(base.id);
+    expect(result.templateName).toBe(base.name);
+    const terms = ['May 15', 'May 16', 'Before we arrive', 'After the application', 'What we’re applying',
+      'Licensed applicator on your visit', 'Required by Colorado law', 'A note from High Plains'];
+    ordered(result.html.split('<h1')[1], terms);
+    ordered(result.textBody, terms);
+    expect(result.html).toContain('href="https://storage.example.test/label?first=1&amp;second=2"');
+    expect(result.html).toContain('Product &amp; Label.pdf');
+    expect(result.textBody).toContain('https://storage.example.test/label?first=1&second=2');
+    expect(result.textBody).toContain('Stay off treated areas: 6 hours.');
+    expect(result.textBody).toContain('Water tomorrow.');
+    expect(result.textBody).toContain('Colorado Commercial Applicator · License #CO-12345');
+    expect(result.textBody).toContain('Questions on the day? 303-555-0123');
+    expect(result.textBody).toContain('Thank you,\nAcme Lawn Co');
+    expect(result.html).not.toMatch(/Legacy|Wrong Company|Wrong Phone|#BACKUP|display\s*:\s*(?:flex|grid)|<style|<svg|::after/i);
   });
 
-  it('post-email: per-visit override vars win over template defaults', async () => {
-    setTemplates([{ ...overrideTpl, isDefault: true }]);
-    const result = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: null },
-      'co-1',
-      'post',
-      {
-        ...stdSendVars,
-        wateringInstructions: 'Water in immediately (visit override)',
-        mowingInstructions: 'Mow after 72h (visit override)',
-      },
-    );
-    expect(result.html).toContain('Water in immediately (visit override)');
-    expect(result.html).not.toContain('Template default watering');
-    expect(result.html).toContain('Mow after 72h (visit override)');
-    expect(result.html).not.toContain('Template default mowing');
-    // Fields not overridden still come from template defaults
-    expect(result.html).toContain('Template default purpose');
-    expect(result.html).toContain('Template default reentry');
+  it('uses the exact completion subject, ordered blocks, and every photo in rows of up to three', async () => {
+    const urls = Array.from({ length: 5 }, (_, i) => `https://images.example.test/${i}.jpg`);
+    const result = await render('post', { ...visit, mowingInstructions: 'Visit-specific mowing.' }, urls);
+    expect(result.subject).toBe('Broadleaf Weed Control completed – Sample Property');
+    const terms = ['10:45 AM', 'Front lawn', 'Calm', 'For the next two days', 'What to expect', 'Photos from today',
+      urls[0], urls[4], 'Summer Round', 'June 15', 'Required by Colorado law', 'A note from High Plains'];
+    ordered(result.html, terms);
+    ordered(result.textBody, terms);
+    expect(result.html).toMatch(/alt="Photo 3"[^>]*><\/td><\/tr><\/table>[\s\S]+<tr><td[^>]*><img [^>]*alt="Photo 4"/);
+    expect(result.html).toContain('Visit-specific mowing.');
+    expect(result.textBody).not.toContain('Mow next week.');
+    expect(result.textBody).not.toMatch(/<[^>]+>|Licensed Sample|Sample purpose/);
+    expect(result.html).not.toMatch(/Legacy|display\s*:\s*(?:flex|grid)|<style|<svg|::after/i);
   });
 
-  it('no overrides: template defaults render unchanged for both pre and post', async () => {
-    setTemplates([{ ...overrideTpl, isDefault: true }]);
-    const pre = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: null },
-      'co-1',
-      'pre',
-      { customerName: 'Test Customer', companyName: 'Acme', campaignTitle: 'Spring' },
-    );
-    expect(pre.html).toContain('Template default purpose');
-    expect(pre.html).toContain('Template default reentry');
-    expect(pre.html).toContain('Template default watering');
-    expect(pre.html).toContain('Template default mowing');
+  it('omits absent blocks, leaves company fallback out of the disclosure, and escapes supplied values', async () => {
+    templates[0] = { ...base, ...Object.fromEntries(Object.keys(fields).map(key => [key, null])) };
+    const pre = await render('pre', { customerName: '<Property>', applicatorLicense: 'ONLY-LICENSE', labelAttachmentUrl: 'javascript:alert(1)' });
+    expect(pre.html).toContain('Before we arrive');
+    expect(pre.html).toContain('&lt;Property&gt;');
+    expect(pre.textBody).toContain('License #ONLY-LICENSE');
+    expect(pre.html).not.toMatch(/Planned date|Backup date|After the application|What we’re applying|Product label|note from High Plains|javascript:/);
+    const post = await render('post', { customerName: 'Sample Property' }, ['data:image/png;base64,test']);
+    expect(post.html).not.toMatch(/For the next two days|What to expect|Photos from today|Next visit|Product label|note from High Plains|Licensed applicator/);
+  });
 
-    const post = await renderChemicalNotificationTemplate(
-      { notificationTemplateId: null },
-      'co-1',
-      'post',
-      { customerName: 'Test Customer', companyName: 'Acme', campaignTitle: 'Spring', completionDate: 'May 15' },
-    );
-    expect(post.html).toContain('Template default purpose');
-    expect(post.html).toContain('Template default reentry');
-    expect(post.html).toContain('Template default watering');
-    expect(post.html).toContain('Template default mowing');
+  it('keeps visit input specs independent of stored HTML', () => {
+    expect(chemicalVisitVariableSpec('pre').user.map(v => v.name)).toEqual(['targetDate', 'backupDate', 'notes']);
+    expect(chemicalVisitVariableSpec('post').user.map(v => v.name)).toEqual(['areasTreated', 'applicationConditions', 'nextVisitDate', 'notes']);
+  });
+
+  it('honors selection over the company default, and refuses missing or cross-company selection', async () => {
+    templates.push({ ...base, id: 'picked', name: 'Selected', isDefault: false }, { ...base, id: 'foreign', companyId: 'company-b' });
+    expect((await render('pre', visit, [], 'picked')).subject).toBe('Upcoming Selected – Sample Property');
+    expect((await render('pre')).templateId).toBe(base.id);
+    await expect(render('pre', visit, [], 'foreign')).rejects.toThrow(/linked to this campaign no longer exists/);
+  });
+
+  it('keeps the same missing and ambiguous default errors', async () => {
+    templates.length = 0;
+    await expect(render('pre')).rejects.toBeInstanceOf(MissingChemicalNotificationTemplateError);
+    await expect(render('pre')).rejects.toThrow(/Notification Templates/);
+    templates.push(base, { ...base, id: 'duplicate' });
+    await expect(render('pre')).rejects.toThrow(/Multiple notification templates/);
   });
 });
