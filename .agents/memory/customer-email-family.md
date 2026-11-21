@@ -7,7 +7,7 @@ Customer emails speak as High Plains, not an individual staff member. Use one
 shared email-safe layout, with company contact facts from Document settings
 and the company name from the company. Staff may edit wording and review a
 server-rendered preview; the layout is fixed and there is no HTML editor.
-Prefer the shared office Gmail mailbox. Bulk chemical mail stays on SendGrid
+Use only shared office Gmail mailboxes. Bulk chemical mail stays on SendGrid
 until separately approved. English email defaults and bilingual UI are distinct.
 
 **Why:** The user approved one visual and writing system for customer emails,
@@ -36,6 +36,20 @@ image failures do not establish how the public image URLs behave in real mail
 clients. **How to apply:** check the PNG responses separately and confirm image
 loading in actual mail clients only when the public paths and approved test
 mailbox are available.
+
+The November 21 mailbox decision supersedes the earlier shared-mailbox
+preference: the CRM sends and syncs only shared mailboxes. Personal mail stays
+in the everyday mail client and reaches the CRM when staff CC or forward the
+shared address. Run due-aware sync while the autoscale app is awake; no cron or
+always-on deployment. Imported legacy CRM copies may be removed only through
+a separately confirmed admin action; preserve CRM-authored records and never
+delete the provider originals.
+
+**Why:** The CRM is the company conversation record, not a personal inbox.
+
+**How to apply:** Enforce shared-only access at sender, connection and sync
+boundaries. A management-company-name-only match belongs in Unsorted for
+review, not on a customer's record.
 
 For chemical notices, leave product-label URLs on their existing signed-link
 path. Only actual completion images are eligible for durable email links.

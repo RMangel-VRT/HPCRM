@@ -20,3 +20,13 @@ Logging a customer communication is not a request to send it. A selected
 mailbox can identify where an email was handled even if that mailbox is
 disconnected or sync-disabled. Honor explicit log-only intent, and check the
 current server-side mailbox capability before creating a delivery draft.
+
+Gmail can replace the reserved RFC Message-ID when it accepts a send. The
+reservation is a pre-send claim, not authoritative proof of the delivered ID.
+
+**Why:** The Sent-folder copy can use a different Message-ID, so reserved-only
+matching creates duplicates and can leave replies referencing the wrong ID.
+
+**How to apply:** Keep the reservation before transport, then reconcile against
+Gmail's stored RFC Message-ID and retain the original CRM record. A failed
+metadata lookup after transport must never trigger a second send.
