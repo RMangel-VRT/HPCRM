@@ -92,8 +92,6 @@ const SeasonDetail = lazy(() => import("@/pages/SeasonDetail"));
 const CommunicationsCenter = lazy(() => import("@/pages/CommunicationsCenter"));
 const ServiceChecklistsPage = lazy(() => import("@/pages/ServiceChecklistsPage"));
 const PropertyDetail = lazy(() => import("@/pages/PropertyDetail"));
-const MailboxAccountsSettingsPage = lazy(() => import("@/pages/MailboxAccountsSettingsPage"));
-const MyMailboxPage = lazy(() => import("@/pages/MyMailboxPage"));
 const SharedMailboxesAndOversightPage = lazy(() => import("@/pages/SharedMailboxesAndOversightPage"));
 const ChemicalNotificationTemplates = lazy(() => import("@/pages/ChemicalNotificationTemplates"));
 const FlagsInboxPage = lazy(() => import("@/pages/FlagsInboxPage"));
@@ -434,7 +432,10 @@ function Router() {
         <Route path="/dashboard/settings/mailbox-accounts">
           <QueryPreservingRedirect to="/dashboard/settings/shared-mailboxes" />
         </Route>
-        <ProtectedRoute path="/dashboard/settings/my-mailbox" component={MyMailboxPage} />
+        <Route path="/dashboard/settings/my-mailbox">
+          <Redirect to={user?.isSuperAdminBool || user?.accessRole === "admin" || user?.accessRole === "office"
+            ? "/dashboard/settings/shared-mailboxes" : "/dashboard"} replace />
+        </Route>
         <Route path="/dashboard/settings/email-templates">
           <QueryPreservingRedirect to="/dashboard/settings/email-wording" />
         </Route>

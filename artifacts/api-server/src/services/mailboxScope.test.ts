@@ -39,48 +39,39 @@ function mockMailboxes(rows: { id: string; displayName?: string }[]) {
   (db.select as ReturnType<typeof vi.fn>).mockReturnValueOnce(makeSelectChain(rows));
 }
 
-function mockUser(name: string) {
-  (db.select as ReturnType<typeof vi.fn>).mockReturnValueOnce(makeSelectChain([{ name }]));
-}
-
 describe("resolveVisibleMailboxes", () => {
   const companyId = "company-1";
   const userId = "user-1";
   const otherUserId = "user-2";
 
-  it("Case 1: admin, no viewAs → all mailboxes (null filter)", async () => {
+  it("admin sees shared mailboxes and unassigned records", async () => {
+    mockMailboxes([{ id: "shared" }]);
     const ctx: ViewerContext = { userId, companyId, role: "admin" };
     const result = await resolveVisibleMailboxes(ctx);
-    expect(result.mailboxIds).toBeNull();
+    expect(result.mailboxIds).toEqual(["shared"]);
     expect(result.includeNullMailbox).toBe(true);
-    expect(result.scopeLabel).toBe("All mailboxes");
+    expect(result.scopeLabel).toBe("Shared mailboxes");
   });
 
-  it("Case 2: office, viewAs=all → all mailboxes (null filter)", async () => {
+  it("office can request all shared mailboxes and unassigned records", async () => {
+    mockMailboxes([{ id: "shared" }]);
     const ctx: ViewerContext = { userId, companyId, role: "office", viewAs: "all" };
     const result = await resolveVisibleMailboxes(ctx);
-    expect(result.mailboxIds).toBeNull();
+    expect(result.mailboxIds).toEqual(["shared"]);
     expect(result.includeNullMailbox).toBe(true);
   });
 
-  it("Case 3: office, viewAs=userId → narrow to that user's personal mailbox", async () => {
+  it("does not resolve a legacy user ID as a mailbox", async () => {
     mockMailboxEmpty();
-    mockMailboxes([{ id: "mb-personal-other" }]);
-    mockUser("Jane Doe");
-    const ctx: ViewerContext = { userId, companyId, role: "office", viewAs: otherUserId };
-    const result = await resolveVisibleMailboxes(ctx);
-    expect(result.mailboxIds).toEqual(["mb-personal-other"]);
+    const result = await resolveVisibleMailboxes({ userId, companyId, role: "office", viewAs: otherUserId });
+    expect(result.mailboxIds).toEqual([]);
     expect(result.includeNullMailbox).toBe(false);
-    expect(result.scopeLabel).toContain("Jane Doe");
   });
 
-  it("Case 4: field (perRole.field=own), no viewAs → own personal mailbox only", async () => {
+  it("preserves mailbox-free own records when a role has no shared grant", async () => {
     mockSettings({ shared: ["admin", "office"], perRole: { field: "own" } });
-    mockMailboxes([{ id: "mb-personal-self" }]);
-    const ctx: ViewerContext = { userId, companyId, role: "field" };
-    const result = await resolveVisibleMailboxes(ctx);
-    expect(result.mailboxIds).not.toBeNull();
-    expect(result.mailboxIds).toContain("mb-personal-self");
+    const result = await resolveVisibleMailboxes({ userId, companyId, role: "field" });
+    expect(result.mailboxIds).toEqual([]);
     expect(result.includeNullMailbox).toBe(false);
     expect(result.nullMailboxSentByUserId).toBe(userId);
   });
@@ -97,11 +88,12 @@ describe("resolveVisibleMailboxes", () => {
 
   it("Case 6: field_manager, no perRole override, not in shared list → all mailboxes (no restriction)", async () => {
     mockSettings({ shared: ["admin", "office"], perRole: {} });
+    mockMailboxes([{ id: "shared" }]);
     const ctx: ViewerContext = { userId, companyId, role: "field_manager" };
     const result = await resolveVisibleMailboxes(ctx);
-    expect(result.mailboxIds).toBeNull();
+    expect(result.mailboxIds).toEqual(["shared"]);
     expect(result.includeNullMailbox).toBe(true);
-    expect(result.scopeLabel).toBe("All mailboxes");
+    expect(result.scopeLabel).toBe("Shared mailboxes");
   });
 
   it("Case 7: field with perRole.field=shared_only → only shared mailboxes, no personal", async () => {
@@ -118,7 +110,6 @@ describe("resolveVisibleMailboxes", () => {
 
   it("Null-mailbox sentBy fallback: scoped non-admin gets nullMailboxSentByUserId set", async () => {
     mockSettings({ shared: ["admin", "office"], perRole: { field: "own" } });
-    mockMailboxes([{ id: "mb-personal-self" }]);
     const ctx: ViewerContext = { userId, companyId, role: "field" };
     const result = await resolveVisibleMailboxes(ctx);
     expect(result.nullMailboxSentByUserId).toBe(userId);
@@ -137,18 +128,17 @@ describe("resolveVisibleMailboxes", () => {
 
   it("Filter intersection: office viewAs=userId with no personal mailbox returns empty array", async () => {
     mockMailboxEmpty();
-    mockMailboxes([]);
-    mockUser("Bob");
     const ctx: ViewerContext = { userId, companyId, role: "office", viewAs: otherUserId };
     const result = await resolveVisibleMailboxes(ctx);
     expect(result.mailboxIds).toEqual([]);
     expect(result.includeNullMailbox).toBe(false);
   });
 
-  it("superAdmin flag grants all-mailbox access regardless of role", async () => {
+  it("superAdmin flag grants all shared mailboxes regardless of role", async () => {
+    mockMailboxes([{ id: "shared" }]);
     const ctx: ViewerContext = { userId, companyId, role: "field", isSuperAdmin: true };
     const result = await resolveVisibleMailboxes(ctx);
-    expect(result.mailboxIds).toBeNull();
+    expect(result.mailboxIds).toEqual(["shared"]);
     expect(result.includeNullMailbox).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import { contacts, customers, mailboxAccounts, propertyManagerEmails, propertyManagers } from "@workspace/db";
 import { estimateEmailInput, type EstimateEmailOptionsDto } from "@workspace/db/estimate-contracts";
 import type { UserWithContext } from "../auth";
@@ -12,9 +12,10 @@ export async function visibleEstimateSenders(user: UserWithContext, mailboxId?: 
   const visibility = await resolveVisibleMailboxes({ companyId, userId: user.id, role: user.activeRole, isSuperAdmin: user.isSuperAdminBool });
   if (visibility.mailboxIds?.length === 0) return [];
   return db.select({ id: mailboxAccounts.id, displayName: mailboxAccounts.displayName, emailAddress: mailboxAccounts.emailAddress,
-    accountType: mailboxAccounts.accountType, ownerUserId: mailboxAccounts.ownerUserId })
+    accountType: mailboxAccounts.accountType })
     .from(mailboxAccounts).where(and(eq(mailboxAccounts.companyId, companyId), eq(mailboxAccounts.isActive, true),
-      eq(mailboxAccounts.syncEnabled, true), eq(mailboxAccounts.syncStatus, "connected"),
+      eq(mailboxAccounts.accountType, "shared"), eq(mailboxAccounts.syncEnabled, true), eq(mailboxAccounts.syncStatus, "connected"),
+      isNotNull(mailboxAccounts.oauthTokenJson),
       mailboxId ? eq(mailboxAccounts.id, mailboxId) : undefined,
       visibility.mailboxIds ? inArray(mailboxAccounts.id, visibility.mailboxIds) : undefined))
     .orderBy(asc(mailboxAccounts.displayName), asc(mailboxAccounts.id));
@@ -50,11 +51,7 @@ export async function estimateEmailOptions(user: UserWithContext, customerId: st
   }
   for (const person of people) for (const email of person.emails ?? []) add(email, person.name, person.primary === "true");
   for (const email of billing) add(email, "");
-  const ranked = [...mailboxes].sort((a, b) => {
-    const rank = (m: typeof a) => m.accountType === "shared" ? 0 : m.ownerUserId === user.id ? 1 : 2;
-    return rank(a) - rank(b);
-  });
-  return { ...settings, mailboxes: ranked.map(({ id, displayName, emailAddress, accountType }) => ({ id, displayName, emailAddress, accountType })),
-    defaultMailboxId: ranked.find(m => m.accountType === "shared" || m.ownerUserId === user.id)?.id ?? null,
+  return { ...settings, mailboxes,
+    defaultMailboxId: mailboxes[0]?.id ?? null,
     recipients: [...options.values()], defaultTo: preferred.size === 1 ? options.get([...preferred][0])!.email : null };
 }

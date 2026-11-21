@@ -182,107 +182,6 @@ const ACTION_TYPE_VARIANTS: Record<string, string> = {
   automation_toggled: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300",
 };
 
-function ClearSeedSamplesButton() {
-  const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const clearMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/communications/clear-seed-data", {});
-      return res.json() as Promise<{ deletedCount: number; deletedIds: string[] }>;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
-      setOpen(false);
-
-      if (data.deletedCount === 0) {
-        toast({ title: "No seed samples to clear" });
-        return;
-      }
-
-      let undone = false;
-      const handle = toast({
-        title: "Seed sample emails cleared",
-        description: `${data.deletedCount} sample communication${data.deletedCount === 1 ? "" : "s"} removed.`,
-        duration: 10000,
-        action: (
-          <ToastAction
-            altText="Undo clear seed samples"
-            data-testid="button-undo-clear-seed-samples"
-            onClick={async (e) => {
-              e.preventDefault();
-              if (undone) return;
-              undone = true;
-              try {
-                const res = await apiRequest("POST", "/api/communications/restore-batch", {
-                  ids: data.deletedIds,
-                });
-                if (!res.ok) {
-                  const text = await res.text().catch(() => "");
-                  throw new Error(text || "Failed to restore communications");
-                }
-                handle.dismiss();
-                queryClient.invalidateQueries({ queryKey: ["/api/communications"] });
-                toast({ title: "Seed sample emails restored" });
-              } catch (err) {
-                toast({
-                  title: "Failed to undo",
-                  description: err instanceof Error ? err.message : String(err),
-                  variant: "destructive",
-                });
-              }
-            }}
-          >
-            Undo
-          </ToastAction>
-        ),
-      });
-    },
-    onError: (err: Error) => {
-      toast({
-        title: "Failed to clear seed samples",
-        description: err.message,
-        variant: "destructive",
-      });
-    },
-  });
-  return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
-      <AlertDialogTrigger asChild>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1 text-xs h-7 text-destructive border-destructive/30 hover:bg-destructive/10"
-          data-testid="button-clear-seed-samples"
-        >
-          <Trash2 className="w-3 h-3" />
-          Clear seed sample emails
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Clear seed sample emails?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This permanently removes the demo communications that ship with the CRM
-            (e.g. "Spring Service Schedule Confirmation", "Crew arriving today").
-            Real communications are not affected. This action is logged in the audit log.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel data-testid="button-cancel-clear-seed-samples">Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={(e) => { e.preventDefault(); clearMutation.mutate(); }}
-            disabled={clearMutation.isPending}
-            data-testid="button-confirm-clear-seed-samples"
-          >
-            {clearMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Trash2 className="w-3.5 h-3.5 mr-1" />}
-            Clear samples
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
 function ActionTypeBadge({ actionType }: { actionType: string }) {
   const colorClass = ACTION_TYPE_VARIANTS[actionType] ?? "bg-muted text-muted-foreground";
   return (
@@ -1367,6 +1266,7 @@ interface CommListProps {
   typeFilter: string;
   customerIdFilter: string;
   sentByIdFilter: string;
+  viewAs?: string;
   selectedId: string | null;
   onSelect: (id: string) => void;
   initialFilters?: Record<string, string>;
@@ -1378,21 +1278,24 @@ function CommunicationsList({
   typeFilter,
   customerIdFilter,
   sentByIdFilter,
+  viewAs,
   selectedId,
   onSelect,
   initialFilters,
 }: CommListProps) {
   const params = new URLSearchParams();
   if (view && view !== "all") params.set("view", view);
-  if (typeFilter) params.set("type", typeFilter);
+  if (viewAs) params.set("viewAs", viewAs);
+  if (typeFilter && typeFilter !== "all") params.set("type", typeFilter);
   if (customerIdFilter) params.set("customerId", customerIdFilter);
   if (sentByIdFilter) params.set("sentById", sentByIdFilter);
   if (search) params.set("search", search);
+  if (initialFilters?.direction && initialFilters.direction !== "all") params.set("direction", initialFilters.direction);
   if (initialFilters?.startDate) params.set("startDate", initialFilters.startDate);
   if (initialFilters?.endDate) params.set("endDate", initialFilters.endDate);
 
   const { data: comms = [], isLoading } = useQuery<CommunicationWithDetails[]>({
-    queryKey: ["/api/communications", view, search, typeFilter, customerIdFilter, sentByIdFilter, initialFilters?.startDate, initialFilters?.endDate],
+    queryKey: ["/api/communications", view, search, typeFilter, customerIdFilter, sentByIdFilter, viewAs, initialFilters?.direction, initialFilters?.startDate, initialFilters?.endDate],
     queryFn: async () => {
       const res = await fetch(`/api/communications?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch");
@@ -2343,7 +2246,6 @@ export default function AllCommunicationsTab() {
             <div className="p-4 border-b space-y-3 shrink-0">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold capitalize" data-testid="text-view-title">{sectionFilter} Communications</h2>
-                {permissions.isAdmin && <ClearSeedSamplesButton />}
               </div>
               <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
@@ -2376,6 +2278,7 @@ export default function AllCommunicationsTab() {
                 typeFilter={typeFilter}
                 customerIdFilter={customerIdFilter}
                 sentByIdFilter={sentByIdFilter}
+                viewAs={viewAs}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
               />

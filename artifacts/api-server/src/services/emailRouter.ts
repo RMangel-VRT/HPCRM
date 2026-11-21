@@ -1,6 +1,8 @@
 import { db } from "../db";
 import { contacts, customers, communications, unsortedEmails } from "@workspace/db";
-import { eq, and, or, sql, inArray } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
+
+import { sharedOrUnassigned } from "./mailboxScope";
 
 export interface ParsedMessage {
   providerMessageId: string;
@@ -110,7 +112,7 @@ export async function routeMessage(companyId: string, msg: ParsedMessage, opts: 
     const threadRows = await db
       .select({ customerId: communications.customerId })
       .from(communications)
-      .where(and(eq(communications.companyId, companyId), or(...conditions)));
+      .where(and(eq(communications.companyId, companyId), sharedOrUnassigned(companyId, communications.mailboxAccountId), or(...conditions)));
 
     const ids = [...new Set(threadRows.map(r => r.customerId).filter(Boolean))] as string[];
     threadCandidates.push(...ids);
@@ -198,10 +200,8 @@ export async function routeMessage(companyId: string, msg: ParsedMessage, opts: 
   const pmcUnique = [...new Set(pmcMatches)];
   if (pmcUnique.length === 1) {
     return {
-      action: "route",
-      customerId: pmcUnique[0],
-      routingMethod: "content_match",
-      routingConfidence: 0.6,
+      action: "unsorted",
+      candidateCustomerIds: pmcUnique,
       routingNotes: `[email-sync] Tier 4 pmc_match: single customer matched via management company name`,
     };
   }

@@ -34,6 +34,8 @@ import { registerFlagsRoutes } from "./flags";
 import { registerDashboardQueueRoutes } from "./dashboardQueue";
 import { registerEstimatesBoardRoutes } from "./estimatesBoard";
 import { registerBidsBoardRoutes } from "./bidsBoard";
+import { resolveVisibleMailboxes, MailboxScopeForbiddenError, sharedOrUnassigned, canReferenceSharedMailbox } from "../services/mailboxScope";
+import { communicationListFilter } from "../services/communicationListFilters";
 import { excludeBidsFromPersonalTickets } from "../lib/personalTicketScope";
 import { registerDashboardSectionsRoutes } from "./dashboardSections";
 import { registerContractCenterRoutes } from "./contractCenter";
@@ -4575,22 +4577,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       defaultMailboxVisibility: settings.defaultMailboxVisibility ?? { shared: ["admin", "office"], perRole: { field: "own" } },
       defaultSyncIntervalMinutes: settings.defaultSyncIntervalMinutes ?? 2,
     });
-  });
-
-  // Personal mailbox oversight — admin/office list with owner info
-  app.get("/api/mailbox-accounts/personal", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
-    const user = req.user as UserWithContext;
-    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
-      return res.status(403).json({ error: "Admin or office role required" });
-    }
-    try {
-      const rows = await storage.getCompanyPersonalMailboxes(user.activeCompanyId);
-      res.json(rows);
-    } catch (err) {
-      console.error("GET /api/mailbox-accounts/personal error:", err);
-      res.status(500).json({ error: "Internal server error" });
-    }
   });
 
   app.get("/api/customers/:customerId/revenue/:year", async (req, res) => {
@@ -9966,7 +9952,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const customer = await storage.getCustomerById(req.params.id, user.activeCompanyId);
     if (!customer) return res.status(404).send("Customer not found");
     const filters: { type?: string; status?: string; customerId?: string; fromDate?: string; toDate?: string } = { customerId: req.params.id };
-    if (req.query.type) filters.type = req.query.type as string;
+    filters.type = communicationListFilter(req.query.type);
     if (req.query.status) filters.status = req.query.status as string;
     if (req.query.fromDate) filters.fromDate = req.query.fromDate as string;
     if (req.query.toDate) filters.toDate = req.query.toDate as string;
@@ -9975,7 +9961,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       items = items.filter(c => c.direction === req.query.direction);
     }
     // Filter before pagination so totals and later pages reflect actual logs.
-    // Deliberately no change to the existing customer mailbox visibility policy.
     if (req.query.source === "logged") items = items.filter(isLoggedCustomerCommunication);
     if (req.query.mailboxAccountId) {
       items = items.filter(c => c.mailboxAccountId === req.query.mailboxAccountId);
@@ -10149,7 +10134,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).send("Admin or office role required");
     }
     const filters: { type?: string; status?: string; fromDate?: string; toDate?: string } = {};
-    if (req.query.type) filters.type = req.query.type as string;
+    filters.type = communicationListFilter(req.query.type);
     if (req.query.status) filters.status = req.query.status as string;
     if (req.query.fromDate) filters.fromDate = req.query.fromDate as string;
     if (req.query.toDate) filters.toDate = req.query.toDate as string;
@@ -15496,7 +15481,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     let scope: { mailboxIds: string[] | null; includeNullMailbox: boolean; nullMailboxSentByUserId?: string } | undefined;
     try {
-      const { resolveVisibleMailboxes, MailboxScopeForbiddenError } = await import("../services/mailboxScope");
       const vis = await resolveVisibleMailboxes({
         userId: user.id,
         companyId: user.activeCompanyId,
@@ -15506,20 +15490,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       scope = { mailboxIds: vis.mailboxIds, includeNullMailbox: vis.includeNullMailbox, nullMailboxSentByUserId: vis.nullMailboxSentByUserId };
     } catch (err: unknown) {
-      const { MailboxScopeForbiddenError } = await import("../services/mailboxScope");
       if (err instanceof MailboxScopeForbiddenError) return res.status(403).json({ error: err.message });
       console.error("resolveVisibleMailboxes error:", err);
       return res.status(500).json({ error: "Failed to resolve mailbox scope" });
     }
 
     let items = await storage.getCommunications(user.activeCompanyId, {
-      type: type || undefined,
+      type: communicationListFilter(type),
       status: status || undefined,
       customerId: customerId || undefined,
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
     }, scope);
-    if (direction && direction !== "all") items = items.filter(c => c.direction === direction);
+    const directionFilter = communicationListFilter(direction);
+    if (directionFilter) items = items.filter(c => c.direction === directionFilter);
     if (search) {
       const q = search.toLowerCase();
       items = items.filter(c =>
@@ -15610,6 +15594,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: result.error.message });
     }
     const data = result.data;
+    if (data.mailboxAccountId && !await canReferenceSharedMailbox(user, data.mailboxAccountId)) {
+      return res.status(422).json({ error: "Choose an available shared mailbox." });
+    }
 
     // Send-time validation for non-draft communications
     if (data.status === "sent" || data.status === "scheduled") {
@@ -15684,7 +15671,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const updates = parsed.data;
     const id = req.params.id;
     const result = await db.transaction(async tx => {
-      const where = and(eq(communicationsTable.companyId, user.activeCompanyId), eq(communicationsTable.id, id), isNull(communicationsTable.deletedAt));
+      const where = and(eq(communicationsTable.companyId, user.activeCompanyId), eq(communicationsTable.id, id), isNull(communicationsTable.deletedAt),
+        sharedOrUnassigned(user.activeCompanyId, communicationsTable.mailboxAccountId));
       const [row] = await tx.select().from(communicationsTable).where(where).for("update");
       if (!row) return { status: 404 };
       if ((updates.status || updates.scheduledFor !== undefined) && (row.status !== "draft" || (row.deliveryStatus === "pending" && row.providerMessageId)))
@@ -15733,41 +15721,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       },
     });
     res.json(restored);
-  });
-
-  // Admin-only: clear demo/sample communications by their well-known seed subjects
-  app.post("/api/communications/clear-seed-data", requireCommPermission("manage_automations"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const SEED_SUBJECTS = [
-      "Spring Service Schedule Confirmation",
-      "Crew arriving today",
-      "Customer Meeting Notes",
-      "Summer Services Proposal Follow-Up",
-      "Annual Contract Renewal Notice",
-      "Monthly Service Report - March 2026",
-      "Service cancellation notice",
-    ];
-    const deletedIds = await storage.deleteSeedCommunications(user.activeCompanyId, SEED_SUBJECTS);
-    await writeCommAuditLog(user.activeCompanyId, user.id, "communication_seed_cleared", {
-      actionDetails: { deletedCount: deletedIds.length, seedSubjects: SEED_SUBJECTS },
-    });
-    res.json({ deletedCount: deletedIds.length, deletedIds });
-  });
-
-  // Restore a batch of soft-deleted communications (Undo for the seed-cleanup batch)
-  app.post("/api/communications/restore-batch", requireCommPermission("manage_automations"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const ids: unknown = req.body?.ids;
-    if (!Array.isArray(ids) || !ids.every((x) => typeof x === "string")) {
-      return res.status(400).json({ error: "ids must be an array of strings" });
-    }
-    const restoredIds = await storage.restoreCommunications(ids as string[], user.activeCompanyId);
-    if (restoredIds.length > 0) {
-      await writeCommAuditLog(user.activeCompanyId, user.id, "communication_seed_restored", {
-        actionDetails: { restoredCount: restoredIds.length, restoredIds },
-      });
-    }
-    res.json({ restoredCount: restoredIds.length, restoredIds });
   });
 
   // GET /api/communication-threads

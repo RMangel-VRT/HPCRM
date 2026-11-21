@@ -107,6 +107,9 @@ function VersionsCard({ data, lang, onView, onPdf }: {
                     {version.frozenSubtotalCents != null && ` · ${formatCents(version.frozenSubtotalCents, lang)}`}
                   </p>
                 )}
+                {version.emailedFrom && <p className="text-xs text-muted-foreground" data-testid={`estimate-email-from-${version.id}`}>
+                  {version.emailedFrom.name ? `${version.emailedFrom.name} <${version.emailedFrom.address}>` : version.emailedFrom.address}
+                </p>}
                 {version.sentAt && <p className="text-xs text-muted-foreground">{t(version.issuedAttachment ? "estimateBuilder.email.originalPdf" : "estimateBuilder.rail.regeneratedPdf")}</p>}
               </div>
               <button type="button" className="rounded-sm text-xs font-medium text-muted-foreground underline hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

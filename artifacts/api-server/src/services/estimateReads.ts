@@ -55,17 +55,20 @@ export async function estimatePayload(tx: EstimateConnection, companyId: string,
     .orderBy(desc(estimateVersions.versionNumber));
   const issuedIds = rows.flatMap(v => v.emailIssue && v.emailIssue.firstCommunicationId !== v.emailIssue.pendingCommunicationId
     ? [v.emailIssue.firstCommunicationId] : []);
-  const receipts = issuedIds.length ? await tx.select({ id: communications.id, to: communications.toAddresses }).from(communications)
+  const receipts = issuedIds.length ? await tx.select({ id: communications.id, to: communications.toAddresses,
+    fromName: communications.fromName, fromAddress: communications.fromAddress }).from(communications)
     .where(and(eq(communications.companyId, companyId), eq(communications.routingMethod, "estimate_email"),
       eq(communications.deliveryStatus, "sent"), inArray(communications.id, issuedIds))) : [];
-  const byId = new Map(receipts.map(r => [r.id, r.to]));
+  const byId = new Map(receipts.map(r => [r.id, r]));
   const versions: VisibleEstimateVersion[] = rows.map(({ emailIssue, ...row }) => {
     if (!emailIssue) return row;
     const emailDelivery = emailIssue.uncertain ? "uncertain" : emailIssue.pendingCommunicationId ? "sending" : "delivered";
     if (emailIssue.firstCommunicationId === emailIssue.pendingCommunicationId) return { ...row, emailDelivery };
+    const receipt = byId.get(emailIssue.firstCommunicationId);
     return { ...row, emailDelivery,
       issuedAttachment: { filename: emailIssue.filename, pageCount: emailIssue.pageCount },
-      emailedTo: byId.get(emailIssue.firstCommunicationId) ?? [] };
+      emailedTo: receipt?.to ?? [],
+      ...(receipt?.fromAddress ? { emailedFrom: { name: receipt.fromName, address: receipt.fromAddress } } : {}) };
   });
   const version = requireEstimate(versions.find(v => versionNumber !== undefined ? v.versionNumber === versionNumber : v.id === (affectedVersionId ?? estimate.currentVersionId)));
   return { ...estimate, versions,

@@ -282,6 +282,184 @@ export const SendCompanyDocumentEmailBody = zod.object({
     .max(sendCompanyDocumentEmailBodyDocumentIdsMax),
 });
 
+export const ListLegacyMailboxesHeader = zod.object({
+  "X-Company-Id": zod.string().min(1),
+});
+
+export const ListLegacyMailboxesResponseItem = zod.object({
+  id: zod.string(),
+  displayName: zod.string(),
+  emailAddress: zod.string(),
+  accountType: zod.enum(["shared", "personal"]),
+});
+export const ListLegacyMailboxesResponse = zod.array(
+  ListLegacyMailboxesResponseItem,
+);
+
+export const PreviewLegacyMailboxCleanupParams = zod.object({
+  id: zod.coerce.string().min(1),
+});
+
+export const PreviewLegacyMailboxCleanupHeader = zod.object({
+  "X-Company-Id": zod.string().min(1),
+});
+
+export const previewLegacyMailboxCleanupResponseCountsImportedMin = 0;
+
+export const previewLegacyMailboxCleanupResponseCountsRetainedMin = 0;
+
+export const previewLegacyMailboxCleanupResponseCountsThreadsMin = 0;
+
+export const previewLegacyMailboxCleanupResponseCountsUnsortedMin = 0;
+
+export const previewLegacyMailboxCleanupResponseCountsSyncRunsMin = 0;
+
+export const previewLegacyMailboxCleanupResponseCountsBackfillRunsMin = 0;
+
+export const previewLegacyMailboxCleanupResponseCountsMailboxesMin = 0;
+
+export const PreviewLegacyMailboxCleanupResponse = zod.object({
+  reviewKey: zod.string(),
+  counts: zod.object({
+    imported: zod
+      .number()
+      .min(previewLegacyMailboxCleanupResponseCountsImportedMin),
+    retained: zod
+      .number()
+      .min(previewLegacyMailboxCleanupResponseCountsRetainedMin),
+    threads: zod
+      .number()
+      .min(previewLegacyMailboxCleanupResponseCountsThreadsMin),
+    unsorted: zod
+      .number()
+      .min(previewLegacyMailboxCleanupResponseCountsUnsortedMin),
+    syncRuns: zod
+      .number()
+      .min(previewLegacyMailboxCleanupResponseCountsSyncRunsMin),
+    backfillRuns: zod
+      .number()
+      .min(previewLegacyMailboxCleanupResponseCountsBackfillRunsMin),
+    mailboxes: zod
+      .number()
+      .min(previewLegacyMailboxCleanupResponseCountsMailboxesMin),
+  }),
+});
+
+export const CommitLegacyMailboxCleanupParams = zod.object({
+  id: zod.coerce.string().min(1),
+});
+
+export const CommitLegacyMailboxCleanupHeader = zod.object({
+  "X-Company-Id": zod.string().min(1),
+});
+
+export const commitLegacyMailboxCleanupBodyReviewKeyRegExp = new RegExp(
+  "^[a-f0-9]{64}$",
+);
+
+export const CommitLegacyMailboxCleanupBody = zod.object({
+  confirm: zod.literal(true),
+  reviewKey: zod.string().regex(commitLegacyMailboxCleanupBodyReviewKeyRegExp),
+});
+
+export const commitLegacyMailboxCleanupResponseCountsImportedMin = 0;
+
+export const commitLegacyMailboxCleanupResponseCountsRetainedMin = 0;
+
+export const commitLegacyMailboxCleanupResponseCountsThreadsMin = 0;
+
+export const commitLegacyMailboxCleanupResponseCountsUnsortedMin = 0;
+
+export const commitLegacyMailboxCleanupResponseCountsSyncRunsMin = 0;
+
+export const commitLegacyMailboxCleanupResponseCountsBackfillRunsMin = 0;
+
+export const commitLegacyMailboxCleanupResponseCountsMailboxesMin = 0;
+
+export const CommitLegacyMailboxCleanupResponse = zod.object({
+  reviewKey: zod.string(),
+  counts: zod.object({
+    imported: zod
+      .number()
+      .min(commitLegacyMailboxCleanupResponseCountsImportedMin),
+    retained: zod
+      .number()
+      .min(commitLegacyMailboxCleanupResponseCountsRetainedMin),
+    threads: zod
+      .number()
+      .min(commitLegacyMailboxCleanupResponseCountsThreadsMin),
+    unsorted: zod
+      .number()
+      .min(commitLegacyMailboxCleanupResponseCountsUnsortedMin),
+    syncRuns: zod
+      .number()
+      .min(commitLegacyMailboxCleanupResponseCountsSyncRunsMin),
+    backfillRuns: zod
+      .number()
+      .min(commitLegacyMailboxCleanupResponseCountsBackfillRunsMin),
+    mailboxes: zod
+      .number()
+      .min(commitLegacyMailboxCleanupResponseCountsMailboxesMin),
+  }),
+});
+
+export const PreviewDuplicateSentCleanupHeader = zod.object({
+  "X-Company-Id": zod.string().min(1),
+});
+
+export const previewDuplicateSentCleanupResponseCountsMergedMin = 0;
+
+export const previewDuplicateSentCleanupResponseCountsAmbiguousMin = 0;
+
+export const previewDuplicateSentCleanupResponseCountsUnmatchedMin = 0;
+
+export const PreviewDuplicateSentCleanupResponse = zod.object({
+  reviewKey: zod.string(),
+  counts: zod.object({
+    merged: zod
+      .number()
+      .min(previewDuplicateSentCleanupResponseCountsMergedMin),
+    ambiguous: zod
+      .number()
+      .min(previewDuplicateSentCleanupResponseCountsAmbiguousMin),
+    unmatched: zod
+      .number()
+      .min(previewDuplicateSentCleanupResponseCountsUnmatchedMin),
+  }),
+});
+
+export const CommitDuplicateSentCleanupHeader = zod.object({
+  "X-Company-Id": zod.string().min(1),
+});
+
+export const commitDuplicateSentCleanupBodyReviewKeyRegExp = new RegExp(
+  "^[a-f0-9]{64}$",
+);
+
+export const CommitDuplicateSentCleanupBody = zod.object({
+  confirm: zod.literal(true),
+  reviewKey: zod.string().regex(commitDuplicateSentCleanupBodyReviewKeyRegExp),
+});
+
+export const commitDuplicateSentCleanupResponseCountsMergedMin = 0;
+
+export const commitDuplicateSentCleanupResponseCountsAmbiguousMin = 0;
+
+export const commitDuplicateSentCleanupResponseCountsUnmatchedMin = 0;
+
+export const CommitDuplicateSentCleanupResponse = zod.object({
+  reviewKey: zod.string(),
+  counts: zod.object({
+    merged: zod.number().min(commitDuplicateSentCleanupResponseCountsMergedMin),
+    ambiguous: zod
+      .number()
+      .min(commitDuplicateSentCleanupResponseCountsAmbiguousMin),
+    unmatched: zod
+      .number()
+      .min(commitDuplicateSentCleanupResponseCountsUnmatchedMin),
+  }),
+});
+
 export const previewComposeEmailBodySubjectMax = 998;
 
 export const previewComposeEmailBodyBodyMax = 100000;
@@ -303,7 +481,7 @@ export const GetComposeSendOptionsResponse = zod.object({
   mailboxes: zod.array(
     zod.object({
       id: zod.string(),
-      accountType: zod.enum(["shared", "personal"]),
+      accountType: zod.enum(["shared"]),
       displayName: zod.string(),
       emailAddress: zod.string(),
     }),

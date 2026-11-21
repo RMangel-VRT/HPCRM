@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { db } from "../db";
 import { mailboxAccounts, mailboxSyncRuns, unsortedEmails, communications } from "@workspace/db";
-import { insertMailboxAccountSchema } from "@workspace/db";
+import { z } from "zod/v4";
+import { activeSharedMailbox } from "../services/mailboxIngestion";
+import { mailboxCleanupRouter } from "./mailboxCleanup";
 import { eq, and, desc, gte, sql, inArray } from "drizzle-orm";
 import { resolveVisibleMailboxes, MailboxScopeForbiddenError } from "../services/mailboxScope";
 import type { RoleName } from "@workspace/db";
@@ -18,6 +20,12 @@ import { syncMailbox } from "../services/emailSyncService";
 import { startBackfill, requestCancel, getActiveBackfill, getBackfillHistory } from "../services/mailboxBackfillService";
 
 const router = Router();
+router.use("/cleanup", mailboxCleanupRouter);
+const safeAccount = ({ oauthTokenJson: _token, ...account }: typeof mailboxAccounts.$inferSelect) => account;
+const mailboxSettings = z.object({ displayName: z.string().trim().min(1).max(200), emailAddress: z.email().max(254),
+  description: z.string().nullable().optional(), isActive: z.boolean().optional(),
+  syncIntervalMinutes: z.number().int().min(1).max(60).optional(), accountType: z.literal("shared").optional() }).strict();
+
 
 // ─── List all mailbox accounts for the company ────────────────────────────────
 router.get("/", async (req, res) => {
@@ -47,7 +55,7 @@ router.get("/", async (req, res) => {
       return res.json([]);
     }
 
-    const conditions = [eq(mailboxAccounts.companyId, user.activeCompanyId)];
+    const conditions = [eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox];
     if (visibleMailboxIds !== null && visibleMailboxIds.length > 0) {
       conditions.push(inArray(mailboxAccounts.id, visibleMailboxIds));
     }
@@ -55,20 +63,15 @@ router.get("/", async (req, res) => {
     const accounts = await db.select()
       .from(mailboxAccounts)
       .where(and(...conditions));
-    res.json(accounts);
+    res.json(accounts.map(safeAccount));
   } catch (err) {
     console.error("GET /api/mailbox-accounts error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ─── Auth helper: admin/superadmin OR owner of personal mailbox ───────────────
-function canManageMailboxOAuth(user: UserWithContext, account: typeof mailboxAccounts.$inferSelect): boolean {
-  if (user.isSuperAdminBool) return true;
-  if (user.accessRole === "admin") return true;
-  // Personal mailbox owned by this user
-  if (account.accountType === "personal" && account.ownerUserId === user.id) return true;
-  return false;
+function canManageMailboxOAuth(user: UserWithContext): boolean {
+  return user.isSuperAdminBool || user.accessRole === "admin";
 }
 
 // ─── OAuth status for a specific mailbox ─────────────────────────────────────
@@ -83,10 +86,10 @@ router.get("/:id/oauth/status", async (req, res) => {
 
     const [account] = await db.select()
       .from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
+    if (!account || account.accountType !== "shared" || !account.isActive) return res.status(404).json({ error: "Not found" });
 
-    if (!canManageMailboxOAuth(user, account)) {
+    if (!canManageMailboxOAuth(user)) {
       return res.status(403).json({ error: "Not authorized to manage this mailbox" });
     }
 
@@ -116,10 +119,10 @@ router.get("/:id/oauth/connect", async (req, res) => {
 
     const [account] = await db.select()
       .from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
+    if (!account || account.accountType !== "shared" || !account.isActive) return res.status(404).json({ error: "Not found" });
 
-    if (!canManageMailboxOAuth(user, account)) {
+    if (!canManageMailboxOAuth(user)) {
       return res.status(403).json({ error: "Not authorized to connect this mailbox" });
     }
 
@@ -129,14 +132,6 @@ router.get("/:id/oauth/connect", async (req, res) => {
     (req.session as Record<string, unknown>).oauthState = randomPart;
     (req.session as Record<string, unknown>).oauthMailboxId = req.params.id;
 
-    // Store return context so the callback can redirect appropriately
-    const fromParam = req.query.from as string | undefined;
-    if (fromParam) {
-      (req.session as Record<string, unknown>).oauthFrom = fromParam;
-    } else {
-      delete (req.session as Record<string, unknown>).oauthFrom;
-    }
-
     const authUrl = generateAuthUrl(state);
     res.json({ authUrl });
   } catch (err) {
@@ -145,132 +140,6 @@ router.get("/:id/oauth/connect", async (req, res) => {
   }
 });
 
-// ─── List personal mailboxes for the current user ────────────────────────────
-// Returns a safe DTO — never exposes oauthTokenJson; derives connectedEmail/connectedAt server-side.
-router.get("/mine", async (req, res) => {
-  try {
-    const user = req.user as UserWithContext;
-    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-
-    const rows = await db.select({
-      id: mailboxAccounts.id,
-      displayName: mailboxAccounts.displayName,
-      emailAddress: mailboxAccounts.emailAddress,
-      accountType: mailboxAccounts.accountType,
-      syncStatus: mailboxAccounts.syncStatus,
-      syncEnabled: mailboxAccounts.syncEnabled,
-      syncErrorCount: mailboxAccounts.syncErrorCount,
-      lastSyncedAt: mailboxAccounts.lastSyncedAt,
-      isActive: mailboxAccounts.isActive,
-      ownerUserId: mailboxAccounts.ownerUserId,
-      oauthTokenJson: mailboxAccounts.oauthTokenJson,
-    })
-      .from(mailboxAccounts)
-      .where(
-        and(
-          eq(mailboxAccounts.companyId, user.activeCompanyId),
-          eq(mailboxAccounts.accountType, "personal"),
-          eq(mailboxAccounts.ownerUserId, user.id),
-        )
-      );
-
-    const dtos = rows.map((r) => {
-      const tokenData = r.oauthTokenJson as Record<string, unknown> | null;
-      return {
-        id: r.id,
-        displayName: r.displayName,
-        emailAddress: r.emailAddress,
-        accountType: r.accountType,
-        syncStatus: r.syncStatus,
-        syncEnabled: r.syncEnabled,
-        syncErrorCount: r.syncErrorCount,
-        lastSyncedAt: r.lastSyncedAt,
-        isActive: r.isActive,
-        ownerUserId: r.ownerUserId,
-        connectedEmail: (tokenData?.connected_email as string | undefined) ?? null,
-        connectedAt: (tokenData?.connected_at as string | undefined) ?? null,
-      };
-    });
-
-    res.json(dtos);
-  } catch (err) {
-    console.error("GET /api/mailbox-accounts/mine error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ─── Create a personal mailbox for the current user ───────────────────────────
-router.post("/mine", async (req, res) => {
-  try {
-    const user = req.user as UserWithContext;
-    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-
-    const emailSchema = insertMailboxAccountSchema.pick({ emailAddress: true });
-    const parsed = emailSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.flatten() });
-    }
-
-    const { emailAddress } = req.body as { emailAddress: string; displayName?: string };
-    const displayName = (req.body.displayName as string | undefined)?.trim() || user.name || emailAddress;
-
-    // Check if this emailAddress already exists in the company
-    const [existing] = await db.select()
-      .from(mailboxAccounts)
-      .where(
-        and(
-          eq(mailboxAccounts.companyId, user.activeCompanyId),
-          sql`lower(${mailboxAccounts.emailAddress}) = lower(${emailAddress})`
-        )
-      );
-
-    if (existing) {
-      return res.status(200).json({
-        alreadyExists: true,
-        id: existing.id,
-        isOwner: existing.ownerUserId === user.id,
-        accountType: existing.accountType,
-      });
-    }
-
-    const [account] = await db.insert(mailboxAccounts).values({
-      companyId: user.activeCompanyId,
-      emailAddress,
-      displayName,
-      accountType: "personal",
-      ownerUserId: user.id,
-      syncStatus: "not_connected",
-      syncEnabled: false,
-      isActive: true,
-    } as typeof mailboxAccounts.$inferInsert).returning();
-
-    console.info("[mailbox.self_created]", {
-      userId: user.id,
-      mailboxAccountId: account.id,
-      emailAddress,
-    });
-
-    res.status(201).json({
-      id: account.id,
-      displayName: account.displayName,
-      emailAddress: account.emailAddress,
-      accountType: account.accountType,
-      syncStatus: account.syncStatus,
-      syncEnabled: account.syncEnabled,
-      syncErrorCount: account.syncErrorCount,
-      lastSyncedAt: account.lastSyncedAt,
-      isActive: account.isActive,
-      ownerUserId: account.ownerUserId,
-      connectedEmail: null,
-      connectedAt: null,
-    });
-  } catch (err) {
-    console.error("POST /api/mailbox-accounts/mine error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ─── OAuth callback ───────────────────────────────────────────────────────────
 router.get("/oauth/callback", async (req, res) => {
   const { code, state, error: oauthError } = req.query as Record<string, string>;
 
@@ -314,29 +183,21 @@ router.get("/oauth/callback", async (req, res) => {
     return res.status(403).send(buildHtmlPage("Invalid OAuth state", `<p>Mailbox identity mismatch — please try connecting again.</p><p><a href="${settingsUrl}">Return to settings</a></p>`));
   }
 
-  // Capture return context before clearing session
-  const oauthFrom = session.oauthFrom as string | undefined;
-
-  // Clear state from session before any async work
   delete session.oauthState;
   delete session.oauthMailboxId;
   delete session.oauthFrom;
-
-  // Determine return URL based on context
-  const returnUrl = oauthFrom === "my-mailbox"
-    ? "/dashboard/settings/my-mailbox"
-    : settingsUrl;
+  const returnUrl = settingsUrl;
 
   try {
     // Verify account exists and belongs to this user's company (no fallback without scope)
     const [account] = await db.select().from(mailboxAccounts).where(
-      and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId))
+      and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox)
     );
-    if (!account) {
+    if (!account || account.accountType !== "shared" || !account.isActive) {
       return res.status(404).send(buildHtmlPage("Not Found", `<p>Mailbox account not found.</p><p><a href="${returnUrl}">Return to settings</a></p>`));
     }
 
-    if (!canManageMailboxOAuth(user, account)) {
+    if (!canManageMailboxOAuth(user)) {
       return res.status(403).send(buildHtmlPage("Not Authorized", `<p>You are not authorized to connect this mailbox.</p><p><a href="${returnUrl}">Return to settings</a></p>`));
     }
 
@@ -346,45 +207,12 @@ router.get("/oauth/callback", async (req, res) => {
 
     const connectedEmail = await getUserEmail(accessToken);
 
-    // Track whether we need to update emailAddress (personal mailbox auto-correct)
-    let autocorrectedEmailAddress: string | null = null;
-
-    // Verify email matches the mailbox account email
     if (connectedEmail.toLowerCase() !== account.emailAddress.toLowerCase()) {
-      if (account.accountType === "personal" && account.ownerUserId === user.id) {
-        // Check whether connectedEmail is already claimed by another row in this company
-        const conflicting = await db.select({ id: mailboxAccounts.id })
-          .from(mailboxAccounts)
-          .where(
-            and(
-              eq(mailboxAccounts.companyId, user.activeCompanyId),
-              sql`lower(${mailboxAccounts.emailAddress}) = lower(${connectedEmail})`
-            )
-          );
-        const hasConflict = conflicting.some(a => a.id !== account.id);
-        if (hasConflict) {
-          return res.status(400).send(buildHtmlPage("Email Conflict", `
-            <p>The Google account you signed in with (<strong>${escapeHtml(connectedEmail)}</strong>) is already registered as another mailbox in your company.</p>
-            <p>Please contact your administrator for assistance.</p>
-            <p><a href="${returnUrl}">Return to settings</a></p>
-          `));
-        }
-        // Auto-correct: update the stored email address to match the authenticated Google account
-        autocorrectedEmailAddress = connectedEmail;
-        console.info("[mailbox.email_autocorrected]", {
-          userId: user.id,
-          mailboxAccountId: account.id,
-          from: account.emailAddress,
-          to: connectedEmail,
-        });
-      } else {
-        // Shared mailbox or personal owned by a different user — reject on mismatch
-        return res.status(400).send(buildHtmlPage("Email Mismatch", `
-          <p>The Google account you signed in with (<strong>${escapeHtml(connectedEmail)}</strong>) does not match the mailbox address (<strong>${escapeHtml(account.emailAddress)}</strong>).</p>
-          <p>Please try again and sign in with the correct Google account.</p>
-          <p><a href="${returnUrl}">Return to settings</a></p>
-        `));
-      }
+      return res.status(400).send(buildHtmlPage("Email Mismatch", `
+        <p>The Google account you signed in with (<strong>${escapeHtml(connectedEmail)}</strong>) does not match the mailbox address (<strong>${escapeHtml(account.emailAddress)}</strong>).</p>
+        <p>Please try again and sign in with the correct Google account.</p>
+        <p><a href="${returnUrl}">Return to settings</a></p>
+      `));
     }
 
     const tokenJson = {
@@ -407,23 +235,13 @@ router.get("/oauth/callback", async (req, res) => {
       updatedAt: new Date(),
     };
 
-    if (autocorrectedEmailAddress) {
-      await db.update(mailboxAccounts)
-        .set({ ...baseSet, emailAddress: autocorrectedEmailAddress })
-        .where(and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    } else {
-      await db.update(mailboxAccounts)
-        .set(baseSet)
-        .where(and(eq(mailboxAccounts.id, mailboxAccountIdFromState), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    }
-
-    const redirectBase = returnUrl;
-    const autocorrectedFlag = autocorrectedEmailAddress ? "&autocorrected=1" : "";
-    const redirectSuffix = oauthFrom === "my-mailbox"
-      ? `?connected=${encodeURIComponent(mailboxAccountIdFromState)}${autocorrectedFlag}`
-      : `?connected=${encodeURIComponent(mailboxAccountIdFromState)}&promptBackfill=1`;
-
-    return res.redirect(`${redirectBase}${redirectSuffix}`);
+    const [connected] = await db.update(mailboxAccounts).set(baseSet).where(and(
+      eq(mailboxAccounts.id, account.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox,
+      eq(mailboxAccounts.emailAddress, account.emailAddress),
+      sql`date_trunc('milliseconds', ${mailboxAccounts.updatedAt}) = ${account.updatedAt}`))
+      .returning({ id: mailboxAccounts.id });
+    if (!connected) return res.status(409).send(buildHtmlPage("Mailbox changed", `<p>Start the connection again from <a href="${returnUrl}">settings</a>.</p>`));
+    return res.redirect(`${returnUrl}?connected=${encodeURIComponent(connected.id)}&promptBackfill=1`);
   } catch (err) {
     console.error("OAuth callback error:", err);
     const msg = err instanceof Error ? err.message : "Unknown error";
@@ -443,10 +261,10 @@ router.post("/:id/oauth/disconnect", async (req, res) => {
 
     const [account] = await db.select()
       .from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
+    if (!account || account.accountType !== "shared" || !account.isActive) return res.status(404).json({ error: "Not found" });
 
-    if (!canManageMailboxOAuth(user, account)) {
+    if (!canManageMailboxOAuth(user)) {
       return res.status(403).json({ error: "Not authorized to disconnect this mailbox" });
     }
 
@@ -468,7 +286,7 @@ router.get("/sync-summary", async (req, res) => {
     }
 
     const accounts = await db.select().from(mailboxAccounts)
-      .where(eq(mailboxAccounts.companyId, user.activeCompanyId));
+      .where(and(eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
 
     const totalActive = accounts.filter(a => a.isActive).length;
     const connected = accounts.filter(a => a.isActive && a.syncStatus === "connected").length;
@@ -496,12 +314,15 @@ router.get("/sync-summary", async (req, res) => {
 
     // Messages routed/unsorted in last 24h — filter to email type only so non-email
     // inbound communications (notes, SMS) don't inflate the "routed" metric.
+    const ids = accounts.map(account => account.id);
+    const sharedOnly = (col: typeof communications.mailboxAccountId | typeof unsortedEmails.mailboxAccountId | typeof mailboxSyncRuns.mailboxAccountId) => ids.length ? inArray(col, ids) : sql`false`;
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const recentRouted = await db.select({ count: sql<number>`count(*)` })
       .from(communications)
       .where(
         and(
           eq(communications.companyId, user.activeCompanyId),
+          sharedOnly(communications.mailboxAccountId),
           eq(communications.type, "email"),
           eq(communications.direction, "inbound"),
           gte(communications.receivedAt, since24h)
@@ -512,6 +333,7 @@ router.get("/sync-summary", async (req, res) => {
       .where(
         and(
           eq(unsortedEmails.companyId, user.activeCompanyId),
+          sharedOnly(unsortedEmails.mailboxAccountId),
           gte(unsortedEmails.createdAt, since24h)
         )
       );
@@ -522,7 +344,8 @@ router.get("/sync-summary", async (req, res) => {
       .where(
         and(
           eq(mailboxSyncRuns.companyId, user.activeCompanyId),
-          eq(mailboxSyncRuns.status, "running")
+          eq(mailboxSyncRuns.status, "running"),
+          sharedOnly(mailboxSyncRuns.mailboxAccountId)
         )
       )
       .limit(1);
@@ -554,8 +377,8 @@ router.post("/:id/sync", async (req, res) => {
     }
 
     const [account] = await db.select().from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
+    if (!account || account.accountType !== "shared" || !account.isActive) return res.status(404).json({ error: "Not found" });
 
     try {
       const vis = await resolveVisibleMailboxes({
@@ -602,11 +425,11 @@ router.get("/:id/sync-runs", async (req, res) => {
     }
 
     const [account] = await db.select().from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
+    if (!account || account.accountType !== "shared" || !account.isActive) return res.status(404).json({ error: "Not found" });
 
     const runs = await db.select().from(mailboxSyncRuns)
-      .where(eq(mailboxSyncRuns.mailboxAccountId, req.params.id))
+      .where(and(eq(mailboxSyncRuns.mailboxAccountId, req.params.id), eq(mailboxSyncRuns.companyId, user.activeCompanyId)))
       .orderBy(desc(mailboxSyncRuns.startedAt))
       .limit(20);
 
@@ -627,9 +450,9 @@ router.get("/:id", async (req, res) => {
     }
     const [account] = await db.select()
       .from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
-    res.json(account);
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
+    if (!account || account.accountType !== "shared" || !account.isActive) return res.status(404).json({ error: "Not found" });
+    res.json(safeAccount(account));
   } catch (err) {
     console.error("GET /api/mailbox-accounts/:id error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -645,28 +468,10 @@ router.post("/", async (req, res) => {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
-    // This endpoint only creates shared mailboxes. Personal mailboxes are created
-    // through the My Mailbox self-serve flow (Slice 1.5).
-    const accountType = req.body.accountType ?? "shared";
-    if (accountType === "personal") {
-      return res.status(400).json({
-        error: "Personal mailboxes cannot be created through this endpoint. Use the My Mailbox page instead.",
-      });
-    }
-    if (req.body.ownerUserId) {
-      return res.status(400).json({
-        error: "ownerUserId may not be set when creating a shared mailbox.",
-      });
-    }
-
-    const parsed = insertMailboxAccountSchema.safeParse({
-      ...req.body,
-      accountType: "shared",
-      companyId: user.activeCompanyId,
-    });
+    const parsed = mailboxSettings.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const [account] = await db.insert(mailboxAccounts).values(parsed.data as typeof mailboxAccounts.$inferInsert).returning();
-    res.status(201).json(account);
+    const [account] = await db.insert(mailboxAccounts).values({ ...parsed.data, companyId: user.activeCompanyId, accountType: "shared" }).returning();
+    res.status(201).json(safeAccount(account));
   } catch (err) {
     console.error("POST /api/mailbox-accounts error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -679,44 +484,26 @@ router.patch("/:id", async (req, res) => {
     const user = req.user as UserWithContext;
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
 
-    const [account] = await db.select()
-      .from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
-
-    // Personal mailboxes may only be patched by their owner or an admin
-    if (account.accountType === "personal") {
-      if (user.accessRole !== "admin" && !user.isSuperAdminBool && account.ownerUserId !== user.id) {
-        return res.status(403).json({ error: "Not authorized to update this personal mailbox" });
-      }
-    } else {
-      // Shared mailboxes require admin or office
-      if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
-        return res.status(403).json({ error: "Admin or office role required" });
-      }
+    if (user.accessRole !== "admin" && user.accessRole !== "office" && !user.isSuperAdminBool) {
+      return res.status(403).json({ error: "Admin or office role required" });
     }
-
-    const updates = { ...req.body };
-    delete updates.id;
-    delete updates.companyId;
-
-    // Immutability rules: accountType and ownerUserId cannot be changed on shared mailboxes
-    if (account.accountType === "shared") {
-      if (updates.accountType !== undefined && updates.accountType !== "shared") {
-        return res.status(400).json({ error: "accountType cannot be changed on a shared mailbox" });
-      }
-      if (updates.ownerUserId !== undefined) {
-        return res.status(400).json({ error: "ownerUserId cannot be set on a shared mailbox" });
-      }
-    }
-    delete updates.accountType;
-
+    const parsed = mailboxSettings.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { accountType: _type, ...updates } = parsed.data;
+    // Changing the Google address must not leave the former Gmail identity usable.
+    const disconnected = updates.emailAddress === undefined ? {} : {
+      oauthTokenJson: sql`CASE WHEN lower(email_address) = lower(${updates.emailAddress}) THEN oauth_token_json END`,
+      syncEnabled: sql`lower(email_address) = lower(${updates.emailAddress}) AND sync_enabled`,
+      syncStatus: sql`CASE WHEN lower(email_address) = lower(${updates.emailAddress}) THEN sync_status ELSE 'not_connected' END`,
+      gmailHistoryId: sql`CASE WHEN lower(email_address) = lower(${updates.emailAddress}) THEN gmail_history_id END`,
+      gmailSentHistoryId: sql`CASE WHEN lower(email_address) = lower(${updates.emailAddress}) THEN gmail_sent_history_id END`,
+    };
     const [updated] = await db.update(mailboxAccounts)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)))
+      .set({ ...updates, ...disconnected, ...(updates.isActive === false ? { syncEnabled: false } : {}), updatedAt: new Date() })
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox))
       .returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
-    res.json(updated);
+    res.json(safeAccount(updated));
   } catch (err) {
     console.error("PATCH /api/mailbox-accounts/:id error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -734,8 +521,8 @@ router.post("/:id/admin-disconnect", async (req, res) => {
 
     const [account] = await db.select()
       .from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
+    if (!account || account.accountType !== "shared" || !account.isActive) return res.status(404).json({ error: "Not found" });
 
     const reason = req.body?.reason as string | undefined;
 
@@ -746,7 +533,7 @@ router.post("/:id/admin-disconnect", async (req, res) => {
         syncEnabled: false,
         updatedAt: new Date(),
       })
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
 
     console.log(`[mailbox.admin_disconnected] mailboxId=${req.params.id} by userId=${user.id} reason=${reason ?? "(none)"}`);
 
@@ -764,8 +551,8 @@ router.delete("/:id", async (req, res) => {
     if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
     if (user.accessRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
     const [account] = await db.update(mailboxAccounts)
-      .set({ isActive: false, updatedAt: new Date() })
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)))
+      .set({ isActive: false, syncEnabled: false, updatedAt: new Date() })
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox))
       .returning();
     if (!account) return res.status(404).json({ error: "Not found" });
     res.json({ success: true });
@@ -775,39 +562,8 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// ─── Hard-delete mailbox account (permanent) ─────────────────────────────────
-router.delete("/:id/permanent", async (req, res) => {
-  try {
-    const user = req.user as UserWithContext;
-    if (!user?.activeCompanyId) return res.status(401).json({ error: "Unauthorized" });
-    if (user.accessRole !== "admin" && !user.isSuperAdminBool) return res.status(403).json({ error: "Admin only" });
-
-    const [account] = await db.select()
-      .from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
-
-    if (account.syncStatus === "connected") {
-      return res.status(409).json({ error: "Mailbox is currently connected. Disconnect it before deleting." });
-    }
-
-    await db.delete(mailboxSyncRuns).where(eq(mailboxSyncRuns.mailboxAccountId, req.params.id));
-    await db.delete(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("DELETE /api/mailbox-accounts/:id/permanent error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ── Auth helper: owner of mailbox OR admin/office ────────────────────────────
-function canAccessMailboxBackfill(user: UserWithContext, account: typeof mailboxAccounts.$inferSelect): boolean {
-  if (user.isSuperAdminBool) return true;
-  if (user.accessRole === "admin" || user.accessRole === "office") return true;
-  if (account.accountType === "personal" && account.ownerUserId === user.id) return true;
-  return false;
+function canAccessMailboxBackfill(user: UserWithContext): boolean {
+  return user.isSuperAdminBool || user.accessRole === "admin" || user.accessRole === "office";
 }
 
 // ─── POST /:id/backfill — start or return existing run ────────────────────────
@@ -818,9 +574,9 @@ router.post("/:id/backfill", async (req, res) => {
 
     const [account] = await db.select()
       .from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
-    if (!canAccessMailboxBackfill(user, account)) return res.status(403).json({ error: "Forbidden" });
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
+    if (!account || account.accountType !== "shared" || !account.isActive) return res.status(404).json({ error: "Not found" });
+    if (!canAccessMailboxBackfill(user)) return res.status(403).json({ error: "Forbidden" });
 
     const { rangeStart, rangeEnd, includeInbox = true, includeSent = true } = req.body;
     if (!rangeStart || !rangeEnd) return res.status(400).json({ error: "rangeStart and rangeEnd required" });
@@ -856,9 +612,9 @@ router.get("/:id/backfill/status", async (req, res) => {
 
     const [account] = await db.select()
       .from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
-    if (!canAccessMailboxBackfill(user, account)) return res.status(403).json({ error: "Forbidden" });
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
+    if (!account || account.accountType !== "shared" || !account.isActive) return res.status(404).json({ error: "Not found" });
+    if (!canAccessMailboxBackfill(user)) return res.status(403).json({ error: "Forbidden" });
 
     const [active, history] = await Promise.all([
       getActiveBackfill(req.params.id),
@@ -880,11 +636,11 @@ router.post("/:id/backfill/:runId/cancel", async (req, res) => {
 
     const [account] = await db.select()
       .from(mailboxAccounts)
-      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId)));
-    if (!account) return res.status(404).json({ error: "Not found" });
-    if (!canAccessMailboxBackfill(user, account)) return res.status(403).json({ error: "Forbidden" });
+      .where(and(eq(mailboxAccounts.id, req.params.id), eq(mailboxAccounts.companyId, user.activeCompanyId), activeSharedMailbox));
+    if (!account || account.accountType !== "shared" || !account.isActive) return res.status(404).json({ error: "Not found" });
+    if (!canAccessMailboxBackfill(user)) return res.status(403).json({ error: "Forbidden" });
 
-    await requestCancel(req.params.runId);
+    await requestCancel(req.params.runId, req.params.id, user.activeCompanyId);
     res.json({ success: true });
   } catch (err) {
     console.error("POST /api/mailbox-accounts/:id/backfill/:runId/cancel error:", err);

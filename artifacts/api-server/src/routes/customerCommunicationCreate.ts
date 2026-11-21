@@ -2,6 +2,7 @@ import type { RequestHandler } from "express";
 import { insertCommunicationSchema } from "@workspace/db";
 import type { UserWithContext } from "../auth";
 import { ComposeEmailError, composeEmailOptions, sendComposeDraft } from "../services/composeEmail";
+import { canReferenceSharedMailbox } from "../services/mailboxScope";
 import type { storage } from "../storage";
 
 type Dependencies = Pick<typeof storage, "getCustomerById" | "createCommunication"> & {
@@ -42,6 +43,9 @@ export function createCustomerCommunication(deps: Dependencies): RequestHandler<
       const outboundEmail = data.type === "email" && data.direction === "outbound" && data.status === "sent";
       const capable = outboundEmail && intent !== "log" && !!data.mailboxAccountId
         && (await deps.options(user)).mailboxes.some(mailbox => mailbox.id === data.mailboxAccountId);
+      if (data.mailboxAccountId && !capable && !await canReferenceSharedMailbox(user, data.mailboxAccountId)) {
+        res.status(422).json({ error: "Choose an available shared mailbox." }); return;
+      }
       if (intent === "send" && !capable) {
         res.status(422).json({ error: "Connect the office mailbox before sending." }); return;
       }

@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import LegacyMailboxCleanup from "@/components/mailboxes/LegacyMailboxCleanup";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -62,10 +63,8 @@ import {
   ChevronRight,
   Clock,
   ShieldCheck,
-  Users,
   Settings2,
   Info,
-  ArrowUpDown,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -73,21 +72,6 @@ import { formatDistanceToNow, format } from "date-fns";
 import type { MailboxAccount, MailboxSyncRun } from "@shared/schema";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface PersonalMailboxRow {
-  id: string;
-  emailAddress: string;
-  displayName: string;
-  syncStatus: string | null;
-  syncEnabled: boolean | null;
-  lastSyncedAt: string | null;
-  isActive: boolean | null;
-  ownerUserId: string | null;
-  ownerName: string | null;
-  ownerEmail: string | null;
-  connectedEmail: string | null;
-  pendingUnsortedCount: number;
-}
 
 interface MailSettings {
   defaultMailboxVisibility: {
@@ -563,14 +547,13 @@ function SharedMailboxesSection() {
   const [showForm, setShowForm] = useState(false);
   const [editAccount, setEditAccount] = useState<MailboxAccount | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<MailboxAccount | null>(null);
-  const [hardDeleteTarget, setHardDeleteTarget] = useState<MailboxAccount | null>(null);
   const [promptBackfillId, setPromptBackfillId] = useState<string | null>(null);
 
   const { data: allAccounts = [], isLoading } = useQuery<MailboxAccount[]>({
     queryKey: ["/api/mailbox-accounts"],
   });
 
-  const accounts = allAccounts.filter(a => !a.accountType || a.accountType === "shared");
+  const accounts = allAccounts;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -593,23 +576,6 @@ function SharedMailboxesSection() {
       setDeactivateTarget(null);
     },
     onError: () => toast({ title: "Failed to deactivate mailbox", variant: "destructive" }),
-  });
-
-  const hardDeleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("DELETE", `/api/mailbox-accounts/${id}/permanent`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts"] });
-      toast({ title: "Mailbox permanently deleted" });
-      setHardDeleteTarget(null);
-    },
-    onError: (err: Error) => {
-      const isConnected = err.message?.toLowerCase().includes("connected") || err.message?.includes("409");
-      toast({
-        title: isConnected ? "Disconnect the mailbox before deleting" : "Failed to delete mailbox",
-        variant: "destructive",
-      });
-      setHardDeleteTarget(null);
-    },
   });
 
   const handleEdit = (account: MailboxAccount) => {
@@ -712,24 +678,14 @@ function SharedMailboxesSection() {
                             <Pencil className="w-4 h-4 mr-2" />
                             Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem
+                          {isAdmin && <DropdownMenuItem
                             onClick={() => setDeactivateTarget(account)}
                             className="text-destructive"
                             data-testid={`action-deactivate-mailbox-${account.id}`}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
                             Deactivate
-                          </DropdownMenuItem>
-                          {isAdmin && (
-                            <DropdownMenuItem
-                              onClick={() => setHardDeleteTarget(account)}
-                              className="text-destructive"
-                              data-testid={`action-hard-delete-mailbox-${account.id}`}
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Delete permanently
-                            </DropdownMenuItem>
-                          )}
+                          </DropdownMenuItem>}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -766,210 +722,6 @@ function SharedMailboxesSection() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!hardDeleteTarget} onOpenChange={(open) => { if (!open) setHardDeleteTarget(null); }}>
-        <AlertDialogContent data-testid="dialog-hard-delete-mailbox">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Permanently</AlertDialogTitle>
-            <AlertDialogDescription>
-              {hardDeleteTarget
-                ? `Permanently delete "${hardDeleteTarget.displayName}"? This cannot be undone. Disconnect the mailbox before deleting.`
-                : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-hard-delete-cancel">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => hardDeleteTarget && hardDeleteMutation.mutate(hardDeleteTarget.id)}
-              disabled={hardDeleteMutation.isPending}
-              className="bg-destructive text-destructive-foreground"
-              data-testid="button-hard-delete-confirm"
-            >
-              {hardDeleteMutation.isPending ? "Deleting..." : "Delete permanently"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
-
-// ─── Section 2: Personal Mailbox Oversight ────────────────────────────────────
-
-function PersonalMailboxOversightTable() {
-  const { toast } = useToast();
-  const [disconnectTarget, setDisconnectTarget] = useState<PersonalMailboxRow | null>(null);
-  const [reason, setReason] = useState("");
-  const [sortByStatus, setSortByStatus] = useState(false);
-
-  const { data: rows = [], isLoading } = useQuery<PersonalMailboxRow[]>({
-    queryKey: ["/api/mailbox-accounts/personal"],
-  });
-
-  const adminDisconnectMutation = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
-      apiRequest("POST", `/api/mailbox-accounts/${id}/admin-disconnect`, { reason }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/mailbox-accounts/personal"] });
-      toast({ title: "Mailbox disconnected by admin" });
-      setDisconnectTarget(null);
-      setReason("");
-    },
-    onError: () => toast({ title: "Failed to disconnect mailbox", variant: "destructive" }),
-  });
-
-  const sorted = [...rows].sort((a, b) => {
-    if (sortByStatus) {
-      if (a.syncStatus === "error" && b.syncStatus !== "error") return -1;
-      if (b.syncStatus === "error" && a.syncStatus !== "error") return 1;
-    }
-    return (a.ownerName ?? "").localeCompare(b.ownerName ?? "");
-  });
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Users className="w-4 h-4 text-muted-foreground" />
-          <h2 className="text-base font-semibold">Personal Mailboxes (Oversight)</h2>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setSortByStatus(!sortByStatus)}
-          data-testid="button-sort-personal-mailboxes"
-          className="gap-1"
-        >
-          <ArrowUpDown className="w-3.5 h-3.5" />
-          {sortByStatus ? "Sort by owner" : "Sort: errors first"}
-        </Button>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        Read-only view of personal mailboxes connected by team members. Use "Disconnect (admin)" only for security or compliance emergencies.
-      </p>
-
-      {isLoading ? (
-        <div className="flex items-center justify-center h-24">
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        </div>
-      ) : sorted.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
-            <Users className="w-8 h-8 text-muted-foreground" />
-            <p className="font-medium text-sm">No personal mailboxes</p>
-            <p className="text-muted-foreground text-sm text-center max-w-xs" data-testid="text-no-personal-mailboxes">
-              Team members can connect their own Gmail accounts from the My Mailbox page.
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Owner</TableHead>
-                  <TableHead>Mailbox</TableHead>
-                  <TableHead>Connected As</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last Synced</TableHead>
-                  <TableHead>Unsorted</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sorted.map((row) => (
-                  <TableRow key={row.id} data-testid={`row-personal-mailbox-${row.id}`}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium text-sm" data-testid={`text-personal-owner-name-${row.id}`}>{row.ownerName ?? "—"}</p>
-                        <p className="text-xs text-muted-foreground">{row.ownerEmail ?? "—"}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="text-sm">{row.displayName}</p>
-                        <p className="text-xs text-muted-foreground">{row.emailAddress}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <p className="text-sm text-muted-foreground">{row.connectedEmail ?? "—"}</p>
-                    </TableCell>
-                    <TableCell>
-                      <SyncStatusBadge status={row.syncStatus ?? "not_connected"} />
-                    </TableCell>
-                    <TableCell>
-                      <p className="text-xs text-muted-foreground">
-                        {row.lastSyncedAt ? formatDistanceToNow(new Date(row.lastSyncedAt), { addSuffix: true }) : "—"}
-                      </p>
-                    </TableCell>
-                    <TableCell>
-                      {row.pendingUnsortedCount > 0 ? (
-                        <Badge variant="secondary" className="text-xs">{row.pendingUnsortedCount}</Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">0</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-1 text-xs text-destructive"
-                        onClick={() => { setDisconnectTarget(row); setReason(""); }}
-                        data-testid={`button-admin-disconnect-${row.id}`}
-                        disabled={!row.syncEnabled && row.syncStatus !== "connected" && row.syncStatus !== "error"}
-                      >
-                        <Link2Off className="w-3 h-3" />
-                        Disconnect (admin)
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
-      <AlertDialog open={!!disconnectTarget} onOpenChange={(open) => { if (!open) { setDisconnectTarget(null); setReason(""); } }}>
-        <AlertDialogContent data-testid="dialog-admin-disconnect">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Admin Disconnect</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>
-                  Forcibly disconnect {disconnectTarget?.ownerName ?? "this user"}'s personal mailbox
-                  ({disconnectTarget?.connectedEmail ?? disconnectTarget?.emailAddress})?
-                  This will stop email syncing. The user will need to reconnect their Gmail account.
-                </p>
-                <div>
-                  <label className="text-xs font-medium text-foreground" htmlFor="admin-disconnect-reason">
-                    Reason (optional)
-                  </label>
-                  <Input
-                    id="admin-disconnect-reason"
-                    value={reason}
-                    onChange={e => setReason(e.target.value)}
-                    placeholder="Security review, policy enforcement, etc."
-                    className="mt-1"
-                    data-testid="input-admin-disconnect-reason"
-                  />
-                </div>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-admin-disconnect-cancel">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => disconnectTarget && adminDisconnectMutation.mutate({ id: disconnectTarget.id, reason })}
-              disabled={adminDisconnectMutation.isPending}
-              className="bg-destructive text-destructive-foreground"
-              data-testid="button-admin-disconnect-confirm"
-            >
-              {adminDisconnectMutation.isPending ? "Disconnecting..." : "Disconnect"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
@@ -996,19 +748,8 @@ const ROLE_LABELS: Record<string, string> = {
   landscape_supervisor: "Landscape Supervisor",
 };
 
-const VISIBILITY_EXPLAINERS: Record<string, (vis: "own" | "all" | "shared_only" | undefined) => string> = {
-  admin: () => "Admins always see all mailboxes.",
-  office: (vis) => vis === "all" ? "Office users see all mailboxes (personal + shared)." : vis === "shared_only" ? "Office users see shared mailboxes only." : "Office users see only their own personal mailbox and shared mailboxes they have access to.",
-  field_manager: (vis) => vis === "all" ? "Field managers see all mailboxes." : vis === "shared_only" ? "Field managers see shared mailboxes only." : "Field managers see only their own mailbox.",
-  chemical_manager: (vis) => vis === "all" ? "Chemical managers see all mailboxes." : vis === "shared_only" ? "Chemical managers see shared mailboxes only." : "Chemical managers see only their own mailbox.",
-  field: (vis) => vis === "all" ? "Field users see all mailboxes." : vis === "shared_only" ? "Field users see shared mailboxes only." : "Field users see only their own mailbox.",
-  irrigation_manager: (vis) => vis === "all" ? "Irrigation managers see all mailboxes." : vis === "shared_only" ? "Irrigation managers see shared mailboxes only." : "Irrigation managers see only their own mailbox.",
-  shop_manager: (vis) => vis === "all" ? "Shop managers see all mailboxes." : vis === "shared_only" ? "Shop managers see shared mailboxes only." : "Shop managers see only their own mailbox.",
-  mapping: (vis) => vis === "all" ? "Mapping users see all mailboxes." : vis === "shared_only" ? "Mapping users see shared mailboxes only." : "Mapping users see only their own mailbox.",
-  landscape_supervisor: (vis) => vis === "all" ? "Landscape supervisors see all mailboxes." : vis === "shared_only" ? "Landscape supervisors see shared mailboxes only." : "Landscape supervisors see only their own mailbox.",
-};
-
 function CompanyMailSettingsForm() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [explainerOpen, setExplainerOpen] = useState(false);
 
@@ -1130,9 +871,9 @@ function CompanyMailSettingsForm() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="own">Own only</SelectItem>
-                          <SelectItem value="all">All mailboxes</SelectItem>
-                          <SelectItem value="shared_only">Shared only</SelectItem>
+                          <SelectItem value="own">{t("sharedMailbox.roleGrant")}</SelectItem>
+                          <SelectItem value="all">{t("sharedMailbox.allSharedAndUnassigned")}</SelectItem>
+                          <SelectItem value="shared_only">{t("sharedMailbox.title")}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1156,7 +897,9 @@ function CompanyMailSettingsForm() {
                     {ALL_ROLES.map(role => (
                       <p key={role}>
                         <span className="font-medium">{ROLE_LABELS[role] ?? role}:</span>{" "}
-                        {VISIBILITY_EXPLAINERS[role]?.(perRole[role] as "own" | "all" | "shared_only" | undefined) ?? ""}
+                        {t(role === "admin" || role === "office" || perRole[role] === "all" || (!perRole[role] && !sharedRoles.includes(role))
+                          ? "sharedMailbox.allSharedAndUnassigned" : sharedRoles.includes(role) || perRole[role] === "shared_only"
+                            ? "sharedMailbox.sharedAndMyLogs" : "sharedMailbox.onlyMyLogs")}
                       </p>
                     ))}
                   </div>
@@ -1216,22 +959,24 @@ export default function SharedMailboxesAndOversightPage() {
 }
 
 function SharedMailboxesAndOversightContent() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const admin = user?.activeRole === "admin" || user?.isSuperAdminBool;
   return (
     <div className="flex flex-col h-full">
       <div className="border-b px-6 py-4">
         <div className="flex items-center gap-2">
           <Mail className="w-5 h-5 text-muted-foreground" />
-          <h1 className="text-lg font-semibold" data-testid="heading-shared-mailboxes">Shared Mailboxes &amp; Oversight</h1>
+          <h1 className="text-lg font-semibold" data-testid="heading-shared-mailboxes">{t("sharedMailbox.title")}</h1>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage shared team mailboxes, review personal mailboxes connected by staff, and configure company-wide mail defaults.
+          {t("sharedMailbox.description")}
         </p>
       </div>
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-10">
         <SharedMailboxesSection />
         <div className="border-t" />
-        <PersonalMailboxOversightTable />
-        <div className="border-t" />
+        {admin && user?.activeCompanyId && <><LegacyMailboxCleanup key={user.activeCompanyId} companyId={user.activeCompanyId} /><div className="border-t" /></>}
         <CompanyMailSettingsForm />
       </div>
     </div>

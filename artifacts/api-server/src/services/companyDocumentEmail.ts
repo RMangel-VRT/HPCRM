@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql, isNotNull } from "drizzle-orm";
 import { communications, contacts, customers, mailboxAccounts, propertyManagerEmails, propertyManagers } from "@workspace/db";
 import type { UserWithContext } from "../auth";
 import { db } from "../db";
@@ -7,7 +7,8 @@ import { companyDocumentRepository } from "./companyDocuments";
 import { CompanyDocumentObjects } from "./companyDocumentObjects";
 import { CustomerDocumentError } from "./customerDocumentContent";
 import { resolveVisibleMailboxes } from "./mailboxScope";
-import { createGmailMessageId, sendEmail } from "./gmailSender";
+import { createGmailMessageId, sendEmail, type SendEmailResult } from "./gmailSender";
+import { persistGmailReceipt } from "./gmailReceipt";
 import { PDFDocument } from "pdf-lib";
 import { loadEmailCompany } from "./outgoingEmail/company";
 import { buildDocumentsEmail } from "./outgoingEmail/serviceEmails";
@@ -46,7 +47,8 @@ const defaults = {
   company: loadEmailCompany,
   wording: getEmailWording,
   async mailbox(company: string, id: string) {
-    const [mailbox] = await db.select().from(mailboxAccounts).where(and(eq(mailboxAccounts.companyId, company), eq(mailboxAccounts.id, id), eq(mailboxAccounts.isActive, true)));
+    const [mailbox] = await db.select().from(mailboxAccounts).where(and(eq(mailboxAccounts.companyId, company), eq(mailboxAccounts.id, id),
+      eq(mailboxAccounts.isActive, true), eq(mailboxAccounts.accountType, "shared"), isNotNull(mailboxAccounts.oauthTokenJson)));
     return mailbox;
   },
   matchCustomer: matchDocumentCustomer,
@@ -56,8 +58,13 @@ const defaults = {
     return row?.name;
   },
   async record(values: typeof communications.$inferInsert) { const [row] = await db.insert(communications).values(values).returning(); return row; },
-  async stamp(company: string, id: string, values: Partial<typeof communications.$inferInsert>) {
-    await db.update(communications).set(values).where(and(eq(communications.companyId, company), eq(communications.id, id)));
+  async stamp(company: string, id: string, values: Partial<typeof communications.$inferInsert>, receipt?: SendEmailResult) {
+    if (receipt) {
+      await db.transaction(tx => persistGmailReceipt(tx, company, id, receipt.reservedMessageId, receipt, values));
+      return;
+    }
+    await db.update(communications).set(values).where(and(eq(communications.companyId, company), eq(communications.id, id),
+      eq(communications.deliveryStatus, "pending")));
   },
   send: sendEmail,
 };
@@ -65,7 +72,8 @@ async function prepareCompanyDocuments(company: string, user: UserWithContext, b
   const input = companyDocumentEmailInput.parse(body);
   const visible = await deps.visible({ companyId: company, userId: user.id, role: user.activeRole, isSuperAdmin: user.isSuperAdminBool });
   const mailbox = await deps.mailbox(company, input.mailboxAccountId);
-  if (!mailbox || mailbox.companyId !== company || !mailbox.syncEnabled || mailbox.syncStatus !== "connected" ||
+  if (!mailbox || mailbox.companyId !== company || mailbox.accountType !== "shared" || !mailbox.isActive ||
+    !mailbox.oauthTokenJson || !mailbox.syncEnabled || mailbox.syncStatus !== "connected" ||
     (visible.mailboxIds !== null && !visible.mailboxIds.includes(mailbox.id)))
     throw new CustomerDocumentError(403, "COMPANY_DOCUMENT_MAILBOX_UNAVAILABLE");
   const snapshots = [], attachments = [], documents = [];
@@ -109,7 +117,7 @@ export async function emailCompanyDocuments(company: string, user: UserWithConte
   const row = await deps.record({ companyId: company, customerId, direction: "outbound", type: "email", status: "sent",
     routingMethod: "company_documents", mailboxAccountId: mailbox.id, toAddresses: input.to, ccAddresses: input.cc ?? [],
     subject: email.subject, body: email.text, bodyText: email.text, bodyHtml: email.html, fromAddress: mailbox.emailAddress,
-    sentById: user.id, fromName: user.name, attachmentsJson: snapshots, providerMessageId: messageId,
+    sentById: user.id, fromName: mailbox.displayName, attachmentsJson: snapshots, providerMessageId: messageId,
     deliveryProvider: "gmail", deliveryStatus: "pending" });
   let result;
   try {
@@ -121,7 +129,7 @@ export async function emailCompanyDocuments(company: string, user: UserWithConte
   }
   // Outside transport catch: a database acknowledgement failure is not proof of failed delivery.
   await deps.stamp(company, row.id, { providerMessageId: result.messageId, providerThreadId: result.threadId,
-    deliveryProvider: "gmail", deliveryStatus: "sent", sentAt: new Date(), failureReason: null });
+    deliveryProvider: "gmail", deliveryStatus: "sent", sentAt: new Date(), failureReason: null }, result);
   return { communicationId: row.id, deliveryStatus: "sent" };
 }
 export async function companyDocumentSends(company: string, id: string) {
@@ -130,7 +138,7 @@ export async function companyDocumentSends(company: string, id: string) {
     eq(communications.routingMethod, "company_documents"),
     sql`${communications.attachmentsJson} @> ${JSON.stringify([{ documentId: id }])}::jsonb`)).orderBy(desc(communications.createdAt));
   return rows.map(row => ({ id: row.id, date: (row.sentAt ?? row.createdAt).toISOString(), to: row.toAddresses ?? [],
-    subject: row.subject, sentByName: row.fromName, deliveryStatus: row.deliveryStatus }));
+    subject: row.subject, sentByName: row.fromName, fromAddress: row.fromAddress, deliveryStatus: row.deliveryStatus }));
 }
 export async function companyDocumentEmailOptions(company: string) {
   const details = await loadEmailCompany(company);

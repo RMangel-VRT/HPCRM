@@ -11,5 +11,4 @@ export type GetComposeSendOptions200MailboxesItemAccountType =
 
 export const GetComposeSendOptions200MailboxesItemAccountType = {
   shared: "shared",
-  personal: "personal",
 } as const;

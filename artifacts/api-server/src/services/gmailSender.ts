@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm";
 import { getOAuth2Client, getValidAccessToken } from "./googleOAuth";
 import { randomBytes } from "crypto";
 import { Readable } from "node:stream";
+import { and, isNotNull } from "drizzle-orm";
+import { logger } from "../lib/logger";
 
 export interface SendEmailOptions {
   to: string[];
@@ -19,9 +21,10 @@ export interface SendEmailOptions {
   attachments?: { filename: string; mimeType: string; content: Buffer }[];
 }
 
-interface SendEmailResult {
-  /** RFC Message-ID header value (e.g. <abc@highplains.crm>) — stored as providerMessageId for dedup */
+export interface SendEmailResult {
+  /** Gmail's stored RFC Message-ID, falling back to the reservation after a failed lookup. */
   messageId: string;
+  reservedMessageId: string;
   /** Gmail's internal message ID — useful for deep-linking but NOT used as dedup key */
   gmailId: string;
   threadId: string;
@@ -148,7 +151,9 @@ export async function sendEmail(
   const [account] = await db
     .select()
     .from(mailboxAccounts)
-    .where(eq(mailboxAccounts.id, mailboxAccountId));
+    .where(and(eq(mailboxAccounts.id, mailboxAccountId), eq(mailboxAccounts.accountType, "shared"),
+      eq(mailboxAccounts.isActive, true), eq(mailboxAccounts.syncEnabled, true),
+      eq(mailboxAccounts.syncStatus, "connected"), isNotNull(mailboxAccounts.oauthTokenJson)));
 
   if (!account) throw new Error("Mailbox account not found");
 
@@ -173,13 +178,8 @@ export async function sendEmail(
     }, { retry: false }) : await gmail.users.messages.send({
       userId: "me",
       requestBody: { raw: encodedMessage, ...(opts.threadId ? { threadId: opts.threadId } : {}) },
-    });
-
-    return {
-      messageId: rfcMessageId,                 // RFC Message-ID — used as providerMessageId for dedup
-      gmailId: response.data.id ?? "",         // Gmail internal ID — reference only
-      threadId: response.data.threadId ?? "",
-    };
+    }, { retry: false });
+    return readGmailReceipt(gmail, mailboxAccountId, response.data, rfcMessageId);
   } catch (err: unknown) {
     const error = err as { code?: number; message?: string; errors?: Array<{ message?: string }> };
     const code = error?.code;
@@ -196,4 +196,24 @@ export async function sendEmail(
     }
     throw new Error(`Gmail send failed: ${msg}`);
   }
+}
+
+export async function readGmailReceipt(gmail: ReturnType<typeof google.gmail>, mailboxAccountId: string,
+  ack: { id?: string | null; threadId?: string | null }, reservedMessageId: string): Promise<SendEmailResult> {
+  const gmailId = ack.id ?? "";
+  let messageId = reservedMessageId;
+  let threadId = ack.threadId ?? "";
+  try {
+    if (!gmailId) throw new Error("Missing resource ID");
+    const { data } = await gmail.users.messages.get({
+      userId: "me", id: gmailId, format: "metadata", metadataHeaders: ["Message-ID"],
+    }, { timeout: 5000, retry: false });
+    threadId ||= data.threadId ?? "";
+    const stored = data.payload?.headers?.find(h => h.name?.toLowerCase() === "message-id")?.value?.trim();
+    if (!stored || !isRfcMessageId(stored)) throw new Error("Missing stored RFC ID");
+    messageId = stored;
+  } catch {
+    logger.warn({ mailboxAccountId, gmailId }, "Gmail accepted the email, but its stored Message-ID could not be read; keeping the reservation");
+  }
+  return { gmailId, threadId, messageId, reservedMessageId };
 }

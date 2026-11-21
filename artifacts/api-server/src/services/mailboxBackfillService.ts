@@ -1,10 +1,11 @@
-import { db } from "../db";
-import { mailboxAccounts, mailboxBackfillRuns, communications, unsortedEmails } from "@workspace/db";
+import { db, inTransaction } from "../db";
+import { mailboxAccounts, mailboxBackfillRuns } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
-import { google } from "googleapis";
+import { google, type gmail_v1 } from "googleapis";
 import { getValidAccessToken } from "./googleOAuth";
-import { routeMessage, type ParsedMessage } from "./emailRouter";
+import { parseGmailMessage } from "./gmailMessage";
 import { storage } from "../storage";
+import { ingestMailboxMessage, lockSyncableMailbox, syncableSharedMailbox } from "./mailboxIngestion";
 
 // ── In-process concurrency limiter ────────────────────────────────────────────
 
@@ -27,103 +28,6 @@ function releaseSlot(): void {
   } else {
     activeCount--;
   }
-}
-
-// ── MIME helpers (shared patterns from emailSyncService) ──────────────────────
-
-function base64UrlDecode(data: string): string {
-  const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
-  try {
-    return Buffer.from(base64, "base64").toString("utf8");
-  } catch {
-    return "";
-  }
-}
-
-interface MimePart {
-  mimeType?: string;
-  body?: { data?: string; size?: number };
-  parts?: MimePart[];
-  headers?: Array<{ name?: string; value?: string }>;
-}
-
-function extractTextFromParts(parts: MimePart[], mimeType: "text/plain" | "text/html"): string {
-  for (const part of parts) {
-    if (part.mimeType === mimeType && part.body?.data) {
-      return base64UrlDecode(part.body.data);
-    }
-    if (part.parts) {
-      const result = extractTextFromParts(part.parts, mimeType);
-      if (result) return result;
-    }
-  }
-  return "";
-}
-
-function parseGmailMessage(message: {
-  id?: string | null;
-  threadId?: string | null;
-  payload?: {
-    headers?: Array<{ name?: string | null; value?: string | null }>;
-    body?: { data?: string | null };
-    parts?: MimePart[];
-    mimeType?: string | null;
-  } | null;
-  internalDate?: string | null;
-}): ParsedMessage | null {
-  if (!message.id || !message.threadId) return null;
-
-  const headers = message.payload?.headers ?? [];
-  const getHeader = (name: string) =>
-    headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
-
-  const fromRaw = getHeader("From");
-  const fromNameMatch = fromRaw.match(/^"?(.+?)"?\s*<(.+)>$/);
-  const fromAddress = fromNameMatch ? fromNameMatch[2].trim().toLowerCase() : fromRaw.trim().toLowerCase();
-  const fromName = fromNameMatch ? fromNameMatch[1].trim() : undefined;
-
-  const toRaw = getHeader("To");
-  const toAddresses = toRaw ? toRaw.split(",").map(a => a.trim()).filter(Boolean) : [];
-
-  const subject = getHeader("Subject") || "(No subject)";
-  const inReplyTo = getHeader("In-Reply-To") || undefined;
-
-  let bodyText = "";
-  let bodyHtml = "";
-
-  const payload = message.payload;
-  if (payload) {
-    if (payload.parts) {
-      bodyText = extractTextFromParts(payload.parts, "text/plain");
-      bodyHtml = extractTextFromParts(payload.parts, "text/html");
-    } else if (payload.body?.data) {
-      const decoded = base64UrlDecode(payload.body.data as string);
-      if (payload.mimeType === "text/html") {
-        bodyHtml = decoded;
-        bodyText = decoded.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-      } else {
-        bodyText = decoded;
-      }
-    }
-  }
-
-  const internalDateMs = parseInt(message.internalDate ?? "0", 10);
-  const receivedAt = internalDateMs ? new Date(internalDateMs) : new Date();
-
-  if (!fromAddress) return null;
-
-  return {
-    providerMessageId: message.id,
-    providerThreadId: message.threadId,
-    fromAddress,
-    fromName,
-    toAddresses,
-    subject,
-    bodyText,
-    bodyHtml: bodyHtml || undefined,
-    inReplyTo,
-    receivedAt,
-  };
 }
 
 // ── Exponential backoff helper ─────────────────────────────────────────────────
@@ -164,7 +68,7 @@ async function runBackfill(runId: string): Promise<void> {
       return;
     }
 
-    if (run.status === "cancelled") {
+    if (run.cancelRequested || !["queued", "running"].includes(run.status)) {
       console.log(`[backfill] Run ${runId} already cancelled before start`);
       return;
     }
@@ -172,18 +76,17 @@ async function runBackfill(runId: string): Promise<void> {
     const [account] = await db
       .select()
       .from(mailboxAccounts)
-      .where(eq(mailboxAccounts.id, run.mailboxAccountId));
+      .where(and(eq(mailboxAccounts.id, run.mailboxAccountId), eq(mailboxAccounts.companyId, run.companyId), syncableSharedMailbox));
 
-    if (!account || !account.syncEnabled || !account.oauthTokenJson) {
-      await storage.updateMailboxBackfillRun(runId, {
-        status: "error",
-        finishedAt: new Date(),
-        errorMessage: "Mailbox not connected or sync disabled",
-      });
-      return;
-    }
+    if (!account) return;
 
-    await storage.updateMailboxBackfillRun(runId, { status: "running" });
+    const started = await db.transaction(async tx => {
+      if (!await lockSyncableMailbox(tx, account)) return false;
+      const [claimed] = await tx.update(mailboxBackfillRuns).set({ status: "running", updatedAt: new Date() })
+        .where(and(eq(mailboxBackfillRuns.id, runId), eq(mailboxBackfillRuns.status, "queued"), eq(mailboxBackfillRuns.cancelRequested, false))).returning({ id: mailboxBackfillRuns.id });
+      return !!claimed;
+    });
+    if (!started) return;
 
     let accessToken: string;
     try {
@@ -220,7 +123,7 @@ async function runBackfill(runId: string): Promise<void> {
     let flushCounter = 0;
 
     do {
-      const freshRun = await storage.getActiveMailboxBackfillRun(run.mailboxAccountId);
+      const [freshRun] = await db.select().from(mailboxBackfillRuns).where(eq(mailboxBackfillRuns.id, runId));
       if (!freshRun || freshRun.cancelRequested || freshRun.status === "cancelled") {
         await storage.updateMailboxBackfillRun(runId, {
           status: "cancelled",
@@ -254,37 +157,7 @@ async function runBackfill(runId: string): Promise<void> {
 
         await sleep(50);
 
-        const existingComm = await db
-          .select({ id: communications.id })
-          .from(communications)
-          .where(and(
-            eq(communications.companyId, account.companyId),
-            eq(communications.providerMessageId, msgRef.id)
-          ))
-          .limit(1);
-
-        const existingUnsorted = existingComm.length === 0
-          ? await db
-              .select({ id: unsortedEmails.id })
-              .from(unsortedEmails)
-              .where(and(
-                eq(unsortedEmails.companyId, account.companyId),
-                eq(unsortedEmails.providerMessageId, msgRef.id)
-              ))
-              .limit(1)
-          : [];
-
-        if (existingComm.length > 0 || existingUnsorted.length > 0) {
-          counters.inboxDeduped++;
-          counters.sentDeduped++;
-          flushCounter++;
-          if (flushCounter % 25 === 0) {
-            await storage.updateMailboxBackfillRun(runId, { ...counters });
-          }
-          continue;
-        }
-
-        let fullMsg: Awaited<ReturnType<typeof gmail.users.messages.get>>;
+        let fullMsg: { data: gmail_v1.Schema$Message };
         try {
           fullMsg = await withBackoff(() =>
             gmail.users.messages.get({ userId: "me", id: msgRef.id!, format: "full" })
@@ -300,58 +173,26 @@ async function runBackfill(runId: string): Promise<void> {
         const isSent = labelIds.includes("SENT");
         const direction = isSent ? "outbound" : "inbound";
 
-        parsed.mailboxEmailAddress = account.emailAddress;
-
         try {
-          const result = await routeMessage(account.companyId, parsed);
-
-          if (result.action === "route" && result.customerId) {
-            await db.insert(communications).values({
-              companyId: account.companyId,
-              customerId: result.customerId,
-              type: "email",
-              direction,
-              status: "sent",
-              followUpStatus: "none",
-              subject: parsed.subject,
-              body: parsed.bodyText || parsed.subject,
-              bodyText: parsed.bodyText || undefined,
-              bodyHtml: parsed.bodyHtml || undefined,
-              fromAddress: parsed.fromAddress,
-              fromName: parsed.fromName || undefined,
-              toAddresses: parsed.toAddresses,
-              ccAddresses: [],
-              bccAddresses: [],
-              receivedAt: parsed.receivedAt,
-              sentAt: parsed.receivedAt,
-              providerMessageId: parsed.providerMessageId,
-              providerThreadId: parsed.providerThreadId,
-              mailboxAccountId: run.mailboxAccountId,
-              routingMethod: result.routingMethod,
-              routingConfidence: result.routingConfidence,
-              inReplyTo: parsed.inReplyTo || undefined,
-            });
-            if (isSent) { counters.sentFetched++; counters.sentRouted++; }
-            else { counters.inboxFetched++; counters.inboxRouted++; }
-          } else if (result.action === "unsorted") {
-            await db.insert(unsortedEmails).values({
-              companyId: account.companyId,
-              mailboxAccountId: run.mailboxAccountId,
-              fromAddress: parsed.fromAddress,
-              fromName: parsed.fromName || undefined,
-              toAddresses: parsed.toAddresses,
-              subject: parsed.subject,
-              bodyText: parsed.bodyText || undefined,
-              bodyHtml: parsed.bodyHtml || undefined,
-              receivedAt: parsed.receivedAt,
-              providerMessageId: parsed.providerMessageId,
-              providerThreadId: parsed.providerThreadId,
-              status: "pending",
-              candidateCustomerIds: result.candidateCustomerIds ?? [],
-              routingNotes: result.routingNotes || undefined,
-            });
-            if (isSent) { counters.sentFetched++; counters.sentUnsorted++; }
-            else { counters.inboxFetched++; counters.inboxUnsorted++; }
+          const outcome = await ingestMailboxMessage(account, parsed, direction, msgRef.id, async tx => {
+            const [current] = await tx.select({ id: mailboxBackfillRuns.id }).from(mailboxBackfillRuns).where(and(
+              eq(mailboxBackfillRuns.id, runId), eq(mailboxBackfillRuns.status, "running"), eq(mailboxBackfillRuns.cancelRequested, false))).for("share");
+            return !!current;
+          });
+          if (outcome === "stopped") {
+            await storage.updateMailboxBackfillRun(runId, { status: "cancelled", finishedAt: new Date(), ...counters });
+            return;
+          }
+          if (isSent) {
+            counters.sentFetched++;
+            if (outcome === "routed") counters.sentRouted++;
+            if (outcome === "unsorted") counters.sentUnsorted++;
+            if (outcome === "deduped") counters.sentDeduped++;
+          } else {
+            counters.inboxFetched++;
+            if (outcome === "routed") counters.inboxRouted++;
+            if (outcome === "unsorted") counters.inboxUnsorted++;
+            if (outcome === "deduped") counters.inboxDeduped++;
           }
         } catch (routeErr) {
           console.error(`[backfill] Error routing message ${msgRef.id}:`, routeErr);
@@ -404,20 +245,17 @@ export async function startBackfill(req: BackfillRequest): Promise<{ run: typeof
     throw new Error("Range start must be before range end");
   }
 
-  const existing = await storage.getActiveMailboxBackfillRun(req.mailboxAccountId);
-  if (existing) {
-    return { run: existing, alreadyRunning: true };
-  }
-
-  const run = await storage.createMailboxBackfillRun({
-    mailboxAccountId: req.mailboxAccountId,
-    companyId: req.companyId,
-    rangeStart: req.rangeStart,
-    rangeEnd: req.rangeEnd,
-    includeInbox: req.includeInbox,
-    includeSent: req.includeSent,
-    status: "queued",
-  });
+  const result = await db.transaction(tx => inTransaction(tx, async () => {
+    const [account] = await tx.select({ id: mailboxAccounts.id }).from(mailboxAccounts)
+      .where(and(eq(mailboxAccounts.id, req.mailboxAccountId), eq(mailboxAccounts.companyId, req.companyId), syncableSharedMailbox)).for("update");
+    if (!account) throw new Error("Mailbox not connected or sync disabled");
+    const existing = await storage.getActiveMailboxBackfillRun(req.mailboxAccountId);
+    if (existing) return { run: existing, alreadyRunning: true };
+    const run = await storage.createMailboxBackfillRun({ ...req, status: "queued", cancelRequested: false });
+    return { run, alreadyRunning: false };
+  }));
+  if (result.alreadyRunning) return result;
+  const { run } = result;
 
   setImmediate(() => {
     runBackfill(run.id).catch(err => {
@@ -425,18 +263,18 @@ export async function startBackfill(req: BackfillRequest): Promise<{ run: typeof
     });
   });
 
-  return { run, alreadyRunning: false };
+  return result;
 }
 
 // If a run's heartbeat is older than this, the cancel endpoint force-clears
 // the row instead of waiting for a (possibly dead) worker to observe the flag.
 const CANCEL_STALE_THRESHOLD_MS = 60 * 1000;
 
-export async function requestCancel(runId: string): Promise<void> {
+export async function requestCancel(runId: string, mailboxId: string, companyId: string): Promise<void> {
   const [run] = await db
     .select()
     .from(mailboxBackfillRuns)
-    .where(eq(mailboxBackfillRuns.id, runId));
+    .where(and(eq(mailboxBackfillRuns.id, runId), eq(mailboxBackfillRuns.mailboxAccountId, mailboxId), eq(mailboxBackfillRuns.companyId, companyId)));
 
   if (!run) return;
 
@@ -477,7 +315,9 @@ export async function requeueInterruptedBackfills(): Promise<void> {
     const rows: RunRow[] = await db
       .select()
       .from(mailboxBackfillRuns)
-      .where(inArray(mailboxBackfillRuns.status, ["queued", "running"]))
+      .where(and(inArray(mailboxBackfillRuns.status, ["queued", "running"]), sql`EXISTS (
+        SELECT 1 FROM mailbox_accounts WHERE ${mailboxAccounts.id} = ${mailboxBackfillRuns.mailboxAccountId}
+        AND ${mailboxAccounts.companyId} = ${mailboxBackfillRuns.companyId} AND ${syncableSharedMailbox})`))
       .orderBy(mailboxBackfillRuns.startedAt);
 
     if (rows.length === 0) return;

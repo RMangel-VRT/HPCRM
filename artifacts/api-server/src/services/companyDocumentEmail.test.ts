@@ -10,34 +10,34 @@ const deps = {
   visible: vi.fn(async () => ({ mailboxIds: null as string[] | null, includeNullMailbox: true, scopeLabel: "All" })),
   company: vi.fn(async () => ({ name: "Fixture Company", addressLine: "123 Test St", phone: "", website: "", email: "" })),
   wording: vi.fn(async () => DEFAULT_WORDING.documents),
-  mailbox: vi.fn(async () => ({ id: "mail", companyId: "co", syncEnabled: true, syncStatus: "connected", emailAddress: "office@example.test" })),
+  mailbox: vi.fn(async () => ({ id: "mail", accountType: "shared", isActive: true, oauthTokenJson: { fixture: true }, displayName: "Office Mailbox", companyId: "co", syncEnabled: true, syncStatus: "connected", emailAddress: "office@example.test" })),
   repo: { get: vi.fn(async (_co: string, id: string) => ({ id, currentFileId: `file-${id}`, name: `COI ${id}` })),
     file: vi.fn(async (_co: string, id: string) => ({ id: `file-${id}`, filePath: `private/${id}`, fileSize: 5, fileType: "pdf", mimeType: "application/pdf" })) },
   objects: { read: vi.fn(async () => Buffer.from("bytes")) },
   matchCustomer: vi.fn(async () => null as string | null),
   record: vi.fn(async (values: any) => ({ ...values, id: "communication" })),
   stamp: vi.fn(async () => {}),
-  send: vi.fn(async (_mail: string, _opts: unknown, id: string) => ({ messageId: id, gmailId: "internal", threadId: "thread" })),
+  send: vi.fn(async (_mail: string, _opts: unknown, id: string) => ({ messageId: "<real@mail.gmail.com>", reservedMessageId: id, gmailId: "internal", threadId: "thread" })),
 };
 beforeEach(() => {
   vi.clearAllMocks();
   deps.visible.mockResolvedValue({ mailboxIds: null, includeNullMailbox: true, scopeLabel: "All" });
-  deps.mailbox.mockResolvedValue({ id: "mail", companyId: "co", syncEnabled: true, syncStatus: "connected", emailAddress: "office@example.test" });
+  deps.mailbox.mockResolvedValue({ id: "mail", accountType: "shared", isActive: true, oauthTokenJson: { fixture: true }, displayName: "Office Mailbox", companyId: "co", syncEnabled: true, syncStatus: "connected", emailAddress: "office@example.test" });
   deps.objects.read.mockResolvedValue(Buffer.from("bytes"));
   deps.repo.file.mockImplementation(async (_co, id) => ({ id: `file-${id}`, filePath: `private/${id}`, fileSize: 5, fileType: "pdf", mimeType: "application/pdf" }));
-  deps.send.mockImplementation(async (_mail, _opts, id) => ({ messageId: id, gmailId: "internal", threadId: "thread" }));
+  deps.send.mockImplementation(async (_mail, _opts, id) => ({ messageId: "<real@mail.gmail.com>", reservedMessageId: id, gmailId: "internal", threadId: "thread" }));
 });
 it("records exact current-file snapshots and RFC ID before sending one or several documents", async () => {
   await emailCompanyDocuments("co", user, { ...input, documentIds: ["doc", "doc2"] }, deps as any);
   const row = deps.record.mock.calls[0][0];
-  expect(row).toMatchObject({ companyId: "co", customerId: null, direction: "outbound", routingMethod: "company_documents", deliveryStatus: "pending",
+  expect(row).toMatchObject({ companyId: "co", customerId: null, direction: "outbound", fromName: "Office Mailbox", sentById: user.id, routingMethod: "company_documents", deliveryStatus: "pending",
     attachmentsJson: [{ kind: "company_document", documentId: "doc", fileId: "file-doc", fileName: "COI doc.pdf", fileSize: 5 },
       { kind: "company_document", documentId: "doc2", fileId: "file-doc2", fileName: "COI doc2.pdf", fileSize: 5 }] });
   expect(row.providerMessageId).toMatch(/^<.*@highplains.crm>$/);
   expect(deps.record.mock.invocationCallOrder[0]).toBeLessThan(deps.send.mock.invocationCallOrder[0]);
   expect(deps.send.mock.calls[0][2]).toBe(row.providerMessageId);
   expect(deps.send.mock.calls[0][1]).toMatchObject({ subject: row.subject, bodyHtml: row.bodyHtml, bodyText: row.bodyText });
-  expect(deps.stamp).toHaveBeenCalledWith("co", "communication", expect.objectContaining({ deliveryStatus: "sent", providerThreadId: "thread", providerMessageId: row.providerMessageId }));
+  expect(deps.stamp).toHaveBeenCalledWith("co", "communication", expect.objectContaining({ deliveryStatus: "sent", providerThreadId: "thread", providerMessageId: "<real@mail.gmail.com>" }), expect.objectContaining({ reservedMessageId: row.providerMessageId }));
 });
 it("previews both documents, known page counts and the trimmed note without recording or sending", async () => {
   const pdf = await PDFDocument.create();
@@ -64,9 +64,9 @@ it("uses the saved subject with the real attachment count unless the sender over
     deps.wording.mockResolvedValue(DEFAULT_WORDING.documents);
   }
 });
-it.each(["foreign", "hidden", "disabled", "disconnected"])("rejects %s mailbox before reading files or recording", async kind => {
+it.each(["foreign", "hidden", "disabled", "disconnected", "personal"])("rejects %s mailbox before reading files or recording", async kind => {
   if (kind === "hidden") deps.visible.mockResolvedValueOnce({ mailboxIds: [], includeNullMailbox: false, scopeLabel: "" });
-  else deps.mailbox.mockResolvedValueOnce({ id: "mail", companyId: kind === "foreign" ? "other" : "co", syncEnabled: kind !== "disabled", syncStatus: kind === "disconnected" ? "error" : "connected", emailAddress: "office@example.test" });
+  else deps.mailbox.mockResolvedValueOnce({ id: "mail", accountType: kind === "personal" ? "personal" : "shared", isActive: true, oauthTokenJson: { fixture: true }, displayName: "Office Mailbox", companyId: kind === "foreign" ? "other" : "co", syncEnabled: kind !== "disabled", syncStatus: kind === "disconnected" ? "error" : "connected", emailAddress: "office@example.test" });
   await expect(emailCompanyDocuments("co", user, input, deps as any)).rejects.toMatchObject({ status: 403 });
   expect(deps.objects.read).not.toHaveBeenCalled(); expect(deps.record).not.toHaveBeenCalled();
 });

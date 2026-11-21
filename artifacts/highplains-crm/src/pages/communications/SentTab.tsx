@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, Send, Mail, Settings } from "lucide-react";
@@ -67,6 +68,7 @@ function LoadingSkeleton() {
 }
 
 function NoMailboxState() {
+  const { t } = useTranslation();
   return (
     <div
       className="flex flex-col items-center justify-center h-full text-center p-8 gap-4"
@@ -78,13 +80,13 @@ function NoMailboxState() {
       <div>
         <p className="font-medium text-sm">No sent mail yet</p>
         <p className="text-sm text-muted-foreground mt-1 max-w-xs">
-          Connect your Gmail or send your first email from the CRM to see sent messages here.
+          {t("sharedMailbox.noConnectedDescription")}
         </p>
       </div>
       <Button asChild size="sm" variant="outline" data-testid="button-connect-mailbox-sent">
-        <Link href="/dashboard/settings/my-mailbox">
+        <Link href="/dashboard/settings/shared-mailboxes">
           <Settings className="w-3.5 h-3.5 mr-1.5" />
-          Connect a mailbox
+          {t("sharedMailbox.openSettings")}
         </Link>
       </Button>
     </div>

@@ -13,7 +13,7 @@ import { createCustomerCommunication } from "./customerCommunicationCreate";
 
 it("renders without writes and sends each scoped draft once, with reply metadata and failure status", async () => {
   await db.transaction(async tx => {
-    for (const table of ["communications", "mailbox_accounts", "companies", "company_document_settings", "settings", "customers"]) {
+    for (const table of ["communications", "mailbox_accounts", "companies", "company_document_settings", "settings", "customers", "estimate_versions", "unsorted_emails", "communication_links", "communication_audit_log"]) {
       await tx.execute(`CREATE TEMP TABLE ${table} (LIKE public.${table} INCLUDING DEFAULTS) ON COMMIT DROP`);
     }
     await tx.insert(companies).values({ id: "co", name: "Example Landscapes", slug: "example-test" });
@@ -39,9 +39,9 @@ it("renders without writes and sends each scoped draft once, with reply metadata
     const entered = new Promise<void>(resolve => { signalEntered = resolve; });
     const held = new Promise<void>(resolve => { releaseTransport = resolve; });
     const transport = vi.fn(async (_id: string, _opts: SendEmailOptions, messageId?: string) => ({
-      messageId: messageId!, gmailId: "internal", threadId: "gmail-thread",
+      messageId: messageId!, reservedMessageId: messageId!, gmailId: "internal", threadId: "gmail-thread",
     }));
-    const happy = (messageId?: string) => ({ messageId: messageId!, gmailId: "internal", threadId: "gmail-thread" });
+    const happy = (messageId?: string) => ({ messageId: messageId!, reservedMessageId: messageId!, gmailId: "internal", threadId: "gmail-thread" });
     const audit = vi.fn(async () => {});
     const app = express();
     app.use(express.json());
@@ -119,9 +119,9 @@ it("logs against disconnected or sync-disabled customer mailboxes without creati
     }
     const mailbox = { companyId: "co", displayName: "Fixture", accountType: "shared" as const, isActive: true, oauthTokenJson: { fixture: true } };
     await tx.insert(mailboxAccounts).values([
-      { ...mailbox, id: "disconnected", emailAddress: "off@example.test", syncEnabled: true, syncStatus: "disconnected" },
-      { ...mailbox, id: "disabled", emailAddress: "disabled@example.test", syncEnabled: false, syncStatus: "connected" },
-      { ...mailbox, id: "connected", emailAddress: "on@example.test", syncEnabled: true, syncStatus: "connected" },
+      { ...mailbox, id: "disconnected", emailAddress: "off@example.test", syncEnabled: true, syncStatus: "disconnected" as const },
+      { ...mailbox, id: "disabled", emailAddress: "disabled@example.test", syncEnabled: false, syncStatus: "connected" as const },
+      { ...mailbox, id: "connected", emailAddress: "on@example.test", syncEnabled: true, syncStatus: "connected" as const },
     ]);
     const user = { id: "sender", activeCompanyId: "co", activeRole: "office", accessRole: "office" } as UserWithContext;
     const send = vi.fn(async (_user: UserWithContext, id: string) => {
@@ -133,7 +133,7 @@ it("logs against disconnected or sync-disabled customer mailboxes without creati
     });
     const app = express();
     app.use(express.json());
-    app.use((req, _res, next) => { Object.assign(req, { user }); next(); });
+    app.use((req, _res, next) => { Object.assign(req, { user }); void inTransaction(tx, async () => next()); });
     const path = "/api/customers/customer/communications";
     app.post("/api/customers/:customerId/communications", createCustomerCommunication({
       getCustomerById: async (id, companyId) => ({ id, companyId }) as Customer,

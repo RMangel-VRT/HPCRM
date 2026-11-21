@@ -1,8 +1,10 @@
 import { google } from "googleapis";
 import { db } from "../db";
 import { mailboxAccounts } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { randomBytes } from "crypto";
+
+import { activeSharedMailbox, mailboxConnectionScope, syncableSharedMailbox } from "./mailboxIngestion";
 
 const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.send",
@@ -68,7 +70,7 @@ export async function getValidAccessToken(mailboxAccountId: string): Promise<str
   const [account] = await db
     .select()
     .from(mailboxAccounts)
-    .where(eq(mailboxAccounts.id, mailboxAccountId));
+    .where(and(eq(mailboxAccounts.id, mailboxAccountId), syncableSharedMailbox));
 
   if (!account) throw new Error("Mailbox account not found");
   if (!account.oauthTokenJson) throw new Error("No OAuth tokens stored for this mailbox");
@@ -95,7 +97,7 @@ export async function getValidAccessToken(mailboxAccountId: string): Promise<str
     await db
       .update(mailboxAccounts)
       .set({ syncStatus: "error", updatedAt: new Date() })
-      .where(eq(mailboxAccounts.id, mailboxAccountId));
+      .where(mailboxConnectionScope(account));
     throw new Error("OAuth token expired and no refresh token is available. Please reconnect Gmail.");
   }
 
@@ -111,17 +113,17 @@ export async function getValidAccessToken(mailboxAccountId: string): Promise<str
       token_type: credentials.token_type ?? tokenData.token_type,
     };
 
-    await db
-      .update(mailboxAccounts)
+    const [refreshed] = await db.update(mailboxAccounts)
       .set({ oauthTokenJson: updatedToken, updatedAt: new Date() })
-      .where(eq(mailboxAccounts.id, mailboxAccountId));
+      .where(mailboxConnectionScope(account)).returning({ id: mailboxAccounts.id });
+    if (!refreshed) throw new Error("Mailbox account not found");
 
     return updatedToken.access_token!;
   } catch (err) {
     await db
       .update(mailboxAccounts)
       .set({ syncStatus: "error", updatedAt: new Date() })
-      .where(eq(mailboxAccounts.id, mailboxAccountId));
+      .where(mailboxConnectionScope(account));
     throw new Error("Failed to refresh OAuth token. Please reconnect Gmail.");
   }
 }
@@ -130,7 +132,7 @@ export async function revokeTokens(mailboxAccountId: string): Promise<void> {
   const [account] = await db
     .select()
     .from(mailboxAccounts)
-    .where(eq(mailboxAccounts.id, mailboxAccountId));
+    .where(and(eq(mailboxAccounts.id, mailboxAccountId), activeSharedMailbox));
 
   if (account?.oauthTokenJson) {
     const tokenData = account.oauthTokenJson as { access_token?: string; refresh_token?: string };
@@ -156,5 +158,5 @@ export async function revokeTokens(mailboxAccountId: string): Promise<void> {
       lastSyncedAt: null,
       updatedAt: new Date(),
     })
-    .where(eq(mailboxAccounts.id, mailboxAccountId));
+    .where(and(eq(mailboxAccounts.id, mailboxAccountId), activeSharedMailbox));
 }

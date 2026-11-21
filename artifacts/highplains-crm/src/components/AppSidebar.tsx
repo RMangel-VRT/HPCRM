@@ -254,12 +254,6 @@ export default function AppSidebar({
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-64" onClickCapture={guardLinkClick as never}>
-            <DropdownMenuItem asChild data-testid="menu-profile-mailbox">
-              <Link href="/dashboard/settings/my-mailbox" className="cursor-pointer">
-                <Mail className="w-4 h-4 mr-2" />
-                {t("profile.myMailbox")}
-              </Link>
-            </DropdownMenuItem>
             {canSeeNotifications && (
               <DropdownMenuItem asChild data-testid="menu-profile-notifications">
                 <Link href="/dashboard/notifications" className="cursor-pointer">

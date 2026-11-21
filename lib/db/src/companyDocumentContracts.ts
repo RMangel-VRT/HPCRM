@@ -62,5 +62,6 @@ export const companyDocumentEmailInput = z.object({
 export type CompanyDocumentEmailInput = z.infer<typeof companyDocumentEmailInput>;
 export interface CompanyDocumentSendDto {
   id: string; date: string; to: string[]; subject: string; sentByName: string | null;
+  fromAddress?: string | null;
   deliveryStatus: string | null;
 }

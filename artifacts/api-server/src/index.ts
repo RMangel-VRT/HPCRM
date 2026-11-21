@@ -5,6 +5,7 @@ import { logger } from "./lib/logger";
 import { COMPANY_TIME_ZONE } from "./lib/companyDay";
 import { registerRoutes } from "./routes/routes";
 import { requeueInterruptedBackfills } from "./services/mailboxBackfillService";
+import { startSyncWorker } from "./services/emailSyncService";
 import { startPlantSyncScheduler } from "./lib/plantSync";
 import { startRouteScheduler, stopRouteScheduler } from "./lib/routeScheduler";
 import { startPlantEnrichmentScheduler } from "./lib/plantEnrichment";
@@ -55,6 +56,7 @@ registerRoutes(app)
       logger.info(`[companyDay] host timezone=${Intl.DateTimeFormat().resolvedOptions().timeZone} company=${COMPANY_TIME_ZONE}`);
       void warnIfSchemaDrift();
       void requeueInterruptedBackfills();
+      server.once("close", startSyncWorker());
       startPlantSyncScheduler();
       startRouteScheduler();
       server.once("close", stopRouteScheduler);

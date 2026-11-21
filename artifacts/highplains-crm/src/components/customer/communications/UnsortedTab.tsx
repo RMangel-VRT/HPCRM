@@ -620,12 +620,12 @@ export default function UnsortedTab({ viewAs: viewAsProp, onViewAsChange }: Unso
           <Inbox className="w-10 h-10 text-muted-foreground" />
           <p className="font-medium text-sm" data-testid="text-inbox-empty">{t("emailTracking.noMailboxesConnectedTitle")}</p>
           <p className="text-muted-foreground text-sm text-center max-w-sm">
-            {t("emailTracking.noMailboxesConnectedDesc")}
+            {t("sharedMailbox.noConnectedDescription")}
           </p>
-          <Link href="/settings/mailbox-accounts">
+          <Link href="/dashboard/settings/shared-mailboxes">
             <Button size="sm" variant="outline" className="gap-1.5">
               <Settings className="w-3.5 h-3.5" />
-              {t("emailTracking.mailboxSettingsTitle")}
+              {t("sharedMailbox.title")}
             </Button>
           </Link>
         </div>
@@ -637,12 +637,12 @@ export default function UnsortedTab({ viewAs: viewAsProp, onViewAsChange }: Unso
           <Inbox className="w-10 h-10 text-muted-foreground" />
           <p className="font-medium text-sm" data-testid="text-inbox-empty">{t("emailTracking.unsortedInboxEmpty")}</p>
           <p className="text-muted-foreground text-sm text-center max-w-sm">
-            {t("emailTracking.unsortedInboxEmptyDesc")}
+            {t("sharedMailbox.noConnectedDescription")}
           </p>
-          <Link href="/settings/mailbox-accounts">
+          <Link href="/dashboard/settings/shared-mailboxes">
             <Button size="sm" variant="outline" className="gap-1.5">
               <Settings className="w-3.5 h-3.5" />
-              {t("emailTracking.connectGmail")}
+              {t("sharedMailbox.openSettings")}
             </Button>
           </Link>
         </div>

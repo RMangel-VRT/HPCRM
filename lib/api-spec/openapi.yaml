@@ -154,6 +154,80 @@ paths:
         "409": { description: Active company changed }
         "413": { description: Attachments exceed the byte limit }
         "502": { description: Gmail delivery failed }
+  /mailbox-accounts/cleanup/legacy:
+    parameters:
+      - { name: X-Company-Id, in: header, required: true, schema: { type: string, minLength: 1 } }
+    get:
+      operationId: listLegacyMailboxes
+      responses:
+        "200":
+          description: Legacy accounts in the current company, without credentials
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/LegacyMailboxSummary" }
+        "403": { description: Admin only }
+        "409": { description: Active company changed }
+  /mailbox-accounts/cleanup/legacy/{id}:
+    parameters:
+      - { name: X-Company-Id, in: header, required: true, schema: { type: string, minLength: 1 } }
+      - { name: id, in: path, required: true, schema: { type: string, minLength: 1 } }
+    get:
+      operationId: previewLegacyMailboxCleanup
+      responses:
+        "200":
+          description: Read-only counts and review key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyMailboxReview" }
+        "403": { description: Admin only }
+        "409": { description: Active company or reviewed scope changed }
+        "404": { description: Eligible mailbox not found }
+    post:
+      operationId: commitLegacyMailboxCleanup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MailboxCleanupConfirmation" }
+      responses:
+        "200":
+          description: Committed cleanup counts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyMailboxReview" }
+        "403": { description: Admin only }
+        "409": { description: Active company or reviewed scope changed }
+        "404": { description: Eligible mailbox not found }
+  /mailbox-accounts/cleanup/duplicates:
+    parameters:
+      - { name: X-Company-Id, in: header, required: true, schema: { type: string, minLength: 1 } }
+    get:
+      operationId: previewDuplicateSentCleanup
+      responses:
+        "200":
+          description: Read-only counts and review key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DuplicateSentReview" }
+        "403": { description: Admin only }
+        "409": { description: Active company or reviewed scope changed }
+    post:
+      operationId: commitDuplicateSentCleanup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MailboxCleanupConfirmation" }
+      responses:
+        "200":
+          description: Committed cleanup counts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DuplicateSentReview" }
+        "403": { description: Admin only }
+        "409": { description: Active company or reviewed scope changed }
   /communications/preview:
     post:
       operationId: previewComposeEmail
@@ -192,7 +266,7 @@ paths:
                       required: [id, accountType, displayName, emailAddress]
                       properties:
                         id: { type: string }
-                        accountType: { type: string, enum: [shared, personal] }
+                        accountType: { type: string, enum: [shared] }
                         displayName: { type: string }
                         emailAddress: { type: string }
         "403": { description: Forbidden }
@@ -1798,6 +1872,49 @@ components:
         html: { type: string }
         text: { type: string }
         fieldErrors: { type: "null" }
+    LegacyMailboxSummary:
+      type: object
+      required: [id, displayName, emailAddress, accountType]
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        emailAddress: { type: string }
+        accountType: { type: string, enum: [shared, personal] }
+    MailboxCleanupConfirmation:
+      type: object
+      additionalProperties: false
+      required: [confirm, reviewKey]
+      properties:
+        confirm: { type: boolean, enum: [true] }
+        reviewKey: { type: string, pattern: "^[a-f0-9]{64}$" }
+    LegacyMailboxReview:
+      type: object
+      required: [reviewKey, counts]
+      properties:
+        reviewKey: { type: string }
+        counts:
+          type: object
+          required: [imported, retained, threads, unsorted, syncRuns, backfillRuns, mailboxes]
+          properties:
+            imported: { type: integer, minimum: 0 }
+            retained: { type: integer, minimum: 0 }
+            threads: { type: integer, minimum: 0 }
+            unsorted: { type: integer, minimum: 0 }
+            syncRuns: { type: integer, minimum: 0 }
+            backfillRuns: { type: integer, minimum: 0 }
+            mailboxes: { type: integer, minimum: 0 }
+    DuplicateSentReview:
+      type: object
+      required: [reviewKey, counts]
+      properties:
+        reviewKey: { type: string }
+        counts:
+          type: object
+          required: [merged, ambiguous, unmatched]
+          properties:
+            merged: { type: integer, minimum: 0 }
+            ambiguous: { type: integer, minimum: 0 }
+            unmatched: { type: integer, minimum: 0 }
     ComposePreviewInput:
       type: object
       additionalProperties: false

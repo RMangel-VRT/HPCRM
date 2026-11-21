@@ -1,6 +1,25 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { activeCustomersText } from "../../../../../lib/db/src/activeCustomersText";
 const en = {
+  sharedMailbox: {
+    title: "Shared mailboxes", description: "Manage the shared Gmail accounts the CRM uses to send and sync mail.",
+    all: "All shared mailboxes", roleGrant: "Use role grant", allSharedAndUnassigned: "Shared mailboxes and all mailbox-free records",
+    sharedAndMyLogs: "Shared mailboxes and my mailbox-free records", onlyMyLogs: "Only my mailbox-free records",
+    noConnected: "No shared mailbox connected", noConnectedDescription: "Connect a shared company Gmail mailbox to send and receive email in the CRM.",
+    openSettings: "Open Shared mailboxes", legacy: "Legacy mailboxes",
+    legacyDescription: "Personal and inactive mailboxes no longer sync. Review the counts before deleting any CRM copies.",
+    noLegacy: "No legacy mailboxes remain.", personal: "Personal", inactive: "Inactive",
+    deleteLegacy: "Delete mailbox and its synced mail", removeDuplicates: "Remove duplicate sent copies",
+    purgeExplanation: "This permanently deletes the selected mailbox and its imported CRM copies. Emails sent from the CRM are kept without the mailbox link.",
+    duplicatesExplanation: "Only verified pairs are merged into the original CRM record. Unmatched and ambiguous records are left alone.",
+    noProviderDeletion: "Nothing is deleted from Gmail or Spark.", loading: "Loading cleanup counts…",
+    loadError: "Could not load the cleanup information.", commitError: "Cleanup could not be completed. Close this dialog and review the counts again.",
+    reviewAgain: "The cleanup scope changed. Review the updated counts before confirming again.",
+    completed: "Cleanup completed. These are the committed counts.", working: "Removing…", confirm: "Confirm cleanup", close: "Close", cancel: "Cancel",
+    counts: { imported: "Imported CRM messages deleted", retained: "CRM messages kept", threads: "Newly empty conversations removed",
+      unsorted: "Unsorted records deleted", syncRuns: "Sync runs deleted", backfillRuns: "Backfill runs deleted", mailboxes: "Mailboxes deleted",
+      merged: "Verified sent copies merged", ambiguous: "Ambiguous records left unchanged", unmatched: "CRM sends without a verified match" },
+  },
   emailPreview: { title: "Email preview", hide: "Hide preview", loading: "Preparing preview…",
     notReady: "Complete the required fields to preview this email.", failed: "Couldn't load the email preview." },
   compose: { reply: "Reply", replyTitle: "Reply to message", sent: "Email sent", failed: "Couldn't send email",

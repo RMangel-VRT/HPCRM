@@ -15,6 +15,7 @@ import { preflightEstimateSend, transitionEstimate } from "./estimateLifecycle";
 import { renderEstimatePdfFile } from "./estimatePdf";
 import { estimatePayload, readEstimate } from "./estimateReads";
 import { createGmailMessageId, sendEmail } from "./gmailSender";
+import { persistGmailReceipt } from "./gmailReceipt";
 import { loadEmailCompany } from "./outgoingEmail/company";
 import { buildEstimateEmail } from "./outgoingEmail/estimateEmail";
 
@@ -136,7 +137,7 @@ export async function emailEstimate(user: UserWithContext, estimateId: string, v
     const rendered = await composeEstimateEmail(tx, estimate, version, { subject, note: input.note }, issue);
     if (!prior) await deps.storage.save(issue.objectId, attachment.pdf);
     await tx.insert(communications).values({
-      id: attemptId, companyId, customerId: estimate.customerId, sentById: user.id, fromName: user.name,
+      id: attemptId, companyId, customerId: estimate.customerId, sentById: user.id, fromName: mailbox.displayName,
       direction: "outbound", type: "email", status: "draft", deliveryStatus: "pending", deliveryProvider: "gmail", followUpStatus: "none",
       // Hidden reservation, not a customer send log until Gmail acknowledges.
       deletedAt: new Date(), routingMethod: "estimate_email", mailboxAccountId: mailbox.id, providerMessageId: messageId,
@@ -189,9 +190,7 @@ export async function emailEstimate(user: UserWithContext, estimateId: string, v
     const sentAt = new Date();
     await db.transaction(async tx => {
       await lockEstimate(tx, companyId, estimateId);
-      const [receipt] = await tx.update(communications).set({ deletedAt: null, status: "sent", deliveryStatus: "sent",
-        providerThreadId: delivered.threadId || null, sentAt, updatedAt: sentAt }).where(attemptScope).returning({ id: communications.id });
-      requireEstimate(receipt);
+      await persistGmailReceipt(tx, companyId, attemptId, messageId, delivered, { deletedAt: null, sentAt });
       await tx.update(estimateVersions).set({ emailIssue: { ...job.issue, pendingCommunicationId: null } }).where(scope);
     });
   } catch {

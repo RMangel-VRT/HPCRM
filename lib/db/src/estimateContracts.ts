@@ -271,6 +271,7 @@ export interface EstimateVersionSummaryDto extends EstimateTimestampsDto {
   sentAt?: string | null; sentById?: string | null; sentMethod?: typeof ESTIMATE_SENT_METHODS[number] | null;
   issuedAttachment?: IssuedEstimateAttachment;
   emailedTo?: string[];
+  emailedFrom?: { name: string | null; address: string };
   emailDelivery?: "sending" | "delivered" | "uncertain";
   acceptedAt?: string | null; acceptedOn?: string | null; acceptedById?: string | null;
   acceptanceMethod?: typeof ESTIMATE_ACCEPTANCE_METHODS[number] | null; poNumber?: string | null;

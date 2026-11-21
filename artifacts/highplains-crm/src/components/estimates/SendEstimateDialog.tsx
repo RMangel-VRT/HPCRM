@@ -92,13 +92,12 @@ export function SendEstimateDialog({ estimate, companyId, senderId, busy, error,
             <Link className="underline" href="/dashboard/settings/shared-mailboxes">{t("estimateBuilder.email.connect")}</Link></p>}
           <div className="space-y-1"><Label htmlFor="estimate-email-from">{t("companyDocuments.email.from")}</Label>
             <select id="estimate-email-from" value={mailboxId} onChange={e => setMailboxId(e.target.value)}
-              data-testid="select-estimate-email-from" aria-describedby={selectedMailbox?.accountType === "personal" ? "estimate-email-from-hint" : undefined}
+              data-testid="select-estimate-email-from"
               disabled={busy || !options.data?.mailboxes.length} className="w-full min-w-0 rounded-md border bg-background px-3 py-2 text-sm">
               <option value="">{t("companyDocuments.email.chooseMailbox")}</option>
               {options.data?.mailboxes.map(m => <option key={m.id} value={m.id}>{m.displayName} · {m.emailAddress}</option>)}
             </select>
-            {selectedMailbox?.accountType === "personal" && <p id="estimate-email-from-hint" className="text-xs text-muted-foreground">
-              {t("estimateBuilder.email.personalMailboxHint")}</p>}
+
           </div>
           {(["to", "cc"] as const).map(kind => <div className="space-y-1" key={kind}>
             <Label htmlFor={`estimate-email-${kind}`}>{t(`companyDocuments.email.${kind}`)}</Label>

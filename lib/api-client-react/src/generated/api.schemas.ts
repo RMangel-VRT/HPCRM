@@ -52,6 +52,63 @@ export interface EmailWordingRenderedPreview {
   fieldErrors: null;
 }
 
+export type LegacyMailboxSummaryAccountType =
+  (typeof LegacyMailboxSummaryAccountType)[keyof typeof LegacyMailboxSummaryAccountType];
+
+export const LegacyMailboxSummaryAccountType = {
+  shared: "shared",
+  personal: "personal",
+} as const;
+
+export interface LegacyMailboxSummary {
+  id: string;
+  displayName: string;
+  emailAddress: string;
+  accountType: LegacyMailboxSummaryAccountType;
+}
+
+export interface MailboxCleanupConfirmation {
+  confirm: boolean;
+  /** @pattern ^[a-f0-9]{64}$ */
+  reviewKey: string;
+}
+
+export type LegacyMailboxReviewCounts = {
+  /** @minimum 0 */
+  imported: number;
+  /** @minimum 0 */
+  retained: number;
+  /** @minimum 0 */
+  threads: number;
+  /** @minimum 0 */
+  unsorted: number;
+  /** @minimum 0 */
+  syncRuns: number;
+  /** @minimum 0 */
+  backfillRuns: number;
+  /** @minimum 0 */
+  mailboxes: number;
+};
+
+export interface LegacyMailboxReview {
+  reviewKey: string;
+  counts: LegacyMailboxReviewCounts;
+}
+
+export type DuplicateSentReviewCounts = {
+  /** @minimum 0 */
+  merged: number;
+  /** @minimum 0 */
+  ambiguous: number;
+  /** @minimum 0 */
+  unmatched: number;
+};
+
+export interface DuplicateSentReview {
+  reviewKey: string;
+  counts: DuplicateSentReviewCounts;
+}
+
 export interface ComposePreviewInput {
   /** @minLength 1 */
   customerId?: string;
@@ -1578,7 +1635,6 @@ export type GetComposeSendOptions200MailboxesItemAccountType =
 
 export const GetComposeSendOptions200MailboxesItemAccountType = {
   shared: "shared",
-  personal: "personal",
 } as const;
 
 export type GetComposeSendOptions200MailboxesItem = {

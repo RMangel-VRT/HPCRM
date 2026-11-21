@@ -4,8 +4,9 @@ import express from "express";
 import request from "supertest";
 
 // ── Capture DB update calls ────────────────────────────────────────────────────
-const mockWhere = vi.fn().mockResolvedValue([]);
-const mockSet = vi.fn(() => ({ where: mockWhere }));
+const mockReturning = vi.fn().mockResolvedValue([{ id: "mailbox-1" }]);
+const mockWhere = vi.fn(() => ({ returning: mockReturning }));
+const mockSet = vi.fn((_values: Record<string, unknown>) => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
 
 // Simulates an account with a non-zero syncErrorCount (the "reconnect" state)
@@ -13,6 +14,8 @@ const fakeAccount = {
   id: "mailbox-1",
   companyId: "company-1",
   emailAddress: "reconnect@example.com",
+  isActive: true,
+  updatedAt: new Date("2026-01-01"),
   syncErrorCount: 5,
   syncStatus: "error",
   accountType: "shared",
@@ -23,6 +26,7 @@ const fakePersonalAccount = {
   id: "mailbox-2",
   companyId: "company-1",
   emailAddress: "personal@example.com",
+  isActive: true,
   syncErrorCount: 0,
   syncStatus: "not_connected",
   accountType: "personal",
@@ -61,34 +65,6 @@ vi.mock("../services/emailSyncService", () => ({
   syncMailbox: vi.fn(),
 }));
 
-// ── Shared schema — minimal structural stand-in ────────────────────────────────
-vi.mock("@shared/schema", () => ({
-  mailboxAccounts: { id: "id", companyId: "companyId", emailAddress: "emailAddress", accountType: "accountType", ownerUserId: "ownerUserId" },
-  mailboxSyncRuns: {},
-  unsortedEmails: {},
-  communications: {},
-  insertMailboxAccountSchema: {
-    parse: (x: unknown) => x,
-    safeParse: (x: unknown) => ({ success: true, data: x }),
-    pick: () => ({
-      safeParse: (x: unknown) => ({ success: true, data: x }),
-    }),
-  },
-}));
-
-// ── drizzle-orm helpers ────────────────────────────────────────────────────────
-vi.mock("drizzle-orm", () => ({
-  eq: (col: unknown, val: unknown) => ({ col, val }),
-  and: (...args: unknown[]) => args,
-  desc: (col: unknown) => col,
-  gte: (col: unknown, val: unknown) => ({ col, val }),
-  sql: Object.assign(
-    (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
-    { join: vi.fn() }
-  ),
-  inArray: (col: unknown, vals: unknown) => ({ col, vals }),
-}));
-
 // ── mailboxScope service ───────────────────────────────────────────────────────
 vi.mock("../services/mailboxScope", () => ({
   resolveVisibleMailboxes: vi.fn().mockResolvedValue({ mailboxIds: null }),
@@ -114,18 +90,18 @@ async function buildApp(overrides: {
   app.use(express.json());
 
   app.use((req, _res, next) => {
-    (req as express.Request & { user?: unknown }).user = overrides.user ?? {
+    Object.assign(req, { user: overrides.user ?? {
       id: "user-1",
       name: "Test User",
       activeCompanyId: "company-1",
       activeRole: "admin",
+      accessRole: "admin",
       isSuperAdminBool: false,
-    };
-    (req as express.Request & { session: Record<string, unknown> }).session = {
+    }, session: {
       oauthState: "random-csrf-token",
       oauthMailboxId: "mailbox-1",
       ...(overrides.sessionExtra ?? {}),
-    };
+    } });
     next();
   });
 
@@ -142,7 +118,7 @@ describe("OAuth callback reconnect — syncErrorCount reset", () => {
 
     mockSet.mockReturnValue({ where: mockWhere });
     mockUpdate.mockReturnValue({ set: mockSet });
-    mockWhere.mockResolvedValue([]);
+    mockWhere.mockReturnValue({ returning: mockReturning });
     mockSelectWhere.mockResolvedValue([fakeAccount]);
     mockSelectFrom.mockReturnValue({ where: mockSelectWhere });
     mockSelect.mockReturnValue({ from: mockSelectFrom });
@@ -209,7 +185,7 @@ describe("OAuth callback — shared mailbox rejects email mismatch", () => {
     vi.clearAllMocks();
     mockSet.mockReturnValue({ where: mockWhere });
     mockUpdate.mockReturnValue({ set: mockSet });
-    mockWhere.mockResolvedValue([]);
+    mockWhere.mockReturnValue({ returning: mockReturning });
     mockSelectWhere.mockResolvedValue([fakeAccount]);
     mockSelectFrom.mockReturnValue({ where: mockSelectWhere });
     mockSelect.mockReturnValue({ from: mockSelectFrom });
@@ -230,63 +206,13 @@ describe("OAuth callback — shared mailbox rejects email mismatch", () => {
   });
 });
 
-// ── Tests: personal mailbox auto-correct ──────────────────────────────────────
-describe("OAuth callback — personal mailbox auto-correct", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockSet.mockReturnValue({ where: mockWhere });
-    mockUpdate.mockReturnValue({ set: mockSet });
-    mockWhere.mockResolvedValue([]);
-    mockSelectFrom.mockReturnValue({ where: mockSelectWhere });
-    mockSelect.mockReturnValue({ from: mockSelectFrom });
-  });
-
-  it("auto-corrects emailAddress when personal mailbox owner signs in with a different (unclaimed) Gmail", async () => {
-    const { getUserEmail } = await import("../services/googleOAuth");
-    vi.mocked(getUserEmail).mockResolvedValueOnce("corrected@gmail.com");
-
-    // First select returns the personal account; second select (conflict check) returns empty
-    mockSelectWhere
-      .mockResolvedValueOnce([fakePersonalAccount])
-      .mockResolvedValueOnce([]);
-
-    const app = await buildApp({
-      sessionExtra: { oauthMailboxId: "mailbox-2" },
-    });
-
-    const response = await request(app)
-      .get("/api/mailbox-accounts/oauth/callback")
-      .query({ code: "valid-auth-code", state: "mailbox-2:random-csrf-token" });
-
-    // Should succeed (redirect)
-    expect(response.status).toBe(302);
-    expect(mockSet).toHaveBeenCalledOnce();
-
-    const setPayload = mockSet.mock.calls[0][0] as Record<string, unknown>;
-    // The auto-corrected email address must be saved
-    expect(setPayload.emailAddress).toBe("corrected@gmail.com");
-    expect(setPayload.syncStatus).toBe("connected");
-  });
-
-  it("rejects when the corrected email is already claimed by another mailbox in the company", async () => {
-    const { getUserEmail } = await import("../services/googleOAuth");
-    vi.mocked(getUserEmail).mockResolvedValueOnce("taken@gmail.com");
-
-    // First select returns the personal account; second select returns a conflicting row
-    mockSelectWhere
-      .mockResolvedValueOnce([fakePersonalAccount])
-      .mockResolvedValueOnce([{ id: "mailbox-conflict" }]);
-
-    const app = await buildApp({
-      sessionExtra: { oauthMailboxId: "mailbox-2" },
-    });
-
-    const response = await request(app)
-      .get("/api/mailbox-accounts/oauth/callback")
-      .query({ code: "valid-auth-code", state: "mailbox-2:random-csrf-token" });
-
-    expect(response.status).toBe(400);
-    expect(response.text).toContain("Email Conflict");
-    expect(mockSet).not.toHaveBeenCalled();
-  });
+it("rejects old personal OAuth state before exchanging the code", async () => {
+  vi.clearAllMocks();
+  mockSelectWhere.mockResolvedValueOnce([fakePersonalAccount]);
+  const app = await buildApp({ sessionExtra: { oauthMailboxId: "mailbox-2", oauthFrom: "my-mailbox" } });
+  const { exchangeCodeForTokens } = await import("../services/googleOAuth");
+  await request(app).get("/api/mailbox-accounts/oauth/callback")
+    .query({ code: "not-exchanged", state: "mailbox-2:random-csrf-token" }).expect(404);
+  expect(exchangeCodeForTokens).not.toHaveBeenCalled();
+  expect(mockSet).not.toHaveBeenCalled();
 });

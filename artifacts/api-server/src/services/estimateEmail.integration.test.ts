@@ -11,6 +11,7 @@ import { registerEstimateRoutes } from "../routes/estimates";
 import { createEstimate, createLine } from "./estimates";
 import { buildMimeMessage, sendEmail } from "./gmailSender";
 import { parseGmailMessage, hasSyncedCommunication } from "./emailSyncService";
+import { ingestMailboxMessage } from "./mailboxIngestion";
 import { transitionEstimate } from "./estimateLifecycle";
 import { renderEstimatePdfFile } from "./estimatePdf";
 import { ObjectStorageService } from "../objectStorage";
@@ -75,11 +76,11 @@ beforeAll(async () => {
     { companyId: company, customerId, name: "Facilities", emails: ["facilities@example.test"] }]);
   await db.insert(companyDocumentSettings).values({ companyId: company, phone: "(303) 555-0100" });
   const boxes = await db.insert(mailboxAccounts).values([
-    { companyId: company, displayName: "Shared Office", emailAddress: "office@example.test", accountType: "shared", syncStatus: "connected", syncEnabled: true },
-    { companyId: other, displayName: "Other Office", emailAddress: "other@example.test", accountType: "shared", syncStatus: "connected", syncEnabled: true },
+    { companyId: company, displayName: "Shared Office", emailAddress: "office@example.test", accountType: "shared", syncStatus: "connected", syncEnabled: true, oauthTokenJson: { fixture: true } },
+    { companyId: other, displayName: "Other Office", emailAddress: "other@example.test", accountType: "shared", syncStatus: "connected", syncEnabled: true, oauthTokenJson: { fixture: true } },
     { companyId: company, displayName: "Disconnected", emailAddress: "disconnected@example.test", accountType: "shared" },
-    { companyId: company, displayName: "Personal", emailAddress: "personal@example.test", ownerUserId: user, syncStatus: "connected", syncEnabled: true },
-    { companyId: company, displayName: "Another user", emailAddress: "another@example.test", syncStatus: "connected", syncEnabled: true },
+    { companyId: company, displayName: "Personal", emailAddress: "personal@example.test", ownerUserId: user, syncStatus: "connected", syncEnabled: true, oauthTokenJson: { fixture: true } },
+    { companyId: company, displayName: "Another user", emailAddress: "another@example.test", syncStatus: "connected", syncEnabled: true, oauthTokenJson: { fixture: true } },
   ]).returning();
   [mailboxId, foreignMailbox, disconnected, ownMailbox, extraMailbox] = boxes.map(m => m.id);
 });
@@ -90,7 +91,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await db.delete(communications).where(eq(communications.companyId, company));
-  gmail.mockReset().mockImplementation(async (_mailbox, _opts, id) => ({ messageId: id!, gmailId: "gmail-id", threadId: "gmail-thread" }));
+  gmail.mockReset().mockImplementation(async (_mailbox, _opts, id) => ({ messageId: id!, reservedMessageId: id!, gmailId: "gmail-id", threadId: "gmail-thread" }));
   render.mockClear();
   vi.mocked(transitionEstimate).mockClear();
 });
@@ -101,8 +102,8 @@ it("scopes options and requests to the estimate and connected mailboxes", async 
   expect(response.status).toBe(200);
   expect(response.body).toMatchObject({ defaultMailboxId: mailboxId, phone: "(303) 555-0100" });
   expect(response.body.defaultTo.toLowerCase()).toBe("primary@example.test");
-  expect(response.body.mailboxes.map((m: { id: string }) => m.id)).toEqual([mailboxId, ownMailbox, extraMailbox]);
-  expect(response.body.mailboxes.map((m: { accountType: string }) => m.accountType)).toEqual(["shared", "personal", "personal"]);
+  expect(response.body.mailboxes.map((m: { id: string }) => m.id)).toEqual([mailboxId]);
+  expect(response.body.mailboxes.map((m: { accountType: string }) => m.accountType)).toEqual(["shared"]);
   expect(response.body.recipients.map((r: { email: string }) => r.email.toLowerCase()))
     .toEqual(["primary@example.test", "facilities@example.test", "billing@example.test"]);
   expect((await application(other).get(url)).status).toBe(404);
@@ -177,6 +178,14 @@ it("guards no lines and needs-price before Gmail, then stores and resends the sa
   await db.update(estimateLines).set({ unitPriceCents: 0, priceSource: "catalog" }).where(eq(estimateLines.versionId, d.version.id));
   expect((await application().post(`${d.url}/send-email`).send(input())).body.error).toBe("LINES_NEED_PRICE");
   expect(gmail).not.toHaveBeenCalled();
+  const actualId = "<estimate-receipt@mail.gmail.com>";
+  const [shared] = await db.select().from(mailboxAccounts).where(eq(mailboxAccounts.id, mailboxId));
+  const synced = { providerMessageId: actualId, providerThreadId: "gmail-thread", fromAddress: shared.emailAddress,
+    toAddresses: input().to, subject: input().subject, bodyText: "Synced copy", receivedAt: new Date() };
+  gmail.mockImplementationOnce(async (_id, _opts, reserved) => {
+    expect(await ingestMailboxMessage(shared, synced, "outbound", "gmail-id")).toBe("routed");
+    return { messageId: actualId, reservedMessageId: reserved!, gmailId: "gmail-id", threadId: "gmail-thread" };
+  });
   const original = await application().post(`${d.url}/send-email`).send({ ...input(), confirmZeroPriced: true });
   expect(original.status, JSON.stringify(original.body)).toBe(200);
   expect(original.body).toMatchObject({ emailed: true, version: { status: "sent", sentMethod: "email", emailedTo: input().to,
@@ -194,7 +203,8 @@ it("guards no lines and needs-price before Gmail, then stores and resends the sa
   expect((await PDFDocument.load(attachment.content)).getPageCount()).toBe(original.body.version.issuedAttachment.pageCount);
   const [record] = await logs();
   expect(record).toMatchObject({ customerId, mailboxAccountId: mailboxId, fromAddress: "office@example.test", direction: "outbound",
-    deliveryStatus: "sent", status: "sent", providerMessageId: rfcId, providerThreadId: "gmail-thread", toAddresses: to, ccAddresses: cc,
+    fromName: "Shared Office", sentById: user, deliveryStatus: "sent", status: "sent", providerMessageId: actualId,
+    providerThreadId: "gmail-thread", toAddresses: to, ccAddresses: cc,
     body: opts.bodyText, bodyText: opts.bodyText, bodyHtml: opts.bodyHtml });
   const mime = buildMimeMessage("office@example.test", opts, rfcId!);
   expect(mime).toContain("multipart/alternative");
@@ -203,8 +213,12 @@ it("guards no lines and needs-price before Gmail, then stores and resends the sa
     expect(Buffer.from(part!, "base64").toString("utf8")).toBe(body);
   }
   const parsed = parseGmailMessage({ id: "gmail-id", threadId: "gmail-thread", payload: { headers: [
-    { name: "From", value: "office@example.test" }, { name: "Message-ID", value: mime.match(/^Message-ID: (.+)$/m)![1].trim() },
+    { name: "From", value: "office@example.test" }, { name: "Message-ID", value: actualId },
   ] } });
+  expect(mime.match(/^Message-ID: (.+)$/m)![1].trim()).toBe(rfcId);
+  expect(await ingestMailboxMessage(shared, synced, "outbound", "gmail-id")).toBe("deduped");
+  expect(await db.select().from(communications).where(and(eq(communications.companyId, company),
+    eq(communications.providerMessageId, actualId)))).toHaveLength(1);
   expect(await hasSyncedCommunication(company, parsed!.providerMessageId)).toBe(true);
   expect(await hasSyncedCommunication(other, parsed!.providerMessageId)).toBe(false);
   const issue = (await state(d.version.id)).emailIssue!;
@@ -306,7 +320,7 @@ it("prevents overlapping sends and edits, preserves the delivery when transition
   const released = new Promise<void>(r => { resume = r; });
   gmail.mockImplementationOnce(async (_mailbox, _opts, messageId) => {
     entered(); await released;
-    return { messageId: messageId!, gmailId: "id", threadId: "thread" };
+    return { messageId: messageId!, reservedMessageId: messageId!, gmailId: "id", threadId: "thread" };
   });
   vi.mocked(transitionEstimate).mockRejectedValueOnce(new Error("Injected transition failure"));
   const send = application().post(`${d.url}/send-email`).send(input()).then(r => r);

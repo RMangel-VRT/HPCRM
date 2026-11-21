@@ -1,6 +1,25 @@
 import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { activeCustomersText } from "../../../../../lib/db/src/activeCustomersText";
 const es = {
+  sharedMailbox: {
+    title: "Buzones compartidos", description: "Administre las cuentas compartidas de Gmail que el CRM usa para enviar y sincronizar correos.",
+    all: "Todos los buzones compartidos", roleGrant: "Usar el permiso del rol", allSharedAndUnassigned: "Buzones compartidos y todos los registros sin buzón",
+    sharedAndMyLogs: "Buzones compartidos y mis registros sin buzón", onlyMyLogs: "Solo mis registros sin buzón",
+    noConnected: "No hay ningún buzón compartido conectado", noConnectedDescription: "Conecte un buzón de Gmail compartido de la empresa para enviar y recibir correos en el CRM.",
+    openSettings: "Abrir Buzones compartidos", legacy: "Buzones antiguos",
+    legacyDescription: "Los buzones personales e inactivos ya no se sincronizan. Revise las cantidades antes de eliminar copias del CRM.",
+    noLegacy: "No quedan buzones antiguos.", personal: "Personal", inactive: "Inactivo",
+    deleteLegacy: "Eliminar el buzón y sus correos sincronizados", removeDuplicates: "Eliminar copias duplicadas de correos enviados",
+    purgeExplanation: "Se eliminarán de forma permanente el buzón seleccionado y sus copias importadas al CRM. Los correos enviados desde el CRM se conservarán sin vínculo al buzón.",
+    duplicatesExplanation: "Solo los pares verificados se combinan con el registro original del CRM. Los registros ambiguos o sin coincidencia no se cambian.",
+    noProviderDeletion: "No se eliminará nada de Gmail ni de Spark.", loading: "Cargando cantidades de la limpieza…",
+    loadError: "No se pudo cargar la información de la limpieza.", commitError: "No se pudo completar la limpieza. Cierre este cuadro y vuelva a revisar las cantidades.",
+    reviewAgain: "El alcance de la limpieza cambió. Revise las cantidades actualizadas antes de volver a confirmar.",
+    completed: "Limpieza completada. Estas son las cantidades finales.", working: "Eliminando…", confirm: "Confirmar limpieza", close: "Cerrar", cancel: "Cancelar",
+    counts: { imported: "Mensajes importados eliminados del CRM", retained: "Mensajes del CRM conservados", threads: "Conversaciones eliminadas al quedar vacías",
+      unsorted: "Registros sin clasificar eliminados", syncRuns: "Registros de sincronización eliminados", backfillRuns: "Registros de importación histórica eliminados", mailboxes: "Buzones eliminados",
+      merged: "Copias enviadas verificadas combinadas", ambiguous: "Registros ambiguos sin cambios", unmatched: "Envíos del CRM sin coincidencia verificada" },
+  },
   emailPreview: { title: "Vista previa del correo", hide: "Ocultar vista previa", loading: "Preparando la vista previa…",
     notReady: "Complete los campos obligatorios para ver el correo.", failed: "No se pudo cargar la vista previa del correo." },
   compose: { reply: "Responder", replyTitle: "Responder al mensaje", sent: "Correo enviado", failed: "No se pudo enviar el correo",

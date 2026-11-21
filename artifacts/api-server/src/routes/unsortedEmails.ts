@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { db } from "../db";
+import { db, inTransaction } from "../db";
 import { unsortedEmails } from "@workspace/db";
 import { eq, and, desc, sql, inArray, gte } from "drizzle-orm";
 import { storage } from "../storage";
 import type { UserWithContext } from "../auth";
-import { resolveVisibleMailboxes, MailboxScopeForbiddenError } from "../services/mailboxScope";
+import { resolveVisibleMailboxes, MailboxScopeForbiddenError, sharedOrUnassigned } from "../services/mailboxScope";
 import type { RoleName } from "@workspace/db";
+import { lockMailIdentity } from "../services/mailboxIngestion";
 
 const router = Router();
 
@@ -50,7 +51,7 @@ router.get("/", async (req, res) => {
     const limitNum = Math.min(100, parseInt(limitStr as string) || 25);
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions = [eq(unsortedEmails.companyId, user.activeCompanyId)];
+    const conditions = [eq(unsortedEmails.companyId, user.activeCompanyId), sharedOrUnassigned(user.activeCompanyId, unsortedEmails.mailboxAccountId)];
     if (status && isValidStatus(status)) {
       conditions.push(eq(unsortedEmails.status, status));
     }
@@ -108,7 +109,8 @@ router.get("/:id", async (req, res) => {
 
     const [email] = await db.select()
       .from(unsortedEmails)
-      .where(and(eq(unsortedEmails.id, req.params.id), eq(unsortedEmails.companyId, user.activeCompanyId)));
+      .where(and(eq(unsortedEmails.id, req.params.id), eq(unsortedEmails.companyId, user.activeCompanyId),
+        sharedOrUnassigned(user.activeCompanyId, unsortedEmails.mailboxAccountId)));
     if (!email) return res.status(404).json({ error: "Not found" });
     res.json(email);
   } catch (err) {
@@ -125,66 +127,55 @@ router.post("/:id/route", async (req, res) => {
       return res.status(403).json({ error: "Admin or office role required" });
     }
 
-    const [email] = await db.select()
-      .from(unsortedEmails)
-      .where(and(eq(unsortedEmails.id, req.params.id), eq(unsortedEmails.companyId, user.activeCompanyId)));
-    if (!email) return res.status(404).json({ error: "Not found" });
-
-    if (email.mailboxAccountId) {
-      try {
-        const vis = await resolveVisibleMailboxes({
-          userId: user.id,
-          companyId: user.activeCompanyId,
-          role: user.activeRole as RoleName,
-          isSuperAdmin: user.isSuperAdminBool,
-        });
-        if (vis.mailboxIds !== null && !vis.mailboxIds.includes(email.mailboxAccountId)) {
-          return res.status(403).json({ error: "You do not have access to this mailbox." });
-        }
-      } catch (err) {
-        if (err instanceof MailboxScopeForbiddenError) return res.status(403).json({ error: err.message });
-      }
-    }
-
     const { customerId } = req.body;
     if (!customerId) return res.status(400).json({ error: "customerId is required" });
     const customer = await storage.getCustomerById(customerId, user.activeCompanyId);
     if (!customer) return res.status(404).json({ error: "Customer not found" });
 
-    const comm = await storage.createCommunication({
-      companyId: user.activeCompanyId,
-      customerId,
-      sentById: user.id,
-      type: "email",
-      direction: email.direction ?? "inbound",
-      status: "sent",
-      followUpStatus: "none",
-      subject: email.subject,
-      body: email.bodyText || email.subject,
-      bodyText: email.bodyText ?? undefined,
-      bodyHtml: email.bodyHtml ?? undefined,
-      fromAddress: email.fromAddress,
-      fromName: email.fromName ?? undefined,
-      toAddresses: email.toAddresses ?? [],
-      ccAddresses: [],
-      bccAddresses: [],
-      receivedAt: email.receivedAt,
-      providerThreadId: email.providerThreadId ?? undefined,
-      mailboxAccountId: email.mailboxAccountId ?? undefined,
-      routingMethod: "manual",
-      sentAt: email.receivedAt,
-    });
+    const result = await db.transaction(tx => inTransaction(tx, async () => {
+      await lockMailIdentity(tx, user.activeCompanyId);
+      const [email] = await tx.select().from(unsortedEmails).where(and(eq(unsortedEmails.id, req.params.id),
+        eq(unsortedEmails.companyId, user.activeCompanyId), sharedOrUnassigned(user.activeCompanyId, unsortedEmails.mailboxAccountId))).for("update");
+      if (!email) return null;
+      if (email.resolvedToCommunicationId) return false;
+      const comm = await storage.createCommunication({
+        companyId: user.activeCompanyId,
+        customerId,
+        type: "email",
+        direction: email.direction ?? "inbound",
+        status: "sent",
+        followUpStatus: "none",
+        subject: email.subject,
+        body: email.bodyText || email.subject,
+        bodyText: email.bodyText ?? undefined,
+        bodyHtml: email.bodyHtml ?? undefined,
+        fromAddress: email.fromAddress,
+        fromName: email.fromName ?? undefined,
+        toAddresses: email.toAddresses ?? [],
+        ccAddresses: [],
+        bccAddresses: [],
+        receivedAt: email.receivedAt,
+        providerMessageId: email.providerMessageId ?? undefined,
+        providerThreadId: email.providerThreadId ?? undefined,
+        mailboxAccountId: email.mailboxAccountId ?? undefined,
+        routingMethod: "manual",
+        sentAt: email.receivedAt,
+      });
 
-    const [updated] = await db.update(unsortedEmails)
-      .set({
-        status: "routed",
-        resolvedToCommunicationId: comm.id,
-        resolvedByUserId: user.id,
-        resolvedAt: new Date(),
-      })
-      .where(eq(unsortedEmails.id, req.params.id))
-      .returning();
-    res.json({ communication: comm, email: updated });
+      const [updated] = await db.update(unsortedEmails)
+        .set({
+          status: "routed",
+          resolvedToCommunicationId: comm.id,
+          resolvedByUserId: user.id,
+          resolvedAt: new Date(),
+        })
+        .where(eq(unsortedEmails.id, req.params.id))
+        .returning();
+      return { communication: comm, email: updated };
+    }));
+    if (result === null) return res.status(404).json({ error: "Not found" });
+    if (result === false) return res.status(409).json({ error: "This email is already sorted." });
+    res.json(result);
   } catch (err) {
     console.error("POST /api/unsorted-emails/:id/route error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -201,7 +192,8 @@ router.post("/:id/archive", async (req, res) => {
 
     const [updated] = await db.update(unsortedEmails)
       .set({ status: "archived" })
-      .where(and(eq(unsortedEmails.id, req.params.id), eq(unsortedEmails.companyId, user.activeCompanyId)))
+      .where(and(eq(unsortedEmails.id, req.params.id), eq(unsortedEmails.companyId, user.activeCompanyId),
+        sharedOrUnassigned(user.activeCompanyId, unsortedEmails.mailboxAccountId)))
       .returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
@@ -221,7 +213,8 @@ router.post("/:id/spam", async (req, res) => {
 
     const [updated] = await db.update(unsortedEmails)
       .set({ status: "spam" })
-      .where(and(eq(unsortedEmails.id, req.params.id), eq(unsortedEmails.companyId, user.activeCompanyId)))
+      .where(and(eq(unsortedEmails.id, req.params.id), eq(unsortedEmails.companyId, user.activeCompanyId),
+        sharedOrUnassigned(user.activeCompanyId, unsortedEmails.mailboxAccountId)))
       .returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
@@ -242,7 +235,8 @@ router.post("/:id/assign", async (req, res) => {
     const { assignedToUserId } = req.body;
     const [updated] = await db.update(unsortedEmails)
       .set({ assignedToUserId: assignedToUserId ?? null })
-      .where(and(eq(unsortedEmails.id, req.params.id), eq(unsortedEmails.companyId, user.activeCompanyId)))
+      .where(and(eq(unsortedEmails.id, req.params.id), eq(unsortedEmails.companyId, user.activeCompanyId),
+        sharedOrUnassigned(user.activeCompanyId, unsortedEmails.mailboxAccountId)))
       .returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);

@@ -1,9 +1,10 @@
 import { db } from "../db";
 import { accessRole } from "../../../../lib/db/src/accessRole";
-import { mailboxAccounts, settings, users as usersTable } from "@workspace/db";
+import { mailboxAccounts, settings } from "@workspace/db";
 import type { MailboxVisibilityConfig, RoleName } from "@workspace/db";
 import { DEFAULT_MAILBOX_VISIBILITY } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql, or, isNull, type SQLWrapper } from "drizzle-orm";
+import type { UserWithContext } from "../auth";
 
 export type ViewerContext = {
   userId: string;
@@ -40,19 +41,6 @@ async function loadConfig(companyId: string): Promise<MailboxVisibilityConfig> {
   return raw as MailboxVisibilityConfig;
 }
 
-async function getPersonalMailboxIdForUser(companyId: string, userId: string): Promise<string | null> {
-  const [row] = await db.select({ id: mailboxAccounts.id })
-    .from(mailboxAccounts)
-    .where(and(
-      eq(mailboxAccounts.companyId, companyId),
-      eq(mailboxAccounts.ownerUserId, userId),
-      eq(mailboxAccounts.accountType, "personal"),
-      eq(mailboxAccounts.isActive, true),
-    ))
-    .limit(1);
-  return row?.id ?? null;
-}
-
 async function getSharedMailboxIds(companyId: string): Promise<string[]> {
   const rows = await db.select({ id: mailboxAccounts.id })
     .from(mailboxAccounts)
@@ -65,19 +53,12 @@ async function getSharedMailboxIds(companyId: string): Promise<string[]> {
   return rows.map(r => r.id);
 }
 
-async function getUserNameById(userId: string): Promise<string> {
-  const [row] = await db.select({ name: usersTable.name })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId))
-    .limit(1);
-  return row?.name ?? userId;
-}
-
 async function getMailboxById(companyId: string, mailboxId: string): Promise<{ id: string; displayName: string } | null> {
   const [row] = await db.select({ id: mailboxAccounts.id, displayName: mailboxAccounts.displayName })
     .from(mailboxAccounts)
     .where(and(
       eq(mailboxAccounts.id, mailboxId),
+      eq(mailboxAccounts.accountType, "shared"),
       eq(mailboxAccounts.companyId, companyId),
       eq(mailboxAccounts.isActive, true),
     ))
@@ -94,9 +75,9 @@ export async function resolveVisibleMailboxes(ctx: ViewerContext): Promise<Visib
   if (isAdminLike) {
     if (!viewAs || viewAs === "all") {
       return {
-        mailboxIds: null,
+        mailboxIds: await getSharedMailboxIds(companyId),
         includeNullMailbox: true,
-        scopeLabel: "All mailboxes",
+        scopeLabel: "Shared mailboxes",
       };
     }
 
@@ -111,19 +92,11 @@ export async function resolveVisibleMailboxes(ctx: ViewerContext): Promise<Visib
       };
     }
 
-    const personalId = await getPersonalMailboxIdForUser(companyId, targetId);
-    const userName = await getUserNameById(targetId);
-    const ids: string[] = [];
-    if (personalId) ids.push(personalId);
-    return {
-      mailboxIds: ids,
-      includeNullMailbox: false,
-      scopeLabel: `Viewing: ${userName}`,
-    };
+    return { mailboxIds: [], includeNullMailbox: false, scopeLabel: "Shared mailbox unavailable" };
   }
 
   if (viewAs) {
-    throw new MailboxScopeForbiddenError("You can only view your own mailbox.");
+    throw new MailboxScopeForbiddenError("You cannot change mailbox visibility.");
   }
 
   const config = await loadConfig(companyId);
@@ -131,9 +104,9 @@ export async function resolveVisibleMailboxes(ctx: ViewerContext): Promise<Visib
 
   if (perRoleOverride === "all") {
     return {
-      mailboxIds: null,
+      mailboxIds: await getSharedMailboxIds(companyId),
       includeNullMailbox: true,
-      scopeLabel: "All mailboxes",
+      scopeLabel: "Shared mailboxes",
     };
   }
 
@@ -141,30 +114,31 @@ export async function resolveVisibleMailboxes(ctx: ViewerContext): Promise<Visib
 
   if (perRoleOverride === undefined && !roleInShared) {
     return {
-      mailboxIds: null,
+      mailboxIds: await getSharedMailboxIds(companyId),
       includeNullMailbox: true,
-      scopeLabel: "All mailboxes",
+      scopeLabel: "Shared mailboxes",
     };
   }
 
-  const ids: string[] = [];
-
-  if (perRoleOverride !== "shared_only") {
-    const personalId = await getPersonalMailboxIdForUser(companyId, userId);
-    if (personalId) ids.push(personalId);
-  }
-
-  if (roleInShared || perRoleOverride === "shared_only") {
-    const sharedIds = await getSharedMailboxIds(companyId);
-    for (const id of sharedIds) {
-      if (!ids.includes(id)) ids.push(id);
-    }
-  }
-
+  const ids = roleInShared || perRoleOverride === "shared_only" ? await getSharedMailboxIds(companyId) : [];
   return {
     mailboxIds: ids,
     includeNullMailbox: false,
     nullMailboxSentByUserId: userId,
-    scopeLabel: "My mailboxes",
+    scopeLabel: "Shared mailboxes",
   };
+}
+
+/** Existing unscoped customer/history reads keep mailbox-free records, but must
+ * not expose CRM copies belonging to personal or deactivated accounts. */
+export function sharedOrUnassigned(company: SQLWrapper | string, mailbox: SQLWrapper) {
+  return or(isNull(mailbox), sql`EXISTS (SELECT 1 FROM mailbox_accounts AS shared
+    WHERE shared.id = ${mailbox} AND shared.company_id = ${company}
+    AND shared.account_type = 'shared' AND shared.is_active)`)!;
+}
+
+export async function canReferenceSharedMailbox(user: UserWithContext, id: string) {
+  const scope = await resolveVisibleMailboxes({ companyId: user.activeCompanyId, userId: user.id,
+    role: user.activeRole, isSuperAdmin: user.isSuperAdminBool });
+  return scope.mailboxIds?.includes(id) ?? false;
 }

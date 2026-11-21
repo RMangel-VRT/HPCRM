@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "wouter";
@@ -94,6 +95,7 @@ function LoadingSkeleton() {
 }
 
 function NoMailboxState() {
+  const { t } = useTranslation();
   return (
     <div
       className="flex flex-col items-center justify-center h-full text-center p-8 gap-4"
@@ -103,15 +105,15 @@ function NoMailboxState() {
         <Mail className="w-7 h-7 text-muted-foreground" />
       </div>
       <div>
-        <p className="font-medium text-sm">No mailbox connected</p>
+        <p className="font-medium text-sm">{t("sharedMailbox.noConnected")}</p>
         <p className="text-sm text-muted-foreground mt-1 max-w-xs">
-          Connect your Gmail to receive inbound messages directly in this inbox.
+          {t("sharedMailbox.noConnectedDescription")}
         </p>
       </div>
       <Button asChild size="sm" variant="outline" data-testid="button-connect-mailbox-inbox">
-        <Link href="/dashboard/settings/my-mailbox">
+        <Link href="/dashboard/settings/shared-mailboxes">
           <Settings className="w-3.5 h-3.5 mr-1.5" />
-          Connect a mailbox
+          {t("sharedMailbox.openSettings")}
         </Link>
       </Button>
     </div>

@@ -41,6 +41,7 @@ import type {
   CrewWithSupervisor,
   CustomerContractedServicesTargetsParams,
   CustomerServices,
+  DuplicateSentReview,
   EligibleSupervisor,
   EmailEstimateVersion200,
   EmailWordingEntry,
@@ -59,8 +60,11 @@ import type {
   GetCustomerServicesParams,
   GetWorkCompletedEmailRule200,
   HealthStatus,
+  LegacyMailboxReview,
+  LegacyMailboxSummary,
   ListVisitsParams,
   LoadTemplateRequest,
+  MailboxCleanupConfirmation,
   MobileCompleteRequest,
   MobileLoginRequest,
   MobileMeAddPushSubscription200,
@@ -666,6 +670,395 @@ export const useSendCompanyDocumentEmail = <
   TContext
 > => {
   return useMutation(getSendCompanyDocumentEmailMutationOptions(options));
+};
+
+export const getListLegacyMailboxesUrl = () => {
+  return `/api/mailbox-accounts/cleanup/legacy`;
+};
+
+export const listLegacyMailboxes = async (
+  options?: RequestInit,
+): Promise<LegacyMailboxSummary[]> => {
+  return customFetch<LegacyMailboxSummary[]>(getListLegacyMailboxesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListLegacyMailboxesQueryKey = () => {
+  return [`/api/mailbox-accounts/cleanup/legacy`] as const;
+};
+
+export const getListLegacyMailboxesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listLegacyMailboxes>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listLegacyMailboxes>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListLegacyMailboxesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listLegacyMailboxes>>
+  > = ({ signal }) => listLegacyMailboxes({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listLegacyMailboxes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListLegacyMailboxesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listLegacyMailboxes>>
+>;
+export type ListLegacyMailboxesQueryError = ErrorType<void>;
+
+export function useListLegacyMailboxes<
+  TData = Awaited<ReturnType<typeof listLegacyMailboxes>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listLegacyMailboxes>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListLegacyMailboxesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getPreviewLegacyMailboxCleanupUrl = (id: string) => {
+  return `/api/mailbox-accounts/cleanup/legacy/${id}`;
+};
+
+export const previewLegacyMailboxCleanup = async (
+  id: string,
+  options?: RequestInit,
+): Promise<LegacyMailboxReview> => {
+  return customFetch<LegacyMailboxReview>(
+    getPreviewLegacyMailboxCleanupUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getPreviewLegacyMailboxCleanupQueryKey = (id: string) => {
+  return [`/api/mailbox-accounts/cleanup/legacy/${id}`] as const;
+};
+
+export const getPreviewLegacyMailboxCleanupQueryOptions = <
+  TData = Awaited<ReturnType<typeof previewLegacyMailboxCleanup>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof previewLegacyMailboxCleanup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getPreviewLegacyMailboxCleanupQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof previewLegacyMailboxCleanup>>
+  > = ({ signal }) =>
+    previewLegacyMailboxCleanup(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof previewLegacyMailboxCleanup>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type PreviewLegacyMailboxCleanupQueryResult = NonNullable<
+  Awaited<ReturnType<typeof previewLegacyMailboxCleanup>>
+>;
+export type PreviewLegacyMailboxCleanupQueryError = ErrorType<void>;
+
+export function usePreviewLegacyMailboxCleanup<
+  TData = Awaited<ReturnType<typeof previewLegacyMailboxCleanup>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof previewLegacyMailboxCleanup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getPreviewLegacyMailboxCleanupQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getCommitLegacyMailboxCleanupUrl = (id: string) => {
+  return `/api/mailbox-accounts/cleanup/legacy/${id}`;
+};
+
+export const commitLegacyMailboxCleanup = async (
+  id: string,
+  mailboxCleanupConfirmation: MailboxCleanupConfirmation,
+  options?: RequestInit,
+): Promise<LegacyMailboxReview> => {
+  return customFetch<LegacyMailboxReview>(
+    getCommitLegacyMailboxCleanupUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(mailboxCleanupConfirmation),
+    },
+  );
+};
+
+export const getCommitLegacyMailboxCleanupMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof commitLegacyMailboxCleanup>>,
+    TError,
+    { id: string; data: BodyType<MailboxCleanupConfirmation> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof commitLegacyMailboxCleanup>>,
+  TError,
+  { id: string; data: BodyType<MailboxCleanupConfirmation> },
+  TContext
+> => {
+  const mutationKey = ["commitLegacyMailboxCleanup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof commitLegacyMailboxCleanup>>,
+    { id: string; data: BodyType<MailboxCleanupConfirmation> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return commitLegacyMailboxCleanup(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CommitLegacyMailboxCleanupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof commitLegacyMailboxCleanup>>
+>;
+export type CommitLegacyMailboxCleanupMutationBody =
+  BodyType<MailboxCleanupConfirmation>;
+export type CommitLegacyMailboxCleanupMutationError = ErrorType<void>;
+
+export const useCommitLegacyMailboxCleanup = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof commitLegacyMailboxCleanup>>,
+    TError,
+    { id: string; data: BodyType<MailboxCleanupConfirmation> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof commitLegacyMailboxCleanup>>,
+  TError,
+  { id: string; data: BodyType<MailboxCleanupConfirmation> },
+  TContext
+> => {
+  return useMutation(getCommitLegacyMailboxCleanupMutationOptions(options));
+};
+
+export const getPreviewDuplicateSentCleanupUrl = () => {
+  return `/api/mailbox-accounts/cleanup/duplicates`;
+};
+
+export const previewDuplicateSentCleanup = async (
+  options?: RequestInit,
+): Promise<DuplicateSentReview> => {
+  return customFetch<DuplicateSentReview>(getPreviewDuplicateSentCleanupUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getPreviewDuplicateSentCleanupQueryKey = () => {
+  return [`/api/mailbox-accounts/cleanup/duplicates`] as const;
+};
+
+export const getPreviewDuplicateSentCleanupQueryOptions = <
+  TData = Awaited<ReturnType<typeof previewDuplicateSentCleanup>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof previewDuplicateSentCleanup>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getPreviewDuplicateSentCleanupQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof previewDuplicateSentCleanup>>
+  > = ({ signal }) =>
+    previewDuplicateSentCleanup({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof previewDuplicateSentCleanup>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type PreviewDuplicateSentCleanupQueryResult = NonNullable<
+  Awaited<ReturnType<typeof previewDuplicateSentCleanup>>
+>;
+export type PreviewDuplicateSentCleanupQueryError = ErrorType<void>;
+
+export function usePreviewDuplicateSentCleanup<
+  TData = Awaited<ReturnType<typeof previewDuplicateSentCleanup>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof previewDuplicateSentCleanup>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getPreviewDuplicateSentCleanupQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getCommitDuplicateSentCleanupUrl = () => {
+  return `/api/mailbox-accounts/cleanup/duplicates`;
+};
+
+export const commitDuplicateSentCleanup = async (
+  mailboxCleanupConfirmation: MailboxCleanupConfirmation,
+  options?: RequestInit,
+): Promise<DuplicateSentReview> => {
+  return customFetch<DuplicateSentReview>(getCommitDuplicateSentCleanupUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(mailboxCleanupConfirmation),
+  });
+};
+
+export const getCommitDuplicateSentCleanupMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof commitDuplicateSentCleanup>>,
+    TError,
+    { data: BodyType<MailboxCleanupConfirmation> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof commitDuplicateSentCleanup>>,
+  TError,
+  { data: BodyType<MailboxCleanupConfirmation> },
+  TContext
+> => {
+  const mutationKey = ["commitDuplicateSentCleanup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof commitDuplicateSentCleanup>>,
+    { data: BodyType<MailboxCleanupConfirmation> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return commitDuplicateSentCleanup(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CommitDuplicateSentCleanupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof commitDuplicateSentCleanup>>
+>;
+export type CommitDuplicateSentCleanupMutationBody =
+  BodyType<MailboxCleanupConfirmation>;
+export type CommitDuplicateSentCleanupMutationError = ErrorType<void>;
+
+export const useCommitDuplicateSentCleanup = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof commitDuplicateSentCleanup>>,
+    TError,
+    { data: BodyType<MailboxCleanupConfirmation> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof commitDuplicateSentCleanup>>,
+  TError,
+  { data: BodyType<MailboxCleanupConfirmation> },
+  TContext
+> => {
+  return useMutation(getCommitDuplicateSentCleanupMutationOptions(options));
 };
 
 export const getPreviewComposeEmailUrl = () => {

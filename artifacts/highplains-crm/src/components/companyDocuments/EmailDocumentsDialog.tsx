@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
-import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -15,7 +14,7 @@ import { StatusChip } from "./bits";
 import { BrandedEmailPreview, useBrandedEmailPreview } from "@/components/BrandedEmailPreview";
 
 type Mailbox = { id: string; companyId: string; syncEnabled: boolean; syncStatus: string; isActive: boolean;
-  accountType: string; ownerUserId: string | null; displayName: string; emailAddress: string };
+  accountType: string; displayName: string; emailAddress: string };
 const split = (v: string) => v.split(/[,;\s]+/).filter(Boolean);
 export const companyDocumentSendsKey = (company: string, id: string) => ["/api/company-documents", company, "sends", id];
 export function DocumentSendHistory({ companyId, documentId }: { companyId: string; documentId: string }) {
@@ -31,14 +30,16 @@ export function DocumentSendHistory({ companyId, documentId }: { companyId: stri
       : !query.data?.length ? <p className="text-xs text-muted-foreground">{t("companyDocuments.email.noHistory")}</p>
       : query.data.map(send => <div key={send.id} className="border-b py-2 text-xs">
         <div className="font-medium">{send.subject}</div><div>{send.to.join(", ")}</div>
-        <div className="text-muted-foreground">{new Date(send.date).toLocaleDateString(i18n.language)} · {send.sentByName} · {t(`companyDocuments.email.delivery.${send.deliveryStatus ?? "pending"}`)}</div>
+        <div className="text-muted-foreground">{new Date(send.date).toLocaleDateString(i18n.language)} · {
+          [send.sentByName, send.fromAddress].filter(Boolean).join(" · ")
+        } · {t(`companyDocuments.email.delivery.${send.deliveryStatus ?? "pending"}`)}</div>
       </div>)}
   </section>;
 }
 export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose }: {
   companyId: string; documents: CompanyDocumentDto[]; initialIds: string[]; onClose: () => void;
 }) {
-  const { t } = useTranslation(), { user } = useAuth(), { toast } = useToast(), qc = useQueryClient();
+  const { t } = useTranslation(), { toast } = useToast(), qc = useQueryClient();
   const [mailboxId, setMailboxId] = useState("");
   const [to, setTo] = useState(""), [cc, setCc] = useState("");
   const [ids, setIds] = useState(initialIds);
@@ -52,7 +53,7 @@ export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose
     queryKey: ["/api/mailbox-accounts", companyId, "company-documents-compose"],
     queryFn: async () => {
       const rows: Mailbox[] = await (await companyRequest(companyId, "GET", "/api/mailbox-accounts")).json();
-      return rows.filter(m => m.companyId === companyId && m.isActive && m.syncEnabled && m.syncStatus === "connected");
+      return rows.filter(m => m.companyId === companyId && m.accountType === "shared" && m.isActive && m.syncEnabled && m.syncStatus === "connected");
     },
   });
   const suggestions = useQuery<{ email: string; name: string }[]>({
@@ -68,9 +69,8 @@ export function EmailDocumentsDialog({ companyId, documents, initialIds, onClose
     staleTime: 5 * 60_000,
   });
   useEffect(() => {
-    if (!mailboxId && mailboxes.data) setMailboxId((mailboxes.data.find(m => m.accountType === "shared") ??
-      mailboxes.data.find(m => m.ownerUserId === user?.id))?.id ?? "");
-  }, [mailboxes.data, mailboxId, user?.id]);
+    if (mailboxes.data && !mailboxes.data.some(m => m.id === mailboxId)) setMailboxId(mailboxes.data[0]?.id ?? "");
+  }, [mailboxes.data, mailboxId]);
   const payload = { mailboxAccountId: mailboxId, to: split(to), cc: split(cc), subject: subjectOverride, note, documentIds: ids };
   const parsed = companyDocumentEmailInput.safeParse(payload);
   const preview = useBrandedEmailPreview(companyId, "/api/company-documents/email-preview", parsed.success ? parsed.data : undefined);

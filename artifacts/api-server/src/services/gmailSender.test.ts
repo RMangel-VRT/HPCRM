@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ send: vi.fn(), token: vi.fn(async () => "mock-access"), where: vi.fn() }));
-vi.mock("googleapis", () => ({ google: { gmail: () => ({ users: { messages: { send: mocks.send } } }) } }));
+const mocks = vi.hoisted(() => ({ send: vi.fn(), get: vi.fn(), token: vi.fn(async () => "mock-access"), where: vi.fn() }));
+vi.mock("googleapis", () => ({ google: { gmail: () => ({ users: { messages: { send: mocks.send, get: mocks.get } } }) } }));
 vi.mock("./googleOAuth", () => ({ getValidAccessToken: mocks.token, getOAuth2Client: () => ({ setCredentials: vi.fn() }) }));
 vi.mock("../db", () => ({ db: { select: () => ({ from: () => ({ where: mocks.where }) }) } }));
 vi.mock("crypto", async importOriginal => ({ ...await importOriginal<typeof import("crypto")>(), randomBytes: (n: number) => Buffer.alloc(n, 0x11) }));
@@ -8,6 +8,7 @@ import { buildMimeMessage, sendEmail } from "./gmailSender";
 beforeEach(() => {
   vi.clearAllMocks(); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-18T18:00:00Z"));
   mocks.where.mockResolvedValue([{ id: "mail", emailAddress: "office@example.test", displayName: "Office" }]);
+  mocks.get.mockResolvedValue({ data: { payload: { headers: [{ name: "Message-Id", value: " <actual@mail.gmail.com> " }] } } });
   mocks.send.mockResolvedValue({ data: { id: "gmail-internal", threadId: "thread" } });
 });
 afterEach(() => vi.useRealTimers());
@@ -38,9 +39,10 @@ it("nests text/HTML inside mixed MIME, safely encodes filenames and wraps attach
   expect(encoded.split("\r\n").every(line => line.length <= 76)).toBe(true);
   expect(Buffer.from(encoded, "base64")).toEqual(Buffer.alloc(200, 3));
 });
-it("uses media upload without automatic retries and preserves RFC ID rather than Gmail internal ID", async () => {
+it("uses media upload without automatic retries and reads Gmail’s stored RFC ID by resource ID", async () => {
   const result = await sendEmail("mail", { ...opts, attachments: [{ filename: "a.pdf", mimeType: "application/pdf", content: Buffer.from("bytes") }] }, "<saved@example.test>");
-  expect(result).toEqual({ messageId: "<saved@example.test>", gmailId: "gmail-internal", threadId: "thread" });
+  expect(result).toEqual({ messageId: "<actual@mail.gmail.com>", reservedMessageId: "<saved@example.test>", gmailId: "gmail-internal", threadId: "thread" });
+  expect(mocks.get).toHaveBeenCalledWith({ userId: "me", id: "gmail-internal", format: "metadata", metadataHeaders: ["Message-ID"] }, expect.anything());
   expect(mocks.send.mock.calls[0][0].media.mimeType).toBe("message/rfc822");
   expect(mocks.send.mock.calls[0][1]).toEqual({ retry: false });
   const chunks = []; for await (const chunk of mocks.send.mock.calls[0][0].media.body) chunks.push(chunk);
@@ -62,4 +64,12 @@ it("submits replies to the Gmail thread with validated RFC headers and plain-tex
   expect(mime).not.toContain("text/html");
   expect(() => buildMimeMessage("office@example.test", { ...opts, inReplyTo: "<p@example.test>\r\nBcc: another@example.test" }, "<reply@example.test>"))
     .toThrow("Invalid email reply headers");
+});
+
+it.each(["missing", "error"])("returns the reservation without re-sending when metadata is %s", async condition => {
+  if (condition === "missing") mocks.get.mockResolvedValueOnce({ data: { payload: { headers: [] } } });
+  else mocks.get.mockRejectedValueOnce(new Error("metadata unavailable"));
+  const result = await sendEmail("mail", opts, "<saved@example.test>");
+  expect(result).toEqual({ messageId: "<saved@example.test>", reservedMessageId: "<saved@example.test>", gmailId: "gmail-internal", threadId: "thread" });
+  expect(mocks.send).toHaveBeenCalledTimes(1);
 });

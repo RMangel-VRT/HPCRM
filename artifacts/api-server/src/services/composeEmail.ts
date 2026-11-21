@@ -7,6 +7,7 @@ import { createGmailMessageId, isRfcMessageId, sendEmail, type SendEmailOptions 
 import { resolveVisibleMailboxes } from "./mailboxScope";
 import { loadEmailCompany } from "./outgoingEmail/company";
 import { buildGeneralMessage } from "./outgoingEmail/serviceEmails";
+import { persistGmailReceipt } from "./gmailReceipt";
 
 const address = z.email().max(254);
 export const composeEmailPreviewInput = z.object({
@@ -51,7 +52,7 @@ export function selectComposeMailbox<T extends { id: string; accountType: string
   candidates: T[], visible: string[] | null, requestedId: string | null,
 ) {
   return candidates.find(m => m.isActive && m.syncEnabled && m.syncStatus === "connected"
-    && (requestedId ? m.id === requestedId : m.accountType === "shared")
+    && m.accountType === "shared" && (!requestedId || m.id === requestedId)
     && (visible === null || visible.includes(m.id)));
 }
 
@@ -62,7 +63,7 @@ async function composeMailboxes(user: UserWithContext) {
     db.select({ id: mailboxAccounts.id, accountType: mailboxAccounts.accountType, displayName: mailboxAccounts.displayName,
       emailAddress: mailboxAccounts.emailAddress, isActive: mailboxAccounts.isActive, syncEnabled: mailboxAccounts.syncEnabled,
       syncStatus: mailboxAccounts.syncStatus }).from(mailboxAccounts).where(and(eq(mailboxAccounts.companyId, companyId),
-      eq(mailboxAccounts.isActive, true), eq(mailboxAccounts.syncEnabled, true), eq(mailboxAccounts.syncStatus, "connected"),
+       eq(mailboxAccounts.accountType, "shared"), eq(mailboxAccounts.isActive, true), eq(mailboxAccounts.syncEnabled, true), eq(mailboxAccounts.syncStatus, "connected"),
       isNotNull(mailboxAccounts.oauthTokenJson)))
       .orderBy(mailboxAccounts.id),
   ]);
@@ -125,7 +126,7 @@ export async function sendComposeDraft(user: UserWithContext, id: string, recipi
     const providerId = createGmailMessageId();
     await tx.update(communications).set({
       mailboxAccountId: mailbox.id, providerMessageId: providerId, deliveryProvider: "gmail",
-      deliveryStatus: "pending", failureReason: null, updatedAt: new Date(),
+      deliveryStatus: "pending", sentById: user.id, failureReason: null, updatedAt: new Date(),
     }).where(scopedRow);
     return { mailbox, opts, providerId };
   }));
@@ -142,10 +143,9 @@ export async function sendComposeDraft(user: UserWithContext, id: string, recipi
   } catch (err) {
     return stamp({ deliveryStatus: "failed", failureReason: (err instanceof Error ? err.message : "Gmail send failed.").slice(0, 2000) });
   }
-  return stamp({
-    status: "sent", deliveryStatus: "sent", failureReason: null, sentAt: new Date(),
-    providerMessageId: result.messageId, providerThreadId: result.threadId,
+  return db.transaction(tx => persistGmailReceipt(tx, companyId, id, providerId, result, {
+    sentAt: new Date(),
     sentById: user.id, fromAddress: mailbox.emailAddress, fromName: mailbox.displayName,
     toAddresses: opts.to, recipientEmail: opts.to[0], bodyText: opts.bodyText, bodyHtml: opts.bodyHtml ?? null,
-  });
+  }));
 }

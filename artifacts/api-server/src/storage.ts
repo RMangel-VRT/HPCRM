@@ -1,3 +1,4 @@
+import { sharedOrUnassigned } from "./services/mailboxScope";
 import { allocateCrewWorksheetNumber } from "./services/crewWorksheetNumber";
 import { campaignProjection, campaignJoin } from "./lib/crewProjection";
 import { initializeServiceCategories } from "./services/estimateServiceCategories";
@@ -41,7 +42,7 @@ import { type User, type InsertUser, type Customer, type InsertCustomer, type Co
 import { db } from "./db";
 import { lockCrewCompany, validateStandingCrew, recordCrewLinkChoice } from "./lib/crewLinks";
 import { crews } from "@workspace/db";
-import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, proposalPlantItems, visualScopeSheets, plantPalettes, plantPaletteItems, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, mailboxAccounts, unsortedEmails, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns, crewWorksheets, crewWorksheetPhotos, crewWorksheetVersions, crewWorksheetNumberCounters, qboConnections, qboCustomerCache } from "@workspace/db";
+import { users, customers, contacts, companies, companyUsers, settings, notes, contracts, contractStatusHistory, contractDocuments, contractMonthlyAmounts, customerRateSheets, contractServices, contractTemplates, contractBuilderDocuments, contractBuilderSections, contractBuilderVariables, ticketTypes, ticketTypeStatuses, ticketTypeFields, tickets, ticketFieldValues, ticketStatusHistory, ticketComments, ticketCommentMentions, ticketSources, ticketLinks, customerMapLayers, customerMapDocuments, ticketNotifications, propertyManagementCompanies, propertyManagers, propertyManagerEmails, propertyManagerPhones, equipment, equipmentFiles, equipmentTickets, equipmentTicketStatusHistory, snowEvents, snowEventAttachments, snowEventPropertyImpacts, emailTemplates, emailRules, emailLogs, proposals, proposalFiles, proposalVersions, proposalPlantItems, visualScopeSheets, plantPalettes, plantPaletteItems, campaigns, campaignItems, campaignChecklistTasks, campaignItemTaskCompletions, campaignChecklistAuditLog as campaignChecklistAuditLogTable, campaignCrews, campaignCrewMembers, seasons, communications, communicationTemplates, communicationThreads, communicationLinks, communicationAuditLog, communicationAutomationRules, unsortedEmails, servicePlanTemplates, servicePlanTemplateItems, customerServicePlans, stylePresets, sheetTemplates, chemicalProducts, chemicalNotificationTemplates, mailboxBackfillRuns, crewWorksheets, crewWorksheetPhotos, crewWorksheetVersions, crewWorksheetNumberCounters, qboConnections, qboCustomerCache } from "@workspace/db";
 import type { QboConnection, InsertQboConnection, QboCustomerCache } from "@workspace/db";
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@workspace/db";
 import type { VisibleMailboxes } from "./services/mailboxScope";
@@ -455,8 +456,6 @@ export interface IStorage {
   updateCommunication(id: string, companyId: string, updates: Partial<InsertCommunication>): Promise<Communication | undefined>;
   deleteCommunication(id: string, companyId: string): Promise<void>;
   restoreCommunication(id: string, companyId: string): Promise<Communication | undefined>;
-  deleteSeedCommunications(companyId: string, seedSubjects: string[]): Promise<string[]>;
-  restoreCommunications(ids: string[], companyId: string): Promise<string[]>;
   getCommunicationStats(companyId: string): Promise<{ drafts: number; scheduledToday: number; openFollowUps: number; overdueFollowUps: number }>;
   getCommunicationTemplates(companyId: string, includeArchived?: boolean): Promise<CommunicationTemplate[]>;
   getCommunicationTemplateById(id: string, companyId: string): Promise<CommunicationTemplate | undefined>;
@@ -533,22 +532,6 @@ export interface IStorage {
   updateMailboxBackfillRun(id: string, updates: Partial<InsertMailboxBackfillRun>): Promise<MailboxBackfillRun | undefined>;
   getActiveMailboxBackfillRun(mailboxAccountId: string): Promise<MailboxBackfillRun | undefined>;
   getMailboxBackfillHistory(mailboxAccountId: string, limit?: number): Promise<MailboxBackfillRun[]>;
-
-  // Personal Mailbox Oversight
-  getCompanyPersonalMailboxes(companyId: string): Promise<Array<{
-    id: string;
-    emailAddress: string;
-    displayName: string;
-    syncStatus: string | null;
-    syncEnabled: boolean | null;
-    lastSyncedAt: Date | null;
-    isActive: boolean | null;
-    ownerUserId: string | null;
-    ownerName: string | null;
-    ownerEmail: string | null;
-    connectedEmail: string | null;
-    pendingUnsortedCount: number;
-  }>>;
 
   // QBO Connections
   getQboConnection(companyId: string): Promise<QboConnection | undefined>;
@@ -4200,6 +4183,7 @@ export class PgStorage implements IStorage {
     // Build SQL WHERE conditions — push as many filters to the DB as possible
     const conditions: (ReturnType<typeof eq> | ReturnType<typeof and> | ReturnType<typeof or> | ReturnType<typeof sql> | undefined)[] = [
       eq(communications.companyId, companyId),
+        sharedOrUnassigned(companyId, communications.mailboxAccountId),
       isNull(communications.deletedAt),
     ];
 
@@ -4338,6 +4322,7 @@ export class PgStorage implements IStorage {
         .from(communications)
         .where(and(
           eq(communications.companyId, companyId),
+        sharedOrUnassigned(companyId, communications.mailboxAccountId),
           inArray(communications.threadId, threadIds as string[]),
           isNull(communications.deletedAt),
         ))
@@ -4383,6 +4368,7 @@ export class PgStorage implements IStorage {
       .from(communications)
       .where(and(
         eq(communications.companyId, companyId),
+        sharedOrUnassigned(companyId, communications.mailboxAccountId),
         eq(communications.providerMessageId, providerMessageId),
         isNull(communications.deletedAt),
       ))
@@ -4406,6 +4392,7 @@ export class PgStorage implements IStorage {
       .where(and(
         eq(communications.id, id),
         eq(communications.companyId, companyId),
+        sharedOrUnassigned(companyId, communications.mailboxAccountId),
         isNull(communications.deletedAt),
       ));
     if (!rows[0]) return undefined;
@@ -4459,37 +4446,11 @@ export class PgStorage implements IStorage {
   async restoreCommunication(id: string, companyId: string): Promise<Communication | undefined> {
     const [row] = await db.update(communications)
       .set({ deletedAt: null, updatedAt: new Date() })
-      .where(and(eq(communications.id, id), eq(communications.companyId, companyId)))
+      .where(and(eq(communications.id, id), eq(communications.companyId, companyId), sharedOrUnassigned(companyId, communications.mailboxAccountId)))
       .returning();
     return row;
   }
 
-  async deleteSeedCommunications(companyId: string, seedSubjects: string[]): Promise<string[]> {
-    if (seedSubjects.length === 0) return [];
-    const result = await db
-      .update(communications)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(
-        eq(communications.companyId, companyId),
-        inArray(communications.subject, seedSubjects),
-        isNull(communications.deletedAt),
-      ))
-      .returning({ id: communications.id });
-    return result.map(r => r.id);
-  }
-
-  async restoreCommunications(ids: string[], companyId: string): Promise<string[]> {
-    if (ids.length === 0) return [];
-    const result = await db
-      .update(communications)
-      .set({ deletedAt: null, updatedAt: new Date() })
-      .where(and(
-        eq(communications.companyId, companyId),
-        inArray(communications.id, ids),
-      ))
-      .returning({ id: communications.id });
-    return result.map(r => r.id);
-  }
 
   async getCommunicationStats(companyId: string): Promise<{ drafts: number; scheduledToday: number; openFollowUps: number; overdueFollowUps: number }> {
     const now = new Date();
@@ -4781,6 +4742,7 @@ export class PgStorage implements IStorage {
       .where(and(
         eq(communications.threadId, threadId),
         eq(communications.companyId, companyId),
+        sharedOrUnassigned(companyId, communications.mailboxAccountId),
         isNull(communications.deletedAt),
       ))
       .orderBy(communications.createdAt);
@@ -5309,58 +5271,6 @@ export class PgStorage implements IStorage {
       .orderBy(desc(mailboxBackfillRuns.startedAt))
       .limit(1);
     return row;
-  }
-
-  async getCompanyPersonalMailboxes(companyId: string) {
-    const rows = await db.select({
-      id: mailboxAccounts.id,
-      emailAddress: mailboxAccounts.emailAddress,
-      displayName: mailboxAccounts.displayName,
-      syncStatus: mailboxAccounts.syncStatus,
-      syncEnabled: mailboxAccounts.syncEnabled,
-      lastSyncedAt: mailboxAccounts.lastSyncedAt,
-      isActive: mailboxAccounts.isActive,
-      ownerUserId: mailboxAccounts.ownerUserId,
-      oauthTokenJson: mailboxAccounts.oauthTokenJson,
-      ownerName: users.name,
-      ownerEmail: users.email,
-    })
-      .from(mailboxAccounts)
-      .leftJoin(users, eq(mailboxAccounts.ownerUserId, users.id))
-      .where(and(eq(mailboxAccounts.companyId, companyId), eq(mailboxAccounts.accountType, "personal")));
-
-    const ids = rows.map(r => r.id);
-    let unsortedCounts: Record<string, number> = {};
-    if (ids.length > 0) {
-      const counts = await db.select({
-        mailboxAccountId: unsortedEmails.mailboxAccountId,
-        count: sql<number>`count(*)`,
-      })
-        .from(unsortedEmails)
-        .where(and(eq(unsortedEmails.companyId, companyId), inArray(unsortedEmails.mailboxAccountId, ids)))
-        .groupBy(unsortedEmails.mailboxAccountId);
-      for (const c of counts) {
-        if (c.mailboxAccountId) unsortedCounts[c.mailboxAccountId] = Number(c.count);
-      }
-    }
-
-    return rows.map(r => {
-      const tokenData = r.oauthTokenJson as Record<string, unknown> | null;
-      return {
-        id: r.id,
-        emailAddress: r.emailAddress,
-        displayName: r.displayName,
-        syncStatus: r.syncStatus,
-        syncEnabled: r.syncEnabled,
-        lastSyncedAt: r.lastSyncedAt,
-        isActive: r.isActive,
-        ownerUserId: r.ownerUserId,
-        ownerName: r.ownerName,
-        ownerEmail: r.ownerEmail,
-        connectedEmail: (tokenData?.connected_email as string) ?? null,
-        pendingUnsortedCount: unsortedCounts[r.id] ?? 0,
-      };
-    });
   }
 
   async getMailboxBackfillHistory(mailboxAccountId: string, limit = 10): Promise<MailboxBackfillRun[]> {

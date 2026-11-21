@@ -71,6 +71,7 @@
 - [Estimate rework direction](estimate-rework-direction.md) — one estimate workspace replaces proposal authoring only after exhibits, worksheets and email work; retain old proposals.
 - [Customer email family](customer-email-family.md) — one branded layout, company sign-off and reviewed wording; M1 covers estimate emails only.
 - [Compose delivery claims](compose-delivery-claims.md) — legacy pending defaults require a reserved provider Message-ID to distinguish in-flight sends from ordinary drafts.
+- [Shared mailbox cleanup](shared-mailbox-cleanup.md) — Spark remains the team inbox; personal mail is out of CRM sync and cleanup affects reviewed CRM copies only.
 - [Guarded ticket identity edits](guarded-ticket-identity-edits.md) — keep customer and type rules separate; closed visit history has different meaning for each.
 - [Estimate keyboard sorting](estimate-keyboard-sorting.md) — follow logical row order, not measured centers; restore focus after cross-section rows remount.
 - [Estimate rate reset boundaries](estimate-rate-reset-boundaries.md) — a same-item price reset never refreshes the item snapshot or customer-facing edits.
