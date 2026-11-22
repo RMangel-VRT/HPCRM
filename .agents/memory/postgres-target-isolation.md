@@ -21,3 +21,18 @@ do not copy production credentials or assume a schema restore provisions login.
 **Why:** The replica reported a different endpoint than the explicitly
 authorized production source, and the development demo seeds require data that
 is not present in a schema-only dump.
+
+Rehearse a schema-only resync in a disposable local cluster before resetting
+managed development. Keep managed `_system` objects out of a `public` restore.
+Neon may emit physical `pg_attver` column metadata that standard PostgreSQL
+cannot restore; compare logical definitions rather than transplanting those
+parameters into a local cluster. Keep the original export unchanged.
+
+**Why:** `--baseline-existing` still runs migrations against an empty ledger;
+it suppresses duplicate-object errors only. Historical files can reference
+tables removed by later migrations even when the restored schema is correct.
+
+**How to apply:** Keep the actual reset and restore atomic and stop before
+changing development if the rehearsal fails. An audited baseline that records
+already represented or superseded migrations requires separate approval; do
+not ignore missing-object errors or blindly mark pending migrations applied.
