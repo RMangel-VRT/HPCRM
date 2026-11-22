@@ -55,6 +55,7 @@ export async function runEstimateLifecycle(o: Options): Promise<EstimateLifecycl
     if (o.email) {
       void qc.invalidateQueries({ queryKey: ["/api/customers", data.customerId, "communications"] });
       void qc.invalidateQueries({ queryKey: ["/api/communications"] });
+      void qc.invalidateQueries({ queryKey: ["/api/conversations"] });
     }
     void qc.invalidateQueries({ queryKey: [ESTIMATES_API, "list"] });
     // Mark inactive builder caches stale without refetching over a live editor.
@@ -99,6 +100,7 @@ export async function runEstimateLifecycle(o: Options): Promise<EstimateLifecycl
       const code = conflict?.error;
       const emailErrors = ["ESTIMATE_EMAIL_IN_PROGRESS", "ESTIMATE_EMAIL_MAILBOX_UNAVAILABLE", "ESTIMATE_EMAIL_QUOTA",
         "ESTIMATE_EMAIL_RECONNECT", "ESTIMATE_EMAIL_INVALID_RECIPIENT", "ESTIMATE_EMAIL_DELIVERY_UNCERTAIN", "ESTIMATE_EMAIL_ORIGINAL_UNAVAILABLE",
+        "ESTIMATE_EMAIL_THREAD_CHANGED",
         "ESTIMATE_EMAIL_PDF_UNAVAILABLE", "DOCUMENT_RENDERER_UNAVAILABLE", "ESTIMATE_EMAIL_TOO_LARGE"];
       return { kind: "error", message: t(`estimateBuilder.email.errors.${code && emailErrors.includes(code) ? code : "unknown"}`), status, conflict };
     }

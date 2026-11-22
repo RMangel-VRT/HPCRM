@@ -27,4 +27,5 @@ export interface EstimateEmailInput {
   /** @maxLength 2000 */
   note?: string;
   confirmZeroPriced?: boolean;
+  originalThread?: boolean;
 }

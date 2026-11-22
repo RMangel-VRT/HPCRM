@@ -6,7 +6,6 @@ import {
   Users, Snowflake, FolderOpen, Megaphone, Wrench, Calculator, Gavel, Route,
 } from "lucide-react";
 import { showBillingSidebar } from "@/lib/billing";
-import { commsTabHref, type CommsTab } from "@/lib/last-comms-tab";
 import { localDateString } from "@/shared/scheduleBy";
 import { firstMapHref, workViewsFor } from "./workNav";
 
@@ -19,7 +18,6 @@ export interface NavUser {
   activeRole: NavRole;
   activeTags?: string[];
   isSuperAdminBool?: boolean;
-  lastCommsTab?: CommsTab;
 }
 
 export type NavBadge = "companyDocuments" | "billing" | "scheduling" | "flags" | "unsorted" | "mentions" | "qboReview";
@@ -77,9 +75,6 @@ export const NAV_GROUPS: NavGroupDef[] = [
     items: [
       { key: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, href: "/dashboard",
         visible: is("admin", "office", "field_manager", "chemical_manager", "irrigation_manager", "shop_manager", "landscape_supervisor", "field") },
-      { key: "inbox", labelKey: "nav.inbox", icon: MessagesSquare,
-        href: (u) => commsTabHref(u.lastCommsTab ?? "inbox"),
-        activeMatch: ["/dashboard/communications"], badge: "unsorted", visible: is(...AO) },
       { key: "mentions", labelKey: "nav.mentions", icon: MessageSquare, href: "/dashboard/mentions",
         badge: "mentions", visible: () => true },
       { key: "flags", labelKey: "nav.flags", icon: Flag, href: "/dashboard/flags", badge: "flags", visible: is(...AO) },
@@ -121,6 +116,9 @@ export const NAV_GROUPS: NavGroupDef[] = [
         icon: Map, href: (u) => firstMapHref(u.activeRole)!,
         activeMatch: ["/dashboard/maps", "/dashboard/customers/map"],
         visible: (u) => !!firstMapHref(u.activeRole) },
+      { key: "inbox", labelKey: "nav.threads", icon: MessagesSquare,
+        href: "/dashboard/communications",
+        activeMatch: ["/dashboard/communications"], badge: "unsorted", visible: is(...AO) },
     ],
   },
   {

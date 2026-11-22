@@ -10,4 +10,5 @@ export interface EstimateEmailPreview {
   subject: string;
   html: string;
   text: string;
+  originalThread?: boolean;
 }

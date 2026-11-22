@@ -34,7 +34,7 @@ vi.mock("@/components/LayerMapViewer", () => ({ default: () => <div data-testid=
 vi.mock("@/components/CustomerLocationEditor", () => ({ default: () => null }));
 vi.mock("@/components/CustomerSchedulingSection", () => ({ default: () => null }));
 vi.mock("@/components/TicketListView", () => ({ default: () => null }));
-vi.mock("@/components/CommunicationListTab", () => ({ default: () => null }));
+vi.mock("@/components/conversations/CustomerConversationsSection", () => ({ default: () => null }));
 vi.mock("@/components/contracts/CustomerContracts", () => ({ CustomerContracts: () => null }));
 vi.mock("@/components/qbo/QboCustomerCard", () => ({ default: () => null, cardState: (c: any) => (c?.reviews ? "linked" : "error") }));
 import CustomerDetail from "./CustomerDetail";

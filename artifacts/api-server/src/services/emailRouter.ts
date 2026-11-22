@@ -5,6 +5,7 @@ import { eq, and, or, sql } from "drizzle-orm";
 import { sharedOrUnassigned } from "./mailboxScope";
 
 export interface ParsedMessage {
+  attachments?: { name: string; mimeType?: string; size?: number }[];
   providerMessageId: string;
   providerThreadId: string;
   fromAddress: string;

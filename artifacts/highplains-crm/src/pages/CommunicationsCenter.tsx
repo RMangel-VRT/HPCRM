@@ -1,137 +1,63 @@
+import { useParams, useLocation, useRouter, Link } from "wouter";
 import { useEffect } from "react";
-import { useParams } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { Settings } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { useAuth } from "@/hooks/use-auth";
-import { setLastCommsTab } from "@/lib/last-comms-tab";
-import { CommunicationsPageShell, useCommunicationsShell } from "./communications/CommunicationsPageShell";
-import { CommunicationsToolbar } from "./communications/CommunicationsToolbar";
-import { CommunicationsSecondaryNav } from "./communications/CommunicationsSecondaryNav";
-import AllCommunicationsTab from "./communications/AllCommunicationsTab";
-import UnsortedTab from "@/components/customer/communications/UnsortedTab";
-import InboxTab from "./communications/InboxTab";
-import SentTab from "./communications/SentTab";
-import { QueryPreservingRedirect } from "@/components/nav/QueryPreservingRedirect";
+import { CONVERSATIONS_NS } from "@/components/conversations/i18n";
+import ConversationsWorkspace from "@/components/conversations/ConversationsWorkspace";
+import type { WorkspaceFilter } from "@/components/conversations/api";
 
-const VALID_TABS = ["inbox", "sent", "unsorted", "all"] as const;
-type Tab = typeof VALID_TABS[number];
-
-function isValidTab(t: string | undefined): t is Tab {
-  return VALID_TABS.includes(t as Tab);
+const FILTERS: WorkspaceFilter[] = ["all", "needs_reply", "sent", "unsorted"];
+export function threadFilter(tab: string | undefined, canSeeUnsorted: boolean): WorkspaceFilter {
+  if (!tab || !FILTERS.includes(tab as WorkspaceFilter) || (tab === "unsorted" && !canSeeUnsorted)) return "all";
+  return tab as WorkspaceFilter;
 }
 
-function UnsortedTabShellWrapper() {
-  const { viewAs, setViewAs } = useCommunicationsShell();
-  return <UnsortedTab viewAs={viewAs} onViewAsChange={setViewAs} />;
-}
-
-interface PaginatedCountResponse {
-  data: unknown[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-function CommunicationsCenterInner({ rawTab }: { rawTab: Tab }) {
-  const { search, fromDate, toDate, viewAs } = useCommunicationsShell();
+/** M8 Conversations page. Route kept at /dashboard/communications/:tab? */
+export default function CommunicationsCenter() {
+  const { t } = useTranslation(CONVERSATIONS_NS);
+  const params = useParams<{ tab?: string }>();
+  const [, navigate] = useLocation();
+  const router = useRouter();
+  const search = router.searchHook(router);
   const { user } = useAuth();
+  const isAdminOrOffice = user?.accessRole === "admin" || user?.accessRole === "office";
+  useSetBreadcrumbs([{ label: t("title") }], [t]);
 
-  function buildCountUrl(direction: "inbound" | "outbound") {
-    const p = new URLSearchParams({ page: "1", limit: "1", direction });
-    if (search) p.set("search", search);
-    if (fromDate) p.set("fromDate", fromDate);
-    if (toDate) p.set("toDate", toDate);
-    if (viewAs) p.set("viewAs", viewAs);
-    return `/api/communications?${p.toString()}`;
-  }
-
-  const { data: inboxResponse } = useQuery<PaginatedCountResponse>({
-    queryKey: ["/api/communications", "count", "inbound", search, fromDate, toDate, viewAs],
-    queryFn: async () => {
-      const res = await fetch(buildCountUrl("inbound"), { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch inbox count");
-      return res.json();
-    },
-    staleTime: 30_000,
-  });
-
-  const { data: sentResponse } = useQuery<PaginatedCountResponse>({
-    queryKey: ["/api/communications", "count", "outbound", search, fromDate, toDate, viewAs],
-    queryFn: async () => {
-      const res = await fetch(buildCountUrl("outbound"), { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch sent count");
-      return res.json();
-    },
-    staleTime: 30_000,
-  });
-
-  const inboxCount = inboxResponse?.total;
-  const sentCount = sentResponse?.total;
-  const { data: unsorted } = useQuery<unknown[]>({
-    queryKey: ["/api/unsorted-emails", "sidebar-badge"],
-    queryFn: async () => {
-      const res = await fetch("/api/unsorted-emails?status=pending&limit=100", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch unsorted count");
-      return res.json();
-    },
-    staleTime: 50_000,
-    enabled: ["admin", "office"].includes(user?.accessRole ?? ""),
-  });
+  const raw = params.tab;
+  const filter = threadFilter(raw, isAdminOrOffice);
+  useEffect(() => {
+    if (!raw || raw === filter) return;
+    const query = search.replace(/^\?/, "");
+    navigate(`/dashboard/communications/${filter}${query ? `?${query}` : ""}`, { replace: true });
+  }, [raw, filter, search, navigate]);
 
   return (
-    <div className="flex flex-col md:flex-row h-full min-h-0 overflow-hidden">
-      <CommunicationsSecondaryNav counts={{
-        inbox: inboxCount,
-        sent: sentCount,
-        unsorted: Array.isArray(unsorted) ? unsorted.length : undefined,
-        all: undefined,
-      }} />
-      <div className="flex min-w-0 flex-1 flex-col min-h-0 overflow-hidden">
-      <CommunicationsToolbar />
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        {rawTab === "inbox" && <InboxTab />}
-        {rawTab === "sent" && <SentTab />}
-        {rawTab === "unsorted" && <UnsortedTabShellWrapper />}
-        {rawTab === "all" && <AllCommunicationsTab />}
-      </div>
-      </div>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="page-conversations">
+      <ConversationsWorkspace
+        filter={filter}
+        onFilterChange={(f) => navigate(`/dashboard/communications/${f}`)}
+        showUnsorted={isAdminOrOffice}
+        allowCompose={isAdminOrOffice}
+        initialConversation={filter === "unsorted" ? null : new URLSearchParams(search).get("conversation")}
+        renderHeader={(mailbox) => (
+          <header className="flex flex-wrap items-end gap-x-4 gap-y-2 border-b bg-background px-5 py-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-[22px] font-semibold tracking-tight">{t("title")}</h1>
+              <p className="mt-0.5 truncate text-[12.5px] text-muted-foreground" data-testid="text-mailbox-line">
+                {mailbox ? <>{mailbox.emailAddress} · {t("syncedEvery", { count: mailbox.syncIntervalMinutes })}</> : t("noMailbox")}
+              </p>
+            </div>
+            {isAdminOrOffice && (
+              <Button size="sm" variant="outline" asChild className="gap-1.5">
+                <Link href="/dashboard/settings/shared-mailboxes" data-testid="link-email-settings"><Settings className="h-3.5 w-3.5" />{t("emailSettings")}</Link>
+              </Button>
+            )}
+          </header>
+        )}
+      />
     </div>
   );
-}
-
-export default function CommunicationsCenter() {
-  const params = useParams<{ tab?: string }>();
-  const { user } = useAuth();
-
-  useSetBreadcrumbs([{ label: "Communications" }], []);
-
-  const rawTab = params.tab;
-
-  if (!rawTab) {
-    return <QueryPreservingRedirect to="/dashboard/communications/inbox" />;
-  }
-
-  if (!isValidTab(rawTab)) {
-    return <QueryPreservingRedirect to="/dashboard/communications/inbox" />;
-  }
-
-  const isAdminOrOffice = user?.accessRole === "admin" || user?.accessRole === "office";
-
-  if (rawTab === "all" && !isAdminOrOffice) {
-    return <QueryPreservingRedirect to="/dashboard/communications/inbox" />;
-  }
-
-  return (
-    <CommunicationsPageShell>
-      <CommunicationsCenterRemember tab={rawTab} />
-      <CommunicationsCenterInner rawTab={rawTab} />
-    </CommunicationsPageShell>
-  );
-}
-
-function CommunicationsCenterRemember({ tab }: { tab: Tab }) {
-  useEffect(() => {
-    setLastCommsTab(tab);
-  }, [tab]);
-  return null;
 }

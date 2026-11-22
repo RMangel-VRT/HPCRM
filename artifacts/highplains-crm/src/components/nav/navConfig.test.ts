@@ -15,8 +15,8 @@ it("uses distinct Bids and Estimates identities and the personal, not all-ticket
 });
 const keys = (user: NavUser, now = summer) => getNavForUser(user, now).flatMap(g => g.items.map(i => i.key));
 const roleRows: [NavRole, string[]][] = [
-  ["admin", ["dashboard", "inbox", "mentions", "flags", "tickets", "scheduling", "routes", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "companyDocuments", "settings", "team"]],
-  ["office", ["dashboard", "inbox", "mentions", "flags", "tickets", "scheduling", "routes", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "estimates", "bids", "billing", "revenue", "reports", "companyDocuments", "settings"]],
+  ["admin", ["dashboard", "mentions", "flags", "tickets", "scheduling", "routes", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "inbox", "estimates", "bids", "billing", "revenue", "reports", "companyDocuments", "settings", "team"]],
+  ["office", ["dashboard", "mentions", "flags", "tickets", "scheduling", "routes", "campaigns", "equipment", "snow", "customers", "contracts", "maps", "inbox", "estimates", "bids", "billing", "revenue", "reports", "companyDocuments", "settings"]],
   ["field_manager", ["dashboard", "mentions", "tickets", "scheduling", "routes", "campaigns", "snow", "customers", "maps", "companyDocuments"]],
   ["chemical_manager", ["dashboard", "mentions", "tickets", "campaigns", "customers", "maps", "companyDocuments"]],
   ["irrigation_manager", ["dashboard", "mentions", "tickets", "routes", "campaigns", "customers", "maps", "companyDocuments"]],
@@ -104,9 +104,11 @@ describe("approved ordered sidebar matrix", () => {
     const work = getNavForUser({ activeRole: "admin" }, new Date(instant)).find(g => g.key === "work")!.items;
     expect(position === "first" ? work[0].key : work.at(-1)!.key).toBe("snow");
   });
-  it("keeps last communications tab, badges, and role-specific labels", () => {
-    const items = getNavForUser({ activeRole: "admin", lastCommsTab: "sent" }).flatMap(g => g.items);
-    expect(items.find(i => i.key === "inbox")).toMatchObject({ href: "/dashboard/communications/sent", badge: "unsorted" });
+  it("opens Conversations at the retained route and keeps the Unsorted badge", () => {
+    const items = getNavForUser({ activeRole: "admin" }).flatMap(g => g.items);
+    expect(items.find(i => i.key === "inbox")).toMatchObject({
+      href: "/dashboard/communications", badge: "unsorted", labelKey: "nav.threads",
+    });
     expect(items.filter(i => i.badge).map(i => i.badge).sort()).toEqual(["billing", "companyDocuments", "flags", "mentions", "scheduling", "unsorted"]);
     expect(getNavForUser({ activeRole: "landscape_supervisor" }).flatMap(g => g.items).find(i => i.key === "tickets")?.labelKey).toBe("nav.myWork");
     expect(getNavForUser({ activeRole: "mapping" }).flatMap(g => g.items).find(i => i.key === "maps")?.labelKey).toBe("nav.customerMaps");

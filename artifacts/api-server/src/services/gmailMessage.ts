@@ -13,6 +13,7 @@ function base64UrlDecode(data: string): string {
 
 interface MimePart {
   mimeType?: string;
+  filename?: string;
   body?: { data?: string; size?: number };
   parts?: MimePart[];
   headers?: Array<{ name?: string; value?: string }>;
@@ -20,6 +21,7 @@ interface MimePart {
 
 function extractTextFromParts(parts: MimePart[], mimeType: "text/plain" | "text/html"): string {
   for (const part of parts) {
+    if (part.filename) continue;
     if (part.mimeType === mimeType && part.body?.data) {
       return base64UrlDecode(part.body.data);
     }
@@ -29,6 +31,13 @@ function extractTextFromParts(parts: MimePart[], mimeType: "text/plain" | "text/
     }
   }
   return "";
+}
+
+function attachmentMetadata(parts: MimePart[]): { name: string; mimeType?: string; size?: number }[] {
+  return parts.flatMap(part => {
+    if (part.filename?.trim()) return [{ name: part.filename.trim(), mimeType: part.mimeType, size: part.body?.size }];
+    return part.parts ? attachmentMetadata(part.parts) : [];
+  });
 }
 
 export function parseGmailMessage(message: {
@@ -106,6 +115,7 @@ export function parseGmailMessage(message: {
     subject,
     bodyText,
     bodyHtml: bodyHtml || undefined,
+    attachments: attachmentMetadata(payload?.parts ?? []),
     inReplyTo,
     receivedAt,
   };

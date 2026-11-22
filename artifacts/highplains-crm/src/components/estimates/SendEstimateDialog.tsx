@@ -42,13 +42,16 @@ export function SendEstimateDialog({ estimate, companyId, senderId, busy, error,
   });
   const preview = useEstimateEmailPreview({
     companyId, estimateId: estimate.id, versionId: version.id, updatedAt: estimate.updatedAt,
+    mailboxAccountId: mailboxId || undefined,
     enabled: !delivery, note: note.trim(), subject: resend ? undefined : editedSubject?.trim() || undefined,
   });
   const previewSubject = preview.result?.subject;
+  const inOriginalThread = preview.result?.originalThread === true;
+  const subjectLocked = resend || inOriginalThread;
   useEffect(() => {
-    if (previewSubject !== undefined && (resend || editedSubject === undefined)) setInitialSubject(previewSubject);
-  }, [editedSubject, previewSubject, resend]);
-  const subject = resend ? previewSubject ?? initialSubject ?? "" : editedSubject ?? previewSubject ?? initialSubject ?? "";
+    if (previewSubject !== undefined && (subjectLocked || editedSubject === undefined)) setInitialSubject(previewSubject);
+  }, [editedSubject, previewSubject, subjectLocked]);
+  const subject = subjectLocked ? previewSubject ?? initialSubject ?? "" : editedSubject ?? previewSubject ?? initialSubject ?? "";
 
   useEffect(() => {
     if (!options.data || initialized) return;
@@ -61,7 +64,8 @@ export function SendEstimateDialog({ estimate, companyId, senderId, busy, error,
   const warning = needPrice ?? lines.filter(l => l.needsPrice);
   const confirming = !resend && !!needPrice?.length;
   const payload = estimateEmailInput.safeParse({ mailboxAccountId: mailboxId, to: split(to), cc: split(cc),
-    subject, note: note.trim() || undefined, ...(confirming ? { confirmZeroPriced: true } : {}) });
+    subject: inOriginalThread || (resend && subject.length > 255) ? undefined : subject, originalThread: preview.result?.originalThread,
+    note: note.trim() || undefined, ...(confirming ? { confirmZeroPriced: true } : {}) });
   const selectedMailbox = options.data?.mailboxes.find(m => m.id === mailboxId);
   const valid = initialized && !options.isError && selectedMailbox && payload.success && preview.result && (resend || lines.length > 0);
   const attachment = version.issuedAttachment;
@@ -108,8 +112,9 @@ export function SendEstimateDialog({ estimate, companyId, senderId, busy, error,
           <p className="text-xs text-muted-foreground">{t("estimateBuilder.email.recipientHint")}</p>
           <div className="space-y-1"><Label htmlFor="estimate-email-subject">{t("companyDocuments.email.subject")}</Label>
             <Input id="estimate-email-subject" data-testid="input-estimate-email-subject" maxLength={255}
-              value={subject} readOnly={resend} disabled={busy || (!previewSubject && initialSubject === undefined)}
-              onChange={e => setEditedSubject(e.target.value)} /></div>
+              value={subject} readOnly={subjectLocked} disabled={busy || (!previewSubject && initialSubject === undefined)}
+              onChange={e => setEditedSubject(e.target.value)} />
+            {inOriginalThread && <p className="text-xs text-muted-foreground">{t("estimateBuilder.email.originalThread")}</p>}</div>
           <div className="space-y-1"><Label htmlFor="estimate-email-note">{t("estimateBuilder.email.note")}</Label>
             <Textarea id="estimate-email-note" data-testid="input-estimate-email-note" rows={4} maxLength={2000} value={note}
               disabled={busy} onChange={e => setNote(e.target.value)} /></div>

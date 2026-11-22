@@ -73,6 +73,7 @@ export async function ingestMailboxMessage(account: Mailbox, message: ParsedMess
       fromName: message.fromName, toAddresses: message.toAddresses, bodyText: message.bodyText || undefined,
       bodyHtml: message.bodyHtml, receivedAt: message.receivedAt, providerMessageId: message.providerMessageId,
       providerThreadId: message.providerThreadId,
+      attachmentsJson: message.attachments ?? [],
     };
     if (result.action === "route" && result.customerId) {
       await tx.insert(communications).values({ ...common, customerId: result.customerId, type: "email",

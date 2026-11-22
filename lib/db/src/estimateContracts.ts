@@ -68,6 +68,7 @@ const estimateEmailNote = z.string().trim().max(2000).optional();
 export const estimateEmailPreviewInput = z.object({
   subject: companyDocumentEmailInput.shape.subject.optional(),
   note: estimateEmailNote,
+  mailboxAccountId: companyDocumentEmailInput.shape.mailboxAccountId.optional(),
 }).strict();
 export const estimateEmailInput = z.object({
   mailboxAccountId: companyDocumentEmailInput.shape.mailboxAccountId,
@@ -76,6 +77,7 @@ export const estimateEmailInput = z.object({
   subject: companyDocumentEmailInput.shape.subject,
   note: estimateEmailNote,
   confirmZeroPriced: z.boolean().optional(),
+  originalThread: z.boolean().optional(),
 }).strict().refine(input => {
   const recipients = [...input.to, ...(input.cc ?? [])];
   return recipients.length <= 10 && new Set(recipients.map(email => email.toLowerCase())).size === recipients.length;

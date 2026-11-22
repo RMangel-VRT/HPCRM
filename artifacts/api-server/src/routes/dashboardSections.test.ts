@@ -1,12 +1,12 @@
 import express from "express";
 import request from "supertest";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { communications, flags, tickets, ticketStatusHistory } from "@workspace/db";
+import { flags, tickets, ticketStatusHistory } from "@workspace/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   select: vi.fn(), board: vi.fn(), bids: vi.fn(), queue: vi.fn(), invoices: vi.fn(),
-  getCommunicationStats: vi.fn(), contracts: vi.fn(), visible: vi.fn(),
+  conversations: vi.fn(), contracts: vi.fn(), conversationScope: vi.fn(),
 }));
 vi.mock("../db", () => ({ db: { select: mocks.select } }));
 vi.mock("../storage", () => ({ storage: mocks }));
@@ -17,7 +17,7 @@ vi.mock("./estimatesBoard", async original => ({
 vi.mock("./schedulingQueue", () => ({ loadSchedulingQueue: mocks.queue }));
 vi.mock("./bidsBoard", () => ({ loadBidsBoard: mocks.bids }));
 vi.mock("./pendingInvoices", () => ({ loadPendingInvoices: mocks.invoices }));
-vi.mock("../services/mailboxScope", () => ({ resolveVisibleMailboxes: mocks.visible }));
+vi.mock("../services/conversations", () => ({ conversationScope: mocks.conversationScope, listConversations: mocks.conversations }));
 
 import {
   registerDashboardSectionsRoutes, loadDashboardSections, permittedSections,
@@ -48,9 +48,9 @@ beforeEach(() => {
   mocks.bids.mockResolvedValue({ stages: Array.from({ length: 6 }, () => ({ tickets: [] })) });
   mocks.queue.mockResolvedValue({ needsScheduling: [], slipped: [] });
   mocks.invoices.mockResolvedValue([]);
-  mocks.getCommunicationStats.mockResolvedValue({ drafts: 0, openFollowUps: 0, overdueFollowUps: 0 });
+  mocks.conversations.mockResolvedValue({ items: [], counts: { needs_reply: 0 } });
   mocks.contracts.mockResolvedValue({ count: 0, overdue: 0, mostOverdue: null, rows: [] });
-  mocks.visible.mockResolvedValue({ mailboxIds: null, includeNullMailbox: true });
+  mocks.conversationScope.mockResolvedValue({ companyId: "company-a", visible: { mailboxIds: ["allowed-mailbox"] } });
   mocks.select.mockImplementation(() => ({
     from: (table: unknown) => {
       const builder = {
@@ -92,7 +92,7 @@ describe("dashboard sections access and contract", () => {
     expect(mocks.board).not.toHaveBeenCalled();
     expect(mocks.bids).not.toHaveBeenCalled();
     expect(mocks.invoices).not.toHaveBeenCalled();
-    expect(mocks.getCommunicationStats).not.toHaveBeenCalled();
+    expect(mocks.conversations).not.toHaveBeenCalled();
     expect(mocks.contracts).not.toHaveBeenCalled();
   });
   it("matches billing navigation visibility rather than widening to billing API permissions", () => {
@@ -112,7 +112,7 @@ describe("dashboard sections access and contract", () => {
     expect(mocks.bids).toHaveBeenCalledWith("company-a", NOW);
     expect(mocks.queue).toHaveBeenCalledWith("company-a", NOW);
     expect(mocks.invoices).toHaveBeenCalledWith(user, { now: NOW });
-    expect(mocks.getCommunicationStats).toHaveBeenCalledWith("company-a");
+    expect(mocks.conversationScope).toHaveBeenCalledWith(expect.objectContaining({ activeCompanyId: "company-a" }));
     expect(mocks.contracts).toHaveBeenCalledWith(expect.anything(), "company-a", "2026-10-26");
     for (const predicate of predicates) {
       expect(predicate.sql).toContain('"company_id"');
@@ -204,25 +204,14 @@ describe("section clocks and population parity", () => {
     mocks.invoices.mockResolvedValue([{ id: "legacy", title: "Legacy", kind: "stranded", sourceTicket: { id: "legacy", createdAt: new Date("2020-01-01") } }]);
     expect(await invoicingSummary(user, NOW)).toMatchObject({ total: 1, overdue: 0, oldest: { detail: "Legacy · Date unavailable" } });
   });
-  it("reuses communication statistics exactly and applies mailbox restrictions to the oldest lookup", async () => {
-    mocks.getCommunicationStats.mockResolvedValue({ drafts: 2, openFollowUps: 3, overdueFollowUps: 1 });
-    mocks.visible.mockResolvedValue({ mailboxIds: ["allowed-mailbox"], includeNullMailbox: false });
-    byTable.set(communications, [{ id: "comm", subject: "Call customer", followUpDueAt: new Date("2026-10-25T18:00Z") }]);
-    expect(await inboxSummary(user, NOW)).toMatchObject({ total: 5, overdue: 1, oldest: { label: "Call customer" } });
-    const predicate = predicates.find(p => p.table === communications)!;
-    expect(predicate.params).toContain("allowed-mailbox");
-    expect(predicate.sql).toContain('"deleted_at" is null');
-    expect(predicate.sql).toContain('"follow_up_due_at" <');
-  });
-  it("keeps draft creation and follow-up due clocks distinct, with honest missing dates", async () => {
-    byTable.set(communications, [{ id: "draft", subject: "Proposal", status: "draft",
-      createdAt: new Date("2026-10-24T18:00Z"), followUpDueAt: new Date("2026-01-01") }]);
-    expect((await inboxSummary(user, NOW)).oldest?.detail).toBe("Draft · 2d");
-    byTable.set(communications, [{ id: "sent", subject: "Proposal", status: "sent",
-      createdAt: new Date("2026-01-01"), followUpDueAt: new Date("2026-10-25T18:00Z") }]);
-    expect((await inboxSummary(user, NOW)).oldest?.detail).toBe("Follow-up · 1d");
-    byTable.set(communications, [{ id: "sent", subject: "Proposal", status: "sent", followUpDueAt: null }]);
-    expect((await inboxSummary({ ...user, language: "es" }, NOW)).oldest?.detail).toBe("Seguimiento · Fecha no disponible");
+  it("links to the oldest scoped conversation awaiting a reply without inventing a due date", async () => {
+    mocks.conversations.mockResolvedValue({ items: [{ key: "g:1234", subject: "Customer question",
+      lastMessage: { at: "2026-10-25T18:00:00Z" } }], counts: { needs_reply: 5 } });
+    expect(await inboxSummary(user, NOW)).toMatchObject({ total: 5, overdue: 0, oldest: {
+      label: "Customer question", detail: "Needs reply · 1d", href: "/dashboard/communications/needs_reply?conversation=g%3A1234",
+    } });
+    expect(mocks.conversations).toHaveBeenCalledWith({ companyId: "company-a", visible: { mailboxIds: ["allowed-mailbox"] } },
+      "needs_reply", "", 1, "oldest");
   });
   it("keeps context when scheduling and personal deadlines are unavailable", async () => {
     mocks.queue.mockResolvedValue({ needsScheduling: [{ id: "x", title: "Drain", scheduleBy: null }], slipped: [] });

@@ -653,7 +653,7 @@ describe("sending estimate email", () => {
   const preview = "/api/estimates/e1/versions/v1/email-preview";
   const options = {
     mailboxes: [{ id: "office", displayName: "Shared office", emailAddress: "office@example.test", accountType: "shared" },
-      { id: "personal", displayName: "Personal", emailAddress: "personal@example.test", accountType: "personal" }],
+      { id: "alternate", displayName: "Shared estimates", emailAddress: "estimates@example.test", accountType: "shared" }],
     defaultMailboxId: "office", recipients: [{ email: "manager@example.test", name: "Manager" }, { email: "billing@example.test", name: "" }],
     defaultTo: "manager@example.test", companyName: "High Plains", phone: "303-555-0100",
   };
@@ -773,7 +773,7 @@ describe("sending estimate email", () => {
     expect((screen.getByTestId("button-submit-estimate-email") as HTMLButtonElement).disabled).toBe(true);
     expect(mutations()).toHaveLength(0);
   });
-  it("debounces note and subject changes, ignores stale results, and shows the personal-mailbox hint", async () => {
+  it("debounces note and subject changes and ignores an older preview from a different mailbox", async () => {
     let release!: () => void;
     handler = c => {
       if (c.url.endsWith("/email-options")) return res(options);
@@ -785,8 +785,7 @@ describe("sending estimate email", () => {
     renderAt(path);
     await open();
     const button = await readyToSend();
-    fireEvent.change(input("from"), { target: { value: "personal" } });
-    expect(screen.getByText("Customer emails normally go from the shared office mailbox.")).toBeTruthy();
+    fireEvent.change(input("from"), { target: { value: "alternate" } });
     fireEvent.change(input("note"), { target: { value: "skip" } });
     fireEvent.change(input("note"), { target: { value: "slow" } });
     expect(button.disabled).toBe(true);
@@ -800,8 +799,32 @@ describe("sending estimate email", () => {
     expect(frame.getAttribute("srcdoc")).not.toContain("Old preview");
     expect(screen.getByTestId("estimate-email-preview").textContent).toContain("Subject: New subject");
     const requests = calls().filter(c => c.url === preview);
-    expect(requests.map(c => c.body)).toEqual([{ note: "" }, { note: "slow" }, { subject: "New subject", note: "Newest note" }]);
+    expect(requests.map(c => c.body)).toEqual([
+      { note: "", mailboxAccountId: "office" },
+      { note: "slow", mailboxAccountId: "alternate" },
+      { subject: "New subject", note: "Newest note", mailboxAccountId: "alternate" },
+    ]);
     expect(requests.every(c => new Headers(c.headers).get("X-Company-Id") === "c1")).toBe(true);
+  });
+  it("locks the original-thread subject in the revised preview and restores editing for another shared mailbox", async () => {
+    detail = detailOf([{ id: "old", status: "sent", n: 1 }, { id: "v1", status: "draft", n: 2 }], undefined, {});
+    handler = c => {
+      if (c.url.endsWith("/email-options")) return res(options);
+      if (c.url !== preview) return undefined;
+      const threaded = (c.body as { mailboxAccountId?: string }).mailboxAccountId === "office";
+      return res({ subject: threaded ? "Re: Original estimate" : revisedSubject, originalThread: threaded,
+        html: "<p>Here is Version 2</p>", text: "Here is Version 2" });
+    };
+    renderAt(path);
+    await open();
+    await readyToSend();
+    expect(input("subject").readOnly).toBe(true);
+    expect(input("subject").value).toBe("Re: Original estimate");
+    expect(screen.getByText("Sent in the original email thread")).toBeTruthy();
+    fireEvent.change(input("from"), { target: { value: "alternate" } });
+    await readyToSend();
+    expect(input("subject").readOnly).toBe(false);
+    expect(input("subject").value).toBe(revisedSubject);
   });
   it("explicitly resends the archived filename from a historical sent version without advancing", async () => {
     detail = detailOf([{ id: "v1", status: "sent", n: 1, o: sent }, { id: "v2", status: "draft", n: 2 }], "v1", { ticketId: "ticket1" });

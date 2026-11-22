@@ -1,14 +1,24 @@
 import { Router } from "express";
 import { db, inTransaction } from "../db";
 import { unsortedEmails } from "@workspace/db";
-import { eq, and, desc, sql, inArray, gte } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, gte, isNull, or, ilike } from "drizzle-orm";
 import { storage } from "../storage";
 import type { UserWithContext } from "../auth";
 import { resolveVisibleMailboxes, MailboxScopeForbiddenError, sharedOrUnassigned } from "../services/mailboxScope";
 import type { RoleName } from "@workspace/db";
 import { lockMailIdentity } from "../services/mailboxIngestion";
+import { emailSnippet, splitEmailQuote } from "../services/emailQuotes";
 
 const router = Router();
+router.use((req, res, next) => {
+  res.set("Cache-Control", "private, no-store");
+  const user = req.user as UserWithContext | undefined;
+  const expected = req.get("X-Company-Id");
+  if (expected && expected !== user?.activeCompanyId) {
+    res.status(409).json({ error: "Active company changed. Reload and try again." }); return;
+  }
+  next();
+});
 
 const VALID_STATUSES = ["pending", "routed", "archived", "spam"] as const;
 type UnsortedEmailStatus = typeof VALID_STATUSES[number];
@@ -48,7 +58,7 @@ router.get("/", async (req, res) => {
 
     const { status, mailboxAccountId, assignedToUserId, candidateCustomerId, direction, page, limit: limitStr, resolvedToday } = req.query;
     const pageNum = Math.max(1, parseInt(page as string) || 1);
-    const limitNum = Math.min(100, parseInt(limitStr as string) || 25);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limitStr as string) || 25));
     const offset = (pageNum - 1) * limitNum;
 
     const conditions = [eq(unsortedEmails.companyId, user.activeCompanyId), sharedOrUnassigned(user.activeCompanyId, unsortedEmails.mailboxAccountId)];
@@ -62,8 +72,15 @@ router.get("/", async (req, res) => {
         return res.json([]);
       }
       conditions.push(eq(unsortedEmails.mailboxAccountId, requested));
-    } else if (visibleMailboxIds !== null && visibleMailboxIds.length > 0) {
-      conditions.push(inArray(unsortedEmails.mailboxAccountId, visibleMailboxIds));
+    } else if (visibleMailboxIds !== null) {
+      conditions.push(or(visibleMailboxIds.length ? inArray(unsortedEmails.mailboxAccountId, visibleMailboxIds) : undefined,
+        includeNullMailbox ? isNull(unsortedEmails.mailboxAccountId) : undefined)!);
+    }
+    const search = typeof req.query.search === "string" ? req.query.search.trim().slice(0, 300) : "";
+    if (search) {
+      const like = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+      conditions.push(or(ilike(unsortedEmails.subject, like), ilike(unsortedEmails.fromAddress, like),
+        ilike(unsortedEmails.fromName, like), ilike(unsortedEmails.bodyText, like))!);
     }
     if (assignedToUserId) {
       conditions.push(eq(unsortedEmails.assignedToUserId, assignedToUserId as string));
@@ -88,11 +105,14 @@ router.get("/", async (req, res) => {
     const rows = await db.select()
       .from(unsortedEmails)
       .where(and(...conditions))
-      .orderBy(desc(unsortedEmails.receivedAt))
+      .orderBy(desc(unsortedEmails.receivedAt), desc(unsortedEmails.id))
       .limit(limitNum)
       .offset(offset);
     console.info(`[communications.list] user=${user.id} role=${user.activeRole} tab=unsorted viewAs=${viewAs ?? null} returned=${rows.length} totalAvailable=${rows.length}`);
-    res.json(rows);
+    res.json(req.query.conversations === "true" ? rows.map(row => {
+      const parts = splitEmailQuote(row.bodyHtml, row.bodyText ?? "");
+      return { ...row, ...parts, snippet: emailSnippet(parts.newText) };
+    }) : rows);
   } catch (err) {
     console.error("GET /api/unsorted-emails error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -137,7 +157,7 @@ router.post("/:id/route", async (req, res) => {
       const [email] = await tx.select().from(unsortedEmails).where(and(eq(unsortedEmails.id, req.params.id),
         eq(unsortedEmails.companyId, user.activeCompanyId), sharedOrUnassigned(user.activeCompanyId, unsortedEmails.mailboxAccountId))).for("update");
       if (!email) return null;
-      if (email.resolvedToCommunicationId) return false;
+      if (email.resolvedToCommunicationId || email.status !== "pending") return false;
       const comm = await storage.createCommunication({
         companyId: user.activeCompanyId,
         customerId,
@@ -157,6 +177,7 @@ router.post("/:id/route", async (req, res) => {
         receivedAt: email.receivedAt,
         providerMessageId: email.providerMessageId ?? undefined,
         providerThreadId: email.providerThreadId ?? undefined,
+        attachmentsJson: email.attachmentsJson ?? [],
         mailboxAccountId: email.mailboxAccountId ?? undefined,
         routingMethod: "manual",
         sentAt: email.receivedAt,

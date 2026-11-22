@@ -9,3 +9,5 @@ export { GetCustomerContractedServicesPdfParams } from "./generated/api";
 export type { GetCustomerContractedServicesPdfParams as ContractedServicesPdfQuery } from "./generated/types/getCustomerContractedServicesPdfParams";
 export { CustomerContractedServicesTargetsParams } from "./generated/api";
 export type { CustomerContractedServicesTargetsParams as ContractedServicesTargetsQuery } from "./generated/types/customerContractedServicesTargetsParams";
+export { GetConversationParams } from "./generated/api";
+export type { GetConversationParams as ConversationQuery } from "./generated/types/getConversationParams";

@@ -109,6 +109,200 @@ export interface DuplicateSentReview {
   counts: DuplicateSentReviewCounts;
 }
 
+export type SampleCommunicationReviewCounts = {
+  /** @minimum 0 */
+  samples: number;
+  /** @minimum 0 */
+  skipped: number;
+};
+
+export interface SampleCommunicationReview {
+  reviewKey: string;
+  counts: SampleCommunicationReviewCounts;
+}
+
+export interface ConversationStaff {
+  userId: string;
+  name: string;
+  role: string;
+}
+
+export interface ConversationCustomer {
+  id: string;
+  name: string;
+  type: string;
+  /** @nullable */
+  managementCompany: string | null;
+}
+
+export type ConversationSummaryKind =
+  (typeof ConversationSummaryKind)[keyof typeof ConversationSummaryKind];
+
+export const ConversationSummaryKind = {
+  estimate: "estimate",
+  inquiry: "inquiry",
+  message: "message",
+  note: "note",
+  call: "call",
+  letter: "letter",
+  sms: "sms",
+} as const;
+
+export type ConversationSummaryLastMessageDirection =
+  (typeof ConversationSummaryLastMessageDirection)[keyof typeof ConversationSummaryLastMessageDirection];
+
+export const ConversationSummaryLastMessageDirection = {
+  inbound: "inbound",
+  outbound: "outbound",
+} as const;
+
+export type ConversationSummaryLastMessage = {
+  direction: ConversationSummaryLastMessageDirection;
+  at: string;
+  snippet: string;
+  /** @nullable */
+  senderFirstName: string | null;
+};
+
+export interface ConversationSummary {
+  key: string;
+  subject: string;
+  customer: ConversationCustomer | null;
+  kind: ConversationSummaryKind;
+  /** @minimum 1 */
+  messageCount: number;
+  hasAttachments: boolean;
+  needsReply: boolean;
+  team: ConversationStaff[];
+  lastMessage: ConversationSummaryLastMessage;
+}
+
+export type ConversationPageCounts = {
+  all: number;
+  needs_reply: number;
+  sent: number;
+  unsorted: number;
+};
+
+/**
+ * @nullable
+ */
+export type ConversationPageMailbox = {
+  id: string;
+  displayName: string;
+  emailAddress: string;
+  syncIntervalMinutes: number;
+} | null;
+
+export interface ConversationPage {
+  items: ConversationSummary[];
+  counts: ConversationPageCounts;
+  page: number;
+  pageSize: number;
+  /** @nullable */
+  mailbox: ConversationPageMailbox;
+}
+
+export type ConversationMessageDirection =
+  (typeof ConversationMessageDirection)[keyof typeof ConversationMessageDirection];
+
+export const ConversationMessageDirection = {
+  inbound: "inbound",
+  outbound: "outbound",
+} as const;
+
+export type ConversationMessageLabel =
+  (typeof ConversationMessageLabel)[keyof typeof ConversationMessageLabel];
+
+export const ConversationMessageLabel = {
+  estimate: "estimate",
+  message: "message",
+  reply: "reply",
+  documents: "documents",
+  note: "note",
+  call: "call",
+  sms: "sms",
+  letter: "letter",
+} as const;
+
+export type ConversationMessageAttachmentsItem = {
+  name: string;
+};
+
+export interface ConversationMessage {
+  id: string;
+  at: string;
+  direction: ConversationMessageDirection;
+  /** @nullable */
+  fromAddress: string | null;
+  /** @nullable */
+  fromName: string | null;
+  toAddresses: string[];
+  label: ConversationMessageLabel;
+  /** @nullable */
+  versionNumber: number | null;
+  staff: ConversationStaff | null;
+  outsideCrm: boolean;
+  attachments: ConversationMessageAttachmentsItem[];
+  /** @nullable */
+  bodyHtml: string | null;
+  /** @nullable */
+  bodyText: string | null;
+  /** @nullable */
+  newHtml: string | null;
+  /** @nullable */
+  earlierHtml: string | null;
+  newText: string;
+  earlierText: string;
+  snippet: string;
+}
+
+export type ConversationDetail = ConversationSummary & {
+  messages: ConversationMessage[];
+  /** @nullable */
+  replyTargetId: string | null;
+};
+
+export interface ConversationReplyInput {
+  /**
+   * @minLength 1
+   * @maxLength 128
+   */
+  customerId?: string;
+  /**
+   * @minLength 1
+   * @maxLength 128
+   */
+  parentId: string;
+  /** @maxLength 100000 */
+  body: string;
+}
+
+export type ConversationReplyPreviewCompany = {
+  name: string;
+  addressLine: string;
+  phone: string;
+  email: string;
+  website: string;
+  logoUrl: string;
+};
+
+export type ConversationReplyPreviewMailbox = {
+  displayName: string;
+  emailAddress: string;
+};
+
+export interface ConversationReplyPreview {
+  html: string;
+  text: string;
+  to: string;
+  subject: string;
+  greeting: string;
+  company: ConversationReplyPreviewCompany;
+  mailbox: ConversationReplyPreviewMailbox;
+  staff: ConversationStaff;
+}
+
 export interface ComposePreviewInput {
   /** @minLength 1 */
   customerId?: string;
@@ -180,6 +374,7 @@ export interface EstimateEmailInput {
   /** @maxLength 2000 */
   note?: string;
   confirmZeroPriced?: boolean;
+  originalThread?: boolean;
 }
 
 export interface EstimateEmailPreviewInput {
@@ -190,12 +385,14 @@ export interface EstimateEmailPreviewInput {
   subject?: string;
   /** @maxLength 2000 */
   note?: string;
+  mailboxAccountId?: string;
 }
 
 export interface EstimateEmailPreview {
   subject: string;
   html: string;
   text: string;
+  originalThread?: boolean;
 }
 
 export type EstimateEmailOptionsMailboxesItemAccountType =
@@ -1628,6 +1825,60 @@ export const SendCompanyDocumentEmail201DeliveryStatus = {
 export type SendCompanyDocumentEmail201 = {
   communicationId: string;
   deliveryStatus: SendCompanyDocumentEmail201DeliveryStatus;
+};
+
+export type ListConversationsParams = {
+  /**
+   * @minLength 1
+   * @maxLength 128
+   */
+  customerId?: string;
+  filter?: ListConversationsFilter;
+  /**
+   * @maxLength 300
+   */
+  search?: string;
+  /**
+   * @minimum 1
+   * @maximum 1000000
+   */
+  page?: number;
+};
+
+export type ListConversationsFilter =
+  (typeof ListConversationsFilter)[keyof typeof ListConversationsFilter];
+
+export const ListConversationsFilter = {
+  all: "all",
+  needs_reply: "needs_reply",
+  sent: "sent",
+} as const;
+
+export type GetConversationParams = {
+  /**
+   * @minLength 1
+   * @maxLength 128
+   */
+  customerId?: string;
+};
+
+/**
+ * @nullable
+ */
+export type SendConversationReply200DeliveryStatus =
+  | (typeof SendConversationReply200DeliveryStatus)[keyof typeof SendConversationReply200DeliveryStatus]
+  | null;
+
+export const SendConversationReply200DeliveryStatus = {
+  pending: "pending",
+  sent: "sent",
+  failed: "failed",
+} as const;
+
+export type SendConversationReply200 = {
+  id: string;
+  /** @nullable */
+  deliveryStatus: SendConversationReply200DeliveryStatus;
 };
 
 export type GetComposeSendOptions200MailboxesItemAccountType =

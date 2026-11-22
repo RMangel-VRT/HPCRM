@@ -14,4 +14,5 @@ export interface EstimateEmailPreviewInput {
   subject?: string;
   /** @maxLength 2000 */
   note?: string;
+  mailboxAccountId?: string;
 }

@@ -34,8 +34,7 @@ import { isAttention, useCompanyDocuments } from "@/components/companyDocuments/
 import type { Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isBillingPerson, pendingInvoicesKey, showBillingSidebar, type PendingInvoice } from "@/lib/billing";
-import { getLastCommsTab, isValidCommsTab, type CommsTab } from "@/lib/last-comms-tab";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { getNavForUser, navItemIsActive, type NavUser } from "@/components/nav/navConfig";
 import { useMentionsCount } from "@/lib/notifications";
 import { useQboReviewCount } from "@/lib/qboReview";
@@ -99,26 +98,9 @@ export default function AppSidebar({
   const { data: schedulingQueue } = useSchedulingQueue(companyId, canSchedule, { badge: true });
   const schedulingBadgeCount = schedulingQueue ? schedulingQueue.needsScheduling.length + schedulingQueue.slipped.length : 0;
 
-  const [lastCommsTab, setLastCommsTabState] = useState<CommsTab>(() => getLastCommsTab());
-  useEffect(() => {
-    const onChange = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (isValidCommsTab(detail)) setLastCommsTabState(detail);
-    };
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === "communications:lastTab" && isValidCommsTab(e.newValue)) setLastCommsTabState(e.newValue);
-    };
-    window.addEventListener("communications:lastTab-changed", onChange);
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener("communications:lastTab-changed", onChange);
-      window.removeEventListener("storage", onStorage);
-    };
-  }, []);
-
   const navUser: NavUser = useMemo(
-    () => ({ activeRole: userRole, activeTags, isSuperAdminBool: isSuperAdmin, lastCommsTab }),
-    [userRole, activeTags, isSuperAdmin, lastCommsTab],
+    () => ({ activeRole: userRole, activeTags, isSuperAdminBool: isSuperAdmin }),
+    [userRole, activeTags, isSuperAdmin],
   );
   const groups = getNavForUser(navUser);
 

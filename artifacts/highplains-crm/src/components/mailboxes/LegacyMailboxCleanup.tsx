@@ -4,15 +4,15 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { commitDuplicateSentCleanup, commitLegacyMailboxCleanup, listLegacyMailboxes,
-  previewDuplicateSentCleanup, previewLegacyMailboxCleanup, type LegacyMailboxSummary,
-  type LegacyMailboxReview, type DuplicateSentReview } from "@workspace/api-client-react";
+import { commitDuplicateSentCleanup, commitLegacyMailboxCleanup, commitSampleCommunicationCleanup, listLegacyMailboxes,
+  previewDuplicateSentCleanup, previewLegacyMailboxCleanup, previewSampleCommunicationCleanup, type LegacyMailboxSummary,
+  type LegacyMailboxReview, type DuplicateSentReview, type SampleCommunicationReview } from "@workspace/api-client-react";
 
-type Target = { operation: "legacy"; mailbox: LegacyMailboxSummary } | { operation: "duplicates" };
-type Report = LegacyMailboxReview | DuplicateSentReview;
+type Target = { operation: "legacy"; mailbox: LegacyMailboxSummary } | { operation: "duplicates" | "samples" };
+type Report = LegacyMailboxReview | DuplicateSentReview | SampleCommunicationReview;
 const base = "/api/mailbox-accounts/cleanup";
-const targetPath = (target: Target) => target.operation === "duplicates" ? `${base}/duplicates`
-  : `${base}/legacy/${encodeURIComponent(target.mailbox.id)}`;
+const targetPath = (target: Target) => target.operation === "legacy" ? `${base}/legacy/${encodeURIComponent(target.mailbox.id)}`
+  : `${base}/${target.operation}`;
 
 export default function LegacyMailboxCleanup({ companyId }: { companyId: string }) {
   const { t } = useTranslation();
@@ -28,18 +28,21 @@ export default function LegacyMailboxCleanup({ companyId }: { companyId: string 
     enabled: !!target && !result, gcTime: 0,
     queryFn: ({ signal }) => target?.operation === "legacy"
       ? previewLegacyMailboxCleanup(encodeURIComponent(target.mailbox.id), { headers, signal })
-      : previewDuplicateSentCleanup({ headers, signal }) });
+      : target?.operation === "samples" ? previewSampleCommunicationCleanup({ headers, signal })
+        : previewDuplicateSentCleanup({ headers, signal }) });
   const commit = useMutation({
     mutationFn: ({ target, reviewKey }: { target: Target; reviewKey: string }): Promise<Report> => {
       const confirmation = { confirm: true as const, reviewKey };
       return target.operation === "legacy"
         ? commitLegacyMailboxCleanup(encodeURIComponent(target.mailbox.id), confirmation, { headers })
-        : commitDuplicateSentCleanup(confirmation, { headers });
+        : target.operation === "samples" ? commitSampleCommunicationCleanup(confirmation, { headers })
+          : commitDuplicateSentCleanup(confirmation, { headers });
     },
     onSuccess: async data => {
       setResult(data);
       await qc.invalidateQueries({ predicate: query => query.queryKey.some(key =>
-        typeof key === "string" && (key.includes("/communications") || key.includes("/unsorted-emails") || key.includes("/mailbox-accounts"))) });
+        typeof key === "string" && (key.includes("/communications") || key.includes("/conversations")
+          || key.includes("/unsorted-emails") || key.includes("/mailbox-accounts"))) });
     },
     onError: error => {
       if ("status" in error && error.status === 409) {
@@ -56,8 +59,10 @@ export default function LegacyMailboxCleanup({ companyId }: { companyId: string 
     setTarget(next);
   }
   const report = result ?? review.data;
-  const hasChanges = report && ("merged" in report.counts ? report.counts.merged > 0 : report.counts.mailboxes > 0);
-  const title = t(target?.operation === "duplicates" ? "sharedMailbox.removeDuplicates" : "sharedMailbox.deleteLegacy");
+  const hasChanges = report && ("samples" in report.counts ? report.counts.samples > 0
+    : "merged" in report.counts ? report.counts.merged > 0 : report.counts.mailboxes > 0);
+  const title = t(target?.operation === "samples" ? "sharedMailbox.removeSamples"
+    : target?.operation === "duplicates" ? "sharedMailbox.removeDuplicates" : "sharedMailbox.deleteLegacy");
 
   return <section className="space-y-4" data-testid="legacy-mailboxes">
     <div>
@@ -78,15 +83,19 @@ export default function LegacyMailboxCleanup({ companyId }: { companyId: string 
           data-testid={`review-legacy-mailbox-${mailbox.id}`}>{t("sharedMailbox.deleteLegacy")}</Button>
       </div>)}
     </CardContent></Card>}
-    <Button variant="outline" size="sm" onClick={() => open({ operation: "duplicates" })}
-      data-testid="review-duplicate-sent-copies">{t("sharedMailbox.removeDuplicates")}</Button>
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outline" size="sm" onClick={() => open({ operation: "duplicates" })}
+        data-testid="review-duplicate-sent-copies">{t("sharedMailbox.removeDuplicates")}</Button>
+      <Button variant="outline" size="sm" onClick={() => open({ operation: "samples" })}
+        data-testid="review-sample-communications">{t("sharedMailbox.removeSamples")}</Button>
+    </div>
 
     <Dialog open={!!target} onOpenChange={visible => { if (!visible) open(null); }}>
       <DialogContent data-testid="dialog-mailbox-cleanup">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{t(target?.operation === "duplicates"
-            ? "sharedMailbox.duplicatesExplanation" : "sharedMailbox.purgeExplanation")}</DialogDescription>
+          <DialogDescription>{t(target?.operation === "samples" ? "sharedMailbox.samplesExplanation"
+            : target?.operation === "duplicates" ? "sharedMailbox.duplicatesExplanation" : "sharedMailbox.purgeExplanation")}</DialogDescription>
         </DialogHeader>
         {target?.operation === "legacy" && <p className="text-sm font-medium">{target.mailbox.emailAddress}</p>}
         <p className="text-sm">{t("sharedMailbox.noProviderDeletion")}</p>

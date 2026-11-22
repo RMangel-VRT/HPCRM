@@ -30,6 +30,7 @@ import NotificationsDropdown from "@/components/NotificationsDropdown";
 import MentionsDropdown from "@/components/MentionsDropdown";
 import LoginPage from "@/pages/LoginPage";
 import SetupPage from "@/pages/SetupPage";
+import CommunicationsCenter from "@/pages/CommunicationsCenter";
 import EulaPage from "@/pages/EulaPage";
 import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 
@@ -89,7 +90,6 @@ const MyBatchesPage = lazy(() => import("@/pages/MyBatchesPage"));
 const CampaignDetail = lazy(() => import("@/pages/CampaignDetail"));
 const CampaignItemDetail = lazy(() => import("@/pages/CampaignItemDetail"));
 const SeasonDetail = lazy(() => import("@/pages/SeasonDetail"));
-const CommunicationsCenter = lazy(() => import("@/pages/CommunicationsCenter"));
 const ServiceChecklistsPage = lazy(() => import("@/pages/ServiceChecklistsPage"));
 const PropertyDetail = lazy(() => import("@/pages/PropertyDetail"));
 const SharedMailboxesAndOversightPage = lazy(() => import("@/pages/SharedMailboxesAndOversightPage"));

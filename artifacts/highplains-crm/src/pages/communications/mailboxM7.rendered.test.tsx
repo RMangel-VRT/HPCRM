@@ -2,8 +2,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
-import AllCommunicationsTab from "./AllCommunicationsTab";
-import { CommunicationsPageShell } from "./CommunicationsPageShell";
 import LegacyMailboxCleanup from "@/components/mailboxes/LegacyMailboxCleanup";
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -17,34 +15,6 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const wrap = (node: React.ReactNode) => render(<QueryClientProvider client={new QueryClient({
   defaultOptions: { queries: { retry: false, queryFn: async ({ queryKey }) => (await fetch(String(queryKey[0]))).json() } },
 })}>{node}</QueryClientProvider>);
-
-it("lists messages without literal All filters and opens the existing Reply action", async () => {
-  const message = { id: "m7-message", type: "email", status: "sent", subject: "Fixture reply", body: "Fixture text",
-    createdAt: "2026-11-18T00:00:00Z", direction: "inbound", fromAddress: "fixture@example.test",
-    mailboxAccountId: "shared", providerThreadId: "thread", providerMessageId: "<fixture@example.test>" };
-  const fetcher = vi.fn(async (input: RequestInfo | URL) => {
-    const url = new URL(String(input), "http://localhost");
-    if (url.pathname === "/api/communications") {
-      return json(url.searchParams.get("type") === "all" || url.searchParams.get("direction") === "all" ? [] : [message]);
-    }
-    if (url.pathname === `/api/communications/${message.id}`) return json(message);
-    if (url.pathname === "/api/communications/send-options") return json({ mailboxes: [
-      { id: "shared", accountType: "shared", displayName: "Office", emailAddress: "office@example.test" },
-    ], sharedMailboxId: "shared" });
-    if (url.pathname === "/api/customers") return json({ customers: [], total: 0 });
-    return json([]);
-  });
-  vi.stubGlobal("fetch", fetcher);
-  wrap(<CommunicationsPageShell><AllCommunicationsTab /></CommunicationsPageShell>);
-  fireEvent.click(await screen.findByTestId(`comm-row-${message.id}`));
-  fireEvent.click(await screen.findByTestId("button-reply-email"));
-  expect(await screen.findByText("compose.replyTitle")).toBeTruthy();
-  expect(screen.queryByTestId("button-clear-seed-samples")).toBeNull();
-  const listUrls = fetcher.mock.calls.map(([url]) => new URL(String(url), "http://localhost"))
-    .filter(url => url.pathname === "/api/communications");
-  expect(listUrls.length).toBeGreaterThan(0);
-  expect(listUrls.every(url => !url.searchParams.has("type") && !url.searchParams.has("direction"))).toBe(true);
-});
 
 it("shows reviewed counts before a separate confirmation and reports the committed counts", async () => {
   let key = "first", commits = 0;

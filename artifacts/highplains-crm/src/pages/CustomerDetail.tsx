@@ -34,7 +34,7 @@ import ContactsPage, { allContactEmails, copyText } from "@/components/customer/
 import NotesPage from "@/components/customer/pages/NotesPage";
 import { canWriteNotes, invalidateCustomerNotes, type CustomerNote } from "@/hooks/useCustomerNotes";
 import { NARROW_PAGES, PageWidth, SectionTitle, type SectionAction } from "@/components/customer/page";
-import CommunicationListTab from "@/components/CommunicationListTab";
+import CustomerConversationsSection from "@/components/conversations/CustomerConversationsSection";
 import CustomerDashboard from "@/components/customer/dashboard/CustomerDashboard";
 import { cardState } from "@/components/qbo/QboCustomerCard";
 import { cardKey, qboJson, type QuickBooksCard } from "@/lib/qboReview";
@@ -364,7 +364,7 @@ export default function CustomerDetail() {
       case "documents":
         return <DocumentsPage customerId={customer.id} privileged={isPrivilegedUser} uploadSignal={documentUploadSignal} />;
       case "communications":
-        return <CommunicationListTab queryKey={["/api/customers", customer.id, "communications"]} customerId={customer.id} showLogButton={false} />;
+        return <CustomerConversationsSection customerId={customer.id} showCandidates />;
       case "services":
         return <ServicesPage key={`${scope.scope.join(":")}:${customer.id}`} customerId={customer.id} parentName={customer.parentCustomer?.name} />;
       case "tickets":
@@ -418,7 +418,7 @@ export default function CustomerDetail() {
             <DialogDescription>{t("cp3.add.logDescription", { name: customer.name })}</DialogDescription>
           </DialogHeader>
           <LogCommunicationForm customerId={customer.id}
-            onSuccess={() => { setIsLogCommOpen(false); void queryClient.invalidateQueries({ queryKey: ["/api/customers", customer.id, "dashboard-activity"] }); }}
+            onSuccess={() => { setIsLogCommOpen(false); void queryClient.invalidateQueries({ queryKey: ["/api/customers", customer.id, "dashboard-activity"] }); void queryClient.invalidateQueries({ queryKey: ["/api/conversations"] }); }}
             onCancel={() => setIsLogCommOpen(false)} />
         </DialogContent>
       </Dialog>

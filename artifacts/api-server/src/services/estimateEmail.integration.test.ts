@@ -18,6 +18,8 @@ import { ObjectStorageService } from "../objectStorage";
 import { issuedEstimatePdfs } from "./estimateIssuedPdf";
 import { DEFAULT_WORDING } from "./outgoingEmail/wording";
 import { resetCompanyWording, saveCompanyWording } from "./outgoingEmail/wordingAdmin";
+import { conversationScope, listConversations, readConversation } from "./conversations";
+import type { UserWithContext } from "../auth";
 
 vi.mock("./gmailSender", async importOriginal => ({ ...await importOriginal<typeof import("./gmailSender")>(), sendEmail: vi.fn() }));
 vi.mock("./estimateLifecycle", async importOriginal => {
@@ -279,6 +281,53 @@ it("previews and sends a revision against its actual earlier sent facts", async 
   expect(bodyText).toContain(`Attached: ${draft.estimateNumber}-v2.pdf · ${sent.body.version.issuedAttachment.pageCount} pages`);
   expect(bodyText).not.toContain("Approx.");
 }, 30_000);
+
+it.each([false, true])("locks a revised estimate to its Gmail thread and preserves its PDF (Gmail retains reservation: %s)", async (keepsReserved) => {
+  const d = await newDraft();
+  const threadId = "confirmed-estimate-thread";
+  let issueId = "<original-accepted@example.test>";
+  gmail.mockImplementationOnce(async (_mailbox, _opts, reserved) => {
+    if (keepsReserved) issueId = reserved!;
+    return { messageId: issueId, reservedMessageId: reserved!, gmailId: "v1", threadId,
+      ...(keepsReserved ? { confirmedReservation: true } : {}) };
+  });
+  const sent = await application().post(`${d.url}/send-email`).send({ ...input(), subject: "Original reviewed subject" });
+  expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+  const originalBytes = gmail.mock.calls[0][1].attachments![0].content;
+  const revised = await application().post(`${d.url}/revise`).send({});
+  expect(revised.status).toBe(200);
+  const id = revised.body.version.id;
+  const url = `/api/estimates/${d.id}/versions/${id}`;
+  const [otherShared] = await db.insert(mailboxAccounts).values({ companyId: company, displayName: "Z Synthetic alternate",
+    emailAddress: "alternate@example.test", accountType: "shared", syncStatus: "connected", syncEnabled: true, oauthTokenJson: { fixture: true } }).returning();
+  try {
+    const alternative = await application().post(`${url}/email-preview`).send({ mailboxAccountId: otherShared.id });
+    expect(alternative.body).toMatchObject({ originalThread: false, subject: expect.stringContaining("Revised estimate") });
+    await application().post(`${url}/send-email`).send({ ...input(), mailboxAccountId: otherShared.id, originalThread: true }).expect(409);
+    const preview = await application().post(`${url}/email-preview`).send({ mailboxAccountId: mailboxId, subject: "Caller cannot replace this" });
+    expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+    expect(preview.body).toMatchObject({ originalThread: true, subject: "Re: Original reviewed subject",
+      text: expect.stringContaining("Here is Version 2") });
+    gmail.mockImplementationOnce(async (_mailbox, _opts, reserved) => ({
+      messageId: "<revision-accepted@example.test>", reservedMessageId: reserved!, gmailId: "v2", threadId,
+    }));
+    const resend = await application().post(`${url}/send-email`).send({ ...input(), subject: "Untrusted subject", originalThread: true });
+    expect(resend.status, JSON.stringify(resend.body)).toBe(200);
+    const opts = gmail.mock.calls[1][1];
+    expect(opts).toMatchObject({ subject: "Re: Original reviewed subject", threadId, inReplyTo: issueId, references: [issueId],
+      bodyText: expect.stringContaining("Here is Version 2") });
+    expect(opts.attachments?.[0].filename).toBe(`${d.estimateNumber}-v2.pdf`);
+    expect(opts.attachments?.[0].content.equals(originalBytes)).toBe(false);
+    const scope = await conversationScope({ id: user, activeCompanyId: company, activeRole: "office" } as UserWithContext, customerId);
+    const page = await listConversations(scope, "sent", "Original reviewed subject", 1);
+    const detail = await readConversation(scope, page.items[0].key);
+    expect(detail).toMatchObject({ kind: "estimate", messageCount: 2, messages: [
+      { label: "estimate", versionNumber: 1 }, { label: "estimate", versionNumber: 2 },
+    ] });
+  } finally {
+    await db.delete(mailboxAccounts).where(eq(mailboxAccounts.id, otherShared.id));
+  }
+}, 45_000);
 
 it("returns a Gmail failure without a communication, state change, or edit lock", async () => {
   const d = await newDraft();

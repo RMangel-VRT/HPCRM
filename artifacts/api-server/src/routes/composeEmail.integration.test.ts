@@ -30,8 +30,9 @@ it("renders without writes and sends each scoped draft once, with reply metadata
       { ...draft, id: "new" }, { ...draft, id: "failure" }, { ...draft, id: "wrong-company", companyId: "other" },
       { ...draft, id: "no-box", mailboxAccountId: "foreign" }, { ...draft, id: "hidden-box", mailboxAccountId: "personal" },
       { ...draft, id: "parent", status: "sent", direction: "inbound", mailboxAccountId: "shared",
+        customerId: "customer", fromAddress: "original@example.test", fromName: "Synthetic Customer",
         providerMessageId: "<parent@example.test>", providerThreadId: "gmail-thread", inReplyTo: "<root@example.test>" },
-      { ...draft, id: "reply", subject: "Re: Exact & unchanged", mailboxAccountId: "shared", inReplyTo: "parent" },
+      { ...draft, id: "reply", customerId: "customer", subject: "Re: Exact & unchanged", mailboxAccountId: "shared", inReplyTo: "parent" },
       { ...draft, id: "inbound", direction: "inbound" }, { ...draft, id: "no-token", mailboxAccountId: "no-token" },
     ]);
     const get = async (id: string) => (await tx.select().from(communications).where(eq(communications.id, id)))[0];
@@ -99,10 +100,11 @@ it("renders without writes and sends each scoped draft once, with reply metadata
     }), sent.body.providerMessageId]);
 
     const reply = await send("reply").expect(200);
-    expect(reply.body).toMatchObject({ status: "sent", bodyHtml: null, bodyText: draft.body });
+    expect(reply.body).toMatchObject({ status: "sent", bodyHtml: expect.stringContaining("Hi Synthetic,"), bodyText: draft.body });
     expect(transport.mock.calls[1][1]).toMatchObject({ threadId: "gmail-thread", inReplyTo: "<parent@example.test>",
-      references: ["<root@example.test>", "<parent@example.test>"], bodyText: draft.body });
-    expect(transport.mock.calls[1][1].bodyHtml).toBeUndefined();
+      references: ["<root@example.test>", "<parent@example.test>"], to: ["original@example.test"],
+      bodyText: expect.stringContaining("Thank you,\nExample Landscapes") });
+    expect(transport.mock.calls[1][1].bodyHtml).toContain("&lt;b&gt;there&lt;/b&gt;");
 
     transport.mockRejectedValueOnce(new Error("Reconnect Gmail"));
     const failed = await send("failure").expect(200);

@@ -19,7 +19,7 @@ vi.mock("@/components/LayerMapViewer", () => ({ default: () => null }));
 vi.mock("@/components/CustomerLocationEditor", () => ({ default: () => null }));
 vi.mock("@/components/CustomerSchedulingSection", () => ({ default: () => null }));
 vi.mock("@/components/TicketListView", () => ({ default: () => <div data-testid="ticket-list-stub" /> }));
-vi.mock("@/components/CommunicationListTab", () => ({ default: () => <div data-testid="comms-stub" /> }));
+vi.mock("@/components/conversations/CustomerConversationsSection", () => ({ default: () => <div data-testid="comms-stub" /> }));
 vi.mock("@/components/contracts/CustomerContracts", () => ({ CustomerContracts: () => <div data-testid="contracts-stub" /> }));
 vi.mock("@/components/customer/dashboard/CustomerDashboard", async o => ({ ...await o<object>(), default: (p: any) => <div data-testid="dashboard-stub" data-pm={p.pmCompany ? 1 : 0} data-mgr={p.pmManager ? 1 : 0} /> }));
 vi.mock("@/components/qbo/QboCustomerCard", () => ({ default: () => <div data-testid="qbo-stub" />, cardState: (c: any) => (c?.reviews ? "linked" : "error") }));

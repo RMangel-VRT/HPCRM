@@ -460,6 +460,307 @@ export const CommitDuplicateSentCleanupResponse = zod.object({
   }),
 });
 
+export const previewSampleCommunicationCleanupResponseCountsSamplesMin = 0;
+
+export const previewSampleCommunicationCleanupResponseCountsSkippedMin = 0;
+
+export const PreviewSampleCommunicationCleanupResponse = zod.object({
+  reviewKey: zod.string(),
+  counts: zod.object({
+    samples: zod
+      .number()
+      .min(previewSampleCommunicationCleanupResponseCountsSamplesMin),
+    skipped: zod
+      .number()
+      .min(previewSampleCommunicationCleanupResponseCountsSkippedMin),
+  }),
+});
+
+export const commitSampleCommunicationCleanupBodyReviewKeyRegExp = new RegExp(
+  "^[a-f0-9]{64}$",
+);
+
+export const CommitSampleCommunicationCleanupBody = zod.object({
+  confirm: zod.literal(true),
+  reviewKey: zod
+    .string()
+    .regex(commitSampleCommunicationCleanupBodyReviewKeyRegExp),
+});
+
+export const commitSampleCommunicationCleanupResponseCountsSamplesMin = 0;
+
+export const commitSampleCommunicationCleanupResponseCountsSkippedMin = 0;
+
+export const CommitSampleCommunicationCleanupResponse = zod.object({
+  reviewKey: zod.string(),
+  counts: zod.object({
+    samples: zod
+      .number()
+      .min(commitSampleCommunicationCleanupResponseCountsSamplesMin),
+    skipped: zod
+      .number()
+      .min(commitSampleCommunicationCleanupResponseCountsSkippedMin),
+  }),
+});
+
+export const listConversationsQueryCustomerIdMax = 128;
+
+export const listConversationsQuerySearchMax = 300;
+
+export const listConversationsQueryPageMax = 1000000;
+
+export const ListConversationsQueryParams = zod.object({
+  customerId: zod.coerce
+    .string()
+    .min(1)
+    .max(listConversationsQueryCustomerIdMax)
+    .optional(),
+  filter: zod.enum(["all", "needs_reply", "sent"]).optional(),
+  search: zod.coerce.string().max(listConversationsQuerySearchMax).optional(),
+  page: zod.coerce
+    .number()
+    .min(1)
+    .max(listConversationsQueryPageMax)
+    .optional(),
+});
+
+export const ListConversationsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      key: zod.string(),
+      subject: zod.string(),
+      customer: zod.union([
+        zod.object({
+          id: zod.string(),
+          name: zod.string(),
+          type: zod.string(),
+          managementCompany: zod.string().nullable(),
+        }),
+        zod.null(),
+      ]),
+      kind: zod.enum([
+        "estimate",
+        "inquiry",
+        "message",
+        "note",
+        "call",
+        "letter",
+        "sms",
+      ]),
+      messageCount: zod.number().min(1),
+      hasAttachments: zod.boolean(),
+      needsReply: zod.boolean(),
+      team: zod.array(
+        zod.object({
+          userId: zod.string(),
+          name: zod.string(),
+          role: zod.string(),
+        }),
+      ),
+      lastMessage: zod.object({
+        direction: zod.enum(["inbound", "outbound"]),
+        at: zod.string(),
+        snippet: zod.string(),
+        senderFirstName: zod.string().nullable(),
+      }),
+    }),
+  ),
+  counts: zod.object({
+    all: zod.number(),
+    needs_reply: zod.number(),
+    sent: zod.number(),
+    unsorted: zod.number(),
+  }),
+  page: zod.number(),
+  pageSize: zod.number(),
+  mailbox: zod
+    .object({
+      id: zod.string(),
+      displayName: zod.string(),
+      emailAddress: zod.string(),
+      syncIntervalMinutes: zod.number(),
+    })
+    .nullable(),
+});
+
+export const GetConversationParams = zod.object({
+  key: zod.coerce.string(),
+});
+
+export const getConversationQueryCustomerIdMax = 128;
+
+export const GetConversationQueryParams = zod.object({
+  customerId: zod.coerce
+    .string()
+    .min(1)
+    .max(getConversationQueryCustomerIdMax)
+    .optional(),
+});
+
+export const GetConversationResponse = zod
+  .object({
+    key: zod.string(),
+    subject: zod.string(),
+    customer: zod.union([
+      zod.object({
+        id: zod.string(),
+        name: zod.string(),
+        type: zod.string(),
+        managementCompany: zod.string().nullable(),
+      }),
+      zod.null(),
+    ]),
+    kind: zod.enum([
+      "estimate",
+      "inquiry",
+      "message",
+      "note",
+      "call",
+      "letter",
+      "sms",
+    ]),
+    messageCount: zod.number().min(1),
+    hasAttachments: zod.boolean(),
+    needsReply: zod.boolean(),
+    team: zod.array(
+      zod.object({
+        userId: zod.string(),
+        name: zod.string(),
+        role: zod.string(),
+      }),
+    ),
+    lastMessage: zod.object({
+      direction: zod.enum(["inbound", "outbound"]),
+      at: zod.string(),
+      snippet: zod.string(),
+      senderFirstName: zod.string().nullable(),
+    }),
+  })
+  .and(
+    zod.object({
+      messages: zod.array(
+        zod.object({
+          id: zod.string(),
+          at: zod.string(),
+          direction: zod.enum(["inbound", "outbound"]),
+          fromAddress: zod.string().nullable(),
+          fromName: zod.string().nullable(),
+          toAddresses: zod.array(zod.string()),
+          label: zod.enum([
+            "estimate",
+            "message",
+            "reply",
+            "documents",
+            "note",
+            "call",
+            "sms",
+            "letter",
+          ]),
+          versionNumber: zod.number().nullable(),
+          staff: zod.union([
+            zod.object({
+              userId: zod.string(),
+              name: zod.string(),
+              role: zod.string(),
+            }),
+            zod.null(),
+          ]),
+          outsideCrm: zod.boolean(),
+          attachments: zod.array(
+            zod.object({
+              name: zod.string(),
+            }),
+          ),
+          bodyHtml: zod.string().nullable(),
+          bodyText: zod.string().nullable(),
+          newHtml: zod.string().nullable(),
+          earlierHtml: zod.string().nullable(),
+          newText: zod.string(),
+          earlierText: zod.string(),
+          snippet: zod.string(),
+        }),
+      ),
+      replyTargetId: zod.string().nullable(),
+    }),
+  );
+
+export const PreviewConversationReplyParams = zod.object({
+  key: zod.coerce.string(),
+});
+
+export const previewConversationReplyBodyCustomerIdMax = 128;
+
+export const previewConversationReplyBodyParentIdMax = 128;
+
+export const previewConversationReplyBodyBodyMax = 100000;
+
+export const PreviewConversationReplyBody = zod.object({
+  customerId: zod
+    .string()
+    .min(1)
+    .max(previewConversationReplyBodyCustomerIdMax)
+    .optional(),
+  parentId: zod.string().min(1).max(previewConversationReplyBodyParentIdMax),
+  body: zod.string().max(previewConversationReplyBodyBodyMax),
+});
+
+export const PreviewConversationReplyResponse = zod.object({
+  html: zod.string(),
+  text: zod.string(),
+  to: zod.string(),
+  subject: zod.string(),
+  greeting: zod.string(),
+  company: zod.object({
+    name: zod.string(),
+    addressLine: zod.string(),
+    phone: zod.string(),
+    email: zod.string(),
+    website: zod.string(),
+    logoUrl: zod.string(),
+  }),
+  mailbox: zod.object({
+    displayName: zod.string(),
+    emailAddress: zod.string(),
+  }),
+  staff: zod.object({
+    userId: zod.string(),
+    name: zod.string(),
+    role: zod.string(),
+  }),
+});
+
+export const SendConversationReplyParams = zod.object({
+  key: zod.coerce.string(),
+});
+
+export const sendConversationReplyBodyCustomerIdMax = 128;
+
+export const sendConversationReplyBodyParentIdMax = 128;
+
+export const sendConversationReplyBodyBodyMax = 100000;
+
+export const SendConversationReplyBody = zod.object({
+  customerId: zod
+    .string()
+    .min(1)
+    .max(sendConversationReplyBodyCustomerIdMax)
+    .optional(),
+  parentId: zod.string().min(1).max(sendConversationReplyBodyParentIdMax),
+  body: zod.string().max(sendConversationReplyBodyBodyMax),
+});
+
+export const SendConversationReplyResponse = zod.object({
+  id: zod.string(),
+  deliveryStatus: zod
+    .union([
+      zod.literal("pending"),
+      zod.literal("sent"),
+      zod.literal("failed"),
+      zod.literal(null),
+    ])
+    .nullable(),
+});
+
 export const previewComposeEmailBodySubjectMax = 998;
 
 export const previewComposeEmailBodyBodyMax = 100000;
@@ -560,12 +861,14 @@ export const PreviewEstimateEmailBody = zod.object({
     .max(previewEstimateEmailBodySubjectMax)
     .optional(),
   note: zod.string().max(previewEstimateEmailBodyNoteMax).optional(),
+  mailboxAccountId: zod.string().optional(),
 });
 
 export const PreviewEstimateEmailResponse = zod.object({
   subject: zod.string(),
   html: zod.string(),
   text: zod.string(),
+  originalThread: zod.boolean().optional(),
 });
 
 export const emailEstimateVersionPathIdMax = 200;
@@ -615,6 +918,7 @@ export const EmailEstimateVersionBody = zod
     subject: zod.string().min(1).max(emailEstimateVersionBodySubjectMax),
     note: zod.string().max(emailEstimateVersionBodyNoteMax).optional(),
     confirmZeroPriced: zod.boolean().optional(),
+    originalThread: zod.boolean().optional(),
   })
   .describe("To and Cc combined may contain up to ten distinct addresses.");
 

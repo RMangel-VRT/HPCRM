@@ -7,7 +7,10 @@ import { createGmailMessageId, isRfcMessageId, sendEmail, type SendEmailOptions 
 import { resolveVisibleMailboxes } from "./mailboxScope";
 import { loadEmailCompany } from "./outgoingEmail/company";
 import { buildGeneralMessage } from "./outgoingEmail/serviceEmails";
-import { persistGmailReceipt } from "./gmailReceipt";
+import { gmailReservation, persistGmailReceipt } from "./gmailReceipt";
+import { buildReplyEmail } from "./outgoingEmail/replyEmail";
+import { splitEmailQuote } from "./emailQuotes";
+import { firstSenderWord } from "./conversations";
 
 const address = z.email().max(254);
 export const composeEmailPreviewInput = z.object({
@@ -56,7 +59,7 @@ export function selectComposeMailbox<T extends { id: string; accountType: string
     && (visible === null || visible.includes(m.id)));
 }
 
-async function composeMailboxes(user: UserWithContext) {
+export async function composeMailboxes(user: UserWithContext) {
   const companyId = user.activeCompanyId;
   const [visible, candidates] = await Promise.all([
     resolveVisibleMailboxes({ companyId, userId: user.id, role: user.activeRole, isSuperAdmin: user.isSuperAdminBool }),
@@ -78,14 +81,14 @@ export async function composeEmailOptions(user: UserWithContext) {
 
 function replyOptions(parent: Communication | undefined, mailboxId: string) {
   if (!parent || parent.mailboxAccountId !== mailboxId || !parent.providerThreadId
-    || !parent.providerMessageId || !isRfcMessageId(parent.providerMessageId)) {
+    || !parent.providerMessageId || !isRfcMessageId(parent.providerMessageId) || gmailReservation(parent.providerMessageId)) {
     throw new ComposeEmailError(422, "The original Gmail thread is unavailable from this mailbox.");
   }
   const reference = parent.inReplyTo && isRfcMessageId(parent.inReplyTo) ? parent.inReplyTo : undefined;
   return { threadId: parent.providerThreadId, inReplyTo: parent.providerMessageId,
     references: [...new Set([...(reference ? [reference] : []), parent.providerMessageId])] };
 }
-const replySubject = (subject: string) => subject.replace(/^(?:re:\s*)+/iu, "").trim();
+export const replySubject = (subject: string) => subject.replace(/^(?:re:\s*)+/iu, "").trim();
 
 export async function sendComposeDraft(user: UserWithContext, id: string, recipientOverride?: string, transport = sendEmail) {
   const companyId = user.activeCompanyId;
@@ -108,16 +111,37 @@ export async function sendComposeDraft(user: UserWithContext, id: string, recipi
       subject: draft.subject, body: draft.body || draft.bodyText || "" });
     if (!parsed.success) throw new ComposeEmailError(422, "Enter a valid subject and message.");
     const opts: SendEmailOptions = { to, cc, bcc, subject: parsed.data.subject, bodyText: parsed.data.body };
-    if (draft.inReplyTo || draft.threadId) {
+    const isReply = !!(draft.inReplyTo || draft.threadId);
+    if (isReply) {
       const [parent] = await tx.select().from(communications).where(and(eq(communications.companyId, companyId),
         isNull(communications.deletedAt), eq(communications.status, "sent"), eq(communications.type, "email"),
         draft.inReplyTo ? eq(communications.id, draft.inReplyTo)
           : and(eq(communications.threadId, draft.threadId!), eq(communications.mailboxAccountId, mailbox.id))))
         .orderBy(desc(communications.createdAt)).limit(1);
       Object.assign(opts, replyOptions(parent, mailbox.id));
-      if (replySubject(draft.subject) !== replySubject(parent!.subject)) {
+      const original = parent!;
+      if (!original.customerId || original.customerId !== draft.customerId) {
+        throw new ComposeEmailError(422, "The reply must belong to the original customer.");
+      }
+      if (replySubject(draft.subject) !== replySubject(original.subject)) {
         throw new ComposeEmailError(422, "Keep the original subject to reply in this Gmail thread.");
       }
+      const recipient = original.direction === "inbound" ? original.fromAddress
+        : original.toAddresses?.length === 1 ? original.toAddresses[0] : original.recipientEmail;
+      const checked = address.safeParse(recipient);
+      if (!checked.success || checked.data.toLowerCase() === mailbox.emailAddress.toLowerCase()) {
+        throw new ComposeEmailError(422, "The original message has no valid reply recipient.");
+      }
+      const name = original.direction === "inbound" ? original.fromName : null;
+      const company = await loadEmailCompany(companyId, tx);
+      const rendered = buildReplyEmail({ body: parsed.data.body, company, firstName: firstSenderWord(name), parent: {
+        address: original.direction === "inbound" ? checked.data : mailbox.emailAddress,
+        name: original.direction === "inbound" ? name : mailbox.displayName,
+        at: original.receivedAt ?? original.sentAt ?? original.createdAt,
+        text: splitEmailQuote(original.bodyHtml, original.bodyText ?? (original.bodyHtml ? "" : original.body)).newText,
+      } });
+      Object.assign(opts, { to: [checked.data], cc: [], bcc: [], subject: `Re: ${replySubject(original.subject)}`,
+        bodyText: rendered.text, bodyHtml: rendered.html });
     } else {
       const email = await previewComposeEmail(companyId, parsed.data, tx);
       opts.bodyText = email.text;
@@ -128,7 +152,7 @@ export async function sendComposeDraft(user: UserWithContext, id: string, recipi
       mailboxAccountId: mailbox.id, providerMessageId: providerId, deliveryProvider: "gmail",
       deliveryStatus: "pending", sentById: user.id, failureReason: null, updatedAt: new Date(),
     }).where(scopedRow);
-    return { mailbox, opts, providerId };
+    return { mailbox, opts, providerId, typedReply: isReply ? parsed.data.body : undefined };
   }));
   const { mailbox, opts, providerId } = claim;
   const stamp = async (changes: Partial<typeof communications.$inferInsert>) => {
@@ -146,6 +170,7 @@ export async function sendComposeDraft(user: UserWithContext, id: string, recipi
   return db.transaction(tx => persistGmailReceipt(tx, companyId, id, providerId, result, {
     sentAt: new Date(),
     sentById: user.id, fromAddress: mailbox.emailAddress, fromName: mailbox.displayName,
-    toAddresses: opts.to, recipientEmail: opts.to[0], bodyText: opts.bodyText, bodyHtml: opts.bodyHtml ?? null,
+    toAddresses: opts.to, ccAddresses: opts.cc ?? [], bccAddresses: opts.bcc ?? [],
+    recipientEmail: opts.to[0], subject: opts.subject, bodyText: claim.typedReply ?? opts.bodyText, bodyHtml: opts.bodyHtml ?? null,
   }));
 }

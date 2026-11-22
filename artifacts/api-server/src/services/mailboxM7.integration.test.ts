@@ -137,7 +137,7 @@ it("reconciles a Sent-folder race with the original Compose record and replies u
   expect(await ingestMailboxMessage(box, message, "outbound", "gmail-id")).toBe("deduped");
   expect(await db.select().from(communications).where(and(eq(communications.companyId, company), eq(communications.providerMessageId, actual)))).toHaveLength(1);
   const [reply] = await db.insert(communications).values(mail({ status: "draft", subject: `Re: ${draft.subject}`, inReplyTo: draft.id,
-    mailboxAccountId: box.id, recipientEmail: "customer@example.test" })).returning();
+    mailboxAccountId: box.id, customerId: customer, recipientEmail: "customer@example.test" })).returning();
   const replySend = vi.fn(async (_id: string, _opts: SendEmailOptions, reservedMessageId?: string) => ({
     messageId: "<actual-reply@mail.gmail.com>", reservedMessageId: reservedMessageId!, gmailId: "gmail-reply", threadId: message.providerThreadId,
   }));

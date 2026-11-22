@@ -14,8 +14,9 @@ import { issuedEstimatePdfs } from "./estimateIssuedPdf";
 import { preflightEstimateSend, transitionEstimate } from "./estimateLifecycle";
 import { renderEstimatePdfFile } from "./estimatePdf";
 import { estimatePayload, readEstimate } from "./estimateReads";
-import { createGmailMessageId, sendEmail } from "./gmailSender";
-import { persistGmailReceipt } from "./gmailReceipt";
+import { createGmailMessageId, isRfcMessageId, sendEmail } from "./gmailSender";
+import { gmailReservation, persistGmailReceipt } from "./gmailReceipt";
+import { replySubject } from "./composeEmail";
 import { loadEmailCompany } from "./outgoingEmail/company";
 import { buildEstimateEmail } from "./outgoingEmail/estimateEmail";
 
@@ -34,6 +35,27 @@ async function originalEstimateSubject(tx: AppTransaction, companyId: string, is
   ));
   if (!receipt?.subject) throw new EstimateError(409, "ESTIMATE_EMAIL_ORIGINAL_UNAVAILABLE");
   return receipt.subject;
+}
+
+export async function earlierEstimateThread(tx: AppTransaction, estimate: Estimate, version: EstimateVersion, mailboxId: string) {
+  if (version.versionNumber < 2) return undefined;
+  const candidates = await tx.execute<{ subject: string; thread: string; message: string; reference: string | null; confirmed: boolean }>(sql`
+    SELECT c.subject, c.provider_thread_id AS thread, c.provider_message_id AS message, c.in_reply_to AS reference,
+      v.email_issue->'confirmedReservation' = 'true'::jsonb AS confirmed
+    FROM estimate_versions v JOIN communications c ON c.id = v.email_issue->>'firstCommunicationId'
+    WHERE v.company_id = ${estimate.companyId} AND v.estimate_id = ${estimate.id}
+      AND v.version_number < ${version.versionNumber}
+      AND c.company_id = v.company_id AND c.customer_id = ${estimate.customerId} AND c.mailbox_account_id = ${mailboxId}
+      AND c.deleted_at IS NULL AND c.type = 'email' AND c.direction = 'outbound' AND c.status = 'sent'
+      AND c.delivery_status = 'sent' AND c.delivery_provider = 'gmail' AND c.routing_method = 'estimate_email'
+      AND nullif(c.provider_thread_id, '') IS NOT NULL AND c.provider_message_id IS NOT NULL
+    ORDER BY v.version_number DESC, c.sent_at DESC, c.id`);
+  const parent = candidates.rows.find(row => isRfcMessageId(row.message) && (row.confirmed || !gmailReservation(row.message))
+    && !!replySubject(row.subject) && !/[\u0000-\u001f\u007f]/u.test(row.subject));
+  if (!parent) return undefined;
+  const reference = parent.reference && isRfcMessageId(parent.reference) && !gmailReservation(parent.reference) ? [parent.reference] : [];
+  return { subject: `Re: ${replySubject(parent.subject)}`, threadId: parent.thread,
+    inReplyTo: parent.message, references: [...new Set([...reference, parent.message])] };
 }
 
 async function composeEstimateEmail(tx: AppTransaction, estimate: Estimate, selected: EstimateVersion,
@@ -62,10 +84,13 @@ export async function previewEstimateEmail(user: UserWithContext, estimateId: st
     const issue = version.emailIssue;
     if (version.status === "sent" && !issue) throw new EstimateError(409, "ESTIMATE_EMAIL_ORIGINAL_UNAVAILABLE");
     const originalSubject = version.status === "sent" && issue ? await originalEstimateSubject(tx, companyId, issue) : undefined;
+    const [mailbox] = version.status === "draft" && version.versionNumber > 1
+      ? await visibleEstimateSenders(user, input.mailboxAccountId) : [];
+    const thread = mailbox ? await earlierEstimateThread(tx, estimate, version, mailbox.id) : undefined;
     const { subject, html, text } = await composeEstimateEmail(tx, estimate, version, {
-      note: input.note, subject: originalSubject ?? input.subject,
+      note: input.note, subject: originalSubject ?? thread?.subject ?? input.subject,
     }, issue && issue.pendingCommunicationId !== issue.firstCommunicationId ? issue : undefined);
-    return { subject, html, text };
+    return { subject, html, text, originalThread: !!thread };
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
@@ -120,7 +145,10 @@ export async function emailEstimate(user: UserWithContext, estimateId: string, v
     const [mailbox] = await visibleEstimateSenders(user, input.mailboxAccountId);
     if (!mailbox) throw new EstimateError(403, "ESTIMATE_EMAIL_MAILBOX_UNAVAILABLE");
     const prior = version.emailIssue;
-    const subject = resend && prior ? await originalEstimateSubject(tx, companyId, prior) : input.subject;
+    const thread = !resend ? await earlierEstimateThread(tx, estimate, version, mailbox.id) : undefined;
+    if (input.originalThread !== undefined && input.originalThread !== !!thread)
+      throw new EstimateError(409, "ESTIMATE_EMAIL_THREAD_CHANGED");
+    const subject = resend && prior ? await originalEstimateSubject(tx, companyId, prior) : thread?.subject ?? input.subject;
     let attachment: { pdf: Buffer; filename: string };
     try {
       attachment = prior ? { pdf: await deps.storage.read(prior.objectId), filename: prior.filename }
@@ -142,11 +170,12 @@ export async function emailEstimate(user: UserWithContext, estimateId: string, v
       // Hidden reservation, not a customer send log until Gmail acknowledges.
       deletedAt: new Date(), routingMethod: "estimate_email", mailboxAccountId: mailbox.id, providerMessageId: messageId,
       fromAddress: mailbox.emailAddress, toAddresses: input.to, ccAddresses: input.cc ?? [], subject: rendered.subject, body: rendered.text,
+      inReplyTo: thread?.inReplyTo,
       bodyText: rendered.text, bodyHtml: rendered.html,
       attachmentsJson: [{ kind: "estimate_pdf", estimateId, versionId, fileName: issue.filename, fileSize: attachment.pdf.length }],
     });
     await tx.update(estimateVersions).set({ emailIssue: issue }).where(scope);
-    return { issue, prior, attachment, rendered, versionNumber: version.versionNumber };
+    return { issue, prior, attachment, rendered, thread, versionNumber: version.versionNumber };
   });
 
   const releaseUnsent = async () => {
@@ -172,6 +201,7 @@ export async function emailEstimate(user: UserWithContext, estimateId: string, v
   try {
     delivered = await deps.send(input.mailboxAccountId, { to: input.to, cc: input.cc, subject: job.rendered.subject,
       bodyText: job.rendered.text, bodyHtml: job.rendered.html,
+      threadId: job.thread?.threadId, inReplyTo: job.thread?.inReplyTo, references: job.thread?.references,
       attachments: [{ filename: job.attachment.filename, mimeType: "application/pdf", content: job.attachment.pdf }] }, messageId);
   } catch (error) {
     const rejection = definitiveMailboxFailure(error);
@@ -191,7 +221,8 @@ export async function emailEstimate(user: UserWithContext, estimateId: string, v
     await db.transaction(async tx => {
       await lockEstimate(tx, companyId, estimateId);
       await persistGmailReceipt(tx, companyId, attemptId, messageId, delivered, { deletedAt: null, sentAt });
-      await tx.update(estimateVersions).set({ emailIssue: { ...job.issue, pendingCommunicationId: null } }).where(scope);
+      await tx.update(estimateVersions).set({ emailIssue: { ...job.issue, pendingCommunicationId: null,
+        ...(!job.prior && delivered.confirmedReservation ? { confirmedReservation: true } : {}) } }).where(scope);
     });
   } catch {
     // Never retry the external send when its acknowledgement cannot be saved.

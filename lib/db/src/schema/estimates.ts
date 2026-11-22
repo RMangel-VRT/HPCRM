@@ -36,6 +36,8 @@ export interface EstimateEmailIssue extends IssuedEstimateAttachment {
   firstCommunicationId: string;
   pendingCommunicationId: string | null;
   uncertain?: true;
+  /** The original delivery metadata verified that Gmail retained the reserved RFC Message-ID. */
+  confirmedReservation?: true;
 }
 // Version owns document state; these fields are deliberately absent from CRUD inputs.
 export const estimateVersions = pgTable("estimate_versions", {

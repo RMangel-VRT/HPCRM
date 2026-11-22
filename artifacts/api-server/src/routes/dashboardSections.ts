@@ -1,17 +1,16 @@
 import type { Express } from "express";
-import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { communications, flags, tickets, ticketTypes, ticketTypeStatuses, ticketStatusHistory } from "@workspace/db";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { flags, tickets, ticketTypes, ticketTypeStatuses, ticketStatusHistory } from "@workspace/db";
 import type { UserWithContext } from "../auth";
 import { accessRole } from "../../../../lib/db/src/accessRole";
 import { db } from "../db";
-import { storage } from "../storage";
 import { companyToday } from "../lib/companyDay";
 import { ageDetail, calendarDetail } from "../lib/sectionDetail";
 import { loadEstimatesBoard, estimateDaysInStage } from "./estimatesBoard";
 import { loadBidsBoard } from "./bidsBoard";
 import { loadSchedulingQueue } from "./schedulingQueue";
 import { loadPendingInvoices } from "./pendingInvoices";
-import { resolveVisibleMailboxes } from "../services/mailboxScope";
+import { conversationScope, listConversations } from "../services/conversations";
 import { contractsSection } from "../lib/contractCenterPersistence";
 import { compareRows, flattenActionBoard, isAction, type EstimateActionMessage } from "@workspace/db/estimate-contracts";
 
@@ -22,7 +21,7 @@ export interface SectionSummary {
 }
 const destinations: Record<SectionKey, string> = {
   estimates: "/dashboard/estimates", bids: "/dashboard/bids", scheduling: "/dashboard/scheduling", invoicing: "/dashboard/invoicing",
-  inbox: "/dashboard/communications/inbox", flags: "/dashboard/flags",
+  inbox: "/dashboard/communications/needs_reply", flags: "/dashboard/flags",
   contracts: "/dashboard/contracts", mine: "/dashboard/tickets/my",
 };
 const PERSONAL_ROLES = ["admin", "office", "field", "field_manager", "chemical_manager", "irrigation_manager",
@@ -113,28 +112,13 @@ export async function invoicingSummary(user: UserWithContext, now: Date) {
 }
 
 export async function inboxSummary(user: UserWithContext, now: Date) {
-  const companyId = user.activeCompanyId;
-  const [stats, visible] = await Promise.all([
-    storage.getCommunicationStats(companyId),
-    resolveVisibleMailboxes({ companyId, userId: user.id, role: user.activeRole, isSuperAdmin: user.isSuperAdminBool }),
-  ]);
-  const nullMailbox = visible.includeNullMailbox ? isNull(communications.mailboxAccountId)
-    : visible.nullMailboxSentByUserId ? and(isNull(communications.mailboxAccountId), eq(communications.sentById, visible.nullMailboxSentByUserId)) : undefined;
-  const mailboxScope = visible.mailboxIds === null ? undefined : or(
-    visible.mailboxIds.length ? inArray(communications.mailboxAccountId, visible.mailboxIds) : sql`false`, nullMailbox,
-  );
-  const [first] = await db.select({
-    id: communications.id, subject: communications.subject, status: communications.status,
-    followUpDueAt: communications.followUpDueAt, createdAt: communications.createdAt,
-  }).from(communications).where(and(eq(communications.companyId, companyId), isNull(communications.deletedAt), mailboxScope,
-    or(eq(communications.status, "draft"), eq(communications.followUpStatus, "open"),
-      and(eq(communications.followUpStatus, "snoozed"), lt(communications.followUpDueAt, now)))))
-    .orderBy(sql`${communications.followUpDueAt} ASC NULLS LAST`, asc(communications.createdAt), asc(communications.id)).limit(1);
-  return summary("inbox", stats.drafts + stats.openFollowUps, stats.overdueFollowUps, first ? {
-    label: first.subject, detail: calendarDetail(
-      first.status === "draft" ? user.language === "es" ? "Borrador" : "Draft" : user.language === "es" ? "Seguimiento" : "Follow-up",
-      first.status === "draft" ? first.createdAt : first.followUpDueAt, now, user.language),
-    href: `/dashboard/communications/all?focusId=${encodeURIComponent(first.id)}`,
+  const { items: [first], counts } = await listConversations(await conversationScope(user), "needs_reply", "", 1, "oldest");
+  // Replies have no due date. The previous deadlines belonged to the retired
+  // follow-up controls, not to inbound email.
+  return summary("inbox", counts.needs_reply, 0, first ? {
+    label: first.subject, detail: calendarDetail(user.language === "es" ? "Por responder" : "Needs reply",
+      new Date(first.lastMessage.at), now, user.language),
+    href: `${destinations.inbox}?conversation=${encodeURIComponent(first.key)}`,
   } : null);
 }
 

@@ -25,7 +25,7 @@ const NAV_KEY: Record<SectionKey, string> = {
   flags: "flags", contracts: "contracts", mine: "tickets",
 };
 const LABEL_KEY: Record<SectionKey, string> = {
-  estimates: "nav.estimates", bids: "nav.bids", scheduling: "nav.scheduling", invoicing: "nav.invoicing", inbox: "nav.inbox",
+  estimates: "nav.estimates", bids: "nav.bids", scheduling: "nav.scheduling", invoicing: "nav.invoicing", inbox: "nav.threads",
   flags: "nav.flags", contracts: "nav.contracts", mine: "nav.myTickets",
 };
 

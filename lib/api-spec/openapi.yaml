@@ -228,6 +228,109 @@ paths:
               schema: { $ref: "#/components/schemas/DuplicateSentReview" }
         "403": { description: Admin only }
         "409": { description: Active company or reviewed scope changed }
+  /mailbox-accounts/cleanup/samples:
+    get:
+      operationId: previewSampleCommunicationCleanup
+      responses:
+        "200":
+          description: Exact historical CRM samples eligible for removal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SampleCommunicationReview" }
+        "403": { description: Admin only }
+        "409": { description: Active company changed }
+    post:
+      operationId: commitSampleCommunicationCleanup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MailboxCleanupConfirmation" }
+      responses:
+        "200":
+          description: Counts from the committed CRM cleanup
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SampleCommunicationReview" }
+        "403": { description: Admin only }
+        "409": { description: Active company or reviewed scope changed }
+  /conversations:
+    get:
+      operationId: listConversations
+      parameters:
+        - { name: customerId, in: query, schema: { type: string, minLength: 1, maxLength: 128 } }
+        - { name: filter, in: query, schema: { type: string, enum: [all, needs_reply, sent] } }
+        - { name: search, in: query, schema: { type: string, maxLength: 300 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, maximum: 1000000 } }
+      responses:
+        "200":
+          description: One page of scoped conversations and counts for the current search
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConversationPage" }
+        "400": { description: Invalid filters }
+        "403": { description: Forbidden }
+        "409": { description: Active company changed }
+  /conversations/{key}:
+    get:
+      operationId: getConversation
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+        - { name: customerId, in: query, schema: { type: string, minLength: 1, maxLength: 128 } }
+      responses:
+        "200":
+          description: Scoped thread in chronological order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConversationDetail" }
+        "403": { description: Forbidden }
+        "404": { description: Conversation not visible }
+        "409": { description: Active company changed }
+  /conversations/{key}/reply-preview:
+    post:
+      operationId: previewConversationReply
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConversationReplyInput" }
+      responses:
+        "200":
+          description: The same email the server prepares for delivery; no write or send
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConversationReplyPreview" }
+        "403": { description: Forbidden }
+        "409": { description: Active company or reply target changed }
+        "422": { description: Original message or shared mailbox unavailable }
+  /conversations/{key}/reply:
+    post:
+      operationId: sendConversationReply
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConversationReplyInput" }
+      responses:
+        "200":
+          description: Confirmed reply or existing delivery reservation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, deliveryStatus]
+                properties:
+                  id: { type: string }
+                  deliveryStatus: { type: [string, "null"], enum: [pending, sent, failed, null] }
+        "400": { description: Reply text is required }
+        "403": { description: Forbidden }
+        "409": { description: Active company or reply target changed }
+        "422": { description: Original message or shared mailbox unavailable }
+        "502": { description: Delivery could not be confirmed }
   /communications/preview:
     post:
       operationId: previewComposeEmail
@@ -1915,6 +2018,151 @@ components:
             merged: { type: integer, minimum: 0 }
             ambiguous: { type: integer, minimum: 0 }
             unmatched: { type: integer, minimum: 0 }
+    SampleCommunicationReview:
+      type: object
+      required: [reviewKey, counts]
+      properties:
+        reviewKey: { type: string }
+        counts:
+          type: object
+          required: [samples, skipped]
+          properties:
+            samples: { type: integer, minimum: 0 }
+            skipped: { type: integer, minimum: 0 }
+    ConversationStaff:
+      type: object
+      required: [userId, name, role]
+      properties:
+        userId: { type: string }
+        name: { type: string }
+        role: { type: string }
+    ConversationCustomer:
+      type: object
+      required: [id, name, type, managementCompany]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type: { type: string }
+        managementCompany: { type: [string, "null"] }
+    ConversationSummary:
+      type: object
+      required: [key, subject, customer, kind, messageCount, hasAttachments, needsReply, lastMessage, team]
+      properties:
+        key: { type: string }
+        subject: { type: string }
+        customer:
+          anyOf:
+            - $ref: "#/components/schemas/ConversationCustomer"
+            - { type: "null" }
+        kind: { type: string, enum: [estimate, inquiry, message, note, call, letter, sms] }
+        messageCount: { type: integer, minimum: 1 }
+        hasAttachments: { type: boolean }
+        needsReply: { type: boolean }
+        team: { type: array, items: { $ref: "#/components/schemas/ConversationStaff" } }
+        lastMessage:
+          type: object
+          required: [direction, at, snippet, senderFirstName]
+          properties:
+            direction: { type: string, enum: [inbound, outbound] }
+            at: { type: string }
+            snippet: { type: string }
+            senderFirstName: { type: [string, "null"] }
+    ConversationPage:
+      type: object
+      required: [items, counts, page, pageSize, mailbox]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/ConversationSummary" } }
+        counts:
+          type: object
+          required: [all, needs_reply, sent, unsorted]
+          properties:
+            all: { type: integer }
+            needs_reply: { type: integer }
+            sent: { type: integer }
+            unsorted: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+        mailbox:
+          type: [object, "null"]
+          required: [id, displayName, emailAddress, syncIntervalMinutes]
+          properties:
+            id: { type: string }
+            displayName: { type: string }
+            emailAddress: { type: string }
+            syncIntervalMinutes: { type: integer }
+    ConversationMessage:
+      type: object
+      required: [id, at, direction, fromAddress, fromName, toAddresses, label, versionNumber, staff, outsideCrm, attachments, bodyHtml, bodyText, newHtml, earlierHtml, newText, earlierText, snippet]
+      properties:
+        id: { type: string }
+        at: { type: string }
+        direction: { type: string, enum: [inbound, outbound] }
+        fromAddress: { type: [string, "null"] }
+        fromName: { type: [string, "null"] }
+        toAddresses: { type: array, items: { type: string } }
+        label: { type: string, enum: [estimate, message, reply, documents, note, call, sms, letter] }
+        versionNumber: { type: [integer, "null"] }
+        staff:
+          anyOf:
+            - $ref: "#/components/schemas/ConversationStaff"
+            - { type: "null" }
+        outsideCrm: { type: boolean }
+        attachments:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+        bodyHtml: { type: [string, "null"] }
+        bodyText: { type: [string, "null"] }
+        newHtml: { type: [string, "null"] }
+        earlierHtml: { type: [string, "null"] }
+        newText: { type: string }
+        earlierText: { type: string }
+        snippet: { type: string }
+    ConversationDetail:
+      allOf:
+        - $ref: "#/components/schemas/ConversationSummary"
+        - type: object
+          required: [messages, replyTargetId]
+          properties:
+            messages: { type: array, items: { $ref: "#/components/schemas/ConversationMessage" } }
+            replyTargetId: { type: [string, "null"] }
+    ConversationReplyInput:
+      type: object
+      additionalProperties: false
+      required: [parentId, body]
+      properties:
+        customerId: { type: string, minLength: 1, maxLength: 128 }
+        parentId: { type: string, minLength: 1, maxLength: 128 }
+        body: { type: string, maxLength: 100000 }
+    ConversationReplyPreview:
+      type: object
+      required: [html, text, to, subject, greeting, company, mailbox, staff]
+      properties:
+        html: { type: string }
+        text: { type: string }
+        to: { type: string }
+        subject: { type: string }
+        greeting: { type: string }
+        company:
+          type: object
+          required: [name, addressLine, phone, email, website, logoUrl]
+          properties:
+            name: { type: string }
+            addressLine: { type: string }
+            phone: { type: string }
+            email: { type: string }
+            website: { type: string }
+            logoUrl: { type: string }
+        mailbox:
+          type: object
+          required: [displayName, emailAddress]
+          properties:
+            displayName: { type: string }
+            emailAddress: { type: string }
+        staff: { $ref: "#/components/schemas/ConversationStaff" }
     ComposePreviewInput:
       type: object
       additionalProperties: false
@@ -1977,12 +2225,14 @@ components:
         subject: { type: string, minLength: 1, maxLength: 255 }
         note: { type: string, maxLength: 2000 }
         confirmZeroPriced: { type: boolean }
+        originalThread: { type: boolean }
     EstimateEmailPreviewInput:
       type: object
       additionalProperties: false
       properties:
         subject: { type: string, minLength: 1, maxLength: 255 }
         note: { type: string, maxLength: 2000 }
+        mailboxAccountId: { type: string }
     EstimateEmailPreview:
       type: object
       required: [subject, html, text]
@@ -1990,6 +2240,7 @@ components:
         subject: { type: string }
         html: { type: string }
         text: { type: string }
+        originalThread: { type: boolean }
     EstimateEmailOptions:
       type: object
       required: [mailboxes, defaultMailboxId, recipients, defaultTo, companyName, phone]

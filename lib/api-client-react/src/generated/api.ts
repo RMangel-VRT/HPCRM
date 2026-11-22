@@ -35,6 +35,10 @@ import type {
   ComposeDraftSendInput,
   ComposePreviewInput,
   ContractedServicesTargets,
+  ConversationDetail,
+  ConversationPage,
+  ConversationReplyInput,
+  ConversationReplyPreview,
   Crew,
   CrewInput,
   CrewPatch,
@@ -56,12 +60,14 @@ import type {
   EstimateWorkLocationInput,
   GetCampaignRoundCalendarParams,
   GetComposeSendOptions200,
+  GetConversationParams,
   GetCustomerContractedServicesPdfParams,
   GetCustomerServicesParams,
   GetWorkCompletedEmailRule200,
   HealthStatus,
   LegacyMailboxReview,
   LegacyMailboxSummary,
+  ListConversationsParams,
   ListVisitsParams,
   LoadTemplateRequest,
   MailboxCleanupConfirmation,
@@ -94,12 +100,14 @@ import type {
   OwnerResponseTicket,
   PreviewEmailWording200,
   ResolvedEstimateWorkLocation,
+  SampleCommunicationReview,
   SaveEmailWording422,
   SchedulingQueueResult,
   SchedulingSkipInput,
   SchedulingSkipResult,
   SendCompanyDocumentEmail201,
   SendComposeDraft200,
+  SendConversationReply200,
   ServiceCalendarDocument,
   ServiceTypeTemplate,
   ServiceTypeTemplateInput,
@@ -1059,6 +1067,528 @@ export const useCommitDuplicateSentCleanup = <
   TContext
 > => {
   return useMutation(getCommitDuplicateSentCleanupMutationOptions(options));
+};
+
+export const getPreviewSampleCommunicationCleanupUrl = () => {
+  return `/api/mailbox-accounts/cleanup/samples`;
+};
+
+export const previewSampleCommunicationCleanup = async (
+  options?: RequestInit,
+): Promise<SampleCommunicationReview> => {
+  return customFetch<SampleCommunicationReview>(
+    getPreviewSampleCommunicationCleanupUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getPreviewSampleCommunicationCleanupQueryKey = () => {
+  return [`/api/mailbox-accounts/cleanup/samples`] as const;
+};
+
+export const getPreviewSampleCommunicationCleanupQueryOptions = <
+  TData = Awaited<ReturnType<typeof previewSampleCommunicationCleanup>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof previewSampleCommunicationCleanup>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getPreviewSampleCommunicationCleanupQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof previewSampleCommunicationCleanup>>
+  > = ({ signal }) =>
+    previewSampleCommunicationCleanup({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof previewSampleCommunicationCleanup>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type PreviewSampleCommunicationCleanupQueryResult = NonNullable<
+  Awaited<ReturnType<typeof previewSampleCommunicationCleanup>>
+>;
+export type PreviewSampleCommunicationCleanupQueryError = ErrorType<void>;
+
+export function usePreviewSampleCommunicationCleanup<
+  TData = Awaited<ReturnType<typeof previewSampleCommunicationCleanup>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof previewSampleCommunicationCleanup>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions =
+    getPreviewSampleCommunicationCleanupQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getCommitSampleCommunicationCleanupUrl = () => {
+  return `/api/mailbox-accounts/cleanup/samples`;
+};
+
+export const commitSampleCommunicationCleanup = async (
+  mailboxCleanupConfirmation: MailboxCleanupConfirmation,
+  options?: RequestInit,
+): Promise<SampleCommunicationReview> => {
+  return customFetch<SampleCommunicationReview>(
+    getCommitSampleCommunicationCleanupUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(mailboxCleanupConfirmation),
+    },
+  );
+};
+
+export const getCommitSampleCommunicationCleanupMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof commitSampleCommunicationCleanup>>,
+    TError,
+    { data: BodyType<MailboxCleanupConfirmation> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof commitSampleCommunicationCleanup>>,
+  TError,
+  { data: BodyType<MailboxCleanupConfirmation> },
+  TContext
+> => {
+  const mutationKey = ["commitSampleCommunicationCleanup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof commitSampleCommunicationCleanup>>,
+    { data: BodyType<MailboxCleanupConfirmation> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return commitSampleCommunicationCleanup(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CommitSampleCommunicationCleanupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof commitSampleCommunicationCleanup>>
+>;
+export type CommitSampleCommunicationCleanupMutationBody =
+  BodyType<MailboxCleanupConfirmation>;
+export type CommitSampleCommunicationCleanupMutationError = ErrorType<void>;
+
+export const useCommitSampleCommunicationCleanup = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof commitSampleCommunicationCleanup>>,
+    TError,
+    { data: BodyType<MailboxCleanupConfirmation> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof commitSampleCommunicationCleanup>>,
+  TError,
+  { data: BodyType<MailboxCleanupConfirmation> },
+  TContext
+> => {
+  return useMutation(
+    getCommitSampleCommunicationCleanupMutationOptions(options),
+  );
+};
+
+export const getListConversationsUrl = (params?: ListConversationsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/conversations?${stringifiedParams}`
+    : `/api/conversations`;
+};
+
+export const listConversations = async (
+  params?: ListConversationsParams,
+  options?: RequestInit,
+): Promise<ConversationPage> => {
+  return customFetch<ConversationPage>(getListConversationsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListConversationsQueryKey = (
+  params?: ListConversationsParams,
+) => {
+  return [`/api/conversations`, ...(params ? [params] : [])] as const;
+};
+
+export const getListConversationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listConversations>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListConversationsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listConversations>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListConversationsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listConversations>>
+  > = ({ signal }) => listConversations(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listConversations>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListConversationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listConversations>>
+>;
+export type ListConversationsQueryError = ErrorType<void>;
+
+export function useListConversations<
+  TData = Awaited<ReturnType<typeof listConversations>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListConversationsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listConversations>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListConversationsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getGetConversationUrl = (
+  key: string,
+  params?: GetConversationParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/conversations/${key}?${stringifiedParams}`
+    : `/api/conversations/${key}`;
+};
+
+export const getConversation = async (
+  key: string,
+  params?: GetConversationParams,
+  options?: RequestInit,
+): Promise<ConversationDetail> => {
+  return customFetch<ConversationDetail>(getGetConversationUrl(key, params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetConversationQueryKey = (
+  key: string,
+  params?: GetConversationParams,
+) => {
+  return [`/api/conversations/${key}`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetConversationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getConversation>>,
+  TError = ErrorType<void>,
+>(
+  key: string,
+  params?: GetConversationParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getConversation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetConversationQueryKey(key, params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getConversation>>> = ({
+    signal,
+  }) => getConversation(key, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!key,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getConversation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetConversationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getConversation>>
+>;
+export type GetConversationQueryError = ErrorType<void>;
+
+export function useGetConversation<
+  TData = Awaited<ReturnType<typeof getConversation>>,
+  TError = ErrorType<void>,
+>(
+  key: string,
+  params?: GetConversationParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getConversation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetConversationQueryOptions(key, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getPreviewConversationReplyUrl = (key: string) => {
+  return `/api/conversations/${key}/reply-preview`;
+};
+
+export const previewConversationReply = async (
+  key: string,
+  conversationReplyInput: ConversationReplyInput,
+  options?: RequestInit,
+): Promise<ConversationReplyPreview> => {
+  return customFetch<ConversationReplyPreview>(
+    getPreviewConversationReplyUrl(key),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(conversationReplyInput),
+    },
+  );
+};
+
+export const getPreviewConversationReplyMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewConversationReply>>,
+    TError,
+    { key: string; data: BodyType<ConversationReplyInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewConversationReply>>,
+  TError,
+  { key: string; data: BodyType<ConversationReplyInput> },
+  TContext
+> => {
+  const mutationKey = ["previewConversationReply"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewConversationReply>>,
+    { key: string; data: BodyType<ConversationReplyInput> }
+  > = (props) => {
+    const { key, data } = props ?? {};
+
+    return previewConversationReply(key, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewConversationReplyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewConversationReply>>
+>;
+export type PreviewConversationReplyMutationBody =
+  BodyType<ConversationReplyInput>;
+export type PreviewConversationReplyMutationError = ErrorType<void>;
+
+export const usePreviewConversationReply = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewConversationReply>>,
+    TError,
+    { key: string; data: BodyType<ConversationReplyInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof previewConversationReply>>,
+  TError,
+  { key: string; data: BodyType<ConversationReplyInput> },
+  TContext
+> => {
+  return useMutation(getPreviewConversationReplyMutationOptions(options));
+};
+
+export const getSendConversationReplyUrl = (key: string) => {
+  return `/api/conversations/${key}/reply`;
+};
+
+export const sendConversationReply = async (
+  key: string,
+  conversationReplyInput: ConversationReplyInput,
+  options?: RequestInit,
+): Promise<SendConversationReply200> => {
+  return customFetch<SendConversationReply200>(
+    getSendConversationReplyUrl(key),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(conversationReplyInput),
+    },
+  );
+};
+
+export const getSendConversationReplyMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendConversationReply>>,
+    TError,
+    { key: string; data: BodyType<ConversationReplyInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendConversationReply>>,
+  TError,
+  { key: string; data: BodyType<ConversationReplyInput> },
+  TContext
+> => {
+  const mutationKey = ["sendConversationReply"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendConversationReply>>,
+    { key: string; data: BodyType<ConversationReplyInput> }
+  > = (props) => {
+    const { key, data } = props ?? {};
+
+    return sendConversationReply(key, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendConversationReplyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendConversationReply>>
+>;
+export type SendConversationReplyMutationBody =
+  BodyType<ConversationReplyInput>;
+export type SendConversationReplyMutationError = ErrorType<void>;
+
+export const useSendConversationReply = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendConversationReply>>,
+    TError,
+    { key: string; data: BodyType<ConversationReplyInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendConversationReply>>,
+  TError,
+  { key: string; data: BodyType<ConversationReplyInput> },
+  TContext
+> => {
+  return useMutation(getSendConversationReplyMutationOptions(options));
 };
 
 export const getPreviewComposeEmailUrl = () => {

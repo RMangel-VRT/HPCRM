@@ -40,13 +40,18 @@ it("nests text/HTML inside mixed MIME, safely encodes filenames and wraps attach
   expect(Buffer.from(encoded, "base64")).toEqual(Buffer.alloc(200, 3));
 });
 it("uses media upload without automatic retries and reads Gmail’s stored RFC ID by resource ID", async () => {
-  const result = await sendEmail("mail", { ...opts, attachments: [{ filename: "a.pdf", mimeType: "application/pdf", content: Buffer.from("bytes") }] }, "<saved@example.test>");
+  const pdf = Buffer.from("%PDF-synthetic-bytes");
+  const result = await sendEmail("mail", { ...opts, threadId: "existing-thread", inReplyTo: "<original@example.test>",
+    references: ["<original@example.test>"], attachments: [{ filename: "a.pdf", mimeType: "application/pdf", content: pdf }] }, "<saved@example.test>");
   expect(result).toEqual({ messageId: "<actual@mail.gmail.com>", reservedMessageId: "<saved@example.test>", gmailId: "gmail-internal", threadId: "thread" });
   expect(mocks.get).toHaveBeenCalledWith({ userId: "me", id: "gmail-internal", format: "metadata", metadataHeaders: ["Message-ID"] }, expect.anything());
   expect(mocks.send.mock.calls[0][0].media.mimeType).toBe("message/rfc822");
+  expect(mocks.send.mock.calls[0][0].requestBody).toEqual({ threadId: "existing-thread" });
   expect(mocks.send.mock.calls[0][1]).toEqual({ retry: false });
   const chunks = []; for await (const chunk of mocks.send.mock.calls[0][0].media.body) chunks.push(chunk);
   expect(chunks.join("")).toContain("Message-ID: <saved@example.test>");
+  expect(chunks.join("")).toContain("In-Reply-To: <original@example.test>");
+  expect(chunks.join("")).toContain(pdf.toString("base64"));
 });
 it("rejects actual attachment bytes above 20 MB before token lookup or transport", async () => {
   await expect(sendEmail("mail", { ...opts, attachments: [{ filename: "a.pdf", mimeType: "application/pdf", content: Buffer.alloc(20 * 1024 * 1024 + 1) }] }))
@@ -72,4 +77,11 @@ it.each(["missing", "error"])("returns the reservation without re-sending when m
   const result = await sendEmail("mail", opts, "<saved@example.test>");
   expect(result).toEqual({ messageId: "<saved@example.test>", reservedMessageId: "<saved@example.test>", gmailId: "gmail-internal", threadId: "thread" });
   expect(mocks.send).toHaveBeenCalledTimes(1);
+});
+
+it("distinguishes a reservation verified by Gmail from a fallback", async () => {
+  const reserved = "<reservation@example.test>";
+  mocks.get.mockResolvedValueOnce({ data: { payload: { headers: [{ name: "Message-ID", value: reserved }] } } });
+  const result = await sendEmail("mail", opts, reserved);
+  expect(result).toMatchObject({ messageId: reserved, confirmedReservation: true });
 });

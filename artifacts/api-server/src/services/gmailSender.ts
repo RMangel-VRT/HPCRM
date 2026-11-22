@@ -25,6 +25,8 @@ export interface SendEmailResult {
   /** Gmail's stored RFC Message-ID, falling back to the reservation after a failed lookup. */
   messageId: string;
   reservedMessageId: string;
+  /** True only if Gmail returned the same RFC Message-ID that was reserved. */
+  confirmedReservation?: true;
   /** Gmail's internal message ID — useful for deep-linking but NOT used as dedup key */
   gmailId: string;
   threadId: string;
@@ -174,6 +176,7 @@ export async function sendEmail(
   try {
     const response = opts.attachments?.length ? await gmail.users.messages.send({
       userId: "me",
+      ...(opts.threadId ? { requestBody: { threadId: opts.threadId } } : {}),
       media: { mimeType: "message/rfc822", body: Readable.from([mimeMessage]) },
     }, { retry: false }) : await gmail.users.messages.send({
       userId: "me",
@@ -203,6 +206,7 @@ export async function readGmailReceipt(gmail: ReturnType<typeof google.gmail>, m
   const gmailId = ack.id ?? "";
   let messageId = reservedMessageId;
   let threadId = ack.threadId ?? "";
+  let confirmedReservation: true | undefined;
   try {
     if (!gmailId) throw new Error("Missing resource ID");
     const { data } = await gmail.users.messages.get({
@@ -212,8 +216,9 @@ export async function readGmailReceipt(gmail: ReturnType<typeof google.gmail>, m
     const stored = data.payload?.headers?.find(h => h.name?.toLowerCase() === "message-id")?.value?.trim();
     if (!stored || !isRfcMessageId(stored)) throw new Error("Missing stored RFC ID");
     messageId = stored;
+    if (messageId === reservedMessageId) confirmedReservation = true;
   } catch {
     logger.warn({ mailboxAccountId, gmailId }, "Gmail accepted the email, but its stored Message-ID could not be read; keeping the reservation");
   }
-  return { gmailId, threadId, messageId, reservedMessageId };
+  return { gmailId, threadId, messageId, reservedMessageId, ...(confirmedReservation ? { confirmedReservation } : {}) };
 }

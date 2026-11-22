@@ -57,7 +57,7 @@ interface CommunicationListTabProps {
 
 // ── Unsorted Candidates Panel ────────────────────────────────────────────────
 // Shows unsorted emails where this customer is a routing candidate
-function UnsortedCandidatesPanel({ customerId }: { customerId: string }) {
+export function UnsortedCandidatesPanel({ customerId }: { customerId: string }) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -76,13 +76,14 @@ function UnsortedCandidatesPanel({ customerId }: { customerId: string }) {
 
   const routeMutation = useMutation({
     mutationFn: (emailId: string) =>
-      apiRequest("POST", `/api/unsorted-emails/${emailId}/route`, { customerId }),
+      scope.request("POST", `/api/unsorted-emails/${encodeURIComponent(emailId)}/route`, { customerId }),
     onSuccess: () => {
       toast({ title: t("emailTracking.routedSuccessfully") });
       queryClient.invalidateQueries({ queryKey: ["/api/unsorted-emails"] });
       queryClient.invalidateQueries({ queryKey: ["/api/unsorted-emails", "candidate", customerId] });
       // Also refresh the communications list for this customer
       queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "communications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
     },
     onError: () => toast({ title: t("emailTracking.routeEmailError"), variant: "destructive" }),
   });

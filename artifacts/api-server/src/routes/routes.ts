@@ -43,10 +43,9 @@ import { rejectLegacyContractWrite, hasFrozenLegacyRows } from "../lib/legacyCon
 import { db, inTransaction } from "../db";
 import { logger } from "../lib/logger";
 import { eq, and, inArray, sql, gte, lte, isNull, ne } from "drizzle-orm";
-import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, insertCommunicationAutomationRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, communications as communicationsTable, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema } from "@workspace/db";
+import { insertCustomerSchema, insertContactSchema, insertCompanySchema, insertCompanyUserSchema, insertSettingsSchema, insertNoteSchema, insertContractSchema, insertContractDocumentSchema, insertContractBuilderDocumentSchema, insertContractBuilderSectionSchema, insertContractBuilderVariableSchema, insertTicketTypeSchema, insertTicketTypeStatusSchema, insertTicketTypeFieldSchema, insertTicketSchema, insertTicketFieldValueSchema, insertTicketStatusHistorySchema, insertTicketCommentSchema, insertTicketLinkSchema, insertCustomerMapLayerSchema, insertCustomerMapDocumentSchema, insertEquipmentSchema, insertEquipmentFileSchema, insertEquipmentTicketSchema, insertEquipmentTicketStatusHistorySchema, insertSnowEventSchema, insertSnowEventPropertyImpactSchema, insertSnowEventAttachmentSchema, insertEmailTemplateSchema, insertEmailRuleSchema, SNOW_RANGES, tickets, ticketLinks, ticketTypes, ticketTypeStatuses, customers as customersTable, contacts as contactsTable, contracts as contractsTable, equipment as equipmentTable, users as usersTable, contractMonthlyAmounts, contractDocuments, contractServices, contractStatusHistory, companyUsers as companyUsersTable, insertCommunicationSchema, communications as communicationsTable, campaigns as campaignsTable, campaignItems as campaignItemsTable, chemicalProducts as chemicalProductsTable, insertChemicalProductSchema } from "@workspace/db";
 import type { Customer, CaptureParams, CampaignItem, InsertCampaignItem, InsertTicketType, InsertTicketTypeStatus, Season, InsertCommunication, InsertCommunicationAuditLog, ServicePlanCategory, ChemicalProduct, InsertVisualScopeSheet } from "@workspace/db";
 import { insertServicePlanTemplateSchema, insertServicePlanTemplateItemSchema, insertCustomerServicePlanSchema } from "@workspace/db";
-import { runAutomationRule, runAllAutomationRules } from "../services/automationService";
 import { sendPushToUser } from "../services/pushNotifications";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, signObjectURL, isEstimatePhotoObject } from "../objectStorage";
 import { canReadCrewWorksheets, canWriteCrewWorksheets } from "../lib/crewWorksheetAccess";
@@ -89,12 +88,11 @@ import { registerCustomerListSummary } from "./customerListSummary";
 import { registerCustomerDocuments } from "./customerDocuments";
 import { registerCompanyDocuments } from "./companyDocuments";
 import { registerComposeEmailRoutes } from "./composeEmail";
-import { registerCommunicationTemplates } from "./communicationTemplates";
+import { registerConversations } from "./conversations";
 import { registerEmailWording } from "./emailWording";
 import { createCustomerCommunication } from "./customerCommunicationCreate";
-import { COMM_LIST_ROLES_SET, COMM_VIEW_ROLES_SET, requireCommPermission } from "../lib/communicationPermissions";
+import { COMM_LIST_ROLES_SET, requireCommPermission } from "../lib/communicationPermissions";
 import { composeEmailOptions, previewComposeEmail, sendComposeDraft } from "../services/composeEmail";
-import { isRetiredAutomation, normalizeStoredCommunicationTemplates } from "../services/communicationTemplateCleanup";
 import { registerChemicalTemplateWrites } from "./chemicalTemplateWrites";
 import { completionPhotoUrls } from "../services/outgoingEmail/completionPhotoUrls";
 import { loadEmailCompany } from "../services/outgoingEmail/company";
@@ -232,168 +230,6 @@ interface StatusDefinition {
   isFinal: "true" | "false";
   actionType: "needs_action" | "waiting";
   waitingCategory?: "customer" | "vendor" | "internal" | "other";
-}
-
-// Seed sample communications for a company (used during server bootstrap and via API)
-async function seedCommunications(companyId: string, sentById: string, sentByName: string): Promise<number> {
-  const companyCustomers = await storage.getCustomers(companyId);
-  const seedData: InsertCommunication[] = [
-    {
-      companyId,
-      customerId: companyCustomers[0]?.id ?? null,
-      sentById,
-      type: "email",
-      status: "sent",
-      direction: "outbound",
-      followUpStatus: "none",
-      toAddresses: [],
-      ccAddresses: [],
-      bccAddresses: [],
-      subject: "Spring Service Schedule Confirmation",
-      body: "Dear valued customer,\n\nWe are pleased to confirm your spring maintenance schedule starting April 1st. Our crew will arrive between 8am-10am on your designated service day.\n\nPlease let us know if you have any questions.\n\nBest regards,\nHigh Plains Property Maintenance",
-      sentAt: new Date("2026-03-15T10:00:00Z"),
-    },
-    {
-      companyId,
-      customerId: companyCustomers[1]?.id ?? null,
-      sentById,
-      type: "sms",
-      status: "sent",
-      direction: "outbound",
-      followUpStatus: "none",
-      toAddresses: [],
-      ccAddresses: [],
-      bccAddresses: [],
-      subject: "Crew arriving today",
-      body: "Hi! Your maintenance crew will arrive in about 30 minutes. Please ensure gate access is available.",
-      sentAt: new Date("2026-03-18T08:30:00Z"),
-    },
-    {
-      companyId,
-      customerId: companyCustomers[2]?.id ?? null,
-      sentById,
-      type: "note",
-      status: "sent",
-      direction: "outbound",
-      followUpStatus: "none",
-      toAddresses: [],
-      ccAddresses: [],
-      bccAddresses: [],
-      subject: "Customer Meeting Notes",
-      body: "Met with property manager to discuss irrigation concerns on the east lawn. They want to upgrade sprinkler heads in sections 3-5 before summer. Will follow up with proposal next week.",
-      sentAt: new Date("2026-03-20T14:00:00Z"),
-    },
-    {
-      companyId,
-      customerId: companyCustomers[0]?.id ?? null,
-      sentById,
-      type: "email",
-      status: "draft",
-      direction: "outbound",
-      followUpStatus: "none",
-      toAddresses: [],
-      ccAddresses: [],
-      bccAddresses: [],
-      subject: "Summer Services Proposal Follow-Up",
-      body: "Hi,\n\nI wanted to follow up on our conversation about adding summer fertilization to your service package. I've attached our updated pricing for your review.\n\nLooking forward to your feedback!\n\nBest,\nHigh Plains Property Maintenance",
-      sentAt: null,
-    },
-    {
-      companyId,
-      customerId: companyCustomers[3]?.id ?? null,
-      sentById,
-      type: "letter",
-      status: "sent",
-      direction: "outbound",
-      followUpStatus: "none",
-      toAddresses: [],
-      ccAddresses: [],
-      bccAddresses: [],
-      subject: "Annual Contract Renewal Notice",
-      body: "Dear Property Owner,\n\nYour current maintenance contract is scheduled to expire on June 30, 2026. We would like to invite you to renew for another year at your current service level.\n\nEnclosed please find the renewal agreement for your signature. Please return by May 15, 2026 to ensure uninterrupted service.\n\nSincerely,\nHigh Plains Property Maintenance",
-      sentAt: new Date("2026-03-10T09:00:00Z"),
-    },
-    {
-      companyId,
-      customerId: companyCustomers[1]?.id ?? null,
-      sentById,
-      type: "email",
-      status: "scheduled",
-      direction: "outbound",
-      followUpStatus: "none",
-      toAddresses: [],
-      ccAddresses: [],
-      bccAddresses: [],
-      subject: "Monthly Service Report - March 2026",
-      body: "Please find attached your monthly service report for March 2026. This includes a summary of all maintenance activities performed, chemical applications, and upcoming scheduled work.\n\nHave a great day!",
-      sentAt: null,
-      scheduledFor: new Date("2026-04-01T08:00:00Z"),
-    },
-    {
-      companyId,
-      customerId: companyCustomers[4]?.id ?? null,
-      sentById,
-      type: "sms",
-      status: "sent",
-      direction: "outbound",
-      followUpStatus: "none",
-      toAddresses: [],
-      ccAddresses: [],
-      bccAddresses: [],
-      subject: "Service cancellation notice",
-      body: "Hi! Due to incoming weather, today's scheduled service has been postponed to Thursday. We apologize for any inconvenience.",
-      sentAt: new Date("2026-03-22T07:00:00Z"),
-    },
-    {
-      companyId,
-      customerId: companyCustomers[2]?.id ?? null,
-      sentById,
-      type: "note",
-      status: "draft",
-      direction: "outbound",
-      followUpStatus: "none",
-      toAddresses: [],
-      ccAddresses: [],
-      bccAddresses: [],
-      subject: "Follow-up on irrigation proposal",
-      body: "Need to call back property manager about the irrigation upgrade proposal sent last week. They had questions about the warranty on the new heads.",
-      sentAt: null,
-    },
-    {
-      companyId,
-      customerId: companyCustomers[0]?.id ?? null,
-      sentById,
-      type: "email",
-      status: "sent",
-      direction: "outbound",
-      toAddresses: [],
-      ccAddresses: [],
-      bccAddresses: [],
-      subject: "Proposal Sent - Irrigation Upgrade",
-      body: "Hi,\n\nPlease find attached our proposal for the irrigation system upgrade discussed during our site visit. The proposal covers new heads for sections 3-5 with a 2-year warranty.\n\nWe look forward to your feedback!\n\nBest,\nHigh Plains Property Maintenance",
-      sentAt: new Date("2026-03-25T09:00:00Z"),
-      followUpDueAt: new Date("2026-03-28T09:00:00Z"),
-      followUpStatus: "open" as const,
-    },
-    {
-      companyId,
-      customerId: companyCustomers[3]?.id ?? null,
-      sentById,
-      type: "email",
-      status: "sent",
-      direction: "outbound",
-      toAddresses: [],
-      ccAddresses: [],
-      bccAddresses: [],
-      subject: "Contract Renewal - Awaiting Signature",
-      body: "Dear Property Owner,\n\nFollowing our earlier communication, we wanted to remind you that we have not yet received your signed renewal agreement. The deadline to ensure uninterrupted service is May 15, 2026.\n\nPlease don't hesitate to reach out with any questions.\n\nSincerely,\nHigh Plains Property Maintenance",
-      sentAt: new Date("2026-03-20T11:00:00Z"),
-      followUpDueAt: new Date("2026-03-25T09:00:00Z"),
-      followUpStatus: "open" as const,
-    },
-  ];
-  const created = await Promise.all(seedData.map((data) => storage.createCommunication(data)));
-  return created.length;
 }
 
 // Helper to ensure Invoice ticket type exists for a company with required statuses
@@ -2255,113 +2091,6 @@ export async function migrateCommunicationTemplatesSchema(): Promise<void> {
   }
 }
 
-// Seed sample communication templates for a company
-async function seedCommunicationTemplates(companyId: string): Promise<number> {
-  const templates = [
-    {
-      companyId,
-      name: "Irrigation System Approval Request",
-      category: "irrigation_approval_request" as const,
-      type: "email" as const,
-      subject: "Irrigation System Startup Approval — {propertyName}",
-      body: "Dear {contactName},\n\nWe are scheduling irrigation system startups for the upcoming season at {propertyName} and need your approval to proceed.\n\nPlanned Service Date: {serviceDate}\n\nPlease reply to confirm or suggest an alternate date. Our crew will be ready to begin as soon as we receive your authorization.",
-      description: "Sent to property contacts requesting approval before irrigation startup visits.",
-      isActive: true,
-      isArchived: false,
-      defaultCommunicationType: "email" as const,
-    },
-    {
-      companyId,
-      name: "Chemical Application Pre-Notice",
-      category: "chemical_notice" as const,
-      type: "email" as const,
-      subject: "Upcoming Chemical Application at {propertyName}",
-      body: "Dear {customerName},\n\nThis is an advance notice that a chemical application is scheduled at {propertyName} on {serviceDate}.\n\nPlease ensure that children and pets are kept off treated areas for 24 hours following application. Our technicians will post temporary signage at the time of service.\n\nIf you have any questions or concerns, please contact us before the scheduled date.",
-      description: "Pre-notification for chemical/fertilizer applications. Send 2–3 days before service.",
-      isActive: true,
-      isArchived: false,
-      defaultCommunicationType: "email" as const,
-    },
-    {
-      companyId,
-      name: "Billing Reminder — Past Due",
-      category: "billing_reminder" as const,
-      type: "email" as const,
-      subject: "Friendly Reminder — Balance Due for {customerName}",
-      body: "Dear {customerName},\n\nThis is a friendly reminder that there is an outstanding balance on your account for services at {propertyName}.\n\nPlease contact our office at your earliest convenience to make arrangements. We appreciate your prompt attention to this matter.",
-      description: "Polite billing reminder for past-due accounts. Adjust tone as needed for the relationship.",
-      isActive: true,
-      isArchived: false,
-      defaultCommunicationType: "email" as const,
-    },
-    {
-      companyId,
-      name: "Winter Watering Reminder",
-      category: "winter_watering" as const,
-      type: "email" as const,
-      subject: "Winter Watering Guidelines for {propertyName}",
-      body: "Dear {customerName},\n\nAs temperatures fluctuate this winter, we want to remind you about best practices for winter watering at {propertyName}.\n\nWater during the warmest part of the day (10am–2pm) when temperatures are above 40°F. Avoid watering if snow or ice is expected within 24 hours. Trees and shrubs benefit from deep monthly watering throughout winter.\n\nOur team is available to assist with any questions.",
-      description: "Educational reminder for clients about proper winter irrigation practices.",
-      isActive: true,
-      isArchived: false,
-      defaultCommunicationType: "email" as const,
-    },
-    {
-      companyId,
-      name: "General Outreach — Check-In",
-      category: "general_outreach" as const,
-      type: "email" as const,
-      subject: "Checking In — {customerName}",
-      body: "Dear {customerName},\n\nI hope this message finds you well. I wanted to take a moment to check in and see how things are going at {propertyName}.\n\nIf you have any questions about your services, upcoming schedules, or anything else, please feel free to reach out. We appreciate your business and look forward to another great season together.",
-      description: "A friendly general check-in note. Useful for relationship maintenance.",
-      isActive: true,
-      isArchived: false,
-      defaultCommunicationType: "email" as const,
-    },
-  ];
-  const created = await Promise.all(templates.map((t) => storage.createCommunicationTemplate(t)));
-  return created.length;
-}
-
-// Startup bootstrap: seed sample communications for any company that has none
-export async function seedCommunicationsBootstrap(): Promise<void> {
-  console.log("Running startup bootstrap: Checking communications seed data...");
-  try {
-    const companies = await storage.getCompanies();
-    for (const company of companies) {
-      const existing = await storage.getCommunications(company.id);
-      if (existing.length > 0) continue;
-      const companyUsers = await storage.getCompanyUsersByCompanyId(company.id);
-      if (companyUsers.length === 0) continue;
-      const firstUser = companyUsers[0];
-      const userRecord = await storage.getUserById(firstUser.userId);
-      if (!userRecord) continue;
-      await seedCommunications(company.id, userRecord.id, userRecord.name);
-      console.log(`Seeded communications for company ${company.id}`);
-    }
-    console.log("Communications seed bootstrap complete");
-  } catch (error) {
-    console.error("Error during communications seed bootstrap:", error);
-  }
-}
-
-// Startup bootstrap: seed sample communication templates for any company that has none
-export async function seedCommunicationTemplatesBootstrap(): Promise<void> {
-  console.log("Running startup bootstrap: Checking communication templates seed data...");
-  try {
-    const companies = await storage.getCompanies();
-    for (const company of companies) {
-      const existing = await storage.getCommunicationTemplates(company.id, true);
-      if (existing.length > 0) continue;
-      await seedCommunicationTemplates(company.id);
-      console.log(`Seeded communication templates for company ${company.id}`);
-    }
-    console.log("Communication templates seed bootstrap complete");
-  } catch (error) {
-    console.error("Error during communication templates seed bootstrap:", error);
-  }
-}
-
 // Chemical notification template seeding + legacy cleanup runs from
 // `seedEmailTemplatesAndRules(companyId)` inside `registerRoutes`.
 
@@ -2458,79 +2187,6 @@ export async function migrateAutomationRulesTable(): Promise<void> {
     console.log("communication_automation_rules migration complete");
   } catch (error) {
     console.error("Error migrating automation_rules table:", error);
-  }
-}
-
-export async function seedAutomationRulesBootstrap(): Promise<void> {
-  console.log("Seeding automation rules for all companies...");
-  try {
-    const companies = await storage.getCompanies();
-    for (const company of companies) {
-      const existing = await storage.getCommunicationAutomationRules(company.id);
-      if (existing.length > 0) continue;
-
-      const companyUsers = await storage.getCompanyUsersByCompanyId(company.id);
-      if (companyUsers.length === 0) continue;
-      const firstUser = companyUsers[0];
-
-      const seedRules = [
-        {
-          companyId: company.id,
-          name: "Winter Watering Reminder",
-          description: "Recurring reminder every 21 days for winter watering best practices",
-          triggerType: "recurring" as const,
-          recurringIntervalDays: 21,
-          recipientScope: "primary_contact" as const,
-          autoSend: false,
-          isEnabled: false,
-          createdById: firstUser.userId,
-        },
-        {
-          companyId: company.id,
-          name: "Chemical Application Notice",
-          description: "Notify customers 2 days before a scheduled chemical application service date",
-          triggerType: "time_before_event" as const,
-          eventKey: "service_date" as const,
-          delayDays: 2,
-          recipientScope: "primary_contact" as const,
-          autoSend: false,
-          isEnabled: false,
-          createdById: firstUser.userId,
-        },
-        {
-          companyId: company.id,
-          name: "Service Completion Notice",
-          description: "Notify customers the same day a work order is closed",
-          triggerType: "time_after_event" as const,
-          eventKey: "work_order_closed" as const,
-          delayDays: 0,
-          recipientScope: "primary_contact" as const,
-          autoSend: false,
-          isEnabled: false,
-          createdById: firstUser.userId,
-        },
-        {
-          companyId: company.id,
-          name: "Payment Reminder",
-          description: "Send a payment reminder 3 days after invoice due date",
-          triggerType: "time_after_event" as const,
-          eventKey: "invoice_due_date" as const,
-          delayDays: 3,
-          recipientScope: "primary_contact" as const,
-          autoSend: false,
-          isEnabled: false,
-          createdById: firstUser.userId,
-        },
-      ];
-
-      for (const rule of seedRules) {
-        await storage.createCommunicationAutomationRule(rule);
-      }
-      console.log(`Seeded ${seedRules.length} automation rules for company ${company.id}`);
-    }
-    console.log("Automation rules seed bootstrap complete");
-  } catch (error) {
-    console.error("Error seeding automation rules:", error);
   }
 }
 
@@ -2639,13 +2295,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await linkCrewsByName();
   await backfillVisitsFromTickets();
   await backfillVisitServices();
-  try {
-    const changes = await normalizeStoredCommunicationTemplates();
-    if (changes.converted || changes.retiredRules) logger.info(changes, "Updated legacy communication templates and rules");
-  } catch (err) {
-    logger.error({ err }, "Could not update legacy communication templates and rules");
-  }
-
   setupAuth(app);
   registerContractQuestionReconciliation(app);
   registerCampaignMembershipReconciliation(app);
@@ -15414,37 +15063,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ─── Communications API ──────────────────────────────────────────────────
 
-  function resolveDatePreset(preset: string | undefined, startDate: string | undefined, endDate: string | undefined): { start: Date; end: Date } {
-    const now = new Date();
-    if (preset === "this_week") {
-      const s = new Date(now); s.setDate(s.getDate() - 7); s.setHours(0, 0, 0, 0);
-      const e = new Date(now); e.setHours(23, 59, 59, 999);
-      return { start: s, end: e };
-    }
-    if (preset === "this_month") {
-      const s = new Date(now.getFullYear(), now.getMonth(), 1);
-      const e = new Date(now); e.setHours(23, 59, 59, 999);
-      return { start: s, end: e };
-    }
-    if (preset === "last_30") {
-      const s = new Date(now); s.setDate(s.getDate() - 30); s.setHours(0, 0, 0, 0);
-      const e = new Date(now); e.setHours(23, 59, 59, 999);
-      return { start: s, end: e };
-    }
-    const s = startDate ? new Date(startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const e = endDate ? new Date(endDate) : new Date(now);
-    e.setHours(23, 59, 59, 999);
-    return { start: s, end: e };
-  }
-
-  app.get("/api/communications/analytics", requireCommPermission("view"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const { preset, startDate, endDate } = req.query as { preset?: string; startDate?: string; endDate?: string };
-    const { start, end } = resolveDatePreset(preset, startDate, endDate);
-    const analytics = await storage.getCommunicationAnalytics(user.activeCompanyId, start, end);
-    res.json(analytics);
-  });
-
   // Helper: validate send-time conditions — returns array of error strings (empty = ok)
   function validateSendPayload(body: string, templateIsArchived: boolean, recipients: string[]): string[] {
     const errors: string[] = [];
@@ -15462,14 +15080,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return errors;
   }
 
-  // GET /api/communications/audit-log — admin only (must be before /:id)
-  app.get("/api/communications/audit-log", requireCommPermission("manage_automations"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const logs = await storage.getCommunicationAuditLogs(user.activeCompanyId, 200);
-    res.json(logs);
-  });
-
-  // GET /api/communications
   app.get("/api/communications", (req, res, next) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const user = req.user as UserWithContext;
@@ -15532,33 +15142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(items);
   });
 
-  // GET /api/communications/templates
-  app.get("/api/communications/templates", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const templates = await storage.getCommunicationTemplates(user.activeCompanyId);
-    res.json(templates);
-  });
-
-  app.post("/api/communications/templates", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const { insertCommunicationTemplateSchema } = await import("@workspace/db");
-    const parsed = insertCommunicationTemplateSchema.safeParse({ ...req.body, companyId: user.activeCompanyId, createdById: user.id });
-    if (!parsed.success) return res.status(400).json({ error: parsed.error });
-    const template = await storage.createCommunicationTemplate(parsed.data);
-    res.status(201).json(template);
-  });
-
-  app.get("/api/communications/stats", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const stats = await storage.getCommunicationStats(user.activeCompanyId);
-    res.json(stats);
-  });
+  registerConversations(app);
 
   // GET /api/communications/:id
   registerComposeEmailRoutes(app, requireCommPermission("send"), {
@@ -15659,32 +15243,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(201).json(comm);
   });
 
-  app.patch("/api/communications/:id", requireCommPermission("send"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const parsed = z.object({
-      status: z.literal("scheduled").optional(),
-      scheduledFor: z.coerce.date().nullable().optional(),
-      followUpDueAt: z.coerce.date().nullable().optional(),
-      followUpStatus: z.enum(["none", "open", "done", "snoozed"]).optional(),
-    }).strict().safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Invalid communication updates" });
-    const updates = parsed.data;
-    const id = req.params.id;
-    const result = await db.transaction(async tx => {
-      const where = and(eq(communicationsTable.companyId, user.activeCompanyId), eq(communicationsTable.id, id), isNull(communicationsTable.deletedAt),
-        sharedOrUnassigned(user.activeCompanyId, communicationsTable.mailboxAccountId));
-      const [row] = await tx.select().from(communicationsTable).where(where).for("update");
-      if (!row) return { status: 404 };
-      if ((updates.status || updates.scheduledFor !== undefined) && (row.status !== "draft" || (row.deliveryStatus === "pending" && row.providerMessageId)))
-        return { status: 409 };
-      const [updated] = await tx.update(communicationsTable).set({ ...updates, updatedAt: new Date() }).where(where).returning();
-      return { status: 200, updated };
-    });
-    if (result.status === 404) return res.status(404).json({ error: "Not found" });
-    if (result.status === 409) return res.status(409).json({ error: "Only an unsent draft can be scheduled." });
-    res.json(result.updated);
-  });
-
   app.delete("/api/communications/:id", requireCommPermission("send"), async (req, res) => {
     const user = req.user as UserWithContext;
     const existing = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
@@ -15721,132 +15279,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       },
     });
     res.json(restored);
-  });
-
-  // GET /api/communication-threads
-  app.get("/api/communication-threads", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const { customerId } = req.query;
-    const threads = await storage.getCommunicationThreads(user.activeCompanyId, {
-      customerId: customerId as string | undefined,
-    });
-    res.json(threads);
-  });
-
-  // POST /api/communication-threads
-  app.post("/api/communication-threads", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    if (req.body.customerId) {
-      if (await assertNotParentCustomer(req.body.customerId, user.activeCompanyId, res)) return;
-    }
-    const { insertCommunicationThreadSchema } = await import("@workspace/db");
-    const parsed = insertCommunicationThreadSchema.safeParse({ ...req.body, companyId: user.activeCompanyId });
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const thread = await storage.createCommunicationThread(parsed.data);
-    res.status(201).json(thread);
-  });
-
-  // GET /api/communication-threads/:id/messages
-  app.get("/api/communication-threads/:id/messages", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Unauthorized");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const messages = await storage.getThreadMessages(req.params.id, user.activeCompanyId);
-    res.json(messages);
-  });
-
-  // PATCH /api/communications/:id/cancel-schedule — cancel a scheduled send
-  app.patch("/api/communications/:id/cancel-schedule", requireCommPermission("send"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const comm = await storage.getCommunicationById(req.params.id, user.activeCompanyId);
-    if (!comm) return res.status(404).json({ error: "Not found" });
-    if (comm.status !== "scheduled") {
-      return res.status(400).json({ error: "Only scheduled communications can be cancelled." });
-    }
-    const updated = await storage.updateCommunication(req.params.id, user.activeCompanyId, {
-      status: "draft",
-      scheduledAt: null,
-    });
-
-    await writeCommAuditLog(user.activeCompanyId, user.id, "scheduled_send_cancelled", {
-      communicationId: comm.id,
-      actionDetails: { subject: comm.subject },
-    });
-
-    res.json(updated);
-  });
-
-  registerCommunicationTemplates(app, requireCommPermission("view"), requireCommPermission("manage_templates"), writeCommAuditLog);
-
-  // Seed communications if none exist for this company
-  app.post("/api/communications/seed", requireCommPermission("view"), async (req, res) => {
-    const user = req.user as UserWithContext;
-    const existing = await storage.getCommunications(user.activeCompanyId);
-    if (existing.length > 0) return res.json({ seeded: false, count: existing.length });
-    const count = await seedCommunications(user.activeCompanyId, user.id, user.name);
-    res.json({ seeded: true, count });
-  });
-
-  // Automation Rules Routes
-  app.get("/api/automation-rules", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const rules = await storage.getCommunicationAutomationRules(user.activeCompanyId);
-    res.json(rules.filter(rule => !isRetiredAutomation(rule)));
-  });
-
-  app.post("/api/automation-rules", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const parsed = insertCommunicationAutomationRuleSchema.safeParse({
-      ...req.body,
-      companyId: user.activeCompanyId,
-      createdById: user.id,
-    });
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    if (isRetiredAutomation(parsed.data)) return res.status(422).json({ error: "This automation is retired" });
-    const rule = await storage.createCommunicationAutomationRule(parsed.data);
-    res.status(201).json(rule);
-  });
-
-  app.patch("/api/automation-rules/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const existing = await storage.getCommunicationAutomationRuleById(req.params.id, user.activeCompanyId);
-    if (!existing || isRetiredAutomation(existing)) return res.status(404).json({ error: "Not found" });
-    if (isRetiredAutomation({ ...existing, ...req.body })) return res.status(422).json({ error: "This automation is retired" });
-    const rule = await storage.updateCommunicationAutomationRule(req.params.id, user.activeCompanyId, req.body);
-    if (!rule) return res.status(404).json({ error: "Not found" });
-    res.json(rule);
-  });
-
-  app.delete("/api/automation-rules/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    const existing = await storage.getCommunicationAutomationRuleById(req.params.id, user.activeCompanyId);
-    if (existing && isRetiredAutomation(existing)) return res.status(404).json({ error: "Not found" });
-    await storage.deleteCommunicationAutomationRule(req.params.id, user.activeCompanyId);
-    res.status(204).send();
-  });
-
-  app.post("/api/automation-rules/:id/run", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).send("Not authenticated");
-    const user = req.user as UserWithContext;
-    if (!COMM_VIEW_ROLES_SET.includes(user.accessRole)) return res.status(403).send("Insufficient permissions");
-    try {
-      const result = await runAutomationRule(req.params.id, user.activeCompanyId);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message ?? "Failed to run rule" });
-    }
   });
 
   app.get("/api/customers/:id/campaign-items", async (req, res) => {
@@ -17638,24 +17070,6 @@ ${pdfText.slice(0, 8000)}`;
     }
   });
 
-  // Internal cron endpoint — replaces the removed setInterval in server/index.ts
-  // Call via a cron job: POST /api/_internal/run-automation-rules
-  // Requires x-cron-token header matching the CRON_SECRET environment variable.
-  app.post("/api/_internal/run-automation-rules", async (req, res) => {
-    const cronSecret = process.env.CRON_SECRET;
-    if (!cronSecret || req.headers["x-cron-token"] !== cronSecret) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-    try {
-      await runAllAutomationRules();
-      res.json({ ok: true });
-    } catch (err) {
-      console.error("Automation rules run failed:", err);
-      res.status(500).json({ error: "Failed to run automation rules" });
-    }
-  });
-
   // ─── Chemical Notification Templates CRUD ────────────────────────────────────
 
   registerChemicalTemplateWrites(app);
@@ -18122,10 +17536,7 @@ export async function runStartupMigrations(): Promise<void> {
   await migrateEquipmentProfilePhotoColumn();
   await migrateCommunicationTemplatesSchema();
   await migrateCommunicationsTable();
-  await seedCommunicationsBootstrap();
-  await seedCommunicationTemplatesBootstrap();
   await migrateAutomationRulesTable();
-  await seedAutomationRulesBootstrap();
   await migrateCampaignItemExceptionType();
   await migrateCampaignItemsNewColumns();
   await migrateServicePlanTables();
