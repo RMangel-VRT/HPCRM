@@ -90,8 +90,9 @@ client and server tools on `PATH` (same major version as Development). It
 exports the declarations offline and applies them to a newly initialized
 socket-only PostgreSQL cluster, then compares the logical catalog against a
 verified direct, read-only Development connection. It cannot write to either
-managed database. The diagnostic exits nonzero on differences. Do not add it
-as a required gate until the reported legacy definition mismatches are resolved.
+managed database. The `schema-drift` validation includes the comparison and
+fails on differences. The disposable replay preserves equivalent unique
+constraints with different deployed names; it does not change either database.
 
 ## Stack
 

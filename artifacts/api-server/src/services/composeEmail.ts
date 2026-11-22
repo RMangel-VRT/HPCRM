@@ -88,7 +88,7 @@ function replyOptions(parent: Communication | undefined, mailboxId: string) {
   return { threadId: parent.providerThreadId, inReplyTo: parent.providerMessageId,
     references: [...new Set([...(reference ? [reference] : []), parent.providerMessageId])] };
 }
-export const replySubject = (subject: string) => subject.replace(/^(?:re:\s*)+/iu, "").trim();
+export const replySubject = (subject: string | null) => (subject ?? "").replace(/^(?:re:\s*)+/iu, "").trim();
 
 export async function sendComposeDraft(user: UserWithContext, id: string, recipientOverride?: string, transport = sendEmail) {
   const companyId = user.activeCompanyId;

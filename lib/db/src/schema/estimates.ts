@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, varchar, text, integer, boolean, numeric, timestamp, date, jsonb, uniqueIndex, index, check } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, integer, boolean, numeric, timestamp, date, jsonb, uniqueIndex, index, check, primaryKey, foreignKey } from "drizzle-orm/pg-core";
 import { companies, customers, tickets, users, plantCatalogItems, hardscapeCatalogItems, agreementTerms } from "./schema";
 import { irrigationCatalogItems } from "./irrigation";
 import { estimateQuickItems } from "./estimateSetup";
@@ -7,28 +7,36 @@ import { type ESTIMATE_STATUSES, type ESTIMATE_LINE_TYPES, type ESTIMATE_PRICE_S
 import type { EstimateRevisionIdMap, IssuedEstimateAttachment } from "../estimateContracts";
 export * from "../estimateContracts";
 
-const id = () => varchar("id").primaryKey().default(sql`gen_random_uuid()`);
-const company = () => varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" });
+const id = () => varchar("id").notNull().default(sql`gen_random_uuid()`);
+const company = () => varchar("company_id").notNull();
 const times = () => ({ createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow() });
-const userRef = (column: string) => varchar(column).references(() => users.id, { onDelete: "set null" });
+const userRef = (column: string) => varchar(column);
 // Document identity belongs here; tickets.estimate_number is only a compatibility
 // mirror written by createEstimate in the same transaction. Tickets own job state.
 export const estimates = pgTable("estimates", {
-  id: id(), companyId: company(), customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+  id: id(), companyId: company(), customerId: varchar("customer_id").notNull(),
+  ticketId: varchar("ticket_id"),
   // A linked ticket owns this fact. These columns are only for standalone estimates.
   workLocationLabel: text("work_location_label"), workLocationDescription: text("work_location_description"),
   estimateNumber: text("estimate_number").notNull(), title: text("title").notNull(),
   currentVersionId: varchar("current_version_id"), voidedAt: timestamp("voided_at"), voidReason: text("void_reason"),
   createdById: userRef("created_by_id"), ...times(),
-}, t => ({
-  number: uniqueIndex("estimates_company_number_idx").on(t.companyId, t.estimateNumber),
-  liveTicket: uniqueIndex("estimates_live_ticket_idx").on(t.ticketId).where(sql`${t.ticketId} IS NOT NULL AND ${t.voidedAt} IS NULL`),
-  customer: index("estimates_company_customer_idx").on(t.companyId, t.customerId),
-}));
+}, (t) => [
+  uniqueIndex("estimates_company_number_idx").on(t.companyId, t.estimateNumber),
+  uniqueIndex("estimates_live_ticket_idx").on(t.ticketId).where(sql`${t.ticketId} IS NOT NULL AND ${t.voidedAt} IS NULL`),
+  index("estimates_company_customer_idx").on(t.companyId, t.customerId),
+  primaryKey({ name: "estimates_pkey", columns: [t.id] }),
+  foreignKey({ name: "estimates_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "estimates_created_by_id_fkey", columns: [t.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "estimates_customer_id_fkey", columns: [t.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "estimates_ticket_id_fkey", columns: [t.ticketId], foreignColumns: [tickets.id] }).onDelete("set null"),
+]);
 export const estimateNumberCounters = pgTable("estimate_number_counters", {
   companyId: company(), year: integer("year").notNull(), lastValue: integer("last_value").notNull(),
-}, t => ({ companyYear: uniqueIndex("estimate_number_counters_company_year_idx").on(t.companyId, t.year) }));
+}, (t) => [
+  uniqueIndex("estimate_number_counters_company_year_idx").on(t.companyId, t.year),
+  foreignKey({ name: "estimate_number_counters_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 /** The original issued PDF belongs to its version, not to live location or pricing.
  * Communications own the delivery facts and recipient list. */
 export interface EstimateEmailIssue extends IssuedEstimateAttachment {
@@ -41,7 +49,7 @@ export interface EstimateEmailIssue extends IssuedEstimateAttachment {
 }
 // Version owns document state; these fields are deliberately absent from CRUD inputs.
 export const estimateVersions = pgTable("estimate_versions", {
-  id: id(), companyId: company(), estimateId: varchar("estimate_id").notNull().references(() => estimates.id, { onDelete: "cascade" }),
+  id: id(), companyId: company(), estimateId: varchar("estimate_id").notNull(),
   versionNumber: integer("version_number").notNull(),
   scopeOfWork: text("scope_of_work"),
   includePlantTable: boolean("include_plant_table").notNull().default(true),
@@ -56,36 +64,53 @@ export const estimateVersions = pgTable("estimate_versions", {
   poNumber: text("po_number"), declinedAt: timestamp("declined_at"), declinedById: userRef("declined_by_id"), declineReason: text("decline_reason"),
   supersededAt: timestamp("superseded_at"), frozenSubtotalCents: integer("frozen_subtotal_cents"), frozenCostKnownCents: integer("frozen_cost_known_cents"),
   frozenCostUnknownLines: integer("frozen_cost_unknown_lines"), createdById: userRef("created_by_id"), ...times(),
-}, t => ({
-  number: uniqueIndex("estimate_versions_number_idx").on(t.estimateId, t.versionNumber),
-  draft: uniqueIndex("estimate_versions_draft_idx").on(t.estimateId).where(sql`${t.status} = 'draft'`),
-  accepted: uniqueIndex("estimate_versions_accepted_idx").on(t.estimateId).where(sql`${t.status} = 'accepted'`),
-  status: check("estimate_versions_status_check", sql`${t.status} IN ('draft','sent','accepted','declined','superseded','void')`),
-  sent: check("estimate_versions_sent_method_check", sql`${t.sentMethod} IN ('email','hard_copy','portal','other')`),
-  acceptance: check("estimate_versions_acceptance_method_check", sql`${t.acceptanceMethod} IN ('email_approval','signed_pdf','phone','portal','other')`),
-}));
+}, (t) => [
+  uniqueIndex("estimate_versions_number_idx").on(t.estimateId, t.versionNumber),
+  uniqueIndex("estimate_versions_draft_idx").on(t.estimateId).where(sql`${t.status} = 'draft'`),
+  uniqueIndex("estimate_versions_accepted_idx").on(t.estimateId).where(sql`${t.status} = 'accepted'`),
+  check("estimate_versions_status_check", sql`${t.status} IN ('draft','sent','accepted','declined','superseded','void')`),
+  check("estimate_versions_sent_method_check", sql`${t.sentMethod} IN ('email','hard_copy','portal','other')`),
+  check("estimate_versions_acceptance_method_check", sql`${t.acceptanceMethod} IN ('email_approval','signed_pdf','phone','portal','other')`),
+  primaryKey({ name: "estimate_versions_pkey", columns: [t.id] }),
+  foreignKey({ name: "estimate_versions_accepted_by_id_fkey", columns: [t.acceptedById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "estimate_versions_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "estimate_versions_created_by_id_fkey", columns: [t.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "estimate_versions_declined_by_id_fkey", columns: [t.declinedById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "estimate_versions_estimate_id_fkey", columns: [t.estimateId], foreignColumns: [estimates.id] }).onDelete("cascade"),
+  foreignKey({ name: "estimate_versions_sent_by_id_fkey", columns: [t.sentById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 export const estimateVersionPhotos = pgTable("estimate_version_photos", {
-  id: id(), companyId: company(), versionId: varchar("version_id").notNull().references(() => estimateVersions.id, { onDelete: "cascade" }),
+  id: id(), companyId: company(), versionId: varchar("version_id").notNull(),
   storageObjectPath: varchar("storage_object_path").notNull(),
   filename: varchar("filename").notNull(), mimeType: varchar("mime_type").notNull(), fileSize: integer("file_size").notNull(),
   caption: text("caption"), displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, t => ({ order: index("estimate_version_photos_order_idx").on(t.versionId, t.displayOrder) }));
+}, (t) => [
+  index("estimate_version_photos_order_idx").on(t.versionId, t.displayOrder),
+  primaryKey({ name: "estimate_version_photos_pkey", columns: [t.id] }),
+  foreignKey({ name: "estimate_version_photos_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "estimate_version_photos_version_id_fkey", columns: [t.versionId], foreignColumns: [estimateVersions.id] }).onDelete("cascade"),
+]);
 export const estimateSections = pgTable("estimate_sections", {
-  id: id(), companyId: company(), versionId: varchar("version_id").notNull().references(() => estimateVersions.id, { onDelete: "cascade" }),
+  id: id(), companyId: company(), versionId: varchar("version_id").notNull(),
   name: text("name").notNull(), sortOrder: integer("sort_order").notNull().default(0), ...times(),
-}, t => ({ order: index("estimate_sections_version_order_idx").on(t.versionId, t.sortOrder) }));
+}, (t) => [
+  index("estimate_sections_version_order_idx").on(t.versionId, t.sortOrder),
+  primaryKey({ name: "estimate_sections_pkey", columns: [t.id] }),
+  foreignKey({ name: "estimate_sections_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "estimate_sections_version_id_fkey", columns: [t.versionId], foreignColumns: [estimateVersions.id] }).onDelete("cascade"),
+]);
 // All commercial values below are intentional snapshots. Source FKs are provenance,
 // not live joins. extendedCents is derived only by calculateExtendedCents.
 export const estimateLines = pgTable("estimate_lines", {
-  id: id(), companyId: company(), versionId: varchar("version_id").notNull().references(() => estimateVersions.id, { onDelete: "cascade" }),
-  sectionId: varchar("section_id").notNull().references(() => estimateSections.id, { onDelete: "cascade" }),
+  id: id(), companyId: company(), versionId: varchar("version_id").notNull(),
+  sectionId: varchar("section_id").notNull(),
   lineType: text("line_type").notNull().$type<typeof ESTIMATE_LINE_TYPES[number]>(),
-  plantCatalogItemId: varchar("plant_catalog_item_id").references(() => plantCatalogItems.id, { onDelete: "set null" }),
-  hardscapeCatalogItemId: varchar("hardscape_catalog_item_id").references(() => hardscapeCatalogItems.id, { onDelete: "set null" }),
-  irrigationCatalogItemId: varchar("irrigation_catalog_item_id").references(() => irrigationCatalogItems.id, { onDelete: "set null" }),
-  quickItemId: varchar("quick_item_id").references(() => estimateQuickItems.id, { onDelete: "set null" }),
-  rateKey: text("rate_key"), termId: varchar("term_id").references(() => agreementTerms.id, { onDelete: "set null" }),
+  plantCatalogItemId: varchar("plant_catalog_item_id"),
+  hardscapeCatalogItemId: varchar("hardscape_catalog_item_id"),
+  irrigationCatalogItemId: varchar("irrigation_catalog_item_id"),
+  quickItemId: varchar("quick_item_id"),
+  rateKey: text("rate_key"), termId: varchar("term_id"),
   priceSource: text("price_source").notNull().$type<typeof ESTIMATE_PRICE_SOURCES[number]>(),
   name: text("name").notNull(), detail: text("detail"), unit: text("unit").notNull(),
   quantity: numeric("quantity", { precision: 12, scale: 2 }).notNull(),
@@ -93,15 +118,24 @@ export const estimateLines = pgTable("estimate_lines", {
   extendedCents: integer("extended_cents").notNull(), umbrellaKey: text("umbrella_key").notNull().$type<EstimateUmbrella>(),
   includeInPalette: boolean("include_in_palette").notNull().default(false), paletteTypeLabel: text("palette_type_label"),
   sortOrder: integer("sort_order").notNull().default(0), ...times(),
-}, t => ({
-  order: index("estimate_lines_version_section_order_idx").on(t.versionId, t.sectionId, t.sortOrder),
-   type: check("estimate_lines_type_v2_check", sql`${t.lineType} IN ('plant','hardscape','irrigation','labor','service','equipment','fee','custom')`),
-  source: check("estimate_lines_source_check", sql`${t.priceSource} IN ('catalog','contract','rate_card','quick_list','manual')`),
-  quantity: check("estimate_lines_quantity_check", sql`${t.quantity} > 0`),
-  price: check("estimate_lines_price_check", sql`${t.unitPriceCents} >= 0`),
-  cost: check("estimate_lines_cost_check", sql`${t.unitCostCents} >= 0`),
-  umbrella: check("estimate_lines_umbrella_check", sql`${t.umbrellaKey} IN ('plants','landscape_materials','irrigation_materials','landscape_labor','irrigation_labor','fees_surcharges')`),
-}));
+}, (t) => [
+  index("estimate_lines_version_section_order_idx").on(t.versionId, t.sectionId, t.sortOrder),
+  check("estimate_lines_type_v2_check", sql`${t.lineType} IN ('plant','hardscape','irrigation','labor','service','equipment','fee','custom')`),
+  check("estimate_lines_source_check", sql`${t.priceSource} IN ('catalog','contract','rate_card','quick_list','manual')`),
+  check("estimate_lines_quantity_check", sql`${t.quantity} > 0`),
+  check("estimate_lines_price_check", sql`${t.unitPriceCents} >= 0`),
+  check("estimate_lines_cost_check", sql`${t.unitCostCents} >= 0`),
+  check("estimate_lines_umbrella_check", sql`${t.umbrellaKey} IN ('plants','landscape_materials','irrigation_materials','landscape_labor','irrigation_labor','fees_surcharges')`),
+  primaryKey({ name: "estimate_lines_pkey", columns: [t.id] }),
+  foreignKey({ name: "estimate_lines_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "estimate_lines_hardscape_catalog_item_id_fkey", columns: [t.hardscapeCatalogItemId], foreignColumns: [hardscapeCatalogItems.id] }).onDelete("set null"),
+  foreignKey({ name: "estimate_lines_irrigation_catalog_item_id_fkey", columns: [t.irrigationCatalogItemId], foreignColumns: [irrigationCatalogItems.id] }).onDelete("set null"),
+  foreignKey({ name: "estimate_lines_plant_catalog_item_id_fkey", columns: [t.plantCatalogItemId], foreignColumns: [plantCatalogItems.id] }).onDelete("set null"),
+  foreignKey({ name: "estimate_lines_quick_item_id_fkey", columns: [t.quickItemId], foreignColumns: [estimateQuickItems.id] }).onDelete("set null"),
+  foreignKey({ name: "estimate_lines_section_id_fkey", columns: [t.sectionId], foreignColumns: [estimateSections.id] }).onDelete("cascade"),
+  foreignKey({ name: "estimate_lines_term_id_fkey", columns: [t.termId], foreignColumns: [agreementTerms.id] }).onDelete("set null"),
+  foreignKey({ name: "estimate_lines_version_id_fkey", columns: [t.versionId], foreignColumns: [estimateVersions.id] }).onDelete("cascade"),
+]);
 export type Estimate = typeof estimates.$inferSelect;
 export type EstimateVersion = typeof estimateVersions.$inferSelect;
 export type EstimateSection = typeof estimateSections.$inferSelect;

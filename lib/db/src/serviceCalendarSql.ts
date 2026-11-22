@@ -8,7 +8,7 @@ export const monthDaySql = (column: string) => `${column} ~ '^(01|03|05|07|08|10
 // Preserve the main project's Publish round-trip fix. A leading COALESCE CHECK
 // is misparsed by database-to-database introspection; IS TRUE preserves semantics.
 export const serviceCalendarCheckSql = `(coalesce(
-  position BETWEEN 1 AND 24 AND name = btrim(name) AND length(name) BETWEEN 1 AND 80
+  position >= 1 AND position <= 24 AND name = btrim(name) AND length(name) BETWEEN 1 AND 80
   AND (${monthDaySql("opens_md")}) AND (${monthDaySql("due_md")}) AND opens_md <> due_md
   AND ((kind = 'round' AND service_key IN ${campaignServiceSql})
     OR (kind = 'checklist' AND service_key IN ${checklistServiceSql} AND position = 1)

@@ -148,6 +148,22 @@ it("scopes before grouping, preserves whole matching threads, pages in SQL, and 
   });
 }, 30_000);
 
+it("lists and opens a legacy communication with no subject", async () => {
+  await fixture(async tx => {
+    await tx.insert(communications).values({
+      ...sent,
+      id: "legacy-without-subject",
+      mailboxAccountId: null,
+      subject: null,
+    });
+    const scope = await conversationScope(user);
+    const result = await listConversations(scope, "all", "", 1);
+    expect(result.items[0]).toMatchObject({ key: "c:legacy-without-subject", subject: "" });
+    const detail = await readConversation(scope, "c:legacy-without-subject");
+    expect(detail).toMatchObject({ subject: "", messages: [{ id: "legacy-without-subject" }] });
+  });
+});
+
 it("only deletes the ten exact reviewed samples, preserves near matches and detects changes", async () => {
   await fixture(async tx => {
     const rows = sampleCommunicationFingerprints.map((f, i) => ({

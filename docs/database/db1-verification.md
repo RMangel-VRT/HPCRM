@@ -2,13 +2,11 @@
 
 ## Status
 
-The Routes SQL rehearsal and read-only object checks passed. Declaration
-parity is not complete. The declaration comparison verifies differences
-outside DB1's approved names, nullability and missing-declaration scope.
-No declarations, historical migrations or managed database structures
-were changed in this pass. Production was not accessed directly, and the
-read-only Publish preview was unavailable. Do not treat an unavailable
-preview as an empty diff.
+The Routes rehearsal, read-only object check and declaration parity passed.
+The read-only Publish preview returned **zero SQL statements** and no
+structural data loss. The Routes trigger and function are SQL-only and are
+not accounted for by that preview. No historical migrations or managed
+database schemas were changed, and nothing was published.
 
 ## Reference and Routes rehearsal
 
@@ -55,48 +53,63 @@ preview as an empty diff.
   `scripts/src/logical-database-catalog.ts`: repeatable, standalone
   catalog comparison. Only a fresh private local cluster receives the
   offline declaration export. Verified Development is read-only.
-  This diagnostic is **not** a required validation gate yet.
+  The existing `schema-drift` validation now runs this check.
 - `replit.md` and `.agents/memory/production-schema-parity.md`: owners'
   SQL-only rollout and Development resync rules.
 
-## Declaration differences requiring a decision
+## Declaration alignment and compatibility
 
-The standalone diagnostic compared declarations loaded into newly initialized
-local PostgreSQL with the verified live Development catalog. It exited 1
-and reported **882 entries**. A renamed constraint or backing index appears
-as a missing and an extra name; this number is not a count of proposed
-Publish operations. Verified differences beyond name-only work include:
+The initial comparison reported 882 catalog diff entries, including both
+sides of renamed constraints and backing indexes. After approval to align
+the broader definitions in code, the same comparison exited **0 with no
+differences**, excluding only the registered SQL-only objects and
+extension-owned objects. No managed schema push was used.
 
-| Object | Verified catalog | Current declarations |
-|---|---|---|
-| `campaign_items.was_bumped_to_backup` | `text`, default `'false'::text` | `boolean`, default `false`; application code also uses boolean comparisons and writes |
-| `settings.default_mailbox_visibility` | Empty JSON object default | A populated shared/personal role policy default |
-| `communication_threads.customer_id` and `communication_automation_rules.template_id` | No corresponding FK | `ON DELETE SET NULL` FKs |
-| `campaign_items` property/plan indexes | Deployed predicate and plan-category index | One unconditional property index and no matching plan index |
-| `proposal_number_seq` | Standalone bigint sequence, increment/start/min/cache 1, max 9223372036854775807, no cycle or column ownership | Missing |
+- Declared the exact constraint and index names, FK targets and actions,
+  defaults, nullability, index predicates and ordering. The deployed
+  chemical-product FK stays `ON DELETE SET NULL`. The three historically
+  absent `campaign_items` actor FKs stay absent, and `users.email` stays
+  nullable. The service-calendar declaration deparses to the exact deployed
+  CHECK expression; its acceptance logic did not change.
+- Declared the session store, three migration/cleanup bookkeeping tables
+  and the standalone bigint `proposal_number_seq` with no column ownership.
+  Existing ownership and writers did not change.
+- The legacy campaign flag uses a text column mapper to keep boolean API
+  values. The deployed nullable communication subject is handled in list,
+  search and reply paths. Mailbox access still uses its existing fallback
+  policy when the stored policy is `{}`.
+- Ticket completion crew and photo arrays are `NOT NULL` with an empty
+  default. Direct inserts either provide arrays or use the database
+  default, UI completion calls submit arrays, and explicit null is rejected
+  at the input boundary rather than clearing existing values. The client
+  copy matches those array builders and input validators.
 
-Four public tables are absent from declarations: `_applied_sql_migrations`,
-`_chem_notif_legacy_cleanup`, `_migration_audit_log`, and `session`. They are
-reported rather than silently excluded. There are also differing defaults,
-index ordering/placement, and unique-index versus UNIQUE-constraint
-definitions. These findings are separate from the intentionally absent
-bootstrap actor FKs and nullable `users.email`, which must stay as deployed.
-
-Resolving all of these requires permission to reconcile the declaration
-scope and review affected application paths without changing the live
-database. Do not adjust CHECK logic just to make the diagnostic pass.
+PostgreSQL combines identically defined inline UNIQUE constraints within
+one `CREATE TABLE`. Twelve deployed names are secondary copies of
+equivalent declarations. The disposable replay applies those matched
+definitions separately before dependent foreign keys, using only the names
+and definitions emitted by Drizzle. This does not remove duplicates from
+either catalog or perform a managed rebuild. Raw `drizzle-kit export` fed
+directly to PostgreSQL does not preserve these secondary names on its own.
 
 ## Checks
 
 | Check | Result |
 |---|---|
 | Routes rehearsal | Two clean runs, exact two-object delta, false → true → true readiness, scoped customer deletion passed |
-| Registry Node tests | 3 passed |
-| API permission and Routes scheduler tests | 6 passed |
+| Migration audit, disposable export replay and column adapter tests | 7 passed |
+| API permissions, Routes scheduler, mailbox scope and Conversations | 21 passed; database integration tests ran on a fresh socket-only restore |
 | CRM status component tests | 2 passed |
-| Development schema and SQL-only status check | Passed; both objects present |
-| Scripts typecheck | Passed |
-| Root typecheck | Existing failure; 633 diagnostics before and 633 after, no added or removed diagnostics in the baseline comparison |
+| Development schema, extensions and SQL-only status | Passed; both objects present |
+| Library and scripts typecheck | Passed |
+| Root typecheck | Still fails on existing workspace errors: 633 diagnostics before and 595 after. The three differently worded diagnostics are the same existing Zod error-member references on the same lines. A separate CRM typecheck also still fails. |
 | Development preview | API and web restarted; status endpoint rejects unsigned requests (401), login page serves (200), and the built SQL asset exactly matches the reviewed file |
-| Declaration parity | Expected failure until the scope decision; report above |
-| Read-only Publish preview | Unavailable; not published |
+| Declaration parity | Passed; no remaining logical differences within comparison scope |
+| Read-only Publish preview | 0 statements; no structural data loss; not published |
+
+## Owner-only next step
+
+Inspect the Publish preview again when ready. Stop if it proposes any
+`DROP`. Follow the reviewed SQL runbook for the owner-only Production
+install, then verify both objects in Settings → Database and check for
+new route visits after the next overnight fill. DB1 did not do those steps.

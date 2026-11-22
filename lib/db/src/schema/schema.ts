@@ -1,4 +1,6 @@
 import { sql } from "drizzle-orm";
+import { legacyBooleanText } from "./legacyBooleanText";
+import type { PgTableExtraConfigValue } from "drizzle-orm/pg-core";
 import { pgTable, text, char, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -45,17 +47,17 @@ export type InsertVisit = z.infer<typeof insertVisitSchema>;
 
 export const visits = pgTable("visits", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  crewId: varchar("crew_id").references(() => crews.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  crewId: varchar("crew_id"),
   visitDate: date("visit_date").notNull(),
   sourceType: text("source_type").notNull().default("ticket").$type<InsertVisit["sourceType"]>(),
-  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  ticketId: varchar("ticket_id"),
+  customerId: varchar("customer_id"),
   title: text("title"),
   serviceKey: text("service_key"),
-  routeStopId: varchar("route_stop_id").references((): AnyPgColumn => routeStops.id, { onDelete: "no action" }),
+  routeStopId: varchar("route_stop_id"),
   routeOccurrenceDate: date("route_occurrence_date"),
-  campaignItemId: varchar("campaign_item_id").references((): AnyPgColumn => campaignItems.id, { onDelete: "no action" }),
+  campaignItemId: varchar("campaign_item_id"),
   routeOrder: integer("route_order"),
   startTime: text("start_time"),
   estimatedHours: real("estimated_hours"),
@@ -63,67 +65,80 @@ export const visits = pgTable("visits", {
   actualStartAt: timestamp("actual_start_at"),
   actualEndAt: timestamp("actual_end_at"),
   notes: text("notes"),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdById: varchar("created_by_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, table => ({
-  companyDateCrew: index("visits_company_date_crew_idx").on(table.companyId, table.visitDate, table.crewId),
-  ticket: index("visits_ticket_idx").on(table.ticketId),
-  companyCustomerDate: index("visits_company_customer_date_idx").on(table.companyId, table.customerId, table.visitDate),
-  companyServiceDate: index("visits_company_service_date_idx").on(table.companyId, table.serviceKey, table.visitDate),
-  routeOccurrenceUnique: uniqueIndex("visits_route_occurrence_unique").on(table.routeStopId, table.routeOccurrenceDate).where(sql`${table.routeStopId} IS NOT NULL`),
-  routeIdentity: check("visits_route_identity_check", sql`${table.sourceType} <> 'route' OR (${table.routeStopId} IS NOT NULL AND ${table.routeOccurrenceDate} IS NOT NULL)`),
-  campaignItem: index("visits_campaign_item_idx").on(table.campaignItemId),
-  campaignDone: uniqueIndex("visits_campaign_item_done_unique").on(table.campaignItemId).where(sql`${table.campaignItemId} IS NOT NULL AND ${table.status} = 'done'`),
-  campaignIdentity: check("visits_campaign_identity_check", sql`(${table.sourceType} = 'campaign_item') = (${table.campaignItemId} IS NOT NULL)`),
-  // Approved Publish stage one: restore the composite company FK after the
-  // prerequisite unique keys reach production. Existing item/company FKs stay.
-  // See docs/scheduling/reports/publish-foreign-key-stage-one.md.
-}));
+}, (table) => [
+  index("visits_company_date_crew_idx").on(table.companyId, table.visitDate, table.crewId),
+  index("visits_ticket_idx").on(table.ticketId),
+  index("visits_company_customer_date_idx").on(table.companyId, table.customerId, table.visitDate),
+  index("visits_company_service_date_idx").on(table.companyId, table.serviceKey, table.visitDate),
+  uniqueIndex("visits_route_occurrence_unique").on(table.routeStopId, table.routeOccurrenceDate).where(sql`${table.routeStopId} IS NOT NULL`),
+  check("visits_route_identity_check", sql`${table.sourceType} <> 'route' OR (${table.routeStopId} IS NOT NULL AND ${table.routeOccurrenceDate} IS NOT NULL)`),
+  index("visits_campaign_item_idx").on(table.campaignItemId),
+  uniqueIndex("visits_campaign_item_done_unique").on(table.campaignItemId).where(sql`${table.campaignItemId} IS NOT NULL AND ${table.status} = 'done'`),
+  check("visits_campaign_identity_check", sql`(${table.sourceType} = 'campaign_item') = (${table.campaignItemId} IS NOT NULL)`),
+  foreignKey({ name: "visits_campaign_item_id_campaign_items_id_fk", columns: [table.campaignItemId], foreignColumns: [campaignItems.id] }),
+  foreignKey({ name: "visits_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "visits_created_by_id_fkey", columns: [table.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "visits_crew_id_fkey", columns: [table.crewId], foreignColumns: [crews.id] }).onDelete("set null"),
+  foreignKey({ name: "visits_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("set null"),
+  foreignKey({ name: "visits_route_stop_id_fkey", columns: [table.routeStopId], foreignColumns: [routeStops.id] }),
+  foreignKey({ name: "visits_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+]);
 export type Visit = typeof visits.$inferSelect;
 
 export const companyDocuments = pgTable("company_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   category: text("category").notNull(),
   role: text("role"),
   expiresOn: date("expires_on"),
   visibility: text("visibility").notNull().default("office"),
   pinned: boolean("pinned").notNull().default(false),
-  currentFileId: varchar("current_file_id").references((): AnyPgColumn => companyDocumentFiles.id, { onDelete: "set null" }),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
-  updatedById: varchar("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+  currentFileId: varchar("current_file_id"),
+  createdById: varchar("created_by_id"),
+  updatedById: varchar("updated_by_id"),
   archivedAt: timestamp("archived_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, t => ({
-  liveRole: uniqueIndex("company_documents_live_role_idx").on(t.companyId, t.role).where(sql`${t.role} IS NOT NULL AND ${t.archivedAt} IS NULL`),
-  companyArchived: index("company_documents_company_archived_idx").on(t.companyId, t.archivedAt),
-  nameCheck: check("company_documents_name_check", sql`length(trim(${t.name})) BETWEEN 1 AND 255`),
-  categoryCheck: check("company_documents_category_check", sql`${t.category} IN ('tax','licenses','insurance','business','other')`),
-  roleCheck: check("company_documents_role_check", sql`${t.role} = 'pesticide_license'`),
-  visibilityCheck: check("company_documents_visibility_check", sql`${t.visibility} IN ('office','everyone')`),
-}));
+}, (t): PgTableExtraConfigValue[] => [
+  uniqueIndex("company_documents_live_role_idx").on(t.companyId, t.role).where(sql`${t.role} IS NOT NULL AND ${t.archivedAt} IS NULL`),
+  index("company_documents_company_archived_idx").on(t.companyId, t.archivedAt),
+  check("company_documents_name_check", sql`length(trim(${t.name})) BETWEEN 1 AND 255`),
+  check("company_documents_category_check", sql`${t.category} IN ('tax','licenses','insurance','business','other')`),
+  check("company_documents_role_check", sql`${t.role} = 'pesticide_license'`),
+  check("company_documents_visibility_check", sql`${t.visibility} IN ('office','everyone')`),
+  foreignKey({ name: "company_documents_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "company_documents_created_by_id_fkey", columns: [t.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "company_documents_current_file_fk", columns: [t.currentFileId], foreignColumns: [companyDocumentFiles.id] }).onDelete("set null"),
+  foreignKey({ name: "company_documents_updated_by_id_fkey", columns: [t.updatedById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 export const companyDocumentFiles = pgTable("company_document_files", {
   id: varchar("id").primaryKey(),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  documentId: varchar("document_id").notNull().references((): AnyPgColumn => companyDocuments.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  documentId: varchar("document_id").notNull(),
   fileName: text("file_name").notNull(),
   filePath: text("file_path").notNull(),
   fileType: text("file_type"),
   mimeType: text("mime_type"),
   fileSize: integer("file_size"),
-  uploadedById: varchar("uploaded_by_id").references(() => users.id, { onDelete: "set null" }),
+  uploadedById: varchar("uploaded_by_id"),
   uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
-}, t => ({ documentUploaded: index("company_document_files_document_uploaded_idx").on(t.documentId, t.uploadedAt.desc()) }));
+}, (t): PgTableExtraConfigValue[] => [
+  foreignKey({ name: "company_document_files_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "company_document_files_document_id_fkey", columns: [t.documentId], foreignColumns: [companyDocuments.id] }).onDelete("cascade"),
+  foreignKey({ name: "company_document_files_uploaded_by_id_fkey", columns: [t.uploadedById], foreignColumns: [users.id] }).onDelete("set null"),
+  index("company_document_files_document_uploaded_idx").on(t.documentId, t.uploadedAt.desc().nullsFirst()),
+]);
 export type CompanyDocument = typeof companyDocuments.$inferSelect;
 export type CompanyDocumentFile = typeof companyDocumentFiles.$inferSelect;
 
 export const companies = pgTable("companies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
+  slug: text("slug").notNull(),
   subscriptionPlan: text("subscription_plan").$type<"free" | "basic" | "pro" | "enterprise">().default("free"),
   subscriptionStatus: text("subscription_status").$type<"active" | "canceled" | "past_due" | "trialing">().default("active"),
   billingEmail: text("billing_email"),
@@ -133,7 +148,10 @@ export const companies = pgTable("companies", {
   routesLastFilledOn: date("routes_last_filled_on"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  unique("companies_slug_key").on(table.slug),
+  unique("companies_slug_unique").on(table.slug),
+]);
 
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
@@ -152,12 +170,12 @@ export type Company = typeof companies.$inferSelect;
 // Owns recurrence only. Contract quantities remain in term_scope_lines.
 export const routeStops = pgTable("route_stops", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   // Nullable only for retired history after customer deletion; request schemas
   // still require a property and the DB forbids active stops without one.
-  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  customerId: varchar("customer_id"),
   serviceKey: text("service_key").notNull(),
-  crewId: varchar("crew_id").notNull().references(() => crews.id, { onDelete: "restrict" }),
+  crewId: varchar("crew_id").notNull(),
   weekday: integer("weekday").notNull(),
   everyWeeks: integer("every_weeks").notNull().default(1),
   anchorDate: date("anchor_date").notNull(),
@@ -168,24 +186,28 @@ export const routeStops = pgTable("route_stops", {
   pausedUntil: date("paused_until"),
   isActive: boolean("is_active").notNull().default(true),
   notes: text("notes"),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdById: varchar("created_by_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, table => ({
-  companyCrewDay: index("route_stops_company_crew_day_idx").on(table.companyId, table.crewId, table.weekday, table.sortOrder),
-  uniqueActive: uniqueIndex("route_stops_unique_active").on(table.companyId, table.customerId, table.serviceKey).where(sql`${table.isActive}`),
-  activeCustomer: check("route_stops_active_customer_check", sql`NOT ${table.isActive} OR ${table.customerId} IS NOT NULL`),
-  weekdayCheck: check("route_stops_weekday_check", sql`${table.weekday} BETWEEN 1 AND 6`),
-  cadenceCheck: check("route_stops_cadence_check", sql`${table.everyWeeks} IN (1,2)`),
-  minutesCheck: check("route_stops_minutes_check", sql`${table.minutes} BETWEEN 5 AND 720`),
-  seasonCheck: check("route_stops_season_check", sql`(${table.seasonStart} IS NULL AND ${table.seasonEnd} IS NULL) OR (${table.seasonStart} IS NOT NULL AND ${table.seasonEnd} IS NOT NULL AND ${table.seasonStart} <= ${table.seasonEnd})`),
-}));
+}, (table) => [
+  index("route_stops_company_crew_day_idx").on(table.companyId, table.crewId, table.weekday, table.sortOrder),
+  uniqueIndex("route_stops_unique_active").on(table.companyId, table.customerId, table.serviceKey).where(sql`${table.isActive}`),
+  check("route_stops_active_customer_check", sql`NOT ${table.isActive} OR ${table.customerId} IS NOT NULL`),
+  check("route_stops_weekday_check", sql`${table.weekday} BETWEEN 1 AND 6`),
+  check("route_stops_cadence_check", sql`${table.everyWeeks} IN (1,2)`),
+  check("route_stops_minutes_check", sql`${table.minutes} BETWEEN 5 AND 720`),
+  check("route_stops_season_check", sql`(${table.seasonStart} IS NULL AND ${table.seasonEnd} IS NULL) OR (${table.seasonStart} IS NOT NULL AND ${table.seasonEnd} IS NOT NULL AND ${table.seasonStart} <= ${table.seasonEnd})`),
+  foreignKey({ name: "route_stops_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "route_stops_created_by_id_fkey", columns: [table.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "route_stops_crew_id_fkey", columns: [table.crewId], foreignColumns: [crews.id] }).onDelete("restrict"),
+  foreignKey({ name: "route_stops_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("set null"),
+]);
 export type RouteStop = typeof routeStops.$inferSelect;
 export type InsertRouteStop = typeof routeStops.$inferInsert;
 
 export const hardscapeCatalogItems = pgTable("hardscape_catalog_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   sku: text("sku"),
   category: text("category").notNull().default("General"),
   name: text("name").notNull(),
@@ -197,15 +219,16 @@ export const hardscapeCatalogItems = pgTable("hardscape_catalog_items", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, table => ({
-  company: index("hardscape_catalog_items_company_id_idx").on(table.companyId),
-  category: index("hardscape_catalog_items_category_idx").on(table.companyId, table.category),
-  sku: uniqueIndex("hardscape_catalog_items_company_sku_idx").on(table.companyId, table.sku).where(sql`sku IS NOT NULL`),
-  name: index("hardscape_catalog_items_name_trgm_idx").using("gin", sql`lower(name) gin_trgm_ops`),
-  nonnegativeCost: check("hardscape_catalog_items_wholesale_cost_cents_check", sql`${table.wholesaleCostCents} >= 0`),
-  nonnegativePrice: check("hardscape_catalog_items_retail_price_cents_check", sql`${table.retailPriceCents} >= 0`),
-  fixedUmbrella: check("hardscape_catalog_items_umbrella_key_check", sql`${table.umbrellaKey} = 'landscape_materials'`),
-}));
+}, (table) => [
+  index("hardscape_catalog_items_company_id_idx").on(table.companyId),
+  index("hardscape_catalog_items_category_idx").on(table.companyId, table.category),
+  uniqueIndex("hardscape_catalog_items_company_sku_idx").on(table.companyId, table.sku).where(sql`sku IS NOT NULL`),
+  index("hardscape_catalog_items_name_trgm_idx").using("gin", sql`lower(name) gin_trgm_ops`),
+  check("hardscape_catalog_items_wholesale_cost_cents_check", sql`${table.wholesaleCostCents} >= 0`),
+  check("hardscape_catalog_items_retail_price_cents_check", sql`${table.retailPriceCents} >= 0`),
+  check("hardscape_catalog_items_umbrella_key_check", sql`${table.umbrellaKey} = 'landscape_materials'`),
+  foreignKey({ name: "hardscape_catalog_items_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 // Explicit editable fields: no server-owned company/umbrella/timestamps in HTTP bodies.
 export const hardscapeCatalogFields = {
@@ -230,12 +253,12 @@ export type HardscapeCatalogItem = typeof hardscapeCatalogItems.$inferSelect;
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: text("email").unique(),
-  phone: text("phone").unique(),
+  email: text("email"),
+  phone: text("phone"),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   isSuperAdmin: text("is_super_admin").notNull().default("false").$type<"true" | "false">(),
-  defaultCompanyId: varchar("default_company_id").references(() => companies.id, { onDelete: "set null" }),
+  defaultCompanyId: varchar("default_company_id"),
   language: text("language").notNull().default("en").$type<"en" | "es">(),
   applicatorLicenseNumber: text("applicator_license_number"),
   applicatorLicenseState: text("applicator_license_state"),
@@ -253,7 +276,12 @@ export const users = pgTable("users", {
     .notNull()
     .default(sql`'{"newTicketAssignment":true,"ticketReassignment":true,"flagResponse":true}'::jsonb`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  unique("users_email_unique").on(table.email),
+  unique("users_phone_key").on(table.phone),
+  unique("users_phone_unique").on(table.phone),
+  foreignKey({ name: "users_default_company_id_fkey", columns: [table.defaultCompanyId], foreignColumns: [companies.id] }).onDelete("set null"),
+]);
 
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -275,19 +303,20 @@ export type User = typeof users.$inferSelect;
 
 export const companyUsers = pgTable("company_users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   role: text("role").notNull().$type<"admin" | "account_manager" | "office" | "field_manager" | "chemical_manager" | "field" | "irrigation_manager" | "shop_manager" | "mapping" | "landscape_supervisor" | "crew_supervisor">(),
   status: text("status").notNull().$type<"active" | "invited" | "suspended">().default("active"),
-  tags: text("tags").array().default(sql`ARRAY[]::text[]`),
+  tags: text("tags").array().default(sql`'{}'::text[]`),
   invitedAt: timestamp("invited_at"),
   joinedAt: timestamp("joined_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  userCompanyUnique: unique().on(table.userId, table.companyId),
-  companyUsersUserIdIdx: index("company_users_user_id_idx").on(table.userId),
-  companyUsersCompanyIdIdx: index("company_users_company_id_idx").on(table.companyId),
-}));
+}, (table) => [
+  unique("company_users_user_id_company_id_key").on(table.userId, table.companyId),
+  unique("company_users_user_id_company_id_unique").on(table.userId, table.companyId),
+  foreignKey({ name: "company_users_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "company_users_user_id_fkey", columns: [table.userId], foreignColumns: [users.id] }).onDelete("cascade"),
+]);
 
 export const insertCompanyUserSchema = createInsertSchema(companyUsers).omit({
   id: true,
@@ -302,8 +331,8 @@ export type InsertCompanyUser = z.infer<typeof insertCompanyUserSchema>;
 export type CompanyUser = typeof companyUsers.$inferSelect;
 
 export const customers = pgTable("customers", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  id: varchar("id").notNull().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   customerNumber: text("customer_number"),
   street: text("street").notNull(),
@@ -318,7 +347,7 @@ export const customers = pgTable("customers", {
   propertyManagementCompanyId: varchar("property_management_company_id"),
   propertyManagerId: varchar("property_manager_id"),
   parentCustomerId: varchar("parent_customer_id"),
-  accountManagerId: varchar("account_manager_id").references(() => users.id, { onDelete: "set null" }),
+  accountManagerId: varchar("account_manager_id"),
   isParent: text("is_parent").notNull().default("false").$type<"true" | "false">(),
   active: text("active").notNull().default("true").$type<"true" | "false">(),
   customerType: text("customer_type").$type<"commercial" | "hoa">().notNull().default("commercial"),
@@ -338,7 +367,7 @@ export const customers = pgTable("customers", {
   billingName: text("billing_name"),
   billingCompanyName: text("billing_company_name"),
   billingContactName: text("billing_contact_name"),
-  billingEmails: text("billing_emails").array().notNull().default(sql`ARRAY[]::text[]`),
+  billingEmails: text("billing_emails").array().notNull().default(sql`'{}'::text[]`),
   billingPhone: text("billing_phone"),
   billingMobile: text("billing_mobile"),
   billToMode: text("bill_to_mode").notNull().default("property").$type<"property" | "management_company" | "custom">(),
@@ -361,19 +390,19 @@ export const customers = pgTable("customers", {
   qboSyncedAt: timestamp("qbo_synced_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  customersCompanyIdIdx: index("customers_company_id_idx").on(table.companyId),
-  customersAccountManagerIdx: index("customers_company_account_manager_idx").on(table.companyId, table.accountManagerId),
-  // Trigram index for fast customer-name substring search (requires pg_trgm extension)
-  customersNameTrgmIdx: index("customers_name_trgm_idx").using("gin", sql`lower(name) gin_trgm_ops`),
-  // Partial unique index: only one CRM customer per QBO customer (ignores NULL bindings)
-  customersQboCustomerIdUniq: uniqueIndex("customers_qbo_customer_id_uniq")
+}, (table) => [
+  index("customers_company_account_manager_idx").on(table.companyId, table.accountManagerId),
+  index("customers_name_trgm_idx").using("gin", sql`lower(name) gin_trgm_ops`),
+  uniqueIndex("customers_qbo_customer_id_uniq")
     .on(table.companyId, table.qboCustomerId)
     .where(sql`qbo_customer_id IS NOT NULL`),
-  billToModeCheck: check("customers_bill_to_mode_check", sql`${table.billToMode} IN ('property', 'management_company', 'custom')`),
-  branchBillingModeCheck: check("customers_branch_billing_mode_check", sql`${table.branchBillingMode} IN ('master', 'separate')`),
-  qboSyncStateCheck: check("customers_qbo_sync_state_check", sql`${table.qboSyncState} IN ('not_linked', 'in_sync', 'pending_push', 'error', 'via_parent')`),
-}));
+  check("customers_bill_to_mode_check", sql`${table.billToMode} IN ('property', 'management_company', 'custom')`),
+  check("customers_branch_billing_mode_check", sql`${table.branchBillingMode} IN ('master', 'separate')`),
+  check("customers_qbo_sync_state_check", sql`${table.qboSyncState} IN ('not_linked', 'in_sync', 'pending_push', 'error', 'via_parent')`),
+  primaryKey({ name: "properties_pkey", columns: [table.id] }),
+  foreignKey({ name: "customers_account_manager_id_fkey", columns: [table.accountManagerId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "properties_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({
   snowEnabled: true,
@@ -435,8 +464,8 @@ export type Customer = typeof customers.$inferSelect;
 
 export const contacts = pgTable("contacts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
   propertyManagerId: varchar("property_manager_id"),
   name: text("name").notNull(),
   phones: text("phones").array().default(sql`ARRAY[]::text[]`),
@@ -445,10 +474,12 @@ export const contacts = pgTable("contacts", {
   isPrimary: text("is_primary").notNull().default("false").$type<"true" | "false">(),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  contactsCompanyIdIdx: index("contacts_company_id_idx").on(table.companyId),
-  contactsCustomerIdIdx: index("contacts_customer_id_idx").on(table.customerId),
-}));
+}, (table) => [
+  index("contacts_company_id_idx").on(table.companyId),
+  index("contacts_customer_id_idx").on(table.customerId),
+  foreignKey({ name: "contacts_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "contacts_property_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+]);
 
 export const insertContactSchema = createInsertSchema(contacts).omit({
   id: true,
@@ -464,16 +495,19 @@ export type Contact = typeof contacts.$inferSelect;
 
 export const notes = pgTable("notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
   body: text("body").notNull(),
-  authorId: varchar("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  authorId: varchar("author_id").notNull(),
   pinnedAt: timestamp("pinned_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  notesCompanyIdIdx: index("notes_company_id_idx").on(table.companyId),
-  notesCustomerIdIdx: index("notes_customer_id_idx").on(table.customerId),
-}));
+}, (table) => [
+  index("notes_company_id_idx").on(table.companyId),
+  index("notes_customer_id_idx").on(table.customerId),
+  foreignKey({ name: "notes_author_id_fkey", columns: [table.authorId], foreignColumns: [users.id] }).onDelete("cascade"),
+  foreignKey({ name: "notes_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "notes_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+]);
 
 export const insertNoteSchema = createInsertSchema(notes).omit({
   id: true,
@@ -488,8 +522,8 @@ export type Note = typeof notes.$inferSelect;
 
 export const contracts = pgTable("contracts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
   serviceType: text("service_type").notNull().$type<"Maintenance" | "Chemical" | "Snow" | "Irrigation" | "Other">(),
   billingPattern: text("billing_pattern").notNull().$type<"monthly" | "seasonal" | "12-of-12">(),
   startDate: timestamp("start_date").notNull(),
@@ -502,10 +536,10 @@ export const contracts = pgTable("contracts", {
   autoPopulateServicePlans: boolean("auto_populate_service_plans").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  contractsCompanyIdIdx: index("contracts_company_id_idx").on(table.companyId),
-  contractsCustomerIdIdx: index("contracts_customer_id_idx").on(table.customerId),
-}));
+}, (table) => [
+  foreignKey({ name: "contracts_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "contracts_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+]);
 
 export const insertContractSchema = createInsertSchema(contracts).omit({
   id: true,
@@ -525,14 +559,16 @@ export type Contract = typeof contracts.$inferSelect;
 
 export const contractStatusHistory = pgTable("contract_status_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  contractId: varchar("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
+  contractId: varchar("contract_id").notNull(),
   oldStatus: text("old_status").$type<"active" | "paused" | "ended">(),
   newStatus: text("new_status").notNull().$type<"active" | "paused" | "ended">(),
-  changedBy: varchar("changed_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  changedBy: varchar("changed_by").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  contractStatusHistoryContractIdIdx: index("contract_status_history_contract_id_idx").on(table.contractId),
-}));
+}, (table) => [
+  index("contract_status_history_contract_id_idx").on(table.contractId),
+  foreignKey({ name: "contract_status_history_changed_by_fkey", columns: [table.changedBy], foreignColumns: [users.id] }).onDelete("cascade"),
+  foreignKey({ name: "contract_status_history_contract_id_fkey", columns: [table.contractId], foreignColumns: [contracts.id] }).onDelete("cascade"),
+]);
 
 export const insertContractStatusHistorySchema = createInsertSchema(contractStatusHistory).omit({
   id: true,
@@ -559,17 +595,21 @@ export const DEFAULT_MAILBOX_VISIBILITY: MailboxVisibilityConfig = {
 
 export const settings = pgTable("settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }).unique(),
+  companyId: varchar("company_id").notNull(),
   companyName: text("company_name").notNull(),
   mowingSeasonMonths: text("mowing_season_months").array().notNull().default(sql`ARRAY[]::text[]`),
   cleanupSeasonMonths: text("cleanup_season_months").array().notNull().default(sql`ARRAY[]::text[]`),
   hourlyRateBenchmarks: text("hourly_rate_benchmarks").notNull().default('{}'),
   featureFlags: text("feature_flags").notNull().default('{}'),
-  defaultMailboxVisibility: jsonb("default_mailbox_visibility").$type<MailboxVisibilityConfig>().default(sql`'{"shared":["admin","office"],"perRole":{"field":"own"}}'::jsonb`),
+  defaultMailboxVisibility: jsonb("default_mailbox_visibility").$type<MailboxVisibilityConfig>().default(sql`'{}'::jsonb`),
   defaultSyncIntervalMinutes: integer("default_sync_interval_minutes").default(2),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  unique("settings_company_id_key").on(table.companyId),
+  unique("settings_company_id_unique").on(table.companyId),
+  foreignKey({ name: "settings_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertSettingsSchema = createInsertSchema(settings).omit({
   id: true,
@@ -592,17 +632,21 @@ export type Settings = typeof settings.$inferSelect;
 
 export const contractDocuments = pgTable("contract_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  contractId: varchar("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  contractId: varchar("contract_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   version: integer("version").notNull(),
   filename: text("filename").notNull(),
-  uploadedBy: varchar("uploaded_by").notNull().references(() => users.id),
+  uploadedBy: varchar("uploaded_by").notNull(),
   uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
   fileSize: integer("file_size").notNull(),
   storageObjectPath: text("storage_object_path").notNull(),
   mimeType: text("mime_type").notNull().default("application/pdf"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "contract_documents_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "contract_documents_contract_id_fkey", columns: [table.contractId], foreignColumns: [contracts.id] }).onDelete("cascade"),
+  foreignKey({ name: "contract_documents_uploaded_by_fkey", columns: [table.uploadedBy], foreignColumns: [users.id] }),
+]);
 
 export const insertContractDocumentSchema = createInsertSchema(contractDocuments).omit({
   id: true,
@@ -615,15 +659,20 @@ export type ContractDocument = typeof contractDocuments.$inferSelect;
 
 export const contractMonthlyAmounts = pgTable("contract_monthly_amounts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  contractId: varchar("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  contractId: varchar("contract_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   month: integer("month").notNull(),
   amount: integer("amount").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  contractMonthUnique: unique().on(table.contractId, table.month),
-}));
+}, (table) => [
+  check("contract_monthly_amounts_amount_check", sql`(amount >= 0)`),
+  check("contract_monthly_amounts_month_check", sql`((month >= 1) AND (month <= 12))`),
+  unique("contract_monthly_amounts_contract_id_month_key").on(table.contractId, table.month),
+  unique("contract_monthly_amounts_contract_id_month_unique").on(table.contractId, table.month),
+  foreignKey({ name: "contract_monthly_amounts_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "contract_monthly_amounts_contract_id_fkey", columns: [table.contractId], foreignColumns: [contracts.id] }).onDelete("cascade"),
+]);
 
 export const insertContractMonthlyAmountSchema = createInsertSchema(contractMonthlyAmounts).omit({
   id: true,
@@ -639,8 +688,8 @@ export type ContractMonthlyAmount = typeof contractMonthlyAmounts.$inferSelect;
 
 export const customerRateSheets = pgTable("customer_rate_sheets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }).unique(),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   
   // Maintenance & Emergency Labor (per hour, in cents)
   generalLabor: integer("general_labor"),
@@ -660,11 +709,18 @@ export const customerRateSheets = pgTable("customer_rate_sheets", {
   
   // Metadata
   notes: text("notes"),
-  lastUpdatedBy: varchar("last_updated_by").references(() => users.id),
+  lastUpdatedBy: varchar("last_updated_by"),
   lastUpdatedAt: timestamp("last_updated_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  unique("customer_rate_sheets_customer_id_company_id_unique").on(table.customerId, table.companyId),
+  unique("customer_rate_sheets_customer_id_key").on(table.customerId),
+  unique("customer_rate_sheets_customer_id_unique").on(table.customerId),
+  foreignKey({ name: "customer_rate_sheets_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "customer_rate_sheets_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "customer_rate_sheets_last_updated_by_fkey", columns: [table.lastUpdatedBy], foreignColumns: [users.id] }),
+]);
 
 export const insertCustomerRateSheetSchema = createInsertSchema(customerRateSheets).omit({
   id: true,
@@ -694,8 +750,8 @@ export type CustomerRateSheet = typeof customerRateSheets.$inferSelect;
 
 export const contractServices = pgTable("contract_services", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  contractId: varchar("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  contractId: varchar("contract_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   serviceType: text("service_type").notNull().$type<
     "mowing" | "pet_station" | "chemical" | "shrub_trimming" | 
     "ornamental_grass" | "aeration" | "cleanups" | "tree_pruning"
@@ -710,7 +766,10 @@ export const contractServices = pgTable("contract_services", {
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "contract_services_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "contract_services_contract_id_fkey", columns: [table.contractId], foreignColumns: [contracts.id] }).onDelete("cascade"),
+]);
 
 export const insertContractServiceSchema = createInsertSchema(contractServices).omit({
   id: true,
@@ -733,7 +792,7 @@ export type ContractService = typeof contractServices.$inferSelect;
 // Contract Builder Tables
 export const contractTemplates = pgTable("contract_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  sectionKey: text("section_key").notNull().unique(),
+  sectionKey: text("section_key").notNull(),
   sectionTitle: text("section_title").notNull(),
   sectionNumber: text("section_number"),
   defaultContent: text("default_content").notNull(),
@@ -742,7 +801,10 @@ export const contractTemplates = pgTable("contract_templates", {
   category: text("category").notNull().$type<"header" | "terms" | "maintenance" | "irrigation" | "snow" | "payments" | "acceptance">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  unique("contract_templates_section_key_key").on(table.sectionKey),
+  unique("contract_templates_section_key_unique").on(table.sectionKey),
+]);
 
 export const insertContractTemplateSchema = createInsertSchema(contractTemplates).omit({
   id: true,
@@ -758,19 +820,25 @@ export type ContractTemplate = typeof contractTemplates.$inferSelect;
 
 export const contractBuilderDocuments = pgTable("contract_builder_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  contractId: varchar("contract_id").references(() => contracts.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
+  contractId: varchar("contract_id"),
   documentTitle: text("document_title").notNull(),
   status: text("status").notNull().$type<"draft" | "published">().default("draft"),
   version: integer("version").notNull().default(1),
-  createdBy: varchar("created_by").notNull().references(() => users.id),
-  updatedBy: varchar("updated_by").notNull().references(() => users.id),
+  createdBy: varchar("created_by").notNull(),
+  updatedBy: varchar("updated_by").notNull(),
   publishedAt: timestamp("published_at"),
   pdfStorageObjectPath: text("pdf_storage_object_path"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "contract_builder_documents_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "contract_builder_documents_contract_id_fkey", columns: [table.contractId], foreignColumns: [contracts.id] }).onDelete("set null"),
+  foreignKey({ name: "contract_builder_documents_created_by_fkey", columns: [table.createdBy], foreignColumns: [users.id] }),
+  foreignKey({ name: "contract_builder_documents_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "contract_builder_documents_updated_by_fkey", columns: [table.updatedBy], foreignColumns: [users.id] }),
+]);
 
 export const insertContractBuilderDocumentSchema = createInsertSchema(contractBuilderDocuments).omit({
   id: true,
@@ -786,16 +854,19 @@ export type ContractBuilderDocument = typeof contractBuilderDocuments.$inferSele
 
 export const contractBuilderSections = pgTable("contract_builder_sections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  documentId: varchar("document_id").notNull().references(() => contractBuilderDocuments.id, { onDelete: "cascade" }),
-  templateId: varchar("template_id").notNull().references(() => contractTemplates.id, { onDelete: "cascade" }),
+  documentId: varchar("document_id").notNull(),
+  templateId: varchar("template_id").notNull(),
   customContent: text("custom_content"),
   isIncluded: text("is_included").notNull().default("true").$type<"true" | "false">(),
   displayOrder: integer("display_order").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  docTemplateUnique: unique().on(table.documentId, table.templateId),
-}));
+}, (table) => [
+  unique("contract_builder_sections_document_id_template_id_unique").on(table.documentId, table.templateId),
+  unique("contract_builder_sections_document_id_template_id_key").on(table.documentId, table.templateId),
+  foreignKey({ name: "contract_builder_sections_document_id_fkey", columns: [table.documentId], foreignColumns: [contractBuilderDocuments.id] }).onDelete("cascade"),
+  foreignKey({ name: "contract_builder_sections_template_id_fkey", columns: [table.templateId], foreignColumns: [contractTemplates.id] }).onDelete("cascade"),
+]);
 
 export const insertContractBuilderSectionSchema = createInsertSchema(contractBuilderSections).omit({
   id: true,
@@ -810,14 +881,16 @@ export type ContractBuilderSection = typeof contractBuilderSections.$inferSelect
 
 export const contractBuilderVariables = pgTable("contract_builder_variables", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  documentId: varchar("document_id").notNull().references(() => contractBuilderDocuments.id, { onDelete: "cascade" }),
+  documentId: varchar("document_id").notNull(),
   variableKey: text("variable_key").notNull(),
   variableValue: text("variable_value").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  docVarUnique: unique().on(table.documentId, table.variableKey),
-}));
+}, (table) => [
+  unique("contract_builder_variables_document_id_variable_key_key").on(table.documentId, table.variableKey),
+  unique("contract_builder_variables_document_id_variable_key_unique").on(table.documentId, table.variableKey),
+  foreignKey({ name: "contract_builder_variables_document_id_fkey", columns: [table.documentId], foreignColumns: [contractBuilderDocuments.id] }).onDelete("cascade"),
+]);
 
 export const insertContractBuilderVariableSchema = createInsertSchema(contractBuilderVariables).omit({
   id: true,
@@ -853,17 +926,20 @@ const contractMonthSpread = z.array(z.number().int().min(0)).length(12).nullable
 export const agreements = pgTable("agreements", {
   importRef: text("import_ref"),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  propertyManagementCompanyId: varchar("property_management_company_id").references(() => propertyManagementCompanies.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
+  propertyManagementCompanyId: varchar("property_management_company_id"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => ({
-  companyIdx: index("agreements_company_idx").on(t.companyId),
-  companyImportRefUnique: unique("agreements_company_import_ref_unique").on(t.companyId, t.importRef),
-  customerIdx: index("agreements_customer_idx").on(t.customerId),
-}));
+}, (t) => [
+  index("agreements_company_idx").on(t.companyId),
+  index("agreements_customer_idx").on(t.customerId),
+  unique("agreements_company_import_ref_unique").on(t.companyId, t.importRef),
+  foreignKey({ name: "agreements_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "agreements_customer_id_fkey", columns: [t.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "agreements_property_management_company_id_fkey", columns: [t.propertyManagementCompanyId], foreignColumns: [propertyManagementCompanies.id] }).onDelete("set null"),
+]);
 export const insertAgreementSchema = createInsertSchema(agreements).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   importRef: z.string().nullable().optional(),
   companyId: z.string(), customerId: z.string(),
@@ -874,17 +950,19 @@ export type InsertAgreement = z.infer<typeof insertAgreementSchema>;
 
 export const contractMasters = pgTable("contract_masters", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   version: integer("version").notNull(),
   filename: text("filename").notNull(),
   storageObjectPath: text("storage_object_path").notNull(),
   notes: text("notes"),
   isCurrent: boolean("is_current").notNull().default(false),
-  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  uploadedBy: varchar("uploaded_by"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => ({
-  companyVersionUnique: unique("contract_masters_company_version_unique").on(t.companyId, t.version),
-}));
+}, (t) => [
+  unique("contract_masters_company_version_unique").on(t.companyId, t.version),
+  foreignKey({ name: "contract_masters_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "contract_masters_uploaded_by_fkey", columns: [t.uploadedBy], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 export const insertContractMasterSchema = createInsertSchema(contractMasters).omit({ id: true, createdAt: true }).extend({
   companyId: z.string(), version: z.number().int(), filename: z.string(), storageObjectPath: z.string(),
   notes: z.string().nullable().optional(), isCurrent: z.boolean().default(false),
@@ -898,14 +976,14 @@ export const agreementTerms = pgTable("agreement_terms", {
   nonRenewalReason: text("non_renewal_reason"),
   nonRenewalCompetitor: text("non_renewal_competitor"),
   nonRenewalNote: text("non_renewal_note"),
-  nonRenewalBy: varchar("non_renewal_by").references(() => users.id, { onDelete: "set null" }),
+  nonRenewalBy: varchar("non_renewal_by"),
   deactivateCustomerOnEnd: boolean("deactivate_customer_on_end").notNull().default(false),
-  bidTicketId: varchar("bid_ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+  bidTicketId: varchar("bid_ticket_id"),
   line: text("line").notNull().$type<AgreementLine>(),
   form: text("form").notNull().default("ours").$type<AgreementForm>(),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  agreementId: varchar("agreement_id").notNull().references(() => agreements.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  agreementId: varchar("agreement_id").notNull(),
   seasonLabel: text("season_label").notNull(),
   startDate: date("start_date", { mode: "string" }).notNull(),
   endDate: date("end_date", { mode: "string" }).notNull(),
@@ -916,7 +994,7 @@ export const agreementTerms = pgTable("agreement_terms", {
   snowPricing: text("snow_pricing").$type<SnowPricing>(),
   snowFlatPriceCents: integer("snow_flat_price_cents"),
   renewalIncreasePct: numeric("renewal_increase_pct", { precision: 5, scale: 2 }),
-  renewedFromTermId: varchar("renewed_from_term_id").references((): AnyPgColumn => agreementTerms.id, { onDelete: "set null" }),
+  renewedFromTermId: varchar("renewed_from_term_id"),
   legalName: text("legal_name"),
   managingAgentName: text("managing_agent_name"),
   projectContact: text("project_contact"),
@@ -927,21 +1005,28 @@ export const agreementTerms = pgTable("agreement_terms", {
   po: text("po"),
   sentAt: timestamp("sent_at"),
   signedAt: timestamp("signed_at"),
-  masterId: varchar("master_id").references(() => contractMasters.id, { onDelete: "set null" }),
+  masterId: varchar("master_id"),
   needsReview: boolean("needs_review").notNull().default(false),
   reviewNote: text("review_note"),
   notes: text("notes"),
-  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdBy: varchar("created_by"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => ({
-  companyIdx: index("agreement_terms_company_idx").on(t.companyId),
-  paymentScheduleCheck: check("agreement_terms_payment_schedule_check", sql`${t.paymentSchedule} IN ('pattern', 'explicit')`),
-  bidTicketIdx: index("agreement_terms_bid_ticket_idx").on(t.bidTicketId),
-  agreementIdx: index("agreement_terms_agreement_idx").on(t.agreementId),
-  companyStatusIdx: index("agreement_terms_company_status_idx").on(t.companyId, t.status),
-  companyEndIdx: index("agreement_terms_company_end_idx").on(t.companyId, t.endDate),
-}));
+}, (t) => [
+  index("agreement_terms_company_idx").on(t.companyId),
+  check("agreement_terms_payment_schedule_check", sql`${t.paymentSchedule} IN ('pattern', 'explicit')`),
+  index("agreement_terms_bid_ticket_idx").on(t.bidTicketId),
+  index("agreement_terms_agreement_idx").on(t.agreementId),
+  index("agreement_terms_company_status_idx").on(t.companyId, t.status),
+  index("agreement_terms_company_end_idx").on(t.companyId, t.endDate),
+  foreignKey({ name: "agreement_terms_agreement_id_fkey", columns: [t.agreementId], foreignColumns: [agreements.id] }).onDelete("cascade"),
+  foreignKey({ name: "agreement_terms_bid_ticket_id_fkey", columns: [t.bidTicketId], foreignColumns: [tickets.id] }).onDelete("set null"),
+  foreignKey({ name: "agreement_terms_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "agreement_terms_created_by_fkey", columns: [t.createdBy], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "agreement_terms_master_id_fkey", columns: [t.masterId], foreignColumns: [contractMasters.id] }).onDelete("set null"),
+  foreignKey({ name: "agreement_terms_non_renewal_by_fkey", columns: [t.nonRenewalBy], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "agreement_terms_renewed_from_term_id_fkey", columns: [t.renewedFromTermId], foreignColumns: [t.id] }).onDelete("set null"),
+]);
 export const insertAgreementTermSchema = createInsertSchema(agreementTerms).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   nonRenewalOn: contractCalendarDate.nullable().optional(),
   nonRenewalReason: z.enum(NON_RENEWAL_REASONS).nullable().optional(),
@@ -972,8 +1057,8 @@ export type InsertAgreementTerm = z.infer<typeof insertAgreementTermSchema>;
 
 export const termScopeLines = pgTable("term_scope_lines", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  termId: varchar("term_id").notNull(),
   serviceKey: text("service_key").notNull(),
   line: text("line").notNull().$type<ScopeLine>(),
   included: boolean("included").notNull().default(true),
@@ -986,7 +1071,11 @@ export const termScopeLines = pgTable("term_scope_lines", {
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => ({ termIdx: index("term_scope_lines_term_idx").on(t.termId) }));
+}, (t) => [
+  index("term_scope_lines_term_idx").on(t.termId),
+  foreignKey({ name: "term_scope_lines_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "term_scope_lines_term_id_fkey", columns: [t.termId], foreignColumns: [agreementTerms.id] }).onDelete("cascade"),
+]);
 export const insertTermScopeLineSchema = createInsertSchema(termScopeLines).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   companyId: z.string(), termId: z.string(), serviceKey: z.string(), line: z.enum(SCOPE_LINES),
   included: z.boolean().default(true), quantity: z.number().int().nullable().optional(),
@@ -999,7 +1088,7 @@ export type InsertTermScopeLine = z.infer<typeof insertTermScopeLineSchema>;
 
 export const rateCardItems = pgTable("rate_card_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   rateKey: text("rate_key").notNull(),
   line: text("line").notNull().$type<RateLine>(),
   category: text("category").notNull(),
@@ -1012,7 +1101,10 @@ export const rateCardItems = pgTable("rate_card_items", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => ({ companyKeyUnique: unique("rate_card_items_company_key_unique").on(t.companyId, t.rateKey) }));
+}, (t) => [
+  unique("rate_card_items_company_key_unique").on(t.companyId, t.rateKey),
+  foreignKey({ name: "rate_card_items_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 export const insertRateCardItemSchema = createInsertSchema(rateCardItems).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   companyId: z.string(), rateKey: z.string(), line: z.enum(RATE_LINES), category: z.string(), label: z.string(),
   priceCents: contractOptionalCents, priceText: z.string().nullable().optional(), unit: z.string(),
@@ -1023,8 +1115,8 @@ export type InsertRateCardItem = z.infer<typeof insertRateCardItemSchema>;
 
 export const termRates = pgTable("term_rates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  termId: varchar("term_id").notNull(),
   rateKey: text("rate_key").notNull(),
   line: text("line").notNull().$type<RateLine>(),
   category: text("category").notNull(),
@@ -1038,7 +1130,11 @@ export const termRates = pgTable("term_rates", {
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => ({ termKeyUnique: unique("term_rates_term_key_unique").on(t.termId, t.rateKey) }));
+}, (t) => [
+  unique("term_rates_term_key_unique").on(t.termId, t.rateKey),
+  foreignKey({ name: "term_rates_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "term_rates_term_id_fkey", columns: [t.termId], foreignColumns: [agreementTerms.id] }).onDelete("cascade"),
+]);
 export const insertTermRateSchema = createInsertSchema(termRates).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   companyId: z.string(), termId: z.string(), rateKey: z.string(), line: z.enum(RATE_LINES),
   category: z.string(), label: z.string(), priceCents: contractOptionalCents, priceText: z.string().nullable().optional(),
@@ -1050,15 +1146,19 @@ export type InsertTermRate = z.infer<typeof insertTermRateSchema>;
 
 export const termBillingMonths = pgTable("term_billing_months", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  termId: varchar("term_id").notNull(),
   component: text("component").notNull().default("Contract"),
   isFee: boolean("is_fee").notNull().default(false),
   month: date("month", { mode: "string" }).notNull(),
   amountCents: integer("amount_cents").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => ({ termComponentMonthUnique: unique("term_billing_months_term_component_month_unique").on(t.termId, t.component, t.month) }));
+}, (t) => [
+  unique("term_billing_months_term_component_month_unique").on(t.termId, t.component, t.month),
+  foreignKey({ name: "term_billing_months_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "term_billing_months_term_id_fkey", columns: [t.termId], foreignColumns: [agreementTerms.id] }).onDelete("cascade"),
+]);
 export const insertTermBillingMonthSchema = createInsertSchema(termBillingMonths).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   isFee: z.boolean().default(false),
   component: z.string().trim().min(1).default("Contract"),
@@ -1069,19 +1169,26 @@ export type InsertTermBillingMonth = z.infer<typeof insertTermBillingMonthSchema
 
 export const termDocuments = pgTable("term_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
-  coversThroughTermId: varchar("covers_through_term_id").references(() => agreementTerms.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  termId: varchar("term_id").notNull(),
+  coversThroughTermId: varchar("covers_through_term_id"),
   kind: text("kind").notNull().$type<TermDocumentKind>(),
   version: integer("version").notNull().default(1),
   filename: text("filename").notNull(),
   storageObjectPath: text("storage_object_path").notNull(),
   mimeType: text("mime_type").notNull(),
   fileSize: integer("file_size"),
-  masterId: varchar("master_id").references(() => contractMasters.id, { onDelete: "set null" }),
-  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  masterId: varchar("master_id"),
+  uploadedBy: varchar("uploaded_by"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => ({ termIdx: index("term_documents_term_idx").on(t.termId) }));
+}, (t) => [
+  index("term_documents_term_idx").on(t.termId),
+  foreignKey({ name: "term_documents_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "term_documents_covers_through_term_id_fkey", columns: [t.coversThroughTermId], foreignColumns: [agreementTerms.id] }).onDelete("set null"),
+  foreignKey({ name: "term_documents_master_id_fkey", columns: [t.masterId], foreignColumns: [contractMasters.id] }).onDelete("set null"),
+  foreignKey({ name: "term_documents_term_id_fkey", columns: [t.termId], foreignColumns: [agreementTerms.id] }).onDelete("cascade"),
+  foreignKey({ name: "term_documents_uploaded_by_fkey", columns: [t.uploadedBy], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 export const insertTermDocumentSchema = createInsertSchema(termDocuments).omit({ id: true, createdAt: true }).extend({
   coversThroughTermId: z.string().min(1).nullable().optional(),
   companyId: z.string(), termId: z.string(), kind: z.enum(TERM_DOCUMENT_KINDS), version: z.number().int().default(1),
@@ -1093,14 +1200,19 @@ export type InsertTermDocument = z.infer<typeof insertTermDocumentSchema>;
 
 export const termStatusHistory = pgTable("term_status_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  termId: varchar("term_id").notNull(),
   oldStatus: text("old_status").$type<TermStatus>(),
   newStatus: text("new_status").notNull().$type<TermStatus>(),
-  changedBy: varchar("changed_by").references(() => users.id, { onDelete: "set null" }),
+  changedBy: varchar("changed_by"),
   note: text("note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => ({ termIdx: index("term_status_history_term_idx").on(t.termId) }));
+}, (t) => [
+  index("term_status_history_term_idx").on(t.termId),
+  foreignKey({ name: "term_status_history_changed_by_fkey", columns: [t.changedBy], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "term_status_history_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "term_status_history_term_id_fkey", columns: [t.termId], foreignColumns: [agreementTerms.id] }).onDelete("cascade"),
+]);
 export const insertTermStatusHistorySchema = createInsertSchema(termStatusHistory).omit({ id: true, createdAt: true }).extend({
   companyId: z.string(), termId: z.string(),
   oldStatus: z.preprocess((v) => v === "" || v === null ? undefined : v, z.enum(TERM_STATUSES).optional()),
@@ -1111,14 +1223,16 @@ export type InsertTermStatusHistory = z.infer<typeof insertTermStatusHistorySche
 
 export const scopePresets = pgTable("scope_presets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   line: text("line").notNull().$type<AgreementLine>(),
   active: boolean("active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "scope_presets_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 export const insertScopePresetSchema = createInsertSchema(scopePresets).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   companyId: z.string(), name: z.string(), line: z.enum(AGREEMENT_LINES),
   active: z.boolean().default(true), sortOrder: z.number().int().default(0),
@@ -1128,13 +1242,15 @@ export type InsertScopePreset = z.infer<typeof insertScopePresetSchema>;
 
 export const scopePresetLines = pgTable("scope_preset_lines", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  presetId: varchar("preset_id").notNull().references(() => scopePresets.id, { onDelete: "cascade" }),
+  presetId: varchar("preset_id").notNull(),
   serviceKey: text("service_key").notNull(),
   quantity: integer("quantity"),
   monthSpread: integer("month_spread").array(),
   details: jsonb("details").notNull().default(sql`'{}'::jsonb`),
   sortOrder: integer("sort_order").notNull().default(0),
-});
+}, (table) => [
+  foreignKey({ name: "scope_preset_lines_preset_id_fkey", columns: [table.presetId], foreignColumns: [scopePresets.id] }).onDelete("cascade"),
+]);
 export const insertScopePresetLineSchema = createInsertSchema(scopePresetLines).omit({ id: true }).extend({
   presetId: z.string(), serviceKey: z.string(), quantity: z.number().int().nullable().optional(),
   monthSpread: contractMonthSpread, details: z.record(z.string(), z.unknown()).default({}),
@@ -1145,12 +1261,16 @@ export type InsertScopePresetLine = z.infer<typeof insertScopePresetLineSchema>;
 
 export const termLegacySources = pgTable("term_legacy_sources", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  termId: varchar("term_id").notNull().references(() => agreementTerms.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  termId: varchar("term_id").notNull(),
   // No legacy FK: the old contracts table can be retired independently.
   legacyContractId: varchar("legacy_contract_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => ({ legacyUnique: unique("term_legacy_sources_legacy_unique").on(t.legacyContractId) }));
+}, (t) => [
+  unique("term_legacy_sources_legacy_unique").on(t.legacyContractId),
+  foreignKey({ name: "term_legacy_sources_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "term_legacy_sources_term_id_fkey", columns: [t.termId], foreignColumns: [agreementTerms.id] }).onDelete("cascade"),
+]);
 export const insertTermLegacySourceSchema = createInsertSchema(termLegacySources).omit({ id: true, createdAt: true }).extend({
   companyId: z.string(), termId: z.string(), legacyContractId: z.string(),
 });
@@ -1179,7 +1299,7 @@ export type TicketTypeKey =
 // Ticket Types - configurable workflow definitions (e.g., "Quick Task", "Project", "Estimate Request")
 export const ticketTypes = pgTable("ticket_types", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   description: text("description"),
   category: text("category").notNull().$type<TicketTypeCategory>().default("quick_task"),
@@ -1195,11 +1315,12 @@ export const ticketTypes = pgTable("ticket_types", {
   typeKey: text("type_key").$type<TicketTypeKey>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketTypesKeyIdx: index("ticket_types_key_idx")
+}, (table) => [
+  index("ticket_types_key_idx")
     .on(table.companyId, table.typeKey)
     .where(sql`type_key IS NOT NULL`),
-}));
+  foreignKey({ name: "ticket_types_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertTicketTypeSchema = createInsertSchema(ticketTypes).omit({
   id: true,
@@ -1222,7 +1343,7 @@ export type TicketType = typeof ticketTypes.$inferSelect;
 // Ticket Type Statuses - workflow steps for each ticket type (ordered)
 export const ticketTypeStatuses = pgTable("ticket_type_statuses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "cascade" }),
+  ticketTypeId: varchar("ticket_type_id").notNull(),
   name: text("name").notNull(),
   // Stable machine key for seeded statuses (null for user-created custom statuses)
   statusKey: text("status_key"),
@@ -1233,12 +1354,13 @@ export const ticketTypeStatuses = pgTable("ticket_type_statuses", {
   actionType: text("action_type").notNull().default("needs_action").$type<"needs_action" | "waiting">(),
   waitingCategory: text("waiting_category").$type<"customer" | "vendor" | "internal" | "other">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketTypeStatusesTypeIdIdx: index("ticket_type_statuses_ticket_type_id_idx").on(table.ticketTypeId),
-  ticketTypeStatusesKeyIdx: index("ticket_type_statuses_key_idx")
+}, (table) => [
+  index("ticket_type_statuses_ticket_type_id_idx").on(table.ticketTypeId),
+  index("ticket_type_statuses_key_idx")
     .on(table.ticketTypeId, table.statusKey)
     .where(sql`status_key IS NOT NULL`),
-}));
+  foreignKey({ name: "ticket_type_statuses_ticket_type_id_fkey", columns: [table.ticketTypeId], foreignColumns: [ticketTypes.id] }).onDelete("cascade"),
+]);
 
 export const insertTicketTypeStatusSchema = createInsertSchema(ticketTypeStatuses).omit({
   id: true,
@@ -1272,8 +1394,8 @@ export type TicketTypeStatus = typeof ticketTypeStatuses.$inferSelect;
 // Ticket Type Fields - custom fields that can be captured at specific statuses
 export const ticketTypeFields = pgTable("ticket_type_fields", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "cascade" }),
-  statusId: varchar("status_id").references(() => ticketTypeStatuses.id, { onDelete: "cascade" }),
+  ticketTypeId: varchar("ticket_type_id").notNull(),
+  statusId: varchar("status_id"),
   fieldKey: text("field_key").notNull(),
   fieldLabel: text("field_label").notNull(),
   fieldType: text("field_type").notNull().$type<"text" | "number" | "date" | "currency" | "select" | "textarea">(),
@@ -1281,9 +1403,11 @@ export const ticketTypeFields = pgTable("ticket_type_fields", {
   options: text("options").array().default(sql`ARRAY[]::text[]`),
   displayOrder: integer("display_order").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketTypeFieldsStatusIdIdx: index("ticket_type_fields_status_id_idx").on(table.statusId),
-}));
+}, (table) => [
+  index("ticket_type_fields_status_id_idx").on(table.statusId),
+  foreignKey({ name: "ticket_type_fields_status_id_fkey", columns: [table.statusId], foreignColumns: [ticketTypeStatuses.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_type_fields_ticket_type_id_fkey", columns: [table.ticketTypeId], foreignColumns: [ticketTypes.id] }).onDelete("cascade"),
+]);
 
 export const insertTicketTypeFieldSchema = createInsertSchema(ticketTypeFields).omit({
   id: true,
@@ -1313,14 +1437,14 @@ export type BillingBehavior = "no_invoice" | "invoice_required" | "internal";
 // Tickets - actual work items
 export const tickets = pgTable("tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "cascade" }), // Optional for shop_todo tickets
-  contractId: varchar("contract_id").references(() => contracts.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id"), // Optional for shop_todo tickets
+  contractId: varchar("contract_id"),
   serviceType: text("service_type").$type<TicketServiceType>(), // Optional service type tagging
   workType: text("work_type").notNull().$type<WorkType>().default("contract"), // Required work classification
   billingBehavior: text("billing_behavior").notNull().$type<BillingBehavior>().default("no_invoice"), // Billing flag
-  ticketTypeId: varchar("ticket_type_id").notNull().references(() => ticketTypes.id, { onDelete: "restrict" }),
-  currentStatusId: varchar("current_status_id").notNull().references(() => ticketTypeStatuses.id, { onDelete: "restrict" }),
+  ticketTypeId: varchar("ticket_type_id").notNull(),
+  currentStatusId: varchar("current_status_id").notNull(),
   title: text("title").notNull(),
   description: text("description"),
   priority: text("priority").notNull().$type<"low" | "normal" | "high" | "urgent">().default("normal"),
@@ -1334,12 +1458,12 @@ export const tickets = pgTable("tickets", {
   // Documents - array of object storage paths for PDF attachments (Estimate Request only)
   documents: text("documents").array(),
   documentNames: text("document_names").array(),
-  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
-  delegatedById: varchar("delegated_by_id").references(() => users.id, { onDelete: "set null" }),
+  assignedToId: varchar("assigned_to_id"),
+  delegatedById: varchar("delegated_by_id"),
   dueDate: timestamp("due_date"),
   scheduleBy: date("schedule_by", { mode: "string" }),
   acceptedAt: timestamp("accepted_at"),
-  acceptedById: varchar("accepted_by_id").references(() => users.id, { onDelete: "set null" }),
+  acceptedById: varchar("accepted_by_id"),
   followUpDate: date("follow_up_date", { mode: "string" }),
   followUpNote: text("follow_up_note"),
   completedAt: timestamp("completed_at"),
@@ -1350,24 +1474,24 @@ export const tickets = pgTable("tickets", {
   invoiceCategory: text("invoice_category").$type<"general_maintenance" | "snow">(), // Category for invoice tickets to determine which rates to display
   equipmentId: varchar("equipment_id"), // Optional link to equipment for Shop to-do tickets (FK added via migration)
   // Work completion fields (added via migration)
-  completedByUserId: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
+  completedByUserId: varchar("completed_by_id"),
   actualStartTime: timestamp("actual_start_time"),
   actualEndTime: timestamp("actual_end_time"),
   // Execution snapshots of who did this job, not current standing-crew membership.
-  leadTechUserId: varchar("lead_tech_user_id").references(() => users.id, { onDelete: "set null" }),
-  crewMemberUserIds: text("crew_member_user_ids").array().default(sql`ARRAY[]::text[]`),
+  leadTechUserId: varchar("lead_tech_user_id"),
+  crewMemberUserIds: text("crew_member_user_ids").array().notNull().default(sql`'{}'::text[]`),
   workSummaryForCustomer: text("work_summary_for_customer"),
   materialsUsed: text("materials_used"),
   areasWorked: text("areas_worked"),
   recommendations: text("recommendations"),
   internalCompletionNotes: text("internal_completion_notes"),
-  completionPhotoStorageKeys: text("completion_photo_storage_keys").array().default(sql`ARRAY[]::text[]`),
+  completionPhotoStorageKeys: text("completion_photo_storage_keys").array().notNull().default(sql`'{}'::text[]`),
   completionEmailSentAt: timestamp("completion_email_sent_at"),
-  followUpTicketId: varchar("follow_up_ticket_id").references((): AnyPgColumn => tickets.id, { onDelete: "set null" }),
+  followUpTicketId: varchar("follow_up_ticket_id"),
   // Mobile v1 Slice 1: crew assignment + per-stop workflow status used by the mobile field-crew app.
   // `mobileStatus` is the per-stop workflow state (not_started → in_progress → complete | skipped | flagged)
   // and is intentionally separate from `currentStatusId` (which is the per-ticket-type custom status).
-  crewId: varchar("crew_id").references(() => crews.id, { onDelete: "set null" }),
+  crewId: varchar("crew_id"),
   routeOrder: integer("route_order"),
   startedAt: timestamp("started_at"),
   mobileStatus: text("mobile_status").notNull().$type<"not_started" | "in_progress" | "complete" | "skipped" | "flagged">().default("not_started"),
@@ -1376,19 +1500,30 @@ export const tickets = pgTable("tickets", {
   // Mobile v1 Slice 2: required note when the supervisor forces completion
   // while one or more required work items are still missing/skipped.
   completionOverrideNote: text("completion_override_note"),
-  createdById: varchar("created_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdById: varchar("created_by_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketsCompanyIdIdx: index("tickets_company_id_idx").on(table.companyId),
-  ticketsCustomerIdIdx: index("tickets_customer_id_idx").on(table.customerId),
-  ticketsAssignedToIdIdx: index("tickets_assigned_to_id_idx").on(table.assignedToId),
-  ticketsContractIdIdx: index("tickets_contract_id_idx").on(table.contractId),
-  ticketsCompanyCreatedAtIdx: index("tickets_company_created_at_idx").on(table.companyId, table.createdAt),
-  ticketsCompanyScheduleByIdx: index("tickets_company_schedule_by_idx").on(table.companyId, table.scheduleBy),
-  ticketsEquipmentIdIdx: index("tickets_equipment_id_idx").on(table.equipmentId),
-  ticketsCompanyCrewDueDateIdx: index("tickets_company_crew_due_date_idx").on(table.companyId, table.crewId, table.dueDate),
-}));
+}, (table) => [
+  index("tickets_contract_id_idx").on(table.contractId),
+  index("tickets_company_schedule_by_idx").on(table.companyId, table.scheduleBy),
+  index("tickets_company_crew_due_date_idx").on(table.companyId, table.crewId, table.dueDate),
+  foreignKey({ name: "tickets_accepted_by_id_fkey", columns: [table.acceptedById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "tickets_assigned_to_id_fkey", columns: [table.assignedToId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "tickets_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "tickets_completed_by_id_fkey", columns: [table.completedByUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "tickets_contract_id_fkey", columns: [table.contractId], foreignColumns: [contracts.id] }).onDelete("set null"),
+  foreignKey({ name: "tickets_created_by_id_fkey", columns: [table.createdById], foreignColumns: [users.id] }).onDelete("cascade"),
+  foreignKey({ name: "tickets_crew_id_fkey", columns: [table.crewId], foreignColumns: [crews.id] }).onDelete("set null"),
+  foreignKey({ name: "tickets_current_status_id_fkey", columns: [table.currentStatusId], foreignColumns: [ticketTypeStatuses.id] }).onDelete("restrict"),
+  foreignKey({ name: "tickets_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "tickets_delegated_by_id_fkey", columns: [table.delegatedById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "tickets_follow_up_ticket_id_fkey", columns: [table.followUpTicketId], foreignColumns: [table.id] }).onDelete("set null"),
+  foreignKey({ name: "tickets_lead_tech_user_id_fkey", columns: [table.leadTechUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "tickets_ticket_type_id_fkey", columns: [table.ticketTypeId], foreignColumns: [ticketTypes.id] }).onDelete("restrict"),
+  index("tickets_equipment_id_idx").on(table.equipmentId).where(sql`${table.equipmentId} IS NOT NULL`),
+  index("idx_tickets_contract_id").on(table.contractId),
+  index("tickets_company_created_at_idx").on(table.companyId, table.createdAt.desc().nullsFirst()),
+]);
 
 export const insertTicketSchema = createInsertSchema(tickets).omit({
   id: true,
@@ -1425,13 +1560,13 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   actualStartTime: z.coerce.date().nullable().optional(),
   actualEndTime: z.coerce.date().nullable().optional(),
   leadTechUserId: z.string().nullable().optional(),
-  crewMemberUserIds: z.array(z.string()).nullable().optional(),
+  crewMemberUserIds: z.array(z.string()).optional(),
   workSummaryForCustomer: z.string().nullable().optional(),
   materialsUsed: z.string().nullable().optional(),
   areasWorked: z.string().nullable().optional(),
   recommendations: z.string().nullable().optional(),
   internalCompletionNotes: z.string().nullable().optional(),
-  completionPhotoStorageKeys: z.array(z.string()).nullable().optional(),
+  completionPhotoStorageKeys: z.array(z.string()).optional(),
   completionEmailSentAt: z.coerce.date().nullable().optional(),
   followUpTicketId: z.string().nullable().optional(),
   // Mobile v1 Slice 1
@@ -1441,21 +1576,27 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   mobileStatus: z.enum(["not_started", "in_progress", "complete", "skipped", "flagged"]).default("not_started"),
 });
 
-export type InsertTicket = z.infer<typeof insertTicketSchema>;
+type ValidatedTicket = z.infer<typeof insertTicketSchema>;
+// Direct inserts may omit the state and use the same default in PostgreSQL.
+export type InsertTicket = Omit<ValidatedTicket, "mobileStatus"> & Partial<Pick<ValidatedTicket, "mobileStatus">>;
 export type Ticket = typeof tickets.$inferSelect;
 
 // Ticket Field Values - captured data for custom fields
 export const ticketFieldValues = pgTable("ticket_field_values", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
-  fieldId: varchar("field_id").notNull().references(() => ticketTypeFields.id, { onDelete: "cascade" }),
+  ticketId: varchar("ticket_id").notNull(),
+  fieldId: varchar("field_id").notNull(),
   value: text("value").notNull(),
   capturedAt: timestamp("captured_at").notNull().defaultNow(),
-  capturedById: varchar("captured_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-}, (table) => ({
-  ticketFieldUnique: unique().on(table.ticketId, table.fieldId),
-  ticketFieldValuesTicketIdIdx: index("ticket_field_values_ticket_id_idx").on(table.ticketId),
-}));
+  capturedById: varchar("captured_by_id").notNull(),
+}, (table) => [
+  index("ticket_field_values_ticket_id_idx").on(table.ticketId),
+  unique("ticket_field_values_ticket_id_field_id_key").on(table.ticketId, table.fieldId),
+  unique("ticket_field_values_ticket_id_field_id_unique").on(table.ticketId, table.fieldId),
+  foreignKey({ name: "ticket_field_values_captured_by_id_fkey", columns: [table.capturedById], foreignColumns: [users.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_field_values_field_id_fkey", columns: [table.fieldId], foreignColumns: [ticketTypeFields.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_field_values_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+]);
 
 export const insertTicketFieldValueSchema = createInsertSchema(ticketFieldValues).omit({
   id: true,
@@ -1468,15 +1609,19 @@ export type TicketFieldValue = typeof ticketFieldValues.$inferSelect;
 // Ticket Status History - audit trail of status changes
 export const ticketStatusHistory = pgTable("ticket_status_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
-  fromStatusId: varchar("from_status_id").references(() => ticketTypeStatuses.id, { onDelete: "set null" }),
-  toStatusId: varchar("to_status_id").notNull().references(() => ticketTypeStatuses.id, { onDelete: "cascade" }),
-  changedById: varchar("changed_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ticketId: varchar("ticket_id").notNull(),
+  fromStatusId: varchar("from_status_id"),
+  toStatusId: varchar("to_status_id").notNull(),
+  changedById: varchar("changed_by_id").notNull(),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketStatusHistoryTicketIdIdx: index("ticket_status_history_ticket_id_idx").on(table.ticketId),
-}));
+}, (table) => [
+  index("ticket_status_history_ticket_id_idx").on(table.ticketId),
+  foreignKey({ name: "ticket_status_history_changed_by_id_fkey", columns: [table.changedById], foreignColumns: [users.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_status_history_from_status_id_fkey", columns: [table.fromStatusId], foreignColumns: [ticketTypeStatuses.id] }).onDelete("set null"),
+  foreignKey({ name: "ticket_status_history_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_status_history_to_status_id_fkey", columns: [table.toStatusId], foreignColumns: [ticketTypeStatuses.id] }).onDelete("cascade"),
+]);
 
 export const insertTicketStatusHistorySchema = createInsertSchema(ticketStatusHistory).omit({
   id: true,
@@ -1489,14 +1634,16 @@ export type TicketStatusHistory = typeof ticketStatusHistory.$inferSelect;
 // Ticket Comments
 export const ticketComments = pgTable("ticket_comments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
-  authorId: varchar("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ticketId: varchar("ticket_id").notNull(),
+  authorId: varchar("author_id").notNull(),
   parentCommentId: varchar("parent_comment_id"),
   body: text("body").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketCommentsTicketIdIdx: index("ticket_comments_ticket_id_idx").on(table.ticketId),
-}));
+}, (table) => [
+  index("ticket_comments_ticket_id_idx").on(table.ticketId),
+  foreignKey({ name: "ticket_comments_author_id_fkey", columns: [table.authorId], foreignColumns: [users.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_comments_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+]);
 
 export const insertTicketCommentSchema = createInsertSchema(ticketComments).omit({
   id: true,
@@ -1513,12 +1660,14 @@ export type TicketCommentWithAuthor = TicketComment & { authorName: string };
 // Ticket Comment Mentions - tracks @mentions in comments
 export const ticketCommentMentions = pgTable("ticket_comment_mentions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  commentId: varchar("comment_id").notNull().references(() => ticketComments.id, { onDelete: "cascade" }),
-  mentionedUserId: varchar("mentioned_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  commentId: varchar("comment_id").notNull(),
+  mentionedUserId: varchar("mentioned_user_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketCommentMentionsCommentIdIdx: index("ticket_comment_mentions_comment_id_idx").on(table.commentId),
-}));
+}, (table) => [
+  index("ticket_comment_mentions_comment_id_idx").on(table.commentId),
+  foreignKey({ name: "ticket_comment_mentions_comment_id_fkey", columns: [table.commentId], foreignColumns: [ticketComments.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_comment_mentions_mentioned_user_id_fkey", columns: [table.mentionedUserId], foreignColumns: [users.id] }).onDelete("cascade"),
+]);
 
 export const insertTicketCommentMentionSchema = createInsertSchema(ticketCommentMentions).omit({
   id: true,
@@ -1530,12 +1679,15 @@ export type TicketCommentMention = typeof ticketCommentMentions.$inferSelect;
 
 // Ticket Sources - tracks origin of tickets for future service occurrence linking
 export const ticketSources = pgTable("ticket_sources", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  id: varchar("id").primaryKey().default(sql`(gen_random_uuid())::character varying`),
+  ticketId: varchar("ticket_id").notNull(),
   sourceType: text("source_type").notNull().$type<TicketSourceType>().default("manual"),
   sourceId: text("source_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "ticket_sources_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+  index("idx_ticket_sources_ticket_id").on(table.ticketId),
+]);
 
 export const insertTicketSourceSchema = createInsertSchema(ticketSources).omit({
   id: true,
@@ -1552,15 +1704,18 @@ export type TicketLinkType = "source_of" | "invoice_for" | "project_for" | "exec
 
 export const ticketLinks = pgTable("ticket_links", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  sourceTicketId: varchar("source_ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
-  targetTicketId: varchar("target_ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  sourceTicketId: varchar("source_ticket_id").notNull(),
+  targetTicketId: varchar("target_ticket_id").notNull(),
   linkType: text("link_type").notNull().$type<TicketLinkType>(), // "invoice_for" = target is invoice for source
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  uniqueLink: unique().on(table.sourceTicketId, table.targetTicketId, table.linkType),
-  ticketLinksSourceIdIdx: index("ticket_links_source_ticket_id_idx").on(table.sourceTicketId),
-  ticketLinksTargetIdIdx: index("ticket_links_target_ticket_id_idx").on(table.targetTicketId),
-}));
+}, (table) => [
+  index("ticket_links_source_ticket_id_idx").on(table.sourceTicketId),
+  index("ticket_links_target_ticket_id_idx").on(table.targetTicketId),
+  unique("ticket_links_source_ticket_id_target_ticket_id_link_type_key").on(table.sourceTicketId, table.targetTicketId, table.linkType),
+  unique("ticket_links_source_ticket_id_target_ticket_id_link_type_unique").on(table.sourceTicketId, table.targetTicketId, table.linkType),
+  foreignKey({ name: "ticket_links_source_ticket_id_fkey", columns: [table.sourceTicketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_links_target_ticket_id_fkey", columns: [table.targetTicketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+]);
 
 export const insertTicketLinkSchema = createInsertSchema(ticketLinks).omit({
   id: true,
@@ -1605,8 +1760,8 @@ export const MAP_LAYER_PRESET_COLORS = [
 
 export const customerMapLayers = pgTable("customer_map_layers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   category: text("category").notNull().$type<MapLayerCategory>(), // community or snow
   layerType: text("layer_type").notNull().$type<MapLayerType>(), // specific layer type
   name: text("name").notNull(), // Custom display name
@@ -1616,7 +1771,10 @@ export const customerMapLayers = pgTable("customer_map_layers", {
   displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "customer_map_layers_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "customer_map_layers_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+]);
 
 export const insertCustomerMapLayerSchema = createInsertSchema(customerMapLayers).omit({
   id: true,
@@ -1635,9 +1793,9 @@ export type CustomerMapLayer = typeof customerMapLayers.$inferSelect;
 
 // Sole owner of customer-uploaded property files; term_documents owns contracts.
 export const customerDocuments = pgTable("customer_documents", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  id: varchar("id").notNull().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(), // Custom display name
   filePath: text("file_path").notNull(), // Object storage path
   fileType: text("file_type").notNull().default("pdf"), // pdf, image, etc.
@@ -1645,14 +1803,18 @@ export const customerDocuments = pgTable("customer_documents", {
   category: text("category").notNull().default("map"),
   mimeType: text("mime_type"),
   note: text("note"),
-  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  uploadedBy: varchar("uploaded_by"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, table => ({
-  companyCustomerCategory: index("customer_documents_company_customer_category_idx").on(table.companyId, table.customerId, table.category),
-  noteLength: check("customer_documents_note_check", sql`length(${table.note}) <= 500`),
-  categoryCheck: check("customer_documents_category_check", sql`${table.category} IN ('map', 'site_plan', 'irrigation', 'photo', 'other')`),
-}));
+}, (table) => [
+  index("customer_documents_company_customer_category_idx").on(table.companyId, table.customerId, table.category),
+  check("customer_documents_note_check", sql`length(${table.note}) <= 500`),
+  check("customer_documents_category_check", sql`${table.category} IN ('map', 'site_plan', 'irrigation', 'photo', 'other')`),
+  primaryKey({ name: "customer_map_documents_pkey", columns: [table.id] }),
+  foreignKey({ name: "customer_documents_uploaded_by_fkey", columns: [table.uploadedBy], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "customer_map_documents_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "customer_map_documents_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+]);
 
 export const insertCustomerDocumentSchema = createInsertSchema(customerDocuments).omit({
   id: true,
@@ -1695,17 +1857,21 @@ export type NotificationType = "assigned" | "completed" | "due_tomorrow" | "due_
 // Ticket notifications table
 export const ticketNotifications = pgTable("ticket_notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  recipientId: varchar("recipient_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
-  commentId: varchar("comment_id").references(() => ticketComments.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  recipientId: varchar("recipient_id").notNull(),
+  ticketId: varchar("ticket_id").notNull(),
+  commentId: varchar("comment_id"),
   type: text("type").notNull().$type<NotificationType>(),
   message: text("message").notNull(),
   isRead: boolean("is_read").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketNotificationsRecipientCompanyIdx: index("ticket_notifications_recipient_company_idx").on(table.recipientId, table.companyId),
-}));
+}, (table) => [
+  index("ticket_notifications_recipient_company_idx").on(table.recipientId, table.companyId),
+  foreignKey({ name: "ticket_notifications_comment_id_fkey", columns: [table.commentId], foreignColumns: [ticketComments.id] }).onDelete("set null"),
+  foreignKey({ name: "ticket_notifications_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_notifications_recipient_id_fkey", columns: [table.recipientId], foreignColumns: [users.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_notifications_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+]);
 
 export const insertTicketNotificationSchema = createInsertSchema(ticketNotifications).omit({
   id: true,
@@ -1722,7 +1888,7 @@ export type TicketNotification = typeof ticketNotifications.$inferSelect;
 // Property Management Companies - companies that manage multiple properties
 export const propertyManagementCompanies = pgTable("property_management_companies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   status: text("status").notNull().$type<"active" | "inactive">().default("active"),
   phone: text("phone"),
@@ -1735,7 +1901,9 @@ export const propertyManagementCompanies = pgTable("property_management_companie
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "property_management_companies_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertPropertyManagementCompanySchema = createInsertSchema(propertyManagementCompanies).omit({
   id: true,
@@ -1751,8 +1919,8 @@ export type PropertyManagementCompany = typeof propertyManagementCompanies.$infe
 // Property Managers - individuals who work for property management companies
 export const propertyManagers = pgTable("property_managers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  propertyManagementCompanyId: varchar("property_management_company_id").notNull().references(() => propertyManagementCompanies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  propertyManagementCompanyId: varchar("property_management_company_id").notNull(),
   name: text("name").notNull(),
   title: text("title"),
   phone: text("phone"),
@@ -1761,7 +1929,10 @@ export const propertyManagers = pgTable("property_managers", {
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "property_managers_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "property_managers_property_management_company_id_fkey", columns: [table.propertyManagementCompanyId], foreignColumns: [propertyManagementCompanies.id] }).onDelete("cascade"),
+]);
 
 export const insertPropertyManagerSchema = createInsertSchema(propertyManagers).omit({
   id: true,
@@ -1777,12 +1948,15 @@ export type PropertyManager = typeof propertyManagers.$inferSelect;
 // Property Manager Emails - multiple emails per manager
 export const propertyManagerEmails = pgTable("property_manager_emails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  propertyManagerId: varchar("property_manager_id").notNull().references(() => propertyManagers.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  propertyManagerId: varchar("property_manager_id").notNull(),
   email: text("email").notNull(),
   isPrimary: text("is_primary").notNull().default("false").$type<"true" | "false">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "property_manager_emails_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "property_manager_emails_property_manager_id_fkey", columns: [table.propertyManagerId], foreignColumns: [propertyManagers.id] }).onDelete("cascade"),
+]);
 
 export const insertPropertyManagerEmailSchema = createInsertSchema(propertyManagerEmails).omit({
   id: true,
@@ -1797,13 +1971,16 @@ export type PropertyManagerEmail = typeof propertyManagerEmails.$inferSelect;
 // Property Manager Phones - multiple phones per manager with type (personal/company)
 export const propertyManagerPhones = pgTable("property_manager_phones", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  propertyManagerId: varchar("property_manager_id").notNull().references(() => propertyManagers.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  propertyManagerId: varchar("property_manager_id").notNull(),
   phone: text("phone").notNull(),
   phoneType: text("phone_type").notNull().default("company").$type<"personal" | "company">(),
   isPrimary: text("is_primary").notNull().default("false").$type<"true" | "false">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "property_manager_phones_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "property_manager_phones_property_manager_id_fkey", columns: [table.propertyManagerId], foreignColumns: [propertyManagers.id] }).onDelete("cascade"),
+]);
 
 export const insertPropertyManagerPhoneSchema = createInsertSchema(propertyManagerPhones).omit({
   id: true,
@@ -1833,11 +2010,11 @@ export type EquipmentStatus = "active" | "in_repair" | "out_of_service" | "retir
 // Equipment table - core equipment assets
 export const equipment = pgTable("equipment", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   equipmentType: text("equipment_type").notNull().$type<EquipmentType>(),
   name: text("name").notNull(), // e.g., "Truck 12", "Wright Stand-On #3"
   status: text("status").notNull().$type<EquipmentStatus>().default("active"),
-  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  assignedToId: varchar("assigned_to_id"),
   location: text("location"), // Shop, Yard, In-field, etc.
   make: text("make"), // Manufacturer/brand
   model: text("model"),
@@ -1870,9 +2047,10 @@ export const equipment = pgTable("equipment", {
   profilePhotoPath: text("profile_photo_path"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  equipmentCompanyIdIdx: index("equipment_company_id_idx").on(table.companyId),
-}));
+}, (table) => [
+  foreignKey({ name: "equipment_assigned_to_id_fkey", columns: [table.assignedToId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "equipment_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertEquipmentSchema = createInsertSchema(equipment).omit({
   id: true,
@@ -1901,15 +2079,19 @@ export type Equipment = typeof equipment.$inferSelect;
 // Equipment Files - attachments like photos, manuals, registrations
 export const equipmentFiles = pgTable("equipment_files", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  equipmentId: varchar("equipment_id").notNull().references(() => equipment.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  equipmentId: varchar("equipment_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   fileName: text("file_name").notNull(),
   fileType: text("file_type").notNull(), // pdf, image, etc.
   fileSize: integer("file_size"),
   storagePath: text("storage_path").notNull(), // Object storage path
-  uploadedById: varchar("uploaded_by_id").notNull().references(() => users.id),
+  uploadedById: varchar("uploaded_by_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "equipment_files_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "equipment_files_equipment_id_fkey", columns: [table.equipmentId], foreignColumns: [equipment.id] }).onDelete("cascade"),
+  foreignKey({ name: "equipment_files_uploaded_by_id_fkey", columns: [table.uploadedById], foreignColumns: [users.id] }),
+]);
 
 export const insertEquipmentFileSchema = createInsertSchema(equipmentFiles).omit({
   id: true,
@@ -1930,15 +2112,15 @@ export type EquipmentTicketStatus = "new" | "diagnosing" | "waiting_on_parts" | 
 // Equipment Tickets - maintenance/repair tickets linked to equipment
 export const equipmentTickets = pgTable("equipment_tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  equipmentId: varchar("equipment_id").notNull().references(() => equipment.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  equipmentId: varchar("equipment_id").notNull(),
   category: text("category").notNull().$type<EquipmentTicketCategory>(),
   priority: text("priority").notNull().$type<"low" | "normal" | "high" | "urgent">().default("normal"),
   status: text("status").notNull().$type<EquipmentTicketStatus>().default("new"),
   title: text("title").notNull(),
   description: text("description").notNull(),
-  reportedById: varchar("reported_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  reportedById: varchar("reported_by_id").notNull(),
+  assignedToId: varchar("assigned_to_id"),
   dueDate: timestamp("due_date"),
   // Photos - array of object storage paths
   photos: text("photos").array(),
@@ -1952,10 +2134,14 @@ export const equipmentTickets = pgTable("equipment_tickets", {
   closedAt: timestamp("closed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  equipmentTicketsCompanyIdIdx: index("equipment_tickets_company_id_idx").on(table.companyId),
-  equipmentTicketsEquipmentIdIdx: index("equipment_tickets_equipment_id_idx").on(table.equipmentId),
-}));
+}, (table) => [
+  index("equipment_tickets_company_id_idx").on(table.companyId),
+  index("equipment_tickets_equipment_id_idx").on(table.equipmentId),
+  foreignKey({ name: "equipment_tickets_assigned_to_id_fkey", columns: [table.assignedToId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "equipment_tickets_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "equipment_tickets_equipment_id_fkey", columns: [table.equipmentId], foreignColumns: [equipment.id] }).onDelete("cascade"),
+  foreignKey({ name: "equipment_tickets_reported_by_id_fkey", columns: [table.reportedById], foreignColumns: [users.id] }).onDelete("cascade"),
+]);
 
 export const insertEquipmentTicketSchema = createInsertSchema(equipmentTickets).omit({
   id: true,
@@ -1979,13 +2165,16 @@ export type EquipmentTicket = typeof equipmentTickets.$inferSelect;
 // Equipment Ticket Status History - audit trail
 export const equipmentTicketStatusHistory = pgTable("equipment_ticket_status_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  ticketId: varchar("ticket_id").notNull().references(() => equipmentTickets.id, { onDelete: "cascade" }),
+  ticketId: varchar("ticket_id").notNull(),
   fromStatus: text("from_status").$type<EquipmentTicketStatus>(),
   toStatus: text("to_status").notNull().$type<EquipmentTicketStatus>(),
-  changedById: varchar("changed_by_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  changedById: varchar("changed_by_id").notNull(),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "equipment_ticket_status_history_changed_by_id_fkey", columns: [table.changedById], foreignColumns: [users.id] }).onDelete("cascade"),
+  foreignKey({ name: "equipment_ticket_status_history_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [equipmentTickets.id] }).onDelete("cascade"),
+]);
 
 export const insertEquipmentTicketStatusHistorySchema = createInsertSchema(equipmentTicketStatusHistory).omit({
   id: true,
@@ -2013,7 +2202,7 @@ export type SnowServiceType = typeof SNOW_SERVICE_TYPES[number];
 
 export const snowEvents = pgTable("snow_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   eventName: text("event_name"),
   eventStartDateTime: timestamp("event_start_date_time").notNull(),
   eventEndDateTime: timestamp("event_end_date_time"),
@@ -2022,10 +2211,13 @@ export const snowEvents = pgTable("snow_events", {
   measurementNotes: text("measurement_notes"),
   eventNotes: text("event_notes"),
   status: text("status").notNull().$type<"draft" | "ready" | "locked">().default("draft"),
-  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdByUserId: varchar("created_by_user_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "snow_events_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "snow_events_created_by_user_id_fkey", columns: [table.createdByUserId], foreignColumns: [users.id] }).onDelete("cascade"),
+]);
 
 export const insertSnowEventSchema = createInsertSchema(snowEvents).omit({
   id: true,
@@ -2041,15 +2233,19 @@ export type SnowEvent = typeof snowEvents.$inferSelect;
 
 export const snowEventAttachments = pgTable("snow_event_attachments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  snowEventId: varchar("snow_event_id").notNull().references(() => snowEvents.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  snowEventId: varchar("snow_event_id").notNull(),
   fileName: text("file_name").notNull(),
   fileUrl: text("file_url").notNull(),
   fileType: text("file_type"),
   fileSize: integer("file_size"),
-  uploadedByUserId: varchar("uploaded_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  uploadedByUserId: varchar("uploaded_by_user_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "snow_event_attachments_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "snow_event_attachments_snow_event_id_fkey", columns: [table.snowEventId], foreignColumns: [snowEvents.id] }).onDelete("cascade"),
+  foreignKey({ name: "snow_event_attachments_uploaded_by_user_id_fkey", columns: [table.uploadedByUserId], foreignColumns: [users.id] }).onDelete("cascade"),
+]);
 
 export const insertSnowEventAttachmentSchema = createInsertSchema(snowEventAttachments).omit({
   id: true,
@@ -2061,10 +2257,10 @@ export type SnowEventAttachment = typeof snowEventAttachments.$inferSelect;
 
 export const snowEventPropertyImpacts = pgTable("snow_event_property_impacts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  snowEventId: varchar("snow_event_id").notNull().references(() => snowEvents.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  serviceTypes: text("service_types").array().notNull().default(sql`ARRAY[]::text[]`),
+  companyId: varchar("company_id").notNull(),
+  snowEventId: varchar("snow_event_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
+  serviceTypes: text("service_types").array().notNull().default(sql`'{}'::text[]`),
   siteNotes: text("site_notes"),
   laborHours: text("labor_hours"),
   materialUsed: text("material_used"),
@@ -2072,7 +2268,11 @@ export const snowEventPropertyImpacts = pgTable("snow_event_property_impacts", {
   ticketId: varchar("ticket_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "snow_event_property_impacts_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "snow_event_property_impacts_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "snow_event_property_impacts_snow_event_id_fkey", columns: [table.snowEventId], foreignColumns: [snowEvents.id] }).onDelete("cascade"),
+]);
 
 export const insertSnowEventPropertyImpactSchema = createInsertSchema(snowEventPropertyImpacts).omit({
   id: true,
@@ -2101,7 +2301,7 @@ export const EMAIL_LOG_STATUSES = ["pending", "sent", "delivered", "bounced", "f
 
 export const emailTemplates = pgTable("email_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   subject: text("subject").notNull(),
   htmlBody: text("html_body").notNull(),
@@ -2110,7 +2310,9 @@ export const emailTemplates = pgTable("email_templates", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "email_templates_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({
   id: true,
@@ -2123,7 +2325,7 @@ export type EmailTemplate = typeof emailTemplates.$inferSelect;
 
 export const companyEmailWording = pgTable("company_email_wording", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   emailKey: text("email_key").$type<EmailKey>().notNull(),
   subject: text("subject").notNull(),
   preview: text("preview").notNull(),
@@ -2131,22 +2333,27 @@ export const companyEmailWording = pgTable("company_email_wording", {
   headline: text("headline").notNull(),
   intro: text("intro").notNull(),
   closing: text("closing").notNull(),
-  updatedById: varchar("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+  updatedById: varchar("updated_by_id"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, table => ({
-  companyKey: unique("company_email_wording_company_key_unique").on(table.companyId, table.emailKey),
-  keyCheck: check("company_email_wording_email_key_check", sql`${table.emailKey} IN (${sql.raw(EMAIL_WORDING_KEYS.map(key => `'${key}'`).join(", "))})`),
-}));
+}, (table) => [
+  check("company_email_wording_email_key_check", sql`${table.emailKey} IN (${sql.raw(EMAIL_WORDING_KEYS.map(key => `'${key}'`).join(", "))})`),
+  unique("company_email_wording_company_key_unique").on(table.companyId, table.emailKey),
+  foreignKey({ name: "company_email_wording_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "company_email_wording_updated_by_id_fkey", columns: [table.updatedById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 
 export const emailRules = pgTable("email_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   eventKey: text("event_key").notNull(),
-  templateId: varchar("template_id").notNull().references(() => emailTemplates.id, { onDelete: "cascade" }),
+  templateId: varchar("template_id").notNull(),
   conditionsJson: jsonb("conditions_json"),
   isEnabled: boolean("is_enabled").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "email_rules_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "email_rules_template_id_fkey", columns: [table.templateId], foreignColumns: [emailTemplates.id] }).onDelete("cascade"),
+]);
 
 export const insertEmailRuleSchema = createInsertSchema(emailRules).omit({
   id: true,
@@ -2158,25 +2365,30 @@ export type EmailRule = typeof emailRules.$inferSelect;
 
 export const emailLogs = pgTable("email_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
-  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
-  templateId: varchar("template_id").references(() => emailTemplates.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id"),
+  ticketId: varchar("ticket_id"),
+  templateId: varchar("template_id"),
   toEmail: text("to_email").notNull(),
   subject: text("subject").notNull(),
   htmlBody: text("html_body"),
   status: text("status").notNull().$type<"pending" | "sent" | "delivered" | "bounced" | "failed" | "dropped">().default("pending"),
   providerMessageId: text("provider_message_id"),
   errorJson: jsonb("error_json"),
-  sentById: varchar("sent_by_id").references(() => users.id, { onDelete: "set null" }),
+  sentById: varchar("sent_by_id"),
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  emailLogsCompanyIdIdx: index("email_logs_company_id_idx").on(table.companyId),
-  emailLogsCustomerIdIdx: index("email_logs_customer_id_idx").on(table.customerId),
-  emailLogsTicketIdIdx: index("email_logs_ticket_id_idx").on(table.ticketId),
-  emailLogsCompanyCreatedAtIdx: index("email_logs_company_created_at_idx").on(table.companyId, table.createdAt),
-}));
+}, (table) => [
+  index("email_logs_company_id_idx").on(table.companyId),
+  index("email_logs_customer_id_idx").on(table.customerId),
+  index("email_logs_ticket_id_idx").on(table.ticketId),
+  foreignKey({ name: "email_logs_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "email_logs_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("set null"),
+  foreignKey({ name: "email_logs_sent_by_id_fkey", columns: [table.sentById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "email_logs_template_id_fkey", columns: [table.templateId], foreignColumns: [emailTemplates.id] }).onDelete("set null"),
+  foreignKey({ name: "email_logs_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("set null"),
+  index("email_logs_company_created_at_idx").on(table.companyId, table.createdAt.desc().nullsFirst()),
+]);
 
 export const insertEmailLogSchema = createInsertSchema(emailLogs).omit({
   id: true,
@@ -2197,20 +2409,20 @@ export type EmailLogWithDetails = Omit<EmailLog, "htmlBody"> & {
 
 export const proposals = pgTable("proposals", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
-  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
-  estimateId: varchar("estimate_id").references((): AnyPgColumn => estimates.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
+  createdById: varchar("created_by_id"),
+  ticketId: varchar("ticket_id"),
+  estimateId: varchar("estimate_id"),
   title: varchar("title").notNull().default("Proposal"),
   proposalDate: varchar("proposal_date").notNull(),
   estimateNumber: varchar("estimate_number"),
-  proposalNumber: varchar("proposal_number").notNull().unique(),
+  proposalNumber: varchar("proposal_number").notNull(),
   scopeOfWork: text("scope_of_work").notNull().default(""),
   status: varchar("status").notNull().default("draft"),
-  visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
+  visualScopeSheetId: varchar("visual_scope_sheet_id"),
   /** @deprecated Dormant since Slice 4.3. Drop in a dedicated, reviewed migration once no unlinked draft proposal references a palette. */
-  plantPaletteId: varchar("plant_palette_id").references(() => plantPalettes.id, { onDelete: "set null" }),
+  plantPaletteId: varchar("plant_palette_id"),
   includePlantSchedule: boolean("include_plant_schedule").notNull().default(true),
   includePlantPalette: boolean("include_plant_palette").notNull().default(true),
   paletteIntroText: text("palette_intro_text"),
@@ -2218,14 +2430,23 @@ export const proposals = pgTable("proposals", {
   vsIncludeOverlay: boolean("vs_include_overlay").notNull().default(false),
   photoLayout: varchar("photo_layout").notNull().default("large"),
   coverSource: text("cover_source").notNull().default("none"),
-  coverPhotoFileId: varchar("cover_photo_file_id").references((): AnyPgColumn => proposalFiles.id, { onDelete: "set null" }),
+  coverPhotoFileId: varchar("cover_photo_file_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  proposalsCompanyIdIdx: index("proposals_company_id_idx").on(table.companyId),
-  proposalsCompanyEstimateIdx: index("proposals_company_estimate_idx").on(table.companyId, table.estimateId),
-  proposalsCoverSourceCheck: check("proposals_cover_source_check", sql`${table.coverSource} IN ('none', 'photo', 'visual_scope')`),
-  proposalsCustomerIdIdx: index("proposals_customer_id_idx").on(table.customerId),
-}));
+}, (table): PgTableExtraConfigValue[] => [
+  index("proposals_company_id_idx").on(table.companyId),
+  index("proposals_company_estimate_idx").on(table.companyId, table.estimateId),
+  check("proposals_cover_source_check", sql`${table.coverSource} IN ('none', 'photo', 'visual_scope')`),
+  index("proposals_customer_id_idx").on(table.customerId),
+  unique("proposals_proposal_number_unique").on(table.proposalNumber),
+  foreignKey({ name: "proposals_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "proposals_cover_photo_file_id_fk", columns: [table.coverPhotoFileId], foreignColumns: [proposalFiles.id] }).onDelete("set null"),
+  foreignKey({ name: "proposals_created_by_id_fkey", columns: [table.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "proposals_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "proposals_estimate_id_fk", columns: [table.estimateId], foreignColumns: [estimates.id] }).onDelete("set null"),
+  foreignKey({ name: "proposals_plant_palette_id_fkey", columns: [table.plantPaletteId], foreignColumns: [plantPalettes.id] }).onDelete("set null"),
+  foreignKey({ name: "proposals_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("set null"),
+  foreignKey({ name: "proposals_visual_scope_sheet_id_fkey", columns: [table.visualScopeSheetId], foreignColumns: [visualScopeSheets.id] }).onDelete("set null"),
+]);
 
 export const insertProposalSchema = createInsertSchema(proposals).omit({
   id: true,
@@ -2244,8 +2465,8 @@ export type Proposal = typeof proposals.$inferSelect;
 
 export const proposalFiles = pgTable("proposal_files", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  proposalId: varchar("proposal_id").notNull().references(() => proposals.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  proposalId: varchar("proposal_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   fileType: varchar("file_type").notNull(),
   storageObjectPath: varchar("storage_object_path").notNull(),
   filename: varchar("filename").notNull(),
@@ -2254,7 +2475,10 @@ export const proposalFiles = pgTable("proposal_files", {
   caption: text("caption"),
   displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table): PgTableExtraConfigValue[] => [
+  foreignKey({ name: "proposal_files_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "proposal_files_proposal_id_fkey", columns: [table.proposalId], foreignColumns: [proposals.id] }).onDelete("cascade"),
+]);
 
 export const insertProposalFileSchema = createInsertSchema(proposalFiles).omit({
   id: true,
@@ -2266,14 +2490,14 @@ export type ProposalFile = typeof proposalFiles.$inferSelect;
 
 export const proposalVersions = pgTable("proposal_versions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  proposalId: varchar("proposal_id").notNull().references(() => proposals.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  proposalId: varchar("proposal_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   versionNumber: integer("version_number").notNull(),
-  estimateVersionId: varchar("estimate_version_id").references((): AnyPgColumn => estimateVersions.id, { onDelete: "set null" }),
+  estimateVersionId: varchar("estimate_version_id"),
   title: varchar("title").notNull(),
   proposalDate: varchar("proposal_date").notNull(),
   estimateNumber: varchar("estimate_number"),
-  finalizedById: varchar("finalized_by_id").references(() => users.id, { onDelete: "set null" }),
+  finalizedById: varchar("finalized_by_id"),
   finalizedAt: timestamp("finalized_at").notNull().defaultNow(),
   pdfStoragePath: varchar("pdf_storage_path").notNull(),
   visualScopeSheetId: varchar("visual_scope_sheet_id"),
@@ -2288,9 +2512,14 @@ export const proposalVersions = pgTable("proposal_versions", {
   vsOverlayPath: varchar("vs_overlay_path"),
   plantItemsSnapshot: jsonb("plant_items_snapshot").$type<Record<string, unknown>[]>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  uniqueProposalVersion: unique().on(table.proposalId, table.versionNumber),
-}));
+}, (table) => [
+  unique("proposal_versions_proposal_id_version_number_key").on(table.proposalId, table.versionNumber),
+  unique("proposal_versions_proposal_id_version_number_unique").on(table.proposalId, table.versionNumber),
+  foreignKey({ name: "proposal_versions_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "proposal_versions_estimate_version_id_fk", columns: [table.estimateVersionId], foreignColumns: [estimateVersions.id] }).onDelete("set null"),
+  foreignKey({ name: "proposal_versions_finalized_by_id_fkey", columns: [table.finalizedById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "proposal_versions_proposal_id_fkey", columns: [table.proposalId], foreignColumns: [proposals.id] }).onDelete("cascade"),
+]);
 
 export const insertProposalVersionSchema = createInsertSchema(proposalVersions).omit({
   id: true,
@@ -2331,17 +2560,17 @@ export interface MaterialItem {
 }
 
 export const crewWorksheets = pgTable("crew_worksheets", {
-  crewId: varchar("crew_id").references(() => crews.id, { onDelete: "set null" }),
+  crewId: varchar("crew_id"),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
-  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
-  sourceProposalId: varchar("source_proposal_id").references(() => proposals.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
+  createdById: varchar("created_by_id"),
+  ticketId: varchar("ticket_id"),
+  sourceProposalId: varchar("source_proposal_id"),
   sourceProposalNumberSnapshot: varchar("source_proposal_number_snapshot"),
   sourceProposalTitleSnapshot: varchar("source_proposal_title_snapshot"),
-  sourceEstimateId: varchar("source_estimate_id").references((): AnyPgColumn => estimates.id, { onDelete: "set null" }),
-  sourceEstimateVersionId: varchar("source_estimate_version_id").references((): AnyPgColumn => estimateVersions.id, { onDelete: "set null" }),
+  sourceEstimateId: varchar("source_estimate_id"),
+  sourceEstimateVersionId: varchar("source_estimate_version_id"),
   sourceEstimateLabelSnapshot: text("source_estimate_label_snapshot"),
   sourceEstimateVersionNumberSnapshot: integer("source_estimate_version_number_snapshot"),
   estimateLinesSnapshot: jsonb("estimate_lines_snapshot").$type<EstimateWorksheetSection[]>(),
@@ -2350,9 +2579,9 @@ export const crewWorksheets = pgTable("crew_worksheets", {
   worksheetDate: varchar("worksheet_date").notNull(),
   scopeOfWork: text("scope_of_work").notNull().default(""),
   status: varchar("status").notNull().default("draft"),
-  visualScopeSheetId: varchar("visual_scope_sheet_id").references(() => visualScopeSheets.id, { onDelete: "set null" }),
+  visualScopeSheetId: varchar("visual_scope_sheet_id"),
   // Printed execution snapshots; never reproject when a standing crew changes.
-  assignedCrewLeadId: varchar("assigned_crew_lead_id").references(() => users.id, { onDelete: "set null" }),
+  assignedCrewLeadId: varchar("assigned_crew_lead_id"),
   crewLabel: varchar("crew_label"),
   scheduledDate: varchar("scheduled_date"),
   scheduledStartTime: varchar("scheduled_start_time"),
@@ -2362,15 +2591,25 @@ export const crewWorksheets = pgTable("crew_worksheets", {
   crewNotes: text("crew_notes").notNull().default(""),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  crewWorksheetsCompanyIdIdx: index("crew_worksheets_company_id_idx").on(table.companyId),
-  crewWorksheetsCustomerIdIdx: index("crew_worksheets_customer_id_idx").on(table.customerId),
-  crewWorksheetsTicketIdIdx: index("crew_worksheets_ticket_id_idx").on(table.ticketId),
-  crewWorksheetsSourceProposalIdIdx: index("crew_worksheets_source_proposal_id_idx").on(table.sourceProposalId),
-  crewWorksheetsSourceEstimateIdIdx: index("crew_worksheets_source_estimate_idx").on(table.sourceEstimateId),
-  crewWorksheetsSourceEstimateVersionIdx: index("crew_worksheets_source_estimate_version_idx").on(table.sourceEstimateVersionId),
-  crewWorksheetsCompanyNumberKey: uniqueIndex("crew_worksheets_company_id_worksheet_number_key").on(table.companyId, table.worksheetNumber),
-}));
+}, (table) => [
+  index("crew_worksheets_company_id_idx").on(table.companyId),
+  index("crew_worksheets_customer_id_idx").on(table.customerId),
+  index("crew_worksheets_ticket_id_idx").on(table.ticketId),
+  index("crew_worksheets_source_proposal_id_idx").on(table.sourceProposalId),
+  index("crew_worksheets_source_estimate_idx").on(table.sourceEstimateId),
+  index("crew_worksheets_source_estimate_version_idx").on(table.sourceEstimateVersionId),
+  unique("crew_worksheets_company_id_worksheet_number_key").on(table.companyId, table.worksheetNumber),
+  foreignKey({ name: "crew_worksheets_assigned_crew_lead_id_fkey", columns: [table.assignedCrewLeadId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "crew_worksheets_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "crew_worksheets_created_by_id_fkey", columns: [table.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "crew_worksheets_crew_id_fkey", columns: [table.crewId], foreignColumns: [crews.id] }).onDelete("set null"),
+  foreignKey({ name: "crew_worksheets_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "crew_worksheets_source_estimate_id_fkey", columns: [table.sourceEstimateId], foreignColumns: [estimates.id] }).onDelete("set null"),
+  foreignKey({ name: "crew_worksheets_source_estimate_version_id_fkey", columns: [table.sourceEstimateVersionId], foreignColumns: [estimateVersions.id] }).onDelete("set null"),
+  foreignKey({ name: "crew_worksheets_source_proposal_id_fkey", columns: [table.sourceProposalId], foreignColumns: [proposals.id] }).onDelete("set null"),
+  foreignKey({ name: "crew_worksheets_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("set null"),
+  foreignKey({ name: "crew_worksheets_visual_scope_sheet_id_fkey", columns: [table.visualScopeSheetId], foreignColumns: [visualScopeSheets.id] }).onDelete("set null"),
+]);
 
 export const insertCrewWorksheetSchema = createInsertSchema(crewWorksheets).omit({
   id: true,
@@ -2390,8 +2629,8 @@ export type CrewWorksheet = typeof crewWorksheets.$inferSelect;
 
 export const crewWorksheetPhotos = pgTable("crew_worksheet_photos", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  crewWorksheetId: varchar("crew_worksheet_id").notNull().references(() => crewWorksheets.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  crewWorksheetId: varchar("crew_worksheet_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   storageObjectPath: varchar("storage_object_path").notNull(),
   filename: varchar("filename").notNull(),
   mimeType: varchar("mime_type").notNull(),
@@ -2399,9 +2638,11 @@ export const crewWorksheetPhotos = pgTable("crew_worksheet_photos", {
   caption: text("caption"),
   displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  crewWorksheetPhotosWorksheetIdx: index("crew_worksheet_photos_worksheet_id_idx").on(table.crewWorksheetId),
-}));
+}, (table) => [
+  index("crew_worksheet_photos_worksheet_id_idx").on(table.crewWorksheetId),
+  foreignKey({ name: "crew_worksheet_photos_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "crew_worksheet_photos_crew_worksheet_id_fkey", columns: [table.crewWorksheetId], foreignColumns: [crewWorksheets.id] }).onDelete("cascade"),
+]);
 
 export const insertCrewWorksheetPhotoSchema = createInsertSchema(crewWorksheetPhotos).omit({
   id: true,
@@ -2413,19 +2654,22 @@ export type CrewWorksheetPhoto = typeof crewWorksheetPhotos.$inferSelect;
 
 export const crewWorksheetVersions = pgTable("crew_worksheet_versions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  crewWorksheetId: varchar("crew_worksheet_id").notNull().references(() => crewWorksheets.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  crewWorksheetId: varchar("crew_worksheet_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   versionNumber: integer("version_number").notNull(),
   title: varchar("title").notNull(),
   worksheetDate: varchar("worksheet_date").notNull(),
-  finalizedById: varchar("finalized_by_id").references(() => users.id, { onDelete: "set null" }),
+  finalizedById: varchar("finalized_by_id"),
   finalizedAt: timestamp("finalized_at").notNull().defaultNow(),
   pdfStoragePath: varchar("pdf_storage_path").notNull(),
   visualScopeSheetId: varchar("visual_scope_sheet_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  uniqueCrewWorksheetVersion: unique().on(table.crewWorksheetId, table.versionNumber),
-}));
+}, (table) => [
+  unique("crew_worksheet_versions_unique").on(table.crewWorksheetId, table.versionNumber),
+  foreignKey({ name: "crew_worksheet_versions_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "crew_worksheet_versions_crew_worksheet_id_fkey", columns: [table.crewWorksheetId], foreignColumns: [crewWorksheets.id] }).onDelete("cascade"),
+  foreignKey({ name: "crew_worksheet_versions_finalized_by_id_fkey", columns: [table.finalizedById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 
 export const insertCrewWorksheetVersionSchema = createInsertSchema(crewWorksheetVersions).omit({
   id: true,
@@ -2455,19 +2699,20 @@ export type CrewWorksheetWithDetails = CrewWorksheet & {
 };
 
 export const crewWorksheetNumberCounters = pgTable("crew_worksheet_number_counters", {
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   year: integer("year").notNull(),
   lastNumber: integer("last_number").notNull().default(0),
-}, (table) => ({
-  crewWorksheetCountersPk: unique("crew_worksheet_counters_pk").on(table.companyId, table.year),
-}));
+}, (table) => [
+  unique("crew_worksheet_counters_pk").on(table.companyId, table.year),
+  foreignKey({ name: "crew_worksheet_number_counters_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 // Visual Scope Sheets
 export const visualScopeSheets = pgTable("visual_scope_sheets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
+  createdById: varchar("created_by_id"),
   title: varchar("title").notNull().default("Visual Scope"),
   scopeDate: varchar("scope_date").notNull(),
   status: varchar("status").notNull().default("draft"),
@@ -2482,7 +2727,11 @@ export const visualScopeSheets = pgTable("visual_scope_sheets", {
   scaleSource: varchar("scale_source").$type<"mapbox" | "manual">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "visual_scope_sheets_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "visual_scope_sheets_created_by_id_fkey", columns: [table.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "visual_scope_sheets_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+]);
 
 export const insertVisualScopeSheetSchema = createInsertSchema(visualScopeSheets).omit({
   id: true,
@@ -2511,14 +2760,16 @@ export interface CaptureParams {
 
 export const seasons = pgTable("seasons", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   description: text("description"),
   startDate: date("start_date"),
   endDate: date("end_date"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "seasons_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertSeasonSchema = createInsertSchema(seasons).omit({
   id: true,
@@ -2540,7 +2791,7 @@ export type Season = typeof seasons.$inferSelect;
 
 export const chemicalProducts = pgTable("chemical_products", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   epaRegistrationNumber: text("epa_registration_number"),
   activeIngredient: text("active_ingredient"),
@@ -2557,10 +2808,20 @@ export const chemicalProducts = pgTable("chemical_products", {
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  chemicalProductsCompanyIdIdx: index("chemical_products_company_id_idx").on(table.companyId),
-  chemicalProductsCompanyNameUniq: uniqueIndex("chemical_products_company_name_uniq").on(table.companyId, table.name),
-}));
+  manufacturer: text("manufacturer"),
+  category: text("category").default(sql`'other'::text`),
+  reentryIntervalHours: real("reentry_interval_hours"),
+  wateringInstructions: text("watering_instructions"),
+  mowingInstructions: text("mowing_instructions"),
+  purposeDescription: text("purpose_description"),
+  labelStorageKey: text("label_storage_key"),
+  labelFilename: text("label_filename"),
+  deletedAt: timestamp("deleted_at"),
+}, (table) => [
+  index("chemical_products_company_id_idx").on(table.companyId),
+  uniqueIndex("chemical_products_company_name_uniq").on(table.companyId, table.name),
+  foreignKey({ name: "chemical_products_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertChemicalProductSchema = createInsertSchema(chemicalProducts).omit({
   id: true,
@@ -2579,14 +2840,14 @@ export type ChemicalProduct = typeof chemicalProducts.$inferSelect;
 
 export const chemicalNotificationTemplates = pgTable("chemical_notification_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
-  serviceType: text("service_type").notNull(),
+  serviceType: text("service_type").notNull().default(sql`'custom'::text`),
   isDefault: boolean("is_default").notNull().default(false),
-  preVisitSubject: text("pre_visit_subject").notNull(),
-  preVisitHtml: text("pre_visit_html").notNull(),
-  postVisitSubject: text("post_visit_subject").notNull(),
-  postVisitHtml: text("post_visit_html").notNull(),
+  preVisitSubject: text("pre_visit_subject").notNull().default(sql`''::text`),
+  preVisitHtml: text("pre_visit_html").notNull().default(sql`''::text`),
+  postVisitSubject: text("post_visit_subject").notNull().default(sql`''::text`),
+  postVisitHtml: text("post_visit_html").notNull().default(sql`''::text`),
   defaultLabelPdfStorageKey: text("default_label_pdf_storage_key"),
   defaultLabelPdfFilename: text("default_label_pdf_filename"),
   productName: text("product_name"),
@@ -2597,13 +2858,15 @@ export const chemicalNotificationTemplates = pgTable("chemical_notification_temp
   wateringInstructions: text("watering_instructions"),
   mowingInstructions: text("mowing_instructions"),
   postApplicationExpectation: text("post_application_expectation"),
-  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdBy: varchar("created_by"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  chemNotifTemplatesCompanyIdx: index("chem_notif_templates_company_id_idx").on(table.companyId),
-  chemNotifTemplatesNameCompanyUnique: unique("chem_notif_templates_name_company_unique").on(table.name, table.companyId),
-}));
+}, (table) => [
+  index("chem_notif_templates_company_id_idx").on(table.companyId),
+  foreignKey({ name: "chemical_notification_templates_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "chemical_notification_templates_created_by_fkey", columns: [table.createdBy], foreignColumns: [users.id] }).onDelete("set null"),
+  uniqueIndex("chem_notif_templates_name_company_unique").on(table.name, table.companyId),
+]);
 
 export const insertChemicalNotificationTemplateSchema = createInsertSchema(chemicalNotificationTemplates).omit({
   id: true,
@@ -2633,35 +2896,42 @@ export type ChemicalNotificationTemplate = typeof chemicalNotificationTemplates.
 
 export const campaigns = pgTable("campaigns", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   source: text("source").notNull().default("manual").$type<"manual" | "contract">(),
   serviceKey: text("service_key"),
   roundMonth: date("round_month", { mode: "string" }),
   roundSeq: smallint("round_seq"),
-  calendarEntryId: varchar("calendar_entry_id").references(() => serviceCalendar.id, { onDelete: "restrict" }),
+  calendarEntryId: varchar("calendar_entry_id"),
   roundYear: smallint("round_year"),
   startedAt: timestamp("started_at"),
-  startedById: varchar("started_by_id").references(() => users.id, { onDelete: "set null" }),
+  startedById: varchar("started_by_id"),
   title: text("title").notNull(),
   description: text("description"),
-  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
-  assignedToId2: varchar("assigned_to_id2").references(() => users.id, { onDelete: "set null" }),
+  assignedToId: varchar("assigned_to_id"),
+  assignedToId2: varchar("assigned_to_id2"),
   windowStart: date("window_start").notNull(),
   windowEnd: date("window_end").notNull(),
   category: text("category").$type<"general" | "chemical" | "irrigation" | "extra_billable">().notNull().default("general"),
   subtype: text("subtype").$type<"spring_turn_on" | "winterization" | "custom">(),
   status: text("status").$type<"active" | "completed" | "archived">().notNull().default("active"),
-  seasonId: varchar("season_id").references(() => seasons.id, { onDelete: "set null" }),
-  notificationTemplateId: varchar("notification_template_id").references(() => chemicalNotificationTemplates.id, { onDelete: "set null" }),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  seasonId: varchar("season_id"),
+  notificationTemplateId: varchar("notification_template_id"),
+  createdById: varchar("created_by_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  campaignsCompanyIdIdx: index("campaigns_company_id_idx").on(table.companyId),
-  companyIdentity: unique("campaigns_id_company_unique").on(table.id, table.companyId),
-  calendarRound: uniqueIndex("campaigns_calendar_round_unique").on(table.companyId, table.calendarEntryId, table.roundYear).where(sql`${table.source} = 'contract'`),
-  generatedIdentity: check(campaignIdentityCheckName, sql.raw(campaignIdentityCheckSql)),
-}));
+}, (table) => [
+  uniqueIndex("campaigns_calendar_round_unique").on(table.companyId, table.calendarEntryId, table.roundYear).where(sql`${table.source} = 'contract'`),
+  check(campaignIdentityCheckName, sql.raw(campaignIdentityCheckSql)),
+  unique("campaigns_id_company_unique").on(table.id, table.companyId),
+  foreignKey({ name: "campaigns_assigned_to_id2_fkey", columns: [table.assignedToId2], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "campaigns_assigned_to_id_fkey", columns: [table.assignedToId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "campaigns_calendar_entry_id_service_calendar_id_fk", columns: [table.calendarEntryId], foreignColumns: [serviceCalendar.id] }).onDelete("restrict"),
+  foreignKey({ name: "campaigns_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaigns_created_by_id_fkey", columns: [table.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "campaigns_notification_template_id_fkey", columns: [table.notificationTemplateId], foreignColumns: [chemicalNotificationTemplates.id] }).onDelete("set null"),
+  foreignKey({ name: "campaigns_season_id_fkey", columns: [table.seasonId], foreignColumns: [seasons.id] }).onDelete("set null"),
+  foreignKey({ name: "campaigns_started_by_id_fkey", columns: [table.startedById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   id: true,
@@ -2679,27 +2949,27 @@ export type Campaign = typeof campaigns.$inferSelect;
 
 export const campaignItems = pgTable("campaign_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  propertyId: varchar("property_id").references(() => customers.id, { onDelete: "set null" }),
+  campaignId: varchar("campaign_id").notNull(),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
+  propertyId: varchar("property_id"),
   customerName: text("customer_name").notNull(),
   customerCity: text("customer_city").default(""),
   status: text("status").$type<"pending" | "completed" | "skipped">().notNull().default("pending"),
   notes: text("notes"),
   skipReason: text("skip_reason"),
   photos: text("photos").array().default(sql`'{}'::text[]`),
-  completedById: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
+  completedById: varchar("completed_by_id"),
   completedAt: timestamp("completed_at"),
   workflowStep: text("chem_workflow_step").$type<"pre_communication" | "work_in_progress" | "work_completed" | "post_communication">(),
   preCommSentAt: timestamp("chem_pre_sent_at"),
-  preCommSentById: varchar("chem_pre_sent_by_id").references(() => users.id, { onDelete: "set null" }),
+  preCommSentById: varchar("chem_pre_sent_by_id"),
   workCompletedAt: timestamp("chem_work_completed_at"),
-  workCompletedById: varchar("chem_work_completed_by_id").references(() => users.id, { onDelete: "set null" }),
+  workCompletedById: varchar("chem_work_completed_by_id"),
   postCommSentAt: timestamp("chem_post_sent_at"),
-  postCommSentById: varchar("chem_post_sent_by_id").references(() => users.id, { onDelete: "set null" }),
-  preCommEmailLogId: varchar("chem_pre_email_log_id").references(() => emailLogs.id, { onDelete: "set null" }),
-  postCommEmailLogId: varchar("chem_post_email_log_id").references(() => emailLogs.id, { onDelete: "set null" }),
+  postCommSentById: varchar("chem_post_sent_by_id"),
+  preCommEmailLogId: varchar("chem_pre_email_log_id"),
+  postCommEmailLogId: varchar("chem_post_email_log_id"),
   weatherTemp: real("weather_temp"),
   weatherWindSpeed: real("weather_wind_speed"),
   weatherWindDirection: text("weather_wind_direction"),
@@ -2716,15 +2986,15 @@ export const campaignItems = pgTable("campaign_items", {
   timeWindowEnd: text("time_window_end"),
   // Chemical product assignment
   chemicalProductId: varchar("chemical_product_id"),
-  applicatorUserId: varchar("applicator_user_id").references(() => users.id, { onDelete: "set null" }),
-  wasBumpedToBackup: boolean("was_bumped_to_backup").default(false),
+  applicatorUserId: varchar("applicator_user_id"),
+  wasBumpedToBackup: legacyBooleanText("was_bumped_to_backup").default(sql`'false'::text`),
   // Completion fields
   labelBatchNumber: text("label_batch_number"),
   labelMixRatio: text("label_mix_ratio"),
   labelPdfOverrideKey: text("label_pdf_override_key"),
   actualAreasTreated: text("actual_areas_treated"),
   actualConditions: text("actual_conditions"),
-  completionPhotoStorageKeys: text("completion_photo_storage_keys").array().default(sql`'{}'::text[]`),
+  completionPhotoStorageKeys: text("completion_photo_storage_keys").array().default(sql`'{}'::text[]`).notNull(),
   completionNotes: text("completion_notes"),
   postApplicationExpectationOverride: text("post_application_expectation_override"),
   postApplicationWateringOverride: text("post_application_watering_override"),
@@ -2736,29 +3006,45 @@ export const campaignItems = pgTable("campaign_items", {
   // variable name.
   customTemplateVars: jsonb("custom_template_vars").$type<Record<string, string>>(),
   // Extra Billable campaign columns (Slice 1)
-  assignedCampaignCrewId: varchar("assigned_campaign_crew_id").references((): AnyPgColumn => campaignCrews.id, { onDelete: "set null" }),
+  assignedCampaignCrewId: varchar("assigned_campaign_crew_id"),
   crewPosition: integer("crew_position"),
   billingStatus: text("billing_status").$type<"not_created" | "ticket_created" | "invoiced" | "paid">().notNull().default("not_created"),
-  ticketId: varchar("ticket_id").references((): AnyPgColumn => tickets.id, { onDelete: "set null" }),
+  ticketId: varchar("ticket_id"),
   estimatedAmount: numeric("estimated_amount", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  campaignItemsCampaignIdIdx: index("campaign_items_campaign_id_idx").on(table.campaignId),
-  campaignItemsCompanyIdIdx: index("campaign_items_company_id_idx").on(table.companyId),
-  campaignItemsCustomerIdIdx: index("campaign_items_customer_id_idx").on(table.customerId),
-  campaignItemsPropertyIdIdx: index("campaign_items_property_id_idx").on(table.propertyId),
-  campaignItemsAssignedCrewIdx: index("campaign_items_assigned_campaign_crew_id_idx").on(table.assignedCampaignCrewId),
-  crewPriority: index("campaign_items_crew_priority_idx").on(table.companyId, table.campaignId, table.assignedCampaignCrewId, table.crewPosition).where(sql`${table.status} = 'pending'`),
-  companyIdentity: unique("campaign_items_id_company_unique").on(table.id, table.companyId),
-  // Approved Publish stage one: restore the composite company FK after the
-  // prerequisite unique keys reach production. Existing campaign/company FKs stay.
-  // See docs/scheduling/reports/publish-foreign-key-stage-one.md.
-}));
+  labelOverrideStorageKey: text("label_override_storage_key"),
+  labelOverrideFilename: text("label_override_filename"),
+  purposeOverride: text("purpose_override"),
+  reentryIntervalOverride: real("reentry_interval_override"),
+  wateringInstructionsOverride: text("watering_instructions_override"),
+  mowingInstructionsOverride: text("mowing_instructions_override"),
+}, (table) => [
+  index("campaign_items_campaign_id_idx").on(table.campaignId),
+  index("campaign_items_company_id_idx").on(table.companyId),
+  index("campaign_items_customer_id_idx").on(table.customerId),
+  index("campaign_items_assigned_campaign_crew_id_idx").on(table.assignedCampaignCrewId),
+  index("campaign_items_crew_priority_idx").on(table.companyId, table.campaignId, table.assignedCampaignCrewId, table.crewPosition).where(sql`${table.status} = 'pending'`),
+  unique("campaign_items_id_company_unique").on(table.id, table.companyId),
+  foreignKey({ name: "campaign_items_applicator_user_id_fkey", columns: [table.applicatorUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "campaign_items_assigned_campaign_crew_id_fkey", columns: [table.assignedCampaignCrewId], foreignColumns: [campaignCrews.id] }).onDelete("set null"),
+  foreignKey({ name: "campaign_items_campaign_id_fkey", columns: [table.campaignId], foreignColumns: [campaigns.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_items_chem_post_email_log_id_email_logs_id_fk", columns: [table.postCommEmailLogId], foreignColumns: [emailLogs.id] }).onDelete("set null"),
+  foreignKey({ name: "campaign_items_chem_pre_email_log_id_email_logs_id_fk", columns: [table.preCommEmailLogId], foreignColumns: [emailLogs.id] }).onDelete("set null"),
+  foreignKey({ name: "campaign_items_chemical_product_id_fkey", columns: [table.chemicalProductId], foreignColumns: [chemicalProducts.id] }).onDelete("set null"),
+  foreignKey({ name: "campaign_items_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_items_completed_by_id_fkey", columns: [table.completedById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "campaign_items_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_items_property_id_fk", columns: [table.propertyId], foreignColumns: [customers.id] }).onDelete("set null"),
+  foreignKey({ name: "campaign_items_property_id_fkey", columns: [table.propertyId], foreignColumns: [customers.id] }).onDelete("set null"),
+  foreignKey({ name: "campaign_items_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("set null"),
+  index("campaign_items_service_plan_cat_idx").on(table.customerId, table.servicePlanCategory).where(sql`${table.servicePlanCategory} IS NOT NULL`),
+  index("campaign_items_property_id_idx").on(table.propertyId).where(sql`${table.propertyId} IS NOT NULL`),
+]);
 
 export const serviceCalendar = pgTable("service_calendar", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   serviceKey: text("service_key").notNull(),
   kind: text("kind").notNull(),
   position: smallint("position").notNull(),
@@ -2769,23 +3055,29 @@ export const serviceCalendar = pgTable("service_calendar", {
   inStandard: boolean("in_standard").notNull().default(false),
   pattern: text("pattern"),
   includes: text("includes"),
-  updatedById: varchar("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+  updatedById: varchar("updated_by_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, t => ({
-  identity: unique("service_calendar_position_unique").on(t.companyId, t.serviceKey, t.kind, t.position),
-  checklist: uniqueIndex("service_calendar_one_checklist").on(t.companyId, t.serviceKey).where(sql`${t.kind} = 'checklist'`),
-  valid: check("service_calendar_valid_check", sql.raw(serviceCalendarCheckSql)),
-}));
+}, (t) => [
+  uniqueIndex("service_calendar_one_checklist").on(t.companyId, t.serviceKey).where(sql`${t.kind} = 'checklist'`),
+  check("service_calendar_valid_check", sql.raw(serviceCalendarCheckSql)),
+  unique("service_calendar_position_unique").on(t.companyId, t.serviceKey, t.kind, t.position),
+  foreignKey({ name: "service_calendar_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "service_calendar_updated_by_id_fkey", columns: [t.updatedById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 export type ServiceCalendar = typeof serviceCalendar.$inferSelect;
 
 /** Explicit generation opt-in, not a second owner of contractual demand. */
 export const campaignGenerationYears = pgTable("campaign_generation_years", {
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   year: smallint("year").notNull(),
-  enabledById: varchar("enabled_by_id").references(() => users.id, { onDelete: "set null" }),
+  enabledById: varchar("enabled_by_id"),
   enabledAt: timestamp("enabled_at").notNull().defaultNow(),
-}, t => ({ pk: primaryKey({ columns: [t.companyId, t.year] }) }));
+}, (t) => [
+  primaryKey({ name: "campaign_generation_years_pkey", columns: [t.companyId, t.year] }),
+  foreignKey({ name: "campaign_generation_years_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_generation_years_enabled_by_id_fkey", columns: [t.enabledById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 export type CampaignGenerationYear = typeof campaignGenerationYears.$inferSelect;
 
 export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
@@ -2808,6 +3100,7 @@ export const insertCampaignItemSchema = createInsertSchema(campaignItems).omit({
   timeWindowStart: z.string().nullable().optional(),
   timeWindowEnd: z.string().nullable().optional(),
   wasBumpedToBackup: z.boolean().default(false),
+  billingStatus: z.enum(["not_created", "ticket_created", "invoiced", "paid"]).optional(),
   chemicalProductId: z.string().nullable().optional(),
   applicatorUserId: z.string().nullable().optional(),
   labelPdfOverrideKey: z.string().nullable().optional(),
@@ -2823,10 +3116,12 @@ export type CampaignItem = typeof campaignItems.$inferSelect;
 
 export const campaignChecklistTasks = pgTable("campaign_checklist_tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  campaignId: varchar("campaign_id").notNull(),
   order: integer("order").notNull().default(0),
   label: text("label").notNull(),
-});
+}, (table) => [
+  foreignKey({ name: "campaign_checklist_tasks_campaign_id_fkey", columns: [table.campaignId], foreignColumns: [campaigns.id] }).onDelete("cascade"),
+]);
 
 export const insertCampaignChecklistTaskSchema = createInsertSchema(campaignChecklistTasks).omit({
   id: true,
@@ -2837,11 +3132,15 @@ export type CampaignChecklistTask = typeof campaignChecklistTasks.$inferSelect;
 
 export const campaignItemTaskCompletions = pgTable("campaign_item_task_completions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  campaignItemId: varchar("campaign_item_id").notNull().references(() => campaignItems.id, { onDelete: "cascade" }),
-  campaignChecklistTaskId: varchar("campaign_checklist_task_id").notNull().references(() => campaignChecklistTasks.id, { onDelete: "cascade" }),
-  completedById: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
+  campaignItemId: varchar("campaign_item_id").notNull(),
+  campaignChecklistTaskId: varchar("campaign_checklist_task_id").notNull(),
+  completedById: varchar("completed_by_id"),
   completedAt: timestamp("completed_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "campaign_item_task_completions_campaign_checklist_task_id_fkey", columns: [table.campaignChecklistTaskId], foreignColumns: [campaignChecklistTasks.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_item_task_completions_campaign_item_id_fkey", columns: [table.campaignItemId], foreignColumns: [campaignItems.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_item_task_completions_completed_by_id_fkey", columns: [table.completedById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 
 export const insertCampaignItemTaskCompletionSchema = createInsertSchema(campaignItemTaskCompletions).omit({
   id: true,
@@ -2852,12 +3151,16 @@ export type CampaignItemTaskCompletion = typeof campaignItemTaskCompletions.$inf
 
 export const campaignChecklistAuditLog = pgTable("campaign_checklist_audit_log", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  campaignItemId: varchar("campaign_item_id").notNull().references(() => campaignItems.id, { onDelete: "cascade" }),
-  campaignChecklistTaskId: varchar("campaign_checklist_task_id").notNull().references(() => campaignChecklistTasks.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  campaignItemId: varchar("campaign_item_id").notNull(),
+  campaignChecklistTaskId: varchar("campaign_checklist_task_id").notNull(),
+  userId: varchar("user_id").notNull(),
   action: text("action").notNull().$type<"completed" | "uncompleted">(),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "campaign_checklist_audit_log_campaign_checklist_task_id_campaig", columns: [table.campaignChecklistTaskId], foreignColumns: [campaignChecklistTasks.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_checklist_audit_log_campaign_item_id_campaign_items_id", columns: [table.campaignItemId], foreignColumns: [campaignItems.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_checklist_audit_log_user_id_users_id_fk", columns: [table.userId], foreignColumns: [users.id] }).onDelete("cascade"),
+]);
 
 export const insertCampaignChecklistAuditLogSchema = createInsertSchema(campaignChecklistAuditLog).omit({
   id: true,
@@ -2876,24 +3179,28 @@ export type CampaignChecklistAuditLogWithUser = CampaignChecklistAuditLog & {
 
 // Extra Billable Campaign Crews (Slice 1)
 export const campaignCrews = pgTable("campaign_crews", {
-  crewId: varchar("crew_id").references((): AnyPgColumn => crews.id, { onDelete: "set null" }),
+  crewId: varchar("crew_id"),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  campaignId: varchar("campaign_id").notNull(),
   // Frozen display fallback for unlinked legacy teams; linked identity comes from crews.
   name: text("name").notNull(),
   color: text("color").notNull().default("#2563eb"),
   displayOrder: integer("display_order").notNull().default(0),
-  leaderUserId: varchar("leader_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  leaderUserId: varchar("leader_user_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  campaignCrewsCampaignIdx: index("campaign_crews_campaign_id_idx").on(table.campaignId),
-  campaignCrewsCompanyIdx: index("campaign_crews_company_id_idx").on(table.companyId),
-  standingCrewIdx: index("campaign_crews_crew_id_idx").on(table.crewId),
-  campaignStandingUnique: uniqueIndex("campaign_crews_campaign_crew_unique").on(table.campaignId, table.crewId).where(sql`${table.crewId} IS NOT NULL`),
-  campaignCrewsCampaignNameUnique: uniqueIndex("campaign_crews_campaign_name_unique").on(table.campaignId, table.name),
-}));
+}, (table) => [
+  index("campaign_crews_campaign_id_idx").on(table.campaignId),
+  index("campaign_crews_company_id_idx").on(table.companyId),
+  index("campaign_crews_crew_id_idx").on(table.crewId),
+  uniqueIndex("campaign_crews_campaign_crew_unique").on(table.campaignId, table.crewId).where(sql`${table.crewId} IS NOT NULL`),
+  uniqueIndex("campaign_crews_campaign_name_unique").on(table.campaignId, table.name),
+  foreignKey({ name: "campaign_crews_campaign_id_fkey", columns: [table.campaignId], foreignColumns: [campaigns.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_crews_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_crews_crew_id_fkey", columns: [table.crewId], foreignColumns: [crews.id] }).onDelete("set null"),
+  foreignKey({ name: "campaign_crews_leader_user_id_fkey", columns: [table.leaderUserId], foreignColumns: [users.id] }).onDelete("restrict"),
+]);
 
 export const insertCampaignCrewSchema = createInsertSchema(campaignCrews).omit({
   id: true,
@@ -2911,14 +3218,16 @@ export type CampaignCrew = typeof campaignCrews.$inferSelect;
 
 export const campaignCrewMembers = pgTable("campaign_crew_members", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  campaignCrewId: varchar("campaign_crew_id").notNull().references(() => campaignCrews.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  campaignCrewId: varchar("campaign_crew_id").notNull(),
+  userId: varchar("user_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  campaignCrewMembersUnique: uniqueIndex("campaign_crew_members_crew_user_unique").on(table.campaignCrewId, table.userId),
-  campaignCrewMembersCrewIdx: index("campaign_crew_members_crew_id_idx").on(table.campaignCrewId),
-  campaignCrewMembersUserIdx: index("campaign_crew_members_user_id_idx").on(table.userId),
-}));
+}, (table) => [
+  uniqueIndex("campaign_crew_members_crew_user_unique").on(table.campaignCrewId, table.userId),
+  index("campaign_crew_members_crew_id_idx").on(table.campaignCrewId),
+  index("campaign_crew_members_user_id_idx").on(table.userId),
+  foreignKey({ name: "campaign_crew_members_campaign_crew_id_fkey", columns: [table.campaignCrewId], foreignColumns: [campaignCrews.id] }).onDelete("cascade"),
+  foreignKey({ name: "campaign_crew_members_user_id_fkey", columns: [table.userId], foreignColumns: [users.id] }).onDelete("cascade"),
+]);
 
 export const insertCampaignCrewMemberSchema = createInsertSchema(campaignCrewMembers).omit({
   id: true,
@@ -2982,7 +3291,7 @@ export const COMMUNICATION_TEMPLATE_CATEGORY_LABELS: Record<CommunicationTemplat
 
 export const communicationTemplates = pgTable("communication_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   category: text("category").notNull().$type<CommunicationTemplateCategory>().default("general_outreach"),
   type: text("type").notNull().$type<"email" | "sms" | "note" | "letter">(),
@@ -2992,10 +3301,13 @@ export const communicationTemplates = pgTable("communication_templates", {
   isActive: boolean("is_active").notNull().default(true),
   isArchived: boolean("is_archived").notNull().default(false),
   defaultCommunicationType: text("default_communication_type").$type<"email" | "sms" | "note" | "letter">(),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdById: varchar("created_by_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "communication_templates_company_id_companies_id_fk", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "communication_templates_created_by_id_fkey", columns: [table.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 
 export const insertCommunicationTemplateSchema = createInsertSchema(communicationTemplates).omit({
   id: true,
@@ -3026,14 +3338,24 @@ export type CommunicationTemplate = typeof communicationTemplates.$inferSelect;
 // Communication Audit Log
 export const communicationAuditLog = pgTable("communication_audit_log", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  communicationId: varchar("communication_id").references(() => communications.id, { onDelete: "set null" }),
-  templateId: varchar("template_id").references(() => communicationTemplates.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  communicationId: varchar("communication_id"),
+  templateId: varchar("template_id"),
   actionType: text("action_type").notNull().$type<"template_created" | "template_edited" | "template_archived" | "communication_sent" | "communication_deleted" | "communication_seed_cleared" | "scheduled_send_cancelled" | "automation_edited" | "automation_toggled">(),
-  actionByUserId: varchar("action_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  actionByUserId: varchar("action_by_user_id"),
   actionDetails: jsonb("action_details"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "communication_audit_log_action_by_user_id_fkey", columns: [table.actionByUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "communication_audit_log_action_by_user_id_users_id_fk", columns: [table.actionByUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "communication_audit_log_communication_id_communications_id_fk", columns: [table.communicationId], foreignColumns: [communications.id] }).onDelete("set null"),
+  foreignKey({ name: "communication_audit_log_communication_id_fkey", columns: [table.communicationId], foreignColumns: [communications.id] }).onDelete("set null"),
+  foreignKey({ name: "communication_audit_log_company_id_companies_id_fk", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "communication_audit_log_company_id_fk", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "communication_audit_log_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "communication_audit_log_template_id_communication_templates_id_", columns: [table.templateId], foreignColumns: [communicationTemplates.id] }).onDelete("set null"),
+  foreignKey({ name: "communication_audit_log_template_id_fkey", columns: [table.templateId], foreignColumns: [communicationTemplates.id] }).onDelete("set null"),
+]);
 
 export const insertCommunicationAuditLogSchema = createInsertSchema(communicationAuditLog).omit({
   id: true,
@@ -3052,21 +3374,24 @@ export type CommunicationAuditLogWithUser = CommunicationAuditLog & {
 // Communication Automation Rules
 export const communicationAutomationRules = pgTable("communication_automation_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   description: text("description"),
   triggerType: text("trigger_type").notNull().$type<"time_after_event" | "time_before_event" | "recurring">(),
   eventKey: text("event_key").$type<"proposal_created" | "work_order_closed" | "invoice_due_date" | "service_date">(),
   delayDays: integer("delay_days"),
   recurringIntervalDays: integer("recurring_interval_days"),
-  templateId: varchar("template_id").references(() => communicationTemplates.id, { onDelete: "set null" }),
+  templateId: varchar("template_id"),
   recipientScope: text("recipient_scope").notNull().$type<"primary_contact" | "all_contacts">().default("primary_contact"),
   autoSend: boolean("auto_send").notNull().default(false),
   isEnabled: boolean("is_enabled").notNull().default(true),
   lastRunAt: timestamp("last_run_at"),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdById: varchar("created_by_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "communication_automation_rules_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "communication_automation_rules_created_by_id_fkey", columns: [table.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 
 export const insertCommunicationAutomationRuleSchema = createInsertSchema(communicationAutomationRules).omit({
   id: true,
@@ -3108,14 +3433,16 @@ export interface StylePresetConfig {
 
 export const stylePresets = pgTable("style_presets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id"),
   type: text("type").notNull().$type<StylePresetType>(),
   name: text("name").notNull(),
   category: text("category").notNull().default("general"),
   styleConfig: jsonb("style_config").notNull().$type<StylePresetConfig>(),
   isDefault: boolean("is_default").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "style_presets_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertStylePresetSchema = createInsertSchema(stylePresets).omit({
   id: true,
@@ -3134,15 +3461,17 @@ export type StylePreset = typeof stylePresets.$inferSelect;
 
 export const sheetTemplates = pgTable("sheet_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   layerVisibility: jsonb("layer_visibility").$type<Record<string, boolean>>().default(sql`'{}'::jsonb`),
   legendConfig: jsonb("legend_config").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`),
   titleBlockFormat: jsonb("title_block_format").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`),
   notesLayout: jsonb("notes_layout").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`),
-  defaultPresetIds: text("default_preset_ids").array().default(sql`ARRAY[]::text[]`),
+  defaultPresetIds: text("default_preset_ids").array().default(sql`'{}'::text[]`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "sheet_templates_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertSheetTemplateSchema = createInsertSchema(sheetTemplates).omit({
   id: true,
@@ -3396,11 +3725,11 @@ export function getDefaultLayerForType(type: MarkupObjectType): string {
 
 export const mailboxAccounts = pgTable("mailbox_accounts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   emailAddress: text("email_address").notNull(),
   displayName: text("display_name").notNull(),
   accountType: text("account_type").notNull().$type<"personal" | "shared">().default("personal"),
-  ownerUserId: varchar("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  ownerUserId: varchar("owner_user_id"),
   description: text("description"),
   isActive: boolean("is_active").notNull().default(true),
   syncStatus: text("sync_status").notNull().$type<"not_connected" | "connected" | "error">().default("not_connected"),
@@ -3414,9 +3743,11 @@ export const mailboxAccounts = pgTable("mailbox_accounts", {
   syncErrorCount: integer("sync_error_count").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  mailboxAccountsCompanyEmailUnique: unique().on(table.companyId, table.emailAddress),
-}));
+}, (table) => [
+  unique("mailbox_accounts_company_id_email_address_key").on(table.companyId, table.emailAddress),
+  foreignKey({ name: "mailbox_accounts_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "mailbox_accounts_owner_user_id_fkey", columns: [table.ownerUserId], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 
 export const insertMailboxAccountSchema = createInsertSchema(mailboxAccounts).omit({
   id: true,
@@ -3446,8 +3777,8 @@ export type MailboxAccount = typeof mailboxAccounts.$inferSelect;
 
 export const mailboxSyncRuns = pgTable("mailbox_sync_runs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  mailboxAccountId: varchar("mailbox_account_id").notNull().references(() => mailboxAccounts.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  mailboxAccountId: varchar("mailbox_account_id").notNull(),
   startedAt: timestamp("started_at").notNull().defaultNow(),
   finishedAt: timestamp("finished_at"),
   status: text("status").notNull().$type<"running" | "success" | "partial" | "error">().default("running"),
@@ -3465,9 +3796,11 @@ export const mailboxSyncRuns = pgTable("mailbox_sync_runs", {
   syncMethod: text("sync_method").$type<"history" | "timestamp">(),
   historyIdBefore: text("history_id_before"),
   historyIdAfter: text("history_id_after"),
-}, (table) => ({
-  mailboxSyncRunsMailboxStartedIdx: index("mailbox_sync_runs_mailbox_started_idx").on(table.mailboxAccountId, table.startedAt),
-}));
+}, (table) => [
+  index("mailbox_sync_runs_mailbox_started_idx").on(table.mailboxAccountId, table.startedAt),
+  foreignKey({ name: "mailbox_sync_runs_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "mailbox_sync_runs_mailbox_account_id_fkey", columns: [table.mailboxAccountId], foreignColumns: [mailboxAccounts.id] }).onDelete("cascade"),
+]);
 
 export const insertMailboxSyncRunSchema = createInsertSchema(mailboxSyncRuns).omit({
   id: true,
@@ -3485,11 +3818,11 @@ export type MailboxSyncRun = typeof mailboxSyncRuns.$inferSelect;
 
 export const unsortedEmails = pgTable("unsorted_emails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  mailboxAccountId: varchar("mailbox_account_id").references(() => mailboxAccounts.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  mailboxAccountId: varchar("mailbox_account_id"),
   fromAddress: text("from_address").notNull(),
   fromName: text("from_name"),
-  toAddresses: text("to_addresses").array().default(sql`ARRAY[]::text[]`),
+  toAddresses: text("to_addresses").array().default(sql`'{}'::text[]`),
   subject: text("subject").notNull(),
   bodyText: text("body_text"),
   bodyHtml: text("body_html"),
@@ -3498,17 +3831,21 @@ export const unsortedEmails = pgTable("unsorted_emails", {
   providerThreadId: text("provider_thread_id"),
   direction: text("direction").notNull().$type<"inbound" | "outbound">().default("inbound"),
   status: text("status").notNull().$type<"pending" | "routed" | "archived" | "spam">().default("pending"),
-  assignedToUserId: varchar("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
+  assignedToUserId: varchar("assigned_to_user_id"),
   resolvedToCommunicationId: varchar("resolved_to_communication_id"),
-  resolvedByUserId: varchar("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  resolvedByUserId: varchar("resolved_by_user_id"),
   resolvedAt: timestamp("resolved_at"),
-  candidateCustomerIds: text("candidate_customer_ids").array().default(sql`ARRAY[]::text[]`),
+  candidateCustomerIds: text("candidate_customer_ids").array().default(sql`'{}'::text[]`),
   routingNotes: text("routing_notes"),
   attachmentsJson: jsonb("attachments_json").default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  unsortedEmailsCompanyIdIdx: index("unsorted_emails_company_id_idx").on(table.companyId),
-}));
+}, (table) => [
+  index("unsorted_emails_company_id_idx").on(table.companyId),
+  foreignKey({ name: "unsorted_emails_assigned_to_user_id_fkey", columns: [table.assignedToUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "unsorted_emails_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "unsorted_emails_mailbox_account_id_fkey", columns: [table.mailboxAccountId], foreignColumns: [mailboxAccounts.id] }).onDelete("set null"),
+  foreignKey({ name: "unsorted_emails_resolved_by_user_id_fkey", columns: [table.resolvedByUserId], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 
 export const insertUnsortedEmailSchema = createInsertSchema(unsortedEmails).omit({
   id: true,
@@ -3539,13 +3876,15 @@ export type UnsortedEmail = typeof unsortedEmails.$inferSelect;
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const communicationThreads = pgTable("communication_threads", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: text("company_id").notNull(),
+  customerId: text("customer_id"),
   subjectRoot: text("subject_root").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "communication_threads_company_id_companies_id_fk", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertCommunicationThreadSchema = createInsertSchema(communicationThreads).omit({
   id: true,
@@ -3559,38 +3898,38 @@ export type CommunicationThread = typeof communicationThreads.$inferSelect;
 
 export const communications = pgTable("communications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
-  contactId: varchar("contact_id").references(() => contacts.id, { onDelete: "set null" }),
-  sentById: varchar("sent_by_id").references(() => users.id, { onDelete: "set null" }),
-  templateId: varchar("template_id").references(() => communicationTemplates.id, { onDelete: "set null" }),
-  threadId: varchar("thread_id").references(() => communicationThreads.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id"),
+  contactId: varchar("contact_id"),
+  sentById: varchar("sent_by_id"),
+  templateId: varchar("template_id"),
+  threadId: varchar("thread_id"),
   inReplyTo: varchar("in_reply_to"),
-  type: text("type").notNull().$type<"email" | "sms" | "note" | "letter">().default("email"),
+  type: text("type").notNull().$type<"email" | "sms" | "note" | "letter">(),
   direction: text("direction").notNull().$type<"outbound" | "inbound">().default("outbound"),
   status: text("status").notNull().$type<"draft" | "sent" | "scheduled" | "failed">().default("draft"),
-  subject: text("subject").notNull(),
+  subject: text("subject"),
   body: text("body").notNull(),
   internalNotes: text("internal_notes"),
   scheduledFor: timestamp("scheduled_for"),
   scheduledAt: timestamp("scheduled_at"),
   sentAt: timestamp("sent_at"),
   followUpDueAt: timestamp("follow_up_due_at"),
-  followUpStatus: text("follow_up_status").$type<"none" | "open" | "done" | "snoozed">().default("none"),
+  followUpStatus: text("follow_up_status").$type<"none" | "open" | "done" | "snoozed">().default("none").notNull(),
   deliveryProvider: text("delivery_provider"),
   providerMessageId: text("provider_message_id"),
-  deliveryStatus: text("delivery_status").$type<"pending" | "sent" | "failed">(),
+  deliveryStatus: text("delivery_status").$type<"pending" | "sent" | "failed">().notNull().default(sql`'pending'::text`),
   failureReason: text("failure_reason"),
   recipientEmail: text("recipient_email"),
-  parentCommunicationId: varchar("parent_communication_id").references((): AnyPgColumn => communications.id, { onDelete: "set null" }),
-  mailboxAccountId: varchar("mailbox_account_id").references(() => mailboxAccounts.id, { onDelete: "set null" }),
+  parentCommunicationId: varchar("parent_communication_id"),
+  mailboxAccountId: varchar("mailbox_account_id"),
   bodyText: text("body_text"),
   bodyHtml: text("body_html"),
   fromAddress: text("from_address"),
   fromName: text("from_name"),
-  toAddresses: text("to_addresses").array().default(sql`ARRAY[]::text[]`),
-  ccAddresses: text("cc_addresses").array().default(sql`ARRAY[]::text[]`),
-  bccAddresses: text("bcc_addresses").array().default(sql`ARRAY[]::text[]`),
+  toAddresses: text("to_addresses").array().default(sql`'{}'::text[]`),
+  ccAddresses: text("cc_addresses").array().default(sql`'{}'::text[]`),
+  bccAddresses: text("bcc_addresses").array().default(sql`'{}'::text[]`),
   receivedAt: timestamp("received_at"),
   providerThreadId: text("provider_thread_id"),
   routingMethod: text("routing_method").$type<"manual" | "email_match" | "thread_match" | "content_match" | "llm" | "company_documents" | "estimate_email">(),
@@ -3603,20 +3942,36 @@ export const communications = pgTable("communications", {
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  communicationsCompanyIdIdx: index("communications_company_id_idx").on(table.companyId),
-  communicationsCustomerIdIdx: index("communications_customer_id_idx").on(table.customerId),
-  communicationsStatusIdx: index("communications_status_idx").on(table.status),
-  communicationsSentByIdIdx: index("communications_sent_by_id_idx").on(table.sentById),
-  communicationsFollowUpStatusIdx: index("communications_follow_up_status_idx").on(table.followUpStatus),
-  communicationsCompanyCreatedAtIdx: index("communications_company_created_at_idx").on(table.companyId, table.createdAt),
-  communicationsDeletedAtIdx: index("communications_deleted_at_idx").on(table.deletedAt),
-}));
+  // Legacy snapshots retained in the catalog. Reads with details resolve
+  // current names through their respective owners.
+  customerName: text("customer_name"),
+  contactName: text("contact_name"),
+  sentByName: text("sent_by_name"),
+}, (table) => [
+  index("communications_company_id_idx").on(table.companyId),
+  index("communications_customer_id_idx").on(table.customerId),
+  index("communications_status_idx").on(table.status),
+  index("communications_sent_by_id_idx").on(table.sentById),
+  index("communications_follow_up_status_idx").on(table.followUpStatus),
+  index("communications_deleted_at_idx").on(table.deletedAt),
+  foreignKey({ name: "communications_company_id_companies_id_fk", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "communications_contact_id_contacts_id_fk", columns: [table.contactId], foreignColumns: [contacts.id] }).onDelete("set null"),
+  foreignKey({ name: "communications_customer_id_customers_id_fk", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("set null"),
+  foreignKey({ name: "communications_mailbox_account_id_fkey", columns: [table.mailboxAccountId], foreignColumns: [mailboxAccounts.id] }).onDelete("set null"),
+  foreignKey({ name: "communications_parent_id_fk", columns: [table.parentCommunicationId], foreignColumns: [table.id] }).onDelete("set null"),
+  foreignKey({ name: "communications_sent_by_id_users_id_fk", columns: [table.sentById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "communications_template_id_fkey", columns: [table.templateId], foreignColumns: [communicationTemplates.id] }).onDelete("set null"),
+  foreignKey({ name: "communications_thread_id_fkey", columns: [table.threadId], foreignColumns: [communicationThreads.id] }).onDelete("set null"),
+  index("communications_company_created_at_idx").on(table.companyId, table.createdAt.desc().nullsFirst()),
+]);
 
 export const insertCommunicationSchema = createInsertSchema(communications).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  customerName: true,
+  contactName: true,
+  sentByName: true,
 }).extend({
   type: z.enum(["email", "sms", "note", "letter"]).default("email"),
   direction: z.enum(["outbound", "inbound"]).default("outbound"),
@@ -3660,12 +4015,15 @@ export type Communication = typeof communications.$inferSelect;
 
 export const communicationLinks = pgTable("communication_links", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  communicationId: varchar("communication_id").notNull().references(() => communications.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  communicationId: varchar("communication_id").notNull(),
+  companyId: varchar("company_id").notNull(),
   linkedType: text("linked_type").notNull().$type<"ticket" | "contract" | "proposal" | "equipment_ticket" | "snow_event">(),
   linkedId: varchar("linked_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "communication_links_communication_id_communications_id_fk", columns: [table.communicationId], foreignColumns: [communications.id] }).onDelete("cascade"),
+  foreignKey({ name: "communication_links_company_id_companies_id_fk", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertCommunicationLinkSchema = createInsertSchema(communicationLinks).omit({
   id: true,
@@ -3677,13 +4035,15 @@ export const insertCommunicationLinkSchema = createInsertSchema(communicationLin
 export type InsertCommunicationLink = z.infer<typeof insertCommunicationLinkSchema>;
 export type CommunicationLink = typeof communicationLinks.$inferSelect;
 
-export type CommunicationWithDetails = Communication & {
+export type CommunicationWithDetails = Omit<Communication, "customerName" | "contactName" | "sentByName"> & {
   customerName?: string | null;
   contactName?: string | null;
   sentByName?: string | null;
   createdByName?: string | null;
   templateName?: string | null;
   isOverdue?: boolean;
+  wasManuallySorted?: boolean;
+  manuallySortedByName?: string | null;
   replyCount?: number;
   threadSubjectRoot?: string;
   scheduledFor?: Date | string | null;
@@ -3746,12 +4106,14 @@ export const SERVICE_PLAN_CATEGORY_LABELS: Record<ServicePlanCategory, string> =
 
 export const servicePlanTemplates = pgTable("service_plan_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   active: text("active").notNull().default("true").$type<"true" | "false">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "service_plan_templates_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertServicePlanTemplateSchema = createInsertSchema(servicePlanTemplates).omit({
   id: true,
@@ -3767,11 +4129,13 @@ export type ServicePlanTemplate = typeof servicePlanTemplates.$inferSelect;
 
 export const servicePlanTemplateItems = pgTable("service_plan_template_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  templateId: varchar("template_id").notNull().references(() => servicePlanTemplates.id, { onDelete: "cascade" }),
+  templateId: varchar("template_id").notNull(),
   serviceCategory: text("service_category").notNull().$type<ServicePlanCategory>(),
   defaultAnnualQuantity: integer("default_annual_quantity").notNull().default(1),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "service_plan_template_items_template_id_fkey", columns: [table.templateId], foreignColumns: [servicePlanTemplates.id] }).onDelete("cascade"),
+]);
 
 export const insertServicePlanTemplateItemSchema = createInsertSchema(servicePlanTemplateItems).omit({
   id: true,
@@ -3786,20 +4150,25 @@ export type ServicePlanTemplateItem = typeof servicePlanTemplateItems.$inferSele
 
 export const customerServicePlans = pgTable("customer_service_plans", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
   year: integer("year").notNull(),
   serviceCategory: text("service_category").notNull().$type<ServicePlanCategory>(),
   expectedQuantity: integer("expected_quantity").notNull().default(1),
   notes: text("notes"),
-  sourceContractRef: varchar("source_contract_ref").references(() => contracts.id, { onDelete: "set null" }),
-  sourceTemplateId: varchar("source_template_id").references(() => servicePlanTemplates.id, { onDelete: "set null" }),
+  sourceContractRef: varchar("source_contract_ref"),
+  sourceTemplateId: varchar("source_template_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  customerServicePlansCustomerIdx: index("customer_service_plans_customer_idx").on(table.customerId),
-  customerServicePlansCompanyIdx: index("customer_service_plans_company_idx").on(table.companyId),
-}));
+}, (table) => [
+  index("customer_service_plans_customer_idx").on(table.customerId),
+  index("customer_service_plans_company_idx").on(table.companyId),
+  unique("customer_service_plans_unique_key").on(table.customerId, table.year, table.serviceCategory),
+  foreignKey({ name: "customer_service_plans_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "customer_service_plans_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "customer_service_plans_source_contract_ref_fkey", columns: [table.sourceContractRef], foreignColumns: [contracts.id] }).onDelete("set null"),
+  foreignKey({ name: "customer_service_plans_source_template_id_fkey", columns: [table.sourceTemplateId], foreignColumns: [servicePlanTemplates.id] }).onDelete("set null"),
+]);
 
 export const insertCustomerServicePlanSchema = createInsertSchema(customerServicePlans).omit({
   id: true,
@@ -3839,8 +4208,8 @@ export type { AuditFlag, AuditStatus, ContractAuditRow, ContractAuditResponse } 
 
 export const mailboxBackfillRuns = pgTable("mailbox_backfill_runs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  mailboxAccountId: varchar("mailbox_account_id").notNull().references(() => mailboxAccounts.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  mailboxAccountId: varchar("mailbox_account_id").notNull(),
   startedAt: timestamp("started_at").notNull().defaultNow(),
   finishedAt: timestamp("finished_at"),
   rangeStart: timestamp("range_start").notNull(),
@@ -3862,9 +4231,13 @@ export const mailboxBackfillRuns = pgTable("mailbox_backfill_runs", {
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  mailboxBackfillRunsMailboxStartedIdx: index("mailbox_backfill_runs_mailbox_started_idx").on(table.mailboxAccountId, table.startedAt),
-}));
+}, (table) => [
+  index("mailbox_backfill_runs_mailbox_started_idx").on(table.mailboxAccountId, table.startedAt),
+  foreignKey({ name: "mailbox_backfill_runs_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "mailbox_backfill_runs_mailbox_account_id_fkey", columns: [table.mailboxAccountId], foreignColumns: [mailboxAccounts.id] }).onDelete("cascade"),
+  index("mailbox_backfill_runs_status_idx").on(table.status),
+  index("mailbox_backfill_runs_mailbox_idx").on(table.mailboxAccountId, table.startedAt.desc().nullsFirst()),
+]);
 
 export const insertMailboxBackfillRunSchema = createInsertSchema(mailboxBackfillRuns).omit({
   id: true,
@@ -3889,16 +4262,18 @@ export const crews = pgTable("crews", {
   defaultHoursPerDay: real("default_hours_per_day"),
   displayOrder: integer("display_order"),
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
-  supervisorUserId: varchar("supervisor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  supervisorUserId: varchar("supervisor_user_id").notNull(),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  crewsCompanyNameUnique: unique("crews_company_name_unique").on(table.companyId, table.name),
-  crewsCompanySupervisorIdx: index("crews_company_supervisor_idx").on(table.companyId, table.supervisorUserId),
-}));
+}, (table) => [
+  index("crews_company_supervisor_idx").on(table.companyId, table.supervisorUserId),
+  unique("crews_company_name_unique").on(table.companyId, table.name),
+  foreignKey({ name: "crews_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "crews_supervisor_user_id_fkey", columns: [table.supervisorUserId], foreignColumns: [users.id] }).onDelete("restrict"),
+]);
 
 export const insertCrewSchema = createInsertSchema(crews).omit({
   id: true,
@@ -3919,18 +4294,20 @@ export type Crew = typeof crews.$inferSelect;
 // Coexists with the existing express-session cookie auth used by the web CRM.
 export const mobileAuthTokens = pgTable("mobile_auth_tokens", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  userId: varchar("user_id").notNull(),
   tokenHash: text("token_hash").notNull(),
   deviceLabel: text("device_label"),
   lastUsedAt: timestamp("last_used_at").notNull().defaultNow(),
   expiresAt: timestamp("expires_at").notNull(),
   revokedAt: timestamp("revoked_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  mobileAuthTokensTokenHashIdx: index("mobile_auth_tokens_token_hash_idx").on(table.tokenHash),
-  mobileAuthTokensUserIdx: index("mobile_auth_tokens_user_idx").on(table.userId),
-}));
+}, (table) => [
+  index("mobile_auth_tokens_token_hash_idx").on(table.tokenHash),
+  index("mobile_auth_tokens_user_idx").on(table.userId),
+  foreignKey({ name: "mobile_auth_tokens_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "mobile_auth_tokens_user_id_fkey", columns: [table.userId], foreignColumns: [users.id] }).onDelete("cascade"),
+]);
 
 export const insertMobileAuthTokenSchema = createInsertSchema(mobileAuthTokens).omit({
   id: true,
@@ -3948,8 +4325,8 @@ export type MobileAuthToken = typeof mobileAuthTokens.$inferSelect;
 // service (e.g. "shut off irrigation before mowing" only on `mowing`).
 export const propertySiteNotes = pgTable("property_site_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
   serviceType: text("service_type"),
   label: text("label").notNull(),
   value: text("value").notNull(),
@@ -3957,9 +4334,11 @@ export const propertySiteNotes = pgTable("property_site_notes", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  propertySiteNotesCustomerIdx: index("property_site_notes_customer_idx").on(table.customerId, table.serviceType, table.sortOrder),
-}));
+}, (table) => [
+  index("property_site_notes_customer_idx").on(table.customerId, table.serviceType, table.sortOrder),
+  foreignKey({ name: "property_site_notes_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "property_site_notes_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+]);
 
 export const insertPropertySiteNoteSchema = createInsertSchema(propertySiteNotes).omit({
   id: true,
@@ -3983,7 +4362,7 @@ export type PropertySiteNote = typeof propertySiteNotes.$inferSelect;
 // instruction / photoRequired / displayOrder / isActive columns.
 export const serviceTypeTemplates = pgTable("service_type_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   serviceType: text("service_type").notNull(),
   name: text("name").notNull(),
   // Legacy JSON column from migration 0022; kept for back-compat but unused
@@ -3991,9 +4370,10 @@ export const serviceTypeTemplates = pgTable("service_type_templates", {
   items: jsonb("items").notNull().default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  serviceTypeTemplatesCompanyIdx: index("service_type_templates_company_idx").on(table.companyId, table.serviceType),
-}));
+}, (table) => [
+  index("service_type_templates_company_idx").on(table.companyId, table.serviceType),
+  foreignKey({ name: "service_type_templates_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertServiceTypeTemplateSchema = createInsertSchema(serviceTypeTemplates).omit({
   id: true,
@@ -4010,7 +4390,7 @@ export type ServiceTypeTemplate = typeof serviceTypeTemplates.$inferSelect;
 
 export const serviceTypeTemplateItems = pgTable("service_type_template_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  templateId: varchar("template_id").notNull().references(() => serviceTypeTemplates.id, { onDelete: "cascade" }),
+  templateId: varchar("template_id").notNull(),
   label: text("label").notNull(),
   defaultInstruction: text("default_instruction"),
   photoRequired: boolean("photo_required").notNull().default(false),
@@ -4019,9 +4399,10 @@ export const serviceTypeTemplateItems = pgTable("service_type_template_items", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  serviceTypeTemplateItemsTemplateIdx: index("service_type_template_items_template_idx").on(table.templateId, table.displayOrder),
-}));
+}, (table) => [
+  index("service_type_template_items_template_idx").on(table.templateId, table.displayOrder),
+  foreignKey({ name: "service_type_template_items_template_id_fkey", columns: [table.templateId], foreignColumns: [serviceTypeTemplates.id] }).onDelete("cascade"),
+]);
 
 export const insertServiceTypeTemplateItemSchema = createInsertSchema(serviceTypeTemplateItems).omit({
   id: true,
@@ -4050,7 +4431,7 @@ export type ServiceTypeTemplateItem = typeof serviceTypeTemplateItems.$inferSele
 // the optional follow-up free text.
 export const ticketWorkItems = pgTable("ticket_work_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  ticketId: varchar("ticket_id").notNull(),
   label: text("label").notNull(),
   instruction: text("instruction"),
   photoRequired: boolean("photo_required").notNull().default(false),
@@ -4058,14 +4439,16 @@ export const ticketWorkItems = pgTable("ticket_work_items", {
   isRequired: boolean("is_required").notNull().default(false),
   isComplete: boolean("is_complete").notNull().default(false),
   completedAt: timestamp("completed_at"),
-  completedById: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
+  completedById: varchar("completed_by_id"),
   skipReason: text("skip_reason"),
   skipNote: text("skip_note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketWorkItemsTicketIdx: index("ticket_work_items_ticket_idx").on(table.ticketId, table.sortOrder),
-}));
+}, (table) => [
+  index("ticket_work_items_ticket_idx").on(table.ticketId, table.sortOrder),
+  foreignKey({ name: "ticket_work_items_completed_by_id_fkey", columns: [table.completedById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "ticket_work_items_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+]);
 
 export const insertTicketWorkItemSchema = createInsertSchema(ticketWorkItems).omit({
   id: true,
@@ -4089,21 +4472,22 @@ export type TicketWorkItem = typeof ticketWorkItems.$inferSelect;
 // profile so the Properties tab can show a "Recent" section ahead of search.
 export const recentPropertyViews = pgTable("recent_property_views", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  customerId: varchar("customer_id").notNull(),
   viewedAt: timestamp("viewed_at").notNull().defaultNow(),
-}, (table) => ({
-  recentPropertyViewsUserCustomerUnique: uniqueIndex("recent_property_views_user_customer_unique").on(table.userId, table.customerId),
-  recentPropertyViewsUserViewedAtIdx: index("recent_property_views_user_viewed_at_idx").on(table.userId, table.viewedAt),
-  // Composite covering index for the company-scoped Recent query in
-  // GET /api/m/properties (filters by company + user, orders by viewedAt desc).
-  recentPropertyViewsCompanyUserViewedAtIdx: index("recent_property_views_company_user_viewed_at_idx").on(
+}, (table) => [
+  uniqueIndex("recent_property_views_user_customer_unique").on(table.userId, table.customerId),
+  index("recent_property_views_user_viewed_at_idx").on(table.userId, table.viewedAt),
+  index("recent_property_views_company_user_viewed_at_idx").on(
     table.companyId,
     table.userId,
     table.viewedAt,
   ),
-}));
+  foreignKey({ name: "recent_property_views_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "recent_property_views_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("cascade"),
+  foreignKey({ name: "recent_property_views_user_id_fkey", columns: [table.userId], foreignColumns: [users.id] }).onDelete("cascade"),
+]);
 
 export type RecentPropertyView = typeof recentPropertyViews.$inferSelect;
 
@@ -4115,9 +4499,9 @@ export type RecentPropertyView = typeof recentPropertyViews.$inferSelect;
 // queue so a retried POST doesn't create a duplicate row.
 export const ticketPhotos = pgTable("ticket_photos", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
-  uploadedByUserId: varchar("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  ticketId: varchar("ticket_id").notNull(),
+  uploadedByUserId: varchar("uploaded_by_user_id"),
   storageKey: text("storage_key").notNull(),
   contentType: text("content_type").notNull().default("image/jpeg"),
   byteSize: integer("byte_size"),
@@ -4126,24 +4510,32 @@ export const ticketPhotos = pgTable("ticket_photos", {
   capturedAt: timestamp("captured_at").notNull().defaultNow(),
   clientId: varchar("client_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketPhotosTicketIdx: index("ticket_photos_ticket_idx").on(table.ticketId, table.createdAt),
-}));
+}, (table) => [
+  index("ticket_photos_ticket_idx").on(table.ticketId, table.createdAt),
+  foreignKey({ name: "ticket_photos_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_photos_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_photos_uploaded_by_user_id_fkey", columns: [table.uploadedByUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  uniqueIndex("ticket_photos_client_id_uidx").on(table.ticketId, table.clientId).where(sql`${table.clientId} IS NOT NULL`),
+]);
 
 export type TicketPhoto = typeof ticketPhotos.$inferSelect;
 export type InsertTicketPhoto = typeof ticketPhotos.$inferInsert;
 
 export const ticketNotes = pgTable("ticket_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
-  authorUserId: varchar("author_user_id").references(() => users.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  ticketId: varchar("ticket_id").notNull(),
+  authorUserId: varchar("author_user_id"),
   body: text("body").notNull(),
   clientId: varchar("client_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  ticketNotesTicketIdx: index("ticket_notes_ticket_idx").on(table.ticketId, table.createdAt),
-}));
+}, (table) => [
+  index("ticket_notes_ticket_idx").on(table.ticketId, table.createdAt),
+  foreignKey({ name: "ticket_notes_author_user_id_fkey", columns: [table.authorUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "ticket_notes_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "ticket_notes_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("cascade"),
+  uniqueIndex("ticket_notes_client_id_uidx").on(table.ticketId, table.clientId).where(sql`${table.clientId} IS NOT NULL`),
+]);
 
 export type TicketNote = typeof ticketNotes.$inferSelect;
 export type InsertTicketNote = typeof ticketNotes.$inferInsert;
@@ -4157,40 +4549,45 @@ export type InsertTicketNote = typeof ticketNotes.$inferInsert;
 // without an enum-altering migration.
 export const flags = pgTable("flags", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  createdByUserId: varchar("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
-  crewId: varchar("crew_id").references(() => crews.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  createdByUserId: varchar("created_by_user_id"),
+  crewId: varchar("crew_id"),
   // Property = customers row (the CRM uses `customers` for both customers
   // and individual properties). Optional; a flag can be raised without one.
-  propertyId: varchar("property_id").references(() => customers.id, { onDelete: "set null" }),
-  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+  propertyId: varchar("property_id"),
+  ticketId: varchar("ticket_id"),
   tag: text("tag").notNull(),
   note: text("note"),
   status: text("status").notNull().default("new"),
-  assignedToUserId: varchar("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
+  assignedToUserId: varchar("assigned_to_user_id"),
   resolution: text("resolution"),
   resolvedAt: timestamp("resolved_at"),
   clientId: varchar("client_id"),
   sourceKey: text("source_key"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  openSourceKey: uniqueIndex("flags_company_open_source_key").on(table.companyId, table.sourceKey)
+}, (table) => [
+  uniqueIndex("flags_company_open_source_key").on(table.companyId, table.sourceKey)
     .where(sql`${table.sourceKey} IS NOT NULL AND ${table.status} NOT IN ('resolved', 'dismissed')`),
-  flagsCompanyStatusCreatedIdx: index("flags_company_status_created_idx").on(
-    table.companyId, table.status, table.createdAt,
-  ),
-  flagsCompanyCreatedIdx: index("flags_company_created_idx").on(table.companyId, table.createdAt),
-}));
+  foreignKey({ name: "flags_assigned_to_user_id_fkey", columns: [table.assignedToUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "flags_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "flags_created_by_user_id_fkey", columns: [table.createdByUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "flags_crew_id_fkey", columns: [table.crewId], foreignColumns: [crews.id] }).onDelete("set null"),
+  foreignKey({ name: "flags_property_id_fkey", columns: [table.propertyId], foreignColumns: [customers.id] }).onDelete("set null"),
+  foreignKey({ name: "flags_ticket_id_fkey", columns: [table.ticketId], foreignColumns: [tickets.id] }).onDelete("set null"),
+  index("flags_company_status_created_idx").on(table.companyId, table.status, table.createdAt.desc().nullsFirst()),
+  index("flags_company_created_idx").on(table.companyId, table.createdAt.desc().nullsFirst()),
+  uniqueIndex("flags_company_client_id_uq").on(table.companyId, table.clientId).where(sql`${table.clientId} IS NOT NULL`),
+]);
 
 export type Flag = typeof flags.$inferSelect;
 export type InsertFlag = typeof flags.$inferInsert;
 
 export const flagPhotos = pgTable("flag_photos", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  flagId: varchar("flag_id").notNull().references(() => flags.id, { onDelete: "cascade" }),
-  uploadedByUserId: varchar("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  flagId: varchar("flag_id").notNull(),
+  uploadedByUserId: varchar("uploaded_by_user_id"),
   storageKey: text("storage_key").notNull(),
   contentType: text("content_type").notNull().default("image/jpeg"),
   byteSize: integer("byte_size"),
@@ -4199,9 +4596,13 @@ export const flagPhotos = pgTable("flag_photos", {
   capturedAt: timestamp("captured_at").notNull().defaultNow(),
   clientId: varchar("client_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  flagPhotosFlagIdx: index("flag_photos_flag_idx").on(table.flagId, table.createdAt),
-}));
+}, (table) => [
+  index("flag_photos_flag_idx").on(table.flagId, table.createdAt),
+  foreignKey({ name: "flag_photos_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "flag_photos_flag_id_fkey", columns: [table.flagId], foreignColumns: [flags.id] }).onDelete("cascade"),
+  foreignKey({ name: "flag_photos_uploaded_by_user_id_fkey", columns: [table.uploadedByUserId], foreignColumns: [users.id] }).onDelete("set null"),
+  uniqueIndex("flag_photos_flag_client_id_uq").on(table.flagId, table.clientId).where(sql`${table.clientId} IS NOT NULL`),
+]);
 
 export type FlagPhoto = typeof flagPhotos.$inferSelect;
 export type InsertFlagPhoto = typeof flagPhotos.$inferInsert;
@@ -4220,7 +4621,7 @@ export type PlantCategory =
 
 export const plantCatalogItems = pgTable("plant_catalog_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   productCode: text("product_code").notNull(),
   category: text("category").notNull().$type<PlantCategory>(),
   varietyKey: text("variety_key").notNull(),
@@ -4239,12 +4640,13 @@ export const plantCatalogItems = pgTable("plant_catalog_items", {
   lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  plantCatalogCompanyProductUniq: uniqueIndex("plant_catalog_items_company_product_idx").on(table.companyId, table.productCode),
-  plantCatalogCompanyIdIdx: index("plant_catalog_items_company_id_idx").on(table.companyId),
-  plantCatalogVarietyKeyIdx: index("plant_catalog_items_variety_key_idx").on(table.varietyKey),
-  plantCatalogCategoryIdx: index("plant_catalog_items_category_idx").on(table.category),
-}));
+}, (table) => [
+  uniqueIndex("plant_catalog_items_company_product_idx").on(table.companyId, table.productCode),
+  index("plant_catalog_items_company_id_idx").on(table.companyId),
+  index("plant_catalog_items_variety_key_idx").on(table.varietyKey),
+  index("plant_catalog_items_category_idx").on(table.category),
+  foreignKey({ name: "plant_catalog_items_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertPlantCatalogItemSchema = createInsertSchema(plantCatalogItems).omit({
   id: true,
@@ -4264,7 +4666,7 @@ export type PlantCatalogItem = typeof plantCatalogItems.$inferSelect;
 
 export const plantSyncRuns = pgTable("plant_sync_runs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   status: text("status").notNull().$type<"running" | "success" | "partial" | "error">().default("running"),
   source: text("source").notNull().$type<"availability" | "enrichment">().default("availability"),
   startedAt: timestamp("started_at").notNull().defaultNow(),
@@ -4274,9 +4676,10 @@ export const plantSyncRuns = pgTable("plant_sync_runs", {
   errorMessage: text("error_message"),
   processedCount: integer("processed_count"),
   totalCount: integer("total_count"),
-}, (table) => ({
-  plantSyncRunsCompanyStartedIdx: index("plant_sync_runs_company_started_idx").on(table.companyId, table.startedAt),
-}));
+}, (table) => [
+  foreignKey({ name: "plant_sync_runs_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  index("plant_sync_runs_company_started_idx").on(table.companyId, table.startedAt.desc().nullsFirst()),
+]);
 
 export type PlantSyncRun = typeof plantSyncRuns.$inferSelect;
 export type InsertPlantSyncRun = typeof plantSyncRuns.$inferInsert;
@@ -4286,7 +4689,7 @@ export type PlantAttributeSource = "auto" | "confirmed";
 
 export const plantEnrichment = pgTable("plant_enrichment", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   varietyKey: text("variety_key").notNull(),
   displayName: text("display_name"),
   treefarmUrl: text("treefarm_url"),
@@ -4314,11 +4717,12 @@ export const plantEnrichment = pgTable("plant_enrichment", {
   lastEnrichedAt: timestamp("last_enriched_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  plantEnrichmentCompanyVarietyUniq: uniqueIndex("plant_enrichment_company_variety_idx").on(table.companyId, table.varietyKey),
-  plantEnrichmentCompanyIdIdx: index("plant_enrichment_company_id_idx").on(table.companyId),
-  plantEnrichmentMatchStatusIdx: index("plant_enrichment_match_status_idx").on(table.matchStatus),
-}));
+}, (table) => [
+  uniqueIndex("plant_enrichment_company_variety_idx").on(table.companyId, table.varietyKey),
+  index("plant_enrichment_company_id_idx").on(table.companyId),
+  index("plant_enrichment_match_status_idx").on(table.matchStatus),
+  foreignKey({ name: "plant_enrichment_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export type PlantEnrichment = typeof plantEnrichment.$inferSelect;
 export type InsertPlantEnrichment = typeof plantEnrichment.$inferInsert;
@@ -4327,9 +4731,9 @@ export type InsertPlantEnrichment = typeof plantEnrichment.$inferInsert;
 
 export const proposalPlantItems = pgTable("proposal_plant_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  proposalId: varchar("proposal_id").notNull().references(() => proposals.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  plantCatalogItemId: varchar("plant_catalog_item_id").references(() => plantCatalogItems.id, { onDelete: "set null" }),
+  proposalId: varchar("proposal_id").notNull(),
+  companyId: varchar("company_id").notNull(),
+  plantCatalogItemId: varchar("plant_catalog_item_id"),
   nameSnapshot: text("name_snapshot").notNull(),
   botanicalSnapshot: text("botanical_snapshot"),
   sizeSnapshot: text("size_snapshot"),
@@ -4341,10 +4745,13 @@ export const proposalPlantItems = pgTable("proposal_plant_items", {
   displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  proposalPlantItemsProposalIdIdx: index("proposal_plant_items_proposal_id_idx").on(table.proposalId),
-  proposalPlantItemsCompanyIdIdx: index("proposal_plant_items_company_id_idx").on(table.companyId),
-}));
+}, (table) => [
+  index("proposal_plant_items_proposal_id_idx").on(table.proposalId),
+  index("proposal_plant_items_company_id_idx").on(table.companyId),
+  foreignKey({ name: "proposal_plant_items_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "proposal_plant_items_plant_catalog_item_id_fkey", columns: [table.plantCatalogItemId], foreignColumns: [plantCatalogItems.id] }).onDelete("set null"),
+  foreignKey({ name: "proposal_plant_items_proposal_id_fkey", columns: [table.proposalId], foreignColumns: [proposals.id] }).onDelete("cascade"),
+]);
 
 export const insertProposalPlantItemSchema = createInsertSchema(proposalPlantItems).omit({
   id: true,
@@ -4363,20 +4770,23 @@ export type ProposalPlantItem = typeof proposalPlantItems.$inferSelect;
 /** @deprecated Dormant since Slice 4.3. Drop in a dedicated, reviewed migration once no unlinked draft proposal references a palette. */
 export const plantPalettes = pgTable("plant_palettes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id"),
   isTemplate: boolean("is_template").notNull().default(false),
-  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdById: varchar("created_by_id"),
   title: text("title").notNull().default("Plant Palette"),
   introText: text("intro_text"),
   paletteDate: varchar("palette_date"),
   status: text("status").notNull().$type<"draft" | "published">().default("draft"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  plantPalettesCompanyIdIdx: index("plant_palettes_company_id_idx").on(table.companyId),
-  plantPalettesCustomerIdIdx: index("plant_palettes_customer_id_idx").on(table.customerId),
-}));
+}, (table) => [
+  index("plant_palettes_company_id_idx").on(table.companyId),
+  index("plant_palettes_customer_id_idx").on(table.customerId),
+  foreignKey({ name: "plant_palettes_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "plant_palettes_created_by_id_fkey", columns: [table.createdById], foreignColumns: [users.id] }).onDelete("set null"),
+  foreignKey({ name: "plant_palettes_customer_id_fkey", columns: [table.customerId], foreignColumns: [customers.id] }).onDelete("set null"),
+]);
 
 export const insertPlantPaletteSchema = createInsertSchema(plantPalettes).omit({
   id: true,
@@ -4397,9 +4807,9 @@ export type PlantPalette = typeof plantPalettes.$inferSelect;
 /** @deprecated Dormant since Slice 4.3. Drop in a dedicated, reviewed migration once no unlinked draft proposal references a palette. */
 export const plantPaletteItems = pgTable("plant_palette_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  paletteId: varchar("palette_id").notNull().references(() => plantPalettes.id, { onDelete: "cascade" }),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  plantCatalogItemId: varchar("plant_catalog_item_id").references(() => plantCatalogItems.id, { onDelete: "set null" }),
+  paletteId: varchar("palette_id").notNull(),
+  companyId: varchar("company_id").notNull(),
+  plantCatalogItemId: varchar("plant_catalog_item_id"),
   varietyKey: text("variety_key"),
   nameSnapshot: text("name_snapshot").notNull(),
   typeLabel: text("type_label").notNull(),
@@ -4408,9 +4818,12 @@ export const plantPaletteItems = pgTable("plant_palette_items", {
   imageUrlSnapshot: text("image_url_snapshot"),
   displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  plantPaletteItemsPaletteIdIdx: index("plant_palette_items_palette_id_idx").on(table.paletteId),
-}));
+}, (table) => [
+  index("plant_palette_items_palette_id_idx").on(table.paletteId),
+  foreignKey({ name: "plant_palette_items_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "plant_palette_items_palette_id_fkey", columns: [table.paletteId], foreignColumns: [plantPalettes.id] }).onDelete("cascade"),
+  foreignKey({ name: "plant_palette_items_plant_catalog_item_id_fkey", columns: [table.plantCatalogItemId], foreignColumns: [plantCatalogItems.id] }).onDelete("set null"),
+]);
 
 export const insertPlantPaletteItemSchema = createInsertSchema(plantPaletteItems).omit({
   id: true,
@@ -4431,7 +4844,7 @@ export type PlantPaletteItem = typeof plantPaletteItems.$inferSelect;
 // are owned by customers; CQ2 retires the legacy invoice bill-to cache reader.
 export const qboCustomerCache = pgTable("qbo_customer_cache", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   qboId: text("qbo_id").notNull(),
   displayName: text("display_name").notNull(),
   normalized: jsonb("normalized"),
@@ -4450,17 +4863,18 @@ export const qboCustomerCache = pgTable("qbo_customer_cache", {
   active: boolean("active").notNull().default(true),
   syncedAt: timestamp("synced_at").notNull().defaultNow(),
   // Seed columns: persist import-seed evidence independently of binding state
-  seedCustomerId: varchar("seed_customer_id").references(() => customers.id, { onDelete: "set null" }),
+  seedCustomerId: varchar("seed_customer_id"),
   seedSource: text("seed_source"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  qboCustomerCacheCompanyQboIdUniq: unique("qbo_customer_cache_company_qbo_id_uniq").on(table.companyId, table.qboId),
-  qboCustomerCacheCompanyIdIdx: index("qbo_customer_cache_company_id_idx").on(table.companyId),
-  // Trigram index for fast display-name matching (requires pg_trgm extension)
-  qboCustomerCacheDisplayNameTrgmIdx: index("qbo_customer_cache_display_name_trgm_idx")
+}, (table) => [
+  index("qbo_customer_cache_company_id_idx").on(table.companyId),
+  index("qbo_customer_cache_display_name_trgm_idx")
     .using("gin", sql`lower(display_name) gin_trgm_ops`),
-}));
+  foreignKey({ name: "qbo_customer_cache_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "qbo_customer_cache_seed_customer_id_fkey", columns: [table.seedCustomerId], foreignColumns: [customers.id] }).onDelete("set null"),
+  uniqueIndex("qbo_customer_cache_company_qbo_id_uniq").on(table.companyId, table.qboId),
+]);
 
 export const insertQboCustomerCacheSchema = createInsertSchema(qboCustomerCache).omit({
   id: true,
@@ -4485,7 +4899,7 @@ export type QboCustomerCache = typeof qboCustomerCache.$inferSelect;
 // ── QuickBooks Online OAuth Connection ─────────────────────────────────────────
 export const qboConnections = pgTable("qbo_connections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }).unique(),
+  companyId: varchar("company_id").notNull(),
   realmId: text("realm_id").notNull(),
   customerBaselineAt: timestamp("customer_baseline_at", { withTimezone: true }),
   customerCdcCursor: timestamp("customer_cdc_cursor", { withTimezone: true }),
@@ -4500,9 +4914,11 @@ export const qboConnections = pgTable("qbo_connections", {
   lastErrorMessage: text("last_error_message"),
   connectedAt: timestamp("connected_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  qboConnectionsCompanyIdIdx: index("qbo_connections_company_id_idx").on(table.companyId),
-}));
+}, (table) => [
+  index("qbo_connections_company_id_idx").on(table.companyId),
+  unique("qbo_connections_company_id_key").on(table.companyId),
+  foreignKey({ name: "qbo_connections_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const insertQboConnectionSchema = createInsertSchema(qboConnections).omit({
   id: true,

@@ -12,12 +12,12 @@ type Staff = { userId: string; name: string; role: string };
 type Customer = { id: string; name: string; type: string; managementCompany: string | null };
 type Scope = { companyId: string; visible: VisibleMailboxes; customerId?: string };
 type ListRow = {
-  key: string; subject: string; customer: Customer | null; kind: string; messageCount: number; hasAttachments: boolean;
+  key: string; subject: string | null; customer: Customer | null; kind: string; messageCount: number; hasAttachments: boolean;
   needsReply: boolean; firstDirection: Direction; direction: Direction; at: string; sender: string | null;
   html: string | null; text: string | null; body: string; team: Staff[];
 };
 type MessageRow = {
-  id: string; subject: string; direction: Direction; at: string; type: string; customerId: string | null;
+  id: string; subject: string | null; direction: Direction; at: string; type: string; customerId: string | null;
   fromAddress: string | null; fromName: string | null; toAddresses: string[] | null; recipientEmail: string | null;
   mailboxId: string | null; providerThreadId: string | null; providerMessageId: string | null; inReplyTo: string | null;
   bodyHtml: string | null; bodyText: string | null; body: string; staff: Staff | null; sentById: string | null;
@@ -56,7 +56,7 @@ const managementCompany = sql`LEFT JOIN property_managers pm ON pm.id = cu.prope
 const customer = sql`CASE WHEN cu.id IS NOT NULL THEN jsonb_build_object('id', cu.id, 'name', cu.name,
   'type', cu.customer_type, 'managementCompany', coalesce(pmc.name, cu.management_company)) END`;
 const attachmentFlag = (value: SQL) => sql`CASE WHEN jsonb_typeof(${value}) = 'array' THEN jsonb_array_length(${value}) > 0 ELSE false END`;
-const bareSubject = (subject: string) => subject.replace(/^(?:re:\s*)+/iu, "").trim();
+const bareSubject = (subject: string | null) => (subject ?? "").replace(/^(?:re:\s*)+/iu, "").trim();
 export const firstSenderWord = (name: string | null) => {
   const first = name?.trim().split(/\s+/u)[0];
   return first && !first.includes("@") ? first : null;

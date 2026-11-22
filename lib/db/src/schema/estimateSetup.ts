@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, varchar, text, integer, boolean, timestamp, uniqueIndex, index, check } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, integer, boolean, timestamp, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
 import { z } from "zod/v4";
 import { companies } from "./schema";
 import { ESTIMATE_UNITS } from "../estimateUnits";
@@ -55,58 +55,65 @@ export const SERVICE_CATEGORY_DEFAULTS = [
 ] as const;
 export const estimateServiceCategories = pgTable("estimate_service_categories", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   name: text("name").notNull(),
   defaultUmbrellaKey: text("default_umbrella_key").notNull().$type<typeof UMBRELLA_KEYS[number]>(),
   defaultUnit: text("default_unit").notNull().$type<typeof QUICK_ITEM_UNITS[number]>(),
   sortOrder: integer("sort_order").notNull().default(0), isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, t => ({
-  companyName: uniqueIndex("estimate_service_categories_company_name_idx").on(t.companyId, sql`lower(${t.name})`),
-  nameCheck: check("estimate_service_categories_name_check", sql`${t.name} = trim(${t.name}) AND length(${t.name}) BETWEEN 1 AND 100`),
-  keyCheck: check("estimate_service_categories_key_check", sql`${t.defaultUmbrellaKey} IN ('plants','landscape_materials','irrigation_materials','landscape_labor','irrigation_labor','fees_surcharges')`),
-  unitCheck: check("estimate_service_categories_unit_v3_check", sql`${t.defaultUnit} IN ('SF','LF','1,000 SF','HR','DAY','WEEK','EA','FLAT','GAL','CU. YD','LB','BAG','TON','IN. DBH')`),
-}));
+}, (t) => [
+  uniqueIndex("estimate_service_categories_company_name_idx").on(t.companyId, sql`lower(${t.name})`),
+  check("estimate_service_categories_name_check", sql`${t.name} = trim(${t.name}) AND length(${t.name}) BETWEEN 1 AND 100`),
+  check("estimate_service_categories_key_check", sql`${t.defaultUmbrellaKey} IN ('plants','landscape_materials','irrigation_materials','landscape_labor','irrigation_labor','fees_surcharges')`),
+  check("estimate_service_categories_unit_v3_check", sql`${t.defaultUnit} IN ('SF','LF','1,000 SF','HR','DAY','WEEK','EA','FLAT','GAL','CU. YD','LB','BAG','TON','IN. DBH')`),
+  foreignKey({ name: "estimate_service_categories_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 export const qboUmbrellaItems = pgTable("qbo_umbrella_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   key: text("key").notNull().$type<typeof UMBRELLA_KEYS[number]>(),
   label: text("label").notNull(), description: text("description"),
   qboItemId: varchar("qbo_item_id"), qboItemName: text("qbo_item_name"), qboItemType: text("qbo_item_type"),
   qboSyncedAt: timestamp("qbo_synced_at"), sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, t => ({
-  companyKey: uniqueIndex("qbo_umbrella_items_company_key_idx").on(t.companyId, t.key),
-  keyCheck: check("qbo_umbrella_items_key_check", sql`${t.key} IN ('plants','landscape_materials','irrigation_materials','landscape_labor','irrigation_labor','fees_surcharges')`),
-  typeCheck: check("qbo_umbrella_items_type_check", sql`${t.qboItemType} IN ('Service','NonInventory')`),
-}));
+}, (t) => [
+  uniqueIndex("qbo_umbrella_items_company_key_idx").on(t.companyId, t.key),
+  check("qbo_umbrella_items_key_check", sql`${t.key} IN ('plants','landscape_materials','irrigation_materials','landscape_labor','irrigation_labor','fees_surcharges')`),
+  check("qbo_umbrella_items_qbo_item_type_check", sql`${t.qboItemType} IN ('Service','NonInventory')`),
+  foreignKey({ name: "qbo_umbrella_items_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 export const qboItemCache = pgTable("qbo_item_cache", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   qboId: varchar("qbo_id").notNull(), name: text("name").notNull(), type: text("type").notNull(),
   incomeAccountName: text("income_account_name"), active: boolean("active").notNull().default(true),
   fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
-}, t => ({ companyQbo: uniqueIndex("qbo_item_cache_company_qbo_idx").on(t.companyId, t.qboId) }));
+}, (t) => [
+  uniqueIndex("qbo_item_cache_company_qbo_idx").on(t.companyId, t.qboId),
+  foreignKey({ name: "qbo_item_cache_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 export const estimateQuickItems = pgTable("estimate_quick_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").notNull(),
   kind: text("kind").notNull().$type<typeof QUICK_ITEM_KINDS[number]>(), label: text("label").notNull(),
-  serviceCategoryId: varchar("service_category_id").references(() => estimateServiceCategories.id, { onDelete: "restrict" }),
+  serviceCategoryId: varchar("service_category_id"),
    defaultUnit: text("default_unit").notNull().default("HR").$type<typeof QUICK_ITEM_UNITS[number]>(),
   defaultRateCents: integer("default_rate_cents"), umbrellaKey: text("umbrella_key").notNull().$type<typeof UMBRELLA_KEYS[number]>(),
   isActive: boolean("is_active").notNull().default(true), sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, t => ({
-  companyKind: index("estimate_quick_items_company_idx").on(t.companyId, t.kind),
-  companyLabel: uniqueIndex("estimate_quick_items_company_label_idx").on(t.companyId, sql`lower(${t.label})`),
-   kindCheck: check("estimate_quick_items_kind_v2_check", sql`${t.kind} IN ('equipment','fee','service')`),
-   categoryCheck: check("estimate_quick_items_category_check", sql`(${t.kind} = 'service') = (${t.serviceCategoryId} IS NOT NULL)`),
-     unitCheck: check("estimate_quick_items_unit_v3_check", sql`${t.defaultUnit} IN ('SF','LF','1,000 SF','HR','DAY','WEEK','EA','FLAT','GAL','CU. YD','LB','BAG','TON','IN. DBH')`),
-  rateCheck: check("estimate_quick_items_rate_check", sql`${t.defaultRateCents} >= 0`),
-  labelCheck: check("estimate_quick_items_label_check", sql`length(trim(${t.label})) > 0`),
-  keyCheck: check("estimate_quick_items_key_check", sql`${t.umbrellaKey} IN ('plants','landscape_materials','irrigation_materials','landscape_labor','irrigation_labor','fees_surcharges')`),
-}));
+}, (t) => [
+  index("estimate_quick_items_company_idx").on(t.companyId, t.kind),
+  uniqueIndex("estimate_quick_items_company_label_idx").on(t.companyId, sql`lower(${t.label})`),
+  check("estimate_quick_items_kind_v2_check", sql`${t.kind} IN ('equipment','fee','service')`),
+  check("estimate_quick_items_category_check", sql`(${t.kind} = 'service') = (${t.serviceCategoryId} IS NOT NULL)`),
+  check("estimate_quick_items_unit_v3_check", sql`${t.defaultUnit} IN ('SF','LF','1,000 SF','HR','DAY','WEEK','EA','FLAT','GAL','CU. YD','LB','BAG','TON','IN. DBH')`),
+  check("estimate_quick_items_default_rate_cents_check", sql`${t.defaultRateCents} >= 0`),
+  check("estimate_quick_items_label_check", sql`length(trim(${t.label})) > 0`),
+  check("estimate_quick_items_umbrella_key_check", sql`${t.umbrellaKey} IN ('plants','landscape_materials','irrigation_materials','landscape_labor','irrigation_labor','fees_surcharges')`),
+  foreignKey({ name: "estimate_quick_items_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "estimate_quick_items_service_category_id_fkey", columns: [t.serviceCategoryId], foreignColumns: [estimateServiceCategories.id] }).onDelete("restrict"),
+]);
 export type EstimateQuickItem = typeof estimateQuickItems.$inferSelect;
 export type QboUmbrellaItem = typeof qboUmbrellaItems.$inferSelect;
 export type QboItemCache = typeof qboItemCache.$inferSelect;

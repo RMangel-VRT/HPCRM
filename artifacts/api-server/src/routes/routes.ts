@@ -9623,7 +9623,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (req.query.search) {
       const q = (req.query.search as string).toLowerCase();
       items = items.filter(c =>
-        c.subject.toLowerCase().includes(q) ||
+        (c.subject ?? "").toLowerCase().includes(q) ||
         (c.body && c.body.toLowerCase().includes(q)) ||
         (c.bodyText && c.bodyText.toLowerCase().includes(q)) ||
         (c.fromAddress && c.fromAddress.toLowerCase().includes(q)) ||
@@ -15119,7 +15119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (search) {
       const q = search.toLowerCase();
       items = items.filter(c =>
-        c.subject.toLowerCase().includes(q) ||
+        (c.subject ?? "").toLowerCase().includes(q) ||
         (c.body && c.body.toLowerCase().includes(q)) ||
         (c.bodyText && c.bodyText.toLowerCase().includes(q)) ||
         (c.fromAddress && c.fromAddress.toLowerCase().includes(q)) ||
@@ -15212,7 +15212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const thread = await storage.createCommunicationThread({
             companyId: user.activeCompanyId,
             customerId: parent.customerId ?? undefined,
-            subjectRoot: parent.subject.replace(/^Re:\s*/i, ""),
+            subjectRoot: (parent.subject ?? "").replace(/^Re:\s*/i, ""),
           });
           threadId = thread.id;
           // Also link the parent to the thread

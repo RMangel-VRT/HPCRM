@@ -1,9 +1,9 @@
-import { pgTable, varchar, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, timestamp, foreignKey } from "drizzle-orm/pg-core";
 import { companies, users } from "./schema";
 
 /** Sole owner of document-specific contacts and boilerplate; company name stays in settings. */
 export const companyDocumentSettings = pgTable("company_document_settings", {
-  companyId: varchar("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id").primaryKey(),
   addressLine1: text("address_line1").notNull().default(""),
   addressLine2: text("address_line2").notNull().default(""),
   city: text("city").notNull().default(""), state: text("state").notNull().default(""),
@@ -14,6 +14,9 @@ export const companyDocumentSettings = pgTable("company_document_settings", {
   estimateTerms: text("estimate_terms").notNull().default(""),
   warrantyText: text("warranty_text").notNull().default(""),
   invoiceFooterNote: text("invoice_footer_note").notNull().default(""),
-  updatedById: varchar("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+  updatedById: varchar("updated_by_id"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  foreignKey({ name: "company_document_settings_company_id_fkey", columns: [table.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "company_document_settings_updated_by_id_fkey", columns: [table.updatedById], foreignColumns: [users.id] }).onDelete("set null"),
+]);

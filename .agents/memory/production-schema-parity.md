@@ -30,6 +30,17 @@ and compare deployed and generated definitions. Ask for scope approval for
 any model or application adaptation beyond names, nullability and missing
 declarations. Do not make an expected-failing check a mandatory gate.
 
+On a disposable declaration replay, preserve distinctly named legacy UNIQUE
+constraints by executing equivalent copies as separate statements.
+
+**Why:** PostgreSQL coalesces equivalent inline UNIQUE constraints in a single
+`CREATE TABLE`, even when Drizzle emits both names. The catalog would otherwise
+lose valid deployed names without a declaration being missing.
+
+**How to apply:** Split only names actually emitted by Drizzle and apply
+the original definition before dependent FKs. Do not exclude the names from
+the comparison or replay the export against a managed database.
+
 Only the owner runs reviewed, idempotent SQL in the Production database tool
 for required objects Publish does not carry. The agent never writes to
 Production. Required functions and triggers need a registry entry, an

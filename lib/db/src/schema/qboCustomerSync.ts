@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, varchar, text, jsonb, timestamp, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, jsonb, timestamp, uniqueIndex, check, foreignKey } from "drizzle-orm/pg-core";
 import { companies, customers, users } from "./schema";
 
 export const QBO_REVIEW_KINDS = ["changed_in_qbo", "new_in_qbo", "sub_customer", "qbo_inactive", "qbo_removed", "name_taken", "push_failed"] as const;
@@ -8,8 +8,8 @@ export type QboReviewFields = Record<string, { qbo: unknown; crm: unknown; basel
 // Explicit review evidence snapshots, not a second owner of customer billing facts.
 export const qboCustomerReviews = pgTable("qbo_customer_reviews", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-  customerId: varchar("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  companyId: varchar("company_id").notNull(),
+  customerId: varchar("customer_id"),
   qboId: text("qbo_id"),
   kind: text("kind").notNull().$type<QboReviewKind>(),
   fields: jsonb("fields").$type<QboReviewFields>(),
@@ -17,14 +17,17 @@ export const qboCustomerReviews = pgTable("qbo_customer_reviews", {
   message: text("message"),
   status: text("status").notNull().default("open").$type<"open" | "resolved" | "dismissed">(),
   resolution: text("resolution"),
-  resolvedById: varchar("resolved_by_id").references(() => users.id, { onDelete: "set null" }),
+  resolvedById: varchar("resolved_by_id"),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, t => ({
-  openQbo: uniqueIndex("qbo_customer_reviews_open_qbo").on(t.companyId, t.qboId, t.kind).where(sql`${t.status} = 'open' AND ${t.qboId} IS NOT NULL`),
-  openCustomer: uniqueIndex("qbo_customer_reviews_open_customer").on(t.companyId, t.customerId, t.kind).where(sql`${t.status} = 'open' AND ${t.customerId} IS NOT NULL`),
-  kind: check("qbo_customer_reviews_kind_check", sql`${t.kind} IN ('changed_in_qbo','new_in_qbo','sub_customer','qbo_inactive','qbo_removed','name_taken','push_failed')`),
-  status: check("qbo_customer_reviews_status_check", sql`${t.status} IN ('open','resolved','dismissed')`),
-}));
+}, (t) => [
+  uniqueIndex("qbo_customer_reviews_open_qbo").on(t.companyId, t.qboId, t.kind).where(sql`${t.status} = 'open' AND ${t.qboId} IS NOT NULL`),
+  uniqueIndex("qbo_customer_reviews_open_customer").on(t.companyId, t.customerId, t.kind).where(sql`${t.status} = 'open' AND ${t.customerId} IS NOT NULL`),
+  check("qbo_customer_reviews_kind_check", sql`${t.kind} IN ('changed_in_qbo','new_in_qbo','sub_customer','qbo_inactive','qbo_removed','name_taken','push_failed')`),
+  check("qbo_customer_reviews_status_check", sql`${t.status} IN ('open','resolved','dismissed')`),
+  foreignKey({ name: "qbo_customer_reviews_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "qbo_customer_reviews_customer_id_fkey", columns: [t.customerId], foreignColumns: [customers.id] }).onDelete("set null"),
+  foreignKey({ name: "qbo_customer_reviews_resolved_by_id_fkey", columns: [t.resolvedById], foreignColumns: [users.id] }).onDelete("set null"),
+]);
 export type QboCustomerReview = typeof qboCustomerReviews.$inferSelect;

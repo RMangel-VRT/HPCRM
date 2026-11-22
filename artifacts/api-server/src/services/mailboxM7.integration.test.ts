@@ -125,7 +125,7 @@ it("reconciles a Sent-folder race with the original Compose record and replies u
     recipientEmail: "customer@example.test", attachmentsJson: [{ kind: "fixture" }], deliveryStatus: "pending" })).returning();
   const actual = "<actual-compose@mail.gmail.com>";
   const message = { providerMessageId: actual, providerThreadId: "thread-compose", fromAddress: box.emailAddress,
-    toAddresses: ["customer@example.test"], subject: draft.subject, bodyText: "Test body", receivedAt: at };
+    toAddresses: ["customer@example.test"], subject: draft.subject ?? "", bodyText: "Test body", receivedAt: at };
   const transport = vi.fn(async (_id: string, _opts: SendEmailOptions, reservedMessageId?: string) => {
     expect((await get(draft.id)).providerMessageId).toBe(reservedMessageId);
     expect(await ingestMailboxMessage(box, message, "outbound", "gmail-id")).toBe("routed");

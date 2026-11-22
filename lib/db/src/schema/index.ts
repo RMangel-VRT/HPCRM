@@ -23,4 +23,5 @@ export * from "./irrigation";
 export * from "./estimateSetup";
 export * from "./estimates";
 export * from "./invoices";
+export * from "./databaseInfrastructure";
 export * from "./qboCustomerSync";

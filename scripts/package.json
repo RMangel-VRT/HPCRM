@@ -6,7 +6,7 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "migrate": "tsx ./src/migrate.ts",
-    "check-schema-drift": "tsx ./src/check-schema-drift.ts && pnpm run check-required-sql-objects",
+    "check-schema-drift": "tsx ./src/check-schema-drift.ts && pnpm run check-required-sql-objects && pnpm run check-declaration-parity",
     "check-required-extensions": "tsx ./src/check-required-extensions.ts",
     "check-required-sql-objects": "tsx ./src/check-required-sql-objects.ts",
     "check-declaration-parity": "tsx ./src/check-declaration-parity.ts",

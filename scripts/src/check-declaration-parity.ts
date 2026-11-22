@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { REQUIRED_EXTENSIONS } from "@workspace/db/required-extensions";
 import { diffLogicalCatalog, readLogicalCatalog } from "./logical-database-catalog";
+import { preserveRepeatedUniqueConstraints } from "./replay-declaration-sql";
 
 const devHost = /^ep-square-brook-[a-z0-9-]+\.(?:c-\d+\.)?us-east-2\.aws\.neon\.tech$/;
 const cwd = fileURLToPath(new URL("../../", import.meta.url));
@@ -78,7 +79,10 @@ async function disposableCandidate(expectedMajor: number) {
         "--sql", "--dialect", "postgresql", "--schema", "./src/schema/index.ts"]);
       if (!sql.trim().startsWith("CREATE ")) throw new Error("Drizzle did not produce schema SQL");
       const ddl = join(scratch, "schema.sql");
-      writeFileSync(ddl, [...REQUIRED_EXTENSIONS.map(ext => `CREATE EXTENSION IF NOT EXISTS "${ext}";`), sql].join("\n"));
+      writeFileSync(ddl, [
+        ...REQUIRED_EXTENSIONS.map(ext => `CREATE EXTENSION IF NOT EXISTS "${ext}";`),
+        preserveRepeatedUniqueConstraints(sql),
+      ].join("\n"));
       run("psql", ["-X", "-w", "-v", "ON_ERROR_STOP=1", "-h", scratch, "-p", String(port),
         "-U", role, "-d", database, "--single-transaction", "--file", ddl]);
       await client.query("BEGIN READ ONLY; SET LOCAL search_path = pg_catalog, public");
