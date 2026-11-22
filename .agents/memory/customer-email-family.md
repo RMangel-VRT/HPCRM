@@ -51,6 +51,21 @@ delete the provider originals.
 boundaries. A management-company-name-only match belongs in Unsorted for
 review, not on a customer's record.
 
+The November 21 Conversations decision replaces the October navigation label
+“Inbox.” Keep the CRM customer record grouped by Gmail thread, with quotes
+folded and staff attribution visible only internally. Replies use a slim
+company signature and preview, not a branded banner. Revised estimates stay
+in the original eligible CRM email thread. Keep logged notes and calls; retire
+the unused scheduling, template and automation UI without dropping its data.
+
+**Why:** Spark remains the everyday inbox; the CRM should make the customer's
+conversation easy to follow without exposing the team's internal attribution.
+
+**How to apply:** Scope to company, mailbox and customer before aggregating
+visible messages. Reuse the same reply builder for preview and delivery.
+Keep Property Detail unchanged in M8 and put sample cleanup behind a reviewed,
+explicit admin action, not a boot job.
+
 For chemical notices, leave product-label URLs on their existing signed-link
 path. Only actual completion images are eligible for durable email links.
 **Why:** recipients may retain or forward notices long after the visit; those
