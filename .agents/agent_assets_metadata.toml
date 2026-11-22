@@ -476,3 +476,73 @@ mtime_ms = 1795210403191
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/061a065f-4f2d-4e0d-85c6-afbb2d60f4cd/138fa8cd-89da-49c1-81f5-85bfd4181482"
 storage_version_token = "1795210428069666"
 content_type = "image/png"
+
+[[outputs]]
+id = "S-R9kQNIZX1YkchBCM9AK"
+uri = "file://generated-artifacts/schema-resync-audit/report.html"
+type = "html"
+title = "Development database resync audit"
+description = "Verified live counts, the zero-error local rehearsal, and a filename-by-filename audit of all 108 migrations."
+logical_id = "ff349e14-3432-4a14-aa2a-205219ac116f"
+content_hash = "sha256:caff463548e9fccbbef7d03128da9042810d9c39517b4b0802034f08b980aaef"
+size = 43549
+mtime_ms = 1795366987237
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/ff349e14-3432-4a14-aa2a-205219ac116f/634eb025-6f91-41c6-8b76-7cf70c88ee53"
+storage_version_token = "1795366994288995"
+content_type = "text/html"
+
+[[outputs]]
+id = "EF9eF0FYWMT-SOiOOrLB6"
+uri = "file://generated-artifacts/schema-resync-audit/report-after-parity-review.html"
+type = "html"
+title = "Development resync audit and bootstrap verification"
+description = "Exact CHECK verification, the historical bootstrap differences, and the 108-file audit with 0054 and 0062 listed as pending."
+logical_id = "a9282203-1166-40ca-ba2b-310d4c48ede5"
+content_hash = "sha256:c3694172a3606402c1a26372389208bb896c725b5b3294f392a34f08fffb8684"
+size = 45190
+mtime_ms = 1795367688602
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/a9282203-1166-40ca-ba2b-310d4c48ede5/ad31ac12-da45-4c2e-91a1-0ed5147a3e8b"
+storage_version_token = "1795367696338606"
+content_type = "text/html"
+
+[[outputs]]
+id = "6loXkFXBcuo6zQh07tItC"
+uri = "file://generated-artifacts/schema-resync-audit/report-after-bootstrap-approval.html"
+type = "html"
+title = "Resync audit with platform privilege checks"
+description = "The approved bootstrap disposition, pending migrations, and evidence that an object-only reset preserves Replit’s default privileges."
+logical_id = "4bf184e0-b1ae-4754-b8c2-035712b72685"
+content_hash = "sha256:eb89352da4c113bf077b81e798ddfc2c0c9f62a01eceb180cc41b7134f036e66"
+size = 45688
+mtime_ms = 1795367947547
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/4bf184e0-b1ae-4754-b8c2-035712b72685/ed7bdfce-3e5a-46e8-bffb-079330a5fe94"
+storage_version_token = "1795367952415897"
+content_type = "text/html"
+
+[[outputs]]
+id = "nErhhOnqzjTssLWmp2oN9"
+uri = "file://generated-artifacts/schema-resync-audit/completed-resync-audit.html"
+type = "html"
+title = "Development database resync results"
+description = "The committed restore, live catalog comparison, baseline decisions, and demo sign-in verification."
+logical_id = "aa2cfd96-22c6-4255-a4e3-c8054433f81d"
+content_hash = "sha256:7450da15ef1ef4578e0f519398821597235ba7838b91214ba5b460ba3db8aa16"
+size = 45149
+mtime_ms = 1795368435616
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/aa2cfd96-22c6-4255-a4e3-c8054433f81d/2ed48204-910a-46ce-8456-447d81ab0cbf"
+storage_version_token = "1795368442349488"
+content_type = "text/html"
+
+[[outputs]]
+id = "ITYTKR1zEsa4rA7VQ8HAY"
+uri = "file://generated-artifacts/schema-resync-audit/final-resync-audit.html"
+type = "html"
+title = "Final Development database resync audit"
+description = "Verified endpoint families and live counts, the 108-file migration audit, protected metadata, and both CRM and mobile demo sign-ins."
+logical_id = "d12e597e-23ce-4bfc-9de6-758a9dfc6199"
+content_hash = "sha256:444974c9912ca6ff885dfb7ab91c869e6da886250546eb8d0ba0508eb5973b40"
+size = 45352
+mtime_ms = 1795368524405
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/d12e597e-23ce-4bfc-9de6-758a9dfc6199/e1334aee-ecd6-4ca9-80b1-0a5139f3a4fb"
+storage_version_token = "1795368537959966"
+content_type = "text/html"

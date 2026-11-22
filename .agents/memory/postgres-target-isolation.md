@@ -36,3 +36,31 @@ tables removed by later migrations even when the restored schema is correct.
 changing development if the rehearsal fails. An audited baseline that records
 already represented or superseded migrations requires separate approval; do
 not ignore missing-object errors or blindly mark pending migrations applied.
+
+On Neon direct connections, use libpq `verify-full` and check the client
+connection's TLS status (`psql \conninfo`) alongside the server's endpoint ID.
+**Why:** Neon terminates TLS at its proxy; backend `pg_stat_ssl` can report
+false even when the client verified the endpoint's certificate and hostname.
+**How to apply:** Accept the expected direct endpoint family and region
+(including Neon's optional `c-N` DNS label); do not relax certificate
+verification or substitute a pooler or replica to make the check pass.
+
+An exact Production restore and a complete repository baseline can conflict
+even on an empty Development database.
+**Why:** The app's table/column drift check does not check extra columns or
+SQL-only triggers. An applied Development ledger proves which files ran in
+Development, not which effects Production contains.
+**How to apply:** Rehearse on a disposable clone and compare actual definitions
+with the later migration history. Report genuinely missing or retained effects
+before asking for reset approval. Preserve Development tracking records
+without importing Production rows or claiming parity for a deliberate exception.
+
+Check schema-scoped default privileges before dropping a managed schema.
+**Why:** Hosted `public` can carry grants owned by the platform's administration
+role. Dropping the schema removes these grants even when `_system` is not
+referenced, and the application owner cannot re-create grants for that role.
+**How to apply:** Inventory the exact defaults and their grantors read-only.
+If they cannot be preserved by a schema drop, seek approval for replacing
+the application objects in the original namespace. Use `RESTRICT` to reject
+unexpected dependencies and verify the namespace, defaults, and `_system`
+metadata did not change.

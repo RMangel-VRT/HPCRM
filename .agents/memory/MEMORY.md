@@ -22,6 +22,7 @@
 - [Scheduling specification correction](scheduling-polish-specification.md) — user chose the available-height formula over the attachment's contradictory five-crew cap example.
 - [Navigation direction](navigation-direction.md) — approved all-role desktop/mobile scope; web navigation and mobile access changes are separate projects.
 - [Auth fixture canonicalization](auth-fixture-canonicalization.md) — directly seeded sign-in fixtures need canonical identifiers; valid hashes alone do not rule out identifier mismatch.
+- [Phone sign-in identity](phone-sign-in-identity.md) — nullable user email is intentional; preserve phone-only accounts when aligning database declarations or migration history.
 - [Fresh sign-in test databases](fresh-database-session-store.md) — a disposable database also needs the standard session store table; the bundled driver cannot create it from its missing SQL asset.
 - [PostgreSQL target isolation](postgres-target-isolation.md) — use a clean environment, explicit libpq flags and a server identity check for disposable PostgreSQL; historical migrations alone cannot bootstrap it.
 - [Login routing boundaries](login-routing-boundaries.md) — top-level signed-out and authenticated route trees must preserve the same login-return decision across auth cache updates.
