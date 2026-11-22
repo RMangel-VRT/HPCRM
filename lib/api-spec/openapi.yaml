@@ -23,6 +23,31 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /settings/database/sql-objects:
+    get:
+      operationId: getRequiredSqlObjects
+      parameters:
+        - { in: header, name: X-Company-Id, schema: { type: string } }
+      responses:
+        "200":
+          description: Read-only catalog status for administrators on the connected database
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [objects]
+                properties:
+                  objects:
+                    type: array
+                    items: { $ref: "#/components/schemas/RequiredSqlObjectStatus" }
+        "401":
+          description: Sign-in required
+        "403":
+          description: Administrator required
+        "409":
+          description: Active company changed
+        "503":
+          description: Status could not be checked
   /email-wording:
     get:
       operationId: listEmailWording
@@ -1934,6 +1959,16 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    RequiredSqlObjectStatus:
+      type: object
+      required: [id, label, kind, present, sqlFile]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        kind: { type: string, enum: [function, trigger, rule, view] }
+        present: { type: boolean }
+        sqlFile: { type: string }
+        remediationSql: { type: string }
     EmailWordingFields:
       type: object
       required: [subject, preview, eyebrow, headline, intro, closing]

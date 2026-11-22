@@ -2380,6 +2380,19 @@ const es = {
 
 
   settings: {
+    sqlObjects: {
+      title: "Objetos de base de datos que Publish no transfiere",
+      description: "Estado de solo lectura de la base de datos conectada. Esta pantalla nunca ejecuta SQL.",
+      present: "Presente",
+      missing: "Falta",
+      error: "No se pudo comprobar el estado. Actualiza para volver a intentarlo.",
+      runbook: "Revisa la guía de SQL de producción antes de instalar nada. Solo el propietario puede ejecutar el SQL revisado en la herramienta de base de datos de producción de Replit.",
+      viewSql: "Ver SQL para revisión",
+      copySql: "Copiar SQL",
+      refresh: "Actualizar estado",
+      copied: "SQL copiado para revisión.",
+      copyFailed: "No se pudo copiar. Abre la vista previa del SQL y cópialo manualmente.",
+    },
     rail: {
       ariaLabel: "Secciones de configuración",
       serviceMonths: "Meses de servicio",

@@ -136,6 +136,11 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   }
   await cp(pdfkitDataDir, path.join(distDir, "data"), { recursive: true });
   await cp(path.join(artifactDir, "src/assets/documents"), path.join(distDir, "assets/documents"), { recursive: true });
+  await cp(
+    path.resolve(artifactDir, "../../docs/database/production-sql"),
+    path.join(distDir, "assets/production-sql"),
+    { recursive: true },
+  );
   await prepareDocumentRuntime(artifactDir);
 }
 

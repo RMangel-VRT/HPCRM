@@ -7,6 +7,23 @@
  */
 import * as zod from "zod";
 
+export const GetRequiredSqlObjectsHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const GetRequiredSqlObjectsResponse = zod.object({
+  objects: zod.array(
+    zod.object({
+      id: zod.string(),
+      label: zod.string(),
+      kind: zod.enum(["function", "trigger", "rule", "view"]),
+      present: zod.boolean(),
+      sqlFile: zod.string(),
+      remediationSql: zod.string().optional(),
+    }),
+  ),
+});
+
 export const ListEmailWordingHeader = zod.object({
   "X-Company-Id": zod.string().optional(),
 });

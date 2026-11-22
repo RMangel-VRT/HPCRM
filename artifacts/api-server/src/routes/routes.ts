@@ -154,6 +154,7 @@ import { registerCatalogRoutes } from "./catalog";
 import { registerEstimateRoutes } from "./estimates";
 import { registerInvoiceRoutes } from "./invoices";
 import { registerDocumentSettingsRoutes } from "./documentSettings";
+import { registerRequiredSqlObjectsRoutes } from "./requiredSqlObjects";
 import { registerServiceCalendarRoutes } from "./serviceCalendar";
 import { registerCampaignGenerationRoutes } from "./campaignGeneration";
 import { registerCampaignRoundLists } from "./campaignRoundLists";
@@ -2328,6 +2329,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerEstimateRoutes(app);
   registerInvoiceRoutes(app);
   registerDocumentSettingsRoutes(app);
+  registerRequiredSqlObjectsRoutes(app);
   registerServiceCalendarRoutes(app);
   registerCampaignGenerationRoutes(app);
   registerCampaignIdentityGuards(app);

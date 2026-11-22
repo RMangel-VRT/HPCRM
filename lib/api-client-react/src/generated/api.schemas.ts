@@ -5,6 +5,25 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export type RequiredSqlObjectStatusKind =
+  (typeof RequiredSqlObjectStatusKind)[keyof typeof RequiredSqlObjectStatusKind];
+
+export const RequiredSqlObjectStatusKind = {
+  function: "function",
+  trigger: "trigger",
+  rule: "rule",
+  view: "view",
+} as const;
+
+export interface RequiredSqlObjectStatus {
+  id: string;
+  label: string;
+  kind: RequiredSqlObjectStatusKind;
+  present: boolean;
+  sqlFile: string;
+  remediationSql?: string;
+}
+
 export interface EmailWordingFields {
   /** @maxLength 150 */
   subject: string;
@@ -1794,6 +1813,10 @@ export interface OwnerResponseTicket {
   followUpNote?: string | null;
   [key: string]: unknown;
 }
+
+export type GetRequiredSqlObjects200 = {
+  objects: RequiredSqlObjectStatus[];
+};
 
 export type GetWorkCompletedEmailRule200Rule = null | {
   id: string;

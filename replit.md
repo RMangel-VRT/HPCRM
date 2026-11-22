@@ -46,9 +46,9 @@ approval gate. Preserve user-owned specifications and historical reports.
 
 ### Production schema & extensions (read this before changing the schema)
 
-Per the `database` skill, **only Replit's Publish flow may change the production schema**. Publish auto-diffs the dev schema against prod and applies the SQL. Do NOT add deploy-build hooks, custom prod-targeted migration scripts, or startup-time DDL to "self-heal" prod — all three are explicit anti-patterns. The application's job is just to read/write data.
+**Use Replit Publish for schema objects it supports.** Publish auto-diffs the dev schema against prod and applies the SQL. For required objects it cannot carry, only the owner uses the reviewed, manual Production database procedure below. Do NOT add deploy-build hooks, custom prod-targeted migration runners, or startup-time DDL to "self-heal" prod. The app and Agent never install these objects in Production.
 
-**The one thing Publish does NOT generate: `CREATE EXTENSION`.** Drizzle Kit will never emit `CREATE EXTENSION pg_trgm`, so any schema object that depends on a non-default extension (e.g. the trigram index `customers_name_trgm_idx` → `gin_trgm_ops` → `pg_trgm`) will cause Publish to fail with `operator class "..." does not exist` on a target DB that lacks the extension.
+**Publish does not generate `CREATE EXTENSION`.** Drizzle Kit will never emit `CREATE EXTENSION pg_trgm`, so any schema object that depends on a non-default extension (e.g. the trigram index `customers_name_trgm_idx` → `gin_trgm_ops` → `pg_trgm`) will cause Publish to fail with `operator class "..." does not exist` on a target DB that lacks the extension.
 
 **Adding a new Postgres extension — required order:**
 1. Install it on the **production** DB first via Replit's Production DB UI (Workspace → Database → switch to Production → run `CREATE EXTENSION IF NOT EXISTS <name>`). Extensions persist forever; this is a one-time per-DB step.
@@ -57,6 +57,41 @@ Per the `database` skill, **only Replit's Publish flow may change the production
 4. **Only then** add the schema object that depends on it (the operator class / index / type) to `lib/db/src/schema/`.
 
 If you reverse this order, the schema-drift / required-extensions validation will block the merge in dev, and even if it slips through, Publish will fail in prod.
+
+#### What Publish can't carry
+
+- Required SQL-only objects belong in `lib/db/src/required-sql-objects.ts`
+  and need a matching reviewed, idempotent file under
+  `docs/database/production-sql/`. Keep the originating migration immutable.
+  Audit replacements and drops rather than registering objects that no longer exist.
+- `pnpm --filter @workspace/scripts run check-required-sql-objects`
+  audits the migrations and reads object status. `schema-drift` includes it.
+  **Settings → Database** shows read-only status for admins. A status
+  check, startup, validation or deployment must never install an object.
+- Read `docs/database/production-sql/README.md` for the owner-only
+  installation procedure and the Routes fill schedule.
+
+#### Development resync and declaration parity
+
+The Production logical catalog is authoritative; preserve its constraint names
+and definitions. Never rebuild a managed Development database from Drizzle.
+For a separately approved resync, verify both direct endpoints and database
+identities with TLS and explicit connection flags in a clean shell. Export
+Production schema-only with read-only enforced and rehearse the restore before
+touching Development. Preserve `_system`, the original `public` namespace and
+its platform-owned default privileges; replace only reviewed application
+objects atomically. Check an audited migration ledger against the actual
+restored schema, since `--baseline-existing` can still replay pending SQL.
+Do not copy Production rows or credentials. See the Development resync audit
+and `.agents/memory/postgres-target-isolation.md`.
+
+`pnpm --filter @workspace/scripts run check-declaration-parity` uses PostgreSQL
+client and server tools on `PATH` (same major version as Development). It
+exports the declarations offline and applies them to a newly initialized
+socket-only PostgreSQL cluster, then compares the logical catalog against a
+verified direct, read-only Development connection. It cannot write to either
+managed database. The diagnostic exits nonzero on differences. Do not add it
+as a required gate until the reported legacy definition mismatches are resolved.
 
 ## Stack
 

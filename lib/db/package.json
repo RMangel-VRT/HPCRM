@@ -13,7 +13,9 @@
     "./active-customers": "./src/activeCustomers.ts",
     "./contract-attention": "./src/contractAttention.ts",
     "./document-contracts": "./src/documentContracts.ts",
-    "./check-drift": "./src/check-drift.ts"
+    "./check-drift": "./src/check-drift.ts",
+    "./required-sql-objects": "./src/required-sql-objects.ts",
+    "./required-extensions": "./src/required-extensions.ts"
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",

@@ -34,6 +34,7 @@ import WorkItemTemplatesAdmin from "@/components/WorkItemTemplatesAdmin";
 import ContractSettings from "@/components/contracts/ContractSettings";
 import DocumentSettingsCard from "@/components/DocumentSettingsCard";
 import MigrationsAdmin from "@/components/MigrationsAdmin";
+import { RequiredSqlObjectsCard } from "@/components/RequiredSqlObjectsCard";
 import { qboConnectMutationFn } from "@/pages/qboApi";
 
 interface ManagerEmailInput {
@@ -1163,6 +1164,7 @@ export default function SettingsPage() {
 
         {isAdmin && (
           <TabsContent value="database" className="space-y-6" data-testid="content-database">
+            <RequiredSqlObjectsCard companyId={currentUser?.activeCompanyId} userId={currentUser?.id} />
             <MigrationsAdmin />
           </TabsContent>
         )}

@@ -6,8 +6,10 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "migrate": "tsx ./src/migrate.ts",
-    "check-schema-drift": "tsx ./src/check-schema-drift.ts",
+    "check-schema-drift": "tsx ./src/check-schema-drift.ts && pnpm run check-required-sql-objects",
     "check-required-extensions": "tsx ./src/check-required-extensions.ts",
+    "check-required-sql-objects": "tsx ./src/check-required-sql-objects.ts",
+    "check-declaration-parity": "tsx ./src/check-declaration-parity.ts",
     "seed-mobile-test-user": "tsx ./src/seed-mobile-test-user.ts",
     "seed-randy": "tsx ./src/seed-randy.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"

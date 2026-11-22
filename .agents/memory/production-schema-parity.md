@@ -18,6 +18,18 @@ schema-only restore removed that drift.
 compare with the verified Development/Production catalog. Report differences
 that cannot be expressed without changing live behavior.
 
+Do not assume a constraint-name audit covers catalog parity. A row
+count or name-only comparison can miss runtime-relevant differences in
+SQL types, defaults, relationship actions and index predicates.
+
+**Why:** Catalog comparison found a boolean declaration over a deployed text
+column, as well as missing relationships and divergent defaults.
+
+**How to apply:** Reproduce declarations on a verified disposable database
+and compare deployed and generated definitions. Ask for scope approval for
+any model or application adaptation beyond names, nullability and missing
+declarations. Do not make an expected-failing check a mandatory gate.
+
 Only the owner runs reviewed, idempotent SQL in the Production database tool
 for required objects Publish does not carry. The agent never writes to
 Production. Required functions and triggers need a registry entry, an

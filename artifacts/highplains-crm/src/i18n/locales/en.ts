@@ -2377,6 +2377,19 @@ const en = {
   },
 
   settings: {
+    sqlObjects: {
+      title: "Database objects Publish can't carry",
+      description: "Read-only status for the connected database. This screen never runs SQL.",
+      present: "Present",
+      missing: "Missing",
+      error: "Database object status could not be checked. Refresh to try again.",
+      runbook: "Review the production SQL runbook before installing anything. Only the owner can run reviewed SQL in Replit’s Production database tool.",
+      viewSql: "View SQL for review",
+      copySql: "Copy SQL",
+      refresh: "Refresh status",
+      copied: "SQL copied for review.",
+      copyFailed: "Could not copy. Open the SQL preview and copy it manually.",
+    },
     rail: {
       ariaLabel: "Settings sections",
       serviceMonths: "Service months",

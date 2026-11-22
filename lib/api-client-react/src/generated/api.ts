@@ -63,6 +63,7 @@ import type {
   GetConversationParams,
   GetCustomerContractedServicesPdfParams,
   GetCustomerServicesParams,
+  GetRequiredSqlObjects200,
   GetWorkCompletedEmailRule200,
   HealthStatus,
   LegacyMailboxReview,
@@ -134,6 +135,74 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getGetRequiredSqlObjectsUrl = () => {
+  return `/api/settings/database/sql-objects`;
+};
+
+export const getRequiredSqlObjects = async (
+  options?: RequestInit,
+): Promise<GetRequiredSqlObjects200> => {
+  return customFetch<GetRequiredSqlObjects200>(getGetRequiredSqlObjectsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRequiredSqlObjectsQueryKey = () => {
+  return [`/api/settings/database/sql-objects`] as const;
+};
+
+export const getGetRequiredSqlObjectsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRequiredSqlObjects>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRequiredSqlObjects>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRequiredSqlObjectsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRequiredSqlObjects>>
+  > = ({ signal }) => getRequiredSqlObjects({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRequiredSqlObjects>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRequiredSqlObjectsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRequiredSqlObjects>>
+>;
+export type GetRequiredSqlObjectsQueryError = ErrorType<void>;
+
+export function useGetRequiredSqlObjects<
+  TData = Awaited<ReturnType<typeof getRequiredSqlObjects>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRequiredSqlObjects>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRequiredSqlObjectsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 export const getListEmailWordingUrl = () => {
   return `/api/email-wording`;
