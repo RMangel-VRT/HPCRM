@@ -29,8 +29,14 @@ The earlier contract lifecycle direction remains separate: the contract document
 
 **How to apply:** Follow the dedicated Contract Center slice for linking and synchronization. Estimate-only Won work must exclude RFP onboarding and retain final-status and Colorado-day safeguards.
 
-Bid-linked draft and sent seasons may be marked Lost through the ordinary Contract Center lifecycle, including before sending. Decision = Lost uses that same operation, not a propagation-only exception. Unrelated non-renewal drafts retain their restrictions.
+Bid-linked draft and sent seasons may be marked Lost through the ordinary Contract Center lifecycle, including before sending. Mark lost on the RFP uses that same operation, not a propagation-only exception. Unrelated non-renewal drafts retain their restrictions.
 
-**Why:** The user approved ordinary Lost eligibility for bid drafts so the RFP decision and direct Contract Center actions cannot disagree.
+**Why:** The user approved ordinary Lost eligibility for bid drafts so the RFP action and direct Contract Center actions cannot disagree.
 
-**How to apply:** When changing lifecycle validation or its UI, preserve the shared eligibility rule. Signed synchronization deliberately requires an RFP strictly before Awarded; do not “fix” an already-Awarded RFP to Contract Executed without a new product decision.
+**How to apply:** When changing lifecycle validation or its UI, preserve the shared eligibility rule.
+
+The November 12, 2026 RFP rules supersede the old 18-step ladder and its signed-sync cutoff. Awarded means a verbal yes; a signed linked contract moves an RFP at Awarded to Onboarding. Before Awarded, record Awarded then Onboarding. Onboarding is a checklist, not a sequence of workflow statuses. Waiting on info branches off Reviewing; the Site walk is optional.
+
+**Why:** The revised ladder distinguishes a verbal award, signed agreement and operations handoff, while keeping the Contract Center authoritative when contracts are linked.
+
+**How to apply:** Read `attached_assets/RFP-00-RULES_1795405890932.md` for the shared ladder and archive mapping. Keep the ladder migration and the new ticket actions in the same release; the old page alone would otherwise leave an unlinked RFP with no way to mark it Lost. Do not carry these RFP changes into Estimate Requests.
