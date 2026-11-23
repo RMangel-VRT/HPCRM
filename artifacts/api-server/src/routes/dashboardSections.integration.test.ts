@@ -116,11 +116,11 @@ describe("dashboard sections real PostgreSQL regressions", () => {
     }))).returning();
     insertedTicketIds.push(...rows.map(row => row.id));
     const bids = await loadBidsBoard(companyIds[0], NOW);
-    expect(bids.stages.map(s => s.tickets.length)).toEqual([1, 2, 1, 1, 2, 1]);
+    expect(bids.stages.map(s => s.tickets.length)).toEqual([1, 2, 1, 1, 1, 1]);
     const estimates = await loadEstimatesBoard(companyIds[0], NOW);
     expect(estimates.stages.flatMap(s => s.tickets).every(t => t.typeKey === "estimate_request")).toBe(true);
     const sections = (await loadDashboardSections(viewer, NOW)).sections;
-    expect(sections.find(s => s.key === "bids")).toMatchObject({ total: 8, overdue: 8 });
+    expect(sections.find(s => s.key === "bids")).toMatchObject({ total: 7, overdue: 7 });
     expect(sections.find(s => s.key === "estimates")?.total).toBe(flattenActionBoard(estimates).filter(row => isAction(row.nextAction.bucket)).length);
     expect(sections.find(s => s.key === "mine")?.total).toBe(3);
     const assigned = await storage.getTickets(companyIds[0], { assignedToId: viewer.id });
@@ -134,7 +134,7 @@ describe("dashboard sections real PostgreSQL regressions", () => {
       { ticketId: rows[0].id, toStatusId: statuses[1].id, changedById: viewer.id, createdAt: new Date("2026-10-27T00:00Z") },
     ]);
     expect((await loadBidsBoard(companyIds[0], NOW)).stages[0].tickets[0].daysInStage).toBe(0);
-    expect((await loadDashboardSections(viewer, NOW)).sections.find(s => s.key === "bids")?.overdue).toBe(7);
+    expect((await loadDashboardSections(viewer, NOW)).sections.find(s => s.key === "bids")?.overdue).toBe(6);
   }, 30_000);
   it("never returns the populated tenant's rows from another active company", async () => {
     const result = await loadDashboardSections({ ...viewer, activeCompanyId: companyIds[1] }, NOW);
@@ -183,7 +183,7 @@ describe("dashboard sections real PostgreSQL regressions", () => {
       await db.insert(tickets).values({
         id, companyId: company.id, customerId: customer.id, title: spec.id, ticketTypeId: type.id,
         currentStatusId: statusId(spec.status), createdById: viewer.id, createdAt: dayAgo(spec.age),
-        assignedToId: spec.assigned ? viewer.id : null, followUpDate: spec.follow ?? null,
+        assignedToId: spec.assigned || spec.status === "decision_received" ? viewer.id : null, followUpDate: spec.follow ?? null,
       });
       insertedTicketIds.push(id);
       if (spec.sent !== undefined || spec.edited !== undefined) {
@@ -202,6 +202,7 @@ describe("dashboard sections real PostgreSQL regressions", () => {
     const [board, sections] = await Promise.all([
       loadEstimatesBoard(company.id, NOW), loadDashboardSections({ ...viewer, activeCompanyId: company.id }, NOW),
     ]);
+    expect(sections.sections.find(s => s.key === "mine")?.total).toBe(0);
     const rows = flattenActionBoard(board);
     for (const spec of specs) expect(rows.find(row => row.title === spec.id)?.nextAction).toMatchObject({
       bucket: spec.bucket, urgency: spec.urgency,

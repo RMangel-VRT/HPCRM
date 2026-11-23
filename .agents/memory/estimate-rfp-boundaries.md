@@ -40,3 +40,9 @@ The November 12, 2026 RFP rules supersede the old 18-step ladder and its signed-
 **Why:** The revised ladder distinguishes a verbal award, signed agreement and operations handoff, while keeping the Contract Center authoritative when contracts are linked.
 
 **How to apply:** Read `attached_assets/RFP-00-RULES_1795405890932.md` for the shared ladder and archive mapping. Keep the ladder migration and the new ticket actions in the same release; the old page alone would otherwise leave an unlinked RFP with no way to mark it Lost. Do not carry these RFP changes into Estimate Requests.
+
+Unkeyed statuses on an RFP workflow are custom even if their labels match the system ladder. Report them without claiming or retiring them.
+
+**Why:** A customer can choose a label that happens to match a new stage; matching text is not proof of workflow ownership.
+
+**How to apply:** Scope RFP conversion and workflow actions by the ticket type and stable keys. Legacy display-name aliases are not permission to assign a system key to an unkeyed row.

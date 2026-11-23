@@ -1279,7 +1279,7 @@ const en = {
   },
   bids: {
     title: "Bids", typeLabel: "RFP Request",
-    stage: { new: "New", reviewing: "Reviewing", walk: "Pre-proposal walk", proposal: "Proposal", submitted: "Submitted", decision: "Decision" },
+    stage: { new: "New", reviewing: "Reviewing", walk: "Site walk", proposal: "Drafting proposal", submitted: "Submitted", awarded: "Awarded" },
     days: "{{count}} days", empty: "No open bids.", loading: "Loading bids", error: "Could not load bids.", retry: "Retry", priority: "Priority", unassigned: "Unassigned",
   },
   rfpContracts: {

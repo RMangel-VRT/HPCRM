@@ -1280,7 +1280,7 @@ const es = {
   },
   bids: {
     title: "Ofertas", typeLabel: "Solicitud de RFP",
-    stage: { new: "Nuevo", reviewing: "En revisión", walk: "Visita previa a la propuesta", proposal: "Propuesta", submitted: "Presentada", decision: "Decisión" },
+    stage: { new: "Nuevo", reviewing: "En revisión", walk: "Visita al sitio", proposal: "Redactando propuesta", submitted: "Presentada", awarded: "Adjudicada" },
     days: "{{count}} días", empty: "No hay ofertas abiertas.", loading: "Cargando ofertas", error: "No se pudieron cargar las ofertas.", retry: "Reintentar", priority: "Prioridad", unassigned: "Sin asignar",
   },
   rfpContracts: {

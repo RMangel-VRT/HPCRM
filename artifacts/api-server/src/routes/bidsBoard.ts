@@ -9,8 +9,8 @@ export const BID_STAGES = [
   { key: "reviewing", statusKeys: ["reviewing", "waiting_info"] },
   { key: "walk", statusKeys: ["site_visit"] },
   { key: "proposal", statusKeys: ["proposal_draft"] },
-  { key: "submitted", statusKeys: ["proposal_sent", "awaiting_response"] },
-  { key: "decision", statusKeys: ["decision_received"] },
+  { key: "submitted", statusKeys: ["proposal_sent"] },
+  { key: "awarded", statusKeys: ["awarded"] },
 ] as const;
 
 export function loadBidsBoard(companyId: string, now = new Date()) {

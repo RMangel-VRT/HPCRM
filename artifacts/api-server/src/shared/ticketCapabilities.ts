@@ -1,4 +1,5 @@
 import type { TerminalBehavior, TicketTypeKey } from "@workspace/db";
+import { RFP_STATUSES } from "../lib/rfpWorkflowDefinitions";
 
 /**
  * Slice A: capability flags + stable status keys for the six seeded ticket types.
@@ -53,9 +54,8 @@ export const TICKET_TYPE_CAPABILITIES: Record<string, TicketTypeCapabilities> = 
   },
   "RFP Request": {
     requiresCustomer: "false", // a prospect, not yet a customer
-    // NOTE: "Pre-Proposal Walk" and "Post-Award Kickoff" are real scheduled site
-    // visits with no scheduling mechanism today. Left false to preserve current
-    // behavior exactly; revisit in the scheduling slice.
+    // Site walk and Kickoff still have no scheduling mechanism; the calendar
+    // slice covers them separately.
     requiresScheduling: "false",
     requiresCompletion: "false",
     requiresInvoicing: "false",
@@ -199,23 +199,14 @@ export const STATUS_KEY_BACKFILL: Record<string, Record<string, string>> = {
     "Closed - Lost": "closed_lost",
   },
   "RFP Request": {
+    ...Object.fromEntries(RFP_STATUSES.map(({ name, statusKey }) => [name, statusKey])),
     "Request Received": "new",
     "Review Requirements": "reviewing",
     "Request Missing Info": "waiting_info",
     "Pre-Proposal Walk": "site_visit",
     "Proposal Drafted": "proposal_draft",
     "Proposal Submitted": "proposal_sent",
-    "Awaiting Response": "awaiting_response",
-    "Decision Received": "decision_received",
     "Closed - Lost": "closed_lost",
-    "Awarded": "awarded",
-    "Contract Executed": "contract_executed",
-    "CRM Setup Complete": "crm_setup",
-    "Maps Requested": "maps_requested",
-    "Maps Uploaded": "maps_uploaded",
-    "Contacts Collected": "contacts_collected",
-    "Post-Award Kickoff": "kickoff",
-    "Handoff to Operations": "handoff_ops",
     "Closed - Won": "closed_won",
   },
 };

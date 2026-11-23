@@ -13,7 +13,7 @@ import { apiRequest } from "@/lib/queryClient";
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: "u1", activeCompanyId: "c1", activeRole: "admin" } }) }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: vi.fn() }));
 const configs = [
-  { name: "bids", Page: BidsBoardPage, keys: ["new", "reviewing", "walk", "proposal", "submitted", "decision"], type: "rfp_request" },
+  { name: "bids", Page: BidsBoardPage, keys: ["new", "reviewing", "walk", "proposal", "submitted", "awarded"], type: "rfp_request" },
   { name: "estimates", Page: EstimatesBoardPage, keys: ["new", "estimating", "proposal", "sent", "decision", "won"], type: "estimate_request" },
 ];
 afterEach(async () => { cleanup(); vi.resetAllMocks(); document.documentElement.className = ""; await i18n.changeLanguage("en"); });
@@ -27,7 +27,7 @@ describe.each(configs)("$name shared rendering", ({ name, Page, keys, type }) =>
   it.each(["light", "dark"])("resolves approved display identity with matching rails in %s", async theme => {
     document.documentElement.className = theme === "dark" ? "dark" : "";
     vi.mocked(apiRequest).mockResolvedValue({ json: async () => ({ stages: [{
-      key: "decision", tickets: [{
+      key: name === "bids" ? "awarded" : "decision", tickets: [{
         id: "raw", title: "Opportunity", typeKey: type, statusKey: "scheduled", statusName: "Unexpected",
         customer: null, assignee: null, priority: "normal", estimateNumber: null, daysInStage: 0,
       }],
@@ -57,6 +57,11 @@ describe.each(configs)("$name shared rendering", ({ name, Page, keys, type }) =>
     expect(screen.getByTestId("text-bid-days-one").getAttribute("data-warn")).toBe("true");
     expect(screen.getByText(i18n.t(`${name}.typeLabel`))).toBeTruthy();
     for (const key of keys) expect(screen.getByRole("region", { name: i18n.t(`${name}.stage.${key}`) })).toBeTruthy();
+    if (name === "bids") {
+      const labels = lang === "es" ? ["Visita al sitio", "Redactando propuesta", "Adjudicada"] : ["Site walk", "Drafting proposal", "Awarded"];
+      for (const label of labels) expect(screen.getByRole("region", { name: label })).toBeTruthy();
+      expect(screen.queryByTestId("column-decision")).toBeNull();
+    }
     if (name === "estimates") expect(apiRequest).toHaveBeenCalledWith("GET", `/api/${name}/board`, undefined, { headers: { "X-Company-Id": "c1" } });
     else expect(apiRequest).toHaveBeenCalledWith("GET", `/api/${name}/board`);
     expect(screen.queryByTestId("rail-rfp_request")).toBeNull();

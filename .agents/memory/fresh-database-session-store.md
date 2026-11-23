@@ -11,7 +11,7 @@ to the API bundle when no table exists. A missing build asset then causes a
 login 500 independently of user or company fixture correctness. After that
 failure the running process can retain the failed initialization promise.
 
-**How to apply:** For isolated tests only, install the driver's standard table
-SQL into the disposable database and restart the API while keeping the fixture
-database override. Do not create the table this way in shared or production
-databases.
+**How to apply:** Check whether the disposable schema export already created
+`public.session`. Install the driver's standard SQL only if the table is absent,
+then start or restart the API with the fixture database override. Do not create
+the table this way in shared or production databases.

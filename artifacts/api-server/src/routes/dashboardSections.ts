@@ -166,7 +166,7 @@ export async function mineSummary(user: UserWithContext, now: Date) {
     (${tickets.dueDate} AT TIME ZONE 'UTC' AT TIME ZONE 'America/Denver')::date)::text`;
   // Status keys are stable seeded identity, joined to their own company/type.
   const owned = ["new", "estimating", "reviewing", "waiting_info", "site_visit", "proposal_draft", "proposal_sent",
-    "awaiting_response", "decision_received", "ready_to_schedule", "scheduled", "ready_for_billing", "pending_invoice"];
+    "awarded", "decision_received", "ready_to_schedule", "scheduled", "ready_for_billing", "pending_invoice"];
   const scope = and(eq(tickets.companyId, user.activeCompanyId), eq(tickets.assignedToId, user.id), isNull(tickets.completedAt),
     eq(ticketTypeStatuses.isFinal, "false"), eq(ticketTypeStatuses.actionType, "needs_action"),
     // To-Do's seeded new status belongs here, not Estimates.

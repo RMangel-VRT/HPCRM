@@ -372,11 +372,11 @@ describe("Estimates action list", () => {
   });
 });
 
-describe("Bids board is unchanged", () => {
+describe("Bids stays on the shared opportunity board", () => {
   it("still renders the OpportunityBoard stage columns", async () => {
     vi.mocked(apiRequest).mockResolvedValue(ok({ stages: [] }));
     const loc = memoryLocation({ path: "/dashboard/bids" });
     render(<QueryClientProvider client={new QueryClient()}><Router hook={loc.hook}><BidsBoardPage /></Router></QueryClientProvider>);
-    for (const k of ["new", "reviewing", "walk", "proposal", "submitted", "decision"]) expect(await screen.findByTestId(`column-${k}`)).toBeTruthy();
+    for (const k of ["new", "reviewing", "walk", "proposal", "submitted", "awarded"]) expect(await screen.findByTestId(`column-${k}`)).toBeTruthy();
   });
 });

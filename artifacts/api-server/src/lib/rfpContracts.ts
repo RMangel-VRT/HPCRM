@@ -19,7 +19,7 @@ export async function rfpWorkflow(reader: Reader, ticket: Ticket) {
   return { statuses, current: statuses.find(s => s.id === ticket.currentStatusId),
     draft: statuses.find(s => s.statusKey === "proposal_draft"),
     awarded: statuses.find(s => s.statusKey === "awarded"),
-    executed: statuses.find(s => s.statusKey === "contract_executed") };
+    onboarding: statuses.find(s => s.statusKey === "onboarding") };
 }
 export async function validateRfpCreation(tx: Transaction, companyId: string, id: string, customer: Customer) {
   const ticket = await lockRfp(tx, companyId, id);
@@ -28,7 +28,7 @@ export async function validateRfpCreation(tx: Transaction, companyId: string, id
   if (flow.current?.isFinal === "true" || ["closed_lost", "closed_won"].includes(flow.current?.statusKey ?? ""))
     throw new ContractCenterError(409, "This RFP is closed");
   if (!flow.current || !flow.draft || flow.current.displayOrder < flow.draft.displayOrder)
-    throw new ContractCenterError(409, "Move the RFP to Proposal Drafted first");
+    throw new ContractCenterError(409, "Move the RFP to Drafting proposal first");
   const [owner] = ticket.customerId ? await tx.select().from(customers)
     .where(and(eq(customers.id, ticket.customerId), eq(customers.companyId, companyId))) : [];
   const [freshCustomer] = await tx.select().from(customers).where(and(eq(customers.id, customer.id), eq(customers.companyId, companyId)));
@@ -45,19 +45,29 @@ export async function guardManualRfpStatus(tx: Transaction, ticket: Ticket, toSt
   if (ticket.currentStatusId === toStatusId) return;
   const flow = await rfpWorkflow(tx, ticket);
   const target = flow?.statuses.find(s => s.id === toStatusId);
-  if (!flow?.awarded || !target || target.displayOrder < flow.awarded.displayOrder ||
-    target.statusKey === "closed_lost") return;
+  if (!flow || !target || target.statusKey === "awarded") return;
+  const lost = target.statusKey === "closed_lost";
+  const onboardingOrLater = target.statusKey === "closed_won" ||
+    (flow.onboarding && target.displayOrder >= flow.onboarding.displayOrder);
+  if (!lost && !onboardingOrLater) return;
   const terms = await linkedSeasons(tx, ticket.companyId, ticket.id);
+  if (lost) {
+    if (terms.some(t => t.status === "draft" || t.status === "sent"))
+      throw new ContractCenterError(409, "Use Mark lost so its contract is marked lost too.");
+    return;
+  }
   if (terms.length && !terms.some(t => t.status === "signed"))
-    throw new ContractCenterError(409, "Mark the contract signed in the Contract Center; the RFP follows it.");
+    throw new ContractCenterError(409, "Mark the contract signed in the Contract Center; the RFP moves to Onboarding on its own.");
 }
-/** Pure precedence/forward guards; signed sync deliberately requires BEFORE Awarded. */
+/** Pure precedence/forward guards; Awarded records verbal agreement, not signature. */
 export function rfpSyncTargets(flow: NonNullable<Awaited<ReturnType<typeof rfpWorkflow>>>, terms: { status: string }[]) {
-  const { current, awarded, executed, statuses } = flow;
+  const { current, awarded, onboarding, statuses } = flow;
   if (!current || current.isFinal === "true" || ["closed_lost", "closed_won"].includes(current.statusKey ?? "") ||
-    !executed || current.displayOrder >= executed.displayOrder) return [];
-  if (terms.some(t => t.status === "signed"))
-    return awarded && current.displayOrder < awarded.displayOrder ? ["awarded", "contract_executed"] : [];
+    !onboarding || current.displayOrder >= onboarding.displayOrder) return [];
+  if (terms.some(t => t.status === "signed")) {
+    if (current.statusKey === "awarded") return ["onboarding"];
+    return awarded && current.displayOrder < awarded.displayOrder ? ["awarded", "onboarding"] : [];
+  }
   const sent = statuses.find(s => s.statusKey === "proposal_sent");
   if (terms.some(t => t.status === "sent"))
     return sent && current.displayOrder < sent.displayOrder ? ["proposal_sent"] : [];

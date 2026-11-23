@@ -192,7 +192,7 @@ describe.each([
     expect(BID_STAGES).toEqual([
       { key: "new", statusKeys: ["new"] }, { key: "reviewing", statusKeys: ["reviewing", "waiting_info"] },
       { key: "walk", statusKeys: ["site_visit"] }, { key: "proposal", statusKeys: ["proposal_draft"] },
-      { key: "submitted", statusKeys: ["proposal_sent", "awaiting_response"] }, { key: "decision", statusKeys: ["decision_received"] },
+      { key: "submitted", statusKeys: ["proposal_sent"] }, { key: "awarded", statusKeys: ["awarded"] },
     ]);
   });
   it.each(stages as readonly { key: string; statusKeys: readonly string[] }[])("places stage $key by stable status key", async stage => {
@@ -217,7 +217,7 @@ describe.each([
   it("excludes out-of-range statuses, unrelated types and other companies in SQL", async () => {
     const excluded = type === "estimate_request"
       ? ["awarded", "closed_lost", "completed", "invoicing"]
-      : ["ready_to_schedule", "awarded", "closed_lost", "scheduled", "completed", "invoicing"];
+      : ["ready_to_schedule", "decision_received", "awaiting_response", "onboarding", "closed_lost", "scheduled", "completed", "invoicing"];
     rows = [
       ticket(type), ...excluded.flatMap(status =>
         [ticket("estimate_request", status), ticket("rfp_request", status)]),

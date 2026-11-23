@@ -22,7 +22,9 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
   function api(companyId: string = f.companyId) {
     const app = express(); app.use(express.json());
     app.use((req, _res, next) => {
-      Object.assign(req, { isAuthenticated: () => true, user: { id: f.userId, activeCompanyId: companyId, activeRole: "office" } }); next();
+      Object.assign(req, { isAuthenticated: () => true, user: {
+        id: f.userId, activeCompanyId: companyId, activeRole: "office", accessRole: "office",
+      } }); next();
     });
     registerContractCenterRoutes(app); return request(app);
   }
@@ -78,7 +80,7 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
   it.each(["reviewing", "closed_lost", "closed_won", "custom_final"])("rejects %s with the specified conflict", async key => {
     const rfp = await f.createRfp(key), result = await api().post(`${base}/contracts`).send(payload(rfp.id));
     expect(result.status).toBe(409);
-    expect(result.body.message).toBe(key === "reviewing" ? "Move the RFP to Proposal Drafted first" : "This RFP is closed");
+    expect(result.body.message).toBe(key === "reviewing" ? "Move the RFP to Drafting proposal first" : "This RFP is closed");
   });
   it("rejects Estimate Requests, display-name impostors, foreign RFPs and unrelated customers", async () => {
     const rfp = await f.createRfp();
@@ -118,18 +120,31 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
     expect(ordinary.terms[0].allowedMoves).not.toContain("lost");
     expect((await move(ordinary.terms[0].id, "lost")).status).toBe(409);
   });
-  it("Sent and Signed advance through separate Awarded and Contract Executed history once", async () => {
+  it("Sent and Signed advance through separate Submitted, Awarded and Onboarding history once", async () => {
     const rfp = await f.createRfp(), detail = await create(rfp.id), termId = detail.terms[0].id;
     expect((await move(termId, "sent")).status).toBe(200);
     expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("proposal_sent").id);
     expect((await move(termId, "draft")).status).toBe(200);
     expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("proposal_sent").id);
     await move(termId, "sent"); await move(termId, "signed");
-    expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("contract_executed").id);
+    expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("onboarding").id);
     const h = await history(rfp.id);
-    expect(h.map(h => h.toStatusId)).toEqual([f.status("proposal_sent").id, f.status("awarded").id, f.status("contract_executed").id]);
+    expect(h.map(h => h.toStatusId)).toEqual([f.status("proposal_sent").id, f.status("awarded").id, f.status("onboarding").id]);
     await move(termId, "lost");
     expect(await history(rfp.id)).toHaveLength(3);
+  });
+  it("allows verbal Awarded and records only Onboarding on signature", async () => {
+    const rfp = await f.createRfp(), { terms: [term] } = await create(rfp.id);
+    await db.transaction(async tx => {
+      const current = await lockRfp(tx, f.companyId, rfp.id);
+      await guardManualRfpStatus(tx, current, f.status("awarded").id);
+      await applyTicketStatus(tx, { ticket: current, toStatusKey: "awarded", userId: f.userId });
+    });
+    expect((await move(term.id, "sent")).status).toBe(200);
+    expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("awarded").id);
+    expect((await move(term.id, "signed")).status).toBe(200);
+    expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("onboarding").id);
+    expect((await history(rfp.id)).map(h => h.toStatusId)).toEqual([f.status("awarded").id, f.status("onboarding").id]);
   });
   it("mixed lost/sent does not close; concurrent sibling losses close exactly once", async () => {
     const rfp = await f.createRfp(), a = await create(rfp.id), b = await create(rfp.id);
@@ -145,9 +160,8 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
   it("Decision Lost uses ordinary lifecycle validation for draft/sent, leaves signed untouched, and completes ticket", async () => {
     const rfp = await f.createRfp(), a = await create(rfp.id), b = await create(rfp.id), c = await create(rfp.id);
     await move(b.terms[0].id, "sent");
-    // A signed season may coexist with a Decision checklist on historical data.
+    // A signed season may coexist with draft and sent siblings.
     await db.update(agreementTerms).set({ status: "signed" }).where(eq(agreementTerms.id, c.terms[0].id));
-    await db.update(tickets).set({ currentStatusId: f.status("decision_received").id }).where(eq(tickets.id, rfp.id));
     await db.transaction(async tx => { const current = await lockRfp(tx, f.companyId, rfp.id); await applyRfpDecisionLost(tx, current, f.userId); });
     for (const detail of [a, b]) expect((await persistence.getTerm(db, f.companyId, detail.terms[0].id)).status).toBe("lost");
     expect((await persistence.getTerm(db, f.companyId, c.terms[0].id)).status).toBe("signed");
@@ -155,7 +169,7 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
     expect((await ticket(rfp.id)).completedAt).toBeInstanceOf(Date);
   });
   it("rolls back Decision loss and every history when ordinary status operation fails", async () => {
-    const rfp = await f.createRfp("decision_received"), a = await create(rfp.id), b = await create(rfp.id);
+    const rfp = await f.createRfp("proposal_sent"), a = await create(rfp.id), b = await create(rfp.id);
     const original = persistence.writeTerm;
     const spy = vi.spyOn(persistence, "writeTerm").mockImplementation(async (...args) => {
       if (args[3]?.id === b.terms[0].id) throw new Error("Injected lifecycle failure");
@@ -166,22 +180,29 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
         const current = await lockRfp(tx, f.companyId, rfp.id); await applyRfpDecisionLost(tx, current, f.userId);
       })).rejects.toThrow("Injected lifecycle failure");
     } finally { spy.mockRestore(); }
-    expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("decision_received").id);
+    expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("proposal_sent").id);
     expect(await history(rfp.id)).toHaveLength(0);
     for (const d of [a, b]) expect((await persistence.getTerm(db, f.companyId, d.terms[0].id)).status).toBe("draft");
   });
-  it("guards unsigned manual Awarded/later, allows legacy unlinked and signed cases", async () => {
+  it("guards unsigned Onboarding/Won and draft or sent Lost, but allows unlinked and signed cases", async () => {
     const rfp = await f.createRfp(), detail = await create(rfp.id);
-    for (const key of ["awarded", "contract_executed", "crm_setup", "closed_won"]) {
+    for (const key of ["onboarding", "closed_won"]) {
       await expect(db.transaction(tx => guardManualRfpStatus(tx, rfp, f.status(key).id)))
-        .rejects.toMatchObject({ status: 409, message: "Mark the contract signed in the Contract Center; the RFP follows it." });
+        .rejects.toMatchObject({ status: 409, message: "Mark the contract signed in the Contract Center; the RFP moves to Onboarding on its own." });
+    }
+    for (const status of ["draft", "sent"] as const) {
+      await db.update(agreementTerms).set({ status }).where(eq(agreementTerms.id, detail.terms[0].id));
+      await expect(db.transaction(tx => guardManualRfpStatus(tx, rfp, f.status("closed_lost").id)))
+        .rejects.toMatchObject({ status: 409, message: "Use Mark lost so its contract is marked lost too." });
     }
     const legacy = await f.createRfp();
-    await db.transaction(tx => guardManualRfpStatus(tx, legacy, f.status("awarded").id));
+    await db.transaction(tx => guardManualRfpStatus(tx, legacy, f.status("onboarding").id));
+    await db.transaction(tx => guardManualRfpStatus(tx, legacy, f.status("closed_lost").id));
     await db.update(agreementTerms).set({ status: "signed" }).where(eq(agreementTerms.id, detail.terms[0].id));
-    await db.transaction(tx => guardManualRfpStatus(tx, rfp, f.status("awarded").id));
+    await db.transaction(tx => guardManualRfpStatus(tx, rfp, f.status("onboarding").id));
+    await db.transaction(tx => guardManualRfpStatus(tx, rfp, f.status("closed_lost").id));
   });
-  it.each(["awarded", "contract_executed", "crm_setup", "closed_won", "closed_lost", "custom_final"])("never signs an RFP forward from %s", async key => {
+  it.each(["onboarding", "closed_won", "closed_lost", "custom_final"])("never signs an RFP forward from %s", async key => {
     const rfp = await f.createRfp(), detail = await create(rfp.id);
     await move(detail.terms[0].id, "sent");
     await db.update(tickets).set({ currentStatusId: f.status(key).id }).where(eq(tickets.id, rfp.id));
@@ -204,7 +225,7 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
     expect(ordinary.body.find((a: any) => a.id === detail.id)).toHaveProperty("current");
   });
   it("shared ticket persistence preserves scheduleBy and final notification dismissal", async () => {
-    const rfp = await f.createRfp("decision_received");
+    const rfp = await f.createRfp("proposal_sent");
     const [notification] = await db.insert(ticketNotifications).values({ companyId: f.companyId, ticketId: rfp.id, recipientId: f.userId,
       type: "overdue", message: "Fixture", isRead: false }).returning();
     const updated = await db.transaction(tx => applyTicketStatus(tx, { ticket: rfp, userId: f.userId, toStatusKey: "closed_lost", note: "Fixture closed" }));
