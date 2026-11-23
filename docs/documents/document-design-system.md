@@ -73,6 +73,17 @@ Small jobs, change orders and design-build jobs all use the estimate PDF.
   - Palette cards use the same colors and type.
   - Photos run full-width, with captions placed above the image.
 
+## Customer email footer
+
+- Branded emails use the stable `/email/mountains-footer.png` asset above the
+  footer details. Its opaque `#27312C` background matches both footer cells,
+  and the line art uses shades up to `#5E6C64`. It is 1200 × 218 pixels and
+  displays at up to 600 px wide; only the last footer cell has rounded corners.
+- Regenerate the strip with `bash scripts/generate-email-footer-mountains.sh`
+  (ImageMagick 7). Keep `/email/mountains.png` byte-for-byte unchanged: older
+  messages still fetch it. Neither the dark strip nor the legacy strip belongs
+  in the internal plain footer or the slim reply signature. PDF art is separate.
+
 ## Historical implementation and coordination notes
 
 - **The new documents are drawn as HTML pages and turned into PDFs by a built-in browser** (puppeteer-core + Chromium, as in IrrigoPro). One shared template module renders every document type. **That's Invoice Center slice IC4. Build it once, for both projects.**

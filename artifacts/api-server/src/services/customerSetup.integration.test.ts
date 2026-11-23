@@ -6,7 +6,7 @@ import express from "express";
 import request from "supertest";
 import { and, eq, inArray } from "drizzle-orm";
 import { companies, customers, contacts, qboCustomerCache, qboCustomerReviews, qboConnections,
-  propertyManagementCompanies, propertyManagers, insertCustomerSchema, pool as schemaPool } from "@workspace/db";
+  propertyManagementCompanies, propertyManagers, insertCustomerSchema, insertContactSchema, pool as schemaPool } from "@workspace/db";
 import { db, pool } from "../db";
 const remote = vi.hoisted(() => vi.fn());
 vi.mock("./qboClient", () => ({ qboRequest: remote, isQboWriteEnabled: vi.fn().mockResolvedValue(false) }));
@@ -22,6 +22,7 @@ import { withCustomerSyncLock } from "./qboCustomerSync";
 import { bindCustomerLocked } from "./qboCustomerBinding";
 import { isQboWriteEnabled } from "./qboClient";
 import { geocodeProperty } from "./propertyGeocoder";
+import { assertNotParentCustomer } from "../utils/parentGuard";
 
 const ids: string[] = [];
 let companyId: string;
@@ -49,6 +50,11 @@ function app(role = "admin", authenticated = true) {
     transformSync(source.slice(start, end), { loader: "ts", target: "es2022" }).code)(
       app, storage, insertCustomerSchema, pickProvided, billingInputProblem, protectedBillingWrite, context,
       assertActivationComplete, setupFailure);
+  const contactStart = source.indexOf('  app.post("/api/customers/:customerId/contacts",');
+  const contactEnd = source.indexOf('  app.delete("/api/contacts/:id",', contactStart);
+  new Function("app", "storage", "insertContactSchema", "pickProvided", "assertNotParentCustomer",
+    transformSync(source.slice(contactStart, contactEnd), { loader: "ts", target: "es2022" }).code)(
+      app, storage, insertContactSchema, pickProvided, assertNotParentCustomer);
   return app;
 }
 async function rows() { return db.select().from(customers).where(eq(customers.companyId, companyId)); }
@@ -75,6 +81,36 @@ afterAll(async () => {
   await pool.end(); await schemaPool.end();
 });
 describe("atomic customer setup", () => {
+  it("trims only names submitted through customer setup, customer PATCH, and standalone contacts", async () => {
+    const api = request(app());
+    const created = await api.post("/api/customers/wizard").send({
+      customer: { name: "  New  customer\u00a0", ...address, status: "prospect" }, contacts: [{ name: " \u00a0Wizard contact " }],
+    }).expect(res => expect(res.status, res.text).toBe(200));
+    const id = created.body.customer.id;
+    expect(created.body.customer.name).toBe("New  customer");
+    const [wizard] = await storage.getContactsByCustomerId(id, companyId);
+    expect(wizard.name).toBe("Wizard contact");
+    const updated = await api.patch(`/api/customers/${id}/setup`).send({
+      customer: { name: "\tWizard edit  " }, expectedUpdatedAt: created.body.customer.updatedAt,
+      contacts: [{ id: wizard.id, name: " Contact edit " }],
+    }).expect(200);
+    expect(updated.body.customer.name).toBe("Wizard edit");
+    expect((await storage.getContactById(wizard.id, companyId))?.name).toBe("Contact edit");
+    const legacy = await api.post("/api/customers").send({ name: " Standard new ", status: "prospect" }).expect(200);
+    expect(legacy.body.name).toBe("Standard new");
+    await db.update(customers).set({ name: "Joe Woods " }).where(eq(customers.id, id));
+    const omitted = await api.patch(`/api/customers/${id}`).send({}).expect(200);
+    expect(omitted.body.name).toBe("Joe Woods ");
+    const standard = await api.patch(`/api/customers/${id}`).send({ name: "\t Standard edit " }).expect(200);
+    expect(standard.body.name).toBe("Standard edit");
+    const contact = await api.post(`/api/customers/${id}/contacts`).send({ name: " Standalone Contact " }).expect(200);
+    expect(contact.body.name).toBe("Standalone Contact");
+    await db.update(contacts).set({ name: "Old Contact " }).where(eq(contacts.id, contact.body.id));
+    const unchanged = await api.patch(`/api/contacts/${contact.body.id}`).send({ notes: "Edited" }).expect(200);
+    expect(unchanged.body.name).toBe("Old Contact ");
+    const trimmed = await api.patch(`/api/contacts/${contact.body.id}`).send({ name: " Standalone edit " }).expect(200);
+    expect(trimmed.body.name).toBe("Standalone edit");
+  });
   it("persists both management IDs for a property-billed wizard customer without remote writes", async () => {
     const [pmCompany] = await db.insert(propertyManagementCompanies).values({
       companyId, name: "Synthetic property management", ...address,

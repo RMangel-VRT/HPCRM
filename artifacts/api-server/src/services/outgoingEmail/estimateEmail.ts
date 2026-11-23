@@ -1,6 +1,7 @@
 import { ESTIMATE_VALIDITY_DAYS, type IssuedEstimateAttachment } from "@workspace/db/estimate-contracts";
 import { addCalendarDays, companyDateString } from "../../lib/companyDay";
 import { renderEmailLayout, type Block, type EmailCompany } from "./layout";
+import { greetingFor } from "./text";
 import { fillWording, getEmailWording, PLACEHOLDERS, type EmailWording } from "./wording";
 
 type Instant = string | Date;
@@ -76,7 +77,7 @@ export async function buildEstimateEmail({ estimate, version, previous, company,
   if (!revised) blocks.push({ kind: "reply", text: "Questions or changes? Just reply — this email goes straight to our office." });
   return { subject, preview, ...renderEmailLayout({
     subject, preview, docType, docNumber: estimate.estimateNumber, stripe: revised ? "sky" : "lime", company, blocks,
-    greeting: estimate.customerName.trim() ? `Hello ${estimate.customerName},` : "Hello,",
+    greeting: greetingFor(estimate.customerName),
     wording: { eyebrow: fill(template.eyebrow), headline: fill(template.headline), intro: fill(template.intro), closing: fill(template.closing) },
   }) };
 }

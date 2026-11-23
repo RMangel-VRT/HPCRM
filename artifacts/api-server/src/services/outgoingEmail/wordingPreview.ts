@@ -5,6 +5,7 @@ import { renderChemicalEmail, type ChemicalEmailFields } from "./chemicalEmail";
 import { buildDocumentsEmail, buildGeneralMessage } from "./serviceEmails";
 import { buildWorkCompletedEmail } from "./workCompletedEmail";
 import { renderEmailLayout, type Block, type EmailCompany, type Stripe } from "./layout";
+import { greetingFor } from "./text";
 import { fillWording, PLACEHOLDERS, type EmailKey, type EmailWording } from "./wording";
 
 const customerName = "Sample Customer";
@@ -106,7 +107,7 @@ function genericPreview(key: PreviewOnlyKey, wording: EmailWording, company: Pre
   const subject = fill(wording.subject);
   const preview = fill(wording.preview);
   return { subject, preview, ...renderEmailLayout({ company, subject, preview, docType, docNumber, stripe, blocks,
-    greeting: `Hello ${customerName},`,
+    greeting: greetingFor(customerName),
     wording: { eyebrow: fill(wording.eyebrow), headline: fill(wording.headline), intro: fill(wording.intro), closing: fill(wording.closing) },
   }) };
 }
@@ -132,7 +133,8 @@ export async function renderWordingPreview(key: EmailKey, wording: EmailWording,
       return buildDocumentsEmail({ companyId, company, wording, customerName,
         documents: [{ title: "W-9", filename: "W-9.pdf", pageCount: 1 }, { title: "Certificate of Insurance", filename: "COI.pdf", pageCount: 1 }] });
     case "general_message":
-      return buildGeneralMessage({ companyId, company, wording, customerName, body: "Thanks for checking in about the front entry. We’ll follow up with a few options next week." });
+      return buildGeneralMessage({ companyId, company, wording, customerName, sampleSubject: "Front entry follow-up",
+        body: "Thanks for checking in about the front entry. We’ll follow up with a few options next week." });
     default:
       return genericPreview(key, wording, company);
   }

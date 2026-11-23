@@ -2,6 +2,7 @@ import type { ChemicalNotificationTemplate } from "@workspace/db";
 import { loadEmailCompany } from "./company";
 import { renderEmailLayout, type Block, type EmailCompany } from "./layout";
 import { httpUrl } from "./markup";
+import { greetingFor } from "./text";
 import { fillWording, getEmailWording, PLACEHOLDERS, type EmailWording } from "./wording";
 
 export const emptyLegacyChemicalWording = {
@@ -77,8 +78,8 @@ export async function renderChemicalEmail(
     if (name || license) blocks.push({
       kind: "person", title: "Licensed applicator on your visit", lines: [
         name, license && `Colorado Commercial Applicator · License #${license}`,
-        company.phone && `Questions on the day? ${company.phone}`,
       ].filter(Boolean),
+      companyPhone: company.phone ? { label: "Questions on the day?", value: company.phone } : undefined,
     });
   } else {
     const items = facts([
@@ -108,7 +109,7 @@ export async function renderChemicalEmail(
   const { html, text } = renderEmailLayout({
     company, subject, preview, stripe: "lime", docNumber: values.treatmentName,
     docType: kind === "pre" ? "Scheduled visit" : "Visit complete",
-    greeting: values.customerName ? `Hello ${values.customerName},` : "Hello,",
+    greeting: greetingFor(values.customerName),
     wording: { eyebrow: fill("eyebrow"), headline: fill("headline"), intro: fill("intro"), closing: fill("closing") },
     blocks,
   });

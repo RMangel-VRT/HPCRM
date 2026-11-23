@@ -102,7 +102,7 @@ async function prepareCompanyDocuments(company: string, user: UserWithContext, b
   ]);
   const customerName = customerId ? await deps.customerName(company, customerId) : undefined;
   const email = await buildDocumentsEmail({ companyId: company, company: details, documents, note: input.note,
-    subject: input.subject, wording, customerName });
+    subject: input.subject, wording, customerName, greetCustomer: input.to.length === 1 });
   return { input, mailbox, snapshots, attachments, email, customerId };
 }
 

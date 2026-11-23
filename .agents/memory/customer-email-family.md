@@ -74,3 +74,9 @@ not authorize other private attachments.
 **How to apply:** verify both the public route and recipient rendering before
 claiming client compatibility. SendGrid acceptance and a successful direct
 image response are separate pieces of evidence.
+
+M9's dark strip is a new public email asset, not a replacement at the old
+URL. **Why:** already-sent HTML still fetches the old strip and must not
+change appearance. **How to apply:** preserve both URLs indefinitely, and
+when adding new brand images, check the stored Conversations renderer's
+exact same-origin image allowlist as well as the public asset response.

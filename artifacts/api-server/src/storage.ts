@@ -15,6 +15,7 @@ import { afterCustomerEdit, markPending, writeCustomer } from "./services/qboCus
 import { bindCustomer, unlinkCustomerLocked } from "./services/qboCustomerBinding";
 import { promoteQboCustomer } from "./services/qboCustomerPromotion";
 import { CampaignGuardError, assertNoCampaignVisitLinks } from "./lib/campaignIdentity";
+import { trimProvidedName } from "./lib/trimProvidedName";
 
 export interface MyExtraBillableBatch {
   campaignId: string;
@@ -836,7 +837,7 @@ export class PgStorage implements IStorage {
   async createCustomer(insertCustomer: InsertCustomer): Promise<Customer> {
     return withCustomerSyncLock(insertCustomer.companyId, async tx => {
       await validateAccountManagerWrite(tx, insertCustomer.companyId, insertCustomer, insertCustomer);
-      const [created] = await tx.insert(customers).values([insertCustomer] as (typeof customers.$inferInsert)[]).returning();
+      const [created] = await tx.insert(customers).values([trimProvidedName(insertCustomer)] as (typeof customers.$inferInsert)[]).returning();
       await afterCustomerEdit(tx, undefined, created);
       return (await tx.select().from(customers).where(and(eq(customers.companyId, created.companyId), eq(customers.id, created.id))))[0];
     });
@@ -844,6 +845,7 @@ export class PgStorage implements IStorage {
 
   async updateCustomer(id: string, companyId: string, updates: Partial<InsertCustomer>, expectedUpdatedAt?: Date,
     writer: Pick<typeof db, "select" | "update"> = db): Promise<Customer | undefined | { conflict: true; current: Customer }> {
+    updates = trimProvidedName(updates);
     // The non-renewal sweep supplies its own transaction for inactive-only DML.
     // It never activates or changes billing facts, so no outbound work is needed.
     if (writer === db) return withCustomerSyncLock(companyId, tx => writeCustomer(tx, id, companyId, updates, expectedUpdatedAt));
@@ -895,13 +897,13 @@ export class PgStorage implements IStorage {
   }
 
   async createContact(insertContact: InsertContact): Promise<Contact> {
-    const result = await db.insert(contacts).values([insertContact]).returning();
+    const result = await db.insert(contacts).values([trimProvidedName(insertContact)]).returning();
     return result[0];
   }
 
   async updateContact(id: string, companyId: string, updates: Partial<InsertContact>): Promise<Contact | undefined> {
     const result = await db.update(contacts)
-      .set(updates)
+      .set(trimProvidedName(updates))
       .where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)))
       .returning();
     return result[0];

@@ -25,13 +25,16 @@ describe("customer email layout", () => {
     expect(publicAppUrl()).toBe("https://app.highplainsprop.com");
     vi.stubEnv("PUBLIC_APP_URL", " https://crm.example.test/// ");
     const { html, text } = renderEmailLayout(input);
-    expect(html).toMatch(/<body[^>]*><div style="display:none;[^"]*">Preview &lt;&amp;&gt;<\/div>/);
+    expect(html).toMatch(/<body[^>]*><div style="display:none;[^"]*">Preview &lt;&amp;&gt;(?:&#847;&zwnj;&nbsp;){90}<\/div>/);
     expect(html).toContain('<title>Subject &lt;&amp;&gt;</title>');
-    expect(html).toContain('content="light"');
+    for (const name of ["color-scheme", "supported-color-schemes"]) expect(html).toContain(`name="${name}" content="light"`);
+    expect(html).toContain('name="format-detection" content="telephone=no,date=no,address=no,email=no"');
     expect(html).toContain("High‑end");
     expect(html).toContain("width:100%;max-width:600px");
-    for (const name of ["hp-logo-white-horizontal", "hp-logo-badge", "mountains"])
+    for (const name of ["hp-logo-white-horizontal", "hp-logo-badge", "mountains-footer"])
       expect(html).toContain(`https://crm.example.test/email/${name}.png`);
+    expect(html).toContain('<tr><td bgcolor="#27312C" style="padding:0;line-height:0"><img src="https://crm.example.test/email/mountains-footer.png" width="600" alt="" style="display:block;width:100%;height:auto;border:0"></td></tr>\n<tr><td bgcolor="#27312C" style="padding:22px 32px;border-radius:0 0 14px 14px">');
+    expect(html).not.toContain("/email/mountains.png");
     expect(html).not.toMatch(/display:(?:flex|grid)|<style|<svg|linear-gradient|data:image|\p{Extended_Pictographic}/u);
     expect(text).toBe("High & Plains\n\nHigh-end\n\nHello Customer,\n\nIntro\n\nClosing\n\nThank you,\nHigh & Plains\n\noffice@example.test");
     expect(html).toContain('href="mailto:office@example.test"');
@@ -40,7 +43,7 @@ describe("customer email layout", () => {
 
   it("uses a plain internal footer and permits a missing greeting", () => {
     const { html, text } = renderEmailLayout({ ...input, internal: true, greeting: null });
-    expect(html).not.toMatch(/mountains\.png|hp-logo-badge\.png|office@example\.test/);
+    expect(html).not.toMatch(/mountains(?:-footer)?\.png|hp-logo-badge\.png|office@example\.test/);
     expect(text).not.toMatch(/Hello|office@example/);
   });
 
@@ -87,7 +90,7 @@ describe("customer email layout", () => {
 describe("wording catalog", () => {
   it("validates case-sensitive placeholders before dropping incomplete sentences and substitutes once", () => {
     expect(fillWording("Hello {customerName}. Call {companyPhone}. Reply! Thanks?", {
-      customerName: "Acme & Sons", companyPhone: "",
+      customerName: "   Acme\u00a0 &\tSons  ", companyPhone: "\u00a0 \t",
     })).toBe("Hello Acme & Sons. Reply! Thanks?");
     expect(fillWording("Missing {companyPhone}! Keep {title}.", { title: "A {companyPhone}. Inc" },
       ["title", "companyPhone"])).toBe("Keep A {companyPhone}. Inc.");

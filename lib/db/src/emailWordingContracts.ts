@@ -14,7 +14,7 @@ const extras = {
   chemical_completed: ["treatmentName", "campaignTitle", "completedDate"],
   work_completed: ["ticketTitle", "completedDate"],
   documents: ["documentCount"],
-  general_message: [],
+  general_message: ["subject"],
   contract_renewal: ["contractName", "renewalStart", "renewalTotal"],
   contract_welcome: ["contractName", "startDate"],
 } as const;

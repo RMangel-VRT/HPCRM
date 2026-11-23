@@ -9,6 +9,12 @@ Run scratch PostgreSQL commands with a clean environment and explicit host, port
 
 **How to apply:** Set an explicit local target for application test processes as well, without inherited credentials. Build the disposable schema from current declarations, supplementing only verified SQL-only dependencies. The historical migration ledger predates some current schema objects, so replaying the chain alone does not bootstrap an empty database.
 
+Keep the scratch server and its test command in the same shell task.
+**Why:** when a standalone startup task exits, its database child can be
+reaped even though initialization succeeded and its socket file remains.
+**How to apply:** start, verify the server identity, run the checks, and stop
+the scratch server with an exit trap in one shell task.
+
 For a production-to-development schema resync, Replit's read-only production
 query tool connects to a replica with its own Neon endpoint ID. It is suitable
 for catalog comparison but does not prove a direct `pg_dump` source. Verify the

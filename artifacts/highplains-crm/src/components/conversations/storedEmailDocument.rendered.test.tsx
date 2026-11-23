@@ -16,6 +16,7 @@ it("renders branded email without copying active markup or allowing privileged n
     </table>
     <img src="${origin}/email/hp-logo-badge.png" width="36" onerror="alert(1)" srcset="${origin}/api/private 2x">
     <img src="${origin}/api/private"><img src="${origin}/other/email/hp-logo-badge.png"><img src="${origin}/email/mountains.png?other=1">
+    <img src="${origin}/email/mountains.png"><img src="${origin}/email/mountains-footer.png"><img src="${origin}/email/mountains-footer.png?other=1">
     <a href="javascript:alert(1)" target="_top">Unsafe</a>
     <a href="https://example.test/view" ping="https://untrusted.example/" target="_top">Safe link</a>
     <form action="${origin}/api/private"><input></form><iframe src="${origin}/api/private"></iframe>
@@ -25,7 +26,9 @@ it("renders branded email without copying active markup or allowing privileged n
   expect(doc.querySelector("script, form, input, iframe, svg, [onclick], [onerror], [srcset], [ping]")).toBeNull();
   expect(doc.querySelector("#email-content td")?.textContent).toBe("Branded content");
   expect(doc.querySelector("table")?.getAttribute("style")).toBe("background-color:#123456;width:100%");
-  expect([...doc.images].map(image => image.src)).toEqual([`${origin}/email/hp-logo-badge.png`]);
+  expect([...doc.images].map(image => image.src)).toEqual([
+    `${origin}/email/hp-logo-badge.png`, `${origin}/email/mountains.png`, `${origin}/email/mountains-footer.png`,
+  ]);
   expect(doc.images[0].getAttribute("referrerpolicy")).toBe("no-referrer");
   expect(doc.querySelector("a")?.hasAttribute("href")).toBe(false);
   const safe = doc.querySelector("a[href]")!;

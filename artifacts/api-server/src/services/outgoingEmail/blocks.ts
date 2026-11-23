@@ -1,3 +1,4 @@
+import { renderCompanyPhone } from "./companyPhone";
 import { colors as c, escape, font, httpUrl, label, multiline, table } from "./markup";
 
 type Fact = { label: string; value: string; strike?: boolean };
@@ -10,7 +11,7 @@ export type Block =
   | { kind: "dates"; planned?: { date: string; window?: string }; backup?: { date: string; note: string } }
   | { kind: "checklist"; title: string; tone: "lime" | "amber"; items: string[] }
   | { kind: "card"; title: string; rows: Fact[] }
-  | { kind: "person"; title: string; lines: string[] }
+  | { kind: "person"; title: string; lines: string[]; companyPhone?: { label: string; value: string } }
   | { kind: "photos"; title: string; urls: string[]; caption?: string }
   | { kind: "info"; tone: "sky" | "lime"; title: string; text: string }
   | { kind: "attachments"; title?: string; items: { title: string; filename: string; detail?: string; href?: string }[] }
@@ -84,8 +85,13 @@ export function renderBlock(block: Block, internal = false): { html: string; tex
 <td style="padding:3px 0;${font};font-size:14px;line-height:1.55;color:${c.ink}">${multiline(item)}</td></tr>`).join("")),
       block.title, ...block.items.map(item => `- ${item}`));
     }
-    case "person":
-      return render(label(block.title) + card(block.lines.map(multiline).join("<br>")), block.title, ...block.lines);
+    case "person": {
+      const htmlLines = block.lines.map(multiline);
+      const phone = block.companyPhone;
+      if (phone) htmlLines.push(`${escape(phone.label)} ${renderCompanyPhone(phone.value)}`);
+      return render(label(block.title) + card(htmlLines.join("<br>")), block.title, ...block.lines,
+        phone && `${phone.label} ${phone.value}`);
+    }
     case "photos": {
       const urls = block.urls.map(httpUrl).filter((url): url is string => !!url);
       if (!urls.length) return render("");

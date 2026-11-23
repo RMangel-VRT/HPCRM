@@ -50,8 +50,10 @@ describe('branded chemical notices', () => {
   beforeEach(() => templates.splice(0, templates.length, base));
 
   it('uses the exact upcoming subject, ordered blocks and company contact data', async () => {
-    const result = await render('pre', { ...visit, reentryInterval: '6 hours', wateringInstructions: '   ' });
-    expect(result.subject).toBe('Upcoming Broadleaf Weed Control – Sample Property');
+    const result = await render('pre', { ...visit, customerName: 'Joe Woods ', reentryInterval: '6 hours', wateringInstructions: '   ' });
+    expect(result.subject).toBe('Upcoming Broadleaf Weed Control – Joe Woods');
+    expect(result.textBody).toContain('Hello Joe Woods,');
+    expect(result.html).toContain('Questions on the day? <a href="tel:+13035550123"');
     expect(result.templateId).toBe(base.id);
     expect(result.templateName).toBe(base.name);
     const terms = ['May 15', 'May 16', 'Before we arrive', 'After the application', 'What we’re applying',

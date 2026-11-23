@@ -6,7 +6,7 @@ const properties = new Set(("background-color background border border-top borde
   "color font font-family font-size font-weight font-style letter-spacing line-height text-align text-decoration text-transform display margin margin-left margin-right " +
   "margin-bottom margin-top padding padding-left padding-right padding-bottom padding-top width min-width max-width height max-height vertical-align white-space " +
   "overflow overflow-wrap opacity word-break").split(" "));
-const publicBrand = /^\/email\/(?:hp-logo-badge|hp-logo-white-horizontal|mountains)\.png$/u;
+const publicBrand = /^\/email\/(?:hp-logo-badge|hp-logo-white-horizontal|mountains|mountains-footer)\.png$/u;
 
 function safeUrl(raw: string, image: boolean) {
   try {

@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { companyEmailWording } from "@workspace/db";
 import { db } from "../../db";
+import { normalizeEmailText } from "./text";
 import { PLACEHOLDERS, WORDING_FIELDS, WORDING_LIMITS, wordingProblem,
   type EmailKey, type EmailWording, type WordingField } from "../../../../../lib/db/src/emailWordingContracts";
 
@@ -99,9 +100,9 @@ export const DEFAULT_WORDING: Record<EmailKey, Readonly<EmailWording>> = {
     subject: "Message from {companyName}",
     preview: "A message from {companyName}",
     eyebrow: "From our office",
-    headline: "A message from {companyName}",
+    headline: "{subject}",
     intro: "",
-    closing: "Thank you for working with us.",
+    closing: "Questions? Reply to this email or call us at {companyPhone}.",
   },
   contract_renewal: {
     subject: "Your {contractName} renewal – {customerName}",
@@ -127,10 +128,11 @@ export function fillWording(template: string, values: Readonly<Record<string, st
   for (const [, name] of template.matchAll(token)) {
     if (!allowed.includes(name)) throw new Error(`Unknown email placeholder: ${name}`);
   }
+  const normalized = Object.fromEntries(Object.entries(values).map(([name, value]) => [name, normalizeEmailText(value)]));
   return template.split(/(?<=[.!?]) +/).flatMap(sentence => {
     const names = [...sentence.matchAll(token)].map(([, name]) => name);
-    if (names.some(name => !Object.hasOwn(values, name) || !values[name].trim())) return [];
-    return [sentence.replace(token, (_match, name: string) => values[name])];
+    if (names.some(name => !Object.hasOwn(normalized, name) || !normalized[name])) return [];
+    return [sentence.replace(token, (_match, name: string) => normalized[name])];
   }).join(" ").trim();
 }
 

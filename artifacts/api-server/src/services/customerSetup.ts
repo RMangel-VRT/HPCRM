@@ -15,6 +15,7 @@ import { geocodeProperty } from "./propertyGeocoder";
 import { logger } from "../lib/logger";
 import { validateAccountManagerWrite } from "./accountManagers";
 import { hasSnowCoverageWrite, SNOW_COVERAGE_MESSAGE } from "../lib/snowCoverageInput";
+import { trimProvidedName } from "../lib/trimProvidedName";
 
 const site = z.object({
   gateCode: z.string().nullable().optional(), accessNotes: z.string().nullable().optional(),
@@ -105,9 +106,9 @@ export async function saveCustomerSetup(companyId: string, actorId: string, inpu
     await validateAccountManagerWrite(tx, companyId, {
       parentCustomerId: (Object.hasOwn(raw, "parentCustomerId") ? (raw as Record<string, unknown>).parentCustomerId : before?.parentCustomerId) as string | null | undefined,
     }, raw);
-    const parsed = before
+    const parsed = trimProvidedName(before
       ? provided(insertCustomerSchema.partial().omit({ companyId: true }).parse(raw), raw)
-      : insertCustomerSchema.parse({ ...raw, companyId });
+      : insertCustomerSchema.parse({ ...raw, companyId }));
     if (!before && !String(parsed.name ?? "").trim()) throw new CustomerSyncError(400, "NAME_REQUIRED");
     const effective = { ...before, ...parsed, companyId, id: id ?? "" } as Customer;
     if (before && Object.hasOwn(raw, "propertyManagementCompanyId")) {

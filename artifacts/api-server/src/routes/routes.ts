@@ -2879,7 +2879,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const propertyManager = await storage.createPropertyManager({
         companyId: user.activeCompanyId,
         propertyManagementCompanyId: selectedPmCompanyId,
-        name: result.data.name,
+        name: contact.name,
         title: "Property Manager",
         notes: result.data.notes || undefined,
         isPrimary: "false",

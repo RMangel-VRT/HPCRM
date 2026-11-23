@@ -1,4 +1,5 @@
 import { renderEmailLayout, type Block, type EmailCompany } from "./layout";
+import { greetingFor } from "./text";
 import { DEFAULT_WORDING, fillWording, getEmailWording, PLACEHOLDERS, type EmailWording } from "./wording";
 
 const colorado = { timeZone: "America/Denver" };
@@ -46,6 +47,6 @@ export async function buildWorkCompletedEmail({ ticket, customer, company, photo
     wording: { eyebrow: fill(template.eyebrow), headline: fill(template.headline),
       intro: fill(!photoUrls.length && template.intro === defaults.intro ? template.intro.replace(", with photos", "") : template.intro),
       closing: fill(template.closing) },
-    greeting: customer.name ? `Hello ${customer.name},` : "Hello,", blocks,
+    greeting: greetingFor(customer.name), blocks,
   }) };
 }

@@ -1,13 +1,13 @@
 import express from "express";
 import request from "supertest";
 import { eq } from "drizzle-orm";
-import { companies, communications, mailboxAccounts, type Customer } from "@workspace/db";
+import { companies, communications, companyDocumentSettings, customers, mailboxAccounts, type Customer } from "@workspace/db";
 import { expect, it, vi } from "vitest";
 import type { UserWithContext } from "../auth";
 import { db, inTransaction } from "../db";
 import { requireCommPermission } from "../lib/communicationPermissions";
 import { composeEmailOptions, previewComposeEmail, sendComposeDraft } from "../services/composeEmail";
-import type { SendEmailOptions } from "../services/gmailSender";
+import { buildMimeMessage, type SendEmailOptions } from "../services/gmailSender";
 import { registerComposeEmailRoutes } from "./composeEmail";
 import { createCustomerCommunication } from "./customerCommunicationCreate";
 
@@ -17,6 +17,8 @@ it("renders without writes and sends each scoped draft once, with reply metadata
       await tx.execute(`CREATE TEMP TABLE ${table} (LIKE public.${table} INCLUDING DEFAULTS) ON COMMIT DROP`);
     }
     await tx.insert(companies).values({ id: "co", name: "Example Landscapes", slug: "example-test" });
+    await tx.insert(companyDocumentSettings).values({ companyId: "co", phone: "(303)  555-0123" });
+    await tx.insert(customers).values({ id: "customer", companyId: "co", name: "Joe Woods ", street: "", city: "", state: "", zip: "" });
     const token = { testFixtureOnly: true };
     await tx.insert(mailboxAccounts).values([
       { id: "no-token", companyId: "co", emailAddress: "missing@example.test", displayName: "Missing authorization", accountType: "shared", syncStatus: "connected", syncEnabled: true },
@@ -24,15 +26,16 @@ it("renders without writes and sends each scoped draft once, with reply metadata
       { id: "foreign", companyId: "other", emailAddress: "foreign@example.test", displayName: "Foreign", accountType: "shared", syncStatus: "connected", syncEnabled: true, oauthTokenJson: token },
       { id: "personal", companyId: "co", emailAddress: "personal@example.test", displayName: "Personal", accountType: "personal", ownerUserId: "someone-else", syncStatus: "connected", syncEnabled: true, oauthTokenJson: token },
     ]);
-    const draft = { companyId: "co", subject: "Exact & unchanged", body: "Hello <b>there</b>.\n\nNext paragraph.", recipientEmail: "recipient@example.test",
+    const draft = { companyId: "co", customerId: "customer", subject: " Exact  & unchanged - check? ",
+      body: "Hello <b>there</b>.\n\nNext  paragraph.", recipientEmail: "recipient@example.test",
       type: "email" as const, direction: "outbound" as const, status: "draft" as const, deliveryStatus: "pending" as const };
     await tx.insert(communications).values([
       { ...draft, id: "new" }, { ...draft, id: "failure" }, { ...draft, id: "wrong-company", companyId: "other" },
       { ...draft, id: "no-box", mailboxAccountId: "foreign" }, { ...draft, id: "hidden-box", mailboxAccountId: "personal" },
       { ...draft, id: "parent", status: "sent", direction: "inbound", mailboxAccountId: "shared",
-        customerId: "customer", fromAddress: "original@example.test", fromName: "Synthetic Customer",
+        fromAddress: "original@example.test", fromName: " \u00a0Synthetic   Customer ",
         providerMessageId: "<parent@example.test>", providerThreadId: "gmail-thread", inReplyTo: "<root@example.test>" },
-      { ...draft, id: "reply", customerId: "customer", subject: "Re: Exact & unchanged", mailboxAccountId: "shared", inReplyTo: "parent" },
+      { ...draft, id: "reply", subject: "Re: Exact  & unchanged - check?", mailboxAccountId: "shared", inReplyTo: "parent" },
       { ...draft, id: "inbound", direction: "inbound" }, { ...draft, id: "no-token", mailboxAccountId: "no-token" },
     ]);
     const get = async (id: string) => (await tx.select().from(communications).where(eq(communications.id, id)))[0];
@@ -70,10 +73,15 @@ it("renders without writes and sends each scoped draft once, with reply metadata
     await expect(inTransaction(tx, () => sendComposeDraft({
       id: "sender", activeCompanyId: "co", activeRole: "field",
     } as UserWithContext, "hidden-box", undefined, transport))).rejects.toMatchObject({ status: 422 });
-    const previewInput = { subject: draft.subject, body: draft.body };
+    const previewInput = { customerId: draft.customerId, subject: draft.subject, body: draft.body };
     await client.post(`${url}/preview`).set("x-role", "field").send(previewInput).expect(403);
     const preview = (await client.post(`${url}/preview`).send(previewInput).expect(200)).body;
     expect(preview.html).toContain("&lt;b&gt;there&lt;/b&gt;");
+    expect(preview.html).toContain(">Exact &amp; unchanged - check?</h1>");
+    expect(preview.text).toContain("Hello Joe Woods,");
+    expect(preview.text).toContain("Next  paragraph.");
+    expect(preview.text).toContain("Questions? Reply to this email or call us at (303) 555-0123.");
+    expect(preview.text.match(/Thank you,/g)).toHaveLength(1);
     expect(await get("new")).toMatchObject({ status: "draft", deliveryStatus: "pending", providerMessageId: null });
     expect(await tx.select().from(communications)).toHaveLength(9);
     expect(transport).not.toHaveBeenCalled(); expect(audit).not.toHaveBeenCalled();
@@ -98,6 +106,8 @@ it("renders without writes and sends each scoped draft once, with reply metadata
     expect(transport.mock.calls[0]).toEqual(["shared", expect.objectContaining({
       subject: draft.subject, bodyHtml: preview.html, bodyText: preview.text,
     }), sent.body.providerMessageId]);
+    expect(buildMimeMessage("office@example.test", transport.mock.calls[0][1], sent.body.providerMessageId))
+      .toContain(`Subject: ${draft.subject}\r\n`);
 
     const reply = await send("reply").expect(200);
     expect(reply.body).toMatchObject({ status: "sent", bodyHtml: expect.stringContaining("Hi Synthetic,"), bodyText: draft.body });
@@ -105,6 +115,7 @@ it("renders without writes and sends each scoped draft once, with reply metadata
       references: ["<root@example.test>", "<parent@example.test>"], to: ["original@example.test"],
       bodyText: expect.stringContaining("Thank you,\nExample Landscapes") });
     expect(transport.mock.calls[1][1].bodyHtml).toContain("&lt;b&gt;there&lt;/b&gt;");
+    expect(transport.mock.calls[1][1].bodyHtml).toContain('href="tel:+13035550123"');
 
     transport.mockRejectedValueOnce(new Error("Reconnect Gmail"));
     const failed = await send("failure").expect(200);

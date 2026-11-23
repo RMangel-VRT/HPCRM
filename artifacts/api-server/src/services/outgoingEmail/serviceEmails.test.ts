@@ -8,9 +8,10 @@ it("renders completion facts in the specified order, with no staff fields", asyn
   const recap = { ...ticket, completedAt: new Date("2026-11-21T01:00:00Z"), actualStartTime: new Date("2026-11-20T19:00:00Z"),
     actualEndTime: new Date("2026-11-20T20:30:00Z"), areasWorked: "Entry beds", workSummaryForCustomer: "Removed shrubs.\nPlanted junipers.",
     materialsUsed: "Compost", recommendations: "Water weekly." };
-  const email = await buildWorkCompletedEmail({ wording: DEFAULT_WORDING.work_completed, ticket: recap, company, customer: { name: "The Property" },
+  const email = await buildWorkCompletedEmail({ wording: DEFAULT_WORDING.work_completed, ticket: recap, company, customer: { name: " Joe\u00a0  Woods " },
     photoUrls: ["https://example.test/email-img/allowed-photo"], followUp: { title: "Follow up in spring", description: "Inspect the plants." } });
   expect(email.subject).toBe("Work completed – Replace shrubs");
+  expect(email.text).toContain("Hello Joe Woods,");
   expect(email.text).toContain("Completed: November 20, 2026");
   expect(email.text).toContain("Time on site: Arrived 12:00 PM, departed 1:30 PM (1h 30m)");
   const sections = ["What we did", "Materials", "Photos from today", "Our recommendation", "Follow-up"];
@@ -41,10 +42,20 @@ it("uses the documents catalog, with one escaped attachment row per file", async
   expect(email.text).toContain("Attached: W-9.pdf · 1 page\nAttached: License.pdf");
 });
 it("escapes typed HTML and renders real blank-line-separated paragraphs without expanding typed tokens", async () => {
-  const email = await buildGeneralMessage({ companyId: "fixture", company, wording: DEFAULT_WORDING.general_message, subject: " Typed & exact ", customerName: "Test Property",
+  const email = await buildGeneralMessage({ companyId: "fixture", company, wording: DEFAULT_WORDING.general_message, subject: " Typed &  exact - {companyName}! ", customerName: "\u00a0 ",
     body: "First <script>alert(1)</script>.\r\nLine two.\r\n \r\n{companyName} stays literal." });
-  expect(email.subject).toBe(" Typed & exact ");
+  expect(email.subject).toBe(" Typed &  exact - {companyName}! ");
+  expect(email.html).toContain(">Typed &amp; exact - {companyName}!</h1>");
+  expect(email.text).toContain("Hello,");
+  expect(email.text).toContain("Questions?\n\nThank you,");
+  expect(email.text).not.toContain("call us at");
   expect(email.html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;.<br>Line two.</p><p");
   expect(email.html).not.toContain("<script>");
   expect(email.text).toContain("Line two.\n\n{companyName} stays literal.");
+});
+
+it("greets the known documents customer by name but not a group of recipients", async () => {
+  const input = { companyId: "fixture", company, wording: DEFAULT_WORDING.documents, documents: [], customerName: "Joe Woods " };
+  expect((await buildDocumentsEmail(input)).text).toContain("Hello Joe Woods,");
+  expect((await buildDocumentsEmail({ ...input, greetCustomer: false })).text).toContain("Hello,");
 });

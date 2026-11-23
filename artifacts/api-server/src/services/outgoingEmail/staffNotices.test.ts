@@ -16,7 +16,7 @@ describe("fixed staff notice renderers", () => {
     const { subject, html, text } = renderNewFieldFlagEmail(flag, company);
     expect(subject).toBe("New field flag from Crew 2 at North & Main");
     expect(html).toContain('bgcolor="#E3A008" height="6"');
-    expect(html).toContain("Broken sprinkler head · 2 photos</div>");
+    expect(html).toContain("Broken sprinkler head · 2 photos&#847;");
     expect(html).toContain("Broken sprinkler head at North &amp; Main</h1>");
     expect(html).toContain("Crew 2 flagged this from the field.");
     expect(html).toContain(">Field note</div>");
@@ -35,7 +35,7 @@ describe("fixed staff notice renderers", () => {
     const { html, text } = renderNewFieldFlagEmail({
       ...flag, flagId: "flag/2 &3", crewName: null, createdByName: null, propertyName: null, note: null, photoCount: 1,
     }, company);
-    expect(html).toContain("Broken sprinkler head · 1 photo</div>");
+    expect(html).toContain("Broken sprinkler head · 1 photo&#847;");
     expect(text).toContain("Property: Not specified\nCrew: Not assigned\nReported by: Unknown\nPhotos: 1");
     expect(text).not.toContain("Field note");
     expect(text).toContain("/dashboard/flags/flag%2F2%20%263");
@@ -46,7 +46,7 @@ describe("fixed staff notice renderers", () => {
     const { subject, html, text } = renderMailboxDisconnectedEmail(mailbox, company);
     expect(subject).toBe(`Gmail sync stopped for ${mailbox}`);
     expect(html).toContain('bgcolor="#C8372D" height="6"');
-    expect(html).toContain("Reconnect to resume syncing</div>");
+    expect(html).toContain("Reconnect to resume syncing&#847;");
     expect(html).toContain("Your mailbox stopped syncing</h1>");
     expect(html).toContain("Gmail sync stopped for &quot;ops&lt;team&gt;&amp;&quot;@example.test because Google’s permission expired or was removed.");
     expect(html).not.toContain("<team>");
@@ -67,7 +67,7 @@ describe("fixed staff notice renderers", () => {
     expect(html).toContain('src="https://crm.example.test/email/hp-logo-white-horizontal.png"');
     expect(html).toContain(footer);
     expect(text).toContain(footer);
-    expect(html).not.toMatch(/mountains\.png|hp-logo-badge\.png|<style\b|123 Test St|office@example\.test/);
+    expect(html).not.toMatch(/mountains(?:-footer)?\.png|hp-logo-badge\.png|<style\b|123 Test St|office@example\.test/);
     expect(text).not.toMatch(/123 Test St|office@example\.test/);
   });
 });

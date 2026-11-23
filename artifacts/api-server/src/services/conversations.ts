@@ -5,6 +5,7 @@ import { gmailReservation } from "./gmailReceipt";
 import { isRfcMessageId } from "./gmailSender";
 import { resolveVisibleMailboxes, type VisibleMailboxes } from "./mailboxScope";
 import { emailSnippet, splitEmailQuote } from "./emailQuotes";
+import { normalizeEmailText } from "./outgoingEmail/text";
 
 export type ConversationFilter = "all" | "needs_reply" | "sent";
 type Direction = "inbound" | "outbound";
@@ -58,7 +59,7 @@ const customer = sql`CASE WHEN cu.id IS NOT NULL THEN jsonb_build_object('id', c
 const attachmentFlag = (value: SQL) => sql`CASE WHEN jsonb_typeof(${value}) = 'array' THEN jsonb_array_length(${value}) > 0 ELSE false END`;
 const bareSubject = (subject: string | null) => (subject ?? "").replace(/^(?:re:\s*)+/iu, "").trim();
 export const firstSenderWord = (name: string | null) => {
-  const first = name?.trim().split(/\s+/u)[0];
+  const first = normalizeEmailText(name).split(" ", 1)[0];
   return first && !first.includes("@") ? first : null;
 };
 const lastMessage = (row: ListRow) => ({

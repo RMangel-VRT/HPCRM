@@ -546,3 +546,17 @@ mtime_ms = 1795368524405
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/d12e597e-23ce-4bfc-9de6-758a9dfc6199/e1334aee-ecd6-4ca9-80b1-0a5139f3a4fb"
 storage_version_token = "1795368537959966"
 content_type = "text/html"
+
+[[outputs]]
+id = "WUHc4XiBMzQAwKRqz5FHA"
+uri = "file://generated-artifacts/m9/compose-browser.png"
+type = "image"
+title = "M9 Compose email preview"
+description = "Chromium rendering of a synthetic message at phone width. This is a browser preview, not a received-mail screenshot."
+logical_id = "4cb148b7-f715-4bf8-b768-c5aec2ebe40c"
+content_hash = "sha256:051b84cebbd05cca3d36dcf71360dccc8ede0c4d16647aa1ff6883199fb0357f"
+size = 72206
+mtime_ms = 1795397459815
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:42a1e20a-39e5-4a72-97de-bf1e832737c2/4cb148b7-f715-4bf8-b768-c5aec2ebe40c/b1d6e46b-5e34-4bc9-be25-7769aa7ea8b3"
+storage_version_token = "1795397533797983"
+content_type = "image/png"

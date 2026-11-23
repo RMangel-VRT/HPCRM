@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 import request from "supertest";
 import { eq } from "drizzle-orm";
-import { companies, companyDocumentSettings, communicationAuditLog, emailRules, emailTemplates, users,
+import { companies, companyDocumentSettings, companyEmailWording, communicationAuditLog, emailRules, emailTemplates, users,
   LEGACY_CHEMICAL_TEMPLATE_NAMES } from "@workspace/db";
 import { expect, it } from "vitest";
 import { db, inTransaction } from "../db";
@@ -12,6 +12,7 @@ import { buildEstimateEmail } from "../services/outgoingEmail/estimateEmail";
 import { renderChemicalEmail } from "../services/outgoingEmail/chemicalEmail";
 import { DEFAULT_WORDING, getEmailWording } from "../services/outgoingEmail/wording";
 import { migrateRemoveChemicalEmailTemplates } from "../services/legacyChemEmailCleanup";
+import { previewComposeEmail } from "../services/composeEmail";
 import { registerEmailWording } from "./emailWording";
 
 it("scopes wording, audits writes and uses the real estimate and chemical renderers", async () => {
@@ -41,11 +42,28 @@ it("scopes wording, audits writes and uses the real estimate and chemical render
     const list = await api.get(root).set("x-role", "office").expect(200);
     expect(list.body).toHaveLength(14);
     expect(new Set(list.body.map((e: { key: string }) => e.key))).toEqual(new Set(Object.keys(DEFAULT_WORDING)));
-    for (const { key, wording } of list.body) {
+    for (const { key, wording, placeholders } of list.body) {
       const result = await api.post(`${root}/${key}/preview`).set("x-role", "office").send(wording).expect(200);
       expect(result.body).toMatchObject({ subject: expect.any(String), preview: expect.any(String), html: expect.any(String),
         text: expect.stringContaining("123 Sample St"), fieldErrors: null });
+      if (key === "general_message") {
+        expect(placeholders).toContain("subject");
+        expect(result.body.subject).toBe("Message from A & Lawn");
+        expect(result.body.html).toContain(">Front entry follow-up</h1>");
+        const edited = await api.post(`${root}/${key}/preview`).send({ ...wording, subject: "About {subject}" }).expect(200);
+        expect(edited.body.subject).toBe("About Front entry follow-up");
+      } else {
+        expect(placeholders).not.toContain("subject");
+        const invalid = await api.post(`${root}/${key}/preview`).send({ ...wording, headline: "{subject}" }).expect(200);
+        expect(invalid.body.fieldErrors.headline).toContain("Unknown placeholder {subject}");
+      }
     }
+    const oldOverride = { ...DEFAULT_WORDING.general_message, headline: "A note from {companyName}", closing: "Please write back." };
+    await tx.insert(companyEmailWording).values({ ...oldOverride, companyId: a, emailKey: "general_message" });
+    const compose = await inTransaction(tx, () => previewComposeEmail(a, { subject: "Typed subject", body: "Typed body" }, tx));
+    expect(compose.html).toContain(">A note from A &amp; Lawn</h1>");
+    expect(compose.text).toContain("Please write back.");
+    expect(await getEmailWording(a, "general_message", tx)).toEqual(oldOverride);
     await api.get(`${root}/work-completed-rule`).set("x-role", "office").expect(200, { rule: { id: rule.id, isEnabled: false } });
     await api.get(root).set("x-role", "field").expect(403);
     await api.get(root).set("x-role", "guest").expect(401);
