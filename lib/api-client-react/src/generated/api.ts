@@ -102,11 +102,15 @@ import type {
   OwnerResponseTicket,
   PreviewEmailWording200,
   ResolvedEstimateWorkLocation,
+  RevenuePlan,
+  RevenuePlanPatch,
   RevenueQboAccount,
   RevenueQboAccountMappingChanges,
   RevenueQboFetchedYear,
   RevenueQboStatus,
   RevenueQboYearSelection,
+  RevenueTargetUpdate,
+  RevenueTargets,
   RfpLossInput,
   SampleCommunicationReview,
   SaveEmailWording422,
@@ -143,6 +147,328 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getGetRevenuePlanUrl = (year: number) => {
+  return `/api/revenue/plan/${year}`;
+};
+
+export const getRevenuePlan = async (
+  year: number,
+  options?: RequestInit,
+): Promise<RevenuePlan> => {
+  return customFetch<RevenuePlan>(getGetRevenuePlanUrl(year), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRevenuePlanQueryKey = (year: number) => {
+  return [`/api/revenue/plan/${year}`] as const;
+};
+
+export const getGetRevenuePlanQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRevenuePlan>>,
+  TError = ErrorType<void>,
+>(
+  year: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRevenuePlan>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRevenuePlanQueryKey(year);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getRevenuePlan>>> = ({
+    signal,
+  }) => getRevenuePlan(year, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!year,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRevenuePlan>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRevenuePlanQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRevenuePlan>>
+>;
+export type GetRevenuePlanQueryError = ErrorType<void>;
+
+export function useGetRevenuePlan<
+  TData = Awaited<ReturnType<typeof getRevenuePlan>>,
+  TError = ErrorType<void>,
+>(
+  year: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRevenuePlan>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRevenuePlanQueryOptions(year, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getSaveRevenuePlanUrl = (year: number) => {
+  return `/api/revenue/plan/${year}`;
+};
+
+export const saveRevenuePlan = async (
+  year: number,
+  revenuePlanPatch: RevenuePlanPatch,
+  options?: RequestInit,
+): Promise<RevenuePlan> => {
+  return customFetch<RevenuePlan>(getSaveRevenuePlanUrl(year), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(revenuePlanPatch),
+  });
+};
+
+export const getSaveRevenuePlanMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveRevenuePlan>>,
+    TError,
+    { year: number; data: BodyType<RevenuePlanPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof saveRevenuePlan>>,
+  TError,
+  { year: number; data: BodyType<RevenuePlanPatch> },
+  TContext
+> => {
+  const mutationKey = ["saveRevenuePlan"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof saveRevenuePlan>>,
+    { year: number; data: BodyType<RevenuePlanPatch> }
+  > = (props) => {
+    const { year, data } = props ?? {};
+
+    return saveRevenuePlan(year, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SaveRevenuePlanMutationResult = NonNullable<
+  Awaited<ReturnType<typeof saveRevenuePlan>>
+>;
+export type SaveRevenuePlanMutationBody = BodyType<RevenuePlanPatch>;
+export type SaveRevenuePlanMutationError = ErrorType<void>;
+
+export const useSaveRevenuePlan = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveRevenuePlan>>,
+    TError,
+    { year: number; data: BodyType<RevenuePlanPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof saveRevenuePlan>>,
+  TError,
+  { year: number; data: BodyType<RevenuePlanPatch> },
+  TContext
+> => {
+  return useMutation(getSaveRevenuePlanMutationOptions(options));
+};
+
+export const getGetRevenueTargetsUrl = (year: number) => {
+  return `/api/revenue/targets/${year}`;
+};
+
+export const getRevenueTargets = async (
+  year: number,
+  options?: RequestInit,
+): Promise<RevenueTargets> => {
+  return customFetch<RevenueTargets>(getGetRevenueTargetsUrl(year), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRevenueTargetsQueryKey = (year: number) => {
+  return [`/api/revenue/targets/${year}`] as const;
+};
+
+export const getGetRevenueTargetsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRevenueTargets>>,
+  TError = ErrorType<void>,
+>(
+  year: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRevenueTargets>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRevenueTargetsQueryKey(year);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRevenueTargets>>
+  > = ({ signal }) => getRevenueTargets(year, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!year,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRevenueTargets>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRevenueTargetsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRevenueTargets>>
+>;
+export type GetRevenueTargetsQueryError = ErrorType<void>;
+
+export function useGetRevenueTargets<
+  TData = Awaited<ReturnType<typeof getRevenueTargets>>,
+  TError = ErrorType<void>,
+>(
+  year: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRevenueTargets>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRevenueTargetsQueryOptions(year, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getSaveRevenueTargetsUrl = (year: number) => {
+  return `/api/revenue/targets/${year}`;
+};
+
+export const saveRevenueTargets = async (
+  year: number,
+  revenueTargetUpdate: RevenueTargetUpdate,
+  options?: RequestInit,
+): Promise<RevenueTargets> => {
+  return customFetch<RevenueTargets>(getSaveRevenueTargetsUrl(year), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(revenueTargetUpdate),
+  });
+};
+
+export const getSaveRevenueTargetsMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveRevenueTargets>>,
+    TError,
+    { year: number; data: BodyType<RevenueTargetUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof saveRevenueTargets>>,
+  TError,
+  { year: number; data: BodyType<RevenueTargetUpdate> },
+  TContext
+> => {
+  const mutationKey = ["saveRevenueTargets"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof saveRevenueTargets>>,
+    { year: number; data: BodyType<RevenueTargetUpdate> }
+  > = (props) => {
+    const { year, data } = props ?? {};
+
+    return saveRevenueTargets(year, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SaveRevenueTargetsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof saveRevenueTargets>>
+>;
+export type SaveRevenueTargetsMutationBody = BodyType<RevenueTargetUpdate>;
+export type SaveRevenueTargetsMutationError = ErrorType<void>;
+
+export const useSaveRevenueTargets = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveRevenueTargets>>,
+    TError,
+    { year: number; data: BodyType<RevenueTargetUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof saveRevenueTargets>>,
+  TError,
+  { year: number; data: BodyType<RevenueTargetUpdate> },
+  TContext
+> => {
+  return useMutation(getSaveRevenueTargetsMutationOptions(options));
+};
 
 export const getGetRevenueQboStatusUrl = () => {
   return `/api/revenue/qbo/status`;

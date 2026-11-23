@@ -3,6 +3,7 @@ import { z as contractZ } from "zod";
 import { z } from "zod/v4";
 import { INCOME_ACCOUNT_STREAMS } from "@workspace/db/revenue-streams";
 import {
+  GetRevenuePlanResponse, GetRevenueTargetsResponse, SaveRevenuePlanResponse, SaveRevenueTargetsResponse,
   GetRevenueQboStatusResponse, ListRevenueQboAccountsResponse, RefreshRevenueQboIncomeBody,
   RefreshRevenueQboIncomeResponse, UpdateRevenueQboAccountMappingsBodyItem, UpdateRevenueQboAccountMappingsResponse,
 } from "@workspace/api-zod";
@@ -10,6 +11,8 @@ import type { UserWithContext } from "../auth";
 import { db } from "../db";
 import { storage } from "../storage";
 import { companyToday } from "../lib/companyDay";
+import { planningYear, revenuePlanPatch, revenueTargetUpdate } from "../lib/revenuePlanning";
+import { loadRevenuePlan, loadRevenueTargets, saveRevenuePlan, saveRevenueTargets } from "../services/revenuePlanning";
 import {
   getQboIncomeStatus, isRevenueRefreshYear, listIncomeAccounts, refreshQboIncome, RevenueQboError,
   updateIncomeAccountMappings,
@@ -42,7 +45,7 @@ const matrixQuery = z.strictObject({
 });
 const limitParam = z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().nonnegative());
 
-const requireRevenueQboCompany: RequestHandler = (req, res, next) => {
+const requireRevenueCompany: RequestHandler = (req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   if (!(req.user as UserWithContext).activeCompanyId) {
     res.status(403).json({ message: "An active company is required" });
@@ -50,7 +53,7 @@ const requireRevenueQboCompany: RequestHandler = (req, res, next) => {
   }
   next();
 };
-const requireRevenueQboAdmin: RequestHandler = (req, res, next) => {
+const requireRevenueAdmin: RequestHandler = (req, res, next) => {
   const user = req.user as UserWithContext;
   if (user.accessRole !== "admin") {
     res.status(403).json({ message: "Administrator access required" });
@@ -80,7 +83,7 @@ const handleQboError: ErrorRequestHandler = (err, req, res, next) => {
 
 function qboIncomeRoutes() {
   const router = Router();
-  router.use(requireRevenueQboCompany);
+  router.use(requireRevenueCompany);
 
   router.get("/status", async (req, res): Promise<void> => {
     const { activeCompanyId } = req.user as UserWithContext;
@@ -90,7 +93,7 @@ function qboIncomeRoutes() {
     const { activeCompanyId } = req.user as UserWithContext;
     res.json(ListRevenueQboAccountsResponse.parse(await listIncomeAccounts(activeCompanyId)));
   });
-  router.put("/accounts", requireRevenueQboAdmin, async (req, res): Promise<void> => {
+  router.put("/accounts", requireRevenueAdmin, async (req, res): Promise<void> => {
     const parsed = mappingBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ message: "Provide unique QuickBooks income account IDs and valid streams or null" });
@@ -100,7 +103,7 @@ function qboIncomeRoutes() {
     await updateIncomeAccountMappings(activeCompanyId, id, parsed.data);
     res.json(UpdateRevenueQboAccountMappingsResponse.parse({ ok: true }));
   });
-  router.post("/refresh", requireRevenueQboAdmin, async (req, res): Promise<void> => {
+  router.post("/refresh", requireRevenueAdmin, async (req, res): Promise<void> => {
     const parsed = refreshBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ message: "Year must be an integer from 2015 through the current Colorado year" });
@@ -113,11 +116,56 @@ function qboIncomeRoutes() {
   return router;
 }
 
+function revenuePlanningRoutes() {
+  const router = Router();
+  const requirePlanningYear: RequestHandler = (req, res, next) => {
+    const parsed = planningYear.safeParse(req.params.year);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Year must be YYYY from 2015 through 2100" });
+      return;
+    }
+    res.locals.planningYear = parsed.data;
+    next();
+  };
+  router.route("/plan/:year")
+    .all(requireRevenueCompany)
+    .get(requirePlanningYear, async (req, res): Promise<void> => {
+      const { activeCompanyId } = req.user as UserWithContext;
+      res.json(GetRevenuePlanResponse.parse(await loadRevenuePlan(activeCompanyId, res.locals.planningYear)));
+    })
+    .put(requireRevenueAdmin, requirePlanningYear, async (req, res): Promise<void> => {
+      const patch = revenuePlanPatch.safeParse(req.body);
+      if (!patch.success) {
+        res.status(400).json({ message: "Provide only valid Revenue plan fields", issues: patch.error.issues });
+        return;
+      }
+      const { activeCompanyId, id } = req.user as UserWithContext;
+      res.json(SaveRevenuePlanResponse.parse(await saveRevenuePlan(activeCompanyId, res.locals.planningYear, id, patch.data)));
+    });
+  router.route("/targets/:year")
+    .all(requireRevenueCompany)
+    .get(requirePlanningYear, async (req, res): Promise<void> => {
+      const { activeCompanyId } = req.user as UserWithContext;
+      res.json(GetRevenueTargetsResponse.parse(await loadRevenueTargets(activeCompanyId, res.locals.planningYear)));
+    })
+    .put(requireRevenueAdmin, requirePlanningYear, async (req, res): Promise<void> => {
+      const update = revenueTargetUpdate.safeParse(req.body);
+      if (!update.success) {
+        res.status(400).json({ message: "Provide 12 nonnegative integer cent amounts per supplied stream", issues: update.error.issues });
+        return;
+      }
+      const { activeCompanyId, id } = req.user as UserWithContext;
+      res.json(SaveRevenueTargetsResponse.parse(await saveRevenueTargets(activeCompanyId, res.locals.planningYear, id, update.data.streams)));
+    });
+  return router;
+}
+
 export function registerRevenueRoutes(app: Express): void {
   // Apply the minimum role to every Revenue route, including legacy routes
   // registered later. Existing admin-only legacy actions keep that restriction.
   app.use("/api/revenue", requireRevenueRead);
   app.use("/api/revenue/qbo", qboIncomeRoutes());
+  app.use("/api/revenue", revenuePlanningRoutes());
 
   app.get("/api/revenue/contracts/billing", async (req, res) => {
     const query = billingQuery.safeParse(req.query);

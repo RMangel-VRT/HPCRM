@@ -5,6 +5,164 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface RevenuePlanPatch {
+  /**
+   * @minimum -10
+   * @maximum 20
+   */
+  renewalIncreasePct?: number;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  keptPct?: number;
+  /**
+   * @minimum 1
+   * @maximum 5
+   */
+  snowYears?: number;
+  /**
+   * @minimum -50
+   * @maximum 100
+   */
+  irrigationGrowthPct?: number;
+  /**
+   * @minimum -50
+   * @maximum 100
+   */
+  projectsGrowthPct?: number;
+  /**
+   * @minimum -50
+   * @maximum 100
+   */
+  extraGrowthPct?: number;
+  /**
+   * @minimum 0
+   * @maximum 9007199254740991
+   * @nullable
+   */
+  goalCents?: number | null;
+}
+
+export interface RevenuePlan {
+  /**
+   * @minimum 2015
+   * @maximum 2100
+   */
+  year: number;
+  /**
+   * @minimum -10
+   * @maximum 20
+   */
+  renewalIncreasePct: number;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  keptPct: number;
+  /**
+   * @minimum 1
+   * @maximum 5
+   */
+  snowYears: number;
+  /**
+   * @minimum -50
+   * @maximum 100
+   */
+  irrigationGrowthPct: number;
+  /**
+   * @minimum -50
+   * @maximum 100
+   */
+  projectsGrowthPct: number;
+  /**
+   * @minimum -50
+   * @maximum 100
+   */
+  extraGrowthPct: number;
+  /**
+   * @minimum 0
+   * @maximum 9007199254740991
+   * @nullable
+   */
+  goalCents: number | null;
+  saved: boolean;
+  /** Present only for a saved plan */
+  id?: string;
+  companyId?: string;
+  /** @nullable */
+  updatedBy?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Exactly 12 integer cent amounts in January-to-December order
+ * @minItems 12
+ * @maxItems 12
+ */
+export type RevenueTargetMonthAmounts = number[];
+
+export type RevenueTargetUpdateStreams = {
+  contract?: RevenueTargetMonthAmounts;
+  snow?: RevenueTargetMonthAmounts;
+  irrigation?: RevenueTargetMonthAmounts;
+  projects?: RevenueTargetMonthAmounts;
+  extra?: RevenueTargetMonthAmounts;
+};
+
+export interface RevenueTargetUpdate {
+  streams: RevenueTargetUpdateStreams;
+}
+
+export type RevenueTargetsStreams = {
+  contract: RevenueTargetMonthAmounts;
+  snow: RevenueTargetMonthAmounts;
+  irrigation: RevenueTargetMonthAmounts;
+  projects: RevenueTargetMonthAmounts;
+  extra: RevenueTargetMonthAmounts;
+};
+
+export type RevenueTargetsAnnual = {
+  /**
+   * @minimum 0
+   * @maximum 25769803764
+   */
+  contract: number;
+  /**
+   * @minimum 0
+   * @maximum 25769803764
+   */
+  snow: number;
+  /**
+   * @minimum 0
+   * @maximum 25769803764
+   */
+  irrigation: number;
+  /**
+   * @minimum 0
+   * @maximum 25769803764
+   */
+  projects: number;
+  /**
+   * @minimum 0
+   * @maximum 25769803764
+   */
+  extra: number;
+};
+
+export interface RevenueTargets {
+  /**
+   * @minimum 2015
+   * @maximum 2100
+   */
+  year: number;
+  streams: RevenueTargetsStreams;
+  annual: RevenueTargetsAnnual;
+  /** At least one monthly target row exists */
+  saved: boolean;
+}
+
 export interface RevenueQboFetchedYear {
   year: number;
   fetchedAt: string;

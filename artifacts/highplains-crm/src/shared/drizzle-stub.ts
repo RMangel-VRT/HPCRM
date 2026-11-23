@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const sql = (strings: TemplateStringsArray, ..._values: any[]) => strings.join("");
+export const sql = Object.assign(
+  (strings: TemplateStringsArray, ..._values: any[]) => strings.join(""),
+  { raw: (value: string) => value },
+);
 
 const colBuilder = (): any => {
   const b: any = {};
@@ -14,6 +17,7 @@ export const varchar = (_n: string, _o?: any) => colBuilder();
 export const char = (_n: string, _o?: any) => colBuilder();
 export const timestamp = (_n: string, _o?: any) => colBuilder();
 export const integer = (_n: string) => colBuilder();
+export const bigint = (_n: string, _o: { mode: "number" | "bigint" }) => colBuilder();
 export const smallint = (_n: string) => colBuilder();
 export const primaryKey = (_config: unknown) => ({});
 export const foreignKey = (_config: any) => ({ onDelete: (_action: string) => ({}) });

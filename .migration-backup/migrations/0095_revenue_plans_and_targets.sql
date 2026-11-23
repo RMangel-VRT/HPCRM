@@ -1,0 +1,42 @@
+CREATE TABLE IF NOT EXISTS revenue_plans (
+  id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id varchar NOT NULL,
+  year integer NOT NULL,
+  renewal_increase_pct numeric(5,2) NOT NULL DEFAULT 3,
+  kept_pct integer NOT NULL DEFAULT 90,
+  snow_years integer NOT NULL DEFAULT 3,
+  irrigation_growth_pct numeric(5,2) NOT NULL DEFAULT 0,
+  projects_growth_pct numeric(5,2) NOT NULL DEFAULT 0,
+  extra_growth_pct numeric(5,2) NOT NULL DEFAULT 0,
+  goal_cents bigint,
+  updated_by varchar,
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT revenue_plans_company_id_year_key UNIQUE (company_id, year),
+  CONSTRAINT revenue_plans_company_id_fkey FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+  CONSTRAINT revenue_plans_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT revenue_plans_year_check CHECK (year BETWEEN 2015 AND 2100),
+  CONSTRAINT revenue_plans_renewal_increase_pct_check CHECK (renewal_increase_pct BETWEEN -10 AND 20),
+  CONSTRAINT revenue_plans_kept_pct_check CHECK (kept_pct BETWEEN 0 AND 100),
+  CONSTRAINT revenue_plans_snow_years_check CHECK (snow_years BETWEEN 1 AND 5),
+  CONSTRAINT revenue_plans_irrigation_growth_pct_check CHECK (irrigation_growth_pct BETWEEN -50 AND 100),
+  CONSTRAINT revenue_plans_projects_growth_pct_check CHECK (projects_growth_pct BETWEEN -50 AND 100),
+  CONSTRAINT revenue_plans_extra_growth_pct_check CHECK (extra_growth_pct BETWEEN -50 AND 100),
+  CONSTRAINT revenue_plans_goal_cents_check CHECK (goal_cents >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS revenue_targets (
+  id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id varchar NOT NULL,
+  stream text NOT NULL,
+  month date NOT NULL,
+  amount_cents integer NOT NULL,
+  updated_by varchar,
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT revenue_targets_company_id_stream_month_key UNIQUE (company_id, stream, month),
+  CONSTRAINT revenue_targets_company_id_fkey FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+  CONSTRAINT revenue_targets_stream_check CHECK (stream IN ('contract', 'snow', 'irrigation', 'projects', 'extra')),
+  CONSTRAINT revenue_targets_month_check CHECK ((EXTRACT(DAY FROM month) = 1) IS TRUE),
+  CONSTRAINT revenue_targets_amount_cents_check CHECK (amount_cents >= 0)
+);

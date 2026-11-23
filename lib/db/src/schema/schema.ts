@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { legacyBooleanText } from "./legacyBooleanText";
 import type { PgTableExtraConfigValue } from "drizzle-orm/pg-core";
-import { pgTable, text, char, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, AnyPgColumn, check } from "drizzle-orm/pg-core";
+import { pgTable, text, char, varchar, timestamp, unique, primaryKey, integer, smallint, foreignKey, jsonb, real, boolean, date, index, uniqueIndex, numeric, bigint, AnyPgColumn, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { ESTIMATE_UNITS } from "../estimateUnits";
@@ -12,7 +12,7 @@ import type { EstimateWorksheetSection } from "../estimateContracts";
 import { campaignIdentityCheckName, campaignIdentityCheckSql } from "../campaignSql";
 import { serviceCalendarCheckSql } from "../serviceCalendarSql";
 import { EMAIL_WORDING_KEYS, type EmailKey } from "../emailWordingContracts";
-import { INCOME_ACCOUNT_STREAMS, type IncomeAccountStream } from "../revenueStreams";
+import { REVENUE_STREAMS, INCOME_ACCOUNT_STREAMS, type IncomeAccountStream, type RevenueStream } from "../revenueStreams";
 export { serviceCalendarReplacementSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../serviceCalendarContracts";
 export { routeStopBody, routeStopFields, routeDate, routeService, validRouteSeason } from "../routeContracts";
 
@@ -204,6 +204,51 @@ export const revenueQboIncomeYears = pgTable("revenue_qbo_income_years", {
 }, (t) => [
   unique("revenue_qbo_income_years_company_id_year_key").on(t.companyId, t.year),
   foreignKey({ name: "revenue_qbo_income_years_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
+
+export const revenuePlans = pgTable("revenue_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  year: integer("year").notNull(),
+  renewalIncreasePct: numeric("renewal_increase_pct", { precision: 5, scale: 2, mode: "number" }).notNull().default(3),
+  keptPct: integer("kept_pct").notNull().default(90),
+  snowYears: integer("snow_years").notNull().default(3),
+  irrigationGrowthPct: numeric("irrigation_growth_pct", { precision: 5, scale: 2, mode: "number" }).notNull().default(0),
+  projectsGrowthPct: numeric("projects_growth_pct", { precision: 5, scale: 2, mode: "number" }).notNull().default(0),
+  extraGrowthPct: numeric("extra_growth_pct", { precision: 5, scale: 2, mode: "number" }).notNull().default(0),
+  goalCents: bigint("goal_cents", { mode: "number" }),
+  updatedBy: varchar("updated_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique("revenue_plans_company_id_year_key").on(t.companyId, t.year),
+  foreignKey({ name: "revenue_plans_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "revenue_plans_updated_by_fkey", columns: [t.updatedBy], foreignColumns: [users.id] }).onDelete("set null"),
+  check("revenue_plans_year_check", sql`${t.year} BETWEEN 2015 AND 2100`),
+  check("revenue_plans_renewal_increase_pct_check", sql`${t.renewalIncreasePct} BETWEEN -10 AND 20`),
+  check("revenue_plans_kept_pct_check", sql`${t.keptPct} BETWEEN 0 AND 100`),
+  check("revenue_plans_snow_years_check", sql`${t.snowYears} BETWEEN 1 AND 5`),
+  check("revenue_plans_irrigation_growth_pct_check", sql`${t.irrigationGrowthPct} BETWEEN -50 AND 100`),
+  check("revenue_plans_projects_growth_pct_check", sql`${t.projectsGrowthPct} BETWEEN -50 AND 100`),
+  check("revenue_plans_extra_growth_pct_check", sql`${t.extraGrowthPct} BETWEEN -50 AND 100`),
+  check("revenue_plans_goal_cents_check", sql`${t.goalCents} >= 0`),
+]);
+
+export const revenueTargets = pgTable("revenue_targets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  stream: text("stream").$type<RevenueStream>().notNull(),
+  month: date("month", { mode: "string" }).notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  updatedBy: varchar("updated_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique("revenue_targets_company_id_stream_month_key").on(t.companyId, t.stream, t.month),
+  foreignKey({ name: "revenue_targets_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  check("revenue_targets_stream_check", sql`${t.stream} IN (${sql.raw(REVENUE_STREAMS.map(s => `'${s}'`).join(", "))})`),
+  check("revenue_targets_month_check", sql`(EXTRACT(DAY FROM ${t.month}) = 1) IS TRUE`),
+  check("revenue_targets_amount_cents_check", sql`${t.amountCents} >= 0`),
 ]);
 
 // Owns recurrence only. Contract quantities remain in term_scope_lines.

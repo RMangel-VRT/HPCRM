@@ -23,6 +23,79 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /revenue/plan/{year}:
+    parameters:
+      - &revenuePlanningYear
+        in: path
+        name: year
+        required: true
+        schema: { type: integer, minimum: 2015, maximum: 2100 }
+    get:
+      operationId: getRevenuePlan
+      responses:
+        "200":
+          description: Saved plan or unsaved defaults for the active company
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenuePlan" }
+        "400": { description: Invalid year }
+        "401": { description: Sign-in required }
+        "403": { description: Admin or office access and an active company required }
+    put:
+      operationId: saveRevenuePlan
+      parameters:
+        - &revenuePlanningCompany
+          in: header
+          name: X-Company-Id
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RevenuePlanPatch" }
+      responses:
+        "200":
+          description: Plan with the supplied fields saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenuePlan" }
+        "400": { description: Invalid year or plan fields }
+        "401": { description: Sign-in required }
+        "403": { description: Admin access and an active company required }
+        "409": { description: Active company changed }
+  /revenue/targets/{year}:
+    parameters:
+      - *revenuePlanningYear
+    get:
+      operationId: getRevenueTargets
+      responses:
+        "200":
+          description: Monthly and annual target cents by stream, with zeros for missing months
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenueTargets" }
+        "400": { description: Invalid year }
+        "401": { description: Sign-in required }
+        "403": { description: Admin or office access and an active company required }
+    put:
+      operationId: saveRevenueTargets
+      parameters:
+        - *revenuePlanningCompany
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RevenueTargetUpdate" }
+      responses:
+        "200":
+          description: Targets for the year after replacing the supplied streams
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenueTargets" }
+        "400": { description: Invalid year or target amounts }
+        "401": { description: Sign-in required }
+        "403": { description: Admin access and an active company required }
+        "409": { description: Active company changed }
   /revenue/qbo/status:
     get:
       operationId: getRevenueQboStatus
@@ -2062,6 +2135,74 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    RevenuePlanPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        renewalIncreasePct: &renewalIncrease { type: number, minimum: -10, maximum: 20, multipleOf: 0.01 }
+        keptPct: &kept { type: integer, minimum: 0, maximum: 100 }
+        snowYears: &snowYears { type: integer, minimum: 1, maximum: 5 }
+        irrigationGrowthPct: &growth { type: number, minimum: -50, maximum: 100, multipleOf: 0.01 }
+        projectsGrowthPct: *growth
+        extraGrowthPct: *growth
+        goalCents: &goal { type: ["integer", "null"], minimum: 0, maximum: 9007199254740991 }
+    RevenuePlan:
+      type: object
+      required: [year, renewalIncreasePct, keptPct, snowYears, irrigationGrowthPct, projectsGrowthPct, extraGrowthPct, goalCents, saved]
+      properties:
+        year: { type: integer, minimum: 2015, maximum: 2100 }
+        renewalIncreasePct: *renewalIncrease
+        keptPct: *kept
+        snowYears: *snowYears
+        irrigationGrowthPct: *growth
+        projectsGrowthPct: *growth
+        extraGrowthPct: *growth
+        goalCents: *goal
+        saved: { type: boolean }
+        id: { type: string, description: Present only for a saved plan }
+        companyId: { type: string }
+        updatedBy: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    RevenueTargetMonthAmounts:
+      type: array
+      description: Exactly 12 integer cent amounts in January-to-December order
+      minItems: 12
+      maxItems: 12
+      items: { type: integer, minimum: 0, maximum: 2147483647 }
+    RevenueTargetUpdate:
+      type: object
+      additionalProperties: false
+      required: [streams]
+      properties:
+        streams:
+          type: object
+          additionalProperties: false
+          properties: &monthlyTargetStreams
+            contract: { $ref: "#/components/schemas/RevenueTargetMonthAmounts" }
+            snow: { $ref: "#/components/schemas/RevenueTargetMonthAmounts" }
+            irrigation: { $ref: "#/components/schemas/RevenueTargetMonthAmounts" }
+            projects: { $ref: "#/components/schemas/RevenueTargetMonthAmounts" }
+            extra: { $ref: "#/components/schemas/RevenueTargetMonthAmounts" }
+    RevenueTargets:
+      type: object
+      required: [year, streams, annual, saved]
+      properties:
+        year: { type: integer, minimum: 2015, maximum: 2100 }
+        streams:
+          type: object
+          required: [contract, snow, irrigation, projects, extra]
+          properties: *monthlyTargetStreams
+        annual:
+          type: object
+          required: [contract, snow, irrigation, projects, extra]
+          properties:
+            contract: &annualTarget { type: integer, minimum: 0, maximum: 25769803764 }
+            snow: *annualTarget
+            irrigation: *annualTarget
+            projects: *annualTarget
+            extra: *annualTarget
+        saved: { type: boolean, description: At least one monthly target row exists }
     RevenueQboFetchedYear:
       type: object
       required: [year, fetchedAt]
