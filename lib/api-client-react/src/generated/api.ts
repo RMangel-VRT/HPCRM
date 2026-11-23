@@ -102,6 +102,11 @@ import type {
   OwnerResponseTicket,
   PreviewEmailWording200,
   ResolvedEstimateWorkLocation,
+  RevenueQboAccount,
+  RevenueQboAccountMappingChanges,
+  RevenueQboFetchedYear,
+  RevenueQboStatus,
+  RevenueQboYearSelection,
   RfpLossInput,
   SampleCommunicationReview,
   SaveEmailWording422,
@@ -119,6 +124,7 @@ import type {
   TicketWorkItem,
   TicketWorkItemInput,
   TicketWorkItemPatch,
+  UpdateRevenueQboAccountMappings200,
   VisitDaySummary,
   VisitInput,
   VisitMutation,
@@ -137,6 +143,310 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getGetRevenueQboStatusUrl = () => {
+  return `/api/revenue/qbo/status`;
+};
+
+export const getRevenueQboStatus = async (
+  options?: RequestInit,
+): Promise<RevenueQboStatus> => {
+  return customFetch<RevenueQboStatus>(getGetRevenueQboStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRevenueQboStatusQueryKey = () => {
+  return [`/api/revenue/qbo/status`] as const;
+};
+
+export const getGetRevenueQboStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRevenueQboStatus>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRevenueQboStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRevenueQboStatusQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRevenueQboStatus>>
+  > = ({ signal }) => getRevenueQboStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRevenueQboStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRevenueQboStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRevenueQboStatus>>
+>;
+export type GetRevenueQboStatusQueryError = ErrorType<void>;
+
+export function useGetRevenueQboStatus<
+  TData = Awaited<ReturnType<typeof getRevenueQboStatus>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRevenueQboStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRevenueQboStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getListRevenueQboAccountsUrl = () => {
+  return `/api/revenue/qbo/accounts`;
+};
+
+export const listRevenueQboAccounts = async (
+  options?: RequestInit,
+): Promise<RevenueQboAccount[]> => {
+  return customFetch<RevenueQboAccount[]>(getListRevenueQboAccountsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListRevenueQboAccountsQueryKey = () => {
+  return [`/api/revenue/qbo/accounts`] as const;
+};
+
+export const getListRevenueQboAccountsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listRevenueQboAccounts>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listRevenueQboAccounts>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListRevenueQboAccountsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listRevenueQboAccounts>>
+  > = ({ signal }) => listRevenueQboAccounts({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listRevenueQboAccounts>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListRevenueQboAccountsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listRevenueQboAccounts>>
+>;
+export type ListRevenueQboAccountsQueryError = ErrorType<void>;
+
+export function useListRevenueQboAccounts<
+  TData = Awaited<ReturnType<typeof listRevenueQboAccounts>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listRevenueQboAccounts>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListRevenueQboAccountsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getUpdateRevenueQboAccountMappingsUrl = () => {
+  return `/api/revenue/qbo/accounts`;
+};
+
+export const updateRevenueQboAccountMappings = async (
+  revenueQboAccountMappingChanges: RevenueQboAccountMappingChanges,
+  options?: RequestInit,
+): Promise<UpdateRevenueQboAccountMappings200> => {
+  return customFetch<UpdateRevenueQboAccountMappings200>(
+    getUpdateRevenueQboAccountMappingsUrl(),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(revenueQboAccountMappingChanges),
+    },
+  );
+};
+
+export const getUpdateRevenueQboAccountMappingsMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateRevenueQboAccountMappings>>,
+    TError,
+    { data: BodyType<RevenueQboAccountMappingChanges> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateRevenueQboAccountMappings>>,
+  TError,
+  { data: BodyType<RevenueQboAccountMappingChanges> },
+  TContext
+> => {
+  const mutationKey = ["updateRevenueQboAccountMappings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateRevenueQboAccountMappings>>,
+    { data: BodyType<RevenueQboAccountMappingChanges> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateRevenueQboAccountMappings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateRevenueQboAccountMappingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateRevenueQboAccountMappings>>
+>;
+export type UpdateRevenueQboAccountMappingsMutationBody =
+  BodyType<RevenueQboAccountMappingChanges>;
+export type UpdateRevenueQboAccountMappingsMutationError = ErrorType<void>;
+
+export const useUpdateRevenueQboAccountMappings = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateRevenueQboAccountMappings>>,
+    TError,
+    { data: BodyType<RevenueQboAccountMappingChanges> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateRevenueQboAccountMappings>>,
+  TError,
+  { data: BodyType<RevenueQboAccountMappingChanges> },
+  TContext
+> => {
+  return useMutation(
+    getUpdateRevenueQboAccountMappingsMutationOptions(options),
+  );
+};
+
+export const getRefreshRevenueQboIncomeUrl = () => {
+  return `/api/revenue/qbo/refresh`;
+};
+
+export const refreshRevenueQboIncome = async (
+  revenueQboYearSelection: RevenueQboYearSelection,
+  options?: RequestInit,
+): Promise<RevenueQboFetchedYear> => {
+  return customFetch<RevenueQboFetchedYear>(getRefreshRevenueQboIncomeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(revenueQboYearSelection),
+  });
+};
+
+export const getRefreshRevenueQboIncomeMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshRevenueQboIncome>>,
+    TError,
+    { data: BodyType<RevenueQboYearSelection> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshRevenueQboIncome>>,
+  TError,
+  { data: BodyType<RevenueQboYearSelection> },
+  TContext
+> => {
+  const mutationKey = ["refreshRevenueQboIncome"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshRevenueQboIncome>>,
+    { data: BodyType<RevenueQboYearSelection> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return refreshRevenueQboIncome(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshRevenueQboIncomeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshRevenueQboIncome>>
+>;
+export type RefreshRevenueQboIncomeMutationBody =
+  BodyType<RevenueQboYearSelection>;
+export type RefreshRevenueQboIncomeMutationError = ErrorType<void>;
+
+export const useRefreshRevenueQboIncome = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshRevenueQboIncome>>,
+    TError,
+    { data: BodyType<RevenueQboYearSelection> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshRevenueQboIncome>>,
+  TError,
+  { data: BodyType<RevenueQboYearSelection> },
+  TContext
+> => {
+  return useMutation(getRefreshRevenueQboIncomeMutationOptions(options));
+};
 
 export const getGetRequiredSqlObjectsUrl = () => {
   return `/api/settings/database/sql-objects`;

@@ -5,6 +5,61 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface RevenueQboFetchedYear {
+  year: number;
+  fetchedAt: string;
+}
+
+export interface RevenueQboStatus {
+  connected: boolean;
+  years: RevenueQboFetchedYear[];
+  /**
+   * Number of locally recorded accounts without a stream
+   * @minimum 0
+   */
+  unmappedCount: number;
+}
+
+export interface RevenueQboAccount {
+  qboAccountId: string;
+  name: string;
+  /**
+   * IncomeAccountStream key or null for unmapped
+   * @nullable
+   */
+  stream: string | null;
+  /** Present in the active QuickBooks Income account list */
+  active: boolean;
+  /** Net accrual income in the previous Colorado calendar year */
+  lastYearCents: number;
+}
+
+export interface RevenueQboAccountMappingChange {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  qboAccountId: string;
+  /**
+   * IncomeAccountStream key or null to clear the mapping
+   * @nullable
+   */
+  stream: string | null;
+}
+
+/**
+ * @maxItems 1000
+ */
+export type RevenueQboAccountMappingChanges = RevenueQboAccountMappingChange[];
+
+export interface RevenueQboYearSelection {
+  /**
+   * No later than the current Colorado calendar year
+   * @minimum 2015
+   */
+  year: number;
+}
+
 export type RequiredSqlObjectStatusKind =
   (typeof RequiredSqlObjectStatusKind)[keyof typeof RequiredSqlObjectStatusKind];
 
@@ -1822,6 +1877,10 @@ export interface OwnerResponseTicket {
   followUpNote?: string | null;
   [key: string]: unknown;
 }
+
+export type UpdateRevenueQboAccountMappings200 = {
+  ok: boolean;
+};
 
 export type GetRequiredSqlObjects200 = {
   objects: RequiredSqlObjectStatus[];

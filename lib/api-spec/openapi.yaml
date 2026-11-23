@@ -23,6 +23,78 @@ tags:
   - name: ticket-work-items
     description: Per-ticket work items administered from the web CRM (Slice 2)
 paths:
+  /revenue/qbo/status:
+    get:
+      operationId: getRevenueQboStatus
+      responses:
+        "200":
+          description: Active company connection status and successfully fetched years
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenueQboStatus" }
+        "401": { description: Sign-in required }
+        "403": { description: Admin or office access required }
+  /revenue/qbo/accounts:
+    get:
+      operationId: listRevenueQboAccounts
+      responses:
+        "200":
+          description: Active QuickBooks Income accounts and accounts seen in prior pulls
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RevenueQboAccount" }
+        "401": { description: Sign-in required }
+        "403": { description: Admin or office access required }
+        "502": { description: QuickBooks account read failed }
+    put:
+      operationId: updateRevenueQboAccountMappings
+      parameters:
+        - { in: header, name: X-Company-Id, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RevenueQboAccountMappingChanges" }
+      responses:
+        "200":
+          description: Mappings saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
+        "400": { description: Invalid changes or account not known for the active company }
+        "401": { description: Sign-in required }
+        "403": { description: Admin access required }
+        "409": { description: Active company changed }
+        "502": { description: QuickBooks account read failed }
+        "503": { description: QuickBooks is not connected and a new account could not be verified }
+  /revenue/qbo/refresh:
+    post:
+      operationId: refreshRevenueQboIncome
+      parameters:
+        - { in: header, name: X-Company-Id, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RevenueQboYearSelection" }
+      responses:
+        "200":
+          description: Accrual income mirror replaced for the active company and year
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenueQboFetchedYear" }
+        "400": { description: Invalid year }
+        "401": { description: Sign-in required }
+        "403": { description: Admin access required }
+        "409": { description: Active company changed }
+        "502": { description: QuickBooks report read or parse failed; prior figures remain }
+        "503": { description: QuickBooks is not connected }
   /settings/database/sql-objects:
     get:
       operationId: getRequiredSqlObjects
@@ -1990,6 +2062,47 @@ components:
       scheme: bearer
       bearerFormat: opaque
   schemas:
+    RevenueQboFetchedYear:
+      type: object
+      required: [year, fetchedAt]
+      properties:
+        year: { type: integer }
+        fetchedAt: { type: string, format: date-time }
+    RevenueQboStatus:
+      type: object
+      required: [connected, years, unmappedCount]
+      properties:
+        connected: { type: boolean }
+        years:
+          type: array
+          items: { $ref: "#/components/schemas/RevenueQboFetchedYear" }
+        unmappedCount: { type: integer, minimum: 0, description: Number of locally recorded accounts without a stream }
+    RevenueQboAccount:
+      type: object
+      required: [qboAccountId, name, stream, active, lastYearCents]
+      properties:
+        qboAccountId: { type: string }
+        name: { type: string }
+        stream: { type: ["string", "null"], description: IncomeAccountStream key or null for unmapped }
+        active: { type: boolean, description: Present in the active QuickBooks Income account list }
+        lastYearCents: { type: integer, description: Net accrual income in the previous Colorado calendar year }
+    RevenueQboAccountMappingChange:
+      type: object
+      additionalProperties: false
+      required: [qboAccountId, stream]
+      properties:
+        qboAccountId: { type: string, minLength: 1, maxLength: 200 }
+        stream: { type: ["string", "null"], description: IncomeAccountStream key or null to clear the mapping }
+    RevenueQboAccountMappingChanges:
+      type: array
+      maxItems: 1000
+      items: { $ref: "#/components/schemas/RevenueQboAccountMappingChange" }
+    RevenueQboYearSelection:
+      type: object
+      additionalProperties: false
+      required: [year]
+      properties:
+        year: { type: integer, minimum: 2015, description: No later than the current Colorado calendar year }
     RequiredSqlObjectStatus:
       type: object
       required: [id, label, kind, present, sqlFile]

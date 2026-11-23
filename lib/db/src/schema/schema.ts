@@ -12,6 +12,7 @@ import type { EstimateWorksheetSection } from "../estimateContracts";
 import { campaignIdentityCheckName, campaignIdentityCheckSql } from "../campaignSql";
 import { serviceCalendarCheckSql } from "../serviceCalendarSql";
 import { EMAIL_WORDING_KEYS, type EmailKey } from "../emailWordingContracts";
+import { INCOME_ACCOUNT_STREAMS, type IncomeAccountStream } from "../revenueStreams";
 export { serviceCalendarReplacementSchema, summarizeServiceUsage, CAMPAIGN_TERM_STATUSES } from "../serviceCalendarContracts";
 export { routeStopBody, routeStopFields, routeDate, routeService, validRouteSeason } from "../routeContracts";
 
@@ -166,6 +167,44 @@ export const insertCompanySchema = createInsertSchema(companies).omit({
 
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type Company = typeof companies.$inferSelect;
+
+export const revenueIncomeAccounts = pgTable("revenue_income_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  qboAccountId: text("qbo_account_id").notNull(),
+  accountName: text("account_name").notNull(),
+  stream: text("stream").$type<IncomeAccountStream>(),
+  updatedBy: varchar("updated_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique("revenue_income_accounts_company_id_qbo_account_id_key").on(t.companyId, t.qboAccountId),
+  check("revenue_income_accounts_stream_check", sql`${t.stream} IS NULL OR ${t.stream} IN (${sql.raw(INCOME_ACCOUNT_STREAMS.map(s => `'${s}'`).join(", "))})`),
+  foreignKey({ name: "revenue_income_accounts_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+  foreignKey({ name: "revenue_income_accounts_updated_by_fkey", columns: [t.updatedBy], foreignColumns: [users.id] }).onDelete("set null"),
+]);
+
+export const revenueQboIncomeMonths = pgTable("revenue_qbo_income_months", {
+  companyId: varchar("company_id").notNull(),
+  qboAccountId: text("qbo_account_id").notNull(),
+  month: date("month", { mode: "string" }).notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  fetchedAt: timestamp("fetched_at").notNull(),
+}, (t) => [
+  unique("revenue_qbo_income_months_company_id_qbo_account_id_month_key").on(t.companyId, t.qboAccountId, t.month),
+  index("revenue_qbo_income_months_company_month_idx").on(t.companyId, t.month),
+  foreignKey({ name: "revenue_qbo_income_months_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
+
+export const revenueQboIncomeYears = pgTable("revenue_qbo_income_years", {
+  companyId: varchar("company_id").notNull(),
+  year: integer("year").notNull(),
+  fetchedAt: timestamp("fetched_at").notNull(),
+  basis: text("basis").notNull().default("accrual"),
+}, (t) => [
+  unique("revenue_qbo_income_years_company_id_year_key").on(t.companyId, t.year),
+  foreignKey({ name: "revenue_qbo_income_years_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),
+]);
 
 // Owns recurrence only. Contract quantities remain in term_scope_lines.
 export const routeStops = pgTable("route_stops", {

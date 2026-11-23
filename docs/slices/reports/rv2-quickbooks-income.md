@@ -1,0 +1,13 @@
+# RV2 handoff — QuickBooks earned income
+
+- `REVENUE_STREAMS` contains only the five planning streams. `INCOME_ACCOUNT_STREAMS` adds `other` and `exclude` for mappings. A null mapping stays unassigned; it is not saved as `other`.
+- `refreshQboIncome` fetches a full calendar year's accrual Profit and Loss before opening a database transaction. Month strings come from the report's `StartDate` metadata, not titles or host timezone. Only Income account data and populated account headers contribute; amounts are signed integer cents. A valid empty pull replaces stale monthly rows with none and still records a successful year.
+- `revenue_qbo_income_years` is the authority for whether the mirror was loaded. No fetched-year row means not loaded; a row with no monthly amounts means loaded and empty. `revenue_qbo_income_months` is the automatic mirror. Refreshes update names in `revenue_income_accounts` but preserve stream selections and the last mapping editor.
+- `GET /api/revenue/qbo/status` returns `{ connected, years, unmappedCount }`, with newest years first. The count covers stored, unassigned accounts; this endpoint does not contact QuickBooks. `GET /api/revenue/qbo/accounts` adds active QuickBooks accounts to the stored list. Its `lastYearCents` is the net amount in the previous Colorado calendar year. While disconnected, only stored accounts are returned and none are marked active.
+- `PUT /api/revenue/qbo/accounts` takes an array of changes and returns `{ ok: true }`. `POST /api/revenue/qbo/refresh` takes `{ year }` and returns `{ year, fetchedAt }`. Both writes require admin access and check `X-Company-Id` when supplied. Previously seen accounts can still be mapped while disconnected; a new ID must be verified with QuickBooks. Nothing writes accounting data back or schedules a refresh.
+
+### Verification
+
+Run `bash artifacts/api-server/scripts/test-rv2-postgres.sh` with PostgreSQL tools on `PATH`. It starts a private socket-only server, checks its identity, applies the migration twice, compares the complete three-table catalog with the Drizzle export, and runs the API integration tests with mocked QuickBooks. No managed database is used by this script.
+
+Artifact-local checks passed: 104 API tests, 7 disposable PostgreSQL integration tests, and 70 CRM regressions. Workspace declarations rebuilt successfully. Normalized typecheck diagnostics were unchanged in the API and CRM. The Development API started and returned 401 on the protected routes without a session. After the disposable rehearsal, the owner approved applying only this migration once to verified Development so the schema check could run. No Production changes were made.

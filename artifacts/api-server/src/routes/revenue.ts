@@ -1,9 +1,19 @@
-import type { Express, RequestHandler } from "express";
+import { Router, type ErrorRequestHandler, type Express, type RequestHandler } from "express";
+import { z as contractZ } from "zod";
 import { z } from "zod/v4";
+import { INCOME_ACCOUNT_STREAMS } from "@workspace/db/revenue-streams";
+import {
+  GetRevenueQboStatusResponse, ListRevenueQboAccountsResponse, RefreshRevenueQboIncomeBody,
+  RefreshRevenueQboIncomeResponse, UpdateRevenueQboAccountMappingsBodyItem, UpdateRevenueQboAccountMappingsResponse,
+} from "@workspace/api-zod";
 import type { UserWithContext } from "../auth";
 import { db } from "../db";
 import { storage } from "../storage";
 import { companyToday } from "../lib/companyDay";
+import {
+  getQboIncomeStatus, isRevenueRefreshYear, listIncomeAccounts, refreshQboIncome, RevenueQboError,
+  updateIncomeAccountMappings,
+} from "../services/qboIncome";
 import {
   billingMonth, byCustomer, countInEffectSnowTm, dashboardRevenueMonths,
   filterRevenueLine, loadContractRevenueRows, loadContractRevenueSeasons, monthlyTotals, summarizeBillingMonth,
@@ -32,10 +42,82 @@ const matrixQuery = z.strictObject({
 });
 const limitParam = z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().nonnegative());
 
+const requireRevenueQboCompany: RequestHandler = (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!(req.user as UserWithContext).activeCompanyId) {
+    res.status(403).json({ message: "An active company is required" });
+    return;
+  }
+  next();
+};
+const requireRevenueQboAdmin: RequestHandler = (req, res, next) => {
+  const user = req.user as UserWithContext;
+  if (user.accessRole !== "admin") {
+    res.status(403).json({ message: "Administrator access required" });
+    return;
+  }
+  const expectedCompany = req.get("X-Company-Id");
+  if (expectedCompany !== undefined && expectedCompany !== user.activeCompanyId) {
+    res.status(409).json({ message: "Active company changed. Reload and try again." });
+    return;
+  }
+  next();
+};
+// Orval emits these contracts for `zod`, not for the legacy routes' `zod/v4`.
+const mappingBody = contractZ.array(UpdateRevenueQboAccountMappingsBodyItem.strict().extend({
+  qboAccountId: UpdateRevenueQboAccountMappingsBodyItem.shape.qboAccountId
+    .refine(id => id.trim() === id && !id.includes("\0")),
+  stream: contractZ.enum(INCOME_ACCOUNT_STREAMS).nullable(),
+})).max(1000).refine(changes => new Set(changes.map(row => row.qboAccountId)).size === changes.length);
+const refreshBody = RefreshRevenueQboIncomeBody.strict().extend({
+  year: RefreshRevenueQboIncomeBody.shape.year.refine(isRevenueRefreshYear),
+});
+const handleQboError: ErrorRequestHandler = (err, req, res, next) => {
+  if (!(err instanceof RevenueQboError)) { next(err); return; }
+  if (err.status === 502) req.log?.warn({ cause: err.cause }, err.message);
+  res.status(err.status).json({ message: err.message });
+};
+
+function qboIncomeRoutes() {
+  const router = Router();
+  router.use(requireRevenueQboCompany);
+
+  router.get("/status", async (req, res): Promise<void> => {
+    const { activeCompanyId } = req.user as UserWithContext;
+    res.json(GetRevenueQboStatusResponse.parse(await getQboIncomeStatus(activeCompanyId)));
+  });
+  router.get("/accounts", async (req, res): Promise<void> => {
+    const { activeCompanyId } = req.user as UserWithContext;
+    res.json(ListRevenueQboAccountsResponse.parse(await listIncomeAccounts(activeCompanyId)));
+  });
+  router.put("/accounts", requireRevenueQboAdmin, async (req, res): Promise<void> => {
+    const parsed = mappingBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Provide unique QuickBooks income account IDs and valid streams or null" });
+      return;
+    }
+    const { activeCompanyId, id } = req.user as UserWithContext;
+    await updateIncomeAccountMappings(activeCompanyId, id, parsed.data);
+    res.json(UpdateRevenueQboAccountMappingsResponse.parse({ ok: true }));
+  });
+  router.post("/refresh", requireRevenueQboAdmin, async (req, res): Promise<void> => {
+    const parsed = refreshBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Year must be an integer from 2015 through the current Colorado year" });
+      return;
+    }
+    const { activeCompanyId } = req.user as UserWithContext;
+    res.json(RefreshRevenueQboIncomeResponse.parse(await refreshQboIncome(activeCompanyId, parsed.data.year)));
+  });
+  router.use(handleQboError);
+  return router;
+}
+
 export function registerRevenueRoutes(app: Express): void {
   // Apply the minimum role to every Revenue route, including legacy routes
   // registered later. Existing admin-only legacy actions keep that restriction.
   app.use("/api/revenue", requireRevenueRead);
+  app.use("/api/revenue/qbo", qboIncomeRoutes());
 
   app.get("/api/revenue/contracts/billing", async (req, res) => {
     const query = billingQuery.safeParse(req.query);

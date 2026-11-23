@@ -19,7 +19,9 @@ async function query(companyId: string, text: string, entity: "Item" | "Account"
   const response = await qboRequest(companyId, "GET", `/query?query=${encodeURIComponent(text)}`);
   if (!response.ok) throw new QboItemError(502, `QuickBooks ${entity} query failed (${response.status})`);
   const body = await response.json() as { QueryResponse?: Record<string, unknown>; Fault?: unknown };
-  if (!body.QueryResponse || body.Fault) throw new QboItemError(502, "QuickBooks returned an invalid query response");
+  if (!body?.QueryResponse || typeof body.QueryResponse !== "object" || Array.isArray(body.QueryResponse) || body.Fault) {
+    throw new QboItemError(502, "QuickBooks returned an invalid query response");
+  }
   const rows = body.QueryResponse[entity] ?? [];
   if (!Array.isArray(rows)) throw new QboItemError(502, "QuickBooks returned an invalid item list");
   return rows as Record<string, unknown>[];
@@ -128,7 +130,16 @@ export async function incomeAccounts(companyId: string) {
   const all: Array<{ id: string; name: string }> = [];
   for (let start = 1; ; start += 1000) {
     const rows = await query(companyId, `SELECT * FROM Account WHERE AccountType = 'Income' STARTPOSITION ${start} MAXRESULTS 1000`, "Account");
-    all.push(...rows.filter(r => r.Active !== false).map(r => ({ id: String(r.Id), name: String(r.Name) })));
+    for (const row of rows) {
+      if (row?.Active === false) continue;
+      if (typeof row?.Id !== "string" || !row.Id || row.Id !== row.Id.trim() || row.Id.length > 200 || row.Id.includes("\0")
+        || typeof row.Name !== "string" || !row.Name.trim() || row.Name.includes("\0")
+        || (row.Active !== undefined && row.Active !== true)
+        || (row.AccountType !== undefined && row.AccountType !== "Income")) {
+        throw new QboItemError(502, "QuickBooks returned an invalid Income account");
+      }
+      all.push({ id: row.Id, name: row.Name });
+    }
     if (rows.length < 1000) return all;
   }
 }

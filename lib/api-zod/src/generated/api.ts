@@ -7,6 +7,82 @@
  */
 import * as zod from "zod";
 
+export const getRevenueQboStatusResponseUnmappedCountMin = 0;
+
+export const GetRevenueQboStatusResponse = zod.object({
+  connected: zod.boolean(),
+  years: zod.array(
+    zod.object({
+      year: zod.number(),
+      fetchedAt: zod.coerce.date(),
+    }),
+  ),
+  unmappedCount: zod
+    .number()
+    .min(getRevenueQboStatusResponseUnmappedCountMin)
+    .describe("Number of locally recorded accounts without a stream"),
+});
+
+export const ListRevenueQboAccountsResponseItem = zod.object({
+  qboAccountId: zod.string(),
+  name: zod.string(),
+  stream: zod
+    .string()
+    .nullable()
+    .describe("IncomeAccountStream key or null for unmapped"),
+  active: zod
+    .boolean()
+    .describe("Present in the active QuickBooks Income account list"),
+  lastYearCents: zod
+    .number()
+    .describe("Net accrual income in the previous Colorado calendar year"),
+});
+export const ListRevenueQboAccountsResponse = zod.array(
+  ListRevenueQboAccountsResponseItem,
+);
+
+export const UpdateRevenueQboAccountMappingsHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const updateRevenueQboAccountMappingsBodyQboAccountIdMax = 200;
+
+export const UpdateRevenueQboAccountMappingsBodyItem = zod.object({
+  qboAccountId: zod
+    .string()
+    .min(1)
+    .max(updateRevenueQboAccountMappingsBodyQboAccountIdMax),
+  stream: zod
+    .string()
+    .nullable()
+    .describe("IncomeAccountStream key or null to clear the mapping"),
+});
+export const UpdateRevenueQboAccountMappingsBody = zod
+  .array(UpdateRevenueQboAccountMappingsBodyItem)
+  .max(1000);
+
+export const UpdateRevenueQboAccountMappingsResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+export const RefreshRevenueQboIncomeHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const refreshRevenueQboIncomeBodyYearMin = 2015;
+
+export const RefreshRevenueQboIncomeBody = zod.object({
+  year: zod
+    .number()
+    .min(refreshRevenueQboIncomeBodyYearMin)
+    .describe("No later than the current Colorado calendar year"),
+});
+
+export const RefreshRevenueQboIncomeResponse = zod.object({
+  year: zod.number(),
+  fetchedAt: zod.coerce.date(),
+});
+
 export const GetRequiredSqlObjectsHeader = zod.object({
   "X-Company-Id": zod.string().optional(),
 });
