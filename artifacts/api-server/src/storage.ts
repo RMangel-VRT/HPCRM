@@ -16,6 +16,8 @@ import { bindCustomer, unlinkCustomerLocked } from "./services/qboCustomerBindin
 import { promoteQboCustomer } from "./services/qboCustomerPromotion";
 import { CampaignGuardError, assertNoCampaignVisitLinks } from "./lib/campaignIdentity";
 import { trimProvidedName } from "./lib/trimProvidedName";
+import { billingMonth, byCustomer, loadContractRevenueRows, monthlyTotals } from "./lib/contractRevenue";
+import { companyToday } from "./lib/companyDay";
 
 export interface MyExtraBillableBatch {
   campaignId: string;
@@ -48,7 +50,7 @@ import type { QboConnection, InsertQboConnection, QboCustomerCache } from "@work
 import type { StylePreset, InsertStylePreset, SheetTemplate, InsertSheetTemplate, StylePresetType, StylePresetConfig } from "@workspace/db";
 import type { VisibleMailboxes } from "./services/mailboxScope";
 import type { ServicePlanTemplateWithItems, ServicePlanTemplate, InsertServicePlanTemplate, ServicePlanTemplateItem, ServicePlanCategory, CustomerServicePlan, InsertCustomerServicePlan, ServiceFulfillmentRow } from "@workspace/db";
-import { eq, ne, and, or, sql, desc, asc, inArray, isNull, max, type SQL, getTableColumns } from "drizzle-orm";
+import { eq, ne, and, or, sql, desc, asc, inArray, isNull, max, type SQL, getTableColumns, count } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -1554,27 +1556,17 @@ export class PgStorage implements IStorage {
   }
 
   async getDashboardStats(companyId: string, month: number, year: number): Promise<DashboardStats> {
-    const allCustomers = await db
-      .select()
-      .from(customers)
-      .where(eq(customers.companyId, companyId));
-    
-    const allContracts = await db
-      .select()
-      .from(contracts)
-      .where(eq(contracts.companyId, companyId));
-    
-    const activeContracts = allContracts.filter(c => c.status === "active");
-    
-    // Use getRevenueOverview as the single source of truth for revenue calculations
-    // This ensures consistency with mobilization fees, proper date filtering, and status handling
-    const revenueData = await this.getRevenueOverview(companyId, month, year);
-    
+    const [[customerCount], [contractCount], rows] = await Promise.all([
+      db.select({ count: count() }).from(customers).where(eq(customers.companyId, companyId)),
+      db.select({ count: count() }).from(contracts).where(and(eq(contracts.companyId, companyId), eq(contracts.status, "active"))),
+      loadContractRevenueRows(db, companyId, billingMonth(year, 1), billingMonth(year, month)),
+    ]);
+    const months = monthlyTotals(rows, year);
     return {
-      customersCount: allCustomers.length,
-      activeContractsCount: activeContracts.length,
-      monthlyRevenue: revenueData.selectedMonthTotal,
-      ytdRevenue: revenueData.yearToDateTotal,
+      customersCount: customerCount.count,
+      activeContractsCount: contractCount.count,
+      monthlyRevenue: months[month - 1] / 100,
+      ytdRevenue: months.reduce((sum, cents) => sum + cents, 0) / 100,
     };
   }
 
@@ -1600,6 +1592,7 @@ export class PgStorage implements IStorage {
     }));
   }
 
+  /** Legacy calculation retained until RV7; dashboard callers use Contract Center. */
   async getMonthlyRevenueData(companyId: string, year: number): Promise<MonthlyRevenueData[]> {
     // PERF: replace per-customer N+1 loop with 2 bulk queries — mirrors getRevenueOverview pattern
     const [allContracts, allAmounts] = await Promise.all([
@@ -1641,27 +1634,25 @@ export class PgStorage implements IStorage {
   }
 
   async getTopCustomers(companyId: string, limit: number): Promise<TopCustomer[]> {
-    const result = await db
-      .select({
-        id: customers.id,
-        name: customers.name,
-        totalRevenue: sql<number>`COALESCE(SUM(${contractMonthlyAmounts.amount}), 0)::numeric`,
-        activeContracts: sql<number>`COUNT(DISTINCT CASE WHEN ${contracts.status} = 'active' THEN ${contracts.id} END)::int`,
-      })
-      .from(customers)
-      .leftJoin(contracts, eq(customers.id, contracts.customerId))
-      .leftJoin(contractMonthlyAmounts, eq(contracts.id, contractMonthlyAmounts.contractId))
-      .where(eq(customers.companyId, companyId))
-      .groupBy(customers.id, customers.name)
-      .orderBy(desc(sql`COALESCE(SUM(${contractMonthlyAmounts.amount}), 0)`))
-      .limit(limit);
-    
-    return result.map(r => ({
-      id: r.id,
-      name: r.name,
-      totalRevenue: Number(r.totalRevenue) / 100, // Convert cents to dollars
-      activeContracts: r.activeContracts,
-    }));
+    if (limit === 0) return [];
+    const year = Number(companyToday().slice(0, 4));
+    const rows = await loadContractRevenueRows(db, companyId, billingMonth(year, 1), billingMonth(year, 12));
+    const owners = new Map<string, { id: string; name: string; cents: number }>();
+    for (const row of byCustomer(rows, year, [])) {
+      const owner = owners.get(row.customerId);
+      if (owner) owner.cents += row.totalCents;
+      else owners.set(row.customerId, { id: row.customerId, name: row.customerName, cents: row.totalCents });
+    }
+    const top = [...owners.values()].sort((a, b) => b.cents - a.cents || a.id.localeCompare(b.id)).slice(0, limit);
+    if (!top.length) return [];
+
+    // Keep the existing active legacy contract count; only the money source changes.
+    const counts = await db.select({ id: contracts.customerId, count: count() })
+      .from(contracts)
+      .where(and(eq(contracts.companyId, companyId), eq(contracts.status, "active"), inArray(contracts.customerId, top.map(row => row.id))))
+      .groupBy(contracts.customerId);
+    const countsByOwner = new Map(counts.map(row => [row.id, row.count]));
+    return top.map(({ id, name, cents }) => ({ id, name, totalRevenue: cents / 100, activeContracts: countsByOwner.get(id) ?? 0 }));
   }
 
   async getContractTemplates(): Promise<ContractTemplate[]> {

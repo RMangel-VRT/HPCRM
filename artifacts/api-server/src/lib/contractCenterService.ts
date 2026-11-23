@@ -262,8 +262,10 @@ export function selectRenewalSource<T extends StatusTerm>(terms: T[]): T | undef
 export function compareTermPriority(a: Pick<AgreementTerm, "startDate" | "id">, b: Pick<AgreementTerm, "startDate" | "id">) {
   return b.startDate.localeCompare(a.startDate) || b.id.localeCompare(a.id);
 }
+export const IN_EFFECT_TERM_STATUSES = ["signed", "active", "renewed"] as const;
+
 export function isTermInEffect(t: Pick<AgreementTerm, "status" | "startDate" | "endDate">, today = companyToday()) {
-  return ["signed", "active", "renewed"].includes(t.status) && t.startDate <= today && today <= t.endDate;
+  return IN_EFFECT_TERM_STATUSES.some(status => status === t.status) && t.startDate <= today && today <= t.endDate;
 }
 /** Pricing must never use the display selector's historical/future fallback. */
 export function selectInEffectTerm<T extends StatusTerm>(terms: T[], today = companyToday()): T | undefined {

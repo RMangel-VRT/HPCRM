@@ -21,3 +21,9 @@ separately in detail but include them in billing totals. Accepted project
 estimates are pipeline only until Invoice Center has the necessary
 estimate-line provenance. Say **target**, never **budget**. Keep the
 legacy tables frozen even after the old revenue code is removed.
+
+Renewal markers belong to counted season history, not to the selected
+payment rows. A filter or year boundary can hide all payments from the
+earlier season without making the later season the first on the agreement.
+Where adjacent seasons both bill the same month, keep both commitments;
+the single monthly agreement header describes the newer billing season.

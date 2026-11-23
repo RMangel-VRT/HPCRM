@@ -32,6 +32,8 @@ import { registerExtraBillableBillingRoutes, makeBucketCopyPhotoFn } from "./ext
 import { registerCrewsAndMobileRoutes } from "./crewsAndMobile";
 import { registerFlagsRoutes } from "./flags";
 import { registerDashboardQueueRoutes } from "./dashboardQueue";
+import { registerRevenueRoutes } from "./revenue";
+import { companyToday } from "../lib/companyDay";
 import { registerEstimatesBoardRoutes } from "./estimatesBoard";
 import { registerBidsBoardRoutes } from "./bidsBoard";
 import { resolveVisibleMailboxes, MailboxScopeForbiddenError, sharedOrUnassigned, canReferenceSharedMailbox } from "../services/mailboxScope";
@@ -2105,6 +2107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerFlagsRoutes(app);
   registerAccountManagerRoutes(app);
   registerDashboardQueueRoutes(app);
+  registerRevenueRoutes(app);
   registerEstimatesBoardRoutes(app);
   registerBidsBoardRoutes(app);
   registerDashboardSectionsRoutes(app);
@@ -4074,9 +4077,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const user = req.user as UserWithContext;
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
+    const [currentYear, currentMonth] = companyToday().split("-").map(Number);
 
     const stats = await storage.getDashboardStats(user.activeCompanyId, currentMonth, currentYear);
     res.json(stats);
@@ -4090,51 +4091,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const user = req.user as UserWithContext;
     const data = await storage.getCustomerGrowthData(user.activeCompanyId);
     res.json(data);
-  });
-
-  app.get("/api/dashboard/monthly-revenue", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-
-    const user = req.user as UserWithContext;
-    const year = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
-    const data = await storage.getMonthlyRevenueData(user.activeCompanyId, year);
-    res.json(data);
-  });
-
-  app.get("/api/dashboard/top-customers", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-
-    const user = req.user as UserWithContext;
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : 5;
-    const data = await storage.getTopCustomers(user.activeCompanyId, limit);
-    res.json(data);
-  });
-
-  app.get("/api/revenue/overview", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).send("Not authenticated");
-    }
-
-    const user = req.user as UserWithContext;
-    const { month, year } = req.query;
-    
-    const monthNum = parseInt(month as string);
-    const yearNum = parseInt(year as string);
-    
-    if (isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
-      return res.status(400).send("Invalid month");
-    }
-    
-    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
-      return res.status(400).send("Invalid year");
-    }
-
-    const overviewData = await storage.getRevenueOverview(user.activeCompanyId, monthNum, yearNum);
-    res.json(overviewData);
   });
 
   app.get("/api/revenue/contract-audit", async (req, res) => {

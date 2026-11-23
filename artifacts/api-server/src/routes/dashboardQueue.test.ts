@@ -2,6 +2,7 @@ import express from "express";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
+import { accessRole, type Role } from "../../../../lib/db/src/accessRole";
 
 import {
   contracts,
@@ -14,7 +15,7 @@ import {
 const mocks = vi.hoisted(() => ({
   select: vi.fn(),
   getDashboardStats: vi.fn(),
-  getMonthlyRevenueData: vi.fn(),
+  revenueRows: vi.fn(),
   renewals: vi.fn(),
   getTicketTypes: vi.fn(),
   getTicketTypeStatuses: vi.fn(),
@@ -30,19 +31,22 @@ vi.mock("../db", () => ({
 vi.mock("../storage", () => ({
   storage: {
     getDashboardStats: mocks.getDashboardStats,
-    getMonthlyRevenueData: mocks.getMonthlyRevenueData,
     getTicketTypes: mocks.getTicketTypes,
     getTicketTypeStatuses: mocks.getTicketTypeStatuses,
   },
 }));
 vi.mock("../lib/contractCenterPersistence", () => ({ loadRenewalsDue: mocks.renewals }));
+vi.mock("../lib/contractRevenue", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../lib/contractRevenue")>(),
+  loadContractRevenueRows: mocks.revenueRows,
+}));
 
 import { registerDashboardQueueRoutes } from "./dashboardQueue";
 
 const COMPANY_ID = "company-1";
 const NOW = new Date("2026-09-02T12:00:00.000Z");
 
-function createApp(args: { authenticated?: boolean; role?: string } = {}) {
+function createApp(args: { authenticated?: boolean; role?: Role } = {}) {
   const app = express();
   app.use((req, _res, next) => {
     (req as any).isAuthenticated = () => args.authenticated ?? true;
@@ -50,6 +54,7 @@ function createApp(args: { authenticated?: boolean; role?: string } = {}) {
       id: "user-1",
       activeCompanyId: COMPANY_ID,
       activeRole: args.role ?? "admin",
+      accessRole: accessRole(args.role ?? "admin"),
       isSuperAdminBool: false,
     };
     next();
@@ -91,7 +96,7 @@ describe("GET /api/dashboard/pulse", () => {
       monthlyRevenue: 0,
       ytdRevenue: 0,
     });
-    mocks.getMonthlyRevenueData.mockResolvedValue([]);
+    mocks.revenueRows.mockResolvedValue([]);
     mocks.renewals.mockResolvedValue([]);
     mocks.getTicketTypes.mockResolvedValue([]);
     mocks.getTicketTypeStatuses.mockResolvedValue([]);
@@ -180,6 +185,8 @@ describe("GET /api/dashboard/pulse", () => {
     const { body } = await request(createApp()).get("/api/dashboard/pulse");
     expect(body.revenue.year).toBe(2026);
     expect(body.revenue.priorYear).toBe(2025);
+    expect(mocks.revenueRows).toHaveBeenCalledWith(expect.anything(), COMPANY_ID, "2025-01-01", "2026-12-01");
+    expect(mocks.getDashboardStats).toHaveBeenCalledWith(COMPANY_ID, 12, 2026);
   });
 
   it("assembles billing, season, snow, renewal, and crew metrics with stable keys", async () => {
@@ -189,15 +196,12 @@ describe("GET /api/dashboard/pulse", () => {
       monthlyRevenue: 12000,
       ytdRevenue: 80000,
     });
-    mocks.getMonthlyRevenueData
-      .mockResolvedValueOnce([
-        { month: "Jan", revenue: 100 },
-        { month: "Mar", revenue: 300 },
-      ])
-      .mockResolvedValueOnce([
-        { month: "2", revenue: 200 },
-        { month: "Dec", revenue: 1200 },
-      ]);
+    mocks.revenueRows.mockResolvedValue([
+      { month: "2026-01-01", amountCents: 10001 },
+      { month: "2026-03-01", amountCents: 30000 },
+      { month: "2025-02-01", amountCents: 20000 },
+      { month: "2025-12-01", amountCents: 120000 },
+    ]);
     mocks.renewals.mockResolvedValue([{
       agreementId: "agreement-renewal",
       customerId: "customer-renewal",
@@ -285,7 +289,7 @@ describe("GET /api/dashboard/pulse", () => {
       }],
     });
     expect(response.body.revenue.months).toEqual([
-      100, 0, 300, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      100.01, 0, 300, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ]);
     expect(response.body.revenue.priorMonths).toEqual([
       0, 200, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1200,

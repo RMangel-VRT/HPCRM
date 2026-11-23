@@ -8,6 +8,7 @@ import { contracts, crews, seasons, ticketLinks, ticketTypes, tickets, type Tick
 import { findSeededStatus, findSeededTicketType } from "../shared/ticketCapabilities";
 import { companyDateString, companyDayBounds, companyToday } from "../lib/companyDay";
 import { loadRenewalsDue, type RenewalDueRow } from "../lib/contractCenterPersistence";
+import { billingMonth, dashboardRevenueMonths, loadContractRevenueRows } from "../lib/contractRevenue";
 
 export interface PulseResponse {
   stats: {
@@ -52,7 +53,6 @@ export interface PulseResponse {
 
 type TicketTypeRow = typeof ticketTypes.$inferSelect;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const FIELD_FACING_ROLES = new Set(["field", "field_manager", "chemical_manager", "irrigation_manager", "landscape_supervisor"]);
 const PULSE_TYPE_KEYS: TicketTypeKey[] = [
   "estimate_request",
   "project",
@@ -77,19 +77,6 @@ function dateOnly(value: DateLike): string | null {
 function serializedDate(value: DateLike): string | null {
   if (!value) return null;
   return value instanceof Date ? value.toISOString() : value;
-}
-
-function denseRevenueMonths(rows: Array<{ month: string; revenue: number }>): number[] {
-  const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-  const values = Array.from({ length: 12 }, () => 0);
-  for (const row of rows) {
-    const label = String(row.month).trim().toLowerCase();
-    const monthIndex = monthNames.indexOf(label.slice(0, 3));
-    const numericMonth = Number(label);
-    const index = monthIndex >= 0 ? monthIndex : numericMonth >= 1 && numericMonth <= 12 ? numericMonth - 1 : -1;
-    if (index >= 0) values[index] = Number(row.revenue) || 0;
-  }
-  return values;
 }
 
 async function getPulseTicketTypeContext(companyId: string): Promise<{
@@ -152,7 +139,7 @@ function authorizeAdminOrOffice(req: Request, res: Response): UserWithContext | 
   }
 
   const user = req.user as UserWithContext;
-  if (FIELD_FACING_ROLES.has(user.activeRole)) {
+  if (user.accessRole !== "admin" && user.accessRole !== "office") {
     res.status(403).json({ message: "Insufficient permissions - admin or office role required" });
     return null;
   }
@@ -167,14 +154,14 @@ export function registerDashboardQueueRoutes(app: Express): void {
     try {
       const companyId = user.activeCompanyId;
       const now = new Date();
-      const [year, month] = companyToday(now).split("-").map(Number);
-      const { start: todayStart, end: tomorrowStart } = companyDayBounds(companyToday(now));
+      const today = companyToday(now);
+      const [year, month] = today.split("-").map(Number);
+      const { start: todayStart, end: tomorrowStart } = companyDayBounds(today);
       const { invoiceTypeId, readyStatusIds } = await getPulseTicketTypeContext(companyId);
 
       const [
         stats,
-        currentRevenue,
-        priorRevenue,
+        revenueRows,
         renewals,
         seasonRows,
         snowContractRows,
@@ -182,9 +169,8 @@ export function registerDashboardQueueRoutes(app: Express): void {
         crewRows,
       ] = await Promise.all([
         storage.getDashboardStats(companyId, month, year),
-        storage.getMonthlyRevenueData(companyId, year),
-        storage.getMonthlyRevenueData(companyId, year - 1),
-        loadRenewalsDue(db, companyId, companyToday(now)),
+        loadContractRevenueRows(db, companyId, billingMonth(year - 1, 1), billingMonth(year, 12)),
+        loadRenewalsDue(db, companyId, today),
         db
           .select({
             id: seasons.id,
@@ -269,7 +255,6 @@ export function registerDashboardQueueRoutes(app: Express): void {
         }
       }
 
-      const today = companyToday(now);
       const activeSeasons = seasonRows
         .filter((season) => {
           const startDate = dateOnly(season.startDate);
@@ -297,9 +282,9 @@ export function registerDashboardQueueRoutes(app: Express): void {
         },
         revenue: {
           year,
-          months: denseRevenueMonths(currentRevenue),
+          months: dashboardRevenueMonths(revenueRows, year).map(row => row.revenue),
           priorYear: year - 1,
-          priorMonths: denseRevenueMonths(priorRevenue),
+          priorMonths: dashboardRevenueMonths(revenueRows, year - 1).map(row => row.revenue),
         },
         unbilledTicketCount: Number(unbilledRows[0]?.count) || 0,
         avgDaysCloseToInvoice,
