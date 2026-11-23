@@ -24,18 +24,24 @@ export function LinkedContractRow({ contract: c }: { contract: LinkedContract })
     </div>
   </Link>;
 }
+export function useRfpLinkedContracts(ticketId: string) {
+  const { user } = useAuth();
+  return useQuery<LinkedContract[]>({
+    queryKey: ["/api/contract-center/contracts", user?.activeCompanyId, user?.id, { bidTicketId: ticketId }],
+    queryFn: async ({ signal }) => (await apiRequest("GET", `/api/contract-center/contracts?bidTicketId=${encodeURIComponent(ticketId)}`, undefined, {
+      signal, headers: user?.activeCompanyId ? { "X-Company-Id": user.activeCompanyId } : undefined,
+    })).json(),
+    staleTime: 0, refetchInterval: 60_000,
+  });
+}
 export function RfpContracts({ ticketId, statuses, statusId }: {
   ticketId: string; statuses: { id: string; statusKey?: string | null; isFinal: string; displayOrder: number }[]; statusId: string;
 }) {
-  const { t } = useTranslation(), { user } = useAuth();
+  const { t } = useTranslation();
   const current = statuses.find(s => s.id === statusId), draft = statuses.find(s => s.statusKey === "proposal_draft");
   const final = current?.isFinal === "true" || ["closed_lost", "closed_won"].includes(current?.statusKey ?? "");
   const eligible = !!current && !!draft && current.displayOrder >= draft.displayOrder;
-  const contracts = useQuery<LinkedContract[]>({
-    queryKey: ["/api/contract-center/contracts", user?.activeCompanyId, user?.id, { bidTicketId: ticketId }],
-    queryFn: async () => (await apiRequest("GET", `/api/contract-center/contracts?bidTicketId=${encodeURIComponent(ticketId)}`)).json(),
-    staleTime: 0, refetchInterval: 60_000,
-  });
+  const contracts = useRfpLinkedContracts(ticketId);
   return <Card data-testid="card-rfp-contracts">
     <CardHeader><CardTitle className="text-base">{t("rfpContracts.title")}</CardTitle></CardHeader>
     <CardContent className="space-y-2">

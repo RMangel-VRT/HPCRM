@@ -72,6 +72,7 @@ import type {
   ListVisitsParams,
   LoadTemplateRequest,
   MailboxCleanupConfirmation,
+  MarkRfpLost200,
   MobileCompleteRequest,
   MobileLoginRequest,
   MobileMeAddPushSubscription200,
@@ -101,6 +102,7 @@ import type {
   OwnerResponseTicket,
   PreviewEmailWording200,
   ResolvedEstimateWorkLocation,
+  RfpLossInput,
   SampleCommunicationReview,
   SaveEmailWording422,
   SchedulingQueueResult,
@@ -4023,6 +4025,93 @@ export const useChangeTicketType = <
   TContext
 > => {
   return useMutation(getChangeTicketTypeMutationOptions(options));
+};
+
+/**
+ * @summary Close an RFP and mark its linked draft or sent seasons lost
+ */
+export const getMarkRfpLostUrl = (id: string) => {
+  return `/api/tickets/${id}/rfp/lost`;
+};
+
+export const markRfpLost = async (
+  id: string,
+  rfpLossInput: RfpLossInput,
+  options?: RequestInit,
+): Promise<MarkRfpLost200> => {
+  return customFetch<MarkRfpLost200>(getMarkRfpLostUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(rfpLossInput),
+  });
+};
+
+export const getMarkRfpLostMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markRfpLost>>,
+    TError,
+    { id: string; data: BodyType<RfpLossInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markRfpLost>>,
+  TError,
+  { id: string; data: BodyType<RfpLossInput> },
+  TContext
+> => {
+  const mutationKey = ["markRfpLost"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markRfpLost>>,
+    { id: string; data: BodyType<RfpLossInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return markRfpLost(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkRfpLostMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markRfpLost>>
+>;
+export type MarkRfpLostMutationBody = BodyType<RfpLossInput>;
+export type MarkRfpLostMutationError = ErrorType<void>;
+
+/**
+ * @summary Close an RFP and mark its linked draft or sent seasons lost
+ */
+export const useMarkRfpLost = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markRfpLost>>,
+    TError,
+    { id: string; data: BodyType<RfpLossInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markRfpLost>>,
+  TError,
+  { id: string; data: BodyType<RfpLossInput> },
+  TContext
+> => {
+  return useMutation(getMarkRfpLostMutationOptions(options));
 };
 
 /**

@@ -18,3 +18,11 @@ Drizzle config when extracting it.
 
 **Why:** Schema validation scans the workspace for duplicate Drizzle configs,
 including in ignored output directories, to match production schema discovery.
+
+When OpenAPI generation fails validation, fix the specification and rerun
+generation before investigating missing generated imports.
+
+**Why:** Orval cleans the generated output folders before validating the
+specification, so a failed run can leave previously valid exports absent.
+**How to apply:** Check the generator's exit status and its validation message
+before treating missing exports as TypeScript errors.

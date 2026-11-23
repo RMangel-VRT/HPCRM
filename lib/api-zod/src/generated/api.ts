@@ -2215,6 +2215,33 @@ export const ChangeTicketTypeResponse = zod.object({
 });
 
 /**
+ * @summary Close an RFP and mark its linked draft or sent seasons lost
+ */
+
+export const MarkRfpLostParams = zod.object({
+  id: zod.coerce.string().min(1),
+});
+
+export const MarkRfpLostHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const MarkRfpLostBody = zod.object({
+  lossReason: zod
+    .string()
+    .min(1)
+    .describe(
+      "An option defined by this ticket type's loss_reason field on Lost",
+    ),
+  lossNotes: zod.string().optional(),
+});
+
+export const MarkRfpLostResponse = zod.object({
+  id: zod.string(),
+  currentStatusId: zod.string(),
+});
+
+/**
  * Admin, office and field_manager only. Does not change the board list range limit.
  * @summary Complete company-scoped ticket visit history, all dates and statuses
  */

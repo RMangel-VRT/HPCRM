@@ -138,10 +138,10 @@ import { normalizeStoredEstimateUnits } from '../lib/normalizeEstimateUnits';
 import { loadEstimateDocumentModel } from "../services/estimatePdf";
 import { maintainScheduleBy } from '../lib/scheduleByMaintenance';
 import { applyTicketStatus } from "../lib/ticketStatusChange";
-import { guardManualRfpStatus, lockRfp } from "../lib/rfpContracts";
+import { guardManualRfpStatus } from "../lib/rfpContracts";
 import { migrateRfpWorkflow } from "../lib/rfpWorkflowMigration";
 import { ensureRFPRequestTicketType } from "../lib/rfpWorkflowSeeder";
-import { applyRfpDecisionLost } from "../lib/contractCenterStatusChange";
+import { registerRfpLost } from "./rfpLost";
 import { ContractCenterError } from "../lib/contractCenterService";
 import { notifyTicketAssignment } from '../lib/ticketAssignmentNotification';
 import { registerTicketOwnerResponseRoutes } from './ticketOwnerResponse';
@@ -2096,6 +2096,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Must precede every ticket sub-router (comments, photos, work items, etc.).
   registerCrewSupervisorTicketGuard(app, storage);
   registerTicketTypeChange(app);
+  registerRfpLost(app);
   registerCustomerDashboardRoutes(app);
   registerTicketOwnerResponseRoutes(app);
   registerCrewsAndMobileRoutes(app);
@@ -7077,26 +7078,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const decisionField = await storage.getTicketTypeFieldById(req.params.fieldId);
     const decisionType = decisionField?.fieldKey === "decision_outcome"
       ? await storage.getTicketTypeById(ticket.ticketTypeId, user.activeCompanyId) : null;
-    if (decisionField?.ticketTypeId === ticket.ticketTypeId && decisionType?.typeKey === "rfp_request" && req.body.value === "Lost") {
-      try {
-        const value = await db.transaction(async tx => {
-          const current = await lockRfp(tx, user.activeCompanyId, ticket.id);
-          if (!current) throw new ContractCenterError(404, "Ticket not found");
-          return inTransaction(tx, async () => {
-            const value = await storage.upsertTicketFieldValue(result.data);
-            const statuses = await storage.getTicketTypeStatuses(current.ticketTypeId);
-            if (isSeededStatus(statuses.find(s => s.id === current.currentStatusId), "decision_received")) {
-              await applyRfpDecisionLost(tx, current, user.id);
-            }
-            return value;
-          });
-        });
-        return res.json(value);
-      } catch (error) {
-        if (error instanceof ContractCenterError) return res.status(error.status).json({ message: error.message });
-        throw error;
-      }
-    }
     if (decisionField?.ticketTypeId === ticket.ticketTypeId && isSeededTicketType(decisionType, "estimate_request")) {
       try {
         const value = await db.transaction(async tx => {

@@ -37,6 +37,10 @@ import { applyTicketStatus } from "../lib/ticketStatusChange";
 import { registerCrewsAndMobileRoutes } from "./crewsAndMobile";
 import { registerMobileTicketPhotosNotesRoutes } from "./mobileTicketPhotosNotes";
 import { issueMobileToken } from "../mobileAuth";
+import { registerContractCenterRoutes } from "./contractCenter";
+import { createRfpFixture, removeRfpFixture } from "../lib/rfpContractFixture";
+import { guardManualRfpStatus } from "../lib/rfpContracts";
+import { ContractCenterError } from "../lib/contractCenterService";
 
 let companyId: string, foreignCompanyId: string, userId: string;
 let crewId: string, secondCrewId: string, inactiveCrewId: string, foreignCrewId: string;
@@ -59,13 +63,14 @@ function app(role = "admin", authenticated = true, activeCompanyId = companyId, 
     next();
   });
   registerVisitRoutes(app);
+  registerContractCenterRoutes(app);
   const deps = {
     app, db, storage, transactionalTicketPatch, applyVisitTicketEdit, applySchedulingTransition,
     assertSchedulingGate, isSchedulingGateType, hasOpenTicketVisit, lockVisitCompany, lockVisitTickets, VisitError, inTransaction, insertTicketFieldValueSchema,
     insertTicketSchema, pickProvided, maintainScheduleBy, wasDueDateExtendedToFuture,
     findSeededStatus, isSeededStatus, isSeededTicketType, assertNotParentCustomer, guardTicketCustomerChange, getBillingBehaviorForWorkType,
     canSeeBilling, isBillingInvoiceAction, notifyTicketAssignment, maybeAutoCreateInvoiceOnRfb,
-    propagateInvoiceCompletion, applyTicketStatus, eq, and, sql,
+    propagateInvoiceCompletion, applyTicketStatus, eq, and, sql, guardManualRfpStatus, ContractCenterError,
     APPROVED_BILLING_STATUS_KEYS: ["ready_to_schedule", "scheduled", "work_completed", "ready_for_billing", "invoicing"],
     // Only the unrelated invoice-producing branch needs this bootstrap function.
     ensureInvoiceTicketType: async () => { throw new Error("Unexpected invoice bootstrap in visits test"); },
@@ -715,6 +720,57 @@ describe("S1 scheduling gate", () => {
       expect((await a.patch(path).send({ currentStatusId: w.id("decision_received") })).status).toBe(200);
       expect((await a.put(`${path}/field-values/${field.id}`).send({ value: decision })).status).toBe(200);
       expect((await ticketRow(job.id)).currentStatusId).toBe(w.id(decision === "Approved" ? "ready_to_schedule" : "closed_lost"));
+    }
+  });
+
+  it("works a seeded RFP through the real ticket PATCH, Contract Center, checklist PUT and Won", async () => {
+    const f = await createRfpFixture();
+    try {
+      const rfp = await f.createRfp("reviewing"), path = `/api/tickets/${rfp.id}`;
+      const client = request(app("office", true, f.companyId, f.userId));
+      const move = (key: string, statusChangeNotes?: string) => client.patch(path)
+        .send({ currentStatusId: f.status(key).id, ...(statusChangeNotes ? { statusChangeNotes } : {}) });
+      const answer = (key: string, value: string) => client.put(`${path}/field-values/${f.fields.find(field => field.fieldKey === key)!.id}`).send({ value });
+      const [archivedDecision] = await db.insert(ticketTypeFields).values({ ticketTypeId: f.type.id,
+        fieldKey: "decision_outcome", fieldLabel: "Retired", fieldType: "select", displayOrder: 0 }).returning();
+      expect((await client.put(`${path}/field-values/${archivedDecision.id}`).send({ value: "Lost" })).status).toBe(200);
+      expect((await ticketRow(rfp.id)).currentStatusId).toBe(f.status("reviewing").id);
+      expect((await answer("missing_items", "Service scope")).status).toBe(200);
+      expect((await answer("info_requested_date", "2026-11-23")).status).toBe(200);
+      expect((await move("waiting_info")).status).toBe(200);
+      expect((await answer("proposal_version", "1")).status).toBe(200);
+      const drafting = await move("proposal_draft", "Site walk skipped.");
+      expect(drafting.status, JSON.stringify(drafting.body)).toBe(200);
+      const contract = await client.post("/api/contract-center/contracts").send({
+        bidTicketId: rfp.id, customerId: f.customerId, line: "landscape", form: "ours",
+        term: { seasonLabel: "2027", startDate: "2027-01-01", endDate: "2027-12-31" }, scope: [], rates: [], payments: [],
+      });
+      expect(contract.status, JSON.stringify(contract.body)).toBe(201);
+      const termPath = `/api/contract-center/terms/${contract.body.terms[0].id}/status`;
+      expect((await client.post(termPath).send({ to: "sent" })).status).toBe(200);
+      expect((await ticketRow(rfp.id)).currentStatusId).toBe(f.status("proposal_sent").id);
+      expect((await move("awarded")).status).toBe(200);
+      expect((await move("closed_lost")).body.message).toContain("Use Mark lost");
+      const early = await move("onboarding");
+      expect(early.status).toBe(409);
+      expect(early.body.message).toContain("Mark the contract signed");
+      expect((await client.post(termPath).send({ to: "signed" })).status).toBe(200);
+      expect((await ticketRow(rfp.id)).currentStatusId).toBe(f.status("onboarding").id);
+      for (const [field, value] of [["customer_setup", "Yes"], ["maps_created", "Yes"],
+        ["board_contacts_collected", "Partial"], ["kickoff_date", "2026-11-27"], ["kickoff_notes", "Review the maps"]]) {
+        const response = await answer(field, value);
+        expect(response.status).toBe(200);
+        expect(response.body).toMatchObject({ value, capturedById: f.userId });
+      }
+      const won = await move("closed_won");
+      expect(won.status, JSON.stringify(won.body)).toBe(200);
+      expect(won.body).toMatchObject({ currentStatusId: f.status("closed_won").id, completedByUserId: f.userId });
+      const audit = await storage.getTicketStatusHistory(rfp.id);
+      expect(audit.map(row => row.toStatusId).reverse()).toEqual(
+        ["waiting_info", "proposal_draft", "proposal_sent", "awarded", "onboarding", "closed_won"].map(key => f.status(key).id));
+      expect(audit.find(row => row.toStatusId === f.status("proposal_draft").id)?.notes).toBe("Site walk skipped.");
+    } finally {
+      await removeRfpFixture(f.companyId, f.userId);
     }
   });
 

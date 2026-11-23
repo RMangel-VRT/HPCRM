@@ -1779,6 +1779,15 @@ export interface EligibleSupervisor {
   role: Role;
 }
 
+export interface RfpLossInput {
+  /**
+   * An option defined by this ticket type's loss_reason field on Lost
+   * @minLength 1
+   */
+  lossReason: string;
+  lossNotes?: string;
+}
+
 export interface TicketSendBackInput {
   /**
    * Trimmed before validating length and storing the comment.
@@ -2067,6 +2076,12 @@ export type ChangeTicketType200 = {
 export type ChangeTicketType409 = {
   error: string;
   message: string;
+};
+
+export type MarkRfpLost200 = {
+  id: string;
+  currentStatusId: string;
+  [key: string]: unknown;
 };
 
 export type MobileMeWeekParams = {

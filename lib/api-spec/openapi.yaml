@@ -900,6 +900,37 @@ paths:
                   error: { type: string }
                   message: { type: string }
         "422": { description: Invalid task work type or first status would bypass scheduling }
+  /tickets/{id}/rfp/lost:
+    post:
+      operationId: markRfpLost
+      tags: [tickets]
+      summary: Close an RFP and mark its linked draft or sent seasons lost
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, minLength: 1 } }
+        - { name: X-Company-Id, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RfpLossInput"
+      responses:
+        "200":
+          description: The updated ticket, including its committed Lost status
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                required: [id, currentStatusId]
+                properties:
+                  id: { type: string }
+                  currentStatusId: { type: string }
+        "400": { description: Missing or invalid loss reason or notes }
+        "401": { description: Not authenticated }
+        "403": { description: Only admins and office staff may mark RFPs lost }
+        "404": { description: Ticket not found in active company }
+        "409": { description: "Active company changed, or the ticket or linked season is not eligible" }
   /tickets/{id}/visits:
     get:
       operationId: ticketVisits
@@ -3491,6 +3522,16 @@ components:
         role:
           $ref: "#/components/schemas/Role"
       required: [id, name, role]
+    RfpLossInput:
+      type: object
+      additionalProperties: false
+      required: [lossReason]
+      properties:
+        lossReason:
+          type: string
+          minLength: 1
+          description: An option defined by this ticket type's loss_reason field on Lost
+        lossNotes: { type: string }
     TicketSendBackInput:
       type: object
       properties:

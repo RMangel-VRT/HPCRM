@@ -2,12 +2,13 @@ import express from "express";
 import request from "supertest";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { agreements, agreementTerms, customers, tickets, ticketTypes, ticketStatusHistory, termStatusHistory, ticketNotifications } from "@workspace/db";
+import { agreements, agreementTerms, customers, tickets, ticketTypes, ticketStatusHistory, termStatusHistory, ticketNotifications, ticketFieldValues, ticketTypeFields } from "@workspace/db";
 import { db, pool, inTransaction } from "../db";
 import { registerContractCenterRoutes } from "../routes/contractCenter";
+import { registerRfpLost } from "../routes/rfpLost";
+import { registerTicketExpectedCompany } from "./ticketExpectedCompany";
 import { createRfpFixture, removeRfpFixture } from "./rfpContractFixture";
 import { guardManualRfpStatus, lockRfp } from "./rfpContracts";
-import { applyRfpDecisionLost } from "./contractCenterStatusChange";
 import { applyTicketStatus } from "./ticketStatusChange";
 import * as persistence from "./contractCenterPersistence";
 import { companyToday } from "./companyDay";
@@ -19,14 +20,20 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
   let f: Awaited<ReturnType<typeof createRfpFixture>>;
   beforeAll(async () => { f = await createRfpFixture(); }, 30000);
   afterAll(async () => { if (f) await removeRfpFixture(f.companyId, f.userId); await pool.end(); });
-  function api(companyId: string = f.companyId) {
+  function api(companyId: string = f.companyId, role = "office", authenticated = true) {
     const app = express(); app.use(express.json());
     app.use((req, _res, next) => {
-      Object.assign(req, { isAuthenticated: () => true, user: {
-        id: f.userId, activeCompanyId: companyId, activeRole: "office", accessRole: "office",
+      Object.assign(req, { isAuthenticated: () => authenticated, user: {
+        id: f.userId, activeCompanyId: companyId, activeRole: role, accessRole: role,
       } }); next();
     });
-    registerContractCenterRoutes(app); return request(app);
+    registerTicketExpectedCompany(app);
+    registerContractCenterRoutes(app);
+    registerRfpLost(app);
+    app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      res.status(500).json({ message: error.message });
+    });
+    return request(app);
   }
   const base = "/api/contract-center";
   const payload = (bidTicketId?: string, customerId: string = f.customerId) => ({ bidTicketId, customerId, line: "both", form: "ours",
@@ -39,6 +46,53 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
   const move = (termId: string, to: string) => api().post(`${base}/terms/${termId}/status`).send({ to });
   const ticket = async (id: string) => (await db.select().from(tickets).where(eq(tickets.id, id)))[0];
   const history = (id: string) => db.select().from(ticketStatusHistory).where(eq(ticketStatusHistory.ticketId, id));
+  const lossPath = (id: string) => `/api/tickets/${id}/rfp/lost`;
+  const answers = (id: string) => db.select().from(ticketFieldValues).where(eq(ticketFieldValues.ticketId, id));
+  const lostField = (key: string) => f.fields.find(field => field.statusId === f.status("closed_lost").id && field.fieldKey === key)!;
+
+  it("lets an admin close an RFP without a contract, using the actual Lost options and returning the committed ticket", async () => {
+    const rfp = await f.createRfp("reviewing");
+    const url = lossPath(rfp.id);
+    const admin = api(f.companyId, "admin");
+    for (const body of [{}, { lossReason: "" }, { lossReason: "Competitor" }, { lossReason: "Price", lossNotes: 123 }]) {
+      expect((await admin.post(url).send(body)).status).toBe(400);
+    }
+    expect(await answers(rfp.id)).toEqual([]);
+    expect(await history(rfp.id)).toEqual([]);
+    const reason = lostField("loss_reason");
+    const option = "Builder-defined reason";
+    await db.update(ticketTypeFields).set({ options: [option] }).where(eq(ticketTypeFields.id, reason.id));
+    try {
+      expect((await admin.post(url).send({ lossReason: "Price" })).status).toBe(400);
+      const result = await admin.post(url).send({ lossReason: option });
+      expect(result.status, JSON.stringify(result.body)).toBe(200);
+      expect(result.body).toMatchObject({ id: rfp.id, currentStatusId: f.status("closed_lost").id,
+        companyId: f.companyId, completedByUserId: f.userId, completedAt: expect.any(String) });
+      expect(await answers(rfp.id)).toEqual([expect.objectContaining({ fieldId: reason.id, value: option, capturedById: f.userId })]);
+      expect((await admin.post(url).send({ lossReason: option })).status).toBe(409);
+      expect(await history(rfp.id)).toHaveLength(1);
+    } finally {
+      await db.update(ticketTypeFields).set({ options: reason.options }).where(eq(ticketTypeFields.id, reason.id));
+    }
+  });
+  it("rejects unauthenticated, non-office and foreign-company loss requests without writing", async () => {
+    const rfp = await f.createRfp("new"), url = lossPath(rfp.id);
+    const foreign = await createRfpFixture();
+    try {
+      for (const [client, expected] of [[api(f.companyId, "office", false), 401], [api(f.companyId, "field_manager"), 403], [api(foreign.companyId), 404]] as const) {
+        expect((await client.post(url).send({ lossReason: "Price" })).status).toBe(expected);
+      }
+      expect((await api().post(url).set("X-Company-Id", foreign.companyId).send({ lossReason: "Price" })).status).toBe(409);
+      expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("new").id);
+      expect(await answers(rfp.id)).toEqual([]);
+    } finally { await removeRfpFixture(foreign.companyId, foreign.userId); }
+  });
+  it.each(["onboarding", "closed_won", "closed_lost", "custom_final"])("blocks Mark lost at %s", async key => {
+    const rfp = await f.createRfp(key);
+    expect((await api().post(lossPath(rfp.id)).send({ lossReason: "Price" })).status).toBe(409);
+    expect((await ticket(rfp.id)).currentStatusId).toBe(f.status(key).id);
+    expect(await answers(rfp.id)).toEqual([]);
+  });
   it("closes an RFP-linked sent renewal through the common lifecycle when its source is not renewing", async () => {
     const source = await create();
     await db.update(agreementTerms).set({ status: "signed" }).where(eq(agreementTerms.id, source.terms[0].id));
@@ -88,6 +142,7 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
     await db.update(tickets).set({ ticketTypeId: estimate.id }).where(eq(tickets.id, rfp.id));
     const rejected = await api().post(`${base}/contracts`).send(payload(rfp.id));
     expect(rejected.status).toBe(400); expect(rejected.body.message).toBe("Only an RFP Request can produce a contract.");
+    expect((await api().post(lossPath(rfp.id)).send({ lossReason: "Price" })).status).toBe(409);
     const ordinary = await f.createRfp();
     expect((await api("another-company").post(`${base}/contracts`).send(payload(ordinary.id))).status).toBe(404);
     const [other] = await db.insert(customers).values({ companyId: f.companyId, name: "Unrelated", street: "3 Test", city: "Denver", state: "CO", zip: "80000" }).returning();
@@ -157,32 +212,44 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
     expect(responses.map(r => r.status)).toEqual([200, 200]);
     expect(await history(other.id)).toHaveLength(1);
   });
-  it("Decision Lost uses ordinary lifecycle validation for draft/sent, leaves signed untouched, and completes ticket", async () => {
+  it("lets office mark an RFP lost with notes, uses the normal lifecycle for draft/sent, and leaves signed untouched", async () => {
     const rfp = await f.createRfp(), a = await create(rfp.id), b = await create(rfp.id), c = await create(rfp.id);
     await move(b.terms[0].id, "sent");
     // A signed season may coexist with draft and sent siblings.
     await db.update(agreementTerms).set({ status: "signed" }).where(eq(agreementTerms.id, c.terms[0].id));
-    await db.transaction(async tx => { const current = await lockRfp(tx, f.companyId, rfp.id); await applyRfpDecisionLost(tx, current, f.userId); });
+    const result = await api().post(lossPath(rfp.id)).send({ lossReason: "Timing", lossNotes: "Board delayed the work." });
+    expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect(await answers(rfp.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fieldId: lostField("loss_reason").id, value: "Timing", capturedById: f.userId }),
+      expect.objectContaining({ fieldId: lostField("loss_notes").id, value: "Board delayed the work.", capturedById: f.userId }),
+    ]));
     for (const detail of [a, b]) expect((await persistence.getTerm(db, f.companyId, detail.terms[0].id)).status).toBe("lost");
     expect((await persistence.getTerm(db, f.companyId, c.terms[0].id)).status).toBe("signed");
     expect(await ticket(rfp.id)).toMatchObject({ currentStatusId: f.status("closed_lost").id, completedByUserId: f.userId });
     expect((await ticket(rfp.id)).completedAt).toBeInstanceOf(Date);
   });
-  it("rolls back Decision loss and every history when ordinary status operation fails", async () => {
+  it("rolls back loss answers, ticket and contract histories when a later season update fails", async () => {
     const rfp = await f.createRfp("proposal_sent"), a = await create(rfp.id), b = await create(rfp.id);
+    const [first, second] = [a, b].sort((left, right) => left.id.localeCompare(right.id));
     const original = persistence.writeTerm;
     const spy = vi.spyOn(persistence, "writeTerm").mockImplementation(async (...args) => {
-      if (args[3]?.id === b.terms[0].id) throw new Error("Injected lifecycle failure");
+      if (args[3]?.id === second.terms[0].id) throw new Error("Injected lifecycle failure");
       return original(...args);
     });
     try {
-      await expect(db.transaction(async tx => {
-        const current = await lockRfp(tx, f.companyId, rfp.id); await applyRfpDecisionLost(tx, current, f.userId);
-      })).rejects.toThrow("Injected lifecycle failure");
+      const result = await api().post(lossPath(rfp.id)).send({ lossReason: "Price", lossNotes: "Must roll back" });
+      expect(result.status).toBe(500);
+      expect(result.body.message).toBe("Injected lifecycle failure");
+      expect(spy.mock.calls.map(call => call[3]?.id)).toEqual([first.terms[0].id, second.terms[0].id]);
     } finally { spy.mockRestore(); }
     expect((await ticket(rfp.id)).currentStatusId).toBe(f.status("proposal_sent").id);
+    expect((await ticket(rfp.id)).completedAt).toBeNull();
+    expect(await answers(rfp.id)).toEqual([]);
     expect(await history(rfp.id)).toHaveLength(0);
-    for (const d of [a, b]) expect((await persistence.getTerm(db, f.companyId, d.terms[0].id)).status).toBe("draft");
+    for (const d of [a, b]) {
+      expect((await persistence.getTerm(db, f.companyId, d.terms[0].id)).status).toBe("draft");
+      expect(await db.select().from(termStatusHistory).where(eq(termStatusHistory.termId, d.terms[0].id))).toHaveLength(1);
+    }
   });
   it("guards unsigned Onboarding/Won and draft or sent Lost, but allows unlinked and signed cases", async () => {
     const rfp = await f.createRfp(), detail = await create(rfp.id);

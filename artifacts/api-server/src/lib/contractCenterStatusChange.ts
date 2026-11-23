@@ -9,14 +9,15 @@ import type { Ticket } from "@workspace/db";
 /** Caller holds the RFP lock. Close first so ordinary contract status writes
  * cannot recursively advance the ticket while the decision is propagating. */
 export async function applyRfpDecisionLost(tx: Transaction, ticket: Ticket, userId: string) {
-  await applyTicketStatus(tx, { ticket, toStatusKey: "closed_lost", userId,
-    note: "Auto-transitioned: RFP lost, ticket closed as lost" });
+  const updated = await applyTicketStatus(tx, { ticket, toStatusKey: "closed_lost", userId,
+    note: "RFP marked lost" });
   const terms = await linkedSeasons(tx, ticket.companyId, ticket.id);
   for (const term of terms.filter(t => ["draft", "sent"].includes(t.status))
     .sort((a, b) => a.agreementId.localeCompare(b.agreementId) || a.id.localeCompare(b.id))) {
     await applyContractStatus(tx, { companyId: ticket.companyId, userId, termId: term.id, to: "lost",
-      note: "RFP Decision recorded as Lost" });
+      note: "RFP marked lost from the ticket" });
   }
+  return updated;
 }
 
 /** Ordinary lifecycle operation, shared by the status endpoint and Decision Lost.

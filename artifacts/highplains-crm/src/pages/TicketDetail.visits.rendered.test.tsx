@@ -49,6 +49,8 @@ let history: () => { status?: number; json: unknown };
 const calls: { method: string; url: string; body?: any; headers: Headers }[] = [];
 let nextStop: { date: string; crew: { id: string; name: string }; routeOrder: number; label: string } | null;
 let nextConflict: boolean;
+let linkedRfpContracts: unknown[];
+let rfpFieldResponse: (() => Promise<number>) | undefined;
 
 beforeEach(() => {
   calls.length = 0;
@@ -57,6 +59,8 @@ beforeEach(() => {
   conversionFailure = null;
   nextStop = null;
   nextConflict = false;
+  linkedRfpContracts = [];
+  rfpFieldResponse = undefined;
   toast.mockClear();
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
@@ -64,6 +68,18 @@ beforeEach(() => {
     let r: { status?: number; json: unknown } = { json: [] };
     if (url === "/api/tickets/t1/details") r = { json: details };
     else if (url === "/api/estimates/by-ticket/t1") r = { json: null };
+    else if (url === "/api/contract-center/contracts?bidTicketId=t1") r = { json: linkedRfpContracts };
+    else if (method === "POST" && url === "/api/tickets/t1/rfp/lost") {
+      details.ticket.currentStatusId = "rfp-closed_lost";
+      r = { json: details.ticket };
+    }
+    else if (method === "PUT" && url.startsWith("/api/tickets/t1/field-values/") && details.ticketType.typeKey === "rfp_request") {
+      const fieldId = url.split("/").at(-1);
+      const saved = { fieldId, value: JSON.parse(String(init?.body)).value };
+      const status = rfpFieldResponse ? await rfpFieldResponse() : 200;
+      if (status === 200) details.fieldValues = [...details.fieldValues.filter((f: any) => f.fieldId !== fieldId), saved];
+      r = { status, json: status === 200 ? saved : { message: "Save failed" } };
+    }
     else if (url === "/api/ticket-types") r = { json: editChoices };
     else if (url.startsWith("/api/customers?ticketPicker=")) r = {
       json: { customers: [newProperty, { id: "parent", name: "Parent property", isParent: "true" }], total: 2 },
@@ -101,7 +117,13 @@ beforeEach(() => {
     else if (url === "/api/crews") r = { json: [{ id: "k1", name: "Crew 1", isActive: true }, { id: "k2", name: "Crew 2", isActive: true }] };
     else if (url === "/api/crews/board") r = { json: [{ id: "k1", name: "Crew 1", color: "#15803d", defaultHoursPerDay: 8 }, { id: "k2", name: "Crew 2", color: "#0369a1", defaultHoursPerDay: 8 }] };
     else if (method === "PATCH") {
-      if (!patchResult && url === "/api/tickets/t1") Object.assign(details.ticket, JSON.parse(String(init?.body)));
+      if (!patchResult && url === "/api/tickets/t1") {
+        const patch = JSON.parse(String(init?.body));
+        if (patch.currentStatusId && details.ticketType.typeKey === "rfp_request") {
+          details.statusHistory.unshift({ fromStatusId: details.ticket.currentStatusId, toStatusId: patch.currentStatusId });
+        }
+        Object.assign(details.ticket, patch);
+      }
       r = patchResult ?? { json: { id: "t1" } };
     }
     if (url === "/api/tickets/t1/visits") await holdHistory();
@@ -125,6 +147,204 @@ function mount() {
   return render(<QueryClientProvider client={qc}><TooltipProvider><Router hook={hook}><TicketDetail /></Router></TooltipProvider></QueryClientProvider>);
 }
 const patchBody = () => calls.filter(c => c.method === "PATCH" && c.url === "/api/tickets/t1").at(-1)?.body;
+
+function rfpDetails(key: string) {
+  const fields = [
+    ["reviewing", "requirements_notes", "Requirements", "textarea", true],
+    ["waiting_info", "missing_items", "Missing Items Checklist", "textarea", true],
+    ["waiting_info", "info_requested_date", "Date Requested", "date", true],
+    ["site_visit", "walk_date", "Walk Date/Time", "date", true],
+    ["proposal_draft", "proposal_version", "Proposal Version", "text", true],
+    ["onboarding", "customer_setup", "Customer set up in CRM", "select", true, ["Yes", "No"]],
+    ["onboarding", "maps_created", "Maps in", "select", true, ["Yes", "No"]],
+    ["onboarding", "board_contacts_collected", "Contacts collected", "select", true, ["Yes", "No", "Partial"]],
+    ["onboarding", "kickoff_date", "Kickoff date", "date", true],
+    ["onboarding", "kickoff_notes", "Kickoff notes", "textarea", false],
+    ["onboarding", "handoff_notes", "Handoff notes", "textarea", false],
+    ["closed_lost", "loss_reason", "Reason for Loss", "select", true, ["Price", "Incumbent", "Scope Mismatch", "Timing", "Other"]],
+    ["closed_lost", "loss_notes", "Additional Notes", "textarea", false],
+  ] as const;
+  return {
+    ...detailsFor(false, "Renamed RFP"),
+    ticket: { ...detailsFor(false).ticket, currentStatusId: `rfp-${key}` },
+    ticketType: { id: "tt", name: "Renamed RFP", typeKey: "rfp_request" },
+    statuses: [
+      ["new", "Received"], ["reviewing", "Reviewing"], ["waiting_info", "Waiting on info"],
+      ["site_visit", "Site walk"], ["proposal_draft", "Drafting proposal"], ["proposal_sent", "Submitted"],
+      ["awarded", "Verbal acceptance"], ["onboarding", "Onboarding"], ["closed_won", "Won"], ["closed_lost", "Opportunity lost"],
+      [null, "Closed - Lost"],
+    ].map(([stage, name], i) => ({
+      ...status(`rfp-${stage}`, stage, name!, i),
+      isFinal: stage?.startsWith("closed_") ? "true" : "false",
+      fields: fields.flatMap(([ownStage, fieldKey, fieldLabel, fieldType, required, options], displayOrder) =>
+        ownStage === stage ? [{ id: fieldKey, fieldKey, fieldLabel, fieldType, isRequired: `${required}`, options, displayOrder }] : []).reverse(),
+    })),
+    fieldValues: [{ fieldId: "requirements_notes", value: "Review complete" }],
+  };
+}
+
+describe("TicketDetail RFP workflow", () => {
+  beforeEach(() => { history = () => ({ json: [] }); });
+  const advance = () => screen.findByTestId("button-advance-status");
+  const confirm = () => userEvent.click(screen.getByTestId("button-confirm-status"));
+
+  it("advances from Reviewing directly to Site walk and steps back to Reviewing", async () => {
+    details = rfpDetails("reviewing");
+    mount();
+    expect((await advance()).textContent).toBe("Move to: Site walk");
+    await userEvent.click(await advance());
+    expect(screen.getByRole("dialog").textContent).toContain("Move to: Site walk");
+    fireEvent.change(screen.getByTestId("input-field-walk_date"), { target: { value: "2026-11-25" } });
+    await confirm();
+    await waitFor(() => expect(patchBody()).toMatchObject({ currentStatusId: "rfp-site_visit" }));
+    await waitFor(() => expect(screen.queryByTestId("button-rfp-skip-site-walk")).toBeNull());
+    expect(screen.queryByTestId("button-rfp-waiting-info")).toBeNull();
+    await userEvent.click(screen.getByTestId("button-step-back"));
+    expect(screen.getByTestId("text-target-status").textContent).toBe("Reviewing");
+    await userEvent.click(screen.getByTestId("button-confirm-step-back"));
+    await waitFor(() => expect(patchBody()).toMatchObject({ currentStatusId: "rfp-reviewing" }));
+  });
+
+  it("enters Waiting on info through its normal fields and advances from there to Site walk", async () => {
+    details = rfpDetails("reviewing");
+    mount();
+    await userEvent.click(await screen.findByTestId("button-rfp-waiting-info"));
+    expect(screen.getByRole("dialog").textContent).toContain("Move to: Waiting on info");
+    fireEvent.change(screen.getByTestId("input-field-missing_items"), { target: { value: "Scope" } });
+    fireEvent.change(screen.getByTestId("input-field-info_requested_date"), { target: { value: "2026-11-24" } });
+    await confirm();
+    await waitFor(() => expect(patchBody()).toMatchObject({ currentStatusId: "rfp-waiting_info" }));
+    await waitFor(() => expect(screen.queryByTestId("button-rfp-waiting-info")).toBeNull());
+    expect(screen.getByTestId("button-rfp-skip-site-walk")).toBeTruthy();
+    expect((await advance()).textContent).toBe("Move to: Site walk");
+    await userEvent.click(await advance());
+    expect(screen.getByRole("dialog").textContent).toContain("Move to: Site walk");
+    fireEvent.change(screen.getByTestId("input-field-walk_date"), { target: { value: "2026-11-25" } });
+    await confirm();
+    await waitFor(() => expect(patchBody()).toMatchObject({ currentStatusId: "rfp-site_visit" }));
+  });
+
+  it.each(["reviewing", "waiting_info"])("skips the walk from %s with the exact history note", async key => {
+    details = rfpDetails(key);
+    details.fieldValues.push({ fieldId: "missing_items", value: "Scope" }, { fieldId: "info_requested_date", value: "2026-11-24" });
+    mount();
+    await userEvent.click(await screen.findByTestId("button-rfp-skip-site-walk"));
+    expect(screen.getByRole("dialog").textContent).toContain("Move to: Drafting proposal");
+    const notes = screen.getByTestId("input-status-notes") as HTMLTextAreaElement;
+    expect(notes.value).toBe("Site walk skipped.");
+    expect(notes.readOnly).toBe(true);
+    await confirm();
+    expect(patchBody()).toBeUndefined();
+    fireEvent.change(screen.getByTestId("input-field-proposal_version"), { target: { value: "1" } });
+    await confirm();
+    await waitFor(() => expect(patchBody()).toEqual({ currentStatusId: "rfp-proposal_draft", statusChangeNotes: "Site walk skipped." }));
+  });
+
+  it.each([["reviewing", "admin", true], ["awarded", "office", true], ["site_visit", "field_manager", false],
+    ["onboarding", "admin", false], ["closed_won", "admin", false], ["closed_lost", "office", false]])(
+    "shows Mark lost at %s for %s only when eligible", async (key, role, visible) => {
+      details = rfpDetails(key);
+      auth.role = role;
+      mount();
+      await screen.findByTestId("header-ticket-identity");
+      expect(!!screen.queryByTestId("button-rfp-mark-lost")).toBe(visible);
+      expect(!!screen.queryByTestId("button-rfp-skip-site-walk")).toBe(key === "reviewing");
+      expect(!!screen.queryByTestId("button-rfp-waiting-info")).toBe(key === "reviewing");
+    },
+  );
+
+  it.each([false, true])("submits a listed reason and refreshes caches (linked contract: %s)", async linked => {
+    details = rfpDetails("reviewing");
+    linkedRfpContracts = linked ? [{ agreementId: "a", termId: "t", displayStatus: "draft", line: "landscape", form: "ours", customerName: "Client", seasonLabel: "2027", annualPriceCents: null }] : [];
+    mount();
+    const listKey = ["/api/contract-center/contracts", "c1"];
+    qcRef.setQueryData(listKey, []);
+    await userEvent.click(await screen.findByTestId("button-rfp-mark-lost"));
+    const reason = screen.getByTestId("select-rfp-loss-reason");
+    expect(within(reason).getAllByRole("option").map(option => option.textContent)).toEqual(
+      ["Select a reason", "Price", "Incumbent", "Scope Mismatch", "Timing", "Other"]);
+    const submit = screen.getByTestId("button-confirm-rfp-loss") as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    if (linked) {
+      expect((await screen.findByTestId("text-rfp-loss-contract-warning")).textContent).toBe("Its contract will be marked lost in the Contract Center.");
+      fireEvent.change(screen.getByTestId("input-rfp-loss-notes"), { target: { value: "Board decision" } });
+    } else expect(screen.queryByTestId("text-rfp-loss-contract-warning")).toBeNull();
+    await userEvent.selectOptions(reason, "Incumbent");
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    await userEvent.click(submit);
+    await waitFor(() => expect(screen.queryByTestId("button-rfp-mark-lost")).toBeNull());
+    const request = calls.find(c => c.method === "POST" && c.url.endsWith("/rfp/lost"));
+    expect(request?.headers.get("X-Company-Id")).toBe("c1");
+    expect(request?.body).toEqual({ lossReason: "Incumbent", ...(linked ? { lossNotes: "Board decision" } : {}) });
+    expect(patchBody()).toBeUndefined();
+    expect(qcRef.getQueryState(listKey)?.isInvalidated).toBe(true);
+  });
+
+  it.each([
+    ["reviewing", null, false], ["waiting_info", null, true], ["proposal_sent", "to", true], ["closed_lost", "from", true],
+  ])("filters the stepper by keys at %s (waiting history: %s)", async (key, visitFrom, showsWaiting) => {
+    details = rfpDetails(key);
+    if (visitFrom) details.statusHistory = [{
+      fromStatusId: visitFrom === "from" ? "rfp-waiting_info" : "rfp-reviewing",
+      toStatusId: visitFrom === "to" ? "rfp-waiting_info" : `rfp-${key}`,
+    }];
+    mount();
+    await userEvent.click(await screen.findByTestId("tab-workflow"));
+    for (const button of screen.queryAllByRole("button", { name: /\+\d+ more/ })) fireEvent.click(button);
+    expect(!!screen.queryByTestId("card-status-rfp-waiting_info")).toBe(showsWaiting);
+    expect(!!screen.queryByTestId("card-status-rfp-closed_lost")).toBe(key === "closed_lost");
+    expect(screen.getByTestId("card-status-rfp-null")).toBeTruthy();
+    for (const stage of ["awarded", "onboarding", "closed_won"]) {
+      expect(!!screen.queryByTestId(`card-status-rfp-${stage}`)).toBe(key !== "closed_lost");
+    }
+  });
+
+  it("enters Onboarding without pre-filling its checklist and blocks Won until the required answers are saved", async () => {
+    details = rfpDetails("awarded");
+    mount();
+    await userEvent.click(await advance());
+    const checklist = await screen.findByTestId("card-rfp-onboarding");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect((await advance()).textContent).toBe("Move to: Won");
+    expect(within(checklist).getAllByTestId(/^checklist-(?!input-)/).map(el => el.getAttribute("data-testid"))).toEqual(
+      ["customer_setup", "maps_created", "board_contacts_collected", "kickoff_date", "kickoff_notes", "handoff_notes"].map(key => `checklist-${key}`));
+    await userEvent.click(await advance());
+    await confirm();
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Please fill in Kickoff date" }));
+    expect(patchBody().currentStatusId).toBe("rfp-onboarding");
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    let finish!: (status: number) => void;
+    rfpFieldResponse = () => new Promise(resolve => { finish = resolve; });
+    await userEvent.click(screen.getByTestId("option-customer_setup-0"));
+    expect(screen.queryByTestId("done-customer_setup")).toBeNull();
+    expect(((await advance()) as HTMLButtonElement).disabled).toBe(true);
+    finish(500);
+    await within(checklist).findByRole("alert");
+    expect(screen.queryByTestId("done-customer_setup")).toBeNull();
+    rfpFieldResponse = undefined;
+    await userEvent.click(screen.getByTestId("option-customer_setup-0"));
+    await screen.findByTestId("done-customer_setup");
+    await userEvent.click(screen.getByTestId("option-maps_created-1"));
+    await screen.findByTestId("done-maps_created");
+    await userEvent.click(screen.getByTestId("option-board_contacts_collected-2"));
+    await screen.findByTestId("done-board_contacts_collected");
+    fireEvent.change(screen.getByTestId("checklist-input-kickoff_date"), { target: { value: "2026-11-27" } });
+    await screen.findByTestId("done-kickoff_date");
+    const notes = screen.getByTestId("checklist-input-kickoff_notes");
+    fireEvent.change(notes, { target: { value: "Bring maps" } });
+    expect(calls.some(c => c.method === "PUT" && c.url.endsWith("/kickoff_notes"))).toBe(false);
+    fireEvent.blur(notes);
+    await waitFor(() => expect(details.fieldValues.find((f: any) => f.fieldId === "kickoff_notes")?.value).toBe("Bring maps"));
+    expect(screen.queryByTestId("done-kickoff_notes")).toBeNull();
+    expect(calls.filter(c => c.method === "PUT").map(c => [c.url.split("/").at(-1), c.body.value])).toEqual([
+      ["customer_setup", "Yes"], ["customer_setup", "Yes"], ["maps_created", "No"],
+      ["board_contacts_collected", "Partial"], ["kickoff_date", "2026-11-27"], ["kickoff_notes", "Bring maps"],
+    ]);
+    await waitFor(() => expect((screen.getByTestId("button-advance-status") as HTMLButtonElement).disabled).toBe(false));
+    await userEvent.click(await advance());
+    await waitFor(() => expect(patchBody().currentStatusId).toBe("rfp-closed_won"));
+  });
+});
 
 describe("TicketDetail conversation locations", () => {
   it.each(["estimate_request", "task", "project", "invoice"])("shows the empty Photos section and upload control for %s", async typeKey => {

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
 import { useSetBreadcrumbs } from "@/hooks/use-breadcrumbs";
 import { useTranslation } from "react-i18next";
@@ -80,6 +80,8 @@ import { CrewSelect, type CrewSelectOption } from "@/components/CrewSelect";
 import { TicketWorkItemsCard } from "@/components/TicketWorkItemsCard";
 import type { Ticket, TicketFieldValue, TicketStatusHistory, Customer, Contact, Contract, ContractService, WorkType, TicketLink, User as UserType, CompanyUser, CustomerRateSheet, EmailLogWithDetails, ProposalWithDetails } from "@shared/schema";
 import { RfpContracts } from "@/components/contracts/RfpContracts";
+import { RfpLostDialog } from "@/components/tickets/RfpLostDialog";
+import { RfpOnboardingChecklist } from "@/components/tickets/RfpOnboardingChecklist";
 import { TicketEstimatePanel } from "@/components/estimates/TicketEstimatePanel";
 import { WORK_TYPE_CATALOG } from "@shared/workTypeCatalog";
 import { format, formatDistanceToNow } from "date-fns";
@@ -233,6 +235,8 @@ export default function TicketDetail() {
   const [skipScope, setSkipScope] = useState<string | null>(null);
   const [fieldInputs, setFieldInputs] = useState<Record<string, string>>({});
   const [statusNotes, setStatusNotes] = useState("");
+  const [fixedStatusNote, setFixedStatusNote] = useState("");
+  const [rfpLossScope, setRfpLossScope] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "workflow" | "comments" | "history" | "emails">("overview");
   const [showPropertyMaps, setShowPropertyMaps] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
@@ -366,8 +370,9 @@ export default function TicketDetail() {
     }).then(r => r.json()),
   });
 
+  const detailsKey = ["/api/tickets", ticketId, "details", currentUser?.activeCompanyId, currentUser?.id] as const;
   const { data: details, isLoading, isFetching: detailsFetching, isError: detailsError } = useQuery<TicketDetails>({
-    queryKey: ["/api/tickets", ticketId, "details", currentUser?.activeCompanyId, currentUser?.id],
+    queryKey: detailsKey,
     queryFn: async () => {
       const companyId = currentUser?.activeCompanyId;
       const res = await fetch(`/api/tickets/${ticketId}/details`, {
@@ -688,12 +693,13 @@ export default function TicketDetail() {
       return res;
     },
     onSuccess: () => {
-      invalidateTicketScheduling(queryClient, ticketId, details?.ticket.customerId);
+      invalidateTicketScheduling(editQueryClient, ticketId, details?.ticket.customerId);
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "proposals"] });
       setShowStatusDialog(false);
       setPendingStatusId(null);
       setFieldInputs({});
       setStatusNotes("");
+      setFixedStatusNote("");
       setStepBackInvoiceWarning(null);
       toast({ title: t('ticketDetail.statusUpdated') });
     },
@@ -711,14 +717,29 @@ export default function TicketDetail() {
     },
   });
 
+  const rfpFieldSaveKey = [...detailsKey, "save-rfp-field"];
+  const isRfp = details?.ticketType.typeKey === "rfp_request";
   const saveFieldValueMutation = useMutation({
+    mutationKey: isRfp ? rfpFieldSaveKey : undefined,
     mutationFn: async ({ fieldId, value }: { fieldId: string; value: string }) => {
-      return apiRequest("PUT", `/api/tickets/${ticketId}/field-values/${fieldId}`, { value });
+      const companyId = currentUser?.activeCompanyId;
+      const res = await apiRequest("PUT", `/api/tickets/${ticketId}/field-values/${fieldId}`, { value },
+        isRfp && companyId ? { headers: { "X-Company-Id": companyId } } : undefined);
+      return isRfp ? await res.json() as TicketFieldValue : undefined;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
+    onSuccess: async saved => {
+      if (saved) {
+        // A details poll started before the save must not overwrite the committed answer.
+        await editQueryClient.cancelQueries({ queryKey: detailsKey });
+        editQueryClient.setQueryData<TicketDetails>(detailsKey, previous => previous && ({
+          ...previous,
+          fieldValues: [...previous.fieldValues.filter(fv => fv.fieldId !== saved.fieldId), saved],
+        }));
+      }
+      void editQueryClient.invalidateQueries({ queryKey: ["/api/tickets", ticketId, "details"] });
     },
   });
+  const savingRfpFields = useIsMutating({ mutationKey: rfpFieldSaveKey, exact: true }) > 0;
 
   const { data: emailLogs = [] } = useQuery<EmailLogWithDetails[]>({
     queryKey: ["/api/email-logs", { ticketId }],
@@ -923,8 +944,20 @@ export default function TicketDetail() {
     .find(key => isSeededTicketType(displayType, key));
   const TypeIcon = typeIconKey ? TYPE_ICON[typeIconKey] : ClipboardList;
   
-  // Handle RFP Request branching at "Decision Received" status
+  const rfpStatus = (key: string) => statuses.find(s => s.statusKey === key);
+  const rfpStage = isRfp ? currentStatus?.statusKey : undefined;
+  const atRfpOnboarding = rfpStage === "onboarding";
+  const rfpOnboarding = isRfp ? rfpStatus("onboarding") : undefined;
+  const rfpLost = isRfp ? rfpStatus("closed_lost") : undefined;
+  const rfpLossReasons = rfpLost?.fields.find(f => f.fieldKey === "loss_reason")?.options;
+
   const getNextStatus = () => {
+    if (isRfp) {
+      if (!currentStatus) return undefined;
+      if (rfpStage === "reviewing" || rfpStage === "waiting_info") return rfpStatus("site_visit");
+      if (atRfpOnboarding) return rfpStatus("closed_won");
+      return sortedStatuses.slice(sortedCurrentIndex + 1).find(s => s.statusKey !== "waiting_info" && s.statusKey !== "closed_lost");
+    }
     if (isTask && ticket.billingBehavior !== "invoice_required" && currentStatus?.statusKey === "work_completed") {
       return statuses.find(status => status.statusKey === "closed_won");
     }
@@ -936,24 +969,6 @@ export default function TicketDetail() {
       ? findSeededStatus(statuses, "decision_received")
       : nextInOrder;
     
-    // Check if this is at Decision Received - need to branch based on outcome
-    if (isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "rfp_request")) {
-      // Find the decision_outcome field value
-      const decisionField = currentStatus?.fields?.find(f => f.fieldKey === "decision_outcome");
-      const decisionValue = decisionField ? fieldValues.find(fv => fv.fieldId === decisionField.id)?.value : null;
-      
-      if (decisionValue === "Awarded") {
-        // Go to Awarded status
-        return findSeededStatus(statuses, "awarded") || defaultNext;
-      } else if (decisionValue === "Lost") {
-        // Go to Closed - Lost status
-        return findSeededStatus(statuses, "closed_lost") || defaultNext;
-      }
-      // No decision made yet - return Awarded as the default next for the button
-      // (The actual target will be determined in handleConfirmStatusChange based on dialog input)
-      return findSeededStatus(statuses, "awarded") || defaultNext;
-    }
-
     if (isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "estimate_request")) {
       const decisionField = currentStatus?.fields?.find(f => f.fieldKey === "decision_outcome");
       const decisionValue = decisionField ? fieldValues.find(fv => fv.fieldId === decisionField.id)?.value : null;
@@ -967,8 +982,15 @@ export default function TicketDetail() {
   };
   
   const nextStatus = getNextStatus();
-  const previousStatus = sortedCurrentIndex > 0 ? sortedStatuses[sortedCurrentIndex - 1] : null;
+  const previousStatus = rfpStage === "closed_lost" ? null
+    : rfpStage === "site_visit" || rfpStage === "waiting_info" ? rfpStatus("reviewing")
+    : sortedCurrentIndex > 0 ? sortedStatuses[sortedCurrentIndex - 1] : null;
   const isComplete = !!ticket.completedAt || currentStatus?.isFinal === "true";
+  const canMarkRfpLost = !!currentUser?.activeCompanyId && ["admin", "office"].includes(currentUser.accessRole) &&
+    !isComplete && !!currentStatus && !!rfpOnboarding && currentStatus.displayOrder < rfpOnboarding.displayOrder &&
+    rfpStage !== "closed_lost" && rfpStage !== "closed_won" && rfpLost?.isFinal === "true" && !!rfpLossReasons?.length;
+  const waitingInfoStatus = rfpStage === "reviewing" ? rfpStatus("waiting_info") : undefined;
+  const skipSiteWalkStatus = rfpStage === "reviewing" || rfpStage === "waiting_info" ? rfpStatus("proposal_draft") : undefined;
   
   // Preserve the existing delegate option when seeded scheduling/type labels are renamed.
   const isAtReadyToSchedule = isSeededStatus(currentStatus, "ready_to_schedule")
@@ -1031,8 +1053,26 @@ export default function TicketDetail() {
     return isAtBillingStatus && !invoiceComplete;
   })();
 
+  const fieldsOnEntry = (target: typeof currentStatus) =>
+    isRfp && target?.statusKey === "onboarding" ? [] : target?.fields ?? [];
+
+  const openStatusDialog = (target: NonNullable<typeof currentStatus>, fixedNote = "") => {
+    const existingValues: Record<string, string> = {};
+    const fields = [...(currentStatus?.fields ?? []), ...(isRfp ? fieldsOnEntry(target) : [])];
+    for (const field of fields) {
+      const val = getFieldValue(field.id);
+      if (val) existingValues[field.id] = val;
+    }
+    setFieldInputs(existingValues);
+    setPendingStatusId(target.id);
+    setFixedStatusNote(fixedNote);
+    if (isRfp) setStatusNotes(fixedNote);
+    setShowStatusDialog(true);
+  };
+
   const handleAdvanceStatus = () => {
-    if (!nextStatus || gateFor(nextStatus)) return;
+    if (!nextStatus || gateFor(nextStatus) ||
+      (isRfp && editQueryClient.isMutating({ mutationKey: rfpFieldSaveKey, exact: true }))) return;
 
     // Check if current status has unfilled required fields
     const currentStatusFields = currentStatus?.fields || [];
@@ -1044,19 +1084,11 @@ export default function TicketDetail() {
       return false;
     });
     
-    const nextStatusFields = nextStatus.fields || [];
+    const nextStatusFields = fieldsOnEntry(nextStatus);
     
     // If we have unfilled current status fields OR next status has fields, show the dialog
     if (missingCurrentFields.length > 0 || nextStatusFields.length > 0) {
-      // Pre-populate fieldInputs with existing values for current status fields
-      const existingValues: Record<string, string> = {};
-      for (const field of currentStatusFields) {
-        const val = getFieldValue(field.id);
-        if (val) existingValues[field.id] = val;
-      }
-      setFieldInputs(existingValues);
-      setPendingStatusId(nextStatus.id);
-      setShowStatusDialog(true);
+      openStatusDialog(nextStatus);
     } else {
       updateStatusMutation.mutate({ 
         statusId: nextStatus.id,
@@ -1105,21 +1137,8 @@ export default function TicketDetail() {
       }
     }
     
-    // Determine actual target status (handle RFP/Project branching based on dialog inputs)
+    // Estimate Request decisions can branch based on the dialog inputs.
     let actualTargetStatusId = pendingStatusId;
-    if (isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "rfp_request")) {
-      const decisionField = currentStatusFields.find(f => f.fieldKey === "decision_outcome");
-      const decisionValue = decisionField ? fieldInputs[decisionField.id] : null;
-      
-      if (decisionValue === "Awarded") {
-        const awardedStatus = findSeededStatus(statuses, "awarded");
-        if (awardedStatus) actualTargetStatusId = awardedStatus.id;
-      } else if (decisionValue === "Lost") {
-        const lostStatus = findSeededStatus(statuses, "closed_lost");
-        if (lostStatus) actualTargetStatusId = lostStatus.id;
-      }
-    }
-    
     // Handle Estimate Request decision branching
     if (isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "estimate_request")) {
       const decisionField = currentStatusFields.find(f => f.fieldKey === "decision_outcome");
@@ -1136,7 +1155,7 @@ export default function TicketDetail() {
     // Validate target status required fields (only if not branching to a different status)
     const targetStatus = statuses.find(s => s.id === actualTargetStatusId);
     if (actualTargetStatusId === pendingStatusId) {
-      const nextRequiredFields = targetStatus?.fields?.filter(f => f.isRequired === "true") || [];
+      const nextRequiredFields = fieldsOnEntry(targetStatus).filter(f => f.isRequired === "true");
       for (const field of nextRequiredFields) {
         if (!fieldInputs[field.id]?.trim()) {
           toast({ title: `Please fill in ${field.fieldLabel}`, variant: "destructive" });
@@ -1146,15 +1165,20 @@ export default function TicketDetail() {
     }
 
     // Save all field values
-    for (const [fieldId, value] of Object.entries(fieldInputs)) {
-      if (value) {
-        await saveFieldValueMutation.mutateAsync({ fieldId, value });
+    try {
+      for (const [fieldId, value] of Object.entries(fieldInputs)) {
+        if (value && (!isRfp || value !== getFieldValue(fieldId))) {
+          await saveFieldValueMutation.mutateAsync({ fieldId, value });
+        }
       }
+    } catch (error) {
+      toast({ title: t("tickets.unexpectedError"), description: extractApiErrorMessage(error), variant: "destructive" });
+      return;
     }
 
     updateStatusMutation.mutate({ 
       statusId: actualTargetStatusId, 
-      notes: statusNotes,
+      notes: fixedStatusNote || statusNotes,
     });
   };
 
@@ -1886,6 +1910,13 @@ export default function TicketDetail() {
 
           <MobilePhotosNotesCard ticketId={ticketId} />
 
+          {atRfpOnboarding && currentStatus && (
+            <RfpOnboardingChecklist key={scope} fields={currentStatus.fields} getValue={getFieldValue}
+              readOnly={!currentUser || currentUser.activeRole === "field" ||
+                (["field_manager", "chemical_manager", "irrigation_manager"].includes(currentUser.activeRole) && !isAssignee)}
+              onSave={async (fieldId, value) => { await saveFieldValueMutation.mutateAsync({ fieldId, value }); }} />
+          )}
+
             <Card data-testid="card-recent-comments">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
@@ -2545,38 +2576,13 @@ export default function TicketDetail() {
       {activeTab === "workflow" && (
         <div className="space-y-3">
           {(() => {
-            // For RFP Request, filter to show only relevant branch
-            const visitedStatusIds = new Set(statusHistory.map(h => h.toStatusId));
-            visitedStatusIds.add(ticket.currentStatusId); // Include current status
-            
-            // Determine which branch we're on for RFP Request
-            let filteredStatuses = sortedStatuses;
-            if (isSeededTicketType(ticketType, "rfp_request")) {
-              const decisionReceivedStatus = findSeededStatus(sortedStatuses, "decision_received");
-              const currentOrder = currentStatus?.displayOrder || 0;
-              
-              // Check if we've passed Decision Received
-              if (decisionReceivedStatus && currentOrder > decisionReceivedStatus.displayOrder) {
-                // Determine which branch by checking if Awarded or Closed - Lost was visited
-                const isOnAwardedPath = visitedStatusIds.has(
-                  findSeededStatus(sortedStatuses, "awarded")?.id || ""
-                );
-                const isOnLostPath = visitedStatusIds.has(
-                  findSeededStatus(sortedStatuses, "closed_lost")?.id || ""
-                );
-                
-                if (isOnAwardedPath) {
-                  // Filter out Closed - Lost
-                  filteredStatuses = sortedStatuses.filter(s => s.name !== "Closed - Lost");
-                } else if (isOnLostPath) {
-                  // Filter out the Awarded path (Awarded through Closed - Won)
-                  const awardedPathNames = ["Awarded", "Contract Executed", "CRM Setup Complete", 
-                    "Maps Requested", "Maps Uploaded", "Contacts Collected", 
-                    "Post-Award Kickoff", "Handoff to Operations", "Closed - Won"];
-                  filteredStatuses = sortedStatuses.filter(s => !awardedPathNames.includes(s.name));
-                }
+            const filteredStatuses = isRfp ? sortedStatuses.filter(s => {
+              if (s.statusKey === "waiting_info") {
+                return s.id === ticket.currentStatusId || statusHistory.some(h => h.fromStatusId === s.id || h.toStatusId === s.id);
               }
-            }
+              return rfpStage === "closed_lost" ? !["awarded", "onboarding", "closed_won"].includes(s.statusKey ?? "")
+                : s.statusKey !== "closed_lost";
+            }) : sortedStatuses;
 
             const selectedStatus = filteredStatuses.find(s => s.id === selectedStatusId) ?? currentStatus;
             const progressIndex = filteredStatuses.findIndex(s => s.id === ticket.currentStatusId);
@@ -2609,6 +2615,7 @@ export default function TicketDetail() {
                 progressIndex,
                 progressIndex + 1,
                 filteredStatuses.length - 1,
+                ...(isRfp ? [filteredStatuses.findIndex(s => s.statusKey === "waiting_info")] : []),
               ])).filter(index => index >= 0 && index < filteredStatuses.length).sort((a, b) => a - b);
               let previousIndex = -1;
               shownIndexes.forEach(index => {
@@ -3078,29 +3085,41 @@ export default function TicketDetail() {
               </Button>}
             </div>
           ) : (
-            <div className="flex gap-2">
+            <div className={isRfp ? "flex flex-wrap items-center gap-2" : "flex gap-2"}>
               {isAdminOrOffice && previousStatus && (
                 <Button 
                   variant="outline"
                   size="icon"
                   onClick={handleStepBack}
-                  disabled={updateStatusMutation.isPending}
+                  disabled={updateStatusMutation.isPending || savingRfpFields}
                   data-testid="button-step-back"
                 >
                   <Undo2 className="w-5 h-5" />
                 </Button>
               )}
+              {waitingInfoStatus && <Button type="button" variant="outline" onClick={() => openStatusDialog(waitingInfoStatus)}
+                disabled={updateStatusMutation.isPending || savingRfpFields} data-testid="button-rfp-waiting-info">
+                {t("rfpTicket.waitForInfo")}
+              </Button>}
+              {skipSiteWalkStatus && <Button type="button" variant="outline" onClick={() => openStatusDialog(skipSiteWalkStatus, "Site walk skipped.")}
+                disabled={updateStatusMutation.isPending || savingRfpFields} data-testid="button-rfp-skip-site-walk">
+                {t("rfpTicket.skipSiteWalk")}
+              </Button>}
+              {canMarkRfpLost && <Button type="button" variant="outline" onClick={() => setRfpLossScope(scope)}
+                disabled={updateStatusMutation.isPending || savingRfpFields} data-testid="button-rfp-mark-lost">
+                {t("rfpTicket.markLost")}
+              </Button>}
               {nextGate ? gateHint(nextGate) : <Button
                 className="flex-1 h-12 text-base gap-2" 
                 onClick={() => handleAdvanceStatus()}
-                disabled={updateStatusMutation.isPending}
+                disabled={updateStatusMutation.isPending || savingRfpFields}
                 data-testid="button-advance-status"
               >
                 {updateStatusMutation.isPending ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
                   <>
-                    {isSeededStatus(nextStatus, "decision_received") && (isSeededTicketType(ticketType, "rfp_request") || isSeededTicketType(ticketType, "estimate_request"))
+                    {isSeededStatus(nextStatus, "decision_received") && isEstimateRequest
                       ? "Record Decision"
                       : `Move to: ${nextStatus.name}`}
                     <ChevronRight className="w-5 h-5" />
@@ -3110,6 +3129,11 @@ export default function TicketDetail() {
             </div>
           )}
         </div>
+      )}
+
+      {canMarkRfpLost && rfpLossScope === scope && currentUser?.activeCompanyId && rfpLossReasons && (
+        <RfpLostDialog key={scope} ticketId={ticket.id} companyId={currentUser.activeCompanyId} customerId={ticket.customerId}
+          reasons={rfpLossReasons} onClose={() => setRfpLossScope(null)} />
       )}
 
       {isComplete && (
@@ -3139,14 +3163,12 @@ export default function TicketDetail() {
         <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {isSeededStatus(statuses.find(s => s.id === pendingStatusId), "decision_received") && (isSeededTicketType(ticketType, "rfp_request") || isSeededTicketType(ticketType, "estimate_request"))
+              {isSeededStatus(statuses.find(s => s.id === pendingStatusId), "decision_received") && isEstimateRequest
                 ? "Record Decision Outcome" 
                 : `Move to: ${statuses.find(s => s.id === pendingStatusId)?.name}`}
             </DialogTitle>
             <DialogDescription>
-              {isSeededStatus(statuses.find(s => s.id === pendingStatusId), "decision_received") && isSeededTicketType(ticketType, "rfp_request")
-                ? "Select Awarded or Lost to proceed to the appropriate workflow."
-                : isSeededStatus(statuses.find(s => s.id === pendingStatusId), "decision_received") && isSeededTicketType(ticketType, "estimate_request")
+              {isSeededStatus(statuses.find(s => s.id === pendingStatusId), "decision_received") && isEstimateRequest
                 ? "Select Approved to continue to Work Completed, or Denied to close the project."
                 : "Fill in the required information to proceed."}
             </DialogDescription>
@@ -3191,7 +3213,7 @@ export default function TicketDetail() {
                     ) : (
                       <Input
                         id={field.id}
-                        type={field.fieldType === "number" ? "number" : "text"}
+                        type={field.fieldType === "number" ? "number" : isRfp && field.fieldType === "date" ? "date" : "text"}
                         value={fieldInputs[field.id] || ""}
                         onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
                         placeholder={`Enter ${field.fieldLabel.toLowerCase()}`}
@@ -3203,16 +3225,15 @@ export default function TicketDetail() {
               </div>
             )}
             
-            {/* Next status fields section - hide for Decision Received since target is determined by outcome */}
-            {!(isSeededStatus(currentStatus, "decision_received") && isSeededTicketType(ticketType, "rfp_request")) &&
-             statuses.find(s => s.id === pendingStatusId)?.fields && statuses.find(s => s.id === pendingStatusId)!.fields!.length > 0 && (
+            {/* Onboarding fields are completed on the checklist, not on entry. */}
+            {fieldsOnEntry(statuses.find(s => s.id === pendingStatusId)).length > 0 && (
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <div className="h-px flex-1 bg-border" />
                   <span className="text-xs text-muted-foreground font-medium">For: {statuses.find(s => s.id === pendingStatusId)?.name}</span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
-                {statuses.find(s => s.id === pendingStatusId)?.fields?.map((field) => (
+                {fieldsOnEntry(statuses.find(s => s.id === pendingStatusId)).map((field) => (
                   <div key={field.id} className="space-y-2">
                     <Label htmlFor={field.id}>
                       {field.fieldLabel}
@@ -3242,7 +3263,7 @@ export default function TicketDetail() {
                     ) : (
                       <Input
                         id={field.id}
-                        type={field.fieldType === "number" ? "number" : "text"}
+                        type={field.fieldType === "number" ? "number" : isRfp && field.fieldType === "date" ? "date" : "text"}
                         value={fieldInputs[field.id] || ""}
                         onChange={(e) => setFieldInputs(prev => ({ ...prev, [field.id]: e.target.value }))}
                         placeholder={`Enter ${field.fieldLabel.toLowerCase()}`}
@@ -3259,6 +3280,7 @@ export default function TicketDetail() {
               <Textarea
                 id="statusNotes"
                 value={statusNotes}
+                readOnly={!!fixedStatusNote}
                 onChange={(e) => setStatusNotes(e.target.value)}
                 placeholder="Add any notes about this status change..."
                 rows={2}
