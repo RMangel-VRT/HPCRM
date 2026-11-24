@@ -3,7 +3,7 @@ import express from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { companies, users, companyUsers, customers, contracts, agreements, termLegacySources, contractDocuments, customerRateSheets, hashPassword, pool } from "@workspace/db";
+import { companies, users, companyUsers, customers, contracts, contractMonthlyAmounts, contractDocuments, customerRateSheets, hashPassword, pool } from "@workspace/db";
 import { PDFDocument } from "pdf-lib";
 import type { File } from "@google-cloud/storage";
 import { db } from "../db";
@@ -13,8 +13,8 @@ import { ObjectAccessGroupType, ObjectPermission } from "../objectAcl";
 import { hasFrozenLegacyRows } from "./legacyContractFreeze";
 
 // Explicit opt-in; creates and removes ONLY disposable development records.
-describe.skipIf(process.env.CC_FREEZE_VERIFY !== "yes")("frozen-source Copy development verification", () => {
-  it("copies multiple legacy sources, preserves first provenance on repeat, and scopes status to company", async () => {
+describe.skipIf(process.env.CC_FREEZE_VERIFY !== "yes")("frozen legacy contract development verification", () => {
+  it("preserves legacy reads without allowing legacy writes or counting legacy billing", async () => {
     if (process.env.NODE_ENV === "production") throw new Error("Development verification cannot run in production");
     const companyIds: string[] = [];
     const fixtureFiles: File[] = [];
@@ -36,11 +36,13 @@ describe.skipIf(process.env.CC_FREEZE_VERIFY !== "yes")("frozen-source Copy deve
         companyId: companyIds[0], customerId: customer.id, serviceType: serviceType as "Maintenance" | "Chemical" | "Snow",
         billingPattern: "monthly" as const, startDate: new Date("2026-01-01T00:00:00Z"), endDate: new Date("2026-12-31T00:00:00Z"),
       }))).returning();
+      const legacyAmount = { companyId: companyIds[0], contractId: sources[0].id, month: 10, amount: 98765 };
+      await db.insert(contractMonthlyAmounts).values(legacyAmount);
       let activeCompanyId = companyIds[0];
       const app = express();
       app.use(express.json());
       app.use((req, _res, next) => {
-        Object.assign(req, { isAuthenticated: () => true, user: { id: actor.id, activeCompanyId, activeRole: "admin", isSuperAdminBool: false } });
+        Object.assign(req, { isAuthenticated: () => true, user: { id: actor.id, activeCompanyId, activeRole: "admin", accessRole: "admin", isSuperAdminBool: false } });
         next();
       });
       registerContractCenterRoutes(app);
@@ -50,22 +52,10 @@ describe.skipIf(process.env.CC_FREEZE_VERIFY !== "yes")("frozen-source Copy deve
       expect((await client.post("/api/contract-center/rate-card/seed-defaults")).status).toBe(200);
       const preview = await client.post("/api/admin/contract-center/copy-legacy").send({ dryRun: true });
       expect(preview.status, JSON.stringify(preview.body)).toBe(200);
-      expect((await status()).body.copiedContracts).toBe(0);
-      const copied = await client.post("/api/admin/contract-center/copy-legacy").send({ dryRun: false });
-      expect(copied.status, JSON.stringify(copied.body)).toBe(200);
-      const first = (await status()).body;
-      expect(first.firstCopiedAt).toBeTruthy(); expect(first.copiedContracts).toBe(3);
-      const links = await db.select().from(termLegacySources).where(eq(termLegacySources.companyId, companyIds[0]));
-      expect(new Set(links.map(l => l.legacyContractId)).size).toBe(3);
-      // Two landscape services combine into one copied term; the count must still be legacy contract IDs.
-      expect(new Set(links.map(l => l.termId)).size).toBeLessThan(links.length);
-      expect(new Set(links.map(l => l.legacyContractId))).toEqual(new Set(sources.map(s => s.id)));
-      expect(new Date(first.firstCopiedAt).getTime()).toBe(Math.min(...links.map(l => new Date(l.createdAt).getTime())));
-      const repeated = await client.post("/api/admin/contract-center/copy-legacy").send({ dryRun: false });
-      expect(repeated.status).toBe(200); expect((await status()).body).toEqual(first);
+      await client.post("/api/admin/contract-center/copy-legacy").send({ dryRun: false }).expect(409);
+      expect((await status()).body).toEqual({ firstCopiedAt: null, copiedContracts: 0 });
       const cards = await client.get(`/api/contract-center/contracts?customerId=${customer.id}`);
-      expect(cards.status).toBe(200); expect(cards.body.length).toBeGreaterThan(0);
-      expect(cards.body.every((card: any) => card.customerId === customer.id)).toBe(true);
+      expect(cards.status).toBe(200); expect(cards.body).toEqual([]);
       expect((await db.select().from(contracts).where(eq(contracts.companyId, companyIds[0])))).toHaveLength(3);
       activeCompanyId = companyIds[1];
       expect((await status()).body).toEqual({ firstCopiedAt: null, copiedContracts: 0 });
@@ -82,10 +72,10 @@ describe.skipIf(process.env.CC_FREEZE_VERIFY !== "yes")("frozen-source Copy deve
       expect(await hasFrozenLegacyRows(companyIds[1], edgeCustomer.id)).toBe(true);
       expect(await hasFrozenLegacyRows(companyIds[1])).toBe(true);
 
-      // Finish the smoke gaps with cheaper real HTTP checks: history/current downloads and Revenue Audit.
+      // Real HTTP checks: history/current downloads and the new Revenue projection.
       // The legacy metadata below is test-fixture setup only, not a user action or production correction.
       const domain = process.env.REPLIT_DEV_DOMAIN;
-      if (!domain) throw new Error("Live development preview is required for document/audit smoke checks");
+      if (!domain) throw new Error("Live development preview is required for document and Revenue smoke checks");
       const base = `https://${domain}`;
       const login = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: email, password }) });
@@ -121,10 +111,13 @@ describe.skipIf(process.env.CC_FREEZE_VERIFY !== "yes")("frozen-source Copy deve
         expect((await PDFDocument.load(await response.arrayBuffer())).getPageCount()).toBe(1);
       }
       expect((await fetch(`${base}${versions[0].storageObjectPath}`)).status).toBe(401);
-      const audit = await get("/api/revenue/contract-audit?year=2026");
-      expect(audit.status).toBe(200);
-      const auditData = await audit.json() as { year: number; rows: unknown[] };
-      expect(auditData.year).toBe(2026); expect(Array.isArray(auditData.rows)).toBe(true);
+      const revenue = await get("/api/revenue/contracts/by-customer?year=2026");
+      expect(revenue.status).toBe(200);
+      expect(await revenue.json()).toMatchObject({
+        year: 2026, customers: [], monthTotals: Array(12).fill(0), totalCents: 0,
+      });
+      expect(await db.select().from(contractMonthlyAmounts).where(eq(contractMonthlyAmounts.companyId, companyIds[0])))
+        .toEqual([expect.objectContaining(legacyAmount)]);
       const blocked = await fetch(`${base}/api/contracts/${sources[0].id}/documents/upload-url`, {
         method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json" }, body: "{}" });
       expect(blocked.status).toBe(409);
@@ -132,7 +125,6 @@ describe.skipIf(process.env.CC_FREEZE_VERIFY !== "yes")("frozen-source Copy deve
     } finally {
       for (const file of fixtureFiles) await file.delete({ ignoreNotFound: true });
       for (const companyId of companyIds) {
-        await db.delete(agreements).where(eq(agreements.companyId, companyId));
         await db.delete(companies).where(eq(companies.id, companyId));
       }
       if (userId) await db.delete(users).where(eq(users.id, userId));

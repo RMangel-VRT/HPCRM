@@ -1,5 +1,7 @@
 import { sql } from "drizzle-orm";
-import { describe, expect, it, vi } from "vitest";
+import express from "express";
+import request from "supertest";
+import { describe, expect, it } from "vitest";
 import { byCustomer, countInEffectSnowTm, loadContractRevenueRows, loadContractRevenueSeasons, monthlyTotals } from "./contractRevenue";
 import { companyToday } from "./companyDay";
 
@@ -8,6 +10,7 @@ describe.runIf(process.env.RUN_RV1_POSTGRES_TEST === "1")("contract revenue in P
   it("reads exact dated cents and counts through the scoped Contract Center joins", async () => {
     const { db, inTransaction, pool } = await import("../db");
     const { storage } = await import("../storage");
+    const { registerRevenueRoutes } = await import("../routes/revenue");
     try {
       const identity = await db.execute(sql`select current_database() as name, host(inet_server_addr()) as host, current_user as role`);
       expect(identity.rows).toEqual([{ name: "rv1_contract_revenue_test", host: "127.0.0.1", role: "rv1_test" }]);
@@ -19,7 +22,9 @@ describe.runIf(process.env.RUN_RV1_POSTGRES_TEST === "1")("contract revenue in P
             status text, start_date date, end_date date, season_label text, line text, form text, non_renewal_on date, snow_pricing text) on commit drop;
           create temp table term_billing_months (company_id varchar, term_id varchar, month date,
             component text, is_fee boolean, amount_cents int) on commit drop;
-          create temp table contracts (customer_id varchar, company_id varchar, status text) on commit drop;
+          create temp table contracts (id varchar primary key, customer_id varchar, company_id varchar, status text,
+            start_date timestamp, end_date timestamp) on commit drop;
+          create temp table contract_monthly_amounts (contract_id varchar, company_id varchar, month int, amount int) on commit drop;
 
           insert into customers values ('parent','a','Parent',null), ('branch','a','Branch','parent'),
             ('extra','a','Other Customer',null), ('foreign','b','Foreign',null);
@@ -55,7 +60,13 @@ describe.runIf(process.env.RUN_RV1_POSTGRES_TEST === "1")("contract revenue in P
           insert into term_billing_months
             select 'a',id,'2026-10-01','Excluded',false,999999 from agreement_terms
             where id in ('draft','sent','lost','cancelled','up_for_renewal','foreign','bad-owner','bad-agreement','bad-term');
-          insert into contracts values ('parent','a','active'), ('parent','a','active'), ('branch','a','paused'), ('parent','b','active');
+          insert into contracts values
+            ('legacy-parent','parent','a','active','2026-01-01','2026-12-31'),
+            ('legacy-only','extra','a','active','2026-01-01','2026-12-31'),
+            ('legacy-paused','branch','a','paused','2026-01-01','2026-12-31'),
+            ('legacy-foreign','foreign','b','active','2026-01-01','2026-12-31');
+          insert into contract_monthly_amounts values
+            ('legacy-parent','a',10,98765), ('legacy-only','a',10,43210);
         `));
 
         const rows = await loadContractRevenueRows(tx, "a", "2026-01-01", "2026-12-01");
@@ -73,20 +84,24 @@ describe.runIf(process.env.RUN_RV1_POSTGRES_TEST === "1")("contract revenue in P
         const instant = new Date("2027-01-01T05:00:00Z");
         expect(companyToday(instant)).toBe("2026-12-31");
         expect(await countInEffectSnowTm(tx, "a", companyToday(instant))).toBe(2);
+        const app = express();
+        app.use((req, _res, next) => {
+          Object.assign(req, { isAuthenticated: () => true, user: { activeCompanyId: "a", accessRole: "office" } });
+          void inTransaction(tx, async () => next());
+        });
+        registerRevenueRoutes(app);
+        const response = await request(app).get("/api/revenue/contracts/by-customer?year=2026").expect(200);
+        expect(response.body).toMatchObject({
+          year: 2026,
+          monthTotals: [...Array(9).fill(12345), 25190, 15991, 24679],
+          totalCents: 176965,
+        });
+        expect(response.body.customers.map((row: { agreementId: string; customerId: string }) => [row.agreementId, row.customerId]).sort())
+          .toEqual([["main", "parent"], ["second", "parent"], ["snow", "branch"]]);
         await inTransaction(tx, async () => {
           expect(await storage.getDashboardStats("a", 10, 2026)).toEqual({
             customersCount: 3, activeContractsCount: 2, monthlyRevenue: 251.9, ytdRevenue: 1362.95,
           });
-          vi.useFakeTimers({ toFake: ["Date"] });
-          try {
-            vi.setSystemTime(instant);
-            expect(await storage.getTopCustomers("a", 5)).toEqual([
-              { id: "parent", name: "Parent", totalRevenue: 1589.65, activeContracts: 2 },
-              { id: "branch", name: "Branch", totalRevenue: 180, activeContracts: 0 },
-            ]);
-          } finally {
-            vi.useRealTimers();
-          }
         });
       });
     } finally {

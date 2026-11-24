@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { readFileSync } from "node:fs";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import i18n from "@/i18n";
@@ -39,7 +38,9 @@ describe("full-width office dashboard", () => {
     document.documentElement.className = theme;
     const query = mount();
     await screen.findByTestId("chip-snow-book");
-    expect(query.mock.calls[0][0]).toMatchObject({ queryKey: ["/api/dashboard/pulse"] });
+    expect(query.mock.calls.map(([context]) => context)).toEqual([
+      expect.objectContaining({ queryKey: ["/api/dashboard/pulse"] }),
+    ]);
     expect(screen.getByTestId("chip-active-season-active").textContent).toContain("Maintenance");
     expect(screen.getByTestId("chip-next-season-next").textContent).toContain("Snow");
     expect(screen.getByTestId("chip-snow-book").textContent).toContain("40");
@@ -62,15 +63,5 @@ describe("full-width office dashboard", () => {
     const query = mount();
     expect(screen.getByText(text)).toBeTruthy();
     expect(query).not.toHaveBeenCalled();
-  });
-  it("retains endpoints and Revenue's existing chart chain", () => {
-    const source = readFileSync("../api-server/src/routes/routes.ts", "utf8")
-      + readFileSync("../api-server/src/routes/dashboardQueue.ts", "utf8");
-    for (const endpoint of ["stats", "top-customers", "monthly-revenue", "pulse"]) {
-      expect(source).toContain(`/api/dashboard/${endpoint}`);
-    }
-    expect(readFileSync("src/pages/RevenueOverview.tsx", "utf8")).toContain("RevenueMatrixPanel");
-    expect(readFileSync("src/components/RevenueMatrixPanel.tsx", "utf8")).toContain("<RevenueChart year={year}");
-    expect(readFileSync("src/components/RevenueChart.tsx", "utf8")).toContain("/api/dashboard/monthly-revenue");
   });
 });

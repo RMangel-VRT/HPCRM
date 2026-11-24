@@ -4284,7 +4284,6 @@ export type ServicePlanTemplateWithItems = ServicePlanTemplate & {
   customerCount: number;
 };
 
-export type { AuditFlag, AuditStatus, ContractAuditRow, ContractAuditResponse } from "./auditTypes";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mailbox Backfill Runs (Slice 2.5)

@@ -16,8 +16,7 @@ import { bindCustomer, unlinkCustomerLocked } from "./services/qboCustomerBindin
 import { promoteQboCustomer } from "./services/qboCustomerPromotion";
 import { CampaignGuardError, assertNoCampaignVisitLinks } from "./lib/campaignIdentity";
 import { trimProvidedName } from "./lib/trimProvidedName";
-import { billingMonth, byCustomer, loadContractRevenueRows, monthlyTotals } from "./lib/contractRevenue";
-import { companyToday } from "./lib/companyDay";
+import { billingMonth, loadContractRevenueRows, monthlyTotals } from "./lib/contractRevenue";
 
 export interface MyExtraBillableBatch {
   campaignId: string;
@@ -147,8 +146,6 @@ export interface IStorage {
   upsertCustomerRateSheet(customerId: string, companyId: string, rateSheet: Omit<InsertCustomerRateSheet, 'customerId' | 'companyId' | 'lastUpdatedBy' | 'lastUpdatedAt'>, userId: string): Promise<CustomerRateSheet>;
   
   getCustomerRevenue(customerId: string, companyId: string, year: number): Promise<CustomerRevenueData>;
-  getRevenueOverview(companyId: string, month: number, year: number): Promise<RevenueOverviewData>;
-  getRevenueExceptions(companyId: string, year: number): Promise<RevenueException[]>;
   
   getContractServices(contractId: string, companyId: string): Promise<ContractService[]>;
   createContractService(service: InsertContractService): Promise<ContractService>;
@@ -157,8 +154,6 @@ export interface IStorage {
   
   getDashboardStats(companyId: string, month: number, year: number): Promise<DashboardStats>;
   getCustomerGrowthData(companyId: string): Promise<CustomerGrowthData[]>;
-  getMonthlyRevenueData(companyId: string, year: number): Promise<MonthlyRevenueData[]>;
-  getTopCustomers(companyId: string, limit: number): Promise<TopCustomer[]>;
   
   getContractTemplates(): Promise<ContractTemplate[]>;
   
@@ -539,49 +534,10 @@ export interface CustomerGrowthData {
   count: number;
 }
 
-export interface MonthlyRevenueData {
-  month: string;
-  revenue: number;
-}
-
-export interface TopCustomer {
-  id: string;
-  name: string;
-  totalRevenue: number;
-  activeContracts: number;
-}
-
 export interface CustomerRevenueData {
   annualProjection: number;
   monthlyBreakdown: { month: number; total: number; byServiceType: { serviceType: string; amount: number }[] }[];
   contractBreakdown: { contractId: string; serviceType: string; status: string; startDate: Date; endDate: Date | null; annualTotal: number }[];
-}
-
-export interface ServiceTypeRevenue {
-  month: number;
-  ytd: number;
-  annual: number;
-}
-
-export interface RevenueOverviewData {
-  selectedMonthTotal: number;
-  yearToDateTotal: number;
-  fullYearTotal: number;
-  maintenanceRevenue: ServiceTypeRevenue;
-  chemicalRevenue: ServiceTypeRevenue;
-  customers: { customerId: string; customerName: string; monthlyRevenue: number; annualProjection: number }[];
-}
-
-export interface RevenueException {
-  customerId: string;
-  customerName: string;
-  contractId: string;
-  serviceType: string;
-  contractStatus: string;
-  flags: string[];
-  missingMonthsCount: number;
-  storedTotal: number;
-  calculatedTotal: number;
 }
 
 export class PgStorage implements IStorage {
@@ -1216,298 +1172,6 @@ export class PgStorage implements IStorage {
     };
   }
 
-  async getRevenueOverview(companyId: string, month: number, year: number): Promise<RevenueOverviewData> {
-    // Bulk fetch all customers, contracts, and monthly amounts in 3 queries instead of N+1
-    const [allCustomers, allContracts, allAmounts] = await Promise.all([
-      this.getCustomers(companyId),
-      db.select().from(contracts).where(eq(contracts.companyId, companyId)),
-      db.select().from(contractMonthlyAmounts).where(eq(contractMonthlyAmounts.companyId, companyId)),
-    ]);
-
-    // Index amounts by contractId for fast lookup
-    const amountsByContract = new Map<string, typeof allAmounts>();
-    for (const amt of allAmounts) {
-      if (!amountsByContract.has(amt.contractId)) amountsByContract.set(amt.contractId, []);
-      amountsByContract.get(amt.contractId)!.push(amt);
-    }
-
-    // Index contracts by customerId
-    const contractsByCustomer = new Map<string, typeof allContracts>();
-    for (const contract of allContracts) {
-      if (!contractsByCustomer.has(contract.customerId)) contractsByCustomer.set(contract.customerId, []);
-      contractsByCustomer.get(contract.customerId)!.push(contract);
-    }
-
-    let selectedMonthTotal = 0;
-    let yearToDateTotal = 0;
-    let fullYearTotal = 0;
-    const maintenanceRevenue = { month: 0, ytd: 0, annual: 0 };
-    const chemicalRevenue = { month: 0, ytd: 0, annual: 0 };
-
-    const customers: {
-      customerId: string;
-      customerName: string;
-      monthlyRevenue: number;
-      annualProjection: number;
-      maintenanceMonth: number;
-      maintenanceYtd: number;
-      maintenanceAnnual: number;
-      chemicalMonth: number;
-      chemicalYtd: number;
-      chemicalAnnual: number;
-    }[] = [];
-
-    for (const customer of allCustomers) {
-      const customerContracts = contractsByCustomer.get(customer.id) || [];
-
-      // Per-month totals for this customer
-      const monthlyTotals: Record<number, number> = {};
-      const monthlyByServiceType: Record<number, Record<string, number>> = {};
-      for (let m = 1; m <= 12; m++) {
-        monthlyTotals[m] = 0;
-        monthlyByServiceType[m] = {};
-      }
-
-      let annualProjection = 0;
-
-      for (const contract of customerContracts) {
-        if (contract.status === 'paused' || contract.status === 'ended') continue;
-
-        const amounts = amountsByContract.get(contract.id) || [];
-
-        const contractStartYear = contract.startDate.getUTCFullYear();
-        const contractStartMonth = contract.startDate.getUTCMonth() + 1;
-        const contractEndYear = contract.endDate ? contract.endDate.getUTCFullYear() : null;
-        const contractEndMonth = contract.endDate ? contract.endDate.getUTCMonth() + 1 : null;
-        const startMonthYear = contractStartYear * 100 + contractStartMonth;
-        const endMonthYear = contractEndYear && contractEndMonth ? contractEndYear * 100 + contractEndMonth : null;
-
-        let contractAnnualTotal = 0;
-        for (const amountRecord of amounts) {
-          const monthYear = year * 100 + amountRecord.month;
-          const isInRange = monthYear >= startMonthYear && (!endMonthYear || monthYear <= endMonthYear);
-          if (isInRange) {
-            const amountInDollars = amountRecord.amount / 100;
-            contractAnnualTotal += amountInDollars;
-            monthlyTotals[amountRecord.month] += amountInDollars;
-            if (!monthlyByServiceType[amountRecord.month][contract.serviceType]) {
-              monthlyByServiceType[amountRecord.month][contract.serviceType] = 0;
-            }
-            monthlyByServiceType[amountRecord.month][contract.serviceType] += amountInDollars;
-          }
-        }
-        annualProjection += contractAnnualTotal;
-      }
-
-      const monthlyRevenue = monthlyTotals[month] || 0;
-      selectedMonthTotal += monthlyRevenue;
-
-      let customerMaintenanceMonth = 0;
-      let customerMaintenanceYtd = 0;
-      let customerMaintenanceAnnual = 0;
-      let customerChemicalMonth = 0;
-      let customerChemicalYtd = 0;
-      let customerChemicalAnnual = 0;
-
-      for (let m = 1; m <= 12; m++) {
-        const monthTotal = monthlyTotals[m] || 0;
-        fullYearTotal += monthTotal;
-        if (m <= month) yearToDateTotal += monthTotal;
-
-        for (const [serviceType, amount] of Object.entries(monthlyByServiceType[m])) {
-          if (serviceType === 'Maintenance') {
-            if (m === month) { maintenanceRevenue.month += amount; customerMaintenanceMonth += amount; }
-            if (m <= month) { maintenanceRevenue.ytd += amount; customerMaintenanceYtd += amount; }
-            maintenanceRevenue.annual += amount;
-            customerMaintenanceAnnual += amount;
-          } else if (serviceType === 'Chemical') {
-            if (m === month) { chemicalRevenue.month += amount; customerChemicalMonth += amount; }
-            if (m <= month) { chemicalRevenue.ytd += amount; customerChemicalYtd += amount; }
-            chemicalRevenue.annual += amount;
-            customerChemicalAnnual += amount;
-          }
-        }
-      }
-
-      customers.push({
-        customerId: customer.id,
-        customerName: customer.name,
-        monthlyRevenue,
-        annualProjection,
-        maintenanceMonth: customerMaintenanceMonth,
-        maintenanceYtd: customerMaintenanceYtd,
-        maintenanceAnnual: customerMaintenanceAnnual,
-        chemicalMonth: customerChemicalMonth,
-        chemicalYtd: customerChemicalYtd,
-        chemicalAnnual: customerChemicalAnnual,
-      });
-    }
-
-    return {
-      selectedMonthTotal,
-      yearToDateTotal,
-      fullYearTotal,
-      maintenanceRevenue,
-      chemicalRevenue,
-      customers,
-    };
-  }
-
-  async getRevenueExceptions(companyId: string, year: number): Promise<RevenueException[]> {
-    const [allCustomers, allContracts, allAmounts] = await Promise.all([
-      this.getCustomers(companyId),
-      db.select().from(contracts).where(eq(contracts.companyId, companyId)),
-      db.select().from(contractMonthlyAmounts).where(eq(contractMonthlyAmounts.companyId, companyId)),
-    ]);
-
-    const customerMap = new Map<string, { id: string; name: string }>();
-    for (const c of allCustomers) customerMap.set(c.id, { id: c.id, name: c.name });
-
-    const amountsByContract = new Map<string, typeof allAmounts>();
-    for (const amt of allAmounts) {
-      if (!amountsByContract.has(amt.contractId)) amountsByContract.set(amt.contractId, []);
-      amountsByContract.get(amt.contractId)!.push(amt);
-    }
-
-    // Group contracts by (customerId, serviceType) to detect duplicates
-    const contractsByCustomerService = new Map<string, typeof allContracts>();
-    for (const contract of allContracts) {
-      if (contract.status === 'ended') continue;
-      const key = `${contract.customerId}::${contract.serviceType}`;
-      if (!contractsByCustomerService.has(key)) contractsByCustomerService.set(key, []);
-      contractsByCustomerService.get(key)!.push(contract);
-    }
-
-    const exceptions: RevenueException[] = [];
-
-    for (const contract of allContracts) {
-      const customer = customerMap.get(contract.customerId);
-      if (!customer) continue;
-
-      const amounts = amountsByContract.get(contract.id) || [];
-      const flags: string[] = [];
-
-      // Determine the active window for this contract in the given year
-      const contractStartYear = contract.startDate.getUTCFullYear();
-      const contractStartMonth = contract.startDate.getUTCMonth() + 1;
-      const contractEndYear = contract.endDate ? contract.endDate.getUTCFullYear() : null;
-      const contractEndMonth = contract.endDate ? contract.endDate.getUTCMonth() + 1 : null;
-      const startMonthYear = contractStartYear * 100 + contractStartMonth;
-      const endMonthYear = contractEndYear && contractEndMonth ? contractEndYear * 100 + contractEndMonth : null;
-
-      // Determine how many months in the given year are within the contract window
-      let expectedMonths = 0;
-      const monthsInWindow: number[] = [];
-      for (let m = 1; m <= 12; m++) {
-        const my = year * 100 + m;
-        if (my >= startMonthYear && (!endMonthYear || my <= endMonthYear)) {
-          expectedMonths++;
-          monthsInWindow.push(m);
-        }
-      }
-
-      // Months that actually have amount records
-      const recordedMonths = new Set(amounts.map((a) => a.month));
-      const missingMonths = monthsInWindow.filter((m) => !recordedMonths.has(m));
-      const missingMonthsCount = missingMonths.length;
-
-      // Flag 1: Missing months
-      if (expectedMonths > 0 && missingMonthsCount > 0) {
-        flags.push('missing_months');
-      }
-
-      // Stored total (annualValue field on contract does not exist; derive from amounts)
-      // calculatedTotal = sum of monthly amounts for months in window (in dollars)
-      let calculatedTotal = 0;
-      let storedTotal = 0;
-      const outsideAmounts: number[] = [];
-
-      for (const amt of amounts) {
-        const my = year * 100 + amt.month;
-        const inWindow = my >= startMonthYear && (!endMonthYear || my <= endMonthYear);
-        if (inWindow) {
-          calculatedTotal += amt.amount / 100;
-        } else {
-          outsideAmounts.push(amt.month);
-        }
-        storedTotal += amt.amount / 100;
-      }
-
-      // Flag 2: Annual mismatch — sum of all monthly entries != storedTotal (compare calculatedTotal vs storedTotal)
-      // We define this as: sum of in-window months (calculatedTotal) differs from sum of all months (storedTotal)
-      // which means there are outside-window amounts. Flag 5 will catch those; let's define mismatch as
-      // expectedMonths > 0, calculatedTotal != storedTotal when there are no outside months
-      // Actually per spec: "sum of monthly amounts ≠ stored annual contract value"
-      // The contract table doesn't have a stored annual value, so we define mismatch as:
-      // calculatedTotal (in-window) differs from storedTotal (all months) due to outside amounts.
-      // We'll do this as: storedTotal != calculatedTotal (i.e. there are outside months contributing)
-      // Flag 5 handles outside term, so let's define flag 2 as rounding/partial mismatch:
-      // Since there's no separate "annual contract value" stored, we treat this as:
-      // the sum of recorded months in the active year window doesn't equal exactly what's expected
-      // i.e., some months in-window are zero while others are non-zero (inconsistent pricing).
-      // More practically: detect if the amounts are unequal across months (which may indicate a data error)
-      // Per spec intent, use: storedTotal != calculatedTotal (outside amounts exist)
-      if (outsideAmounts.length > 0) {
-        // This means amounts exist outside the contract term — flagged as flag 5 below
-      }
-
-      // Flag 3: Duplicate candidates — more than one contract of same serviceType for this customer (non-ended)
-      const dupKey = `${contract.customerId}::${contract.serviceType}`;
-      const sameCategoryContracts = contractsByCustomerService.get(dupKey) || [];
-      if (sameCategoryContracts.length > 1) {
-        flags.push('duplicate_candidates');
-      }
-
-      // Flag 4: Zero-value rows — all monthly amounts sum to zero (but there are records)
-      if (amounts.length > 0 && storedTotal === 0) {
-        flags.push('zero_value');
-      }
-
-      // Flag 5: Outside contract term — monthly amounts outside the start/end date range
-      if (outsideAmounts.length > 0) {
-        flags.push('outside_term');
-      }
-
-      // Flag 2 revisited: annual mismatch — if expected months > 0 but in-window months have
-      // unequal amounts (some zero, some non-zero), that may indicate a mismatch.
-      // Since we have no "stored annual contract value" field, define mismatch as:
-      // there are records in window but calculatedTotal == 0 while expectedMonths > 0 (already covered by zero_value)
-      // OR some in-window months have very different amounts suggesting data error.
-      // Best available: flag if storedTotal != calculatedTotal (exists outside amounts that don't belong)
-      // This is already captured by outside_term. So for annual_mismatch, detect if any in-window month has
-      // amount != the mode/average — simplified: skip this for now as we have no baseline annual value.
-      // We'll mark annual_mismatch if there are in-window amounts and some months are zero, others non-zero.
-      if (expectedMonths > 0 && amounts.length > 0) {
-        const inWindowAmounts = amounts.filter((a) => {
-          const my = year * 100 + a.month;
-          return my >= startMonthYear && (!endMonthYear || my <= endMonthYear);
-        });
-        const nonZeroInWindow = inWindowAmounts.filter((a) => a.amount > 0);
-        const zeroInWindow = inWindowAmounts.filter((a) => a.amount === 0);
-        // Annual mismatch: has both zero and non-zero amounts in-window (inconsistent data)
-        if (nonZeroInWindow.length > 0 && zeroInWindow.length > 0) {
-          flags.push('annual_mismatch');
-        }
-      }
-
-      if (flags.length > 0) {
-        exceptions.push({
-          customerId: customer.id,
-          customerName: customer.name,
-          contractId: contract.id,
-          serviceType: contract.serviceType,
-          contractStatus: contract.status,
-          flags,
-          missingMonthsCount,
-          storedTotal,
-          calculatedTotal,
-        });
-      }
-    }
-
-    return exceptions;
-  }
-
   async getContractServices(contractId: string, companyId: string): Promise<ContractService[]> {
     return await db
       .select()
@@ -1590,69 +1254,6 @@ export class PgStorage implements IStorage {
       month: r.month,
       count: r.count,
     }));
-  }
-
-  /** Legacy calculation retained until RV7; dashboard callers use Contract Center. */
-  async getMonthlyRevenueData(companyId: string, year: number): Promise<MonthlyRevenueData[]> {
-    // PERF: replace per-customer N+1 loop with 2 bulk queries — mirrors getRevenueOverview pattern
-    const [allContracts, allAmounts] = await Promise.all([
-      db.select().from(contracts).where(eq(contracts.companyId, companyId)),
-      db.select().from(contractMonthlyAmounts).where(eq(contractMonthlyAmounts.companyId, companyId)),
-    ]);
-
-    const amountsByContractId = new Map<string, typeof allAmounts>();
-    for (const amt of allAmounts) {
-      if (!amountsByContractId.has(amt.contractId)) amountsByContractId.set(amt.contractId, []);
-      amountsByContractId.get(amt.contractId)!.push(amt);
-    }
-
-    const monthlyTotals: Record<number, number> = {};
-    for (let m = 1; m <= 12; m++) monthlyTotals[m] = 0;
-
-    for (const contract of allContracts) {
-      if (contract.status === "paused" || contract.status === "ended") continue;
-      const amounts = amountsByContractId.get(contract.id) ?? [];
-      const startYear = contract.startDate ? new Date(contract.startDate).getUTCFullYear() : year;
-      const startMonth = contract.startDate ? new Date(contract.startDate).getUTCMonth() + 1 : 1;
-      const endYear = contract.endDate ? new Date(contract.endDate).getUTCFullYear() : null;
-      const endMonth = contract.endDate ? new Date(contract.endDate).getUTCMonth() + 1 : null;
-      const startMonthYear = startYear * 100 + startMonth;
-      const endMonthYear = endYear && endMonth ? endYear * 100 + endMonth : null;
-
-      for (const amt of amounts) {
-        const monthYear = year * 100 + amt.month;
-        const inRange = monthYear >= startMonthYear && (!endMonthYear || monthYear <= endMonthYear);
-        if (inRange) monthlyTotals[amt.month] += amt.amount / 100;
-      }
-    }
-
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return monthNames.map((name, index) => ({
-      month: name,
-      revenue: monthlyTotals[index + 1] || 0,
-    }));
-  }
-
-  async getTopCustomers(companyId: string, limit: number): Promise<TopCustomer[]> {
-    if (limit === 0) return [];
-    const year = Number(companyToday().slice(0, 4));
-    const rows = await loadContractRevenueRows(db, companyId, billingMonth(year, 1), billingMonth(year, 12));
-    const owners = new Map<string, { id: string; name: string; cents: number }>();
-    for (const row of byCustomer(rows, year, [])) {
-      const owner = owners.get(row.customerId);
-      if (owner) owner.cents += row.totalCents;
-      else owners.set(row.customerId, { id: row.customerId, name: row.customerName, cents: row.totalCents });
-    }
-    const top = [...owners.values()].sort((a, b) => b.cents - a.cents || a.id.localeCompare(b.id)).slice(0, limit);
-    if (!top.length) return [];
-
-    // Keep the existing active legacy contract count; only the money source changes.
-    const counts = await db.select({ id: contracts.customerId, count: count() })
-      .from(contracts)
-      .where(and(eq(contracts.companyId, companyId), eq(contracts.status, "active"), inArray(contracts.customerId, top.map(row => row.id))))
-      .groupBy(contracts.customerId);
-    const countsByOwner = new Map(counts.map(row => [row.id, row.count]));
-    return top.map(({ id, name, cents }) => ({ id, name, totalRevenue: cents / 100, activeContracts: countsByOwner.get(id) ?? 0 }));
   }
 
   async getContractTemplates(): Promise<ContractTemplate[]> {

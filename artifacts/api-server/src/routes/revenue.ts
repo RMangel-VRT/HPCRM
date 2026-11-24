@@ -11,7 +11,6 @@ import {
 } from "@workspace/api-zod";
 import type { UserWithContext } from "../auth";
 import { db } from "../db";
-import { storage } from "../storage";
 import { companyToday } from "../lib/companyDay";
 import { planningYear, revenuePlanPatch, revenueTargetUpdate } from "../lib/revenuePlanning";
 import { loadRevenuePlan, loadRevenueTargets, saveRevenuePlan, saveRevenueTargets } from "../services/revenuePlanning";
@@ -21,7 +20,7 @@ import {
   updateIncomeAccountMappings,
 } from "../services/qboIncome";
 import {
-  billingMonth, byCustomer, countInEffectSnowTm, dashboardRevenueMonths,
+  billingMonth, byCustomer, countInEffectSnowTm,
   filterRevenueLine, inEffectSnowPricing, loadContractRevenueRows, loadContractRevenueSeasons, monthlyTotals, summarizeBillingMonth,
 } from "../lib/contractRevenue";
 
@@ -46,8 +45,6 @@ const matrixQuery = z.strictObject({
   year: yearParam,
   line: z.enum(["all", "contract", "snow", "fee"]).default("all"),
 });
-const limitParam = z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().nonnegative());
-
 const revenueCompanyChanged = (req: Parameters<RequestHandler>[0]) => {
   const expected = req.get("X-Company-Id");
   return expected !== undefined && expected !== (req.user as UserWithContext).activeCompanyId;
@@ -206,8 +203,6 @@ function revenuePlanningRoutes() {
 }
 
 export function registerRevenueRoutes(app: Express): void {
-  // Apply the minimum role to every Revenue route, including legacy routes
-  // registered later. Existing admin-only legacy actions keep that restriction.
   app.use("/api/revenue", requireRevenueRead);
   app.use("/api/revenue/qbo", qboIncomeRoutes());
   app.use("/api/revenue", revenuePlanningRoutes());
@@ -256,41 +251,5 @@ export function registerRevenueRoutes(app: Express): void {
       totalCents: monthTotals.reduce((sum, cents) => sum + cents, 0),
       ...snowPricing,
     }));
-  });
-
-  app.get("/api/dashboard/monthly-revenue", requireRevenueRead, async (req, res) => {
-    const year = yearParam.safeParse(req.query.year ?? companyToday().slice(0, 4));
-    if (!year.success) {
-      res.status(400).send("Invalid year");
-      return;
-    }
-    const { activeCompanyId } = req.user as UserWithContext;
-    const rows = await loadContractRevenueRows(db, activeCompanyId, billingMonth(year.data, 1), billingMonth(year.data, 12));
-    res.json(dashboardRevenueMonths(rows, year.data));
-  });
-
-  app.get("/api/dashboard/top-customers", requireRevenueRead, async (req, res) => {
-    const limit = limitParam.safeParse(req.query.limit ?? "5");
-    if (!limit.success) {
-      res.status(400).send("Invalid limit");
-      return;
-    }
-    const { activeCompanyId } = req.user as UserWithContext;
-    res.json(await storage.getTopCustomers(activeCompanyId, limit.data));
-  });
-
-  app.get("/api/revenue/overview", async (req, res) => {
-    const { activeCompanyId } = req.user as UserWithContext;
-    const month = parseInt(req.query.month as string);
-    const year = parseInt(req.query.year as string);
-    if (isNaN(month) || month < 1 || month > 12) {
-      res.status(400).send("Invalid month");
-      return;
-    }
-    if (isNaN(year) || year < 2000 || year > 2100) {
-      res.status(400).send("Invalid year");
-      return;
-    }
-    res.json(await storage.getRevenueOverview(activeCompanyId, month, year));
   });
 }
