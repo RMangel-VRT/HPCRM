@@ -20,6 +20,15 @@ export function companyToday(now = new Date()): string {
   return companyDateString(now);
 }
 
+/** Canonical month key, independent of any instant or time zone. */
+export function monthOf(day: string): string {
+  return `${day.slice(0, 7)}-01`;
+}
+
+export function billingMonth(year: number, month: number): string {
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`;
+}
+
 function calendarInstant(date: string): Date {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new RangeError(`Invalid calendar date: ${date}`);
   const [year, month, day] = date.split("-").map(Number);

@@ -1,0 +1,14 @@
+# RV4 handoff — income forecast
+
+The Revenue reads share one calculation in `artifacts/api-server/src/lib/incomeStreams.ts`. Use the generated Revenue API types/hooks, not new client-side forecast formulas. Reads use one company-scoped database snapshot, do not contact QuickBooks, and do not write. Office can read; the target save requires admin access and honors a supplied `X-Company-Id`.
+
+| Endpoint | How to consume it |
+| --- | --- |
+| `GET /api/revenue/income?year=YYYY` | `streams` is keyed by stream. Its twelve months are January–December; `totals` summarizes All income. `closedThrough` is relative to the selected year. `qboMissing` is true only when the year has closed months but no successful pull. A loaded, empty pull yields zero earned for closed months. Missing earned and missing targets are `null`, not zero. `targetMonths` is null with no target rows. `concentration` is omitted outside the current Colorado year. |
+| `GET /api/revenue/income/years?from=YYYY&to=YYYY` | Inclusive, at most ten years. Each year's streams and All income contain forecast and prior-year cents; `recurringSharePct` is contract forecast divided by All income. `monthsByStream` is keyed by stream or `all`, each with year and twelve monthly totals. Use each year's `closedThrough` to distinguish open months. |
+| `GET /api/revenue/plan/:year/projection` | `base` contains previous-year stream totals; `planned` contains forecast totals and months. The contract bridge's `totalCents` is signed plus renewal fill, not earned income. A renewal draft is informational and must belong to the listed source season. Estimate pipeline is separate from all forecast amounts. |
+| `POST /api/revenue/targets/:year/from-plan` | Computes the same planned monthly cents and rounds each tracked stream to whole dollars. Returns the RV3 target grid after replacing all five streams in the selected company/year. Other is never saved. If any amount cannot be represented by the existing nonnegative target store, the request returns 422 without changing the grid. |
+
+Other appears when it has a nonzero month, even if credits net the year to zero. Undefined percentage comparisons are null. Risk ranks owners by contract-maintenance billing; the form share uses the full Contract Center billing projection. Snow uses earned months only, and an empty but loaded historical month contributes zero. The estimate decision window is the last 365 Colorado calendar dates including today.
+
+Run the focused API tests with the artifact-local Vitest runner. Run `bash artifacts/api-server/scripts/test-rv4-postgres.sh` for endpoint, query-budget, role, company and atomicity checks against a private socket-only database. The harness applies the existing RV2/RV3 migrations to fixtures only. RV4 requires no new migration, UI, or provider refresh.

@@ -1,18 +1,18 @@
 import { agreements, agreementTerms, customers, termBillingMonths } from "@workspace/db";
-import { and, count, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, count, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
 import type { Reader } from "./contractCenterPersistence";
 import { compareTermPriority, IN_EFFECT_TERM_STATUSES, isNotRenewing } from "./contractCenterService";
+import { billingMonth, monthOf } from "./companyDay";
 
-export function billingMonth(year: number, month: number): string {
-  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`;
-}
-
-function monthOf(day: string): string {
-  return `${day.slice(0, 7)}-01`;
-}
+export { billingMonth } from "./companyDay";
 
 /** Payment dates own the schedule, including explicitly permitted pre-start payments. */
-export async function loadContractRevenueRows(reader: Reader, companyId: string, fromMonth: string, toMonth: string) {
+export async function loadContractRevenueRows(reader: Reader, companyId: string, fromMonth: string, toMonth: string,
+  renewalBasis?: { includeLostFrom?: string }) {
+  const window = and(gte(termBillingMonths.month, fromMonth), lte(termBillingMonths.month, toMonth));
+  // Annual fallback is season-relative, not relative to the displayed years.
+  // The bridge also needs the final payment month of a recorded non-renewal.
+  const seasonStartMonth = sql`date_trunc('month', ${agreementTerms.startDate})::date`;
   const rows = await reader.select({
     agreementId: agreements.id,
     customerId: customers.id,
@@ -39,8 +39,13 @@ export async function loadContractRevenueRows(reader: Reader, companyId: string,
       eq(agreements.companyId, companyId),
       eq(customers.companyId, companyId),
       inArray(agreementTerms.status, IN_EFFECT_TERM_STATUSES),
-      gte(termBillingMonths.month, fromMonth),
-      lte(termBillingMonths.month, toMonth),
+      renewalBasis ? or(window,
+        sql`${agreementTerms.annualPriceCents} is null and not ${termBillingMonths.isFee}
+          and ${termBillingMonths.month} >= ${seasonStartMonth}
+          and ${termBillingMonths.month} < ${seasonStartMonth} + interval '1 year'`,
+        renewalBasis.includeLostFrom ? sql`${agreementTerms.nonRenewalOn} is not null
+          and ${agreementTerms.endDate} >= ${renewalBasis.includeLostFrom}::date` : undefined,
+      ) : window,
     ));
 
   return rows.map(({ nonRenewalOn, ...row }) => ({

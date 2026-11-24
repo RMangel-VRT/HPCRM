@@ -6,6 +6,7 @@ import {
   GetRevenuePlanResponse, GetRevenueTargetsResponse, SaveRevenuePlanResponse, SaveRevenueTargetsResponse,
   GetRevenueQboStatusResponse, ListRevenueQboAccountsResponse, RefreshRevenueQboIncomeBody,
   RefreshRevenueQboIncomeResponse, UpdateRevenueQboAccountMappingsBodyItem, UpdateRevenueQboAccountMappingsResponse,
+  GetRevenueIncomeResponse, GetRevenueIncomeYearsResponse, GetRevenuePlanProjectionResponse, SaveRevenueTargetsFromPlanResponse,
 } from "@workspace/api-zod";
 import type { UserWithContext } from "../auth";
 import { db } from "../db";
@@ -13,6 +14,7 @@ import { storage } from "../storage";
 import { companyToday } from "../lib/companyDay";
 import { planningYear, revenuePlanPatch, revenueTargetUpdate } from "../lib/revenuePlanning";
 import { loadRevenuePlan, loadRevenueTargets, saveRevenuePlan, saveRevenueTargets } from "../services/revenuePlanning";
+import { loadIncome, loadIncomeYears, loadPlanProjection, saveTargetsFromPlan } from "../services/incomeStreams";
 import {
   getQboIncomeStatus, isRevenueRefreshYear, listIncomeAccounts, refreshQboIncome, RevenueQboError,
   updateIncomeAccountMappings,
@@ -127,6 +129,38 @@ function revenuePlanningRoutes() {
     res.locals.planningYear = parsed.data;
     next();
   };
+  router.get("/income", requireRevenueCompany, async (req, res): Promise<void> => {
+    const parsed = contractZ.object({ year: planningYear }).strict().safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Year must be YYYY from 2015 through 2100" });
+      return;
+    }
+    const { activeCompanyId } = req.user as UserWithContext;
+    res.json(GetRevenueIncomeResponse.parse(await loadIncome(activeCompanyId, parsed.data.year)));
+  });
+  router.get("/income/years", requireRevenueCompany, async (req, res): Promise<void> => {
+    const parsed = contractZ.object({ from: planningYear, to: planningYear }).strict()
+      .refine(({ from, to }) => from <= to && to - from < 10).safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Provide a range of at most ten calendar years from 2015 through 2100" });
+      return;
+    }
+    const { activeCompanyId } = req.user as UserWithContext;
+    res.json(GetRevenueIncomeYearsResponse.parse(await loadIncomeYears(activeCompanyId, parsed.data.from, parsed.data.to)));
+  });
+  router.get("/plan/:year/projection", requireRevenueCompany, requirePlanningYear, async (req, res): Promise<void> => {
+    const { activeCompanyId } = req.user as UserWithContext;
+    res.json(GetRevenuePlanProjectionResponse.parse(await loadPlanProjection(activeCompanyId, res.locals.planningYear)));
+  });
+  router.post("/targets/:year/from-plan", requireRevenueCompany, requireRevenueAdmin, requirePlanningYear, async (req, res): Promise<void> => {
+    const { activeCompanyId, id } = req.user as UserWithContext;
+    const targets = await saveTargetsFromPlan(activeCompanyId, res.locals.planningYear, id);
+    if (!targets) {
+      res.status(422).json({ message: "A projected month is outside the supported target range. Targets were not changed." });
+      return;
+    }
+    res.json(SaveRevenueTargetsFromPlanResponse.parse(targets));
+  });
   router.route("/plan/:year")
     .all(requireRevenueCompany)
     .get(requirePlanningYear, async (req, res): Promise<void> => {

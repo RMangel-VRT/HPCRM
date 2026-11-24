@@ -9,6 +9,14 @@ type Season = Pick<AgreementTerm, "id" | "status" | "startDate" | "endDate" | "r
 export const signedSeason = (t: Season) => ["signed", "active", "renewed"].includes(t.status);
 const priority = (a: Season, b: Season) => b.startDate.localeCompare(a.startDate) || b.id.localeCompare(a.id);
 const covers = (t: Season, today: string) => t.startDate <= today && today <= t.endDate;
+
+export function recordedContractLoss<T extends Season>(terms: readonly T[], final?: T, finalSource?: T) {
+  return {
+    direct: finalSource?.status === "lost" && (!final || finalSource.startDate >= final.startDate) ? finalSource : undefined,
+    renewal: final && terms.filter(t => t.renewedFromTermId === final.id && t.status === "lost").sort(priority)[0],
+  };
+}
+
 export function unclassifiedContract(reason = "Couldn't classify — open and check"): ContractProjection {
   return { state: "unclassified", stateSince: null, stateReason: reason, stateTermId: null,
     flags: [], allowedActions: ["open"], actionTermId: null };
@@ -30,7 +38,7 @@ export function contractState(input: readonly Season[], today: string): Contract
   const current = signed.filter(t => covers(t, today))[0];
   const unsigned = pending.filter(t => covers(t, today))[0];
   // A lost renewal is an explicit decision on its source. A cancelled one is not.
-  const finalLoss = final && terms.filter(t => t.renewedFromTermId === final.id && t.status === "lost").sort(priority)[0];
+  const loss = recordedContractLoss(terms, final, finalSource);
   const make = (state: ContractState, term: Season | undefined, since: string | null, reason: string): ContractProjection =>
     ({ state, stateTermId: term?.id ?? null, stateSince: since, stateReason: reason,
       flags: [], allowedActions: ["open"], actionTermId: term?.id ?? null });
@@ -38,10 +46,10 @@ export function contractState(input: readonly Season[], today: string): Contract
     term.endDate >= addCalendarDays(today, -RENEWAL_WINDOW_DAYS) ? "closed_recently" : "closed",
     term, term?.endDate ?? null, term ? `Closed after ${term.endDate}` : "No signed or pending seasons");
   if (!signed.length && !pending.length) return close([...terms].sort(priority)[0]);
-  if (finalSource?.status === "lost" && (!final || finalSource.startDate >= final.startDate)) return close(finalSource);
-  if (final && (final.nonRenewalOn || finalLoss)) {
+  if (loss.direct) return close(loss.direct);
+  if (final && (final.nonRenewalOn || loss.renewal)) {
     if (final.endDate < today) return close(final);
-    return make("serving_not_renewing", current ?? final, final.nonRenewalOn ?? finalLoss!.startDate,
+    return make("serving_not_renewing", current ?? final, final.nonRenewalOn ?? loss.renewal!.startDate,
       `Not renewing after ${final.endDate}`);
   }
   if (!current && unsigned) return make("working_unsigned", unsigned, unsigned.startDate,

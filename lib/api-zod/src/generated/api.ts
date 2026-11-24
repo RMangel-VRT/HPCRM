@@ -611,6 +611,954 @@ export const SaveRevenueTargetsResponse = zod.object({
   saved: zod.boolean().describe("At least one monthly target row exists"),
 });
 
+export const getRevenueIncomeQueryYearMin = 2015;
+export const getRevenueIncomeQueryYearMax = 2100;
+
+export const GetRevenueIncomeQueryParams = zod.object({
+  year: zod.coerce
+    .number()
+    .min(getRevenueIncomeQueryYearMin)
+    .max(getRevenueIncomeQueryYearMax),
+});
+
+export const getRevenueIncomeResponseClosedThroughRegExp = new RegExp(
+  "^[0-9]{4}-(0[1-9]|1[0-2])-01$",
+);
+export const getRevenueIncomeResponseQboUnmappedCountMin = 0;
+
+export const getRevenueIncomeResponseStreamsContractMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenueIncomeResponseStreamsContractMonthsMin = 12;
+export const getRevenueIncomeResponseStreamsContractMonthsMax = 12;
+
+export const getRevenueIncomeResponseStreamsSnowMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenueIncomeResponseStreamsSnowMonthsMin = 12;
+export const getRevenueIncomeResponseStreamsSnowMonthsMax = 12;
+
+export const getRevenueIncomeResponseStreamsIrrigationMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenueIncomeResponseStreamsIrrigationMonthsMin = 12;
+export const getRevenueIncomeResponseStreamsIrrigationMonthsMax = 12;
+
+export const getRevenueIncomeResponseStreamsProjectsMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenueIncomeResponseStreamsProjectsMonthsMin = 12;
+export const getRevenueIncomeResponseStreamsProjectsMonthsMax = 12;
+
+export const getRevenueIncomeResponseStreamsExtraMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenueIncomeResponseStreamsExtraMonthsMin = 12;
+export const getRevenueIncomeResponseStreamsExtraMonthsMax = 12;
+
+export const getRevenueIncomeResponseStreamsOtherMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenueIncomeResponseStreamsOtherMonthsMin = 12;
+export const getRevenueIncomeResponseStreamsOtherMonthsMax = 12;
+
+export const getRevenueIncomeResponseTargetMonthsMin = 12;
+export const getRevenueIncomeResponseTargetMonthsMax = 12;
+
+export const getRevenueIncomeResponseConcentrationTop5Max = 5;
+
+export const GetRevenueIncomeResponse = zod.object({
+  year: zod.number(),
+  closedThrough: zod
+    .string()
+    .regex(getRevenueIncomeResponseClosedThroughRegExp)
+    .nullable(),
+  qboMissing: zod
+    .boolean()
+    .describe("This year has closed months but has not been loaded"),
+  qbo: zod.object({
+    loaded: zod.boolean(),
+    fetchedAt: zod.coerce.date().nullable(),
+    unmappedCount: zod
+      .number()
+      .min(getRevenueIncomeResponseQboUnmappedCountMin),
+  }),
+  streams: zod.object({
+    contract: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+      months: zod
+        .array(
+          zod.object({
+            month: zod
+              .string()
+              .regex(
+                getRevenueIncomeResponseStreamsContractMonthsItemMonthRegExp,
+              ),
+            earnedCents: zod.number().nullable(),
+            signedCents: zod.number(),
+            estimatedCents: zod.number(),
+          }),
+        )
+        .min(getRevenueIncomeResponseStreamsContractMonthsMin)
+        .max(getRevenueIncomeResponseStreamsContractMonthsMax),
+    }),
+    snow: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+      months: zod
+        .array(
+          zod.object({
+            month: zod
+              .string()
+              .regex(getRevenueIncomeResponseStreamsSnowMonthsItemMonthRegExp),
+            earnedCents: zod.number().nullable(),
+            signedCents: zod.number(),
+            estimatedCents: zod.number(),
+          }),
+        )
+        .min(getRevenueIncomeResponseStreamsSnowMonthsMin)
+        .max(getRevenueIncomeResponseStreamsSnowMonthsMax),
+    }),
+    irrigation: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+      months: zod
+        .array(
+          zod.object({
+            month: zod
+              .string()
+              .regex(
+                getRevenueIncomeResponseStreamsIrrigationMonthsItemMonthRegExp,
+              ),
+            earnedCents: zod.number().nullable(),
+            signedCents: zod.number(),
+            estimatedCents: zod.number(),
+          }),
+        )
+        .min(getRevenueIncomeResponseStreamsIrrigationMonthsMin)
+        .max(getRevenueIncomeResponseStreamsIrrigationMonthsMax),
+    }),
+    projects: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+      months: zod
+        .array(
+          zod.object({
+            month: zod
+              .string()
+              .regex(
+                getRevenueIncomeResponseStreamsProjectsMonthsItemMonthRegExp,
+              ),
+            earnedCents: zod.number().nullable(),
+            signedCents: zod.number(),
+            estimatedCents: zod.number(),
+          }),
+        )
+        .min(getRevenueIncomeResponseStreamsProjectsMonthsMin)
+        .max(getRevenueIncomeResponseStreamsProjectsMonthsMax),
+    }),
+    extra: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+      months: zod
+        .array(
+          zod.object({
+            month: zod
+              .string()
+              .regex(getRevenueIncomeResponseStreamsExtraMonthsItemMonthRegExp),
+            earnedCents: zod.number().nullable(),
+            signedCents: zod.number(),
+            estimatedCents: zod.number(),
+          }),
+        )
+        .min(getRevenueIncomeResponseStreamsExtraMonthsMin)
+        .max(getRevenueIncomeResponseStreamsExtraMonthsMax),
+    }),
+    other: zod
+      .object({
+        earnedCents: zod.number().nullable(),
+        signedCents: zod.number(),
+        estimatedCents: zod.number(),
+        forecastCents: zod.number(),
+        targetCents: zod.number().nullable(),
+        lastYearCents: zod.number(),
+        months: zod
+          .array(
+            zod.object({
+              month: zod
+                .string()
+                .regex(
+                  getRevenueIncomeResponseStreamsOtherMonthsItemMonthRegExp,
+                ),
+              earnedCents: zod.number().nullable(),
+              signedCents: zod.number(),
+              estimatedCents: zod.number(),
+            }),
+          )
+          .min(getRevenueIncomeResponseStreamsOtherMonthsMin)
+          .max(getRevenueIncomeResponseStreamsOtherMonthsMax),
+      })
+      .optional(),
+  }),
+  totals: zod.object({
+    earnedCents: zod.number().nullable(),
+    signedCents: zod.number(),
+    estimatedCents: zod.number(),
+    forecastCents: zod.number(),
+    targetCents: zod.number().nullable(),
+    lastYearCents: zod.number(),
+  }),
+  targetMonths: zod
+    .array(zod.number())
+    .min(getRevenueIncomeResponseTargetMonthsMin)
+    .max(getRevenueIncomeResponseTargetMonthsMax)
+    .nullable(),
+  concentration: zod
+    .object({
+      top5: zod
+        .array(
+          zod.object({
+            customerId: zod.string(),
+            customerName: zod.string(),
+            cents: zod.number(),
+            shareOfContractPct: zod.number().nullable(),
+          }),
+        )
+        .max(getRevenueIncomeResponseConcentrationTop5Max),
+      theirFormSharePct: zod.number().nullable(),
+      snowSharePct: zod.number().nullable(),
+      snowRange: zod.object({
+        minCents: zod.number().nullable(),
+        maxCents: zod.number().nullable(),
+        years: zod.array(zod.number()),
+      }),
+    })
+    .optional(),
+});
+
+export const getRevenueIncomeYearsQueryFromMin = 2015;
+export const getRevenueIncomeYearsQueryFromMax = 2100;
+
+export const getRevenueIncomeYearsQueryToMin = 2015;
+export const getRevenueIncomeYearsQueryToMax = 2100;
+
+export const GetRevenueIncomeYearsQueryParams = zod.object({
+  from: zod.coerce
+    .number()
+    .min(getRevenueIncomeYearsQueryFromMin)
+    .max(getRevenueIncomeYearsQueryFromMax),
+  to: zod.coerce
+    .number()
+    .min(getRevenueIncomeYearsQueryToMin)
+    .max(getRevenueIncomeYearsQueryToMax),
+});
+
+export const getRevenueIncomeYearsResponseYearsItemClosedThroughRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenueIncomeYearsResponseYearsMax = 10;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamAllItemMonthsMin = 12;
+export const getRevenueIncomeYearsResponseMonthsByStreamAllItemMonthsMax = 12;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamAllMax = 10;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamContractItemMonthsMin = 12;
+export const getRevenueIncomeYearsResponseMonthsByStreamContractItemMonthsMax = 12;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamContractMax = 10;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamSnowItemMonthsMin = 12;
+export const getRevenueIncomeYearsResponseMonthsByStreamSnowItemMonthsMax = 12;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamSnowMax = 10;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamIrrigationItemMonthsMin = 12;
+export const getRevenueIncomeYearsResponseMonthsByStreamIrrigationItemMonthsMax = 12;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamIrrigationMax = 10;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamProjectsItemMonthsMin = 12;
+export const getRevenueIncomeYearsResponseMonthsByStreamProjectsItemMonthsMax = 12;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamProjectsMax = 10;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamExtraItemMonthsMin = 12;
+export const getRevenueIncomeYearsResponseMonthsByStreamExtraItemMonthsMax = 12;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamExtraMax = 10;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamOtherItemMonthsMin = 12;
+export const getRevenueIncomeYearsResponseMonthsByStreamOtherItemMonthsMax = 12;
+
+export const getRevenueIncomeYearsResponseMonthsByStreamOtherMax = 10;
+
+export const GetRevenueIncomeYearsResponse = zod.object({
+  years: zod
+    .array(
+      zod.object({
+        year: zod.number(),
+        closedThrough: zod
+          .string()
+          .regex(getRevenueIncomeYearsResponseYearsItemClosedThroughRegExp)
+          .nullable(),
+        streams: zod.object({
+          contract: zod.object({
+            forecastCents: zod.number(),
+            lastYearCents: zod.number(),
+          }),
+          snow: zod.object({
+            forecastCents: zod.number(),
+            lastYearCents: zod.number(),
+          }),
+          irrigation: zod.object({
+            forecastCents: zod.number(),
+            lastYearCents: zod.number(),
+          }),
+          projects: zod.object({
+            forecastCents: zod.number(),
+            lastYearCents: zod.number(),
+          }),
+          extra: zod.object({
+            forecastCents: zod.number(),
+            lastYearCents: zod.number(),
+          }),
+          other: zod
+            .object({
+              forecastCents: zod.number(),
+              lastYearCents: zod.number(),
+            })
+            .optional(),
+        }),
+        totals: zod.object({
+          forecastCents: zod.number(),
+          lastYearCents: zod.number(),
+        }),
+        recurringSharePct: zod.number().nullable(),
+      }),
+    )
+    .max(getRevenueIncomeYearsResponseYearsMax),
+  monthsByStream: zod.object({
+    all: zod
+      .array(
+        zod.object({
+          year: zod.number(),
+          months: zod
+            .array(zod.number())
+            .min(getRevenueIncomeYearsResponseMonthsByStreamAllItemMonthsMin)
+            .max(getRevenueIncomeYearsResponseMonthsByStreamAllItemMonthsMax),
+        }),
+      )
+      .max(getRevenueIncomeYearsResponseMonthsByStreamAllMax),
+    contract: zod
+      .array(
+        zod.object({
+          year: zod.number(),
+          months: zod
+            .array(zod.number())
+            .min(
+              getRevenueIncomeYearsResponseMonthsByStreamContractItemMonthsMin,
+            )
+            .max(
+              getRevenueIncomeYearsResponseMonthsByStreamContractItemMonthsMax,
+            ),
+        }),
+      )
+      .max(getRevenueIncomeYearsResponseMonthsByStreamContractMax),
+    snow: zod
+      .array(
+        zod.object({
+          year: zod.number(),
+          months: zod
+            .array(zod.number())
+            .min(getRevenueIncomeYearsResponseMonthsByStreamSnowItemMonthsMin)
+            .max(getRevenueIncomeYearsResponseMonthsByStreamSnowItemMonthsMax),
+        }),
+      )
+      .max(getRevenueIncomeYearsResponseMonthsByStreamSnowMax),
+    irrigation: zod
+      .array(
+        zod.object({
+          year: zod.number(),
+          months: zod
+            .array(zod.number())
+            .min(
+              getRevenueIncomeYearsResponseMonthsByStreamIrrigationItemMonthsMin,
+            )
+            .max(
+              getRevenueIncomeYearsResponseMonthsByStreamIrrigationItemMonthsMax,
+            ),
+        }),
+      )
+      .max(getRevenueIncomeYearsResponseMonthsByStreamIrrigationMax),
+    projects: zod
+      .array(
+        zod.object({
+          year: zod.number(),
+          months: zod
+            .array(zod.number())
+            .min(
+              getRevenueIncomeYearsResponseMonthsByStreamProjectsItemMonthsMin,
+            )
+            .max(
+              getRevenueIncomeYearsResponseMonthsByStreamProjectsItemMonthsMax,
+            ),
+        }),
+      )
+      .max(getRevenueIncomeYearsResponseMonthsByStreamProjectsMax),
+    extra: zod
+      .array(
+        zod.object({
+          year: zod.number(),
+          months: zod
+            .array(zod.number())
+            .min(getRevenueIncomeYearsResponseMonthsByStreamExtraItemMonthsMin)
+            .max(getRevenueIncomeYearsResponseMonthsByStreamExtraItemMonthsMax),
+        }),
+      )
+      .max(getRevenueIncomeYearsResponseMonthsByStreamExtraMax),
+    other: zod
+      .array(
+        zod.object({
+          year: zod.number(),
+          months: zod
+            .array(zod.number())
+            .min(getRevenueIncomeYearsResponseMonthsByStreamOtherItemMonthsMin)
+            .max(getRevenueIncomeYearsResponseMonthsByStreamOtherItemMonthsMax),
+        }),
+      )
+      .max(getRevenueIncomeYearsResponseMonthsByStreamOtherMax)
+      .optional(),
+  }),
+});
+
+export const getRevenuePlanProjectionPathYearMin = 2015;
+export const getRevenuePlanProjectionPathYearMax = 2100;
+
+export const GetRevenuePlanProjectionParams = zod.object({
+  year: zod.coerce
+    .number()
+    .min(getRevenuePlanProjectionPathYearMin)
+    .max(getRevenuePlanProjectionPathYearMax),
+});
+
+export const getRevenuePlanProjectionResponsePlanYearMin = 2015;
+export const getRevenuePlanProjectionResponsePlanYearMax = 2100;
+
+export const getRevenuePlanProjectionResponsePlanRenewalIncreasePctMin = -10;
+export const getRevenuePlanProjectionResponsePlanRenewalIncreasePctMax = 20;
+export const getRevenuePlanProjectionResponsePlanRenewalIncreasePctMultipleOf = 0.01;
+
+export const getRevenuePlanProjectionResponsePlanKeptPctMin = 0;
+export const getRevenuePlanProjectionResponsePlanKeptPctMax = 100;
+
+export const getRevenuePlanProjectionResponsePlanSnowYearsMax = 5;
+
+export const getRevenuePlanProjectionResponsePlanIrrigationGrowthPctMin = -50;
+export const getRevenuePlanProjectionResponsePlanIrrigationGrowthPctMax = 100;
+export const getRevenuePlanProjectionResponsePlanIrrigationGrowthPctMultipleOf = 0.01;
+
+export const getRevenuePlanProjectionResponsePlanProjectsGrowthPctMin = -50;
+export const getRevenuePlanProjectionResponsePlanProjectsGrowthPctMax = 100;
+export const getRevenuePlanProjectionResponsePlanProjectsGrowthPctMultipleOf = 0.01;
+
+export const getRevenuePlanProjectionResponsePlanExtraGrowthPctMin = -50;
+export const getRevenuePlanProjectionResponsePlanExtraGrowthPctMax = 100;
+export const getRevenuePlanProjectionResponsePlanExtraGrowthPctMultipleOf = 0.01;
+
+export const getRevenuePlanProjectionResponsePlanGoalCentsMin = 0;
+export const getRevenuePlanProjectionResponsePlanGoalCentsMax = 9007199254740991;
+
+export const getRevenuePlanProjectionResponsePlannedContractMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenuePlanProjectionResponsePlannedContractMonthsMin = 12;
+export const getRevenuePlanProjectionResponsePlannedContractMonthsMax = 12;
+
+export const getRevenuePlanProjectionResponsePlannedSnowMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenuePlanProjectionResponsePlannedSnowMonthsMin = 12;
+export const getRevenuePlanProjectionResponsePlannedSnowMonthsMax = 12;
+
+export const getRevenuePlanProjectionResponsePlannedIrrigationMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenuePlanProjectionResponsePlannedIrrigationMonthsMin = 12;
+export const getRevenuePlanProjectionResponsePlannedIrrigationMonthsMax = 12;
+
+export const getRevenuePlanProjectionResponsePlannedProjectsMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenuePlanProjectionResponsePlannedProjectsMonthsMin = 12;
+export const getRevenuePlanProjectionResponsePlannedProjectsMonthsMax = 12;
+
+export const getRevenuePlanProjectionResponsePlannedExtraMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenuePlanProjectionResponsePlannedExtraMonthsMin = 12;
+export const getRevenuePlanProjectionResponsePlannedExtraMonthsMax = 12;
+
+export const getRevenuePlanProjectionResponsePlannedOtherMonthsItemMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenuePlanProjectionResponsePlannedOtherMonthsMin = 12;
+export const getRevenuePlanProjectionResponsePlannedOtherMonthsMax = 12;
+
+export const getRevenuePlanProjectionResponseBridgeLostItemLastMonthRegExp =
+  new RegExp("^[0-9]{4}-(0[1-9]|1[0-2])-01$");
+export const getRevenuePlanProjectionResponseRenewalsPendingItemEndDateRegExp =
+  new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+export const getRevenuePlanProjectionResponseLaterRenewalsCountMin = 0;
+
+export const GetRevenuePlanProjectionResponse = zod.object({
+  plan: zod.object({
+    year: zod
+      .number()
+      .min(getRevenuePlanProjectionResponsePlanYearMin)
+      .max(getRevenuePlanProjectionResponsePlanYearMax),
+    renewalIncreasePct: zod
+      .number()
+      .min(getRevenuePlanProjectionResponsePlanRenewalIncreasePctMin)
+      .max(getRevenuePlanProjectionResponsePlanRenewalIncreasePctMax)
+      .multipleOf(
+        getRevenuePlanProjectionResponsePlanRenewalIncreasePctMultipleOf,
+      ),
+    keptPct: zod
+      .number()
+      .min(getRevenuePlanProjectionResponsePlanKeptPctMin)
+      .max(getRevenuePlanProjectionResponsePlanKeptPctMax),
+    snowYears: zod
+      .number()
+      .min(1)
+      .max(getRevenuePlanProjectionResponsePlanSnowYearsMax),
+    irrigationGrowthPct: zod
+      .number()
+      .min(getRevenuePlanProjectionResponsePlanIrrigationGrowthPctMin)
+      .max(getRevenuePlanProjectionResponsePlanIrrigationGrowthPctMax)
+      .multipleOf(
+        getRevenuePlanProjectionResponsePlanIrrigationGrowthPctMultipleOf,
+      ),
+    projectsGrowthPct: zod
+      .number()
+      .min(getRevenuePlanProjectionResponsePlanProjectsGrowthPctMin)
+      .max(getRevenuePlanProjectionResponsePlanProjectsGrowthPctMax)
+      .multipleOf(
+        getRevenuePlanProjectionResponsePlanProjectsGrowthPctMultipleOf,
+      ),
+    extraGrowthPct: zod
+      .number()
+      .min(getRevenuePlanProjectionResponsePlanExtraGrowthPctMin)
+      .max(getRevenuePlanProjectionResponsePlanExtraGrowthPctMax)
+      .multipleOf(getRevenuePlanProjectionResponsePlanExtraGrowthPctMultipleOf),
+    goalCents: zod
+      .number()
+      .min(getRevenuePlanProjectionResponsePlanGoalCentsMin)
+      .max(getRevenuePlanProjectionResponsePlanGoalCentsMax)
+      .nullable(),
+    saved: zod.boolean(),
+    id: zod.string().optional().describe("Present only for a saved plan"),
+    companyId: zod.string().optional(),
+    updatedBy: zod.string().nullish(),
+    createdAt: zod.coerce.date().optional(),
+    updatedAt: zod.coerce.date().optional(),
+  }),
+  base: zod.object({
+    contract: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+    }),
+    snow: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+    }),
+    irrigation: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+    }),
+    projects: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+    }),
+    extra: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+    }),
+    other: zod
+      .object({
+        earnedCents: zod.number().nullable(),
+        signedCents: zod.number(),
+        estimatedCents: zod.number(),
+        forecastCents: zod.number(),
+        targetCents: zod.number().nullable(),
+        lastYearCents: zod.number(),
+      })
+      .optional(),
+  }),
+  planned: zod.object({
+    contract: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+      months: zod
+        .array(
+          zod.object({
+            month: zod
+              .string()
+              .regex(
+                getRevenuePlanProjectionResponsePlannedContractMonthsItemMonthRegExp,
+              ),
+            earnedCents: zod.number().nullable(),
+            signedCents: zod.number(),
+            estimatedCents: zod.number(),
+          }),
+        )
+        .min(getRevenuePlanProjectionResponsePlannedContractMonthsMin)
+        .max(getRevenuePlanProjectionResponsePlannedContractMonthsMax),
+    }),
+    snow: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+      months: zod
+        .array(
+          zod.object({
+            month: zod
+              .string()
+              .regex(
+                getRevenuePlanProjectionResponsePlannedSnowMonthsItemMonthRegExp,
+              ),
+            earnedCents: zod.number().nullable(),
+            signedCents: zod.number(),
+            estimatedCents: zod.number(),
+          }),
+        )
+        .min(getRevenuePlanProjectionResponsePlannedSnowMonthsMin)
+        .max(getRevenuePlanProjectionResponsePlannedSnowMonthsMax),
+    }),
+    irrigation: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+      months: zod
+        .array(
+          zod.object({
+            month: zod
+              .string()
+              .regex(
+                getRevenuePlanProjectionResponsePlannedIrrigationMonthsItemMonthRegExp,
+              ),
+            earnedCents: zod.number().nullable(),
+            signedCents: zod.number(),
+            estimatedCents: zod.number(),
+          }),
+        )
+        .min(getRevenuePlanProjectionResponsePlannedIrrigationMonthsMin)
+        .max(getRevenuePlanProjectionResponsePlannedIrrigationMonthsMax),
+    }),
+    projects: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+      months: zod
+        .array(
+          zod.object({
+            month: zod
+              .string()
+              .regex(
+                getRevenuePlanProjectionResponsePlannedProjectsMonthsItemMonthRegExp,
+              ),
+            earnedCents: zod.number().nullable(),
+            signedCents: zod.number(),
+            estimatedCents: zod.number(),
+          }),
+        )
+        .min(getRevenuePlanProjectionResponsePlannedProjectsMonthsMin)
+        .max(getRevenuePlanProjectionResponsePlannedProjectsMonthsMax),
+    }),
+    extra: zod.object({
+      earnedCents: zod.number().nullable(),
+      signedCents: zod.number(),
+      estimatedCents: zod.number(),
+      forecastCents: zod.number(),
+      targetCents: zod.number().nullable(),
+      lastYearCents: zod.number(),
+      months: zod
+        .array(
+          zod.object({
+            month: zod
+              .string()
+              .regex(
+                getRevenuePlanProjectionResponsePlannedExtraMonthsItemMonthRegExp,
+              ),
+            earnedCents: zod.number().nullable(),
+            signedCents: zod.number(),
+            estimatedCents: zod.number(),
+          }),
+        )
+        .min(getRevenuePlanProjectionResponsePlannedExtraMonthsMin)
+        .max(getRevenuePlanProjectionResponsePlannedExtraMonthsMax),
+    }),
+    other: zod
+      .object({
+        earnedCents: zod.number().nullable(),
+        signedCents: zod.number(),
+        estimatedCents: zod.number(),
+        forecastCents: zod.number(),
+        targetCents: zod.number().nullable(),
+        lastYearCents: zod.number(),
+        months: zod
+          .array(
+            zod.object({
+              month: zod
+                .string()
+                .regex(
+                  getRevenuePlanProjectionResponsePlannedOtherMonthsItemMonthRegExp,
+                ),
+              earnedCents: zod.number().nullable(),
+              signedCents: zod.number(),
+              estimatedCents: zod.number(),
+            }),
+          )
+          .min(getRevenuePlanProjectionResponsePlannedOtherMonthsMin)
+          .max(getRevenuePlanProjectionResponsePlannedOtherMonthsMax),
+      })
+      .optional(),
+  }),
+  bridge: zod.object({
+    startCents: zod.number(),
+    lost: zod.array(
+      zod.object({
+        agreementId: zod.string(),
+        customerName: zod.string(),
+        seasonLabel: zod.string(),
+        reason: zod.string().nullable(),
+        lastMonth: zod
+          .string()
+          .regex(getRevenuePlanProjectionResponseBridgeLostItemLastMonthRegExp)
+          .nullable(),
+        cents: zod.number(),
+      }),
+    ),
+    lostCents: zod.number(),
+    carriedCents: zod.number(),
+    signedCents: zod.number(),
+    expectedCents: zod.number(),
+    totalCents: zod.number(),
+  }),
+  renewalsPending: zod.array(
+    zod.object({
+      agreementId: zod.string(),
+      customerName: zod.string(),
+      seasonLabel: zod.string(),
+      endDate: zod
+        .string()
+        .regex(
+          getRevenuePlanProjectionResponseRenewalsPendingItemEndDateRegExp,
+        ),
+      annualCents: zod.number(),
+      renewalDraft: zod
+        .object({
+          status: zod.enum(["draft", "sent"]),
+          annualCents: zod.number().nullable(),
+        })
+        .nullable(),
+    }),
+  ),
+  laterRenewalsCount: zod
+    .number()
+    .min(getRevenuePlanProjectionResponseLaterRenewalsCountMin),
+  pipeline: zod.object({
+    acceptedLast12Cents: zod.number(),
+    sentOpenCents: zod.number(),
+    winRatePct: zod.number().nullable(),
+  }),
+});
+
+export const saveRevenueTargetsFromPlanPathYearMin = 2015;
+export const saveRevenueTargetsFromPlanPathYearMax = 2100;
+
+export const SaveRevenueTargetsFromPlanParams = zod.object({
+  year: zod.coerce
+    .number()
+    .min(saveRevenueTargetsFromPlanPathYearMin)
+    .max(saveRevenueTargetsFromPlanPathYearMax),
+});
+
+export const SaveRevenueTargetsFromPlanHeader = zod.object({
+  "X-Company-Id": zod.string().optional(),
+});
+
+export const saveRevenueTargetsFromPlanResponseYearMin = 2015;
+export const saveRevenueTargetsFromPlanResponseYearMax = 2100;
+
+export const saveRevenueTargetsFromPlanResponseStreamsContractItemMin = 0;
+export const saveRevenueTargetsFromPlanResponseStreamsContractItemMax = 2147483647;
+
+export const saveRevenueTargetsFromPlanResponseStreamsContractMin = 12;
+export const saveRevenueTargetsFromPlanResponseStreamsContractMax = 12;
+
+export const saveRevenueTargetsFromPlanResponseStreamsSnowItemMin = 0;
+export const saveRevenueTargetsFromPlanResponseStreamsSnowItemMax = 2147483647;
+
+export const saveRevenueTargetsFromPlanResponseStreamsSnowMin = 12;
+export const saveRevenueTargetsFromPlanResponseStreamsSnowMax = 12;
+
+export const saveRevenueTargetsFromPlanResponseStreamsIrrigationItemMin = 0;
+export const saveRevenueTargetsFromPlanResponseStreamsIrrigationItemMax = 2147483647;
+
+export const saveRevenueTargetsFromPlanResponseStreamsIrrigationMin = 12;
+export const saveRevenueTargetsFromPlanResponseStreamsIrrigationMax = 12;
+
+export const saveRevenueTargetsFromPlanResponseStreamsProjectsItemMin = 0;
+export const saveRevenueTargetsFromPlanResponseStreamsProjectsItemMax = 2147483647;
+
+export const saveRevenueTargetsFromPlanResponseStreamsProjectsMin = 12;
+export const saveRevenueTargetsFromPlanResponseStreamsProjectsMax = 12;
+
+export const saveRevenueTargetsFromPlanResponseStreamsExtraItemMin = 0;
+export const saveRevenueTargetsFromPlanResponseStreamsExtraItemMax = 2147483647;
+
+export const saveRevenueTargetsFromPlanResponseStreamsExtraMin = 12;
+export const saveRevenueTargetsFromPlanResponseStreamsExtraMax = 12;
+
+export const saveRevenueTargetsFromPlanResponseAnnualContractMin = 0;
+export const saveRevenueTargetsFromPlanResponseAnnualContractMax = 25769803764;
+
+export const saveRevenueTargetsFromPlanResponseAnnualSnowMin = 0;
+export const saveRevenueTargetsFromPlanResponseAnnualSnowMax = 25769803764;
+
+export const saveRevenueTargetsFromPlanResponseAnnualIrrigationMin = 0;
+export const saveRevenueTargetsFromPlanResponseAnnualIrrigationMax = 25769803764;
+
+export const saveRevenueTargetsFromPlanResponseAnnualProjectsMin = 0;
+export const saveRevenueTargetsFromPlanResponseAnnualProjectsMax = 25769803764;
+
+export const saveRevenueTargetsFromPlanResponseAnnualExtraMin = 0;
+export const saveRevenueTargetsFromPlanResponseAnnualExtraMax = 25769803764;
+
+export const SaveRevenueTargetsFromPlanResponse = zod.object({
+  year: zod
+    .number()
+    .min(saveRevenueTargetsFromPlanResponseYearMin)
+    .max(saveRevenueTargetsFromPlanResponseYearMax),
+  streams: zod.object({
+    contract: zod
+      .array(
+        zod
+          .number()
+          .min(saveRevenueTargetsFromPlanResponseStreamsContractItemMin)
+          .max(saveRevenueTargetsFromPlanResponseStreamsContractItemMax),
+      )
+      .min(saveRevenueTargetsFromPlanResponseStreamsContractMin)
+      .max(saveRevenueTargetsFromPlanResponseStreamsContractMax)
+      .describe("Exactly 12 integer cent amounts in January-to-December order"),
+    snow: zod
+      .array(
+        zod
+          .number()
+          .min(saveRevenueTargetsFromPlanResponseStreamsSnowItemMin)
+          .max(saveRevenueTargetsFromPlanResponseStreamsSnowItemMax),
+      )
+      .min(saveRevenueTargetsFromPlanResponseStreamsSnowMin)
+      .max(saveRevenueTargetsFromPlanResponseStreamsSnowMax)
+      .describe("Exactly 12 integer cent amounts in January-to-December order"),
+    irrigation: zod
+      .array(
+        zod
+          .number()
+          .min(saveRevenueTargetsFromPlanResponseStreamsIrrigationItemMin)
+          .max(saveRevenueTargetsFromPlanResponseStreamsIrrigationItemMax),
+      )
+      .min(saveRevenueTargetsFromPlanResponseStreamsIrrigationMin)
+      .max(saveRevenueTargetsFromPlanResponseStreamsIrrigationMax)
+      .describe("Exactly 12 integer cent amounts in January-to-December order"),
+    projects: zod
+      .array(
+        zod
+          .number()
+          .min(saveRevenueTargetsFromPlanResponseStreamsProjectsItemMin)
+          .max(saveRevenueTargetsFromPlanResponseStreamsProjectsItemMax),
+      )
+      .min(saveRevenueTargetsFromPlanResponseStreamsProjectsMin)
+      .max(saveRevenueTargetsFromPlanResponseStreamsProjectsMax)
+      .describe("Exactly 12 integer cent amounts in January-to-December order"),
+    extra: zod
+      .array(
+        zod
+          .number()
+          .min(saveRevenueTargetsFromPlanResponseStreamsExtraItemMin)
+          .max(saveRevenueTargetsFromPlanResponseStreamsExtraItemMax),
+      )
+      .min(saveRevenueTargetsFromPlanResponseStreamsExtraMin)
+      .max(saveRevenueTargetsFromPlanResponseStreamsExtraMax)
+      .describe("Exactly 12 integer cent amounts in January-to-December order"),
+  }),
+  annual: zod.object({
+    contract: zod
+      .number()
+      .min(saveRevenueTargetsFromPlanResponseAnnualContractMin)
+      .max(saveRevenueTargetsFromPlanResponseAnnualContractMax),
+    snow: zod
+      .number()
+      .min(saveRevenueTargetsFromPlanResponseAnnualSnowMin)
+      .max(saveRevenueTargetsFromPlanResponseAnnualSnowMax),
+    irrigation: zod
+      .number()
+      .min(saveRevenueTargetsFromPlanResponseAnnualIrrigationMin)
+      .max(saveRevenueTargetsFromPlanResponseAnnualIrrigationMax),
+    projects: zod
+      .number()
+      .min(saveRevenueTargetsFromPlanResponseAnnualProjectsMin)
+      .max(saveRevenueTargetsFromPlanResponseAnnualProjectsMax),
+    extra: zod
+      .number()
+      .min(saveRevenueTargetsFromPlanResponseAnnualExtraMin)
+      .max(saveRevenueTargetsFromPlanResponseAnnualExtraMax),
+  }),
+  saved: zod.boolean().describe("At least one monthly target row exists"),
+});
+
 export const getRevenueQboStatusResponseUnmappedCountMin = 0;
 
 export const GetRevenueQboStatusResponse = zod.object({

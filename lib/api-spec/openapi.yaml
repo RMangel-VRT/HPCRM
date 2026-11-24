@@ -96,6 +96,66 @@ paths:
         "401": { description: Sign-in required }
         "403": { description: Admin access and an active company required }
         "409": { description: Active company changed }
+  /revenue/income:
+    get:
+      operationId: getRevenueIncome
+      parameters:
+        - { in: query, name: year, required: true, schema: { type: integer, minimum: 2015, maximum: 2100 } }
+      responses:
+        "200":
+          description: Earned, signed and estimated income with comparisons and current-year concentration
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenueIncome" }
+        "400": { description: Invalid year }
+        "401": { description: Sign-in required }
+        "403": { description: Admin or office and an active company required }
+  /revenue/income/years:
+    get:
+      operationId: getRevenueIncomeYears
+      parameters:
+        - { in: query, name: from, required: true, schema: { type: integer, minimum: 2015, maximum: 2100 } }
+        - { in: query, name: to, required: true, schema: { type: integer, minimum: 2015, maximum: 2100 } }
+      responses:
+        "200":
+          description: Up to ten inclusive calendar years with year-over-year comparisons and seasonality
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenueIncomeYears" }
+        "400": { description: Invalid range or more than ten years }
+        "401": { description: Sign-in required }
+        "403": { description: Admin or office and an active company required }
+  /revenue/plan/{year}/projection:
+    parameters:
+      - *revenuePlanningYear
+    get:
+      operationId: getRevenuePlanProjection
+      responses:
+        "200":
+          description: Plan assumptions, prior-year base, forecast, renewal bridge and estimate pipeline
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenuePlanProjection" }
+        "400": { description: Invalid year }
+        "401": { description: Sign-in required }
+        "403": { description: Admin or office and an active company required }
+  /revenue/targets/{year}/from-plan:
+    parameters:
+      - *revenuePlanningYear
+      - *revenuePlanningCompany
+    post:
+      operationId: saveRevenueTargetsFromPlan
+      responses:
+        "200":
+          description: Targets after replacing the five tracked streams for this year
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenueTargets" }
+        "400": { description: Invalid year }
+        "401": { description: Sign-in required }
+        "403": { description: Admin access and an active company required }
+        "409": { description: Active company changed }
+        "422": { description: A rounded forecast month is outside the supported nonnegative target range }
   /revenue/qbo/status:
     get:
       operationId: getRevenueQboStatus
@@ -2203,6 +2263,200 @@ components:
             projects: *annualTarget
             extra: *annualTarget
         saved: { type: boolean, description: At least one monthly target row exists }
+    RevenueIncomeMonth:
+      type: object
+      required: [month, earnedCents, signedCents, estimatedCents]
+      properties:
+        month: &revenueMonth { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])-01$' }
+        earnedCents: &nullableRevenueCents { type: ["integer", "null"] }
+        signedCents: &revenueCents { type: integer }
+        estimatedCents: *revenueCents
+    RevenueIncomeTotals:
+      type: object
+      required: [earnedCents, signedCents, estimatedCents, forecastCents, targetCents, lastYearCents]
+      properties: &incomeTotals
+        earnedCents: *nullableRevenueCents
+        signedCents: *revenueCents
+        estimatedCents: *revenueCents
+        forecastCents: *revenueCents
+        targetCents: *nullableRevenueCents
+        lastYearCents: *revenueCents
+    RevenueIncomeStream:
+      type: object
+      required: [months, earnedCents, signedCents, estimatedCents, forecastCents, targetCents, lastYearCents]
+      properties:
+        <<: *incomeTotals
+        months:
+          type: array
+          minItems: 12
+          maxItems: 12
+          items: { $ref: "#/components/schemas/RevenueIncomeMonth" }
+    RevenueIncomeStreams:
+      type: object
+      required: [contract, snow, irrigation, projects, extra]
+      properties:
+        contract: &incomeStream { $ref: "#/components/schemas/RevenueIncomeStream" }
+        snow: *incomeStream
+        irrigation: *incomeStream
+        projects: *incomeStream
+        extra: *incomeStream
+        other: *incomeStream
+    RevenueConcentration:
+      type: object
+      required: [top5, theirFormSharePct, snowSharePct, snowRange]
+      properties:
+        top5:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [customerId, customerName, cents, shareOfContractPct]
+            properties:
+              customerId: { type: string }
+              customerName: { type: string }
+              cents: *revenueCents
+              shareOfContractPct: &nullableRevenuePct { type: ["number", "null"] }
+        theirFormSharePct: *nullableRevenuePct
+        snowSharePct: *nullableRevenuePct
+        snowRange:
+          type: object
+          required: [minCents, maxCents, years]
+          properties:
+            minCents: *nullableRevenueCents
+            maxCents: *nullableRevenueCents
+            years: { type: array, items: { type: integer } }
+    RevenueIncome:
+      type: object
+      required: [year, closedThrough, qboMissing, qbo, streams, totals, targetMonths]
+      properties:
+        year: { type: integer }
+        closedThrough: &closedRevenueMonth { type: ["string", "null"], pattern: '^[0-9]{4}-(0[1-9]|1[0-2])-01$' }
+        qboMissing: { type: boolean, description: This year has closed months but has not been loaded }
+        qbo:
+          type: object
+          required: [loaded, fetchedAt, unmappedCount]
+          properties:
+            loaded: { type: boolean }
+            fetchedAt: { type: ["string", "null"], format: date-time }
+            unmappedCount: { type: integer, minimum: 0 }
+        streams: { $ref: "#/components/schemas/RevenueIncomeStreams" }
+        totals: { $ref: "#/components/schemas/RevenueIncomeTotals" }
+        targetMonths: { type: ["array", "null"], minItems: 12, maxItems: 12, items: *revenueCents }
+        concentration: { $ref: "#/components/schemas/RevenueConcentration" }
+    RevenueTrendAmount:
+      type: object
+      required: [forecastCents, lastYearCents]
+      properties:
+        forecastCents: *revenueCents
+        lastYearCents: *revenueCents
+    RevenueTrendYear:
+      type: object
+      required: [year, closedThrough, streams, totals, recurringSharePct]
+      properties:
+        year: { type: integer }
+        closedThrough: *closedRevenueMonth
+        streams:
+          type: object
+          required: [contract, snow, irrigation, projects, extra]
+          properties:
+            contract: &trendAmount { $ref: "#/components/schemas/RevenueTrendAmount" }
+            snow: *trendAmount
+            irrigation: *trendAmount
+            projects: *trendAmount
+            extra: *trendAmount
+            other: *trendAmount
+        totals: *trendAmount
+        recurringSharePct: *nullableRevenuePct
+    RevenueSeasonalityYear:
+      type: object
+      required: [year, months]
+      properties:
+        year: { type: integer }
+        months: { type: array, minItems: 12, maxItems: 12, items: *revenueCents }
+    RevenueIncomeYears:
+      type: object
+      required: [years, monthsByStream]
+      properties:
+        years:
+          type: array
+          maxItems: 10
+          items: { $ref: "#/components/schemas/RevenueTrendYear" }
+        monthsByStream:
+          type: object
+          required: [all, contract, snow, irrigation, projects, extra]
+          properties:
+            all: &seasonality { type: array, maxItems: 10, items: { $ref: "#/components/schemas/RevenueSeasonalityYear" } }
+            contract: *seasonality
+            snow: *seasonality
+            irrigation: *seasonality
+            projects: *seasonality
+            extra: *seasonality
+            other: *seasonality
+    RevenuePlanLostAgreement:
+      type: object
+      required: [agreementId, customerName, seasonLabel, reason, lastMonth, cents]
+      properties:
+        agreementId: { type: string }
+        customerName: { type: string }
+        seasonLabel: { type: string }
+        reason: { type: ["string", "null"] }
+        lastMonth: *closedRevenueMonth
+        cents: *revenueCents
+    RevenuePlanPendingRenewal:
+      type: object
+      required: [agreementId, customerName, seasonLabel, endDate, annualCents, renewalDraft]
+      properties:
+        agreementId: { type: string }
+        customerName: { type: string }
+        seasonLabel: { type: string }
+        endDate: { type: string, pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' }
+        annualCents: *revenueCents
+        renewalDraft:
+          type: ["object", "null"]
+          required: [status, annualCents]
+          properties:
+            status: { type: string, enum: [draft, sent] }
+            annualCents: *nullableRevenueCents
+    RevenuePlanProjection:
+      type: object
+      required: [plan, base, planned, bridge, renewalsPending, laterRenewalsCount, pipeline]
+      properties:
+        plan: { $ref: "#/components/schemas/RevenuePlan" }
+        base:
+          type: object
+          required: [contract, snow, irrigation, projects, extra]
+          properties:
+            contract: &planBase { $ref: "#/components/schemas/RevenueIncomeTotals" }
+            snow: *planBase
+            irrigation: *planBase
+            projects: *planBase
+            extra: *planBase
+            other: *planBase
+        planned: { $ref: "#/components/schemas/RevenueIncomeStreams" }
+        bridge:
+          type: object
+          required: [startCents, lost, lostCents, carriedCents, signedCents, expectedCents, totalCents]
+          properties:
+            startCents: *revenueCents
+            lost:
+              type: array
+              items: { $ref: "#/components/schemas/RevenuePlanLostAgreement" }
+            lostCents: *revenueCents
+            carriedCents: *revenueCents
+            signedCents: *revenueCents
+            expectedCents: *revenueCents
+            totalCents: *revenueCents
+        renewalsPending:
+          type: array
+          items: { $ref: "#/components/schemas/RevenuePlanPendingRenewal" }
+        laterRenewalsCount: { type: integer, minimum: 0 }
+        pipeline:
+          type: object
+          required: [acceptedLast12Cents, sentOpenCents, winRatePct]
+          properties:
+            acceptedLast12Cents: *revenueCents
+            sentOpenCents: *revenueCents
+            winRatePct: *nullableRevenuePct
     RevenueQboFetchedYear:
       type: object
       required: [year, fetchedAt]

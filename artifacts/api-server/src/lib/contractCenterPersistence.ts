@@ -184,9 +184,29 @@ export interface RenewalDueRow {
   line: AgreementTerm["line"]; termId: string | null; seasonLabel: string | null; endDate: string | null;
   daysLeft: number | null; renewalDraftStatus: "draft" | "sent" | null;
   state: ContractProjection["state"]; stateReason: string;
+  renewalDraft?: { sourceTermId: string; status: "draft" | "sent"; annualCents: number | null };
 }
-export async function loadRenewalsDue(reader: Reader, companyId: string, today = companyToday()): Promise<RenewalDueRow[]> {
-  const items = await loadContractList(reader, companyId, {}, today);
+export interface ContractRenewalHistory {
+  id: string;
+  customerId: string;
+  customerName: string;
+  terms: AgreementTerm[];
+}
+
+/** Consumers that already loaded the owner and season history can use the
+ * same renewal classification without re-reading the Contract Center board. */
+export async function loadRenewalsDue(reader: Reader, companyId: string, today = companyToday(),
+  histories?: readonly ContractRenewalHistory[]): Promise<RenewalDueRow[]> {
+  return renewalDueRows(histories
+    ? histories.map(({ terms, ...owner }) => {
+      const summary = listSummary(terms, today);
+      return { ...owner, ...summary, line: summary.current?.line ?? "both" as const };
+    })
+    : await loadContractList(reader, companyId, {}, today), today, histories !== undefined);
+}
+
+type RenewalDueItem = ReturnType<typeof listSummary> & Pick<RenewalDueRow, "customerId" | "customerName" | "line"> & { id: string };
+function renewalDueRows(items: readonly RenewalDueItem[], today: string, includeDraft: boolean): RenewalDueRow[] {
   return items.flatMap(item => {
     const term = item.stateTerm ?? [item.current, item.renewalDraft, item.latest, item.renewalSource].find(t => t?.id === item.stateTermId)
       ?? item.current ?? item.latest;
@@ -196,6 +216,9 @@ export async function loadRenewalsDue(reader: Reader, companyId: string, today =
       line: term?.line ?? item.line, termId: term?.id ?? null, seasonLabel: term?.seasonLabel ?? null, endDate: term?.endDate ?? null,
       daysLeft: term ? calendarDaysBetween(today, term.endDate) : null,
       renewalDraftStatus: status === "draft" || status === "sent" ? status : null,
+      ...(includeDraft && item.renewalSource && item.renewalDraft && (status === "draft" || status === "sent")
+        ? { renewalDraft: { sourceTermId: item.renewalSource.id, status, annualCents: item.renewalDraft.annualPriceCents } }
+        : {}),
       state: item.state, stateReason: item.stateReason }];
   }).sort((a, b) => (a.endDate ?? "").localeCompare(b.endDate ?? "") || a.agreementId.localeCompare(b.agreementId));
 }

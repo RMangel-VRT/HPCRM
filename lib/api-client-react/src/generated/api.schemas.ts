@@ -163,6 +163,236 @@ export interface RevenueTargets {
   saved: boolean;
 }
 
+export interface RevenueIncomeMonth {
+  /** @pattern ^[0-9]{4}-(0[1-9]|1[0-2])-01$ */
+  month: string;
+  /** @nullable */
+  earnedCents: number | null;
+  signedCents: number;
+  estimatedCents: number;
+}
+
+export interface RevenueIncomeTotals {
+  /** @nullable */
+  earnedCents: number | null;
+  signedCents: number;
+  estimatedCents: number;
+  forecastCents: number;
+  /** @nullable */
+  targetCents: number | null;
+  lastYearCents: number;
+}
+
+export interface RevenueIncomeStream {
+  /** @nullable */
+  earnedCents: number | null;
+  signedCents: number;
+  estimatedCents: number;
+  forecastCents: number;
+  /** @nullable */
+  targetCents: number | null;
+  lastYearCents: number;
+  /**
+   * @minItems 12
+   * @maxItems 12
+   */
+  months: RevenueIncomeMonth[];
+}
+
+export interface RevenueIncomeStreams {
+  contract: RevenueIncomeStream;
+  snow: RevenueIncomeStream;
+  irrigation: RevenueIncomeStream;
+  projects: RevenueIncomeStream;
+  extra: RevenueIncomeStream;
+  other?: RevenueIncomeStream;
+}
+
+export type RevenueConcentrationTop5Item = {
+  customerId: string;
+  customerName: string;
+  cents: number;
+  /** @nullable */
+  shareOfContractPct: number | null;
+};
+
+export type RevenueConcentrationSnowRange = {
+  /** @nullable */
+  minCents: number | null;
+  /** @nullable */
+  maxCents: number | null;
+  years: number[];
+};
+
+export interface RevenueConcentration {
+  /** @maxItems 5 */
+  top5: RevenueConcentrationTop5Item[];
+  /** @nullable */
+  theirFormSharePct: number | null;
+  /** @nullable */
+  snowSharePct: number | null;
+  snowRange: RevenueConcentrationSnowRange;
+}
+
+export type RevenueIncomeQbo = {
+  loaded: boolean;
+  /** @nullable */
+  fetchedAt: string | null;
+  /** @minimum 0 */
+  unmappedCount: number;
+};
+
+export interface RevenueIncome {
+  year: number;
+  /**
+   * @nullable
+   * @pattern ^[0-9]{4}-(0[1-9]|1[0-2])-01$
+   */
+  closedThrough: string | null;
+  /** This year has closed months but has not been loaded */
+  qboMissing: boolean;
+  qbo: RevenueIncomeQbo;
+  streams: RevenueIncomeStreams;
+  totals: RevenueIncomeTotals;
+  /**
+   * @minItems 12
+   * @maxItems 12
+   * @nullable
+   */
+  targetMonths: number[] | null;
+  concentration?: RevenueConcentration;
+}
+
+export interface RevenueTrendAmount {
+  forecastCents: number;
+  lastYearCents: number;
+}
+
+export type RevenueTrendYearStreams = {
+  contract: RevenueTrendAmount;
+  snow: RevenueTrendAmount;
+  irrigation: RevenueTrendAmount;
+  projects: RevenueTrendAmount;
+  extra: RevenueTrendAmount;
+  other?: RevenueTrendAmount;
+};
+
+export interface RevenueTrendYear {
+  year: number;
+  /**
+   * @nullable
+   * @pattern ^[0-9]{4}-(0[1-9]|1[0-2])-01$
+   */
+  closedThrough: string | null;
+  streams: RevenueTrendYearStreams;
+  totals: RevenueTrendAmount;
+  /** @nullable */
+  recurringSharePct: number | null;
+}
+
+export interface RevenueSeasonalityYear {
+  year: number;
+  /**
+   * @minItems 12
+   * @maxItems 12
+   */
+  months: number[];
+}
+
+export type RevenueIncomeYearsMonthsByStream = {
+  /** @maxItems 10 */
+  all: RevenueSeasonalityYear[];
+  /** @maxItems 10 */
+  contract: RevenueSeasonalityYear[];
+  /** @maxItems 10 */
+  snow: RevenueSeasonalityYear[];
+  /** @maxItems 10 */
+  irrigation: RevenueSeasonalityYear[];
+  /** @maxItems 10 */
+  projects: RevenueSeasonalityYear[];
+  /** @maxItems 10 */
+  extra: RevenueSeasonalityYear[];
+  /** @maxItems 10 */
+  other?: RevenueSeasonalityYear[];
+};
+
+export interface RevenueIncomeYears {
+  /** @maxItems 10 */
+  years: RevenueTrendYear[];
+  monthsByStream: RevenueIncomeYearsMonthsByStream;
+}
+
+export interface RevenuePlanLostAgreement {
+  agreementId: string;
+  customerName: string;
+  seasonLabel: string;
+  /** @nullable */
+  reason: string | null;
+  /**
+   * @nullable
+   * @pattern ^[0-9]{4}-(0[1-9]|1[0-2])-01$
+   */
+  lastMonth: string | null;
+  cents: number;
+}
+
+/**
+ * @nullable
+ */
+export type RevenuePlanPendingRenewalRenewalDraft = {
+  status: "draft" | "sent";
+  /** @nullable */
+  annualCents: number | null;
+} | null;
+
+export interface RevenuePlanPendingRenewal {
+  agreementId: string;
+  customerName: string;
+  seasonLabel: string;
+  /** @pattern ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ */
+  endDate: string;
+  annualCents: number;
+  /** @nullable */
+  renewalDraft: RevenuePlanPendingRenewalRenewalDraft;
+}
+
+export type RevenuePlanProjectionBase = {
+  contract: RevenueIncomeTotals;
+  snow: RevenueIncomeTotals;
+  irrigation: RevenueIncomeTotals;
+  projects: RevenueIncomeTotals;
+  extra: RevenueIncomeTotals;
+  other?: RevenueIncomeTotals;
+};
+
+export type RevenuePlanProjectionBridge = {
+  startCents: number;
+  lost: RevenuePlanLostAgreement[];
+  lostCents: number;
+  carriedCents: number;
+  signedCents: number;
+  expectedCents: number;
+  totalCents: number;
+};
+
+export type RevenuePlanProjectionPipeline = {
+  acceptedLast12Cents: number;
+  sentOpenCents: number;
+  /** @nullable */
+  winRatePct: number | null;
+};
+
+export interface RevenuePlanProjection {
+  plan: RevenuePlan;
+  base: RevenuePlanProjectionBase;
+  planned: RevenueIncomeStreams;
+  bridge: RevenuePlanProjectionBridge;
+  renewalsPending: RevenuePlanPendingRenewal[];
+  /** @minimum 0 */
+  laterRenewalsCount: number;
+  pipeline: RevenuePlanProjectionPipeline;
+}
+
 export interface RevenueQboFetchedYear {
   year: number;
   fetchedAt: string;
@@ -2035,6 +2265,27 @@ export interface OwnerResponseTicket {
   followUpNote?: string | null;
   [key: string]: unknown;
 }
+
+export type GetRevenueIncomeParams = {
+  /**
+   * @minimum 2015
+   * @maximum 2100
+   */
+  year: number;
+};
+
+export type GetRevenueIncomeYearsParams = {
+  /**
+   * @minimum 2015
+   * @maximum 2100
+   */
+  from: number;
+  /**
+   * @minimum 2015
+   * @maximum 2100
+   */
+  to: number;
+};
 
 export type UpdateRevenueQboAccountMappings200 = {
   ok: boolean;

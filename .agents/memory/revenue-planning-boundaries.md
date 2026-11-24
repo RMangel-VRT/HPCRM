@@ -27,3 +27,16 @@ payment rows. A filter or year boundary can hide all payments from the
 earlier season without making the later season the first on the agreement.
 Where adjacent seasons both bill the same month, keep both commitments;
 the single monthly agreement header describes the newer billing season.
+
+Preserve the difference between an unloaded QuickBooks year and a loaded empty
+year. A future month in a loaded year is still not earned. The save-plan action
+must reject the whole replacement if a rounded amount cannot be stored as a
+target; do not clamp a credit to zero.
+
+**Why:** QuickBooks can report negative net income, but target rows were
+approved as nonnegative goals. Changing a value to fit would make the saved
+targets disagree with the forecast the user chose.
+
+**How to apply:** Revenue views should consume the server's missing-data and
+comparison fields, and explain a rejected target save without suggesting that
+any month was saved.
