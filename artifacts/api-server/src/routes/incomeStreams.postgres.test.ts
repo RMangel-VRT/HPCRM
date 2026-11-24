@@ -229,6 +229,10 @@ describe.runIf(process.env.RUN_RV4_POSTGRES_TEST === "1")("income forecast route
       await field.get(url).expect(403);
       await noCompany.get(url).expect(403);
     }
+    for (const url of [income(2026), `${path}/income/years?from=2022&to=2026`, targets,
+      `${path}/plan/2027`, `${path}/qbo/status`, `${path}/qbo/accounts`]) {
+      await appFor("office").get(url).set("X-Company-Id", "b").expect(409);
+    }
     await anonymous.post(fromPlan).expect(401);
     await field.post(fromPlan).expect(403);
     await noCompany.post(fromPlan).expect(403);

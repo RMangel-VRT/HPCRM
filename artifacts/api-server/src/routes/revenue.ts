@@ -47,10 +47,21 @@ const matrixQuery = z.strictObject({
 });
 const limitParam = z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().nonnegative());
 
+const revenueCompanyChanged = (req: Parameters<RequestHandler>[0]) => {
+  const expected = req.get("X-Company-Id");
+  return expected !== undefined && expected !== (req.user as UserWithContext).activeCompanyId;
+};
+
 const requireRevenueCompany: RequestHandler = (req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   if (!(req.user as UserWithContext).activeCompanyId) {
     res.status(403).json({ message: "An active company is required" });
+    return;
+  }
+  // Don't put another company's response under the initiating company's cache
+  // key if the session changed before a Revenue read reached the server.
+  if ((req.method === "GET" || req.method === "HEAD") && revenueCompanyChanged(req)) {
+    res.status(409).json({ message: "Active company changed. Reload and try again." });
     return;
   }
   next();
@@ -61,8 +72,7 @@ const requireRevenueAdmin: RequestHandler = (req, res, next) => {
     res.status(403).json({ message: "Administrator access required" });
     return;
   }
-  const expectedCompany = req.get("X-Company-Id");
-  if (expectedCompany !== undefined && expectedCompany !== user.activeCompanyId) {
+  if (revenueCompanyChanged(req)) {
     res.status(409).json({ message: "Active company changed. Reload and try again." });
     return;
   }

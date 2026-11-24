@@ -46,7 +46,7 @@ const CustomerSetupWizard = lazy(() => import("@/pages/CustomerSetupWizard"));
 const CustomerEdit = lazy(() => import("@/pages/CustomerEdit"));
 const CustomerSetupRedirect = lazy(() => import("@/pages/CustomerEdit").then(m => ({ default: m.CustomerSetupRedirect })));
 const CustomerDetail = lazy(() => import("@/pages/CustomerDetail"));
-const RevenueOverview = lazy(() => import("@/pages/RevenueOverview"));
+const RevenuePage = lazy(() => import("@/pages/RevenuePage"));
 const ToolsPage = lazy(() => import("@/pages/ToolsPage"));
 const ContractBuilderPage = lazy(() => import("@/pages/ContractBuilderPage"));
 const TicketsList = lazy(() => import("@/pages/TicketsList"));
@@ -171,7 +171,7 @@ function Router() {
   const { i18n } = useTranslation();
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [location] = useLocation();
-  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags" || location === "/dashboard/scheduling" || location === "/dashboard/routes" || location === "/dashboard/estimates" || location === "/dashboard/bids" || isEstimatesHubPage(location);
+  const isRailPage = isSettingsRailPage(location) || !!workPage(location) || location.startsWith("/dashboard/communications") || location === "/dashboard/flags" || location === "/dashboard/scheduling" || location === "/dashboard/routes" || location === "/dashboard/estimates" || location === "/dashboard/bids" || location === "/dashboard/revenue" || isEstimatesHubPage(location);
   const isVisualScopeDraft = /^\/dashboard\/tools\/visual-scope\/[^/]+/.test(location);
   const isCustomerDetail =
     /^\/dashboard\/customers\/[^/]+(\/|$)/.test(location) &&
@@ -375,7 +375,7 @@ function Router() {
         <ProtectedRoute path="/dashboard/contracts/customers" component={ActiveCustomersPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/contracts/:id" component={ContractPage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/contracts" component={ContractCenterPage} allowedRoles={["admin", "office"]} />
-        <ProtectedRoute path="/dashboard/revenue" component={RevenueOverview} allowedRoles={["admin", "office"]} />
+        <ProtectedRoute path="/dashboard/revenue" component={RevenuePage} allowedRoles={["admin", "office"]} />
         <ProtectedRoute path="/dashboard/notifications" component={NotificationsPage} allowedRoles={["admin", "office", ...allFieldRoles]} />
         <ProtectedRoute path="/dashboard/mentions" component={MentionsPage} />
         <ProtectedRoute path="/dashboard/flags/:id" component={FlagDetailPage} allowedRoles={["admin", "office"]} />

@@ -40,3 +40,11 @@ targets disagree with the forecast the user chose.
 **How to apply:** Revenue views should consume the server's missing-data and
 comparison fields, and explain a rejected target save without suggesting that
 any month was saved.
+
+The target edit grid zero-fills streams that have no target rows. Use the
+income response's nullable stream target to distinguish an absent target from
+an explicitly saved zero. Closed months without QuickBooks can still have
+signed Contract Center payments; label those figures as partial, not earned.
+
+**Why:** An absent target is not a zero-dollar goal, and a signed payment is
+not proof of accrual income. Mixing those cases gives misleading comparisons.
