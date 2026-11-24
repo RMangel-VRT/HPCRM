@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 describe("Revenue Income", () => {
-  it("renders five streams with exactly five columns and opens Contract maintenance detail", async () => {
+  it("renders five streams, links Contract maintenance to the same year's By customer, and opens other stream details", async () => {
     const { container } = mount();
     const table = await screen.findByTestId("revenue-glance-streams");
     expect(table.querySelectorAll("thead th")).toHaveLength(5);
@@ -86,9 +86,10 @@ describe("Revenue Income", () => {
     expect(rows).toHaveLength(5);
     for (const row of rows) expect(row.children).toHaveLength(5);
     expect(container.querySelectorAll("[data-testid^='revenue-target-tick']")).toHaveLength(0);
-    fireEvent.click(within(table).getByRole("button", { name: /Contract maintenance/ }));
+    expect(within(table).getByTestId("link-revenue-glance-by-customer").getAttribute("href")).toBe("/dashboard/revenue?tab=customers&year=2026");
+    fireEvent.click(within(table).getByRole("button", { name: /Snow removal/ }));
     const panel = await screen.findByRole("dialog");
-    expect(panel.textContent).toContain("Contract maintenance");
+    expect(panel.textContent).toContain("Snow removal");
     expect(panel.textContent).toMatch(/Earned/);
     expect(within(panel).getAllByRole("row").length).toBeGreaterThanOrEqual(12);
   });

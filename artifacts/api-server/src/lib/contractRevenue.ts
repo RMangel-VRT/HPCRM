@@ -1,5 +1,5 @@
 import { agreements, agreementTerms, customers, termBillingMonths } from "@workspace/db";
-import { and, count, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
 import type { Reader } from "./contractCenterPersistence";
 import { compareTermPriority, IN_EFFECT_TERM_STATUSES, isNotRenewing } from "./contractCenterService";
 import { billingMonth, monthOf } from "./companyDay";
@@ -76,7 +76,14 @@ export async function loadContractRevenueSeasons(reader: Reader, companyId: stri
 }
 
 export async function countInEffectSnowTm(reader: Reader, companyId: string, today: string) {
-  const [result] = await reader.select({ count: count() })
+  return (await inEffectSnowPricing(reader, companyId, today)).snowTmCount;
+}
+
+export async function inEffectSnowPricing(reader: Reader, companyId: string, today: string) {
+  const [result] = await reader.select({
+    snowTmCount: sql<number>`count(*) filter (where ${agreementTerms.snowPricing} = 'time_and_materials')`.mapWith(Number),
+    hasFlatSnow: sql<boolean>`coalesce(bool_or(${agreementTerms.snowPricing} = 'flat_rate'), false)`,
+  })
     .from(agreementTerms)
     .innerJoin(agreements, eq(agreementTerms.agreementId, agreements.id))
     .innerJoin(customers, eq(agreements.customerId, customers.id))
@@ -88,9 +95,8 @@ export async function countInEffectSnowTm(reader: Reader, companyId: string, tod
       lte(agreementTerms.startDate, today),
       gte(agreementTerms.endDate, today),
       inArray(agreementTerms.line, ["snow", "both"]),
-      eq(agreementTerms.snowPricing, "time_and_materials"),
     ));
-  return result.count;
+  return result;
 }
 
 function yearMonthIndex(month: string, year: number): number {
@@ -126,6 +132,7 @@ type CustomerYear = {
   months: number[];
   totalCents: number;
   seasonStarts: Array<{ month: string; seasonLabel: string }>;
+  breakdown: Record<Exclude<RevenueLine, "all">, number[]>;
 };
 
 export function byCustomer(rows: readonly ContractRevenueRow[], year: number, seasons: readonly SeasonStart[] = rows): CustomerYear[] {
@@ -136,10 +143,12 @@ export function byCustomer(rows: readonly ContractRevenueRow[], year: number, se
     let entry = entries.get(row.agreementId);
     if (!entry) {
       entry = { customerId: row.customerId, customerName: row.customerName, agreementId: row.agreementId,
-        months: Array<number>(12).fill(0), totalCents: 0, seasonStarts: [] };
+        months: Array<number>(12).fill(0), totalCents: 0, seasonStarts: [],
+        breakdown: { contract: Array<number>(12).fill(0), snow: Array<number>(12).fill(0), fee: Array<number>(12).fill(0) } };
       entries.set(row.agreementId, entry);
     }
     entry.months[index] += row.amountCents;
+    entry.breakdown[row.isFee ? "fee" : row.stream][index] += row.amountCents;
     entry.totalCents += row.amountCents;
   }
 
@@ -167,12 +176,12 @@ type BillingEntry = Pick<ContractRevenueRow, "customerId" | "customerName" | "ag
 };
 
 export function summarizeBillingMonth(rows: readonly ContractRevenueRow[]) {
-  const totals = { amountCents: 0, contractCents: 0, snowCents: 0, feeCents: 0 };
+  const totals = { amountCents: 0, contractCents: 0, snowCents: 0, feeCents: 0, landscapeCents: 0, flatSnowCents: 0 };
   const entries = new Map<string, { term: ContractRevenueRow; amountCents: number; lines: BillingEntry["lines"] }>();
   for (const row of rows) {
     totals.amountCents += row.amountCents;
     totals[row.stream === "snow" ? "snowCents" : "contractCents"] += row.amountCents;
-    if (row.isFee) totals.feeCents += row.amountCents;
+    totals[row.isFee ? "feeCents" : row.stream === "snow" ? "flatSnowCents" : "landscapeCents"] += row.amountCents;
     let entry = entries.get(row.agreementId);
     if (!entry) {
       entry = { term: row, amountCents: 0, lines: [] };

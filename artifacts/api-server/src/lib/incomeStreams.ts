@@ -3,8 +3,11 @@ import type {
   RevenueIncomeTotals, RevenueIncomeYears, RevenuePlan, RevenuePlanProjection, RevenueTrendAmount,
 } from "@workspace/api-zod";
 import { REVENUE_STREAMS, type IncomeAccountStream, type RevenueStream } from "@workspace/db/revenue-streams";
-import { billingMonth, monthOf } from "./companyDay";
-import { compareTermPriority, IN_EFFECT_TERM_STATUSES, isNotRenewing, monthIndex, selectRenewalSource } from "./contractCenterService";
+import { billingMonth, calendarDaysBetween, monthOf } from "./companyDay";
+import {
+  compareTermPriority, IN_EFFECT_TERM_STATUSES, isNotRenewing, monthIndex, RENEWAL_WINDOW_DAYS,
+  selectInEffectTerm, selectRenewalSource,
+} from "./contractCenterService";
 import { recordedContractLoss } from "./contractState";
 import type { ContractRevenueRow } from "./contractRevenue";
 import type { ContractRenewalHistory, RenewalDueRow } from "./contractCenterPersistence";
@@ -16,7 +19,8 @@ type GridKey = StreamKey | "all";
 type History = Omit<ContractRenewalHistory, "terms"> & { terms: readonly RevenueSeason[] };
 type RevenueSeason = Pick<ContractRenewalHistory["terms"][number],
   "id" | "status" | "startDate" | "endDate" | "line" | "annualPriceCents" |
-  "seasonLabel" | "nonRenewalOn" | "nonRenewalReason" | "renewedFromTermId">;
+  "seasonLabel" | "nonRenewalOn" | "nonRenewalReason" | "renewedFromTermId"> &
+  Partial<Pick<ContractRenewalHistory["terms"][number], "billingType">>;
 type Billing = Pick<ContractRevenueRow,
   "agreementId" | "customerId" | "customerName" | "termId" | "stream" | "form" | "isFee" | "month" | "amountCents">;
 
@@ -69,7 +73,9 @@ function contractRenewals(histories: IncomeInputs["histories"], bills: IncomeInp
     if (term.annualPriceCents === null && !row.isFee && offset >= 0 && offset < 12)
       add(firstYearByTerm, term.id, row.amountCents);
   }
-  return histories.flatMap(({ terms, ...owner }) => {
+  const annual = (term: RevenueSeason) => term.annualPriceCents ?? firstYearByTerm.get(term.id) ?? null;
+  const latestBill = (term: RevenueSeason) => lastBillByTerm.get(term.id) ?? null;
+  const groups = histories.flatMap(({ terms, ...owner }) => {
     // Revenue fills only after the last counted end date, including a future
     // signed successor. Contract Center owns the outcome and draft lineage.
     const latest = terms.filter(term => IN_EFFECT_TERM_STATUSES.some(status => status === term.status))
@@ -79,11 +85,61 @@ function contractRenewals(histories: IncomeInputs["histories"], bills: IncomeInp
     const loss = recordedContractLoss(terms, latest, source);
     return [{
       ...owner, latest, source, eligible: !loss.direct && !loss.renewal && !isNotRenewing(latest),
-      annualCents: latest.annualPriceCents ?? firstYearByTerm.get(latest.id) ?? 0,
+      annualCents: annual(latest) ?? 0,
       stream: latest.line === "snow" ? "snow" as const : "contract" as const,
-      lastMonth: source ? lastBillByTerm.get(source.id) ?? null : null,
+      lastMonth: source ? latestBill(source) : null,
     }];
   });
+  return { groups, annual, latestBill };
+}
+
+function revenueRenewalDetail(inputs: IncomeInputs, year: number, dueRows: readonly RenewalDueRow[],
+  { annual, latestBill }: ReturnType<typeof contractRenewals>): RevenuePlanProjection["renewals"] {
+  // RV6 specifies a 60-day Revenue drill-down. The merged Contract Center
+  // classifier uses a wider action window; narrow the display, not its rules.
+  const windowDays = Math.min(60, RENEWAL_WINDOW_DAYS);
+  const result: RevenuePlanProjection["renewals"] = { windowDays, inEffect: [], signed: [], atRisk: [], notRenewing: [] };
+  const dueByAgreement = new Map(dueRows.map(row => [row.agreementId, row]));
+  const inEffectStatuses = new Set<string>(IN_EFFECT_TERM_STATUSES);
+  for (const { id, customerName, terms } of inputs.histories) {
+    const info = (term: RevenueSeason) => ({ agreementId: id, customerName, seasonLabel: term.seasonLabel,
+      startDate: term.startDate, endDate: term.endDate, annualCents: annual(term) });
+    const current = selectInEffectTerm([...terms], inputs.today);
+    const due = dueByAgreement.get(id);
+    if (current) {
+      result.inEffect.push({ ...info(current), billingType: current.billingType ?? null });
+      const daysLeft = calendarDaysBetween(inputs.today, current.endDate);
+      // Contract Center supplies eligibility. In-progress rows describe the
+      // draft; the expiry displayed here belongs to the current, signed source.
+      if (daysLeft >= 0 && daysLeft <= windowDays &&
+          (due?.state === "renewal_due" || due?.state === "renewal_in_progress")) {
+        result.atRisk.push({ ...info(current), daysLeft,
+          draftStatus: due.renewalDraft?.sourceTermId === current.id ? due.renewalDraft.status : null });
+      }
+    }
+    const byId = new Map(terms.map(term => [term.id, term]));
+    // Next season is relative to Colorado today, not the plan's calendar
+    // year. Pick the first upcoming counted season before checking lineage,
+    // so a new agreement's first season cannot be skipped for a later one.
+    const upcoming = terms.filter(term => term.startDate > inputs.today && inEffectStatuses.has(term.status))
+      .sort((a, b) => a.startDate.localeCompare(b.startDate) || compareTermPriority(a, b))[0];
+    const prior = upcoming?.renewedFromTermId ? byId.get(upcoming.renewedFromTermId) : undefined;
+    if (upcoming && prior && inEffectStatuses.has(prior.status)) {
+      result.signed.push({ ...info(upcoming), previousAnnualCents: annual(prior) });
+    }
+    const source = selectRenewalSource([...terms]);
+    if (source && inEffectStatuses.has(source.status) && isNotRenewing(source) &&
+      source.endDate >= billingMonth(year - 1, 1)) {
+      result.notRenewing.push({ ...info(source), lastMonth: latestBill(source), reason: source.nonRenewalReason });
+    }
+  }
+  const byCustomer = (a: { customerName: string; agreementId: string }, b: typeof a) =>
+    a.customerName.localeCompare(b.customerName) || a.agreementId.localeCompare(b.agreementId);
+  result.inEffect.sort(byCustomer);
+  result.signed.sort((a, b) => a.startDate.localeCompare(b.startDate) || byCustomer(a, b));
+  result.atRisk.sort((a, b) => a.daysLeft - b.daysLeft || byCustomer(a, b));
+  result.notRenewing.sort(byCustomer);
+  return result;
 }
 
 function summarize(months: readonly RevenueIncomeMonth[]) {
@@ -120,7 +176,8 @@ export function incomeForecast(inputs: IncomeInputs) {
     }
     if (month < currentMonth) add(earned[mapping ?? "other"], month, amountCents);
   }
-  const renewals = contractRenewals(inputs.histories, inputs.bills);
+  const renewalBasis = contractRenewals(inputs.histories, inputs.bills);
+  const renewals = renewalBasis.groups;
   const rawYears = new Map<number, Record<GridKey, RevenueIncomeMonth[]>>();
 
   function rawYear(year: number): Record<GridKey, RevenueIncomeMonth[]> {
@@ -257,9 +314,10 @@ export function incomeForecast(inputs: IncomeInputs) {
       return { agreementId: id, customerName, seasonLabel: latest.seasonLabel, endDate: latest.endDate, annualCents,
         renewalDraft: draft?.sourceTermId === latest.id ? { status: draft.status, annualCents: draft.annualCents } : null };
     }).sort((a, b) => a.endDate.localeCompare(b.endDate) || a.agreementId.localeCompare(b.agreementId));
-    return { plan: planFor(year), base, planned,
+    return { plan: planFor(year), base, baseQboMissing: closedThrough(year - 1) !== null && !loaded.has(year - 1), planned,
       bridge: { startCents, lost, lostCents, carriedCents: startCents - lostCents, signedCents, expectedCents, totalCents: signedCents + expectedCents },
-      renewalsPending, laterRenewalsCount: eligible.filter(r => first <= r.latest.endDate && r.latest.endDate < next).length, pipeline };
+      renewalsPending, laterRenewalsCount: eligible.filter(r => first <= r.latest.endDate && r.latest.endDate < next).length, pipeline,
+      renewals: revenueRenewalDetail(inputs, year, due, renewalBasis) };
   }
 
   function targetAmountsFromPlan(year: number) {

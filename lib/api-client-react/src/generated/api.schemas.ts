@@ -382,15 +382,216 @@ export type RevenuePlanProjectionPipeline = {
   winRatePct: number | null;
 };
 
+/**
+ * @nullable
+ */
+export type RevenueRenewalDetailInEffectItemBillingType =
+  | (typeof RevenueRenewalDetailInEffectItemBillingType)[keyof typeof RevenueRenewalDetailInEffectItemBillingType]
+  | null;
+
+export const RevenueRenewalDetailInEffectItemBillingType = {
+  equal_monthly: "equal_monthly",
+  monthly_variable: "monthly_variable",
+  seasonal: "seasonal",
+  time_and_materials: "time_and_materials",
+} as const;
+
+/**
+ * @nullable
+ */
+export type RevenueRenewalDetailAtRiskItemDraftStatus =
+  | (typeof RevenueRenewalDetailAtRiskItemDraftStatus)[keyof typeof RevenueRenewalDetailAtRiskItemDraftStatus]
+  | null;
+
+export const RevenueRenewalDetailAtRiskItemDraftStatus = {
+  draft: "draft",
+  sent: "sent",
+} as const;
+
+export type RevenueRenewalDetailInEffectItem = {
+  agreementId: string;
+  customerName: string;
+  seasonLabel: string;
+  startDate: string;
+  endDate: string;
+  /** @nullable */
+  annualCents: number | null;
+  /** @nullable */
+  billingType: RevenueRenewalDetailInEffectItemBillingType;
+};
+
+export type RevenueRenewalDetailSignedItem = {
+  agreementId: string;
+  customerName: string;
+  seasonLabel: string;
+  startDate: string;
+  endDate: string;
+  /** @nullable */
+  annualCents: number | null;
+  /** @nullable */
+  previousAnnualCents: number | null;
+};
+
+export type RevenueRenewalDetailAtRiskItem = {
+  agreementId: string;
+  customerName: string;
+  seasonLabel: string;
+  startDate: string;
+  endDate: string;
+  /** @nullable */
+  annualCents: number | null;
+  daysLeft: number;
+  /** @nullable */
+  draftStatus: RevenueRenewalDetailAtRiskItemDraftStatus;
+};
+
+export type RevenueRenewalDetailNotRenewingItem = {
+  agreementId: string;
+  customerName: string;
+  seasonLabel: string;
+  startDate: string;
+  endDate: string;
+  /** @nullable */
+  annualCents: number | null;
+  /** @nullable */
+  lastMonth: string | null;
+  /** @nullable */
+  reason: string | null;
+};
+
+export interface RevenueRenewalDetail {
+  windowDays: number;
+  inEffect: RevenueRenewalDetailInEffectItem[];
+  signed: RevenueRenewalDetailSignedItem[];
+  atRisk: RevenueRenewalDetailAtRiskItem[];
+  notRenewing: RevenueRenewalDetailNotRenewingItem[];
+}
+
 export interface RevenuePlanProjection {
   plan: RevenuePlan;
   base: RevenuePlanProjectionBase;
+  baseQboMissing: boolean;
   planned: RevenueIncomeStreams;
   bridge: RevenuePlanProjectionBridge;
   renewalsPending: RevenuePlanPendingRenewal[];
   /** @minimum 0 */
   laterRenewalsCount: number;
+  renewals: RevenueRenewalDetail;
   pipeline: RevenuePlanProjectionPipeline;
+}
+
+export interface RevenueRenewalSeason {
+  agreementId: string;
+  customerName: string;
+  seasonLabel: string;
+  startDate: string;
+  endDate: string;
+  /** @nullable */
+  annualCents: number | null;
+}
+
+export type RevenueContractBillingTotals = {
+  amountCents: number;
+  contractCents: number;
+  snowCents: number;
+  feeCents: number;
+  landscapeCents: number;
+  flatSnowCents: number;
+};
+
+export type RevenueContractBillingCustomersItemLine =
+  (typeof RevenueContractBillingCustomersItemLine)[keyof typeof RevenueContractBillingCustomersItemLine];
+
+export const RevenueContractBillingCustomersItemLine = {
+  landscape: "landscape",
+  snow: "snow",
+  both: "both",
+} as const;
+
+export type RevenueContractBillingCustomersItemForm =
+  (typeof RevenueContractBillingCustomersItemForm)[keyof typeof RevenueContractBillingCustomersItemForm];
+
+export const RevenueContractBillingCustomersItemForm = {
+  ours: "ours",
+  theirs: "theirs",
+} as const;
+
+export type RevenueContractBillingCustomersItemLinesItem = {
+  component: string;
+  isFee: boolean;
+  amountCents: number;
+};
+
+export type RevenueContractBillingCustomersItem = {
+  customerId: string;
+  customerName: string;
+  agreementId: string;
+  termId: string;
+  seasonLabel: string;
+  line: RevenueContractBillingCustomersItemLine;
+  form: RevenueContractBillingCustomersItemForm;
+  notRenewing: boolean;
+  amountCents: number;
+  lines: RevenueContractBillingCustomersItemLinesItem[];
+};
+
+export interface RevenueContractBilling {
+  month: string;
+  totals: RevenueContractBillingTotals;
+  customers: RevenueContractBillingCustomersItem[];
+  snowTmCount: number;
+  yearToDateCents: number;
+  fullYearCents: number;
+}
+
+export type RevenueContractsByCustomerCustomersItemSeasonStartsItem = {
+  month: string;
+  seasonLabel: string;
+};
+
+export type RevenueContractsByCustomerCustomersItemBreakdown = {
+  /**
+   * @minItems 12
+   * @maxItems 12
+   */
+  contract: number[];
+  /**
+   * @minItems 12
+   * @maxItems 12
+   */
+  snow: number[];
+  /**
+   * @minItems 12
+   * @maxItems 12
+   */
+  fee: number[];
+};
+
+export type RevenueContractsByCustomerCustomersItem = {
+  customerId: string;
+  customerName: string;
+  agreementId: string;
+  /**
+   * @minItems 12
+   * @maxItems 12
+   */
+  months: number[];
+  totalCents: number;
+  seasonStarts: RevenueContractsByCustomerCustomersItemSeasonStartsItem[];
+  breakdown: RevenueContractsByCustomerCustomersItemBreakdown;
+};
+
+export interface RevenueContractsByCustomer {
+  year: number;
+  customers: RevenueContractsByCustomerCustomersItem[];
+  /**
+   * @minItems 12
+   * @maxItems 12
+   */
+  monthTotals: number[];
+  totalCents: number;
+  snowTmCount: number;
+  hasFlatSnow: boolean;
 }
 
 export interface RevenueQboFetchedYear {
@@ -2286,6 +2487,32 @@ export type GetRevenueIncomeYearsParams = {
    */
   to: number;
 };
+
+export type GetRevenueContractBillingParams = {
+  /**
+   * @pattern ^(?!0000)\d{4}-(0[1-9]|1[0-2])$
+   */
+  month: string;
+};
+
+export type GetRevenueContractsByCustomerParams = {
+  /**
+   * @minimum 1
+   * @maximum 9999
+   */
+  year: number;
+  line?: GetRevenueContractsByCustomerLine;
+};
+
+export type GetRevenueContractsByCustomerLine =
+  (typeof GetRevenueContractsByCustomerLine)[keyof typeof GetRevenueContractsByCustomerLine];
+
+export const GetRevenueContractsByCustomerLine = {
+  all: "all",
+  contract: "contract",
+  snow: "snow",
+  fee: "fee",
+} as const;
 
 export type UpdateRevenueQboAccountMappings200 = {
   ok: boolean;

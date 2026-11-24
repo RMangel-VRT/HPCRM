@@ -48,3 +48,20 @@ signed Contract Center payments; label those figures as partial, not earned.
 
 **Why:** An absent target is not a zero-dollar goal, and a signed payment is
 not proof of accrual income. Mixing those cases gives misleading comparisons.
+
+The Revenue at-risk drill-down is limited to the next 60 Colorado calendar
+days, even when the broader Contract Center action window is longer.
+
+**Why:** The Revenue brief specifies 60 days; changing the shared action
+window would change what Contract Center and other consumers ask staff to do.
+
+**How to apply:** Filter the already-classified renewal rows by the signed
+source's end date. Do not classify renewals again or use a draft's end date.
+
+“Signed for next season” is relative to today, not the plan year.
+
+**Why:** A December successor resolves renewal risk even when the Plan is
+for the following calendar year. Omitting it hides a real signed renewal.
+
+**How to apply:** Start with the first future counted season on the
+agreement, then require a counted predecessor linked by renewal lineage.

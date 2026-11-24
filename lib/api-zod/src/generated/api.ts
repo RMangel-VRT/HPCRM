@@ -1223,6 +1223,7 @@ export const GetRevenuePlanProjectionResponse = zod.object({
       })
       .optional(),
   }),
+  baseQboMissing: zod.boolean(),
   planned: zod.object({
     contract: zod.object({
       earnedCents: zod.number().nullable(),
@@ -1408,6 +1409,65 @@ export const GetRevenuePlanProjectionResponse = zod.object({
   laterRenewalsCount: zod
     .number()
     .min(getRevenuePlanProjectionResponseLaterRenewalsCountMin),
+  renewals: zod.object({
+    windowDays: zod.number(),
+    inEffect: zod.array(
+      zod.object({
+        agreementId: zod.string(),
+        customerName: zod.string(),
+        seasonLabel: zod.string(),
+        startDate: zod.string(),
+        endDate: zod.string(),
+        annualCents: zod.number().nullable(),
+        billingType: zod
+          .union([
+            zod.literal("equal_monthly"),
+            zod.literal("monthly_variable"),
+            zod.literal("seasonal"),
+            zod.literal("time_and_materials"),
+            zod.literal(null),
+          ])
+          .nullable(),
+      }),
+    ),
+    signed: zod.array(
+      zod.object({
+        agreementId: zod.string(),
+        customerName: zod.string(),
+        seasonLabel: zod.string(),
+        startDate: zod.string(),
+        endDate: zod.string(),
+        annualCents: zod.number().nullable(),
+        previousAnnualCents: zod.number().nullable(),
+      }),
+    ),
+    atRisk: zod.array(
+      zod.object({
+        agreementId: zod.string(),
+        customerName: zod.string(),
+        seasonLabel: zod.string(),
+        startDate: zod.string(),
+        endDate: zod.string(),
+        annualCents: zod.number().nullable(),
+        daysLeft: zod.number(),
+        draftStatus: zod
+          .union([zod.literal("draft"), zod.literal("sent"), zod.literal(null)])
+          .nullable(),
+      }),
+    ),
+    notRenewing: zod.array(
+      zod.object({
+        agreementId: zod.string(),
+        customerName: zod.string(),
+        seasonLabel: zod.string(),
+        startDate: zod.string(),
+        endDate: zod.string(),
+        annualCents: zod.number().nullable(),
+        lastMonth: zod.string().nullable(),
+        reason: zod.string().nullable(),
+      }),
+    ),
+  }),
   pipeline: zod.object({
     acceptedLast12Cents: zod.number(),
     sentOpenCents: zod.number(),
@@ -1557,6 +1617,133 @@ export const SaveRevenueTargetsFromPlanResponse = zod.object({
       .max(saveRevenueTargetsFromPlanResponseAnnualExtraMax),
   }),
   saved: zod.boolean().describe("At least one monthly target row exists"),
+});
+
+export const getRevenueContractBillingQueryMonthRegExp = new RegExp(
+  "^(?!0000)\\d{4}-(0[1-9]|1[0-2])$",
+);
+
+export const GetRevenueContractBillingQueryParams = zod.object({
+  month: zod.coerce.string().regex(getRevenueContractBillingQueryMonthRegExp),
+});
+
+export const GetRevenueContractBillingResponse = zod.object({
+  month: zod.string(),
+  totals: zod.object({
+    amountCents: zod.number(),
+    contractCents: zod.number(),
+    snowCents: zod.number(),
+    feeCents: zod.number(),
+    landscapeCents: zod.number(),
+    flatSnowCents: zod.number(),
+  }),
+  customers: zod.array(
+    zod.object({
+      customerId: zod.string(),
+      customerName: zod.string(),
+      agreementId: zod.string(),
+      termId: zod.string(),
+      seasonLabel: zod.string(),
+      line: zod.enum(["landscape", "snow", "both"]),
+      form: zod.enum(["ours", "theirs"]),
+      notRenewing: zod.boolean(),
+      amountCents: zod.number(),
+      lines: zod.array(
+        zod.object({
+          component: zod.string(),
+          isFee: zod.boolean(),
+          amountCents: zod.number(),
+        }),
+      ),
+    }),
+  ),
+  snowTmCount: zod.number(),
+  yearToDateCents: zod.number(),
+  fullYearCents: zod.number(),
+});
+
+export const getRevenueContractsByCustomerQueryYearMax = 9999;
+
+export const getRevenueContractsByCustomerQueryLineDefault = `all`;
+
+export const GetRevenueContractsByCustomerQueryParams = zod.object({
+  year: zod.coerce
+    .number()
+    .min(1)
+    .max(getRevenueContractsByCustomerQueryYearMax),
+  line: zod
+    .enum(["all", "contract", "snow", "fee"])
+    .default(getRevenueContractsByCustomerQueryLineDefault),
+});
+
+export const getRevenueContractsByCustomerResponseCustomersItemMonthsMin = 12;
+export const getRevenueContractsByCustomerResponseCustomersItemMonthsMax = 12;
+
+export const getRevenueContractsByCustomerResponseCustomersItemBreakdownContractMin = 12;
+export const getRevenueContractsByCustomerResponseCustomersItemBreakdownContractMax = 12;
+
+export const getRevenueContractsByCustomerResponseCustomersItemBreakdownSnowMin = 12;
+export const getRevenueContractsByCustomerResponseCustomersItemBreakdownSnowMax = 12;
+
+export const getRevenueContractsByCustomerResponseCustomersItemBreakdownFeeMin = 12;
+export const getRevenueContractsByCustomerResponseCustomersItemBreakdownFeeMax = 12;
+
+export const getRevenueContractsByCustomerResponseMonthTotalsMin = 12;
+export const getRevenueContractsByCustomerResponseMonthTotalsMax = 12;
+
+export const GetRevenueContractsByCustomerResponse = zod.object({
+  year: zod.number(),
+  customers: zod.array(
+    zod.object({
+      customerId: zod.string(),
+      customerName: zod.string(),
+      agreementId: zod.string(),
+      months: zod
+        .array(zod.number())
+        .min(getRevenueContractsByCustomerResponseCustomersItemMonthsMin)
+        .max(getRevenueContractsByCustomerResponseCustomersItemMonthsMax),
+      totalCents: zod.number(),
+      seasonStarts: zod.array(
+        zod.object({
+          month: zod.string(),
+          seasonLabel: zod.string(),
+        }),
+      ),
+      breakdown: zod.object({
+        contract: zod
+          .array(zod.number())
+          .min(
+            getRevenueContractsByCustomerResponseCustomersItemBreakdownContractMin,
+          )
+          .max(
+            getRevenueContractsByCustomerResponseCustomersItemBreakdownContractMax,
+          ),
+        snow: zod
+          .array(zod.number())
+          .min(
+            getRevenueContractsByCustomerResponseCustomersItemBreakdownSnowMin,
+          )
+          .max(
+            getRevenueContractsByCustomerResponseCustomersItemBreakdownSnowMax,
+          ),
+        fee: zod
+          .array(zod.number())
+          .min(
+            getRevenueContractsByCustomerResponseCustomersItemBreakdownFeeMin,
+          )
+          .max(
+            getRevenueContractsByCustomerResponseCustomersItemBreakdownFeeMax,
+          ),
+      }),
+    }),
+  ),
+  monthTotals: zod
+    .array(zod.number())
+    .min(getRevenueContractsByCustomerResponseMonthTotalsMin)
+    .max(getRevenueContractsByCustomerResponseMonthTotalsMax),
+  totalCents: zod.number(),
+  snowTmCount: zod.number(),
+  hasFlatSnow: zod.boolean(),
 });
 
 export const getRevenueQboStatusResponseUnmappedCountMin = 0;

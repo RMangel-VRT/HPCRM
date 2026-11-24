@@ -11,14 +11,17 @@ import type { RevenuePlanPendingRenewal } from "./revenuePlanPendingRenewal";
 import type { RevenuePlanProjectionBase } from "./revenuePlanProjectionBase";
 import type { RevenuePlanProjectionBridge } from "./revenuePlanProjectionBridge";
 import type { RevenuePlanProjectionPipeline } from "./revenuePlanProjectionPipeline";
+import type { RevenueRenewalDetail } from "./revenueRenewalDetail";
 
 export interface RevenuePlanProjection {
   plan: RevenuePlan;
   base: RevenuePlanProjectionBase;
+  baseQboMissing: boolean;
   planned: RevenueIncomeStreams;
   bridge: RevenuePlanProjectionBridge;
   renewalsPending: RevenuePlanPendingRenewal[];
   /** @minimum 0 */
   laterRenewalsCount: number;
+  renewals: RevenueRenewalDetail;
   pipeline: RevenuePlanProjectionPipeline;
 }

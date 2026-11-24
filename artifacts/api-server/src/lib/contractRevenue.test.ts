@@ -29,6 +29,7 @@ describe("contract revenue projections", () => {
     expect(byCustomer(rows, 2026)).toEqual([{
       customerId: "parent", customerName: "Parent HOA", agreementId: "parent-agreement",
       months, totalCents: 158142, seasonStarts: [{ month: "2026-10-01", seasonLabel: "2026–27" }],
+      breakdown: { contract: months, snow: Array(12).fill(0), fee: Array(12).fill(0) },
     }]);
 
     const different = { ...renewed, agreementId: "different", month: "2026-10-01" };
@@ -43,6 +44,7 @@ describe("contract revenue projections", () => {
       customerId: "parent", customerName: "Parent HOA", agreementId: "parent-agreement",
       months: [0, 0, 0, 0, 0, 0, 0, 0, 0, 511, 0, 0], totalCents: 511,
       seasonStarts: [{ month: "2026-10-01", seasonLabel: "New" }],
+      breakdown: { contract: Array(12).fill(0), snow: Array(12).fill(0), fee: [0, 0, 0, 0, 0, 0, 0, 0, 0, 511, 0, 0] },
     }]);
     expect(byCustomer([zero], 2026)).toEqual([]);
   });
@@ -55,7 +57,8 @@ describe("contract revenue projections", () => {
     const fee = { ...parentTerm, component: "Equipment fee", isFee: true, amountCents: 1001 };
     const rows = [snow, fee, parentTerm, snowFee];
     const billed = summarizeBillingMonth(rows);
-    expect(billed.totals).toEqual({ amountCents: 22847, contractCents: 13346, snowCents: 9501, feeCents: 1502 });
+    expect(billed.totals).toEqual({ amountCents: 22847, contractCents: 13346, snowCents: 9501, feeCents: 1502,
+      landscapeCents: 12345, flatSnowCents: 9000 });
     expect(billed.customers.map(x => [x.customerId, x.amountCents, x.notRenewing])).toEqual([
       ["parent", 13346, false], ["branch", 9501, true],
     ]);

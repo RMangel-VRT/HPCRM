@@ -6,13 +6,14 @@ import type { ContractRevenueRow } from "../lib/contractRevenue";
 import { registerRevenueRoutes } from "./revenue";
 
 const mocks = vi.hoisted(() => ({
-  paymentRows: vi.fn(), seasons: vi.fn(), tmCount: vi.fn(), overview: vi.fn(), top: vi.fn(), db: {},
+  paymentRows: vi.fn(), seasons: vi.fn(), tmCount: vi.fn(), snowPricing: vi.fn(), overview: vi.fn(), top: vi.fn(), db: {},
 }));
 vi.mock("../db", () => ({ db: mocks.db }));
 vi.mock("../storage", () => ({ storage: { getRevenueOverview: mocks.overview, getTopCustomers: mocks.top } }));
 vi.mock("../lib/contractRevenue", async (importOriginal) => ({
   ...await importOriginal<typeof import("../lib/contractRevenue")>(),
   loadContractRevenueRows: mocks.paymentRows, loadContractRevenueSeasons: mocks.seasons, countInEffectSnowTm: mocks.tmCount,
+  inEffectSnowPricing: mocks.snowPricing,
 }));
 
 const billing = "/api/revenue/contracts/billing?month=2026-10";
@@ -52,6 +53,7 @@ describe("Revenue HTTP routes", () => {
     vi.clearAllMocks();
     mocks.paymentRows.mockResolvedValue([row, fee]);
     mocks.tmCount.mockResolvedValue(3);
+    mocks.snowPricing.mockResolvedValue({ snowTmCount: 3, hasFlatSnow: false });
     mocks.seasons.mockResolvedValue([row, { ...row, termId: "old", startDate: "2025-05-01" }]);
     mocks.overview.mockResolvedValue({ selectedMonthTotal: 22 });
     mocks.top.mockResolvedValue([{ id: "owner", name: "Owner", totalRevenue: 124, activeContracts: 2 }]);
@@ -76,8 +78,8 @@ describe("Revenue HTTP routes", () => {
     );
     expect([bill, year, old, months, ranking].map(response => response.status)).toEqual([200, 200, 200, 200, 200]);
     expect(bill.body).toEqual({
-      month: "2026-10-01", totals: { amountCents: 12400, contractCents: 12400, snowCents: 0, feeCents: 55 },
-      snowTmCount: 3,
+      month: "2026-10-01", totals: { amountCents: 12400, contractCents: 12400, snowCents: 0, feeCents: 55, landscapeCents: 12345, flatSnowCents: 0 },
+      snowTmCount: 3, yearToDateCents: 12400, fullYearCents: 12400,
       customers: [{
         agreementId: "agreement", customerId: "owner", customerName: "Owner", termId: "new",
         seasonLabel: "Renewal", line: "both", form: "theirs", notRenewing: true, amountCents: 12400,
@@ -90,7 +92,7 @@ describe("Revenue HTTP routes", () => {
     expect(ranking.body).toEqual([{ id: "owner", name: "Owner", totalRevenue: 124, activeContracts: 2 }]);
     expect(mocks.top).toHaveBeenCalledWith("scope", 3);
     expect(mocks.overview).toHaveBeenCalledWith("scope", 10, 2026);
-    expect(mocks.paymentRows).toHaveBeenCalledWith(mocks.db, "scope", "2026-10-01", "2026-10-01");
+    expect(mocks.paymentRows).toHaveBeenCalledWith(mocks.db, "scope", "2026-01-01", "2026-12-01");
     expect(mocks.tmCount).toHaveBeenCalledWith(mocks.db, "scope", expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
     expect(mocks.seasons).toHaveBeenCalledWith(mocks.db, "scope", ["agreement"], 2026);
   });
@@ -101,12 +103,23 @@ describe("Revenue HTTP routes", () => {
       const response = await request(appFor("office")).get(`${matrix}&line=${line}`);
       const months = [0, 0, 0, 0, 0, 0, 0, 0, 0, totalCents, 0, 0];
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ year: 2026, totalCents, monthTotals: months, customers: totalCents ? [{
+      expect(response.body).toMatchObject({ year: 2026, totalCents, monthTotals: months, snowTmCount: 3, hasFlatSnow: false, customers: totalCents ? [{
         customerId: "owner", customerName: "Owner", agreementId: "agreement", months, totalCents,
         seasonStarts: [{ month: "2026-10-01", seasonLabel: "Renewal" }],
       }] : [] });
     },
   );
+
+  it("uses the same annual rows for billing rollups without leaking other months into the table", async () => {
+    mocks.paymentRows.mockResolvedValue([row, fee, { ...row, month: "2026-01-01", amountCents: 300 },
+      { ...row, month: "2026-12-01", amountCents: 700 }]);
+    const response = await request(appFor("office")).get(billing).set("X-Company-Id", "scope").expect(200);
+    expect(response.body).toMatchObject({ yearToDateCents: 12700, fullYearCents: 13400, totals: { amountCents: 12400 } });
+    expect(response.body.customers[0].lines).toHaveLength(2);
+    for (const path of [billing, matrix])
+      await request(appFor("admin")).get(path).set("X-Company-Id", "old-company").expect(409);
+    expect(mocks.paymentRows).toHaveBeenCalledTimes(1);
+  });
 
   it.each([
     billing.split("?")[0], billing.replace("2026-10", "2026-13"), billing.replace("2026-10", "2026-1"),

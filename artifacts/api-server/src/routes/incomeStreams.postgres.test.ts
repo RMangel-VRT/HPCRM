@@ -201,6 +201,38 @@ describe.runIf(process.env.RUN_RV4_POSTGRES_TEST === "1")("income forecast route
     expect(provider.request).not.toHaveBeenCalled();
   });
 
+  it("keeps the 60-day boundary and counts signed successors starting in either calendar year", async () => {
+    await deps.db.execute(sql`
+      insert into agreements (id, company_id, customer_id) values
+        ('edge-sixty', 'a', 'owner-a'), ('edge-sixty-one', 'a', 'owner-a'), ('paired', 'a', 'owner-a'),
+        ('december-successor', 'a', 'owner-a'), ('first-ever-season', 'a', 'owner-a');
+      insert into agreement_terms (id, company_id, agreement_id, start_date, end_date, season_label,
+        line, form, status, billing_type, annual_price_cents, renewed_from_term_id)
+      values
+        ('term-sixty', 'a', 'edge-sixty', '2026-02-01', '2027-01-22', '2026', 'landscape', 'ours', 'active', 'equal_monthly', 12000, null),
+        ('term-sixty-one', 'a', 'edge-sixty-one', '2026-02-01', '2027-01-23', '2026', 'landscape', 'ours', 'active', 'equal_monthly', 11000, null),
+        ('term-before', 'a', 'paired', '2026-01-01', '2026-12-31', '2026', 'landscape', 'ours', 'renewed', 'seasonal', 10000, null),
+        ('term-after', 'a', 'paired', '2027-01-01', '2027-12-31', '2027', 'landscape', 'ours', 'signed', 'seasonal', 12000, 'term-before'),
+        ('before-december', 'a', 'december-successor', '2025-12-01', '2026-11-30', '2025–26', 'landscape', 'ours', 'renewed', 'seasonal', 20000, null),
+        ('from-december', 'a', 'december-successor', '2026-12-01', '2027-11-30', '2026–27', 'landscape', 'ours', 'signed', 'seasonal', 24000, 'before-december'),
+        ('after-december', 'a', 'december-successor', '2027-12-01', '2028-11-30', '2027–28', 'landscape', 'ours', 'signed', 'seasonal', 26000, 'from-december'),
+        ('first-season', 'a', 'first-ever-season', '2026-12-01', '2027-06-30', 'Starter', 'landscape', 'ours', 'signed', 'seasonal', 10000, null),
+        ('second-season', 'a', 'first-ever-season', '2027-07-01', '2028-06-30', 'Later', 'landscape', 'ours', 'signed', 'seasonal', 11000, 'first-season')
+    `);
+    const { body } = await appFor("office").get(projection).expect(200);
+    expect(body.renewals.windowDays).toBe(60);
+    expect(body.renewals.atRisk).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agreementId: "edge-sixty", daysLeft: 60 }),
+      expect.objectContaining({ agreementId: "falls-back", draftStatus: "sent", endDate: "2026-12-31" }),
+    ]));
+    expect(body.renewals.atRisk.map((row: { agreementId: string }) => row.agreementId)).toEqual(["falls-back", "edge-sixty"]);
+    expect(body.renewals.signed).toEqual([
+      expect.objectContaining({ agreementId: "december-successor", startDate: "2026-12-01", previousAnnualCents: 20000, annualCents: 24000 }),
+      expect.objectContaining({ agreementId: "paired", startDate: "2027-01-01", previousAnnualCents: 10000, annualCents: 12000 }),
+    ]);
+    expect(body.renewals.inEffect).toEqual(expect.arrayContaining([expect.objectContaining({ agreementId: "paired", billingType: "seasonal" })]));
+  });
+
   it("rejects unrepresentable targets without changing an existing grid", async () => {
     const admin = appFor("admin");
     const existing = await admin.put(`${path}/targets/2026`).send({ streams: { contract: fill(10) } }).expect(200);

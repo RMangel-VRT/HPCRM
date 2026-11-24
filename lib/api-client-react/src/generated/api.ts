@@ -64,6 +64,8 @@ import type {
   GetCustomerContractedServicesPdfParams,
   GetCustomerServicesParams,
   GetRequiredSqlObjects200,
+  GetRevenueContractBillingParams,
+  GetRevenueContractsByCustomerParams,
   GetRevenueIncomeParams,
   GetRevenueIncomeYearsParams,
   GetWorkCompletedEmailRule200,
@@ -104,6 +106,8 @@ import type {
   OwnerResponseTicket,
   PreviewEmailWording200,
   ResolvedEstimateWorkLocation,
+  RevenueContractBilling,
+  RevenueContractsByCustomer,
   RevenueIncome,
   RevenueIncomeYears,
   RevenuePlan,
@@ -820,6 +824,210 @@ export const useSaveRevenueTargetsFromPlan = <
 > => {
   return useMutation(getSaveRevenueTargetsFromPlanMutationOptions(options));
 };
+
+export const getGetRevenueContractBillingUrl = (
+  params: GetRevenueContractBillingParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/revenue/contracts/billing?${stringifiedParams}`
+    : `/api/revenue/contracts/billing`;
+};
+
+export const getRevenueContractBilling = async (
+  params: GetRevenueContractBillingParams,
+  options?: RequestInit,
+): Promise<RevenueContractBilling> => {
+  return customFetch<RevenueContractBilling>(
+    getGetRevenueContractBillingUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetRevenueContractBillingQueryKey = (
+  params?: GetRevenueContractBillingParams,
+) => {
+  return [
+    `/api/revenue/contracts/billing`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetRevenueContractBillingQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRevenueContractBilling>>,
+  TError = ErrorType<void>,
+>(
+  params: GetRevenueContractBillingParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRevenueContractBilling>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetRevenueContractBillingQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRevenueContractBilling>>
+  > = ({ signal }) =>
+    getRevenueContractBilling(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRevenueContractBilling>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRevenueContractBillingQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRevenueContractBilling>>
+>;
+export type GetRevenueContractBillingQueryError = ErrorType<void>;
+
+export function useGetRevenueContractBilling<
+  TData = Awaited<ReturnType<typeof getRevenueContractBilling>>,
+  TError = ErrorType<void>,
+>(
+  params: GetRevenueContractBillingParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRevenueContractBilling>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRevenueContractBillingQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getGetRevenueContractsByCustomerUrl = (
+  params: GetRevenueContractsByCustomerParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/revenue/contracts/by-customer?${stringifiedParams}`
+    : `/api/revenue/contracts/by-customer`;
+};
+
+export const getRevenueContractsByCustomer = async (
+  params: GetRevenueContractsByCustomerParams,
+  options?: RequestInit,
+): Promise<RevenueContractsByCustomer> => {
+  return customFetch<RevenueContractsByCustomer>(
+    getGetRevenueContractsByCustomerUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetRevenueContractsByCustomerQueryKey = (
+  params?: GetRevenueContractsByCustomerParams,
+) => {
+  return [
+    `/api/revenue/contracts/by-customer`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetRevenueContractsByCustomerQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRevenueContractsByCustomer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetRevenueContractsByCustomerParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRevenueContractsByCustomer>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetRevenueContractsByCustomerQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRevenueContractsByCustomer>>
+  > = ({ signal }) =>
+    getRevenueContractsByCustomer(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRevenueContractsByCustomer>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRevenueContractsByCustomerQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRevenueContractsByCustomer>>
+>;
+export type GetRevenueContractsByCustomerQueryError = ErrorType<void>;
+
+export function useGetRevenueContractsByCustomer<
+  TData = Awaited<ReturnType<typeof getRevenueContractsByCustomer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetRevenueContractsByCustomerParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRevenueContractsByCustomer>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRevenueContractsByCustomerQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 export const getGetRevenueQboStatusUrl = () => {
   return `/api/revenue/qbo/status`;

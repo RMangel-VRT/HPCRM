@@ -5,6 +5,12 @@ import { RevenueGlance } from "@/components/revenue-v2/RevenueGlance";
 import { RevenueMonthly } from "@/components/revenue-v2/RevenueMonthly";
 import { RevenueQuickBooksBanner } from "@/components/revenue-v2/RevenueQuickBooks";
 import { RevenueYearOverYear } from "@/components/revenue-v2/RevenueYearOverYear";
+import { RevenuePlan } from "@/components/revenue-v2/RevenuePlan";
+import { RevenueTargets } from "@/components/revenue-v2/RevenueTargets";
+import { RevenueRenewals } from "@/components/revenue-v2/RevenueRenewals";
+import { RevenueBilling } from "@/components/revenue-v2/RevenueBilling";
+import { RevenueCustomers } from "@/components/revenue-v2/RevenueCustomers";
+import { RevenueLoadState } from "@/components/revenue-v2/RevenuePlanningShared";
 import { revenueQuery, useRevenueRefresh, type RevenueScope } from "@/components/revenue-v2/revenueQueries";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabParam } from "@/hooks/useTabParam";
@@ -12,6 +18,7 @@ import { companyToday } from "@/lib/schedulingStatus";
 import {
   getGetRevenueIncomeQueryKey, getGetRevenueIncomeYearsQueryKey, getGetRevenuePlanQueryKey,
   getGetRevenueQboStatusQueryKey, getGetRevenueTargetsQueryKey,
+  getGetRevenuePlanProjectionQueryKey, useGetRevenuePlanProjection,
   useGetRevenueIncome, useGetRevenueIncomeYears, useGetRevenuePlan, useGetRevenueQboStatus, useGetRevenueTargets,
 } from "@workspace/api-client-react";
 import { useEffect, useState } from "react";
@@ -19,8 +26,10 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useSearch } from "wouter";
 
 const incomeTabs = ["glance", "monthly", "yoy"] as const;
-type IncomeTab = typeof incomeTabs[number];
-type RevenueTab = IncomeTab | "accounts";
+const planningTabs = ["plan", "targets", "renewals"] as const;
+const contractTabs = ["billing", "customers"] as const;
+const publicTabs = [...incomeTabs, ...planningTabs, ...contractTabs] as const;
+type RevenueTab = typeof publicTabs[number] | "accounts";
 
 function RevenueRetry({ label, retry, id }: { label: string; retry: () => void; id: string }) {
   const { t } = useTranslation();
@@ -38,28 +47,37 @@ function RevenueWorkspace({ scope }: { scope: RevenueScope }) {
     return () => window.clearInterval(timer);
   }, []);
   const currentYear = Number(today.slice(0, 4));
+  const nextYear = currentYear + 1;
   const [location, navigate] = useLocation();
   const search = useSearch();
   const [requestedTab] = useTabParam("glance");
   const tab: RevenueTab = requestedTab === "accounts" && scope.admin ? "accounts" :
-    incomeTabs.find(key => key === requestedTab) ?? "glance";
-  const years = [currentYear - 2, currentYear - 1, currentYear, currentYear + 1];
+    publicTabs.find(key => key === requestedTab) ?? "glance";
+  const years = [currentYear - 2, currentYear - 1, currentYear, nextYear];
   const requestedYear = new URLSearchParams(search).get("year") ?? "";
   const year = years.find(value => String(value) === requestedYear) ?? currentYear;
   const yearView = tab === "glance" || tab === "monthly";
-  const href = (key: "tab" | "year", value: string) => {
+  const href = (key: "tab" | "year", value: string, selectedYear?: number) => {
     const params = new URLSearchParams(search);
     params.set(key, value);
+    if (selectedYear !== undefined) params.set("year", String(selectedYear));
     return `${location}?${params.toString()}`;
   };
-  const railItem = (key: RevenueTab) => ({ key, label: t(`revenueV2.tabs.${key}`), href: href("tab", key) });
+  const projection = useGetRevenuePlanProjection(nextYear, revenueQuery(scope, getGetRevenuePlanProjectionQueryKey(nextYear)));
+  const railItem = (key: RevenueTab) => ({
+    key, label: t(`revenueV2.tabs.${key}`, { year: nextYear }), href: href("tab", key),
+    badge: key === "renewals" ? projection.data?.renewalsPending.length : undefined,
+  });
   const sections: RailSection[] = [
     { label: t("revenueV2.income"), items: incomeTabs.map(railItem) },
+    { label: t("revenueV2.planning.label"), items: planningTabs.map(railItem) },
+    { label: t("revenueV2.contractDetail"), items: contractTabs.map(railItem) },
     ...(scope.admin ? [{ label: t("revenueV2.setup"), items: [railItem("accounts")] }] : []),
   ];
 
   const refresh = useRevenueRefresh(scope, currentYear);
-  const status = useGetRevenueQboStatus(revenueQuery(scope, getGetRevenueQboStatusQueryKey()));
+  const showBanner = yearView || tab === "yoy";
+  const status = useGetRevenueQboStatus(revenueQuery(scope, getGetRevenueQboStatusQueryKey(), showBanner || tab === "accounts"));
   const incomeParams = { year };
   const trendsParams = { from: currentYear - 4, to: currentYear };
   const income = useGetRevenueIncome(incomeParams, revenueQuery(scope, getGetRevenueIncomeQueryKey(incomeParams), yearView));
@@ -70,14 +88,13 @@ function RevenueWorkspace({ scope }: { scope: RevenueScope }) {
   const loadedYears = new Set(status.data?.years.map(entry => entry.year));
   const bannerYear = yearView ? year : currentYear;
   const trendsCurrent = trends.data?.years.find(entry => entry.year === currentYear);
-  const showBanner = tab !== "accounts";
   const missing = yearView ? income.data?.qboMissing === true :
     !!trendsCurrent?.closedThrough && !!status.data && !loadedYears.has(currentYear);
   const fetchedAt = yearView ? income.data?.qbo.fetchedAt :
     status.data?.years.find(entry => entry.year === currentYear)?.fetchedAt;
   const isLoading = tab === "accounts" ? status.isPending : tab === "yoy" ? trends.isPending || status.isPending :
-    income.isPending || (hasTargets && targets.isPending) ||
-    (tab === "glance" && year === currentYear + 1 && plan.isPending);
+    yearView && (income.isPending || (hasTargets && targets.isPending) ||
+    (tab === "glance" && year === nextYear && plan.isPending));
   const error = yearView ? income.isError || (hasTargets && targets.isError) :
     tab === "yoy" && trends.isError;
   const retry = () => {
@@ -93,14 +110,14 @@ function RevenueWorkspace({ scope }: { scope: RevenueScope }) {
       <div className="revenue-workspace mx-auto w-full min-w-0 max-w-[1500px] space-y-5"
         style={{ containerType: "inline-size", containerName: "revenue" }} data-testid="revenue-page">
         <header className="flex flex-wrap items-center justify-between gap-x-5 gap-y-3">
-          <h1 className="text-2xl font-semibold tracking-tight" data-testid="revenue-view-heading">{t(`revenueV2.tabs.${tab}`)}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight" data-testid="revenue-view-heading">{t(`revenueV2.tabs.${tab}`, { year: nextYear })}</h1>
           {yearView && <div className="flex flex-wrap gap-1 rounded-lg border bg-muted/30 p-1" role="group" aria-label={t("revenueV2.year")}>
             {years.map(value => <Button key={value} type="button" size="sm" variant={year === value ? "secondary" : "ghost"}
               className="h-8 px-2.5 tabular-nums" aria-pressed={year === value} data-testid={`button-revenue-year-${value}`}
               onClick={() => { if (year !== value) navigate(href("year", String(value))); }}>{value}</Button>)}
           </div>}
         </header>
-        {status.isError && <RevenueRetry label={t("revenueV2.statusError")} retry={() => { void status.refetch(); }} id="status" />}
+        {(showBanner || tab === "accounts") && status.isError && <RevenueRetry label={t("revenueV2.statusError")} retry={() => { void status.refetch(); }} id="status" />}
         {showBanner && <RevenueQuickBooksBanner year={bannerYear} missing={missing} fetchedAt={fetchedAt ?? null}
           unmapped={Math.max(status.data?.unmappedCount ?? 0, yearView ? income.data?.qbo.unmappedCount ?? 0 : 0)}
           connected={status.data?.connected} admin={scope.admin} accountsHref={href("tab", "accounts")} refresh={refresh} />}
@@ -111,11 +128,21 @@ function RevenueWorkspace({ scope }: { scope: RevenueScope }) {
         {!isLoading && !error && (
           <>
             {tab === "glance" && income.data && <RevenueGlance key={year} income={income.data} currentYear={currentYear}
-              goalCents={plan.data?.goalCents ?? null} goalUnavailable={plan.isError} priorYearLoaded={loadedYears.has(year - 1)} />}
+              goalCents={plan.data?.goalCents ?? null} goalUnavailable={plan.isError} priorYearLoaded={loadedYears.has(year - 1)}
+              byCustomerHref={href("tab", "customers", year)} />}
             {tab === "monthly" && income.data && <RevenueMonthly income={income.data} targets={targets.data ?? null} today={today} />}
             {tab === "yoy" && trends.data && status.data && <RevenueYearOverYear trends={trends.data} currentYear={currentYear} loadedYears={loadedYears} />}
             {tab === "accounts" && scope.admin && status.data && <RevenueAccounts scope={scope} currentYear={currentYear}
               status={status.data} refresh={refresh} />}
+            {(tab === "plan" || tab === "renewals") && (!projection.data
+              ? <RevenueLoadState error={projection.isError} retry={() => void projection.refetch()} />
+              : tab === "plan" ? <RevenuePlan key={nextYear} projection={projection.data} scope={scope} renewalsHref={href("tab", "renewals")}
+                onTargetSaved={() => navigate(href("tab", "targets", nextYear))} /> : <RevenueRenewals projection={projection.data} />)}
+            {tab === "targets" && <RevenueTargets scope={scope} currentYear={currentYear} year={year === nextYear ? nextYear : currentYear}
+              onYearChange={n => navigate(href("year", String(n)))} />}
+            {tab === "billing" && <RevenueBilling scope={scope} today={today} />}
+            {tab === "customers" && <RevenueCustomers scope={scope} today={today} year={year} years={years}
+              onYearChange={n => navigate(href("year", String(n)))} />}
           </>
         )}
       </div>

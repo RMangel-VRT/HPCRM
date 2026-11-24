@@ -172,6 +172,11 @@ describe("income forecast", () => {
     expect(plan.renewalsPending).toMatchObject([{ agreementId: "pending", annualCents: 12000, renewalDraft: { status: "sent", annualCents: 40000 } }]);
     expect(forecast.planProjection(2027, [{ ...draft, renewalDraft: { ...draft.renewalDraft, sourceTermId: "obsolete" } }], emptyPipeline)
       .renewalsPending[0].renewalDraft).toBeNull();
+    expect(plan.renewals).toMatchObject({
+      windowDays: 60,
+      atRisk: [{ agreementId: "pending", daysLeft: 31, endDate: "2026-12-31", draftStatus: "sent" }],
+      notRenewing: [{ agreementId: "lost", reason: "price", lastMonth: "2027-02-01", annualCents: 12000 }],
+    });
     const targets = forecast.targetAmountsFromPlan(2027);
     expect(Object.keys(targets)).toEqual(["contract", "snow", "irrigation", "projects", "extra"]);
     expect(targets.contract.slice(0, 3)).toEqual([1100, 1200, 900]);

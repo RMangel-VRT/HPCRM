@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { RevenueIncome } from "@workspace/api-client-react";
+import { Link } from "wouter";
 import { RevenueMonthChart } from "./RevenueMonthChart";
 import {
   closedIndex, money, monthKind, monthLabels, monthTotal, pct, priorChange, ratioPct, streamKeys, streamVar,
@@ -16,6 +17,7 @@ export interface RevenueGlanceProps {
   goalCents: number | null;
   priorYearLoaded: boolean;
   goalUnavailable?: boolean;
+  byCustomerHref: string;
 }
 
 const V = "revenueV2.views";
@@ -49,7 +51,7 @@ function SignedBar({ color, parts, target, domain, label, tickTestId }: {
   );
 }
 
-export function RevenueGlance({ income, currentYear, goalCents, priorYearLoaded, goalUnavailable }: RevenueGlanceProps) {
+export function RevenueGlance({ income, currentYear, goalCents, priorYearLoaded, goalUnavailable, byCustomerHref }: RevenueGlanceProps) {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState<StreamKey | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -225,10 +227,12 @@ export function RevenueGlance({ income, currentYear, goalCents, priorYearLoaded,
                 return (
                   <tr key={k} data-testid={`revenue-stream-row-${k}`}>
                     <th scope="row">
-                      <button type="button" className="rv-stream-btn" aria-haspopup="dialog" data-testid={`button-stream-${k}`}
+                      {k === "contract" ? <Link href={byCustomerHref} className="rv-stream-btn" data-testid="link-revenue-glance-by-customer">
+                        <span className="rv-dot" style={{ background: streamVar(k), margin: 0 }} aria-hidden="true" />{streamLabel(k)}
+                      </Link> : <button type="button" className="rv-stream-btn" aria-haspopup="dialog" data-testid={`button-stream-${k}`}
                         onClick={e => openPanel(k, e.currentTarget)}>
                         <span className="rv-dot" style={{ background: streamVar(k), margin: 0 }} aria-hidden="true" />{streamLabel(k)}
-                      </button>
+                      </button>}
                       <div className="rv-stream-share">{fc > 0 ? t(`${V}.glance.ofIncome`, { pct: share(s.forecastCents) }) : "\u2014"}</div>
                     </th>
                     <td>
@@ -326,7 +330,6 @@ export function RevenueGlance({ income, currentYear, goalCents, priorYearLoaded,
                   </DialogPrimitive.Title>
                   <div className="rv-eyebrow mt-4">{t(`${V}.panel.sourcesHeading`)}</div>
                   <DialogPrimitive.Description className="text-sm rv-muted mt-1">{t(`${V}.sources.${open}`)}</DialogPrimitive.Description>
-                  {open === "contract" && <p className="text-xs rv-muted mt-3">{t(`${V}.glance.byCustomerSoon`)}</p>}
                   <table className="w-full mt-4 text-sm rv-num">
                     <caption className="sr-only">{t(`${V}.panel.caption`, { stream: streamLabel(open), year })}</caption>
                     <thead>

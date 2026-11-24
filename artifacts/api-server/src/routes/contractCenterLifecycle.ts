@@ -111,6 +111,9 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     res.json(row);
   }));
   app.get("/api/contract-center/contracts/:agreementId", handle(async (req, res, user) => {
+    const requestedCompany = req.get("X-Company-Id");
+    if (requestedCompany !== undefined && requestedCompany !== user.activeCompanyId)
+      throw new ContractCenterError(409, "Active company changed. Reload and try again.");
     const detail = await fullDetail(db, user.activeCompanyId, String(req.params.agreementId));
     const permitted = ["admin", "office"].includes(user.accessRole);
     res.json({ ...detail, canRecordNonRenewal: permitted && detail.canRecordNonRenewal, canUndoNonRenewal: permitted });

@@ -1,0 +1,65 @@
+/* Monthly billing + By customer. Everything stays inside the revenue container width. */
+.rvc-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; min-width: 0; }
+.rvc-push { margin-left: auto; }
+@container revenue (max-width: 560px) { .rvc-push { margin-left: 0; flex: 1 1 100%; } }
+.rvc-stepper { display: inline-flex; align-items: center; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px); background: hsl(var(--card)); }
+.rvc-stepper button { padding: .375rem .5rem; color: hsl(var(--muted-foreground)); }
+.rvc-stepper button:hover { color: hsl(var(--foreground)); background: hsl(var(--muted)); }
+.rvc-stepper button:focus-visible, .rvc-btn:focus-visible, .rvc-link:focus-visible, .rvc-select select:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+.rvc-stepper-label { min-width: 9.5rem; text-align: center; font-weight: 600; font-size: .875rem; }
+.rvc-btn { display: inline-flex; align-items: center; gap: .375rem; font-size: .75rem; font-weight: 600; padding: .4rem .75rem; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px); background: hsl(var(--card)); }
+.rvc-btn:hover:not(:disabled) { background: hsl(var(--muted)); }
+.rvc-btn:disabled { opacity: .5; cursor: not-allowed; }
+.rvc-select { display: inline-flex; align-items: center; gap: .5rem; }
+.rvc-select select { font-size: .8125rem; padding: .3rem .5rem; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px); background: hsl(var(--card)); }
+.rvc-search { display: inline-flex; align-items: center; gap: .375rem; padding: .3rem .6rem; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px); background: hsl(var(--background)); color: hsl(var(--muted-foreground)); min-width: 0; max-width: 20rem; flex: 1 1 12rem; }
+.rvc-search:focus-within { outline: 2px solid hsl(var(--ring)); }
+.rvc-search input { background: transparent; border: 0; outline: 0; font-size: .8125rem; color: hsl(var(--foreground)); min-width: 0; width: 100%; }
+.rvc-split { display: flex; flex-wrap: wrap; gap: .125rem .75rem; font-size: .6875rem; color: hsl(var(--muted-foreground)); }
+.rvc-split b { color: hsl(var(--foreground)); font-weight: 600; }
+.rvc-notice { display: flex; gap: .5rem; align-items: flex-start; font-size: .75rem; line-height: 1.45; padding: .625rem .875rem; border-radius: var(--radius); background: color-mix(in srgb, var(--rv-snow) 9%, transparent); border-left: 3px solid var(--rv-snow); }
+.rvc-notice svg { flex: none; margin-top: 2px; color: var(--rv-snow); }
+.rvc-card-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; justify-content: space-between; padding: .75rem 1rem; border-bottom: 1px solid hsl(var(--border)); }
+.rvc-state { display: flex; flex-direction: column; align-items: center; gap: .75rem; text-align: center; padding: 2.5rem 1rem; font-size: .875rem; color: hsl(var(--muted-foreground)); }
+.rvc-state p { max-width: 32rem; }
+
+.rvc-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: .8125rem; }
+.rvc-table th, .rvc-table td { padding: .625rem .75rem; text-align: left; vertical-align: top; border-bottom: 1px solid hsl(var(--border)); }
+.rvc-table thead th { font-size: .6875rem; text-transform: uppercase; letter-spacing: .06em; color: hsl(var(--muted-foreground)); font-weight: 600; }
+.rvc-table tbody th { font-weight: 600; }
+.rvc-table tfoot th, .rvc-table tfoot td { font-weight: 650; border-top: 2px solid hsl(var(--border)); border-bottom: 0; }
+.rvc-r { text-align: right !important; }
+.rvc-strong { font-weight: 650; }
+.rvc-nowrap { white-space: nowrap; }
+.rvc-click { cursor: pointer; }
+.rvc-click:hover { background: hsl(var(--muted) / .6); }
+.rvc-link { font-weight: 600; text-align: left; border-radius: 3px; color: hsl(var(--foreground)); }
+.rvc-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.rvc-season { margin-right: .375rem; }
+.rvc-chip { display: inline-block; font-size: .625rem; font-weight: 600; letter-spacing: .02em; padding: 1px 6px; border-radius: 999px; margin: 0 .25rem 0 .375rem; white-space: nowrap; vertical-align: 1px; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+.rvc-chip-landscape { background: color-mix(in srgb, var(--rv-contract) 14%, transparent); color: var(--rv-contract); }
+.rvc-chip-snow { background: color-mix(in srgb, var(--rv-snow) 14%, transparent); color: var(--rv-snow); }
+.rvc-chip-both { background: color-mix(in srgb, var(--rv-irrigation) 14%, transparent); color: var(--rv-irrigation); }
+.rvc-chip-warn { background: color-mix(in srgb, var(--rv-neg) 12%, transparent); color: var(--rv-neg); }
+.rvc-chip-fee { background: color-mix(in srgb, var(--rv-projects) 15%, transparent); color: var(--rv-projects); }
+.rvc-lines { display: flex; flex-direction: column; gap: 2px; }
+.rvc-lines li { display: flex; justify-content: space-between; gap: 1rem; }
+.rvc-lines li .rv-num { color: hsl(var(--muted-foreground)); }
+
+.rvc-panel-links { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.rvc-season-block { border: 1px solid hsl(var(--border)); border-radius: var(--radius); padding: .75rem; }
+.rvc-season-current { border-color: var(--rv-contract); box-shadow: inset 3px 0 0 var(--rv-contract); }
+.rvc-season-block header { display: flex; justify-content: space-between; margin-bottom: .5rem; font-size: .875rem; }
+.rvc-mini { width: 100%; font-size: .75rem; border-collapse: collapse; }
+.rvc-mini td { padding: .25rem 0; border-bottom: 1px dashed hsl(var(--border)); }
+.rvc-mini tfoot td { font-weight: 650; border-bottom: 0; padding-top: .375rem; }
+
+.rv-view > .rv-card > .rv-scroller { position: relative; width: 100%; min-width: 0; }
+.rvc-matrix .rv-sticky { width: 12rem; max-width: 13rem; white-space: normal; overflow-wrap: anywhere; }
+.rvc-matrix tbody th, .rvc-matrix tfoot th { font-weight: 600; }
+.rvc-matrix td.rvc-start { box-shadow: inset 2px 0 0 var(--rv-projects); }
+.rvc-bars-row td, .rvc-bars-row th { border-bottom: 0; vertical-align: bottom; padding-top: .75rem; padding-bottom: .25rem; }
+.rvc-stack { display: flex; flex-direction: column-reverse; height: 56px; width: 70%; max-width: 40px; margin-left: auto; border-radius: 2px 2px 0 0; overflow: hidden; }
+.rvc-stack > span { display: block; width: 100%; transform-origin: bottom; animation: rvc-grow .45s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes rvc-grow { from { transform: scaleY(0); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .rvc-stack > span { animation: none; } }

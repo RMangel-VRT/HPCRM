@@ -7,6 +7,7 @@ import {
   GetRevenueQboStatusResponse, ListRevenueQboAccountsResponse, RefreshRevenueQboIncomeBody,
   RefreshRevenueQboIncomeResponse, UpdateRevenueQboAccountMappingsBodyItem, UpdateRevenueQboAccountMappingsResponse,
   GetRevenueIncomeResponse, GetRevenueIncomeYearsResponse, GetRevenuePlanProjectionResponse, SaveRevenueTargetsFromPlanResponse,
+  GetRevenueContractBillingResponse, GetRevenueContractsByCustomerResponse,
 } from "@workspace/api-zod";
 import type { UserWithContext } from "../auth";
 import { db } from "../db";
@@ -21,7 +22,7 @@ import {
 } from "../services/qboIncome";
 import {
   billingMonth, byCustomer, countInEffectSnowTm, dashboardRevenueMonths,
-  filterRevenueLine, loadContractRevenueRows, loadContractRevenueSeasons, monthlyTotals, summarizeBillingMonth,
+  filterRevenueLine, inEffectSnowPricing, loadContractRevenueRows, loadContractRevenueSeasons, monthlyTotals, summarizeBillingMonth,
 } from "../lib/contractRevenue";
 
 export const requireRevenueRead: RequestHandler = (req, res, next) => {
@@ -211,22 +212,28 @@ export function registerRevenueRoutes(app: Express): void {
   app.use("/api/revenue/qbo", qboIncomeRoutes());
   app.use("/api/revenue", revenuePlanningRoutes());
 
-  app.get("/api/revenue/contracts/billing", async (req, res) => {
+  app.get("/api/revenue/contracts/billing", requireRevenueCompany, async (req, res) => {
     const query = billingQuery.safeParse(req.query);
     if (!query.success) {
       res.status(400).json({ message: "month must be YYYY-MM" });
       return;
     }
     const month = `${query.data.month}-01`;
+    const year = Number(month.slice(0, 4));
     const { activeCompanyId } = req.user as UserWithContext;
     const [rows, snowTmCount] = await Promise.all([
-      loadContractRevenueRows(db, activeCompanyId, month, month),
+      loadContractRevenueRows(db, activeCompanyId, billingMonth(year, 1), billingMonth(year, 12)),
       countInEffectSnowTm(db, activeCompanyId, companyToday()),
     ]);
-    res.json({ month, ...summarizeBillingMonth(rows), snowTmCount });
+    const monthTotals = monthlyTotals(rows, year);
+    const sum = (values: number[]) => values.reduce((total, cents) => total + cents, 0);
+    res.json(GetRevenueContractBillingResponse.parse({
+      month, ...summarizeBillingMonth(rows.filter(row => row.month === month)), snowTmCount,
+      yearToDateCents: sum(monthTotals.slice(0, Number(month.slice(5, 7)))), fullYearCents: sum(monthTotals),
+    }));
   });
 
-  app.get("/api/revenue/contracts/by-customer", async (req, res) => {
+  app.get("/api/revenue/contracts/by-customer", requireRevenueCompany, async (req, res) => {
     const query = matrixQuery.safeParse(req.query);
     if (!query.success) {
       res.status(400).json({ message: "year must be YYYY; line must be all, contract, snow or fee" });
@@ -234,18 +241,21 @@ export function registerRevenueRoutes(app: Express): void {
     }
     const { year, line } = query.data;
     const { activeCompanyId } = req.user as UserWithContext;
-    const rows = filterRevenueLine(
-      await loadContractRevenueRows(db, activeCompanyId, billingMonth(year, 1), billingMonth(year, 12)), line,
-    );
+    const [yearRows, snowPricing] = await Promise.all([
+      loadContractRevenueRows(db, activeCompanyId, billingMonth(year, 1), billingMonth(year, 12)),
+      inEffectSnowPricing(db, activeCompanyId, companyToday()),
+    ]);
+    const rows = filterRevenueLine(yearRows, line);
     const agreementIds = [...new Set(rows.map(row => row.agreementId))];
     const seasons = await loadContractRevenueSeasons(db, activeCompanyId, agreementIds, year);
     const monthTotals = monthlyTotals(rows, year);
-    res.json({
+    res.json(GetRevenueContractsByCustomerResponse.parse({
       year,
       customers: byCustomer(rows, year, seasons),
       monthTotals,
       totalCents: monthTotals.reduce((sum, cents) => sum + cents, 0),
-    });
+      ...snowPricing,
+    }));
   });
 
   app.get("/api/dashboard/monthly-revenue", requireRevenueRead, async (req, res) => {

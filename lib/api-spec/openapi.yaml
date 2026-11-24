@@ -156,6 +156,35 @@ paths:
         "403": { description: Admin access and an active company required }
         "409": { description: Active company changed }
         "422": { description: A rounded forecast month is outside the supported nonnegative target range }
+  /revenue/contracts/billing:
+    get:
+      operationId: getRevenueContractBilling
+      parameters:
+        - { in: query, name: month, required: true, schema: { type: string, pattern: '^(?!0000)\d{4}-(0[1-9]|1[0-2])$' } }
+      responses:
+        "200":
+          description: Exact payment rows and calendar-year billing totals through the selected month
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenueContractBilling" }
+        "400": { description: Invalid month }
+        "403": { description: Admin or office and an active company required }
+        "409": { description: Active company changed }
+  /revenue/contracts/by-customer:
+    get:
+      operationId: getRevenueContractsByCustomer
+      parameters:
+        - { in: query, name: year, required: true, schema: { type: integer, minimum: 1, maximum: 9999 } }
+        - { in: query, name: line, schema: { type: string, enum: [all, contract, snow, fee], default: all } }
+      responses:
+        "200":
+          description: Contract Center billing by agreement owner and calendar month
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevenueContractsByCustomer" }
+        "400": { description: Invalid year or line }
+        "403": { description: Admin or office and an active company required }
+        "409": { description: Active company changed }
   /revenue/qbo/status:
     get:
       operationId: getRevenueQboStatus
@@ -2419,7 +2448,7 @@ components:
             annualCents: *nullableRevenueCents
     RevenuePlanProjection:
       type: object
-      required: [plan, base, planned, bridge, renewalsPending, laterRenewalsCount, pipeline]
+      required: [plan, base, baseQboMissing, planned, bridge, renewalsPending, laterRenewalsCount, pipeline, renewals]
       properties:
         plan: { $ref: "#/components/schemas/RevenuePlan" }
         base:
@@ -2432,6 +2461,7 @@ components:
             projects: *planBase
             extra: *planBase
             other: *planBase
+        baseQboMissing: { type: boolean }
         planned: { $ref: "#/components/schemas/RevenueIncomeStreams" }
         bridge:
           type: object
@@ -2450,6 +2480,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/RevenuePlanPendingRenewal" }
         laterRenewalsCount: { type: integer, minimum: 0 }
+        renewals: { $ref: "#/components/schemas/RevenueRenewalDetail" }
         pipeline:
           type: object
           required: [acceptedLast12Cents, sentOpenCents, winRatePct]
@@ -2457,6 +2488,132 @@ components:
             acceptedLast12Cents: *revenueCents
             sentOpenCents: *revenueCents
             winRatePct: *nullableRevenuePct
+    RevenueRenewalSeason:
+      type: object
+      required: [agreementId, customerName, seasonLabel, startDate, endDate, annualCents]
+      properties: &renewalSeasonFields
+        agreementId: { type: string }
+        customerName: { type: string }
+        seasonLabel: { type: string }
+        startDate: { type: string }
+        endDate: { type: string }
+        annualCents: *nullableRevenueCents
+    RevenueRenewalDetail:
+      type: object
+      required: [windowDays, inEffect, signed, atRisk, notRenewing]
+      properties:
+        windowDays: { type: integer }
+        inEffect:
+          type: array
+          items:
+            type: object
+            required: [agreementId, customerName, seasonLabel, startDate, endDate, annualCents, billingType]
+            properties:
+              <<: *renewalSeasonFields
+              billingType: { type: ["string", "null"], enum: [equal_monthly, monthly_variable, seasonal, time_and_materials, null] }
+        signed:
+          type: array
+          items:
+            type: object
+            required: [agreementId, customerName, seasonLabel, startDate, endDate, annualCents, previousAnnualCents]
+            properties:
+              <<: *renewalSeasonFields
+              previousAnnualCents: *nullableRevenueCents
+        atRisk:
+          type: array
+          items:
+            type: object
+            required: [agreementId, customerName, seasonLabel, startDate, endDate, annualCents, daysLeft, draftStatus]
+            properties:
+              <<: *renewalSeasonFields
+              daysLeft: { type: integer }
+              draftStatus: { type: ["string", "null"], enum: [draft, sent, null] }
+        notRenewing:
+          type: array
+          items:
+            type: object
+            required: [agreementId, customerName, seasonLabel, startDate, endDate, annualCents, lastMonth, reason]
+            properties:
+              <<: *renewalSeasonFields
+              lastMonth: { type: ["string", "null"] }
+              reason: { type: ["string", "null"] }
+    RevenueContractBilling:
+      type: object
+      required: [month, totals, customers, snowTmCount, yearToDateCents, fullYearCents]
+      properties:
+        month: { type: string }
+        totals:
+          type: object
+          required: [amountCents, contractCents, snowCents, feeCents, landscapeCents, flatSnowCents]
+          properties:
+            amountCents: *revenueCents
+            contractCents: *revenueCents
+            snowCents: *revenueCents
+            feeCents: *revenueCents
+            landscapeCents: *revenueCents
+            flatSnowCents: *revenueCents
+        customers:
+          type: array
+          items:
+            type: object
+            required: [customerId, customerName, agreementId, termId, seasonLabel, line, form, notRenewing, lines, amountCents]
+            properties:
+              customerId: { type: string }
+              customerName: { type: string }
+              agreementId: { type: string }
+              termId: { type: string }
+              seasonLabel: { type: string }
+              line: { type: string, enum: [landscape, snow, both] }
+              form: { type: string, enum: [ours, theirs] }
+              notRenewing: { type: boolean }
+              amountCents: *revenueCents
+              lines:
+                type: array
+                items:
+                  type: object
+                  required: [component, isFee, amountCents]
+                  properties:
+                    component: { type: string }
+                    isFee: { type: boolean }
+                    amountCents: *revenueCents
+        snowTmCount: { type: integer }
+        yearToDateCents: *revenueCents
+        fullYearCents: *revenueCents
+    RevenueContractsByCustomer:
+      type: object
+      required: [year, customers, monthTotals, totalCents, snowTmCount, hasFlatSnow]
+      properties:
+        year: { type: integer }
+        customers:
+          type: array
+          items:
+            type: object
+            required: [customerId, customerName, agreementId, months, totalCents, seasonStarts, breakdown]
+            properties:
+              customerId: { type: string }
+              customerName: { type: string }
+              agreementId: { type: string }
+              months: &contractMonthAmounts { type: array, minItems: 12, maxItems: 12, items: *revenueCents }
+              totalCents: *revenueCents
+              seasonStarts:
+                type: array
+                items:
+                  type: object
+                  required: [month, seasonLabel]
+                  properties:
+                    month: { type: string }
+                    seasonLabel: { type: string }
+              breakdown:
+                type: object
+                required: [contract, snow, fee]
+                properties:
+                  contract: *contractMonthAmounts
+                  snow: *contractMonthAmounts
+                  fee: *contractMonthAmounts
+        monthTotals: *contractMonthAmounts
+        totalCents: *revenueCents
+        snowTmCount: { type: integer }
+        hasFlatSnow: { type: boolean }
     RevenueQboFetchedYear:
       type: object
       required: [year, fetchedAt]

@@ -1,0 +1,14 @@
+.rv-plan-stat { margin: .375rem 0 .25rem; font-size: clamp(1.25rem, 3cqi, 1.75rem); font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rv-plan-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+@container revenue (min-width: 1000px) {
+  .rv-plan-grid { grid-template-columns: minmax(0, 2.15fr) minmax(0, 1fr); }
+}
+.rv-plan-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .875rem; }
+.rv-plan-table th, .rv-plan-table td { padding: .625rem .7rem; border-bottom: 1px solid hsl(var(--border)); text-align: left; }
+.rv-plan-table th:not([scope="row"]) { color: hsl(var(--muted-foreground)); font-size: .75rem; white-space: nowrap; }
+.rv-plan-table td.rv-plan-num, .rv-plan-table th.rv-plan-num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.rv-plan-table tfoot { background: hsl(var(--muted) / .45); font-weight: 600; }
+.rv-plan-table .rv-target-stream { position: sticky; left: 0; z-index: 1; background: hsl(var(--card)); }
+.rv-bridge-meter { height: .42rem; min-width: 2.25rem; overflow: hidden; border-radius: .5rem; background: hsl(var(--muted)); }
+.rv-bridge-meter span { display: block; height: 100%; border-radius: inherit; background: var(--rv-contract); }
+.rv-bridge-meter span[data-negative] { background: hsl(var(--destructive)); }
