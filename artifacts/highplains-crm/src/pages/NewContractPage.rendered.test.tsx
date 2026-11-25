@@ -25,9 +25,10 @@ const ok = (data: unknown) => Promise.resolve({ json: async () => data });
 let posts = 0;
 function routes(over: Record<string, unknown> = {}) {
   fx.api.mockImplementation((method: string, url: string) => {
-    if (method === "POST" && url === "/api/contract-center/contracts") { posts++; return ok({ id: "a1", terms: [{ id: "t1" }] }); }
+    if (method === "POST" && url === "/api/contract-center/contracts") { posts++; return ok({ id: "a1", createdTermId: "t1", terms: [{ id: "t1" }] }); }
     const path = url.split("?")[0];
     if (path in over) return ok(over[path]);
+    if (path === "/api/contract-center/contracts") return ok([]);
     if (path === "/api/service-calendar") return ok({entries: [], usage: []});
     if (path === "/api/customers/c1") return ok(customer());
     if (path === "/api/customers/c1/contacts") return ok([{ name: "Pat Lee", phones: ["303-555-0100"], emails: ["pat@elm.test"], isPrimary: "true" }]);
@@ -42,7 +43,7 @@ function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const ui = () => <QueryClientProvider client={qc}><Router hook={loc.hook}><NewContractPage /></Router></QueryClientProvider>;
   const r = render(ui());
-  return { loc, rerender: () => r.rerender(ui()), unmount: r.unmount };
+  return { loc, qc, rerender: () => r.rerender(ui()), unmount: r.unmount };
 }
 const draft = (o: object = {}) => {
   const pay = applyPreset(blankLine("Grounds maintenance", { total: "12000" }), "equal12", 11);
@@ -50,11 +51,131 @@ const draft = (o: object = {}) => {
 };
 const store = (u = "u1", co = "co1", d: object = draft()) => window.sessionStorage.setItem(sessionKey(co, u), JSON.stringify(d));
 const settle = () => act(async () => { await new Promise(r => setTimeout(r, 40)); });
+const existingAgreement = (id = "existing", terms: object[] = [], extra: object = {}) => ({
+  id, customerId: "c1", customerName: "Elm Court HOA", state: "ended_no_decision",
+  nextSeasonTerms: [{ id: `${id}-source`, seasonLabel: "2025–26", line: "landscape", startDate: "2025-10-01",
+    endDate: "2026-10-31", status: "signed", displayStatus: "expired", annualPriceCents: 120000, ...extra }, ...terms],
+});
 
 beforeEach(() => { posts = 0; fx.api.mockReset(); fx.toast.mockReset(); fx.upload.mockReset(); window.sessionStorage.clear(); window.history.replaceState(null, "", "/"); fx.user = { id: "u1", activeCompanyId: "co1" }; routes(); });
 afterEach(cleanup);
 
 describe("New contract flow", () => {
+  it("shows every matching agreement with a default only for exactly one eligible destination", async () => {
+    store("u1", "co1", draft({ form: "ours" }));
+    routes({ "/api/contract-center/contracts": [existingAgreement(), existingAgreement("blocked", [{
+      id: "pending", seasonLabel: "Pending", line: "landscape", startDate: "2027-01-01", endDate: "2027-12-31",
+      status: "sent", displayStatus: "sent", renewedFromTermId: "blocked-source", annualPriceCents: 130000,
+    }])] });
+    const mounted = mount(); await settle();
+    const invalidate = vi.spyOn(mounted.qc, "invalidateQueries");
+    expect(screen.getByTestId("next-season-panel").textContent).toContain("Elm Court HOA already has a Landscape contract");
+    const choices = screen.getAllByRole("radio") as HTMLInputElement[];
+    expect(choices).toHaveLength(3); expect(choices[0].checked).toBe(true); expect(choices[1].disabled).toBe(true);
+    expect(screen.getByTestId("next-season-panel").textContent).toContain("2025–26 already has a sent renewal");
+    expect(screen.getAllByRole("link", { name: "Open" })[0].getAttribute("target")).toBe("_blank");
+    await userEvent.click(screen.getByTestId("button-create-contract")); await settle();
+    const call = fx.api.mock.calls.find(c => c[0] === "POST")!;
+    expect(call[2]).toMatchObject({ agreementId: "existing" }); expect(call[2].separateReason).toBeUndefined();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/contract-center/contracts", "a1"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["revenueV2"] });
+  });
+  it("keeps unmatched creation unchanged and blocks creation if lookup fails", async () => {
+    store("u1", "co1", draft({ form: "ours" }));
+    routes({ "/api/contract-center/contracts": [existingAgreement("snow", [], { line: "snow" })] });
+    const m = mount(); await settle();
+    expect(screen.queryByTestId("next-season-panel")).toBeNull();
+    await userEvent.click(screen.getByTestId("button-create-contract")); await settle();
+    const body = fx.api.mock.calls.find(c => c[0] === "POST")![2];
+    expect(body.agreementId).toBeUndefined(); expect(body.separateReason).toBeUndefined();
+    m.unmount(); store("u1", "co1", draft({ form: "ours" }));
+    const route = fx.api.getMockImplementation()!;
+    fx.api.mockImplementation((...args: unknown[]) => String(args[1]).startsWith("/api/contract-center/contracts?")
+      ? Promise.reject(new Error("offline")) : route(...args));
+    mount(); await settle();
+    expect(screen.getByRole("alert").textContent).toContain("Existing contracts could not be checked.");
+    expect((screen.getByTestId("button-create-contract") as HTMLButtonElement).disabled).toBe(true);
+  });
+  it("requires an explicit destination for multiple eligible agreements", async () => {
+    store("u1", "co1", draft({ form: "ours" }));
+    routes({ "/api/contract-center/contracts": [existingAgreement("a"), existingAgreement("b")] });
+    mount(); await settle();
+    expect((screen.getAllByRole("radio") as HTMLInputElement[]).every(r => !r.checked)).toBe(true);
+    expect((screen.getByTestId("button-create-contract") as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getAllByRole("radio")[1]);
+    expect((screen.getByTestId("button-create-contract") as HTMLButtonElement).disabled).toBe(false);
+  });
+  it("disables overlapping next seasons and requires a trimmed separate reason", async () => {
+    store("u1", "co1", draft({ form: "ours" }));
+    routes({ "/api/contract-center/contracts": [existingAgreement("existing", [], { endDate: "2027-12-31" })] });
+    mount(); await settle();
+    expect((screen.getAllByRole("radio")[0] as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByTestId("next-season-panel").textContent).toContain("overlaps 2025–26");
+    await userEvent.click(screen.getByRole("radio", { name: "Create a separate contract" }));
+    const reason = screen.getByTestId("separate-contract-reason");
+    expect(reason.getAttribute("maxlength")).toBe("200");
+    fireEvent.change(reason, { target: { value: "  " } });
+    expect((screen.getByTestId("button-create-contract") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(reason, { target: { value: "  Different parcel  " } });
+    await userEvent.click(screen.getByTestId("button-create-contract")); await settle();
+    const call = fx.api.mock.calls.find(c => c[0] === "POST")!;
+    expect(call[2]).toMatchObject({ separateReason: "Different parcel" }); expect(call[2].agreementId).toBeUndefined();
+  });
+  it("re-evaluates line matches and ignores inherited, closed and not-renewing agreements", async () => {
+    store("u1", "co1", draft({ step: 1 }));
+    routes({ "/api/contract-center/contracts": [existingAgreement("snow", [], { line: "snow" }),
+      { ...existingAgreement("parent"), viaParent: true },
+      { ...existingAgreement("closed"), state: "closed" },
+      { ...existingAgreement("not-renewing"), notRenewing: true },
+    ] });
+    mount(); await settle();
+    expect(screen.queryByTestId("next-season-panel")).toBeNull();
+    await userEvent.click(screen.getByTestId("card-type-snow"));
+    expect(screen.getByTestId("next-season-panel").textContent).toContain("Snow contract");
+    await userEvent.click(screen.getByTestId("card-type-both"));
+    expect(screen.getByTestId("next-season-panel").textContent).toContain("Landscape + Snow contract");
+    await userEvent.click(screen.getByTestId("card-type-landscape"));
+    expect(screen.queryByTestId("next-season-panel")).toBeNull();
+    const lookup = fx.api.mock.calls.find(c => c[1].startsWith("/api/contract-center/contracts?"))!;
+    expect(lookup[1]).toBe("/api/contract-center/contracts?customerId=c1");
+  });
+  it("uploads to createdTermId and preserves that destination through a persisted upload retry", async () => {
+    store();
+    routes({ "/api/contract-center/contracts": [existingAgreement()] });
+    const route = fx.api.getMockImplementation()!;
+    fx.api.mockImplementation((...args: unknown[]) => {
+      if (args[0] === "POST") {
+        posts++;
+        return ok({ id: "existing", createdTermId: "exact-new", terms: [{ id: "source" }, { id: "exact-new" }, { id: "future-cancelled" }] });
+      }
+      return route(...args);
+    });
+    fx.upload.mockRejectedValueOnce(new Error("retry"));
+    const m = mount(); await settle();
+    await userEvent.upload(screen.getByTestId("input-their-form"), new File(["x"], "new.pdf", { type: "application/pdf" }));
+    await userEvent.click(screen.getByTestId("button-create-contract")); await settle();
+    expect(fx.upload.mock.calls[0][0]).toMatchObject({
+      uploadUrlPath: "/api/contract-center/terms/exact-new/documents/upload-url",
+      registerPath: "/api/contract-center/terms/exact-new/documents",
+    });
+    expect(JSON.parse(window.sessionStorage.getItem(sessionKey("co1", "u1"))!).created).toEqual({ agreementId: "existing", termId: "exact-new" });
+    m.unmount(); const remount = mount(); await settle();
+    await userEvent.upload(screen.getByTestId("input-their-form"), new File(["x"], "new.pdf", { type: "application/pdf" }));
+    fx.upload.mockResolvedValueOnce({});
+    await userEvent.click(screen.getByTestId("button-retry-upload")); await settle();
+    expect(posts).toBe(1);
+    expect(fx.upload.mock.calls[1][0].registerPath).toBe("/api/contract-center/terms/exact-new/documents");
+    expect(remount.loc.history.at(-1)).toBe("/dashboard/contracts/existing");
+  });
+  it("uses the same destination choice from an RFP and navigates to the agreement", async () => {
+    window.history.replaceState(null, "", "/?fromRfp=rfp1");
+    window.sessionStorage.setItem(sessionKey("co1", "u1", "rfp1"), JSON.stringify(draft({ form: "ours", bidTicketId: "rfp1" })));
+    routes({ "/api/contract-center/contracts": [existingAgreement()], "/api/tickets/rfp1/details": { ticket: { id: "rfp1", title: "Rebid" } } });
+    const m = mount(); await settle();
+    await userEvent.click(screen.getByTestId("button-create-contract")); await settle();
+    expect(fx.api.mock.calls.find(c => c[0] === "POST")![2]).toMatchObject({ agreementId: "existing", bidTicketId: "rfp1" });
+    expect(m.loc.history.at(-1)).toBe("/dashboard/contracts/a1");
+  });
   it("requires review of an older draft without discarding entered scope or silently accepting hard-coded defaults", async () => {
     store("u1", "co1", draft({step: 3, scope: initialScope("landscape"), scopePolicy: undefined}));
     routes({"/api/service-calendar": {entries: STARTING_SERVICE_CALENDAR, usage: []}});
@@ -153,7 +274,7 @@ describe("New contract flow", () => {
     await settle();
     expect(JSON.parse(window.sessionStorage.getItem(sessionKey("co1", "u1", "r1"))!).notes).toBe("My edited bid");
     await userEvent.click(screen.getByTestId("button-create-contract"));
-    await waitFor(() => expect(m.loc.history?.at(-1)).toBe("/dashboard/tickets/r1"));
+    await waitFor(() => expect(m.loc.history?.at(-1)).toBe("/dashboard/contracts/a1"));
     const call = fx.api.mock.calls.find(c => c[0] === "POST" && c[1] === "/api/contract-center/contracts");
     expect(call?.[2]).toMatchObject({ bidTicketId: "r1", term: { notes: "My edited bid" } });
   });

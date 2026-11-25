@@ -37,6 +37,7 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
   }
   const base = "/api/contract-center";
   const payload = (bidTicketId?: string, customerId: string = f.customerId) => ({ bidTicketId, customerId, line: "both", form: "ours",
+    separateReason: "Intentionally separate disposable RFP scenario",
     term: { seasonLabel: "2027", startDate: "2027-01-01", endDate: "2027-12-31", snowPricing: "time_and_materials" },
     scope: [], rates: [], payments: [] });
   async function create(id?: string, customerId?: string) {
@@ -122,7 +123,8 @@ describe.skipIf(!enabled)("RFP contracts in disposable development company", () 
   it("creates ordinary linked drafts with attribution and multiple parent/direct-branch documents", async () => {
     const rfp = await f.createRfp(), first = await create(rfp.id), second = await create(rfp.id);
     expect(first.terms[0]).toMatchObject({ bidTicketId: rfp.id, status: "draft" });
-    expect(first.terms[0].history[0]).toMatchObject({ changedBy: f.userId, note: `Created from RFP ${rfp.title}` });
+    expect(first.terms[0].history[0]).toMatchObject({ changedBy: f.userId,
+      note: `Created from RFP ${rfp.title}\nCreated as a separate contract: Intentionally separate disposable RFP scenario` });
     expect(second.id).not.toBe(first.id);
     const [branch] = await db.insert(customers).values({ companyId: f.companyId, parentCustomerId: f.customerId,
       name: "Branch", street: "2 Test", city: "Denver", state: "CO", zip: "80000" }).returning();

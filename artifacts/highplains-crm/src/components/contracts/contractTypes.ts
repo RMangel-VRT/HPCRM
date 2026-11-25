@@ -27,6 +27,9 @@ export interface TermSummary extends NonRenewalFacts {
 }
 
 export interface ContractListItem extends ProjectionFields {
+  nextSeasonTerms?: (import("../../../../../lib/db/src/contractNextSeason").NextSeasonTerm & {
+    annualPriceCents: number | null; displayStatus: string;
+  })[];
   /** CC-ATTN: lines this agreement is accounted on (server-owned). Empty/unknown histories carry both. */
   applicableLines?: BoardLine[];
   id: string;
@@ -99,6 +102,7 @@ export interface ContractDetail extends ProjectionFields {
   currentTermId?: string | null; renewalDue?: boolean; renewalDraftId?: string | null;
   terms: DetailTerm[];
 }
+export interface CreatedContractDetail extends ContractDetail { createdTermId: string }
 
 export interface MergeCandidate {
   agreementId: string;

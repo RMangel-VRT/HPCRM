@@ -126,6 +126,7 @@ async function loadContractPopulation(reader: Reader, companyId: string, filter:
     const viaParent = !!parent && agreement.customerId === parent.id;
     const term = summary.current ?? summary.renewalDraft ?? summary.latest;
     return [{ ...agreement, line: display?.line ?? "both", form: display?.form ?? "ours",
+      nextSeasonTerms: seasons.map(t => ({ ...summarizeNextSeason(t), displayStatus: displayStatus(t, seasons, today) })),
       customerName: owner?.name ?? "Customer unavailable", ...summary, ...projection, applicableLines,
       locationCount: owner?.isParent === "true" ? locationCounts.get(owner.id) ?? 0 : 0,
       ...(viaParent ? { viaParent: true, parentName: owner!.name,
@@ -133,6 +134,11 @@ async function loadContractPopulation(reader: Reader, companyId: string, filter:
         payments: term ? recoverPayments(billingByTerm.get(term.id) ?? []) : [] } : {}) }];
   });
   return { items, companyCustomers, rows, terms };
+}
+function summarizeNextSeason(t: AgreementTerm) {
+  return { id: t.id, seasonLabel: t.seasonLabel, startDate: t.startDate, endDate: t.endDate,
+    status: t.status, renewedFromTermId: t.renewedFromTermId, line: t.line,
+    nonRenewalOn: t.nonRenewalOn, annualPriceCents: t.annualPriceCents };
 }
 
 /** Reconcile against the company population, not a filtered display list. This
@@ -157,7 +163,7 @@ export async function loadContractAttention(reader: Reader, companyId: string, t
   const reconciled = reconcileContractPopulation(population.rows, population.items, id => {
     const agreement = population.rows.find(row => row.id === id)!;
     return { ...agreement, ...listSummary([], today), ...unclassifiedContract(), line: "both" as const,
-      form: "ours" as const, customerName: "Customer unavailable", locationCount: 0,
+      form: "ours" as const, nextSeasonTerms: [], customerName: "Customer unavailable", locationCount: 0,
       applicableLines: ["landscape", "snow"] as ("landscape" | "snow")[] };
   }, companyId);
   const active = projectActiveCustomers({ customers: population.companyCustomers, agreements: population.rows,

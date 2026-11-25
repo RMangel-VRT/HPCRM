@@ -1,5 +1,6 @@
 import type { Agreement, AgreementTerm } from "@workspace/db";
-import { isNotRenewing, selectRenewalSource } from "./contractCenterService";
+import { selectRenewalSource } from "./contractCenterService";
+import { nextSeasonConflict } from "../../../../lib/db/src/contractNextSeason";
 
 const qualifying = (terms: AgreementTerm[]) => terms.filter(t => !["cancelled", "lost"].includes(t.status))
   .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.id.localeCompare(b.id));
@@ -10,16 +11,10 @@ export function separateMergePlan(target: Agreement, targetTerms: AgreementTerm[
   let blockedReason: string | null = null;
   if (source.id === target.id) blockedReason = "Choose a separate contract to merge.";
   else if (source.importRef !== null) blockedReason = "This contract came from the contract audit import and can't be merged away. Merge in the other direction or contact support.";
-  else if (!predecessor) blockedReason = "This contract has no season to renew.";
-  else if (isNotRenewing(predecessor)) blockedReason = `Undo Not renewing on ${predecessor.seasonLabel} first.`;
   else {
-    const pending = targetTerms.find(t => t.renewedFromTermId === predecessor.id && ["draft", "sent"].includes(t.status));
-    const overlap = qualifying(sourceTerms).flatMap(s => qualifying(targetTerms)
-      .filter(t => s.startDate <= t.endDate && t.startDate <= s.endDate).map(t => ({ s, t })))[0];
-    if (pending) blockedReason = `${predecessor.seasonLabel} already has a ${pending.status} renewal. Cancel it or use it instead.`;
-    else if (overlap) blockedReason = `${overlap.s.seasonLabel} overlaps ${overlap.t.seasonLabel}.`;
+    const conflict = nextSeasonConflict(predecessor, targetTerms, qualifying(sourceTerms));
+    if (conflict) blockedReason = conflict.message;
     else if (!first) blockedReason = "The separate contract has no season to merge as a renewal.";
-    else if (first.startDate <= predecessor.startDate) blockedReason = `${first.seasonLabel} must start after ${predecessor.seasonLabel}.`;
     else if (first.renewedFromTermId !== null) blockedReason = `${first.seasonLabel} is already a renewal of another season.`;
   }
   return { predecessor, first, blockedReason };

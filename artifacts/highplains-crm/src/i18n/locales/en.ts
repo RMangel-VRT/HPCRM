@@ -2,6 +2,24 @@ import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { activeCustomersText } from "../../../../../lib/db/src/activeCustomersText";
 import { billingEn, customersEn } from "@/components/revenue-v2/revenueContractViews";
 const en = {
+  nextSeason: {
+    heading: "{{customer}} already has a {{line}} contract",
+    line: { landscape: "Landscape", snow: "Snow", both: "Landscape + Snow" },
+    add: "Add this as the next season of {{season}}",
+    annual: "{{price}} annually",
+    separate: "Create a separate contract",
+    reason: "Reason for a separate contract (required, up to 200 characters)",
+    open: "Open", choose: "Choose a next season or give a reason for a separate contract.",
+    loading: "Checking existing contracts…", loadError: "Existing contracts could not be checked.", retry: "Try again",
+    status: { draft: "draft", sent: "sent" },
+    conflict: {
+      noSource: "This contract has no season to renew.",
+      notRenewing: "Undo Not renewing on {{source}} first.",
+      pending: "{{source}} already has a {{status}} renewal. Cancel it or use it instead.",
+      overlap: "{{season}} overlaps {{other}}.",
+      start: "{{season}} must start after {{source}}.",
+    },
+  },
   mergeSeparate: {
     action: "Renewed as a separate contract",
     title: "Merge the renewal into this contract",

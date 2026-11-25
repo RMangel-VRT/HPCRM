@@ -18,7 +18,10 @@ import { PaymentEditor, TM_TEXT } from "@/components/contracts/PaymentEditor";
 import { ExplicitScheduleEditor, ScheduleModeToggle } from "@/components/contracts/ExplicitScheduleEditor";
 import { explicitFromLines } from "@/components/contracts/explicitSchedule";
 import { coloradoToday, dateOnly, errorText, money } from "@/components/contracts/contractFormat";
-import type { AgreementLine, ContractDetail } from "@/components/contracts/contractTypes";
+import type { AgreementLine, CreatedContractDetail, ContractListItem } from "@/components/contracts/contractTypes";
+import { latestMatchingSeason, matchesNewContract } from "../../../../lib/db/src/contractNextSeason";
+import { NextSeasonPanel, nextSeasonOptions } from "@/components/contracts/NextSeasonPanel";
+import { invalidateContractQueries } from "@/components/contracts/AttentionWidgets";
 import type { RateCardItem } from "@/components/contracts/rateCardUtils";
 import {
   applyScopePreset, blankPerContractRates, clearDraft, createBody, defaultDates, ensurePayments, hasLandscape, hasSnow,
@@ -114,6 +117,21 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
     queryFn: () => fetchJson(`/api/customers/${d.customerId}`) });
   const customerOk = (c: CustomerLite | undefined): c is CustomerLite => !!c && c.companyId === companyId;
   const verified = customerOk(customerQ.data) && customerQ.data.id === d.customerId ? customerQ.data : null;
+  const agreementsQ = useQuery<ContractListItem[]>({
+    queryKey: ["/api/contract-center/contracts", companyId, userId, "new-contract", d.customerId],
+    enabled: !!verified && !d.created, retry: false, staleTime: 0,
+    queryFn: () => fetchJson(`/api/contract-center/contracts?customerId=${encodeURIComponent(d.customerId)}`),
+  });
+  const matching = (agreementsQ.data ?? []).filter(a => a.customerId === d.customerId && !a.viaParent &&
+    matchesNewContract(a, latestMatchingSeason(a.nextSeasonTerms ?? []), d.line));
+  const options = nextSeasonOptions(matching, d);
+  const eligible = options.filter(o => !o.conflict);
+  const choice = d.agreementChoice === "separate" ? "separate" :
+    eligible.some(o => o.item.id === d.agreementChoice) ? d.agreementChoice! :
+      eligible.length === 1 ? eligible[0].item.id : "";
+  const destinationProblem = !d.created && (agreementsQ.isError ? t("nextSeason.loadError") :
+    !agreementsQ.isSuccess ? t("nextSeason.loading") :
+      matching.length && (!choice || (choice === "separate" && (!d.separateReason?.trim() || d.separateReason.trim().length > 200))) ? t("nextSeason.choose") : null);
   const contactsQ = useQuery<ContactLite[]>({ queryKey: [...scoped, d.customerId, "contacts"], enabled: !!verified && !d.created, retry: false,
     queryFn: () => fetchJson(`/api/customers/${d.customerId}/contacts`) });
 
@@ -124,7 +142,7 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
     const address = [c.street, [c.city, c.state].filter(Boolean).join(", "), c.zip].filter(Boolean).join(" ").trim();
     applied.current = { contacts: null, agent: null };
     setErrors([]); setSearch("");
-    setD(cur => ({ ...cur, customerId: c.id, customerName: c.name, managingAgentName: c.managementCompany ?? "", propertyManagementCompanyId: c.propertyManagementCompanyId ?? null,
+    setD(cur => ({ ...cur, agreementChoice: undefined, separateReason: "", customerId: c.id, customerName: c.name, managingAgentName: c.managementCompany ?? "", propertyManagementCompanyId: c.propertyManagementCompanyId ?? null,
       legalName: c.name, projectAddress: address, projectContact: "", contactPhone: "", contactEmail: "" }));
   }
   // Late contact and management-company data only fills fields the user has left empty.
@@ -205,12 +223,16 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
     try {
       let created = d.created;
       if (!created) {
-        const problems = [1, 2, 3, 4, 5].flatMap(gate);
+         const problems = [...[1, 2, 3, 4, 5].flatMap(gate), ...(destinationProblem ? [destinationProblem] : [])];
         if (problems.length) { setErrors(problems); return; }
-        const res = await apiRequest("POST", "/api/contract-center/contracts", createBody({ ...d, bidTicketId: fromRfp ?? undefined, scope: scopeRows, rates: rateRows }),
+         const res = await apiRequest("POST", "/api/contract-center/contracts", {
+           ...createBody({ ...d, bidTicketId: fromRfp ?? undefined, scope: scopeRows, rates: rateRows }),
+           ...(matching.length ? choice === "separate" ? { separateReason: d.separateReason!.trim() } : { agreementId: choice } : {}),
+         },
           { headers: { "X-Company-Id": companyId } });
-        const detail = (await res.json()) as ContractDetail;
-        created = { agreementId: detail.id, termId: detail.terms[detail.terms.length - 1].id };
+         const detail = (await res.json()) as CreatedContractDetail;
+         if (!detail.createdTermId) throw new Error("The server did not identify the created season. Reload before continuing.");
+         created = { agreementId: detail.id, termId: detail.createdTermId };
         // Persist the marker before anything else so a reload can never create a second contract.
         saveDraft(storageKey, { ...d, created, step: 6 });
         setD(cur => ({ ...cur, created, step: 6 }));
@@ -230,10 +252,14 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
     clearDraft(storageKey);
     setFile(null);
     void qc.invalidateQueries({ queryKey: ["/api/contract-center/contracts"] });
+    void invalidateContractQueries(qc);
+    void qc.invalidateQueries({ queryKey: ["/api/contract-center/contracts", agreementId] });
+    void qc.invalidateQueries({ queryKey: ["/api/revenue"] });
+    void qc.invalidateQueries({ queryKey: ["revenueV2"] });
     void qc.invalidateQueries({ queryKey: ["/api/bids/board"] });
     if (fromRfp) void qc.invalidateQueries({ queryKey: ["/api/tickets", fromRfp] });
     toast({ title: "Draft created" });
-    navigate(fromRfp ? `/dashboard/tickets/${encodeURIComponent(fromRfp)}` : `/dashboard/contracts/${agreementId}`);
+    navigate(`/dashboard/contracts/${agreementId}`);
   }
   function reset() {
     clearDraft(storageKey); setD(rfp.data ? prefillRfp(newDraft(today), rfp.data, today) : newDraft(today)); setErrors([]); setFile(null); setUploadFailed(null); setSubmitError(null);
@@ -287,6 +313,13 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
           {errors.map(e => <li key={e} className="text-destructive">{e}</li>)}
         </ul>
       )}
+      {!d.created && verified && d.line && <>
+        {agreementsQ.isPending && <p role="status">{t("nextSeason.loading")}</p>}
+        {agreementsQ.isError && <p role="alert">{t("nextSeason.loadError")} <button className="underline" onClick={() => void agreementsQ.refetch()}>{t("nextSeason.retry")}</button></p>}
+        {!!options.length && <NextSeasonPanel options={options} customerName={verified.name} line={d.line}
+          choice={choice} reason={d.separateReason ?? ""} onChoice={agreementChoice => patch({ agreementChoice })}
+          onReason={separateReason => patch({ separateReason })} />}
+      </>}
 
       {d.step === 1 && (
         <section className="space-y-5" data-testid="step-body-1">
@@ -327,7 +360,7 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
             <div className="grid gap-3 sm:grid-cols-3">
               {([["landscape", "Landscape", "Grounds, irrigation"], ["snow", "Snow", "Snow removal only"], ["both", "Both", "Landscape and snow"]] as const).map(([k, t, sub]) => (
                 <button key={k} type="button" className={pick(d.line === k)} disabled={!!d.created} aria-pressed={d.line === k}
-                  onClick={() => setD(cur => setLine(cur, k, today))} data-testid={`card-type-${k}`}>
+                  onClick={() => setD(cur => ({ ...setLine(cur, k, today), agreementChoice: undefined, separateReason: "" }))} data-testid={`card-type-${k}`}>
                   <div className="font-medium">{t}</div><div className="text-xs text-muted-foreground">{sub}</div>
                 </button>
               ))}
@@ -493,7 +526,7 @@ function NewContractBody({ companyId, userId, storageKey, fromRfp }: { companyId
           <Button variant="outline" disabled={d.step === 1 || submitting} onClick={() => go(d.step - 1)} data-testid="button-back">Back</Button>
           {d.step < 6
             ? <Button onClick={next} data-testid="button-next">Next</Button>
-            : <Button onClick={() => void create()} disabled={submitting} data-testid="button-create-contract">
+            : <Button onClick={() => void create()} disabled={submitting || !!destinationProblem} data-testid="button-create-contract">
               {submitting && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}Create contract</Button>}
         </footer>
       )}

@@ -2,6 +2,24 @@ import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { activeCustomersText } from "../../../../../lib/db/src/activeCustomersText";
 import { billingEs, customersEs } from "@/components/revenue-v2/revenueContractViews";
 const es = {
+  nextSeason: {
+    heading: "{{customer}} ya tiene un contrato de {{line}}",
+    line: { landscape: "Paisajismo", snow: "Nieve", both: "Paisajismo + Nieve" },
+    add: "Agregar como la próxima temporada de {{season}}",
+    annual: "{{price}} al año",
+    separate: "Crear un contrato separado",
+    reason: "Motivo del contrato separado (obligatorio, hasta 200 caracteres)",
+    open: "Abrir", choose: "Elija una próxima temporada o indique un motivo para un contrato separado.",
+    loading: "Comprobando contratos existentes…", loadError: "No se pudieron comprobar los contratos existentes.", retry: "Intentar de nuevo",
+    status: { draft: "borrador", sent: "enviada" },
+    conflict: {
+      noSource: "Este contrato no tiene una temporada para renovar.",
+      notRenewing: "Deshaga No renovar en {{source}} primero.",
+      pending: "{{source}} ya tiene una renovación {{status}}. Cancélela o úsela.",
+      overlap: "{{season}} se superpone con {{other}}.",
+      start: "{{season}} debe comenzar después de {{source}}.",
+    },
+  },
   mergeSeparate: {
     action: "Renovado como contrato separado",
     title: "Fusionar la renovación con este contrato",

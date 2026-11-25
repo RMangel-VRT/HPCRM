@@ -36,6 +36,7 @@ import { activeCustomersReport } from "../services/documents/activeCustomers";
 import { renderDocumentPdf } from "../services/documents/render";
 import { DocumentRendererUnavailable } from "../services/documents/browser";
 import { loadMergeCandidates, mergeSeparateAgreement } from "../lib/contractMerge";
+import { latestMatchingSeason, matchesNewContract, nextSeasonConflict } from "../../../../lib/db/src/contractNextSeason";
 
 type Authorize = (req: Request, res: Response) => UserWithContext | null;
 type UploadSession = Session & { contractCenterUploads?: Record<string, { companyId: string; termId: string }> };
@@ -146,15 +147,43 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
       }
       const scope = buildScope(body.scope, body.line), rates = snapshotRates(await activeCard(tx, companyId), body.rates, body.line);
       const { rows: billing, preStart, ...paymentFields } = preparePayments(body.payments, body.term.startDate, body.term.endDate, body.line, body.term.snowPricing);
-      const [agreement] = await tx.insert(agreements).values({ companyId, customerId: body.customerId,
-        propertyManagementCompanyId: managementId }).returning();
+       let agreement, source;
+       if (body.agreementId) {
+         agreement = await lockAgreement(tx, companyId, body.agreementId);
+         if (agreement.customerId !== body.customerId) throw new ContractCenterError(404, "Contract not found");
+         const seasons = await agreementSeasons(tx, companyId, agreement.id);
+         source = selectRenewalSource(seasons);
+         const conflict = nextSeasonConflict(source, seasons, [body.term]);
+         if (conflict) throw new ContractCenterError(409, conflict.message);
+       } else {
+         const existing = await loadContractList(tx, companyId, { customerId: body.customerId });
+         if (!body.separateReason && existing.some(a => matchesNewContract(a, latestMatchingSeason(a.nextSeasonTerms), body.line))) {
+           const lineLabel = { landscape: "Landscape", snow: "Snow", both: "Landscape + Snow" }[body.line];
+           throw new ContractCenterError(409, `${customer.name} already has a ${lineLabel} contract. Add this as its next season or give a reason for a separate contract.`,
+             ["next_season", "separate"]);
+         }
+         [agreement] = await tx.insert(agreements).values({ companyId, customerId: body.customerId,
+           propertyManagementCompanyId: managementId }).returning();
+       }
+       const notes = [bid ? `Created from RFP ${bid.estimateNumber || bid.title}` : null,
+         source ? `Added as the next season after ${source.seasonLabel} (entered as a new contract)` :
+           body.separateReason ? `Created as a separate contract: ${body.separateReason}` : bid ? null : "Created in the Contract Center"];
       const term = await writeTerm(tx, companyId, user.id, null, { ...body.term, bidTicketId: body.bidTicketId ?? null, line: body.line, form: body.form, agreementId: agreement.id, status: "draft",
-        ...paymentFields }, bid ? `Created from RFP ${bid.estimateNumber || bid.title}` : "Created in the Contract Center");
+         renewedFromTermId: source?.id ?? null, ...paymentFields }, notes.filter(Boolean).join("\n"));
+       if (source && (agreement.propertyManagementCompanyId ?? null) !== (managementId ?? null)) {
+         const managementName = async (id: string | null | undefined) => {
+           if (!id) return "None";
+           const [row] = await tx.select().from(propertyManagementCompanies).where(and(eq(propertyManagementCompanies.id, id), eq(propertyManagementCompanies.companyId, companyId)));
+           return row?.name ?? "None";
+         };
+         await addHistory(tx, companyId, user.id, term,
+           `Entered management company: ${await managementName(managementId)}; agreement management company retained: ${await managementName(agreement.propertyManagementCompanyId)}.`);
+       }
       if (preStart) await addHistory(tx, companyId, user.id, term, `Authorized pre-start payments for start month ${body.term.startDate.slice(0, 7)}: ${billing.filter(r => r.month < body.term.startDate.slice(0, 7) + "-01").map(r => `${r.component} ${r.month}`).join(", ")}`);
       await replaceRows(tx, companyId, term.id, termScopeLines, scope);
       await replaceRows(tx, companyId, term.id, termRates, rates);
       await replaceRows(tx, companyId, term.id, termBillingMonths, billing);
-      return fullDetail(tx, companyId, agreement.id);
+       return { ...await fullDetail(tx, companyId, agreement.id), createdTermId: term.id };
     });
     res.status(201).json(detail);
   }));

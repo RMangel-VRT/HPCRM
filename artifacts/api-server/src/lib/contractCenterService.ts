@@ -115,6 +115,8 @@ export function seasonPaymentSummary(term: { startDate: string; endDate: string;
   return { feesAnnualCents, contractTotalCents, durationMonths: inclusiveMonths(term.startDate, term.endDate) };
 }
 export const createContractSchema = z.object({
+  agreementId: z.string().trim().min(1).optional(),
+  separateReason: z.string().trim().max(200).optional(),
   bidTicketId: z.string().min(1).optional(),
   customerId: z.string().min(1), line: z.enum(["landscape", "snow", "both"]),
   form: z.enum(["ours", "theirs"]), propertyManagementCompanyId: z.string().min(1).nullable().optional(),

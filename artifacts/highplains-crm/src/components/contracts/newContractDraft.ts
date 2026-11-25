@@ -16,6 +16,8 @@ import { SCOPE_CATALOG } from "@/shared/contractCatalog";
 
 export type SnowPricing = "time_and_materials" | "flat_rate";
 export interface NewContractDraft {
+  agreementChoice?: string;
+  separateReason?: string;
   bidTicketId?: string;
   step: number;
   customerId: string; customerName: string; line: AgreementLine | ""; form: "ours" | "theirs" | "";
