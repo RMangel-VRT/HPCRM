@@ -35,6 +35,7 @@ import { customerActivation } from "../services/customerActivation";
 import { activeCustomersReport } from "../services/documents/activeCustomers";
 import { renderDocumentPdf } from "../services/documents/render";
 import { DocumentRendererUnavailable } from "../services/documents/browser";
+import { loadMergeCandidates, mergeSeparateAgreement } from "../lib/contractMerge";
 
 type Authorize = (req: Request, res: Response) => UserWithContext | null;
 type UploadSession = Session & { contractCenterUploads?: Record<string, { companyId: string; termId: string }> };
@@ -114,9 +115,21 @@ export function registerContractCenterLifecycle(app: Express, authorize: Authori
     const requestedCompany = req.get("X-Company-Id");
     if (requestedCompany !== undefined && requestedCompany !== user.activeCompanyId)
       throw new ContractCenterError(409, "Active company changed. Reload and try again.");
-    const detail = await fullDetail(db, user.activeCompanyId, String(req.params.agreementId));
     const permitted = ["admin", "office"].includes(user.accessRole);
+    const detail = await fullDetail(db, user.activeCompanyId, String(req.params.agreementId), permitted);
     res.json({ ...detail, canRecordNonRenewal: permitted && detail.canRecordNonRenewal, canUndoNonRenewal: permitted });
+  }));
+  app.get("/api/contract-center/contracts/:agreementId/merge-candidates", handle(async (req, res, user) => {
+    if (!["admin", "office"].includes(user.accessRole)) throw new ContractCenterError(403, "Admin or office access required");
+    res.set("Cache-Control", "private, no-store");
+    res.json(await loadMergeCandidates(db, user.activeCompanyId, String(req.params.agreementId)));
+  }));
+  app.post("/api/contract-center/contracts/:agreementId/merge", handle(async (req, res, user) => {
+    if (!["admin", "office"].includes(user.accessRole)) throw new ContractCenterError(403, "Admin or office access required");
+    if (req.get("X-Company-Id") !== user.activeCompanyId)
+      throw new ContractCenterError(409, "Active company changed. Reload and try again.");
+    const body = z.object({ sourceAgreementId: z.string().trim().min(1) }).strict().parse(req.body);
+    res.json(await db.transaction(tx => mergeSeparateAgreement(tx, user.activeCompanyId, user.id, String(req.params.agreementId), body.sourceAgreementId)));
   }));
   app.post("/api/contract-center/contracts", handle(async (req, res, user) => {
     const body = createContractSchema.parse(req.body), companyId = user.activeCompanyId;

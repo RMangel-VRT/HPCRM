@@ -2,6 +2,30 @@ import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { activeCustomersText } from "../../../../../lib/db/src/activeCustomersText";
 import { billingEs, customersEs } from "@/components/revenue-v2/revenueContractViews";
 const es = {
+  mergeSeparate: {
+    action: "Renovado como contrato separado",
+    title: "Fusionar la renovación con este contrato",
+    choose: "Elige el contrato separado que deseas fusionar.",
+    loading: "Cargando contratos separados…",
+    retry: "Intentar de nuevo",
+    empty: "No hay contratos de renovación separados disponibles.",
+    firstStart: "La primera temporada comienza el {{date}}",
+    annual: "{{price}} al año",
+    before: "Antes",
+    after: "Después",
+    linkPreview: "{{source}} → renovado por {{first}}, {{status}}",
+    pendingPreview: "{{source}} → renovación pendiente {{first}}, {{status}}",
+    lineChange: "La línea cambia de {{from}} a {{to}}",
+    managementChange: "La administradora cambia de {{from}} a {{to}}. Se conservará {{to}}.",
+    none: "Ninguna",
+    warning: "El contrato separado se eliminará. Sus temporadas, pagos, alcance, tarifas, documentos e historial se trasladarán aquí.",
+    cancel: "Cancelar",
+    confirm: "Fusionar",
+    success: "Fusionado. {{first}} es ahora la renovación de {{source}}",
+    companyChanged: "La empresa activa cambió. Recarga e inténtalo de nuevo.",
+    lines: { landscape: "Jardinería", snow: "Nieve", both: "Jardinería + Nieve" },
+    statuses: { draft: "Borrador", sent: "Enviado", signed: "Firmado", active: "Activo", renewed: "Renovado", cancelled: "Cancelado", lost: "Perdido", expired: "Vencido" },
+  },
   revenueV2: {
     views: {
       unavailable: "Sin cargar",

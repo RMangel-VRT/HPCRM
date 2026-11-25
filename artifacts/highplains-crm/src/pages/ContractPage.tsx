@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCustomerActivation, type ActivationResponse } from "@/components/customerWizard/CustomerActivationDialog";
 import { SeasonDocuments } from "@/components/contracts/SeasonDocuments";
 import { NotRenewingDialog } from "@/components/contracts/NotRenewingDialog";
+import { MergeSeparateDialog } from "@/components/contracts/MergeSeparateDialog";
 import { NonRenewalChip } from "@/components/contracts/NonRenewalChip";
 import { isNotRenewing, NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { Button } from "@/components/ui/button";
@@ -87,6 +88,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
   const [explicit, setExplicit] = useState<ExplicitDraft | null>(null);
   const [renewOpen, setRenewOpen] = useState(false);
   const [nonRenewalOpen, setNonRenewalOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const [undoBusy, setUndoBusy] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -379,6 +381,8 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
           <ContractedServicesPdfButton customerId={detail.customer.id} termId={term.id} agreementId={detail.id} />
           {detail.canRecordNonRenewal && !marked && <Button size="sm" variant="outline" disabled={dirty || saving}
             onClick={() => setNonRenewalOpen(true)} data-testid="button-not-renewing">{translate("nonRenewal.notRenewing")}</Button>}
+          {detail.canMergeSeparate && <Button size="sm" variant="outline" disabled={dirty || saving}
+            onClick={() => setMergeOpen(true)} data-testid="button-merge-separate">{translate("mergeSeparate.action")}</Button>}
           {moves.length > 0 && (
             <div className="relative">
               <Button size="sm" variant="outline" disabled={dirty} onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen} data-testid="button-status-menu">Status</Button>
@@ -475,6 +479,7 @@ export function ContractView({ detail, initialHash }: { detail: ContractDetail; 
 
       <NotRenewingDialog target={nonRenewalOpen ? { id: detail.id, customerName: detail.customer.name } : null}
         onClose={() => setNonRenewalOpen(false)} />
+      <MergeSeparateDialog target={mergeOpen ? detail : null} onClose={() => setMergeOpen(false)} />
       <RenewDialog target={renewOpen ? { id: detail.id, customerName: detail.customer.name } : null} onClose={() => setRenewOpen(false)}
         onCreated={termId => { resetEdits(); setSignPrompt(false); setConfirmMove(null); setMenuOpen(false); history.replaceState(null, "", `#term-${termId}`); setSelectedId(termId); }} />
 

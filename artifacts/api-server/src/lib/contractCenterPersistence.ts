@@ -16,6 +16,7 @@ import { contractNeedsAction, emptyContractCounts, type ContractProjection } fro
 import { projectActiveCustomers } from "@workspace/db/active-customers";
 import { logger } from "./logger";
 import { isCalendarDate } from "@workspace/db/estimate-contracts";
+import { separateMergeCandidates } from "./contractMergeEligibility";
 
 const seasonSelection = () => ({ ...getTableColumns(agreementTerms),
   createdAtExact: sql<string>`${agreementTerms.createdAt}::text`,
@@ -299,7 +300,7 @@ export async function agreementSeasons(reader: Reader, companyId: string, agreem
     .from(agreementTerms).where(and(eq(agreementTerms.agreementId, agreementId), eq(agreementTerms.companyId, companyId)))
     .orderBy(asc(agreementTerms.startDate), asc(agreementTerms.createdAt));
 }
-export async function fullDetail(reader: Reader, companyId: string, agreementId: string) {
+export async function fullDetail(reader: Reader, companyId: string, agreementId: string, canMerge = false) {
   const agreement = await getAgreement(reader, companyId, agreementId);
   const [customer] = await reader.select().from(customers).where(and(eq(customers.id, agreement.customerId), eq(customers.companyId, companyId)));
   if (!customer) throw new ContractCenterError(404, "Customer not found");
@@ -358,7 +359,8 @@ export async function fullDetail(reader: Reader, companyId: string, agreementId:
     renewalSourceId: renewalSource?.id ?? null,
     canRecordNonRenewal: !!renewalSource && ["signed", "active", "renewed"].includes(renewalSource.status) && !isNotRenewing(renewalSource)
       && !terms.some(t => t.renewedFromTermId === renewalSource.id && ["signed", "active", "renewed"].includes(t.status)),
-    ...projection, otherOpenLines, companyDay: today };
+    ...projection, otherOpenLines, companyDay: today,
+    canMergeSeparate: canMerge && separateMergeCandidates(agreement, terms, customerAgreements, customerTerms).some(c => c.blockedReason === null) };
 }
 async function nonRenewalActorNames(reader: Reader, terms: AgreementTerm[]): Promise<Map<string, string>> {
   const ids = [...new Set(terms.map(t => t.nonRenewalBy).filter((id): id is string => !!id))];

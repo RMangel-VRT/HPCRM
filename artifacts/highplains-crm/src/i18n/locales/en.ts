@@ -2,6 +2,30 @@ import { NON_RENEWAL_LABELS } from "@shared/contractCatalog";
 import { activeCustomersText } from "../../../../../lib/db/src/activeCustomersText";
 import { billingEn, customersEn } from "@/components/revenue-v2/revenueContractViews";
 const en = {
+  mergeSeparate: {
+    action: "Renewed as a separate contract",
+    title: "Merge the renewal into this contract",
+    choose: "Choose the separate contract to merge.",
+    loading: "Loading separate contracts…",
+    retry: "Try again",
+    empty: "No separate renewal contracts are available.",
+    firstStart: "First season starts {{date}}",
+    annual: "{{price}} annually",
+    before: "Before",
+    after: "After",
+    linkPreview: "{{source}} → renewed by {{first}}, {{status}}",
+    pendingPreview: "{{source}} → pending renewal {{first}}, {{status}}",
+    lineChange: "Line changes from {{from}} to {{to}}",
+    managementChange: "Management company changes from {{from}} to {{to}}. {{to}} will be kept.",
+    none: "None",
+    warning: "The separate contract will be removed. Its seasons, payments, scope, rates, documents and history move here.",
+    cancel: "Cancel",
+    confirm: "Merge",
+    success: "Merged. {{first}} is now the renewal of {{source}}",
+    companyChanged: "Active company changed. Reload and try again.",
+    lines: { landscape: "Landscape", snow: "Snow", both: "Landscape + Snow" },
+    statuses: { draft: "Draft", sent: "Sent", signed: "Signed", active: "Active", renewed: "Renewed", cancelled: "Cancelled", lost: "Lost", expired: "Expired" },
+  },
   revenueV2: {
     views: {
       unavailable: "Not loaded",

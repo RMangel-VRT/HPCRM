@@ -74,6 +74,13 @@ const page = (hash: string) => renderToStaticMarkup(
   <QueryClientProvider client={new QueryClient()}><Router ssrPath="/dashboard/contracts/a1"><Route path="/dashboard/contracts/:id"><ContractPage initialHash={hash} /></Route></Router></QueryClientProvider>);
 
 describe("contract page", () => {
+  it("offers separate renewal merge independently of projection actions", () => {
+    fx.q = { "/api/contract-center/contracts/a1": { data: detail({ canMergeSeparate: true, allowedActions: ["open"], renewalDue: false }) } };
+    expect(page("")).toContain('data-testid="button-merge-separate"');
+    expect(page("")).toContain("Renewed as a separate contract");
+    fx.q = { "/api/contract-center/contracts/a1": { data: detail({ canMergeSeparate: false, allowedActions: ["renew"] }) } };
+    expect(page("")).not.toContain('data-testid="button-merge-separate"');
+  });
   it.each([
     ["renewed", true, "2026-04-01", "2027-03-31", null],
     ["signed", true, "2030-04-01", "2031-03-31", null],

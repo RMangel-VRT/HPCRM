@@ -87,6 +87,7 @@ export interface DetailTerm extends TermSummary {
   documents: TermDocument[]; coveredBy?: TermDocument[]; history: TermHistoryRow[];
 }
 export interface ContractDetail extends ProjectionFields {
+  canMergeSeparate?: boolean;
   renewalSourceId?: string | null;
   canRecordNonRenewal?: boolean;
   canUndoNonRenewal?: boolean;
@@ -97,6 +98,19 @@ export interface ContractDetail extends ProjectionFields {
   customer: { id: string; name: string };
   currentTermId?: string | null; renewalDue?: boolean; renewalDraftId?: string | null;
   terms: DetailTerm[];
+}
+
+export interface MergeCandidate {
+  agreementId: string;
+  firstSeasonLabel: string;
+  firstStartDate: string;
+  blockedReason: string | null;
+  propertyManagementCompanyId: string | null;
+  targetPropertyManagementCompanyId: string | null;
+  managementCompanyName: string | null;
+  targetManagementCompanyName: string | null;
+  seasons: { id: string; seasonLabel: string; startDate: string; endDate: string; status: string;
+    line: AgreementLine; annualPriceCents: number | null }[];
 }
 
 /** A season's own line and form, falling back to the contract's derived values for older payloads. */
