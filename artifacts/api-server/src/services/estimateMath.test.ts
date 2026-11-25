@@ -32,9 +32,9 @@ describe("exact estimate arithmetic", () => {
   });
   it("margin excludes unknown costs and includes known-zero costs", () => {
     const totals = computeVersionTotals([
-      { quantity: "2.5", unitPriceCents: 33, unitCostCents: 10, sectionId: "a", umbrellaKey: "plants" },
-      { quantity: "1", unitPriceCents: 10000, unitCostCents: null, sectionId: "b", umbrellaKey: "landscape_labor" },
-      { quantity: "1", unitPriceCents: 17, unitCostCents: 0, sectionId: "a", umbrellaKey: "plants" },
+      { quantity: "2.5", unitPriceCents: 33, unitCostCents: 10, sectionId: "a", umbrellaKey: "plants", lineType: "plant" },
+      { quantity: "1", unitPriceCents: 10000, unitCostCents: null, sectionId: "b", umbrellaKey: "landscape_labor", lineType: "labor" },
+      { quantity: "1", unitPriceCents: 17, unitCostCents: 0, sectionId: "a", umbrellaKey: "plants", lineType: "plant" },
     ]);
     expect(totals).toMatchObject({ subtotalCents: 10100, costKnownCents: 25, costUnknownLines: 1, materialMarginPct: 75, bySection: { a: 100, b: 10000 } });
     expect(Object.keys(totals.byUmbrella)).toEqual([...ESTIMATE_UMBRELLAS]);
@@ -42,14 +42,14 @@ describe("exact estimate arithmetic", () => {
   });
   it("zero revenue margin is explicitly null, even with known cost", () => {
     expect(computeVersionTotals([]).materialMarginPct).toBeNull();
-    expect(computeVersionTotals([{ quantity: "1", unitPriceCents: 0, unitCostCents: 50, sectionId: "s", umbrellaKey: "plants" }]).materialMarginPct).toBeNull();
+    expect(computeVersionTotals([{ quantity: "1", unitPriceCents: 0, unitCostCents: 50, sectionId: "s", umbrellaKey: "plants", lineType: "plant" }]).materialMarginPct).toBeNull();
   });
   it("negative and fractional margins are deterministic", () => {
-    expect(computeVersionTotals([{ quantity: "1", unitPriceCents: 3, unitCostCents: 4, sectionId: "s", umbrellaKey: "plants" }]).materialMarginPct).toBe(-33.3333);
+    expect(computeVersionTotals([{ quantity: "1", unitPriceCents: 3, unitCostCents: 4, sectionId: "s", umbrellaKey: "plants", lineType: "plant" }]).materialMarginPct).toBe(-33.3333);
   });
   it("total overflow is rejected even when individual lines fit", () => {
-    expect(() => computeVersionTotals(Array.from({ length: 2 }, () => ({ quantity: "1", unitPriceCents: 2147483647, unitCostCents: null, sectionId: "s", umbrellaKey: "plants" as const })))).toThrow(RangeError);
-    expect(() => computeVersionTotals(Array.from({ length: 2 }, () => ({ quantity: "1", unitPriceCents: 0, unitCostCents: 2147483647, sectionId: "s", umbrellaKey: "plants" as const })))).toThrow(RangeError);
+    expect(() => computeVersionTotals(Array.from({ length: 2 }, () => ({ quantity: "1", unitPriceCents: 2147483647, unitCostCents: null, sectionId: "s", umbrellaKey: "plants" as const, lineType: "plant" })))).toThrow(RangeError);
+    expect(() => computeVersionTotals(Array.from({ length: 2 }, () => ({ quantity: "1", unitPriceCents: 0, unitCostCents: 2147483647, sectionId: "s", umbrellaKey: "plants" as const, lineType: "plant" })))).toThrow(RangeError);
   });
   it("Colorado year changes at Colorado midnight, not UTC midnight", () => {
     expect(companyToday(new Date("2027-01-01T06:59:59Z"))).toBe("2026-12-31");

@@ -370,3 +370,73 @@ describe("real PostgreSQL serialization and tenant isolation", () => {
     }
   });
 });
+
+describe("real PostgreSQL estimate discounts", () => {
+  async function discounted() {
+    let d = await createEstimate(a, actor, { customerId: customer, title: "Discount test" });
+    const section = d.version.sections[0].id;
+    // Labor lines normally snapshot a rate; store a priced custom line, then mark it labor directly.
+    d = await createLine(a, d.id, d.version.id, { sectionId: section, lineType: "custom", name: "Crew", unit: "HR", quantity: "10", unitPriceCents: 10000, umbrellaKey: "landscape_labor" });
+    await db.update(estimateLines).set({ lineType: "labor" }).where(eq(estimateLines.id, lines(d)[0].id));
+    d = await createLine(a, d.id, d.version.id, { sectionId: section, lineType: "custom", name: "Boulders", unit: "EA", quantity: "1", unitPriceCents: 200000, umbrellaKey: "landscape_materials" });
+    return d;
+  }
+  const row = async (versionId: string) => (await db.select().from(estimateVersions).where(eq(estimateVersions.id, versionId)))[0];
+
+  it("migration is guarded and rerunnable, and the database rejects malformed settings", async () => {
+    const migration = await readFile(new URL("../../../../.migration-backup/migrations/0096_estimate_version_discounts.sql", import.meta.url), "utf8");
+    await db.execute(sql.raw(migration)); await db.execute(sql.raw(migration));
+    const d = await discounted();
+    for (const bad of [
+      { laborDiscountKind: "percent", laborDiscountValue: 10001 }, { laborDiscountKind: "amount", laborDiscountValue: 0 },
+      { totalDiscountKind: "bogus", totalDiscountValue: 5 }, { totalDiscountKind: null, totalDiscountValue: null, totalDiscountLabel: "Orphan" }, { totalDiscountKind: null, totalDiscountValue: 5 },
+      { laborDiscountKind: "percent", laborDiscountValue: null }, { frozenLaborDiscountCents: -1 },
+      { frozenTotalCents: -1 },
+    ]) await expect(db.update(estimateVersions).set(bad as never).where(eq(estimateVersions.id, d.version.id))).rejects.toThrow();
+  });
+
+  it("PATCH stores exact values, computes live totals, omitted keys leave the other discount alone, null clears", async () => {
+    let d = await discounted();
+    d = await patchVersion(a, d.id, d.version.id, { laborDiscount: { kind: "percent", value: "15", label: "  Winter labor discount " } });
+    expect(await row(d.version.id)).toMatchObject({ laborDiscountKind: "percent", laborDiscountValue: 1500, laborDiscountLabel: "Winter labor discount" });
+    d = await patchVersion(a, d.id, d.version.id, { totalDiscount: { kind: "amount", value: "500.00", label: " " } });
+    expect(await row(d.version.id)).toMatchObject({ laborDiscountValue: 1500, totalDiscountKind: "amount", totalDiscountValue: 50000, totalDiscountLabel: null });
+    expect(d.version.totals).toMatchObject({ subtotalCents: 300000, laborDiscountCents: 15000, totalDiscountCents: 50000, totalCents: 235000 });
+    expect(d.version.totals.byUmbrellaNet.landscape_labor + d.version.totals.byUmbrellaNet.landscape_materials).toBe(235000);
+    d = await patchVersion(a, d.id, d.version.id, { scopeOfWork: "Unrelated edit" });
+    expect(d.version.totals.totalCents).toBe(235000);
+    d = await patchVersion(a, d.id, d.version.id, { laborDiscount: null });
+    expect(await row(d.version.id)).toMatchObject({ laborDiscountKind: null, laborDiscountValue: null, laborDiscountLabel: null, totalDiscountValue: 50000 });
+    expect(d.version.totals.totalCents).toBe(250000);
+    // Lists show the discounted current total while subtotal stays gross.
+    const listed = (await listEstimates(a, { search: d.estimateNumber })).find(e => e.id === d.id)!;
+    expect(listed).toMatchObject({ subtotalCents: 300000, totalCents: 250000 });
+  });
+
+  it("send freezes all three amounts; later line edits are impossible and the frozen total survives; revise copies settings", async () => {
+    let d = await discounted();
+    d = await patchVersion(a, d.id, d.version.id, { laborDiscount: { kind: "percent", value: "15" }, totalDiscount: { kind: "percent", value: "10", label: "Loyalty" } });
+    const sent = await act(d, "send", { method: "other" });
+    expect(await row(sent.version.id)).toMatchObject({ frozenSubtotalCents: 300000, frozenLaborDiscountCents: 15000, frozenTotalDiscountCents: 28500, frozenTotalCents: 256500 });
+    expect(sent.version.totals).toMatchObject({ subtotalCents: 300000, totalCents: 256500 });
+    await expect(patchVersion(a, sent.id, sent.version.id, { laborDiscount: null })).rejects.toBeTruthy();
+    const revised = await act(sent, "revise");
+    expect(revised.version.id).not.toBe(sent.version.id);
+    expect(await row(revised.version.id)).toMatchObject({ laborDiscountKind: "percent", laborDiscountValue: 1500, laborDiscountLabel: null,
+      totalDiscountKind: "percent", totalDiscountValue: 1000, totalDiscountLabel: "Loyalty", frozenTotalCents: null, frozenLaborDiscountCents: null });
+    expect(revised.version.totals.totalCents).toBe(256500);
+    const old = await readEstimate(a, sent.id, sent.version.versionNumber);
+    expect(old.version.totals.totalCents).toBe(256500);
+  });
+
+  it("legacy frozen versions without frozen discount columns read their frozen subtotal as the total", async () => {
+    const d = await discounted();
+    const sent = await act(d, "send", { method: "other" });
+    await db.update(estimateVersions).set({ frozenTotalCents: null, frozenLaborDiscountCents: null, frozenTotalDiscountCents: null })
+      .where(eq(estimateVersions.id, sent.version.id));
+    const read = await readEstimate(a, sent.id, sent.version.versionNumber);
+    expect(read.version.totals).toMatchObject({ subtotalCents: 300000, totalCents: 300000, laborDiscountCents: 0, totalDiscountCents: 0 });
+    const listed = (await listEstimates(a, { search: d.estimateNumber })).find(e => e.id === d.id)!;
+    expect(listed.totalCents).toBe(300000);
+  });
+});

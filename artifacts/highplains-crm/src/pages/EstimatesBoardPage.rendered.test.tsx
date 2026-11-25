@@ -31,7 +31,7 @@ beforeAll(() => {
 
 const today = denverToday();
 const est = (id: string, o: Partial<NonNullable<EstimateActionTicket["estimate"]>> = {}) => ({
-  id, number: `EST-${id}`, versionNumber: 1, status: "sent" as const, subtotalCents: 100000, versionId: `v-${id}`,
+  id, number: `EST-${id}`, versionNumber: 1, status: "sent" as const, subtotalCents: 100000, totalCents: 100000, versionId: `v-${id}`,
   sentAt: null, acceptedAt: null, validUntil: null, draftEditedAt: null, linesNeedingPrice: 0, lineCount: 2, ...o,
 });
 function tk(id: string, bucket: EstimateActionTicket["nextAction"]["bucket"], urgency: "red" | "amber" | null, o: Partial<EstimateActionTicket> = {}): EstimateActionTicket {

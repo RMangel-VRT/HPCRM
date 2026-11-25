@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { estimates, estimateVersions, estimateLines, estimateSections, tickets, ESTIMATE_VALIDITY_DAYS, estimateLineNeedsPrice, type EstimateLine, type EstimateBoardSummaryDto } from "@workspace/db";
 import { addCalendarDays, companyDateString } from "../lib/companyDay";
 import { db } from "../db";
-import { computeVersionTotals } from "./estimateMath";
+import { computeVersionTotals, displayedVersionTotal, versionDiscounts } from "./estimateMath";
 import { readEstimate } from "./estimateReads";
 import { requireEstimate } from "./estimateErrors";
 
@@ -40,6 +40,7 @@ export async function loadTicketEstimateSummaries(companyId: string, ticketIds: 
     lineCount: lines.length,
     status: version.status, subtotalCents: version.status === "draft"
       ? computeVersionTotals(lines).subtotalCents : version.frozenSubtotalCents,
+    totalCents: displayedVersionTotal(version, () => computeVersionTotals(lines, versionDiscounts(version)).totalCents),
   }]));
 }
 
@@ -55,5 +56,6 @@ export async function readTicketEstimate(companyId: string, ticketId: string) {
   if (detail.voidedAt) return null;
   const { version, ...container } = detail;
   return { ...container, version: { id: version.id, versionNumber: version.versionNumber, status: version.status },
-    subtotalCents: version.status === "draft" ? version.totals.subtotalCents : version.frozenSubtotalCents };
+    subtotalCents: version.status === "draft" ? version.totals.subtotalCents : version.frozenSubtotalCents,
+    totalCents: version.totals.totalCents };
 }

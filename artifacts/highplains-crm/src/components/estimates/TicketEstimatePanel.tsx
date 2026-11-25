@@ -78,7 +78,7 @@ function Panel({ ticket, statuses }: Props) {
       </span></TooltipTrigger>{!ticket.customerId && <TooltipContent>{t("estimateTicket.noCustomer")}</TooltipContent>}</Tooltip> : <>
         <div className="flex flex-wrap items-center gap-2"><strong>{estimate.estimateNumber}</strong>
           <span>v{estimate.version.versionNumber}</span><StatusPill status={estimate.version.status} label={t(`estimateBuilder.status.${estimate.version.status}`)} /></div>
-        <p className="font-semibold tabular-nums">{estimate.subtotalCents === null ? "—" : formatCents(estimate.subtotalCents, i18n.language)}</p>
+        <p className="font-semibold tabular-nums">{estimate.totalCents == null ? "—" : formatCents(estimate.totalCents, i18n.language)}</p>
         {accepted && <div className="space-y-1 text-sm">
           {estimate.version.status === "draft" && estimate.version.id !== accepted.id &&
             <p>{t("estimateTicket.changeOrder", { accepted: accepted.versionNumber, draft: estimate.version.versionNumber })}</p>}

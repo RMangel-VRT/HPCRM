@@ -7,7 +7,7 @@ import { db, type AppTransaction } from "../db";
 import { companyToday } from "../lib/companyDay";
 import { EstimateError, requireEstimate } from "./estimateErrors";
 import { estimatePayload, readEstimatePhotoRows } from "./estimateReads";
-import { computeVersionTotals } from "./estimateMath";
+import { computeVersionTotals, versionDiscounts } from "./estimateMath";
 import { canonicalEstimateUnit } from "./estimateUnit";
 
 export type EstimateAction = "send" | "accept" | "decline" | "revise" | "discard" | "void";
@@ -27,7 +27,7 @@ export async function preflightEstimateSend(tx: AppTransaction, companyId: strin
   if (!lines.length) throw new EstimateError(409, "NO_LINES");
   const lineIds = lines.filter(estimateLineNeedsPrice).map(l => l.id);
   if (lineIds.length && !confirmZeroPriced) throw new EstimateError(409, "LINES_NEED_PRICE", { lineIds });
-  return computeVersionTotals(lines);
+  return computeVersionTotals(lines, versionDiscounts(version));
 }
 /** One transaction/parent lock shared by every lifecycle operation. No catalog
  * access: revisions copy commercial snapshots, send freezes the existing math. */
@@ -76,7 +76,8 @@ export async function transitionEstimate(companyId: string, userId: string | nul
           .where(and(scope, ne(estimateVersions.id, version.id), eq(estimateVersions.status, "sent")));
         await tx.update(estimateVersions).set({ status: "sent", sentAt: receipt?.sentAt ?? now, sentById: receipt ? receipt.sentById : userId, sentMethod: method,
           frozenSubtotalCents: totals.subtotalCents, frozenCostKnownCents: totals.costKnownCents,
-          frozenCostUnknownLines: totals.costUnknownLines, updatedAt: now }).where(versionScope);
+          frozenCostUnknownLines: totals.costUnknownLines, frozenLaborDiscountCents: totals.laborDiscountCents,
+          frozenTotalDiscountCents: totals.totalDiscountCents, frozenTotalCents: totals.totalCents, updatedAt: now }).where(versionScope);
       } else if (action === "accept") {
         const { method, poNumber, acceptedOn } = acceptEstimateSchema.parse(input);
         // Release the accepted partial unique before activating this version.
@@ -112,6 +113,9 @@ export async function transitionEstimate(companyId: string, userId: string | nul
         if (photos.length) idMap.photos = Object.fromEntries(photosToCopy);
         const [copy] = await tx.insert(estimateVersions).values({ companyId, estimateId: id, versionNumber: next,
           createdFromVersionId: version.id, scopeOfWork: version.scopeOfWork, includePlantTable: version.includePlantTable,
+          // Settings carry forward; the new draft's amounts are live until it is sent.
+          laborDiscountKind: version.laborDiscountKind, laborDiscountValue: version.laborDiscountValue, laborDiscountLabel: version.laborDiscountLabel,
+          totalDiscountKind: version.totalDiscountKind, totalDiscountValue: version.totalDiscountValue, totalDiscountLabel: version.totalDiscountLabel,
           createdById: userId, revisionIdMap: idMap }).returning();
         if (sections.length) await tx.insert(estimateSections).values(sections.map(section => ({
           id: sectionsToCopy.get(section.id)!, companyId, versionId: copy.id, name: section.name, sortOrder: section.sortOrder,

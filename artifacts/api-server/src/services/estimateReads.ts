@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull, isNotNull, ilike, or, desc, asc, getTableColu
 import { estimates, estimateVersions, estimateSections, estimateLines, estimateVersionPhotos, communications, customers, estimateLineNeedsPrice, type Estimate, type EstimateVersion, type EstimateLine } from "@workspace/db";
 import type { IssuedEstimateAttachment } from "@workspace/db/estimate-contracts";
 import { db, type AppTransaction } from "../db";
-import { computeVersionTotals } from "./estimateMath";
+import { computeVersionTotals, displayedVersionTotal, versionDiscounts } from "./estimateMath";
 import { requireEstimate } from "./estimateErrors";
 import { estimateDisplay } from "./estimateDisplay";
 import { loadPlantLinesForVersion, derivePaletteTypeLabel } from "./proposalExhibits";
@@ -25,7 +25,7 @@ export async function versionPayload(tx: EstimateConnection, companyId: string, 
     .orderBy(asc(estimateSections.sortOrder), asc(estimateSections.createdAt), asc(estimateSections.id));
   const lines = await tx.select().from(estimateLines).where(and(eq(estimateLines.companyId, companyId), eq(estimateLines.versionId, version.id)))
     .orderBy(asc(estimateLines.sortOrder), asc(estimateLines.createdAt), asc(estimateLines.id));
-  const totals = computeVersionTotals(lines);
+  const totals = computeVersionTotals(lines, versionDiscounts(version));
   const plantDefaults = new Map((lines.some(l => l.lineType === "plant")
     ? await loadPlantLinesForVersion(companyId, version.id, tx) : [])
     .map(l => [l.id, derivePaletteTypeLabel(l.category || "other", l.foliageType)]));
@@ -35,9 +35,13 @@ export async function versionPayload(tx: EstimateConnection, companyId: string, 
     totals.subtotalCents = version.frozenSubtotalCents;
     totals.costKnownCents = version.frozenCostKnownCents ?? totals.costKnownCents;
     totals.costUnknownLines = version.frozenCostUnknownLines ?? totals.costUnknownLines;
+    // Versions frozen before discounts existed had none: total = gross subtotal.
+    totals.laborDiscountCents = version.frozenLaborDiscountCents ?? 0;
+    totals.totalDiscountCents = version.frozenTotalDiscountCents ?? 0;
+    totals.totalCents = version.frozenTotalCents ?? version.frozenSubtotalCents;
   }
   // Empty sections still have an authoritative zero subtotal.
-  for (const section of sections) totals.bySection[section.id] ??= 0;
+  for (const section of sections) { totals.bySection[section.id] ??= 0; totals.bySectionNet[section.id] ??= 0; }
   const grouped = new Map<string, ReturnType<typeof estimateLinePayload>[]>();
   for (const line of lines) {
     const group = grouped.get(line.sectionId) ?? [];
@@ -108,6 +112,7 @@ export async function listEstimates(companyId: string, filters: EstimateListFilt
       ...estimate, customerName, currentVersionNumber: currentVersion?.versionNumber ?? null, currentVersionStatus: currentVersion?.status ?? null,
       versions: histories.get(estimate.id) ?? [],
       subtotalCents: currentVersion?.status === "draft" ? computeVersionTotals(grouped.get(currentVersion.id) ?? []).subtotalCents : currentVersion?.frozenSubtotalCents ?? null,
+      totalCents: currentVersion ? displayedVersionTotal(currentVersion, () => computeVersionTotals(grouped.get(currentVersion.id) ?? [], versionDiscounts(currentVersion)).totalCents) : null,
     }));
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }

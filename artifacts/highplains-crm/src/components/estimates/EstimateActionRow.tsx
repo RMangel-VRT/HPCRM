@@ -81,7 +81,7 @@ export function EstimateActionRow(props: {
           <span className="text-muted-foreground"> · {r.title}</span>
         </span>
         <TicketTypeBadge type={project} />
-        <span className="tabular-nums font-medium" data-testid={`text-amount-${r.id}`}>{money(est?.subtotalCents, lang)}</span>
+        <span className="tabular-nums font-medium" data-testid={`text-amount-${r.id}`}>{money(est?.totalCents, lang)}</span>
         {r.owner && (
           <Link href={r.owner.href} className="inline-flex items-center gap-1 text-xs font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`owner-${r.id}`}>
             <CheckCircle2 className="h-3.5 w-3.5" />{t(`estimates.owner.${r.owner.sectionKey}`)}
@@ -128,7 +128,7 @@ export function EstimateActionRow(props: {
         <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground" data-testid={`text-stage-${r.id}`}>{t(STAGE_LABELS[r.statusKey] ?? "estimates.typeLabel")}</span>
         {est ? <>
           <Link href={builderPath(est.id)} className="tabular-nums underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`link-estimate-${r.id}`}>{est.number}</Link>
-          <span className="font-semibold tabular-nums" data-testid={`text-amount-${r.id}`}>{money(est.subtotalCents, lang)}</span>
+          <span className="font-semibold tabular-nums" data-testid={`text-amount-${r.id}`}>{money(est.totalCents, lang)}</span>
         </> : r.estimateNumber && <span className="tabular-nums">{r.estimateNumber}</span>}
       </div>
       <div className="min-w-0 text-xs">

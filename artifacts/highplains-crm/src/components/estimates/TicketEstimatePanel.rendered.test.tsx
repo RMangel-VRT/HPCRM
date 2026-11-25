@@ -16,11 +16,11 @@ const ticket = { id: "t", title: "Working title", customerId: "customer", curren
 const statuses = [{ id: "lost", statusKey: "closed_lost" }];
 const type = { name: "Renamed", typeKey: "estimate_request" };
 const draft = { id: "e", ticketId: null, voidedAt: null, estimateNumber: "EST-1", updatedAt: "now",
-  subtotalCents: 12345,
-  version: { id: "v3", versionNumber: 3, status: "draft", totals: { subtotalCents: 12345 } },
+  subtotalCents: 12345, totalCents: 12345,
+  version: { id: "v3", versionNumber: 3, status: "draft", totals: { subtotalCents: 12345, totalCents: 12345 } },
   versions: [{ id: "v3", versionNumber: 3, status: "draft" }] };
 function renderPanel(role = "admin", props: Record<string, unknown> = {}) {
-  mocks.user.activeRole = role;
+  mocks.user.activeRole = role; (mocks.user as Record<string, unknown>).accessRole = role;
   const loc = memoryLocation({ path: "/dashboard/tickets/t", record: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const result = render(<QueryClientProvider client={client}><Router hook={loc.hook}>

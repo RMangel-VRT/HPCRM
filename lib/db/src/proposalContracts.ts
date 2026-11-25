@@ -4,5 +4,6 @@ export interface ProposalEstimateSummary {
   number: string;
   title: string;
   currentVersion: { id: string; versionNumber: number; status: import("./estimateContracts").EstimateVersionSummaryDto["status"] } | null;
-  subtotalCents: number | null;
+  /** Gross line subtotal; totalCents is the discounted customer-facing total. */
+  subtotalCents: number | null; totalCents: number | null;
 }

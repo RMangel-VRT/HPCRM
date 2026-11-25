@@ -56,3 +56,20 @@ it("uses the selected historical date and omits unavailable comparison and photo
   expect(revised.text).toContain("Here is Version 3 of your estimate.");
   expect(revised.text).not.toMatch(/version we sent on|Version 2 total|Change:/);
 });
+
+it("shows the discounted total with named discount rows under a gross subtotal", async () => {
+  const result = await buildEstimateEmail({ ...args, version: { ...args.version, frozenSubtotalCents: 307960, frozenTotalCents: 246368,
+    laborDiscountKind: "percent", laborDiscountValue: 1500, laborDiscountLabel: "Winter labor discount", totalDiscountKind: "amount", totalDiscountValue: 50000, totalDiscountLabel: null,
+    totals: { subtotalCents: 307960, bySection: { bed: 307960 }, laborDiscountCents: 11592, totalDiscountCents: 50000, totalCents: 246368 } } });
+  expect(result.preview).toContain("$2,463.68");
+  expect(result.text).toContain("Total: $2,463.68");
+  expect(result.text).toContain("Subtotal: $3,079.60");
+  expect(result.text).toContain("Winter labor discount (15%): −$115.92");
+  expect(result.text).toContain("Discount: −$500.00");
+  expect(result.text).not.toContain("Discount (");
+});
+
+it("never shows discount rows when nothing is discounted", async () => {
+  const result = await buildEstimateEmail(args);
+  expect(result.text).not.toMatch(/Subtotal|discount/i);
+});

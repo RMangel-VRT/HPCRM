@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { estimates, estimateVersions, estimateLines, type EstimateLine } from "@workspace/db";
 import type { ProposalEstimateSummary } from "@workspace/db/estimate-contracts";
 import { db } from "../db";
-import { computeVersionTotals } from "./estimateMath";
+import { computeVersionTotals, displayedVersionTotal, versionDiscounts } from "./estimateMath";
 import { readEstimate } from "./estimateReads";
 import { EstimateError } from "./estimateErrors";
 import { transitionEstimate } from "./estimateLifecycle";
@@ -38,6 +38,7 @@ export async function loadProposalEstimateSummaries(companyId: string, ids: stri
     id: estimate.id, number: estimate.estimateNumber, title: estimate.title,
     currentVersion: version ? { id: version.id, versionNumber: version.versionNumber, status: estimate.voidedAt ? "void" : version.status } : null,
     subtotalCents: version?.status === "draft" ? computeVersionTotals(grouped.get(version.id) ?? []).subtotalCents : version?.frozenSubtotalCents ?? null,
+    totalCents: version ? displayedVersionTotal(version, () => computeVersionTotals(grouped.get(version.id) ?? [], versionDiscounts(version)).totalCents) : null,
   });
   return result;
 }

@@ -37,7 +37,7 @@ export function FollowUpDialog(props: {
   const est = ticket?.estimate;
   const parts = [
     est?.number ?? ticket?.estimateNumber,
-    est && est.subtotalCents !== null ? formatCents(est.subtotalCents, i18n.language) : null,
+    est && est.totalCents != null ? formatCents(est.totalCents, i18n.language) : null,
     est?.sentAt ? t("estimateActions.followUp.sentOn", { date: formatCalendarDate(denverToday(new Date(est.sentAt)), i18n.language) }) : null,
     est?.validUntil ? t("estimateActions.followUp.validUntil", { date: formatCalendarDate(est.validUntil, i18n.language) }) : null,
   ].filter(Boolean);

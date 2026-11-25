@@ -1,4 +1,5 @@
 import { buildEstimateDocumentModel } from "../estimatePdf";
+import { computeVersionTotals } from "../estimateMath";
 import { buildInvoiceDocumentModel } from "../invoicePdf";
 import type { InvoiceDetailDto } from "@workspace/db/invoice-contracts";
 import { emptyDocumentSettings } from "@workspace/db/document-contracts";
@@ -14,6 +15,23 @@ export function estimateFixture(count: number, options: { servicesOnly?: boolean
   return buildEstimateDocumentModel({ estimateNumber: "EST-2026-0042", title: "Entrance landscape improvements",
     version: { versionNumber: 2, scopeOfWork: options.scopeOfWork ?? null, status: "sent", sentAt: "2026-11-02T18:00:00Z", acceptedOn: null, poNumber: null,
       frozenSubtotalCents: count * 25000, totals: { subtotalCents: count * 25000, bySection: { a: count * 25000 } },
+      sections: [{ id: "a", name: "Entrance & common areas", sortOrder: 0, lines }] } },
+    { companyName: "High Plains Property Maintenance", customerName: "Example Ranch HOA", customerAddress: "250 Example Lane\nBroomfield, CO 80020",
+      createdByName: null, ticket: null, workLocation: "North entrance\n250 Example Lane" }, "2026-11-02", companyDocument);
+}
+/** Sent version with a 15% labor discount and a $500 total discount. Amounts are
+ * frozen from the canonical math, as send does; the gross categories are unchanged. */
+export function discountedEstimateFixture(options: { laborLabel?: string | null; totalLabel?: string | null } = {}) {
+  const lines = Array.from({ length: 12 }, (_, i) => ({ id: `l${i}`, sectionId: "a", name: i % 3 === 0 ? `Planting labor ${i + 1}` : `Blue Spruce ${i + 1}`,
+    detail: i % 3 === 0 ? "Crew hours" : "5 gallon container", quantity: "2.00", unit: i % 3 === 0 ? "hour" : "ea", unitPriceCents: 12500, unitCostCents: null,
+    sortOrder: i, lineType: i % 3 === 0 ? "labor" : "plant", umbrellaKey: (i % 3 === 0 ? "landscape_labor" : "plants") as "landscape_labor" | "plants" }));
+  const settings = { laborDiscountKind: "percent" as const, laborDiscountValue: 1500, laborDiscountLabel: options.laborLabel === undefined ? "Winter labor discount" : options.laborLabel,
+    totalDiscountKind: "amount" as const, totalDiscountValue: 50000, totalDiscountLabel: options.totalLabel ?? null };
+  const totals = computeVersionTotals(lines, { labor: { kind: "percent", value: 1500 }, total: { kind: "amount", value: 50000 } });
+  return buildEstimateDocumentModel({ estimateNumber: "EST-2026-0043", title: "Winter planting",
+    version: { versionNumber: 1, scopeOfWork: null, status: "sent", sentAt: "2026-11-02T18:00:00Z", acceptedOn: null, poNumber: null, ...settings,
+      frozenSubtotalCents: totals.subtotalCents, frozenLaborDiscountCents: totals.laborDiscountCents,
+      frozenTotalDiscountCents: totals.totalDiscountCents, frozenTotalCents: totals.totalCents, totals,
       sections: [{ id: "a", name: "Entrance & common areas", sortOrder: 0, lines }] } },
     { companyName: "High Plains Property Maintenance", customerName: "Example Ranch HOA", customerAddress: "250 Example Lane\nBroomfield, CO 80020",
       createdByName: null, ticket: null, workLocation: "North entrance\n250 Example Lane" }, "2026-11-02", companyDocument);

@@ -3,7 +3,7 @@ import { pgTable, varchar, text, integer, boolean, numeric, timestamp, date, jso
 import { companies, customers, tickets, users, plantCatalogItems, hardscapeCatalogItems, agreementTerms } from "./schema";
 import { irrigationCatalogItems } from "./irrigation";
 import { estimateQuickItems } from "./estimateSetup";
-import { type ESTIMATE_STATUSES, type ESTIMATE_LINE_TYPES, type ESTIMATE_PRICE_SOURCES, type EstimateUmbrella, type ESTIMATE_SENT_METHODS, type ESTIMATE_ACCEPTANCE_METHODS } from "../estimateContracts";
+import { type ESTIMATE_STATUSES, type ESTIMATE_LINE_TYPES, type ESTIMATE_PRICE_SOURCES, type EstimateUmbrella, type ESTIMATE_SENT_METHODS, type ESTIMATE_ACCEPTANCE_METHODS, type EstimateDiscountKind } from "../estimateContracts";
 import type { EstimateRevisionIdMap, IssuedEstimateAttachment } from "../estimateContracts";
 export * from "../estimateContracts";
 
@@ -64,6 +64,17 @@ export const estimateVersions = pgTable("estimate_versions", {
   poNumber: text("po_number"), declinedAt: timestamp("declined_at"), declinedById: userRef("declined_by_id"), declineReason: text("decline_reason"),
   supersededAt: timestamp("superseded_at"), frozenSubtotalCents: integer("frozen_subtotal_cents"), frozenCostKnownCents: integer("frozen_cost_known_cents"),
   frozenCostUnknownLines: integer("frozen_cost_unknown_lines"), createdById: userRef("created_by_id"), ...times(),
+  // Version-owned document pricing, frozen with the version. Value is basis points
+  // for percent (1500 = 15.00%) or cents for amount. NULL kind means no discount.
+  laborDiscountKind: text("labor_discount_kind").$type<EstimateDiscountKind>(),
+  laborDiscountValue: integer("labor_discount_value"), laborDiscountLabel: text("labor_discount_label"),
+  totalDiscountKind: text("total_discount_kind").$type<EstimateDiscountKind>(),
+  totalDiscountValue: integer("total_discount_value"), totalDiscountLabel: text("total_discount_label"),
+  // Frozen on send. frozenSubtotalCents stays the gross line subtotal; versions
+  // frozen before discounts existed leave frozenTotalCents NULL (= subtotal).
+  frozenLaborDiscountCents: integer("frozen_labor_discount_cents"),
+  frozenTotalDiscountCents: integer("frozen_total_discount_cents"),
+  frozenTotalCents: integer("frozen_total_cents"),
 }, (t) => [
   uniqueIndex("estimate_versions_number_idx").on(t.estimateId, t.versionNumber),
   uniqueIndex("estimate_versions_draft_idx").on(t.estimateId).where(sql`${t.status} = 'draft'`),
@@ -71,6 +82,9 @@ export const estimateVersions = pgTable("estimate_versions", {
   check("estimate_versions_status_check", sql`${t.status} IN ('draft','sent','accepted','declined','superseded','void')`),
   check("estimate_versions_sent_method_check", sql`${t.sentMethod} IN ('email','hard_copy','portal','other')`),
   check("estimate_versions_acceptance_method_check", sql`${t.acceptanceMethod} IN ('email_approval','signed_pdf','phone','portal','other')`),
+  check("estimate_versions_labor_discount_check", sql`(${t.laborDiscountKind} IS NULL AND ${t.laborDiscountValue} IS NULL AND ${t.laborDiscountLabel} IS NULL) OR (${t.laborDiscountKind} IS NOT NULL AND ${t.laborDiscountValue} IS NOT NULL AND ((${t.laborDiscountKind} = 'percent' AND ${t.laborDiscountValue} BETWEEN 1 AND 10000) OR (${t.laborDiscountKind} = 'amount' AND ${t.laborDiscountValue} >= 1)))`),
+  check("estimate_versions_total_discount_check", sql`(${t.totalDiscountKind} IS NULL AND ${t.totalDiscountValue} IS NULL AND ${t.totalDiscountLabel} IS NULL) OR (${t.totalDiscountKind} IS NOT NULL AND ${t.totalDiscountValue} IS NOT NULL AND ((${t.totalDiscountKind} = 'percent' AND ${t.totalDiscountValue} BETWEEN 1 AND 10000) OR (${t.totalDiscountKind} = 'amount' AND ${t.totalDiscountValue} >= 1)))`),
+  check("estimate_versions_frozen_discounts_check", sql`${t.frozenLaborDiscountCents} >= 0 AND ${t.frozenTotalDiscountCents} >= 0 AND ${t.frozenTotalCents} >= 0`),
   primaryKey({ name: "estimate_versions_pkey", columns: [t.id] }),
   foreignKey({ name: "estimate_versions_accepted_by_id_fkey", columns: [t.acceptedById], foreignColumns: [users.id] }).onDelete("set null"),
   foreignKey({ name: "estimate_versions_company_id_fkey", columns: [t.companyId], foreignColumns: [companies.id] }).onDelete("cascade"),

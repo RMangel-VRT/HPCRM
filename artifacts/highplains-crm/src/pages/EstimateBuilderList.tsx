@@ -185,7 +185,7 @@ function ListContent() {
                     <TableHead>{t("estimateBuilder.col.customer")}</TableHead>
                     <TableHead>{t("estimateBuilder.col.ticket")}</TableHead>
                     <TableHead>{t("estimateBuilder.col.version")}</TableHead>
-                    <TableHead className="text-right">{t("estimateBuilder.col.subtotal")}</TableHead>
+                    <TableHead className="text-right">{t("estimateBuilder.col.total")}</TableHead>
                     <TableHead>{t("estimateBuilder.col.updated")}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -211,7 +211,7 @@ function ListContent() {
                           {r.voidedAt && <StatusPill status="void" label={t("estimateBuilder.voided")} />}
                         </span>
                       </TableCell>
-                      <TableCell className="text-right font-medium tabular-nums" data-testid={`text-subtotal-${r.id}`}>{r.subtotalCents == null ? "—" : formatCents(r.subtotalCents, lang)}</TableCell>
+                      <TableCell className="text-right font-medium tabular-nums" data-testid={`text-subtotal-${r.id}`}>{r.totalCents == null ? "—" : formatCents(r.totalCents, lang)}</TableCell>
                       <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(r.updatedAt, lang)}</TableCell>
                     </TableRow>
                   ))}

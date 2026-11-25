@@ -43,7 +43,9 @@ function detailOf(versions: V[], viewId?: string, o: Record<string, unknown> = {
       ...life, ...view.o,
       sections: [{ id: "s1", companyId: "c1", versionId: view.id, name: "Front", sortOrder: 0, createdAt: T0, updatedAt: T0,
         lines: [line("la"), line("lb", { needsPrice: true, unitPriceCents: 0, extendedCents: 0 }), line("lc", { needsPrice: true })] }],
-      totals: { subtotalCents: 2000, costKnownCents: 0, costUnknownLines: 3, materialMarginPct: null, byUmbrella: zeroU, bySection: { s1: 2000 } } },
+      totals: { subtotalCents: 2000, costKnownCents: 0, costUnknownLines: 3, materialMarginPct: null, materialMarginGrossPct: null, byUmbrella: zeroU, bySection: { s1: 2000 },
+        byUmbrellaNet: zeroU, bySectionNet: { s1: 2000 }, laborBaseCents: 0, laborDiscountCents: 0, totalDiscountCents: 0, totalCents: 2000,
+        laborDiscountCapped: false, totalDiscountCapped: false, laborDiscountNoLaborLines: false } },
   };
 }
 

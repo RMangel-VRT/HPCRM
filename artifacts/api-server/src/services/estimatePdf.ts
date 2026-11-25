@@ -1,12 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import { formatEstimateUnit } from "../../../../lib/db/src/estimateUnits";
 import { estimates, estimateVersions } from "@workspace/db";
-import { estimateHasMultipleVersions, estimatePdfFilename, type EstimateDetailDto } from "@workspace/db/estimate-contracts";
+import { estimateHasMultipleVersions, estimatePdfFilename, DEFAULT_LABOR_DISCOUNT_LABEL, DEFAULT_TOTAL_DISCOUNT_LABEL,
+  type EstimateDetailDto, type EstimateDiscountKind } from "@workspace/db/estimate-contracts";
 import { db } from "../db";
 import { estimatePayload, readEstimatePhotoRows, type EstimateConnection } from "./estimateReads";
 import { issuedEstimatePdfs } from "./estimateIssuedPdf";
 import { requireEstimate } from "./estimateErrors";
-import { calculateExtendedCents } from "./estimateMath";
+import { basisPointsToPercentString, calculateExtendedCents } from "./estimateMath";
 import { documentSettingsModel, type DocumentSettings } from "@workspace/db/document-contracts";
 import { readDocumentSettings } from "./documentSettings";
 import { renderDocumentPdf } from "./documents/render";
@@ -29,12 +30,32 @@ interface DocumentInput {
     versionNumber: number; status: string; sentAt: DateValue | null;
     acceptedOn: string | null; poNumber: string | null;
     frozenSubtotalCents: number | null; scopeOfWork?: string | null;
-    totals: { subtotalCents: number; bySection: Record<string, number> };
+    /** Frozen discount amounts; NULL on versions frozen before discounts existed. */
+    frozenLaborDiscountCents?: number | null; frozenTotalDiscountCents?: number | null; frozenTotalCents?: number | null;
+    laborDiscountKind?: EstimateDiscountKind | null; laborDiscountValue?: number | null; laborDiscountLabel?: string | null;
+    totalDiscountKind?: EstimateDiscountKind | null; totalDiscountValue?: number | null; totalDiscountLabel?: string | null;
+    totals: { subtotalCents: number; bySection: Record<string, number>; laborDiscountCents?: number; totalDiscountCents?: number; totalCents?: number };
     sections: {
       id: string; name: string; sortOrder: number;
       lines: { name: string; detail: string | null; quantity: string; unit: string; unitPriceCents: number; sortOrder: number; lineType?: string; umbrellaKey?: string }[];
     }[];
   };
+}
+export interface EstimateDocumentDiscount {
+  label: string; kind: EstimateDiscountKind;
+  /** "15%" for percent discounts; null for amount discounts. */
+  displayValue: string | null; cents: number;
+}
+/** Live amounts for a draft; frozen amounts otherwise. Zero-amount discounts are omitted. */
+function documentDiscounts(v: DocumentInput["version"], draft: boolean): EstimateDocumentDiscount[] {
+  const rows = [
+    { kind: v.laborDiscountKind, value: v.laborDiscountValue, label: v.laborDiscountLabel || DEFAULT_LABOR_DISCOUNT_LABEL,
+      cents: draft ? v.totals.laborDiscountCents ?? 0 : v.frozenLaborDiscountCents ?? 0 },
+    { kind: v.totalDiscountKind, value: v.totalDiscountValue, label: v.totalDiscountLabel || DEFAULT_TOTAL_DISCOUNT_LABEL,
+      cents: draft ? v.totals.totalDiscountCents ?? 0 : v.frozenTotalDiscountCents ?? 0 },
+  ];
+  return rows.flatMap(r => r.kind && r.cents > 0 ? [{ label: r.label, kind: r.kind, cents: r.cents,
+    displayValue: r.kind === "percent" && r.value != null ? `${basisPointsToPercentString(r.value)}%` : null }] : []);
 }
 export interface EstimateDocumentModel {
   scopeOfWork: string | null; hasPlants: boolean;
@@ -43,6 +64,11 @@ export interface EstimateDocumentModel {
   status: string; statusLine: string; draft: boolean;
   customerName: string; customerAddress: string; projectTitle: string; linkedTicketTitle: string | null;
   sections: { name: string; lines: { name: string; detail: string | null; quantity: string; unit: string; unitPriceCents: number; lineTotalCents: number }[]; subtotalCents: number }[];
+  /** Gross line subtotal; shown only when a discount applies. */
+  subtotalCents: number;
+  /** Customer-safe applied discounts (cents > 0), labor first. Never costs or allocations. */
+  discounts: EstimateDocumentDiscount[];
+  /** Customer-facing total after discounts. */
   totalCents: number;
   terms: null; // Reserved for future approved terms, not invented legal text.
   categorySummary: { label: string; cents: number }[];
@@ -89,7 +115,9 @@ export function buildEstimateDocumentModel(payload: DocumentInput, display: Disp
   const statusLine = draft ? ""
     : v.status === "accepted" ? `Accepted ${prettyDate(requireEstimate(v.acceptedOn))}${v.poNumber ? ` · PO ${v.poNumber}` : ""}`
     : v.status.charAt(0).toUpperCase() + v.status.slice(1);
-  const total = draft ? v.totals.subtotalCents : requireEstimate(v.frozenSubtotalCents);
+  const subtotal = draft ? v.totals.subtotalCents : requireEstimate(v.frozenSubtotalCents);
+  // Legacy frozen versions have no frozen total: their gross subtotal was the price.
+  const total = draft ? v.totals.totalCents ?? subtotal : v.frozenTotalCents ?? subtotal;
   const categories = new Map<string, number>();
   for (const section of v.sections) for (const line of section.lines) {
     if (line.umbrellaKey) {
@@ -114,7 +142,7 @@ export function buildEstimateDocumentModel(payload: DocumentInput, display: Disp
       })),
       subtotalCents: requireEstimate(v.totals.bySection[section.id]),
     })),
-    totalCents: total, terms: null,
+    subtotalCents: subtotal, discounts: documentDiscounts(v, draft), totalCents: total, terms: null,
   };
 }
 

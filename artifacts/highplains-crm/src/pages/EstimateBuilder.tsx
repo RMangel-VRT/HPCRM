@@ -253,6 +253,7 @@ function BuilderContent({ id }: { id: string }) {
         qc.setQueryData<EstimateTicketSummaryDto | null>(panelKey, d.voidedAt ? null : {
           ...d, version: { id: d.version.id, versionNumber: d.version.versionNumber, status: d.version.status },
           subtotalCents: d.version.status === "draft" ? d.version.totals.subtotalCents : d.version.frozenSubtotalCents,
+          totalCents: d.version.totals.totalCents,
         });
       }
     }
@@ -480,7 +481,8 @@ function BuilderContent({ id }: { id: string }) {
   const ticketTitle = dTicket?.title ?? ticket.data?.ticket?.title ?? null;
   const ticketStatusObj = dTicket?.status ?? null;
   const ticketStatusName = ticketStatus;
-  const headerTotal = v.status === "draft" ? v.totals.subtotalCents : (v.frozenSubtotalCents ?? v.totals.subtotalCents);
+  // Reads already resolve frozen totals (legacy versions: frozen subtotal).
+  const headerTotal = v.status === "draft" ? v.totals.totalCents : (v.frozenTotalCents ?? v.frozenSubtotalCents ?? v.totals.totalCents);
   const isChangeOrder = v.status === "draft" && !!v.createdFromVersionId && !!acceptedSummary && acceptedSummary.id !== v.id;
   const canRevise = lifeOn && (v.status === "sent" || v.status === "accepted" || v.status === "declined");
   const canVoid = !data.voidedAt && !acceptedSummary && isCurrent && !draftIssuing;
@@ -796,6 +798,7 @@ function BuilderContent({ id }: { id: string }) {
           </div>
           <EstimateReviewRail data={data} lang={lang}
             canEditPlants={editable && !busy && !pendingRevision} onPlantsChange={includePlantTable => void run("PATCH", vBase, { includePlantTable })}
+            canEditDiscounts={editable && !busy && !pendingRevision} onDiscountChange={(field, value) => run("PATCH", vBase, { [field]: value })}
             onViewVersion={version => setLocation(version.id === data.currentVersionId ? builderPath(data.id) : builderPath(data.id, version.versionNumber))}
             onVersionPdf={version => void previewPdf(version.id)} />
         </div>

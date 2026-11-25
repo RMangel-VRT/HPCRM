@@ -119,9 +119,32 @@ export interface ResolvedWorkLocation {
   text: string | null;
   source: "ticket" | "estimate" | "property";
 }
+export const ESTIMATE_DISCOUNT_KINDS = ["percent", "amount"] as const;
+export type EstimateDiscountKind = typeof ESTIMATE_DISCOUNT_KINDS[number];
+export const ESTIMATE_DISCOUNT_LABEL_MAX = 80;
+/** Exact hundredths of a canonical decimal string; the regex already bounds digits. */
+const hundredthsOf = (value: string) => {
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
+};
+/** Wire format: decimal strings, converted exactly server-side (percent → basis
+ * points, dollars → cents). Label omitted/blank means the default label. */
+export const estimateDiscountInputSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("percent"), value: z.string().regex(/^\d{1,3}(?:\.\d{1,2})?$/)
+    .refine(v => hundredthsOf(v) >= 1n && hundredthsOf(v) <= 10000n, "Percent must be 0.01–100"),
+  label: z.string().max(ESTIMATE_DISCOUNT_LABEL_MAX).nullable().optional() }).strict(),
+  z.object({ kind: z.literal("amount"), value: z.string().regex(/^\d{1,8}(?:\.\d{1,2})?$/)
+    .refine(v => hundredthsOf(v) >= 1n && hundredthsOf(v) <= 2147483647n, "Amount must be positive"),
+  label: z.string().max(ESTIMATE_DISCOUNT_LABEL_MAX).nullable().optional() }).strict(),
+]);
+export type EstimateDiscountInput = z.input<typeof estimateDiscountInputSchema>;
+/** No defaults: an omitted key leaves the stored value untouched; null clears it. */
 export const patchEstimateVersionSchema = z.object({
   scopeOfWork: z.string().max(10000).nullable().optional(), includePlantTable: z.boolean().optional(),
+  laborDiscount: estimateDiscountInputSchema.nullable().optional(),
+  totalDiscount: estimateDiscountInputSchema.nullable().optional(),
 }).strict();
+export type PatchEstimateVersionInput = z.infer<typeof patchEstimateVersionSchema>;
 export const estimatePhotoUploadSchema = z.object({
   filename: z.string().trim().min(1).max(255), mimeType: z.string().regex(/^image\/[a-z0-9.+-]+$/i).max(100),
   fileSize: z.number().int().positive().max(ESTIMATE_PHOTO_MAX_BYTES),
@@ -264,9 +287,24 @@ export interface EstimateSectionDto extends EstimateTimestampsDto {
   id: string; companyId: string; versionId: string; name: string; sortOrder: number; lines: EstimateLineDto[];
 }
 export interface EstimateTotalsDto {
+  /** Gross line subtotal (before discounts). */
   subtotalCents: number; costKnownCents: number; costUnknownLines: number;
-  materialMarginPct: number | null; byUmbrella: Record<EstimateUmbrella, number>; bySection: Record<string, number>;
+  /** Net known-cost margin, after discount allocation. */
+  materialMarginPct: number | null; materialMarginGrossPct: number | null;
+  byUmbrella: Record<EstimateUmbrella, number>; bySection: Record<string, number>;
+  byUmbrellaNet: Record<EstimateUmbrella, number>; bySectionNet: Record<string, number>;
+  laborBaseCents: number; laborDiscountCents: number; totalDiscountCents: number;
+  /** Customer-facing total: frozen for non-drafts (legacy versions: frozen subtotal). */
+  totalCents: number;
+  laborDiscountCapped: boolean; totalDiscountCapped: boolean; laborDiscountNoLaborLines: boolean;
 }
+/** Version-owned discount settings, as stored (basis points or cents). */
+export interface EstimateVersionDiscountFields {
+  laborDiscountKind: EstimateDiscountKind | null; laborDiscountValue: number | null; laborDiscountLabel: string | null;
+  totalDiscountKind: EstimateDiscountKind | null; totalDiscountValue: number | null; totalDiscountLabel: string | null;
+}
+export const DEFAULT_LABOR_DISCOUNT_LABEL = "Labor discount";
+export const DEFAULT_TOTAL_DISCOUNT_LABEL = "Discount";
 export interface EstimateVersionSummaryDto extends EstimateTimestampsDto {
   id: string; versionNumber: number; status: typeof ESTIMATE_STATUSES[number];
   createdFromVersionId?: string | null;
@@ -280,8 +318,9 @@ export interface EstimateVersionSummaryDto extends EstimateTimestampsDto {
   declinedAt?: string | null; declinedById?: string | null; declineReason?: string | null;
   supersededAt?: string | null;
   frozenSubtotalCents?: number | null; frozenCostKnownCents?: number | null; frozenCostUnknownLines?: number | null;
+  frozenLaborDiscountCents?: number | null; frozenTotalDiscountCents?: number | null; frozenTotalCents?: number | null;
 }
-export interface EstimateVersionDto extends EstimateVersionSummaryDto {
+export interface EstimateVersionDto extends EstimateVersionSummaryDto, EstimateVersionDiscountFields {
   scopeOfWork: string | null;
   includePlantTable: boolean;
   photos: EstimatePhotoDto[];
@@ -294,6 +333,7 @@ export interface EstimateVersionDto extends EstimateVersionSummaryDto {
   poNumber: string | null; declinedAt: string | null; declinedById: string | null; declineReason: string | null;
   supersededAt: string | null; frozenSubtotalCents: number | null; frozenCostKnownCents: number | null;
   frozenCostUnknownLines: number | null; createdById: string | null;
+  frozenLaborDiscountCents: number | null; frozenTotalDiscountCents: number | null; frozenTotalCents: number | null;
   sections: EstimateSectionDto[]; totals: EstimateTotalsDto;
 }
 export interface EstimatePhotoDto {
@@ -318,18 +358,21 @@ export interface EstimateDetailDto extends EstimateContainerDto {
 }
 export interface EstimateListItemDto extends EstimateContainerDto {
   customerName: string; currentVersionNumber: number | null;
-  currentVersionStatus: typeof ESTIMATE_STATUSES[number] | null; subtotalCents: number | null;
+  currentVersionStatus: typeof ESTIMATE_STATUSES[number] | null;
+  /** Gross line subtotal. Display totalCents (after discounts) to customers and staff. */
+  subtotalCents: number | null; totalCents: number | null;
   versions?: EstimateVersionSummaryDto[];
 }
 /** Lightweight ticket reference, with history for state-derived ticket recovery. */
 export interface EstimateTicketSummaryDto extends EstimateContainerDto {
   versions: EstimateVersionSummaryDto[];
   version: Pick<EstimateVersionDto, "id" | "versionNumber" | "status">;
-  subtotalCents: number | null;
+  /** Gross line subtotal; totalCents is the discounted customer-facing total. */
+  subtotalCents: number | null; totalCents: number | null;
 }
 export interface EstimateBoardSummaryDto {
   id: string; number: string; versionNumber: number;
-  status: typeof ESTIMATE_STATUSES[number]; subtotalCents: number | null;
+  status: typeof ESTIMATE_STATUSES[number]; subtotalCents: number | null; totalCents: number | null;
   versionId: string; sentAt: string | null; acceptedAt: string | null; validUntil: string | null;
   draftEditedAt: string | null; linesNeedingPrice: number; lineCount: number;
 }

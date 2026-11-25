@@ -19,7 +19,7 @@ export interface BoardTicket {
   assignee: { id: string; name: string } | null;
   owner: { sectionKey: "scheduling" | "invoicing"; label: string; href: string } | null;
   priority: string; estimateNumber: string | null; daysInStage: number;
-  estimate?: { id: string; number: string; versionNumber: number; status: string; subtotalCents: number | null } | null;
+  estimate?: { id: string; number: string; versionNumber: number; status: string; subtotalCents: number | null; totalCents?: number | null } | null;
 }
 export interface BoardResponse { stages: { key: string; tickets: BoardTicket[] }[] }
 
@@ -67,7 +67,7 @@ function OpportunityCard({ ticket, labels, readOnly }: { ticket: BoardTicket; la
     </Link>
     {labels === "estimates" && ticket.estimate && <div className="flex items-center gap-2 px-3 py-1 text-xs tabular-nums">
       <Link className="underline focus-visible:ring-2 focus-visible:ring-ring" href={`/dashboard/estimates/builder/${encodeURIComponent(ticket.estimate.id)}`}>{ticket.estimate.number}</Link>
-      <span>{ticket.estimate.subtotalCents === null ? "—" : formatCents(ticket.estimate.subtotalCents, i18n.language)}</span>
+      <span>{(ticket.estimate.totalCents ?? ticket.estimate.subtotalCents) === null ? "—" : formatCents(ticket.estimate.totalCents ?? ticket.estimate.subtotalCents!, i18n.language)}</span>
     </div>}
     {labels === "bids" && <div className="space-y-1 px-1">
       {ticket.contracts?.map(c => <LinkedContractRow key={c.termId} contract={c} />)}

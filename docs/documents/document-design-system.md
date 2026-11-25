@@ -33,7 +33,8 @@ Small jobs, change orders and design-build jobs all use the estimate PDF.
 - **A proposal references exactly one estimate version.** It never stores its own prices or totals. When the estimate changes, the proposal gets a new version.
 - **One acceptance.** Signing the proposal records acceptance on that estimate version. There's never a second signature block.
 - **Grouping:** proposals and estimates group pricing by the estimator's **sections**, with a small "By category" summary under the table. Invoices group by **category** (the QuickBooks umbrella items).
-- **Totals are read from the estimate's frozen subtotal,** never recalculated in the proposal.
+- **Totals are read from the estimate version's frozen total** (after discounts; versions frozen before discounts existed use their frozen subtotal), never recalculated in the proposal.
+- **Discounts** (labor-only and whole-estimate) appear under the pricing table as named rows between **Subtotal** and **Estimate total**: `Winter labor discount (15%)  −1,234.50`. Percent discounts show their percent; amount discounts do not. Section and category figures stay gross because they describe the work. Discount rows appear only when a discount applies, so undiscounted documents are unchanged.
 
 ## Visual tokens (approved Oct 29–Nov 2)
 
@@ -47,7 +48,7 @@ Small jobs, change orders and design-build jobs all use the estimate PDF.
 **Type**
 - Inter, with tabular figures.
 - Body 10.5pt in `#161616`; secondary text `#4f5a53`; labels 8.5pt caps.
-- Dollar signs on totals only. Units in plain words: each, ton, lin ft, sq ft, hr, lot, load.
+- Dollar signs on totals only (discount rows show `−1,234.50`, with a true minus sign). Units in plain words: each, ton, lin ft, sq ft, hr, lot, load.
 
 **Assets** (in the CRM repo history under `attached_assets/`)
 - White horizontal logo `LOGO_-_SPREAD-07`: 80 px tall in the first-page header, 48 px on later pages.

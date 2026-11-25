@@ -5,7 +5,8 @@ import { UMBRELLAS, formatDate, type EstimateDetailDto } from "@/lib/estimateBui
 import { formatCents } from "@/lib/hardscapeCatalog";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
-import { estimateApproximatePages } from "../../../../../lib/db/src/estimateContracts";
+import { estimateApproximatePages, type EstimateDiscountInput } from "../../../../../lib/db/src/estimateContracts";
+import { EstimateDiscountRow, discountDisplayLabel } from "./EstimateDiscountRow";
 
 type VersionSummary = EstimateDetailDto["versions"][number];
 
@@ -104,7 +105,7 @@ function VersionsCard({ data, lang, onView, onPdf }: {
                     {formatDate(version.sentAt, lang)}
                     {version.sentMethod && ` · ${t(`estimateBuilder.life.sentMethod.${version.sentMethod}`)}`}
                     {!!version.emailedTo?.length && ` · ${version.emailedTo.join(", ")}`}
-                    {version.frozenSubtotalCents != null && ` · ${formatCents(version.frozenSubtotalCents, lang)}`}
+                    {(version.frozenTotalCents ?? version.frozenSubtotalCents) != null && ` · ${formatCents(version.frozenTotalCents ?? version.frozenSubtotalCents ?? 0, lang)}`}
                   </p>
                 )}
                 {version.emailedFrom && <p className="text-xs text-muted-foreground" data-testid={`estimate-email-from-${version.id}`}>
@@ -127,15 +128,22 @@ function VersionsCard({ data, lang, onView, onPdf }: {
   );
 }
 
-export function EstimateReviewRail({ data, lang, onViewVersion, onVersionPdf, canEditPlants, onPlantsChange }: {
+export function EstimateReviewRail({ data, lang, onViewVersion, onVersionPdf, canEditPlants, onPlantsChange, canEditDiscounts = false, onDiscountChange }: {
   data: EstimateDetailDto; lang: string;
   onViewVersion: (version: VersionSummary) => void; onVersionPdf: (version: VersionSummary) => void;
   canEditPlants: boolean; onPlantsChange: (value: boolean) => void;
+  canEditDiscounts?: boolean;
+  onDiscountChange?: (field: "laborDiscount" | "totalDiscount", value: EstimateDiscountInput | null) => Promise<boolean>;
 }) {
   const { t } = useTranslation();
   const v = data.version;
   const tot = v.totals;
+  // Net figures carry the discount allocation; gross only selects which categories exist.
   const buckets = UMBRELLAS.filter((u) => (tot.byUmbrella[u] ?? 0) !== 0);
+  const discounted = tot.laborDiscountCents + tot.totalDiscountCents > 0;
+  const hasDiscountSetting = !!v.laborDiscountKind || !!v.totalDiscountKind;
+  const editDiscounts = canEditDiscounts && !!onDiscountChange;
+  const pct = (value: number) => `${value.toLocaleString(lang === "es" ? "es-US" : "en-US", { maximumFractionDigits: 1 })}%`;
   const missing = v.status === "draft" && !data.voidedAt
     ? v.sections.reduce((n, s) => n + s.lines.filter(l => l.needsPrice).length, 0)
     : 0;
@@ -148,9 +156,19 @@ export function EstimateReviewRail({ data, lang, onViewVersion, onVersionPdf, ca
               <span className="shrink-0 tabular-nums" data-testid={`text-rail-section-${s.id}`}>{formatCents(tot.bySection[s.id] ?? 0, lang)}</span></li>
           ))}
         </ul>
+        {(editDiscounts || hasDiscountSetting) && (
+          <div className="mt-2 space-y-1.5 border-t pt-2" data-testid="group-discounts">
+            <div className="flex justify-between gap-3 text-sm"><span className="text-muted-foreground">{t("estimateBuilder.rail.subtotal")}</span>
+              <span className="tabular-nums" data-testid="text-estimate-subtotal">{formatCents(tot.subtotalCents, lang)}</span></div>
+            {(["labor", "total"] as const).map(scope => (
+              <EstimateDiscountRow key={`${v.id}-${scope}`} scope={scope} version={v} totals={tot} editable={editDiscounts} lang={lang}
+                onSave={value => onDiscountChange ? onDiscountChange(scope === "labor" ? "laborDiscount" : "totalDiscount", value) : Promise.resolve(false)} />
+            ))}
+          </div>
+        )}
         <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-2">
           <span className="font-semibold">{t("estimateBuilder.rail.total")}</span>
-          <span className="text-xl font-bold tabular-nums" data-testid="text-estimate-total">{formatCents(tot.subtotalCents, lang)}</span>
+          <span className="text-xl font-bold tabular-nums" data-testid="text-estimate-total">{formatCents(tot.totalCents, lang)}</span>
         </div>
         {missing > 0 && <p className="mt-2 flex items-start gap-1.5 text-xs text-[hsl(var(--est-warn))]" data-testid="text-lines-need-price">
           <AlertTriangle aria-hidden className="h-3.5 w-3.5 shrink-0" />{t("estimateBuilder.rail.missingPrice", { count: missing })}
@@ -161,7 +179,9 @@ export function EstimateReviewRail({ data, lang, onViewVersion, onVersionPdf, ca
         <h2 className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.12em] text-[hsl(var(--est-warn))]">{t("estimateBuilder.rail.internal")}</h2>
         <div className="flex justify-between gap-2"><span>{t("estimateBuilder.rail.knownCost")}</span><span className="tabular-nums" data-testid="text-known-cost">{formatCents(tot.costKnownCents, lang)}</span></div>
         <div className="flex justify-between gap-2"><span>{t("estimateBuilder.rail.margin")}</span>
-          <span className="font-semibold tabular-nums" data-testid="text-margin">{tot.materialMarginPct == null ? t("estimateBuilder.rail.marginNone") : `${tot.materialMarginPct.toLocaleString(lang === "es" ? "es-US" : "en-US", { maximumFractionDigits: 1 })}%`}</span></div>
+          <span className="font-semibold tabular-nums" data-testid="text-margin">{tot.materialMarginPct == null ? t("estimateBuilder.rail.marginNone") : pct(tot.materialMarginPct)}</span></div>
+        {discounted && <div className="flex justify-between gap-2 text-xs text-muted-foreground"><span>{t("estimateBuilder.rail.marginGross")}</span>
+          <span className="tabular-nums" data-testid="text-margin-gross">{tot.materialMarginGrossPct == null ? t("estimateBuilder.rail.marginNone") : pct(tot.materialMarginGrossPct)}</span></div>}
         {tot.costUnknownLines > 0 && <p className="mt-2 text-xs text-[hsl(var(--est-warn))]" data-testid="text-unknown-cost">{t("estimateBuilder.rail.unknown", { count: tot.costUnknownLines })}</p>}
         <details className="group mt-2 border-t border-[hsl(var(--est-warn))]/20 pt-2" data-testid="card-qbo">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold [&::-webkit-details-marker]:hidden" data-testid="button-toggle-qbo">
@@ -171,10 +191,14 @@ export function EstimateReviewRail({ data, lang, onViewVersion, onVersionPdf, ca
             <ul className="mt-2 space-y-1 text-sm">
               {buckets.map(u => (
                 <li key={u} className="flex justify-between gap-3" data-testid={`row-umbrella-${u}`}><span>{t(`qboSetup.umbrella.${u}`)}</span>
-                  <span className="tabular-nums">{formatCents(tot.byUmbrella[u], lang)}</span></li>
+                  <span className="tabular-nums" data-testid={`text-umbrella-net-${u}`}>{formatCents(tot.byUmbrellaNet[u], lang)}</span></li>
               ))}
             </ul>
           )}
+          {discounted && <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground" data-testid="list-qbo-discounts">
+            {tot.laborDiscountCents > 0 && <li>{t("estimateBuilder.rail.qboLaborDiscount", { name: discountDisplayLabel(v, "labor"), amount: formatCents(tot.laborDiscountCents, lang) })}</li>}
+            {tot.totalDiscountCents > 0 && <li>{t("estimateBuilder.rail.qboTotalDiscount", { name: discountDisplayLabel(v, "total"), amount: formatCents(tot.totalDiscountCents, lang) })}</li>}
+          </ul>}
           <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><FileText aria-hidden className="h-3 w-3 shrink-0" />{t("estimateBuilder.rail.qboNote")}</p>
         </details>
       </section>

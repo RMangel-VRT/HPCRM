@@ -1,14 +1,15 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { estimates, estimateVersions, estimateSections, estimateLines, estimateNumberCounters, customers, tickets, ticketTypes,
   type CreateEstimateInput, type CreateEstimateLineInput, type PatchEstimateLineInput, type Estimate, type EstimateVersion } from "@workspace/db";
-import { estimateCatalogReference, matchesEstimateCatalogReference, type EstimateOrderInput, type ReplaceEstimateLineInput } from "@workspace/db/estimate-contracts";
+import { estimateCatalogReference, matchesEstimateCatalogReference, type EstimateOrderInput, type ReplaceEstimateLineInput,
+  type EstimateDiscountInput, type PatchEstimateVersionInput } from "@workspace/db/estimate-contracts";
 import { db, type AppTransaction } from "../db";
 import { companyToday } from "../lib/companyDay";
 import { isSeededTicketType } from "../shared/ticketCapabilities";
 import { parentCustomerError } from "../utils/parentGuard";
 import { estimatePayload } from "./estimateReads";
 import { EstimateError, requireEstimate, postgresCode } from "./estimateErrors";
-import { normalizeQuantity, calculateExtendedCents } from "./estimateMath";
+import { normalizeQuantity, calculateExtendedCents, moneyStringToCents, percentStringToBasisPoints } from "./estimateMath";
 import { snapshotEstimateLine } from "./estimateSnapshots";
 import { saveCustomCatalogItem, conflictingQuickItem } from "./estimateCatalogSaves";
 
@@ -87,11 +88,22 @@ export function retitleEstimate(companyId: string, id: string, title: string) {
     await tx.update(estimates).set({ title }).where(and(eq(estimates.companyId, companyId), eq(estimates.id, id)));
   });
 }
-export function patchVersion(companyId: string, id: string, versionId: string, input: { scopeOfWork?: string | null; includePlantTable?: boolean }) {
+/** Exact wire → stored conversion: percent string → basis points, dollars → cents.
+ * Blank labels store NULL so documents render the default label. */
+function discountColumns(input: EstimateDiscountInput | null | undefined) {
+  if (input === undefined) return { kind: undefined, value: undefined, label: undefined };
+  if (input === null) return { kind: null, value: null, label: null };
+  return { kind: input.kind, value: input.kind === "percent" ? percentStringToBasisPoints(input.value) : moneyStringToCents(input.value),
+    label: input.label?.trim() || null };
+}
+export function patchVersion(companyId: string, id: string, versionId: string, input: PatchEstimateVersionInput) {
   return mutateEstimate(companyId, id, versionId, async ({ tx }) => {
+    const labor = discountColumns(input.laborDiscount), total = discountColumns(input.totalDiscount);
     await tx.update(estimateVersions).set({
       scopeOfWork: input.scopeOfWork === undefined ? undefined : input.scopeOfWork?.trim() ? input.scopeOfWork : null,
       includePlantTable: input.includePlantTable,
+      laborDiscountKind: labor.kind, laborDiscountValue: labor.value, laborDiscountLabel: labor.label,
+      totalDiscountKind: total.kind, totalDiscountValue: total.value, totalDiscountLabel: total.label,
     })
       .where(and(eq(estimateVersions.companyId, companyId), eq(estimateVersions.estimateId, id), eq(estimateVersions.id, versionId)));
   });

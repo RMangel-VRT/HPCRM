@@ -59,8 +59,11 @@ function makeDetail(o: { status?: string; sections?: number; subtotal?: number; 
       sentAt: null, sentById: null, sentMethod: null, acceptedAt: null, acceptedById: null, acceptanceMethod: null, poNumber: null,
       declinedAt: null, declinedById: null, declineReason: null, supersededAt: null, frozenSubtotalCents: null, frozenCostKnownCents: null,
       frozenCostUnknownLines: null, createdById: null, createdAt: T0, updatedAt: o.updatedAt ?? T0, sections,
-      totals: { subtotalCents: o.subtotal ?? 873412, costKnownCents: 211050, costUnknownLines: 3, materialMarginPct: 47.2,
-        byUmbrella: { ...zeroU, plants: 412300, landscape_labor: 98050 }, bySection: { s1: o.subtotal ?? 873412, s2: 0 } },
+      totals: { subtotalCents: o.subtotal ?? 873412, costKnownCents: 211050, costUnknownLines: 3, materialMarginPct: 47.2, materialMarginGrossPct: 47.2,
+        byUmbrella: { ...zeroU, plants: 412300, landscape_labor: 98050 }, bySection: { s1: o.subtotal ?? 873412, s2: 0 },
+        byUmbrellaNet: { ...zeroU, plants: 412300, landscape_labor: 98050 }, bySectionNet: { s1: o.subtotal ?? 873412, s2: 0 },
+        laborBaseCents: 0, laborDiscountCents: 0, totalDiscountCents: 0, totalCents: o.subtotal ?? 873412,
+        laborDiscountCapped: false, totalDiscountCapped: false, laborDiscountNoLaborLines: false },
     },
   };
 }
@@ -701,7 +704,7 @@ describe("pickers", () => {
 
 describe("list page", () => {
   const row = { id: "e1", companyId: "c1", customerId: "cu1", ticketId: "t1", estimateNumber: "E-2025-0042", title: "Spring install", currentVersionId: "v2",
-    voidedAt: null, voidReason: null, createdById: null, createdAt: T0, updatedAt: T0, customerName: "Ridge HOA", currentVersionNumber: 2, currentVersionStatus: "draft", subtotalCents: 873412 };
+    voidedAt: null, voidReason: null, createdById: null, createdAt: T0, updatedAt: T0, customerName: "Ridge HOA", currentVersionNumber: 2, currentVersionStatus: "draft", subtotalCents: 873412, totalCents: 873412 };
   it("renders rows, searches, toggles void and creates", async () => {
     handler = (c) => {
       if (c.method === "POST" && c.url === "/api/estimates") return res(makeDetail(), 201);

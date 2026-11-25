@@ -1,14 +1,19 @@
-import { ESTIMATE_VALIDITY_DAYS, type IssuedEstimateAttachment } from "@workspace/db/estimate-contracts";
+import { ESTIMATE_VALIDITY_DAYS, DEFAULT_LABOR_DISCOUNT_LABEL, DEFAULT_TOTAL_DISCOUNT_LABEL, type IssuedEstimateAttachment } from "@workspace/db/estimate-contracts";
+import { basisPointsToPercentString } from "@workspace/db/estimate-math";
 import { addCalendarDays, companyDateString } from "../../lib/companyDay";
 import { renderEmailLayout, type Block, type EmailCompany } from "./layout";
 import { greetingFor } from "./text";
 import { fillWording, getEmailWording, PLACEHOLDERS, type EmailWording } from "./wording";
 
 type Instant = string | Date;
-interface SentFacts { versionNumber: number; sentAt: Instant | null; frozenSubtotalCents: number | null }
+/** frozenTotalCents is NULL on versions frozen before discounts: their subtotal was the total. */
+interface SentFacts { versionNumber: number; sentAt: Instant | null; frozenSubtotalCents: number | null; frozenTotalCents?: number | null }
+type DiscountKind = "percent" | "amount";
 interface EstimateFacts { companyId: string; estimateNumber: string; title: string; customerName: string; workLocation: string | null }
 interface VersionFacts extends SentFacts {
-  totals: { subtotalCents: number; bySection: Record<string, number> };
+  totals: { subtotalCents: number; bySection: Record<string, number>; laborDiscountCents?: number; totalDiscountCents?: number; totalCents?: number };
+  laborDiscountKind?: DiscountKind | null; laborDiscountValue?: number | null; laborDiscountLabel?: string | null;
+  totalDiscountKind?: DiscountKind | null; totalDiscountValue?: number | null; totalDiscountLabel?: string | null;
   sections: { id: string; name: string; lines: readonly unknown[] }[];
   photos: readonly unknown[];
 }
@@ -31,7 +36,15 @@ export async function buildEstimateEmail({ estimate, version, previous, company,
   const template = wording ?? await getEmailWording(estimate.companyId, key, connection);
   const date = version.sentAt ? savedDate(version.sentAt) : companyDateString(now);
   const validUntil = formatDate(addCalendarDays(date, ESTIMATE_VALIDITY_DAYS));
-  const cents = version.frozenSubtotalCents ?? version.totals.subtotalCents;
+  // Customer-facing total after discounts; legacy frozen versions fall back to their subtotal.
+  const cents = version.frozenTotalCents ?? version.frozenSubtotalCents ?? version.totals.totalCents ?? version.totals.subtotalCents;
+  const discountRows = [
+    { kind: version.laborDiscountKind, value: version.laborDiscountValue, label: version.laborDiscountLabel || DEFAULT_LABOR_DISCOUNT_LABEL, cents: version.totals.laborDiscountCents ?? 0 },
+    { kind: version.totalDiscountKind, value: version.totalDiscountValue, label: version.totalDiscountLabel || DEFAULT_TOTAL_DISCOUNT_LABEL, cents: version.totals.totalDiscountCents ?? 0 },
+  ].flatMap(d => d.kind && d.cents > 0 ? [{ label: d.kind === "percent" && d.value != null ? `${d.label} (${basisPointsToPercentString(d.value)}%)` : d.label,
+    value: `−${dollars(d.cents)}` }] : []);
+  // Section amounts are gross; when discounts apply, show them before the total.
+  const pricingRows = discountRows.length ? [{ label: "Subtotal", value: dollars(version.totals.subtotalCents) }, ...discountRows] : [];
   const total = dollars(cents);
   const values = {
     customerName: estimate.customerName, companyName: company.name, companyPhone: company.phone, companyEmail: company.email,
@@ -45,7 +58,7 @@ export async function buildEstimateEmail({ estimate, version, previous, company,
   const blocks: Block[] = [];
   if (note?.trim()) blocks.push({ kind: "note", text: note.trim() });
   if (revised) {
-    const oldCents = previous?.frozenSubtotalCents;
+    const oldCents = previous ? previous.frozenTotalCents ?? previous.frozenSubtotalCents : undefined;
     const rows = previous && oldCents != null ? [
       { label: `Version ${previous.versionNumber} total`, value: dollars(oldCents), strike: true },
       { label: "Change", value: `${cents < oldCents ? "−" : "+"} ${dollars(Math.abs(cents - oldCents))}` },
@@ -63,6 +76,7 @@ export async function buildEstimateEmail({ estimate, version, previous, company,
       { kind: "facts", rows: [
         ...(workLocation ? [{ label: "Work location", value: workLocation }] : []),
         { label: "Estimate date", value: formatDate(date) },
+        ...pricingRows,
       ], total: { label: "Estimate total", value: total } },
       { kind: "steps", title: "What happens next", active: 1, items: [
         { title: "Review", text: "Look over the scope, pricing and photos." },

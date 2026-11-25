@@ -11,7 +11,13 @@ export function estimatePricingTable(m: EstimateDocumentContent): string {
   return `<table data-pricing>${tableHead(["Description", "Qty", "Unit", "Rate", "Amount"], [43, 9, 10, 15, 23])}${sections}</table>`;
 }
 export function estimatePricingSummary(m: EstimateDocumentContent): string {
-  return `<div class="summary keep" data-totals><div></div><div class="pair total"><span>Estimate total</span><span>${money(m.totalCents, true)}</span></div></div>`;
+  const total = `<div class="pair total"><span>Estimate total</span><span>${money(m.totalCents, true)}</span></div>`;
+  // Undiscounted documents keep their exact original markup.
+  if (!m.discounts?.length) return `<div class="summary keep" data-totals><div></div>${total}</div>`;
+  // Category and section figures above stay gross (they describe the work);
+  // discounts sit beneath as named rows. Dollar signs on totals only.
+  const rows = m.discounts.map(d => `<div class="pair" data-discount="${d.kind}"><span>${e(d.label)}${d.displayValue ? ` (${e(d.displayValue)})` : ""}</span><span>−${money(d.cents)}</span></div>`).join("");
+  return `<div class="summary keep" data-totals><div></div><div><div class="pair" data-subtotal><span>Subtotal</span><span>${money(m.subtotalCents)}</span></div>${rows}${total}</div></div>`;
 }
 /** The exact standalone pricing markup, without the standalone final wrapper. */
 export const estimatePricingFragment = (m: EstimateDocumentContent) => estimatePricingTable(m) + estimatePricingSummary(m);

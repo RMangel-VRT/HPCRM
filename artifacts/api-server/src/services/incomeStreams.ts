@@ -34,6 +34,7 @@ async function loadPipeline(tx: AppTransaction, companyId: string, today: string
   return tx.select({
     status: estimateVersions.status, acceptedOn: estimateVersions.acceptedOn,
     declinedAt: estimateVersions.declinedAt, frozenSubtotalCents: estimateVersions.frozenSubtotalCents,
+    frozenTotalCents: estimateVersions.frozenTotalCents,
   }).from(estimateVersions)
     .innerJoin(estimates, and(eq(estimates.id, estimateVersions.estimateId), eq(estimates.companyId, companyId)))
     .where(and(eq(estimateVersions.companyId, companyId), isNull(estimates.voidedAt), or(

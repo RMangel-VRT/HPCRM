@@ -80,3 +80,5 @@
 - [Estimate rate reset boundaries](estimate-rate-reset-boundaries.md) — a same-item price reset never refreshes the item snapshot or customer-facing edits.
 - [Revenue planning boundaries](revenue-planning-boundaries.md) — Contract Center owns billing, QuickBooks owns earned income, and accepted estimates stay out of forecasts.
 - [Generated Zod compatibility](generated-zod-compatibility.md) — use the same Zod entry point as Orval when composing generated validators.
+- [Estimate discount boundaries](estimate-discount-boundaries.md) — labor first, then total; subtotal stays gross; frozen total falls back to frozen subtotal.
+- [PostgreSQL CHECK NULL safety](postgres-check-null-safety.md) — NULL-valued check expressions pass; pairing checks need explicit NOT NULL guards and a real-DB test.

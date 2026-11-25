@@ -13,7 +13,7 @@ const display: NonNullable<EstimateDetailDto["display"]> = {
 function fixture(status = "draft", count = 2) {
   const lines = Array.from({ length: count }, (_, i) => ({
     id: `line-${i}`, name: `Plant ${i}`, detail: "Blue Spruce · 5 gallon · SKU: SECRET-12", quantity: "2.50", unit: "ea",
-    unitPriceCents: 33, unitCostCents: 9, sectionId: "section-private", umbrellaKey: "plants" as const,
+    unitPriceCents: 33, unitCostCents: 9, sectionId: "section-private", umbrellaKey: "plants" as const, lineType: "plant",
     priceSource: "catalog", needsPrice: false, termId: "private-term", sortOrder: i,
   }));
   return {

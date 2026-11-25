@@ -1,7 +1,8 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { estimateCatalogReferenceSchema, estimateLineNeedsPrice, estimateOrderSchema, matchesEstimateCatalogReference,
-  type EstimateOrderInput, type PatchEstimateLineInput } from "../../../../lib/db/src/estimateContracts";
-import { calculateExtendedCents, computeVersionTotals, normalizeQuantity } from "../../../../lib/db/src/estimateMath";
+  patchEstimateVersionSchema, type EstimateDiscountInput, type EstimateOrderInput, type PatchEstimateLineInput } from "../../../../lib/db/src/estimateContracts";
+import { calculateExtendedCents, computeVersionTotals, moneyStringToCents, normalizeQuantity, percentStringToBasisPoints,
+  versionDiscounts } from "../../../../lib/db/src/estimateMath";
 import { type EstimateDetailDto, type EstimateLineDto, type EstimateSectionDto } from "./estimateBuilder";
 import { executeEstimateEdit } from "./estimatePhotoUpload";
 import type { EstimateEdit } from "./estimateRevision";
@@ -48,6 +49,17 @@ function project(data: EstimateDetailDto, edit: BuilderEdit): EstimateDetailDto 
     const ids = body.photoIds as string[];
     if (ids.length !== photos.length || !ids.every(id => byId.has(id))) return data;
     return { ...data, version: { ...version, photos: ids.map((id, displayOrder) => ({ ...byId.get(id)!, displayOrder })) } };
+  }
+  if (edit.method === "PATCH" && /\/versions\/[^/]+$/.test(edit.url) && ("laborDiscount" in body || "totalDiscount" in body)) {
+    const parsed = patchEstimateVersionSchema.safeParse(body);
+    if (!parsed.success) return data;
+    const fields = (input: EstimateDiscountInput | null | undefined) => input === undefined ? undefined : input === null
+      ? { kind: null, value: null, label: null }
+      : { kind: input.kind, value: input.kind === "percent" ? percentStringToBasisPoints(input.value) : moneyStringToCents(input.value), label: input.label?.trim() || null };
+    const labor = fields(parsed.data.laborDiscount), total = fields(parsed.data.totalDiscount);
+    return withSections(sections, { ...version,
+      ...(labor && { laborDiscountKind: labor.kind, laborDiscountValue: labor.value, laborDiscountLabel: labor.label }),
+      ...(total && { totalDiscountKind: total.kind, totalDiscountValue: total.value, totalDiscountLabel: total.label }) });
   }
   if (edit.method === "PATCH" && typeof body.includePlantTable === "boolean" && /\/versions\/[^/]+$/.test(edit.url)) {
     return { ...data, version: { ...version, includePlantTable: body.includePlantTable } };
@@ -128,10 +140,10 @@ function project(data: EstimateDetailDto, edit: BuilderEdit): EstimateDetailDto 
   }
   return data;
 
-  function withSections(next: EstimateSectionDto[]) {
-    const totals = computeVersionTotals(next.flatMap(s => s.lines));
-    for (const section of next) totals.bySection[section.id] ??= 0;
-    return { ...data, version: { ...version, sections: next, totals } };
+  function withSections(next: EstimateSectionDto[], nextVersion = version) {
+    const totals = computeVersionTotals(next.flatMap(s => s.lines), versionDiscounts(nextVersion));
+    for (const section of next) { totals.bySection[section.id] ??= 0; totals.bySectionNet[section.id] ??= 0; }
+    return { ...data, version: { ...nextVersion, sections: next, totals } };
   }
 }
 

@@ -234,7 +234,7 @@ function ActionList() {
                 {red && <span className={RED_DOT} role="img" aria-label={t("estimateActions.hasUrgent")} data-testid={`dot-bucket-${b}`} />}
               </div>
               <div className="mt-1 text-2xl font-semibold tabular-nums" data-testid={`count-bucket-${b}`}>{board.isLoading ? "–" : rows.length}</div>
-              <div className="text-[11px] text-muted-foreground">{rows.some(r => r.estimate?.subtotalCents != null) ? `${formatCents(cents, lang)} · ` : ""}{t(`estimateActions.bucket.${b}.hint`)}</div>
+              <div className="text-[11px] text-muted-foreground">{rows.some(r => (r.estimate?.totalCents ?? r.estimate?.subtotalCents) != null) ? `${formatCents(cents, lang)} · ` : ""}{t(`estimateActions.bucket.${b}.hint`)}</div>
             </button>
           );
         })}

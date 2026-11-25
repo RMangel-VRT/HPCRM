@@ -54,7 +54,8 @@ export function assigneesOf(rows: EstimateActionTicket[]): { id: string; name: s
   return [...map].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export const subtotal = (t: EstimateActionTicket) => t.estimate?.subtotalCents ?? 0;
+/** Customer-facing total after discounts (gross subtotal only for older payloads). */
+export const subtotal = (t: EstimateActionTicket) => t.estimate?.totalCents ?? t.estimate?.subtotalCents ?? 0;
 
 export function canQuickSend(t: EstimateActionTicket): boolean {
   const e = t.estimate;
