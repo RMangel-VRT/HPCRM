@@ -15,3 +15,16 @@ independently choose a different scale or convert undefined margin into zero.
 **How to apply:** UI and lifecycle slices should consume the existing totals
 contract and represent null as unavailable. If changing the convention, make
 it an explicit API contract change, not a local formatting/math workaround.
+
+Discounts are version-owned document pricing: labor-only first, then a total
+discount, with editable customer-facing labels. Gross subtotal and category
+breakdowns retain their meaning; final totals and net margins reflect discounts.
+
+**Why:** The estimate discount brief explicitly rejects fake/negative lines
+and preserves old frozen estimates and undiscounted documents.
+
+**How to apply:** Follow
+`attached_assets/Pasted--Replit-Prompt-Estimate-Builder-Labor-Discount-Total-Di_1795627611870.txt`.
+Freeze final and discount amounts on send, copy settings on revise, and use
+the old frozen subtotal only when the new frozen total is null. QuickBooks
+posting is a later Invoice Center responsibility, not part of this brief.
